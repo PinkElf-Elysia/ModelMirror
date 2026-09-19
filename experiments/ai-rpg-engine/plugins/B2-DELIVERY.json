@@ -1,0 +1,99 @@
+{
+  "batch": "B2",
+  "base": "bac37a6e5691feeda36d1ec9a548d0692652ad59",
+  "generatedAt": "2026-09-19T10:00:41.641959+00:00",
+  "kind": "current uncommitted candidate; B1 receipt archived unchanged",
+  "imageSourceNote": "runtime source matches verified image; last test and B2 documentation were finalized after image build",
+  "files": [
+    {
+      "path": "docs/ai-rpg-experiment/plugin-branch-prototype/BATCHES.md",
+      "bytes": 7954,
+      "sha256": "98d7db98c2b5452e126c5d56e9d6733b4a230e01f95e318595d5936037b2a852"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/B1-DELIVERY.json",
+      "bytes": 2538,
+      "sha256": "d5abef5f2b84fc581ceff5ed71fa456d3fb1f9d62232d7c7f4b62d48ee1ea5de"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/branch-save.manifest.json",
+      "bytes": 820,
+      "sha256": "a58068262576115942d9888c7f823c514250bbf61af55302162713bacdf91ae3"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/branch-save.mjs",
+      "bytes": 742,
+      "sha256": "0ea552bf15b2a7a74115651b0323ad8533c745419cc3696316bf25e50fec05fe"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/catalog.mjs",
+      "bytes": 2746,
+      "sha256": "0fbb9bd3e49a3b68717f63ae22e114e570d65eb0325907dfa8b7715ed13b56e0"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/catalog.test.mjs",
+      "bytes": 2081,
+      "sha256": "3e0b01565fa4e01660827f0be8b6919f2d25f2495b35b24a5fc3d562cbd7f1e4"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/host.mjs",
+      "bytes": 11826,
+      "sha256": "7ba9080da4a5479f89345f0c8428c11ca6afff997a47c95de06d0fa6b3103d35"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/host.test.mjs",
+      "bytes": 9088,
+      "sha256": "30632057a515fb6a51614e66046ffd8492e8eb303d411b8d830afcee88c086c4"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/http.test.mjs",
+      "bytes": 3700,
+      "sha256": "6dad388818001602313e86812f4623d95856f0202a6b9800ecd87f66a586dfc1"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/README.md",
+      "bytes": 12196,
+      "sha256": "da1f4d0cff8207ed95b4515ff6234f6021e294b8be2a2dfe858d87a3e4f6d085"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/plugins/STATUS.json",
+      "bytes": 1722,
+      "sha256": "a1cd4acf9c4e2c6741459ce4f7d34801bf6add7ea00589462307eb8c9b6ee069"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/branch-archive.mjs",
+      "bytes": 4770,
+      "sha256": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/branches-http.test.mjs",
+      "bytes": 8697,
+      "sha256": "c2e9d54be1a17649115b82f7d5d62f7564a22be921cd9fbae9e8174f21297fe0"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/branches.test.mjs",
+      "bytes": 10042,
+      "sha256": "2fd99c46395a0f60ea5f57c3222f194d7cf976347f5a25546120f6af404095d8"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/Dockerfile",
+      "bytes": 1184,
+      "sha256": "bd1e0f6ee705eb3fd9704ae07fe0c136869ee9f662952ec75a7e15eef528d15c"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/runtime-binding.mjs",
+      "bytes": 1989,
+      "sha256": "e603069d121e0d0b1e99daeeb671fbb04e65df5a85c642edb34adeb9e2ee57b0"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/server.mjs",
+      "bytes": 8105,
+      "sha256": "d55ddb2002ecfbc26c83363ff53ac864e2ddb054a98b7eb58e9da5443e093b8a"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/versioned-store.mjs",
+      "bytes": 4741,
+      "sha256": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0"
+    }
+  ]
+}

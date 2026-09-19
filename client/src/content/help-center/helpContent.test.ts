@@ -41,6 +41,7 @@ describe("help center content catalog", () => {
   it("keeps the formal article slugs unique and metadata complete", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
       "play-rpg-cards",
+      "branch-rpg-story",
       "start-with-a-model",
       "choose-model-agent-workflow",
       "create-repeatable-agent",
@@ -67,8 +68,8 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["play-rpg-cards", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
-    expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("a7d99925");
+    expect(helpArticles.filter((article) => !["play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("bac37a6e");
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
@@ -148,6 +149,17 @@ describe("help center content catalog", () => {
     expect(article?.content).toContain("rag_layout_degraded");
     expect(article?.content).toContain("scanned_pdf_requires_ocr");
     expect(article?.content).not.toContain("解析合同尚未完成");
+  });
+
+  it("finds the optional RPG branch guide and preserves permission and budget boundaries", () => {
+    expect(searchHelpContent("分支存档").some((entry) => entry.id === "branch-rpg-story")).toBe(true);
+    const guide = helpArticles.find((article) => article.slug === "branch-rpg-story");
+    expect(guide?.relatedRoutes).toContain("/rpg/plugins");
+    expect(guide?.content).toContain("安装与启用是两个动作");
+    expect(guide?.content).toContain("不会增加额度");
+    expect(guide?.content).toContain("恢复创建结果");
+    const topic = helpModules.flatMap((module) => module.topics).find((item) => item.id === "rpg");
+    expect(topic?.points.join(" ")).not.toContain("每卡本轮一次");
   });
 
   it("uses descriptive alt text and the latest screenshot baseline", () => {

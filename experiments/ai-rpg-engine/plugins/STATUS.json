@@ -1,0 +1,106 @@
+{
+  "batch": "B5",
+  "status": "accepted_local_vertical_slice_closed",
+  "base": "bac37a6e5691feeda36d1ec9a548d0692652ad59",
+  "branch": "codex/rpg-plugin-branch-save",
+  "updatedAt": "2026-09-19T12:00:40.649Z",
+  "previousBatch": {
+    "batch": "B4",
+    "userDecision": "确认，授权4次真实竖切额度",
+    "status": "accepted"
+  },
+  "uiPrototype": {
+    "version": "v2",
+    "userDecision": "批准",
+    "productionUI": "B3 accepted by user; unchanged in B4"
+  },
+  "verification": {
+    "pluginsAndStudioAndEarth": 63,
+    "affectedFrontendAndHelp": 63,
+    "totalOfflineMock": 126,
+    "parentProductionBuild": "passed; existing large-chunk warning",
+    "twoCardsImageBuild": "passed",
+    "imageRuntimeAnd16ArtifactHashes": "passed",
+    "networkDisabledReadOnlyImageSmoke": "passed; synthetic tmpfs; budget 0",
+    "helpTutorialReplay": "passed on fresh isolated origin and synthetic session",
+    "mobileHelp": "390px; clientWidth=scrollWidth=380",
+    "newRpgHelpImages": "passed all rules",
+    "globalHelpImages": "failed: 3 pre-existing unrelated unreferenced assets (baseline had 5 failures)",
+    "realProvider": "3 complete: first turn, parent continuation, branch continuation; actual wire/raw/browser hashes match; parent file and branch snapshot unchanged",
+    "userBatchAcceptance": "B0-B4 accepted; B5 all three outputs separately accepted (通过)",
+    "ci": "not-run",
+    "closeout": "passed: 158 prior delivery hashes, three raw outputs, parent file, branch snapshot, shared 3/4 ledger; no new dispatch"
+  },
+  "providerCalls": 3,
+  "preview": {
+    "url": "http://127.0.0.1:18433/rpg",
+    "rpgPort": 18432,
+    "providerEnabled": false,
+    "pidSnapshot": 66108,
+    "note": "verify process ownership before any stop; synthetic data only"
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false
+  },
+  "nextBatch": "None required for approved local slice; publication requires separate authorization and latest-base integration/revalidation",
+  "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
+  "limits": [
+    "trusted first-party code only; not a sandbox",
+    "legacy sessions without full runtime binding remain read-only; no retroactive attestation",
+    "single service instance; atomic publication tested by fault injection, not power failure",
+    "old-host downgrade cannot list new branch directory; retain current core when disabling plugin",
+    "global help image checker has three pre-existing unrelated unreferenced assets",
+    "accepted candidate is two commits behind refreshed origin/main; integration pending any PR authorization",
+    "B5 accepted for this bounded slice; no long-term quality claim; 1 authorized call reserved-unused"
+  ],
+  "upstream": {
+    "ref": "origin/main",
+    "head": "a29da8a5ecd4c3034eb3d7ace9229b379db198b9",
+    "commitsAheadOfAcceptedBase": 2,
+    "intersections": [
+      "client/src/App.tsx"
+    ],
+    "integrated": false,
+    "note": "refresh/integrate/revalidate before any future PR"
+  },
+  "image": "modelmirror-rpg:plugin-b4",
+  "imageId": "sha256:63eed9fb3c259ca97dd6ba959cfbd3e5ef18d33cdd0f1c25c6c3cdfe9fa3c739",
+  "imageNote": "16 critical code/build hashes match; closeout docs finalized after image build",
+  "helpPreview": {
+    "url": "http://127.0.0.1:18435/help/branch-rpg-story",
+    "rpgPort": 18434,
+    "providerEnabled": false,
+    "pidSnapshot": 8204,
+    "data": "isolated synthetic only; original18433 retained"
+  },
+  "realAuthorization": {
+    "id": "rpg-branch-b5-20260919",
+    "limit": 4,
+    "used": 3,
+    "remaining": 1,
+    "priorBudgetsInherited": false,
+    "rpg05": 0,
+    "automaticRetry": false,
+    "review": "all 3 outputs individually accepted",
+    "status": "closed-no-further-dispatch"
+  },
+  "realPreview": {
+    "url": "http://127.0.0.1:18437/rpg/earth",
+    "rpgPort": 18436,
+    "pidSnapshot": 43080,
+    "reviewProxy": "GET only; exact-wire one-shot permit consumed",
+    "sessionId": "e32c0782-d6ed-4133-a443-0f2ae7e0c16a",
+    "branchId": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836",
+    "activeSessionId": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836"
+  },
+  "acceptance": {
+    "scope": "optional reviewed plugin market prototype and first branch-save vertical slice",
+    "result": "passed",
+    "userFinalDecision": "通过",
+    "publicationReady": false,
+    "publicationBoundary": "not authorized; upstream integration and verification still required"
+  }
+}

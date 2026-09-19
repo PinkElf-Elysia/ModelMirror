@@ -1,0 +1,177 @@
+{
+  "id": "rpg-branch-b5-20260919",
+  "authorizedAt": "2026-09-19T11:01:26.832193+00:00",
+  "userAuthorization": "确认，授权4次真实竖切额度",
+  "scope": "Earth OL optional branch-save vertical slice only; original route and child route continuation",
+  "limit": 4,
+  "used": 3,
+  "remaining": 1,
+  "priorBudgetsInherited": false,
+  "rpg05Allowed": false,
+  "automaticRetry": false,
+  "manualReviewAfterEveryOutput": true,
+  "failedCancelledUnknownAndNecessaryAuthenticationCount": true,
+  "publicUnauthenticatedMetadataIsNotProviderDispatch": true,
+  "runtimeHash": "05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca",
+  "acceptedDeliverySha256": "085d0638d714a6fe2626ec12ec42c1c5d442c22d308767742694c51575721bfd",
+  "model": "google/gemini-3.8-flash",
+  "provider": "Google AI Studio",
+  "transport": "openrouter",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "worldbook": "disabled",
+  "dispatchLedger": "experiments/ai-rpg-engine/.rpg04-work/plugin-b5/data/dispatches/earth",
+  "status": "accepted_closed_no_further_dispatch",
+  "calls": [
+    {
+      "slot": 1,
+      "sessionId": "e32c0782-d6ed-4133-a443-0f2ae7e0c16a",
+      "requestId": "b5-earth-open-20260919",
+      "requestHash": "24c595583e56311fadaa98091c45a47a03a2085a83301114d47df67ef11d4c14",
+      "status": "complete",
+      "manual": "accepted",
+      "rawHash": "c944f9c87d11240c9b5ff3872dcf96877c83d8ebf534c9b380c91c72be45fb29",
+      "actualModel": "google/gemini-3.8-flash",
+      "provider": "Google AI Studio",
+      "finish": "stop",
+      "usage": {
+        "prompt_tokens": 19151,
+        "completion_tokens": 8297,
+        "total_tokens": 27448,
+        "cost": 0.045477,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.045477,
+          "upstream_inference_prompt_cost": 0.01436325,
+          "upstream_inference_completions_cost": 0.03111375
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 831,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "rawBytes": 24673,
+      "rawCharacters": 15436,
+      "hostWireMatchesFrozen": true,
+      "browserRawHashMatches": true,
+      "manualDecision": {
+        "user": "通过",
+        "at": "2026-09-19T11:44:11.866Z",
+        "scope": "first output only"
+      }
+    },
+    {
+      "slot": 2,
+      "sessionId": "e32c0782-d6ed-4133-a443-0f2ae7e0c16a",
+      "requestId": "b5-earth-parent-20260919",
+      "requestHash": "53d77e8178e8e07572669108097239da8c51d23450ea4477fcaf2db496a7ae85",
+      "status": "complete",
+      "manual": "accepted",
+      "rawHash": "6145fb25d100a974454971e7769f81706498921723d01d8dd4a9cb8eca591c5d",
+      "actualModel": "google/gemini-3.8-flash",
+      "provider": "Google AI Studio",
+      "finish": "stop",
+      "usage": {
+        "prompt_tokens": 27105,
+        "completion_tokens": 8418,
+        "total_tokens": 35523,
+        "cost": 0.05189625,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.05189625,
+          "upstream_inference_prompt_cost": 0.02032875,
+          "upstream_inference_completions_cost": 0.0315675
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 110,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "rawBytes": 27668,
+      "rawCharacters": 16890,
+      "hostWireMatchesFrozen": true,
+      "browserRawHashMatches": true,
+      "manualDecision": {
+        "user": "通过",
+        "at": "2026-09-19T11:52:46.037Z",
+        "scope": "parent continuation only"
+      }
+    },
+    {
+      "slot": 3,
+      "sessionId": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836",
+      "requestId": "b5-earth-branch-20260919",
+      "requestHash": "9824b1c5a32473807ebdb0c9316adb3619b918e6c24af0fe280d15ec379d8592",
+      "status": "complete",
+      "manual": "accepted",
+      "rawHash": "63cc787ed1a3bcbdf3b52662d692de42bfff2e1675f08efa2ddfa7f83435454f",
+      "actualModel": "google/gemini-3.8-flash",
+      "provider": "Google AI Studio",
+      "finish": "stop",
+      "usage": {
+        "prompt_tokens": 27109,
+        "completion_tokens": 8732,
+        "total_tokens": 35841,
+        "cost": 0.05307675,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.05307675,
+          "upstream_inference_prompt_cost": 0.02033175,
+          "upstream_inference_completions_cost": 0.032745
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 123,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      },
+      "rawBytes": 29133,
+      "rawCharacters": 17466,
+      "hostWireMatchesFrozen": true,
+      "browserRawHashMatches": true,
+      "manualDecision": {
+        "user": "通过",
+        "at": "2026-09-19T11:59:42.396Z",
+        "scope": "branch continuation and B5 human gate"
+      }
+    }
+  ],
+  "updatedAt": "2026-09-19T11:59:42.399Z",
+  "branch": {
+    "id": "branch-83354c14853873f6893ee3448a3175fa4121071fc70e5a62a3275dcc04d63836",
+    "fromTurn": 1,
+    "snapshotHash": "5bf7fc423887cacb9a6ed9385cbabdd29f8b9fc36e831f2eaf9fd14be3a737e0",
+    "continuation": "complete-user-accepted"
+  },
+  "closeout": {
+    "used": 3,
+    "remaining": 1,
+    "slot4": "reserved-unused; no automatic dispatch",
+    "realSlice": "accepted",
+    "publication": "not-authorized-this-round",
+    "historicalProviderReceipts": "unchanged; manual decisions appended to authorization record"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.branch-save",
+  "version": "1.0.0",
+  "name": "分支存档",
+  "description": "从已完成回合创建分支，作为普通对话继续。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.message-action",
+    "session.branch.prepare"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.branch.prepare",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/branch-save.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "0ea552bf15b2a7a74115651b0323ad8533c745419cc3696316bf25e50fec05fe"
+}
