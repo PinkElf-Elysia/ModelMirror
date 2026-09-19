@@ -1,0 +1,62 @@
+{
+  "kind": "pre-authentication source freeze",
+  "at": "2026-09-19T16:11:19.216753+00:00",
+  "files": [
+    {
+      "path": "server/model_router/rpg_bridge.py",
+      "sha256": "7b25ae9424530e33b1293c732ee589a25cff57ba78566a1fe1e4724b5ba92fe7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-parameters.mjs",
+      "sha256": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "sha256": "daeac16aa356bdaadfac87617689605c3541f45bcc67448b4b993215f27a3395"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/controlled-provider.mjs",
+      "sha256": "b0f204b8d0960ebf9a8c53adb60021b6fa8b0e608941c9e637445be99411b7e9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/model-selector-b5-control.py",
+      "sha256": "759b388abadf74c4a95d2f34e4198da0122413247073e2fb32b319f0809bf4af"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/model-selector-b5-supervisor.py",
+      "sha256": "8b206f6414b5811923a9bbc3cfe0a6a16313cc9bbb05e5afadeddf23be69d739"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/model-selector-real-host.mjs",
+      "sha256": "94179d5c4377df1f25f72ea96e6b314bb7d298e16b0e04e7542c04e127ff1f6c"
+    }
+  ],
+  "budgets": {
+    "authentication": 3,
+    "generation": 3
+  },
+  "lunaParameters": {
+    "max_tokens": 16384
+  },
+  "authenticationPayload": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with OK."
+      }
+    ],
+    "max_tokens": 2048,
+    "stream": true,
+    "provider": {
+      "only": [
+        "openai"
+      ],
+      "order": [
+        "openai"
+      ],
+      "allow_fallbacks": false,
+      "require_parameters": true
+    },
+    "transforms": []
+  }
+}

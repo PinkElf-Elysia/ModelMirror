@@ -1,0 +1,35 @@
+// Explicit B5 branch/prepare/send; never retries or dispatches other models.
+import assert from 'node:assert/strict';
+import {readFile,open,readdir} from 'node:fs/promises';
+import {assemble,loadFrozen} from '../card-replica/lib/assembly.mjs';
+import {canonical,sha} from '../plugins/catalog.mjs';
+import {modelRuntime} from '../studio/model-runtime.mjs';
+const root=new URL('../.rpg04-work/model-selector-b5/',import.meta.url),origin='http://127.0.0.1:18449';
+const load=async n=>JSON.parse(await readFile(new URL(n,root),'utf8'));
+const save=async(n,d)=>{const f=await open(new URL(n,root),'wx');try{await f.writeFile(JSON.stringify(d,null,2));await f.sync();}finally{await f.close();}};
+async function api(path,body){const r=await fetch(origin+'/rpg-app/'+path,body===undefined?{}:{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(260000)});const d=await r.json();assert.ok(r.ok,JSON.stringify({status:r.status,error:d.error}));return d;}
+async function grant(id,session){let c=await api('api/plugins'),p=c.plugins.find(p=>p.id===id);const base=()=>({pluginId:id,version:p.version,artifactSha256:p.artifactSha256,manifestSha256:p.manifestSha256,expectedRegistryRevision:c.revision});if(!p.installed){await api('api/plugins/'+id+'/install',{...base(),operationId:'b5-install-'+id.replaceAll('.','-')});c=await api('api/plugins');p=c.plugins.find(p=>p.id===id);}await api('earth/api/sessions/'+session.id+'/plugins/'+id+'/enable',{...base(),operationId:'b5-enable-'+id.replaceAll('.','-')+'-'+(session.id.startsWith('branch-')?'child':'parent'),sessionId:session.id,expectedSessionRevision:session.revision,permissions:p.permissions});}
+const first=await load('input-freeze-luna.json'),parentId=first.sessionId,parentBytes=await readFile(new URL('data/earth/'+parentId+'.json',root)),parent=JSON.parse(parentBytes);assert.equal(parent.turns.length,2);assert.equal(parent.modelState.current.model,'google/gemini-3.8-flash');assert.equal(modelRuntime.hash,first.runtimeHash);
+const action=process.argv[2];assert.ok(['branch','prepare','send'].includes(action));
+const slots=async()=>(await readdir(new URL('data/dispatches/earth/',root))).filter(x=>/^slot-\d+$/.test(x)).length;
+if(action==='branch'){
+ assert.equal(await slots(),2);await grant('rpg.branch-save',parent);
+ const result=await api('earth/api/sessions/'+parentId+'/branches',{operationId:'b5-deepseek-branch',expectedSessionRevision:parent.revision,turn:1,name:'龙婉翩 · 先看访客'});const child=result.session;
+ assert.equal(child.turns.length,1);assert.equal(child.modelSelection.current.model,'openai/gpt-5.6-luna');assert.deepEqual(child.modelSelection.current.parameters,{max_tokens:16384});assert.equal(child.modelSelection.revision,0);assert.equal(child.parentId,parentId);assert.equal(child.branchTurn,1);
+ const envelope=await load('data/earth/branches/'+child.id+'.json');assert.deepEqual(envelope.session.history,parent.history.slice(0,2));assert.deepEqual(envelope.session.requests,{});assert.deepEqual(envelope.snapshot.configuration.modelState.current,parent.turns[0].model.selection);
+ const grants=await Promise.all(['rpg.branch-save','rpg.model-selector'].map(id=>api('earth/api/sessions/'+child.id+'/plugins/'+id)));assert.ok(grants.every(x=>!x.enabled));assert.equal(await slots(),2);assert.deepEqual(await readFile(new URL('data/earth/'+parentId+'.json',root)),parentBytes);
+ await save('deepseek-branch-created.json',{id:child.id,parentId,branchTurn:1,parentFileHash:sha(parentBytes),parentHistoryHash:sha(canonical(parent.history)),inheritedSelection:child.modelSelection.current,childHistoryHash:sha(canonical(envelope.session.history)),snapshotHash:result.snapshotHash,requestsEmpty:true,pluginsDisabled:true,budgetBefore:2,budgetAfter:2});console.log(JSON.stringify({branchCreated:true,id:child.id,inheritedModel:child.modelSelection.current.model,historyTurns:1,pluginsDisabled:true,generationSlots:2}));
+}else{
+ const branch=await load('deepseek-branch-created.json');assert.equal(sha(parentBytes),branch.parentFileHash);
+ let child=await api('earth/api/sessions/'+branch.id);const env=await load('data/earth/branches/'+branch.id+'.json');assert.equal(child.turns.length,1);assert.equal(child.revision,1);assert.ok(child.runtime.compatible);assert.deepEqual(env.session.history,parent.history.slice(0,2));
+ const input='我先不回复司机，隔着门问：“九点四十分的访客是谁？把预约时留下的资料拿给我看看，车先保持原安排。”';const a=assemble({characterText:env.session.characterText,world:env.session.world,input,history:env.session.history});const {prompts}=loadFrozen();assert.deepEqual(a.messages.slice(0,3),[first.messages[0],...parent.history.slice(0,2)]);assert.equal(a.messages.length,4);assert.equal(a.messages[3].content,prompts.prefix+'\n'+input+'\n'+prompts.suffix);assert.deepEqual(a.triggered,[]);assert.ok(!JSON.stringify(a.messages).includes('龙婉翩 · 先看访客'));
+ if(action==='prepare'){
+  assert.equal(await slots(),2);await grant('rpg.model-selector',child);const options=await api('earth/api/sessions/'+child.id+'/model-catalog');const m=options.models.find(x=>x.model==='deepseek/deepseek-v4-flash-0731');assert.ok(m?.available);
+  child=(await api('earth/api/sessions/'+child.id+'/model-selection',{operationId:'b5-select-deepseek',expectedSessionRevision:child.revision,selectionRevision:child.modelSelection.revision,selectionId:m.selectionId,catalogRevision:m.selectionRevision})).session;assert.deepEqual(child.modelSelection.current.parameters,{temperature:.7,top_p:.8,max_tokens:16384});assert.deepEqual(await readFile(new URL('data/earth/'+parentId+'.json',root)),parentBytes);
+  const f={at:new Date().toISOString(),sessionId:child.id,parentId,parentFileHash:branch.parentFileHash,snapshotHash:branch.snapshotHash,model:child.modelSelection.current,selectionRevision:child.modelSelection.revision,runtimeHash:modelRuntime.hash,messages:a.messages,messagesHash:sha(canonical(a.messages)),historyHash:sha(canonical(env.session.history)),send:{requestId:'b5-deepseek-output-3',revision:child.revision,expectedSelectionRevision:child.modelSelection.revision,input}};await save('input-freeze-deepseek.json',f);console.log(JSON.stringify({prepared:true,sessionId:child.id,model:f.model.model,messages:4,parameters:f.model.parameters,messagesHash:f.messagesHash,parentUnchanged:true}));
+ }else{
+  const f=await load('input-freeze-deepseek.json');assert.deepEqual(child.modelSelection.current,f.model);assert.deepEqual(a.messages,f.messages);assert.equal(sha(canonical(a.messages)),f.messagesHash);assert.equal(await slots(),2);
+  await save('deepseek-generation-invocation.json',{at:new Date().toISOString(),sessionId:child.id,requestId:f.send.requestId,messagesHash:f.messagesHash,parameters:f.model.parameters,retry:false});
+  const result=await api('earth/api/sessions/'+child.id+'/send',f.send);await save('deepseek-host-result.json',result);console.log(JSON.stringify({sessionId:child.id,turns:result.turns?.length,actualModel:result.turns?.at(-1)?.model?.actualModel,rawUtf16Length:result.turns?.at(-1)?.raw?.length,error:result.error}));
+ }
+}

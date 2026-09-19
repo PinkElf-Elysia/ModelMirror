@@ -1,0 +1,155 @@
+{
+  "at": "2026-09-19T16:42:14.948957+00:00",
+  "authorization": "User 继续下一批; final DeepSeek branch continuation",
+  "sessionId": "branch-131b27027df5f1723bccb3790863c843cbe8a585477a9264a666f165ead2885e",
+  "parentId": "43680038-2b25-45b4-9d0d-a754e219e504",
+  "branch": {
+    "id": "branch-131b27027df5f1723bccb3790863c843cbe8a585477a9264a666f165ead2885e",
+    "parentId": "43680038-2b25-45b4-9d0d-a754e219e504",
+    "branchTurn": 1,
+    "parentFileHash": "c7f4e1355dd355971e3604fff1da8cce842b52110cb99dd12c2c90e7d566ade9",
+    "parentHistoryHash": "00253120e65c4e4ec91a34a0544233e03f4fd438d8e58ea4c544f73acc8a1bcd",
+    "inheritedSelection": {
+      "kind": "controlled",
+      "model": "openai/gpt-5.6-luna",
+      "selectionId": "573b5b000bb843492c0c143e5e28aca4caec1d733ecc36c8eefb8070892fc6aa",
+      "selectionRevision": "dfc3db6a62c8fa7381fe3049e7bced7fe93e131b29888134cf29b9cf9baa2ea7",
+      "parameters": {
+        "max_tokens": 16384
+      },
+      "configHash": "aaa71a1297fb336ecd8bfd49a9c80d5b6f36ec599b298321364dadc47fd6cc09"
+    },
+    "childHistoryHash": "249fef6c8a27a369ac620100308da73d47e6c376eff8875d13044e00d22a0ed3",
+    "snapshotHash": "5224bd2481ea3a2d45973b76331fb363c00b4a2505c5bed2154121a1a066119d",
+    "requestsEmpty": true,
+    "pluginsDisabled": true,
+    "budgetBefore": 2,
+    "budgetAfter": 2
+  },
+  "authentication": {
+    "certification_id": "chatcert_c93e096236cd405a967a586c4724ac93",
+    "connection_id": "conn_0e533bd6e4d046d281b60530d2d20f74",
+    "connection_name": "OpenRouter",
+    "capability": "chat_text",
+    "status": "passed",
+    "can_run": true,
+    "blocked_reason": null,
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "warning_codes": [],
+    "error_code": null,
+    "requested_model": "deepseek/deepseek-v4-flash-0731",
+    "actual_model": "deepseek/deepseek-v4-flash-0731",
+    "ttft_ms": 1129.6456020063488,
+    "e2e_ms": 1130.662374998792,
+    "prompt_tokens": 87,
+    "completion_tokens": 24,
+    "total_tokens": 111,
+    "created_at": "2026-09-19T16:37:49.988280+00:00",
+    "completed_at": "2026-09-19T16:37:51.119092+00:00"
+  },
+  "generation": {
+    "card": "earth",
+    "sessionId": "branch-131b27027df5f1723bccb3790863c843cbe8a585477a9264a666f165ead2885e",
+    "requestId": "b5-deepseek-output-3",
+    "at": "2026-09-19T16:38:49.782Z",
+    "transport": "modelmirror-rpg-s2s-v1",
+    "status": "complete",
+    "requestHash": "a0f878c638b37cebc9995a40345987667669f933fb8ac27ddd7d743fa0fe0cef",
+    "controlRequestHash": "00a81a332cbbde29439481a0a6abfc229b656fc600668c3f5874eccc6206a654",
+    "selectionId": "08a776d66eaa926d07522719186501151eca2b4c3e716cf4a09e06a3744791aa",
+    "selectionRevision": "4ac89fbd9319030e20201f8fe472600a83d3ea31f1d8e0cf2117e7d8370f4cdc",
+    "requestedModel": "deepseek/deepseek-v4-flash-0731",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "retries": 0,
+    "rawHash": "a486a039f99d0ae9077b5fe0cb9b5def950a736088cceb0f9030ea3454265d51",
+    "sseHash": "4730469d2f7a11453f793f30553a3a15cd5be7eb18300cb1bd555f1744e5d86a",
+    "httpStatus": 200,
+    "receipt": {
+      "gateway": "rpg_scoped",
+      "runId": "chatrun_3223a3e6d7ce4929a75f84cab7bee454",
+      "attemptId": "chatattempt_de8c2338afd24d64801297457277af8b",
+      "requestedModel": "deepseek/deepseek-v4-flash-0731",
+      "actualModel": "deepseek/deepseek-v4-flash-0731",
+      "selectionId": "08a776d66eaa926d07522719186501151eca2b4c3e716cf4a09e06a3744791aa",
+      "selectionRevision": "4ac89fbd9319030e20201f8fe472600a83d3ea31f1d8e0cf2117e7d8370f4cdc",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      },
+      "httpStatus": 200,
+      "dispatched": true,
+      "usage": {
+        "prompt_tokens": 22286,
+        "completion_tokens": 5581,
+        "total_tokens": 27867
+      },
+      "error": null,
+      "retries": 0,
+      "requestHash": "00a81a332cbbde29439481a0a6abfc229b656fc600668c3f5874eccc6206a654",
+      "rawHash": "a486a039f99d0ae9077b5fe0cb9b5def950a736088cceb0f9030ea3454265d51",
+      "sseHash": "4730469d2f7a11453f793f30553a3a15cd5be7eb18300cb1bd555f1744e5d86a",
+      "status": "complete"
+    },
+    "error": null,
+    "manual": "pending"
+  },
+  "effectiveParameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "checks": {
+    "initialInheritedModel": "openai/gpt-5.6-luna with max_tokens only, selectionRevision0",
+    "initialPluginGrants": "both disabled; selector explicitly enabled afterward",
+    "inheritedExecutableRequests": "empty; origins evidence only",
+    "branchCreationNoDispatch": true,
+    "parentByteIdenticalBeforeAndAfter": true,
+    "snapshotUnchanged": true,
+    "wireMatchesFrozen": true,
+    "messages": "one system, original first user, Luna full raw, wrapped new user; no Gemini continuation",
+    "prefixSuffixCopies": 1,
+    "worldbook": "disabled",
+    "branchNameExcludedFromModelMessages": true,
+    "persistedRawMatchesBytes": true,
+    "singleCardSharedBudget": "3 used /3 limit; branch did not reset budget",
+    "UI": "formal browser parent/child list, branch origin, Luna/DeepSeek turn labels, saved output, remaining0 and disabled send observed",
+    "syntax": "node --check tooling/model-selector-b5-deepseek-once.mjs passed",
+    "diff": "git diff --check passed",
+    "fullRegression": "not rerun; production source unchanged"
+  },
+  "rawBytes": 21504,
+  "rawUnicodeCodePoints": 13691,
+  "rawUtf16CodeUnits": 13702,
+  "runtimeHash": "4717adac39f68fcadd30352d7d939d0fbeaa719fb058e89aef2440941f1147bb",
+  "messagesCanonicalHash": "a8eb844c56d36e43eaf2d8e67dc6125e11b4f2c517d1900b21c21a57e5f9dec6",
+  "rawPath": "experiments\\ai-rpg-engine\\.rpg04-work\\model-selector-b5\\data\\dispatches\\earth\\slot-3\\response.txt",
+  "human": "pending final output review; no content-quality pass inferred",
+  "budgets": {
+    "authentication": {
+      "used": 3,
+      "limit": 3
+    },
+    "generation": {
+      "used": 3,
+      "limit": 3
+    }
+  },
+  "usageIsNotAuditedBilling": true,
+  "sharedDeployment": false,
+  "commitPushPR": false
+}

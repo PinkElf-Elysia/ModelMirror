@@ -1,0 +1,231 @@
+{
+  "at": "2026-09-19T15:49:30.844111+00:00",
+  "paidDispatches": 0,
+  "probes": [
+    {
+      "url": "http://127.0.0.1:8000/api/models/control-plane-catalog?model_id=gpt-5.6-luna&operation=chat&include_unavailable=true",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-catalog-v1",
+        "catalog_revision": "39a2491426dce36db5750aae741812a040735ae0a39763f397111add97dcabcc",
+        "generated_at": "2026-09-19T15:49:31.764201+00:00",
+        "stale": false,
+        "next_cursor": null,
+        "models": []
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/provider-chat-control?model_id=gpt-5.6-luna&capability=chat_text",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-chat-routing-v1",
+        "feature_enabled": true,
+        "data_plane_integrated": true,
+        "model_id": "gpt-5.6-luna",
+        "capability": "chat_text",
+        "effective_mode": "newapi_preferred",
+        "available": false,
+        "would_block": false,
+        "reason_code": "provider_chat_model_not_stable"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/control-plane-catalog?model_id=openai%2Fgpt-5.6-luna&operation=chat&include_unavailable=true",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-catalog-v1",
+        "catalog_revision": "39a2491426dce36db5750aae741812a040735ae0a39763f397111add97dcabcc",
+        "generated_at": "2026-09-19T15:49:32.845787+00:00",
+        "stale": false,
+        "next_cursor": null,
+        "models": [
+          {
+            "model_id": "openai/gpt-5.6-luna",
+            "catalog_presence": "present",
+            "display_source": "runtime_discovered",
+            "operations": [
+              {
+                "operation": "chat",
+                "interaction_status": "ready",
+                "availability_status": "available",
+                "verification_status": "manual_required",
+                "invocable": true,
+                "access_modes": [
+                  "native"
+                ],
+                "reason_codes": [
+                  "chat_certification_required",
+                  "managed_catalog_present"
+                ],
+                "observed_at": "2026-08-29T06:30:19.362780+00:00",
+                "stale": false,
+                "pricing": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/provider-chat-control?model_id=openai%2Fgpt-5.6-luna&capability=chat_text",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-chat-routing-v1",
+        "feature_enabled": true,
+        "data_plane_integrated": true,
+        "model_id": "openai/gpt-5.6-luna",
+        "capability": "chat_text",
+        "effective_mode": "newapi_preferred",
+        "available": false,
+        "would_block": false,
+        "reason_code": "provider_chat_model_not_stable"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/control-plane-catalog?model_id=google%2Fgemini-3.8-flash&operation=chat&include_unavailable=true",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-catalog-v1",
+        "catalog_revision": "39a2491426dce36db5750aae741812a040735ae0a39763f397111add97dcabcc",
+        "generated_at": "2026-09-19T15:49:33.494041+00:00",
+        "stale": false,
+        "next_cursor": null,
+        "models": []
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/provider-chat-control?model_id=google%2Fgemini-3.8-flash&capability=chat_text",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-chat-routing-v1",
+        "feature_enabled": true,
+        "data_plane_integrated": true,
+        "model_id": "google/gemini-3.8-flash",
+        "capability": "chat_text",
+        "effective_mode": "newapi_preferred",
+        "available": false,
+        "would_block": false,
+        "reason_code": "provider_chat_model_not_stable"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/control-plane-catalog?model_id=deepseek%2Fdeepseek-v4-flash-0731&operation=chat&include_unavailable=true",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-catalog-v1",
+        "catalog_revision": "39a2491426dce36db5750aae741812a040735ae0a39763f397111add97dcabcc",
+        "generated_at": "2026-09-19T15:49:34.147130+00:00",
+        "stale": false,
+        "next_cursor": null,
+        "models": [
+          {
+            "model_id": "deepseek/deepseek-v4-flash-0731",
+            "catalog_presence": "present",
+            "display_source": "runtime_discovered",
+            "operations": [
+              {
+                "operation": "chat",
+                "interaction_status": "ready",
+                "availability_status": "available",
+                "verification_status": "manual_required",
+                "invocable": true,
+                "access_modes": [
+                  "native"
+                ],
+                "reason_codes": [
+                  "chat_certification_required",
+                  "managed_catalog_present"
+                ],
+                "observed_at": "2026-08-29T06:30:19.362780+00:00",
+                "stale": false,
+                "pricing": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/models/provider-chat-control?model_id=deepseek%2Fdeepseek-v4-flash-0731&capability=chat_text",
+      "httpStatus": 200,
+      "body": {
+        "contract_version": "modelmirror-provider-chat-routing-v1",
+        "feature_enabled": true,
+        "data_plane_integrated": true,
+        "model_id": "deepseek/deepseek-v4-flash-0731",
+        "capability": "chat_text",
+        "effective_mode": "newapi_preferred",
+        "available": false,
+        "would_block": false,
+        "reason_code": "provider_chat_model_not_stable"
+      }
+    },
+    {
+      "url": "http://127.0.0.1:8000/api/rpg/v1/models",
+      "errorType": "HTTPError",
+      "httpStatus": 404
+    },
+    {
+      "url": "http://127.0.0.1:18305/api/health",
+      "errorType": "URLError",
+      "httpStatus": null
+    }
+  ],
+  "qualificationBoundary": "Public stable status is not scoped RPG readiness. Read-only database audit below proves missing records separately.",
+  "sharedMetadataAudit": {
+    "catalog": [
+      {
+        "connection_id": "conn_0e533bd6e4d046d281b60530d2d20f74",
+        "model_id": "deepseek/deepseek-v4-flash-0731",
+        "status": "active",
+        "compatibility": {
+          "context_length": null,
+          "max_output_tokens": null,
+          "supported_parameters": null
+        }
+      },
+      {
+        "connection_id": "conn_0e533bd6e4d046d281b60530d2d20f74",
+        "model_id": "openai/gpt-5.6-luna",
+        "status": "active",
+        "compatibility": {
+          "context_length": null,
+          "max_output_tokens": null,
+          "supported_parameters": null
+        }
+      },
+      {
+        "connection_id": "conn_a21846d6b1644793ab445db996b66873",
+        "model_id": "deepseek/deepseek-v4-flash-0731",
+        "status": "active",
+        "compatibility": {
+          "context_length": null,
+          "max_output_tokens": null,
+          "supported_parameters": null
+        }
+      },
+      {
+        "connection_id": "conn_a21846d6b1644793ab445db996b66873",
+        "model_id": "openai/gpt-5.6-luna",
+        "status": "active",
+        "compatibility": {
+          "context_length": null,
+          "max_output_tokens": null,
+          "supported_parameters": null
+        }
+      }
+    ],
+    "certifications": []
+  },
+  "historicalLunaQualification": [
+    {
+      "connection_id": "conn_e23170b51a4c4564945cce7a2415769f",
+      "requested_model": "gpt-5.6-luna",
+      "actual_model": "gpt-5.6-luna",
+      "capability": "chat_text",
+      "status": "passed",
+      "completed_at": "2026-09-17T08:05:04.644714+00:00"
+    }
+  ],
+  "historicalLunaQualificationNote": "Historical record only; offline route, current fingerprint/TTL/credential and parameter compatibility not established; not transferable to shared OpenAI-prefixed alias."
+}

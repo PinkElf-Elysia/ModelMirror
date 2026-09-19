@@ -1,0 +1,25 @@
+{
+  "kind": "synthetic UI transport only",
+  "realProviderDispatches": 0,
+  "syntheticSlots": 3,
+  "models": [
+    "a",
+    "b",
+    "a"
+  ],
+  "messageCounts": [
+    2,
+    4,
+    4
+  ],
+  "requestHashes": [
+    "059e3cc5ab1dc9588864566e6376e8e843684344b74af5335d53ef7154b81edb",
+    "aee56a1ab0606feca8ba4af77d262099dd7b45fe8db974d9d11632e1c8def4f8",
+    "cbf781ec9c5ef1fc31453503c614ae4fd2c58519f4b1bb01c5195529ef7a2c8c"
+  ],
+  "rawHashes": [
+    "3d6d71fc6a3b388b95387c0842a52ccdd613331c1a6892a6e6c14bc26fc56639",
+    "65e6d45735767989325966c7700ba8f1de14c78027e0cc04d74719b75652a15e",
+    "de9165972e052c7e78faef152e3809644312e19c729961882d796b9843a4189c"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.model-selector",
+  "version": "1.0.0",
+  "name": "模型选择",
+  "description": "查看可用模型，为下一条消息选择模型。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.model-action",
+    "model.catalog.read",
+    "session.model.select"
+  ],
+  "permissions": [
+    "model.catalog.read",
+    "session.model.select",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/model-selector.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "b1566dabb8b8c241d7794d2ab9d36ededfd7073dff06122781e8395ce32bac9e"
+}

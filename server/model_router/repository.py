@@ -1320,7 +1320,7 @@ class SQLiteRouterRepository:
                 run_id = str(attempt["run_id"])
                 pending_path = self._chat_completion_outbox_path(tenant_id, attempt_id)
                 if (
-                    str(attempt["gateway"]) == "ai_research_scoped"
+                    str(attempt["gateway"]) in {"ai_research_scoped", "rpg_scoped"}
                     and (pending_path.is_symlink() or pending_path.exists())
                 ):
                     protected_runs.add((tenant_id, run_id))
@@ -2690,7 +2690,7 @@ class SQLiteRouterRepository:
         ):
             cls._chat_dispatch_drift()
         gateway = str(run["gateway"])
-        if gateway not in {"default", "ai_research_scoped"}:
+        if gateway not in {"default", "ai_research_scoped", "rpg_scoped"}:
             cls._chat_dispatch_drift()
 
         policy = connection.execute(
@@ -3195,7 +3195,7 @@ class SQLiteRouterRepository:
                     expected_provider_kind=expected_provider_kind,
                     connection_cache=connection_state_cache,
                     expirations=certification_expirations,
-                    require_exact_model=(gateway == "ai_research_scoped"),
+                    require_exact_model=(gateway in {"ai_research_scoped", "rpg_scoped"}),
                 )
 
             if gateway == "default":
@@ -3412,6 +3412,7 @@ class SQLiteRouterRepository:
         attempt_id: str,
         *,
         expected_run_id: str,
+        expected_gateway: str | None = None,
         status: str,
         result_class: str | None = None,
         error_code: str | None = None,
@@ -3425,7 +3426,7 @@ class SQLiteRouterRepository:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
     ) -> dict[str, dict[str, object]]:
-        """Atomically terminalize an AI Research scoped dispatch and gate."""
+        """Atomically terminalize a scoped workload dispatch and gate."""
 
         clean_tenant = self._tenant_id(tenant_id)
         if status not in {"succeeded", "failed", "cancelled"}:
@@ -3456,7 +3457,8 @@ class SQLiteRouterRepository:
             ).fetchone()
             if run is None:
                 raise RouterRepositoryError("provider_chat_run_not_running")
-            if str(run["gateway"]) != "ai_research_scoped":
+            if (str(run["gateway"]) not in {"ai_research_scoped", "rpg_scoped"} or
+                    (expected_gateway is not None and str(run["gateway"]) != expected_gateway)):
                 raise RouterRepositoryError(
                     "provider_chat_completion_scope_invalid"
                 )
@@ -3691,7 +3693,7 @@ class SQLiteRouterRepository:
             or not isinstance(payload.get("tenantId"), str)
             or not isinstance(payload.get("attemptId"), str)
             or not isinstance(payload.get("expectedRunId"), str)
-            or payload.get("gateway") != "ai_research_scoped"
+            or payload.get("gateway") not in {"ai_research_scoped", "rpg_scoped"}
             or payload.get("status") not in {"succeeded", "failed", "cancelled"}
             or not isinstance(payload.get("stagedAt"), str)
             or payload.get("payloadSha256")
@@ -3735,7 +3737,7 @@ class SQLiteRouterRepository:
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
     ) -> dict[str, object]:
-        """Durably stage content-free AI Research completion facts."""
+        """Durably stage content-free scoped workload completion facts."""
 
         clean_tenant = self._tenant_id(tenant_id)
         if status not in {"succeeded", "failed", "cancelled"}:
@@ -3761,7 +3763,7 @@ class SQLiteRouterRepository:
             ).fetchone()
         if (
             scoped_run is None
-            or str(scoped_run["gateway"]) != "ai_research_scoped"
+            or str(scoped_run["gateway"]) not in {"ai_research_scoped", "rpg_scoped"}
         ):
             raise RouterRepositoryError(
                 "provider_chat_completion_scope_invalid"
@@ -3774,7 +3776,7 @@ class SQLiteRouterRepository:
             "tenantId": clean_tenant,
             "attemptId": attempt_id,
             "expectedRunId": expected_run_id,
-            "gateway": "ai_research_scoped",
+            "gateway": str(scoped_run["gateway"]),
             "status": status,
             "resultClass": result_class,
             "errorCode": error_code,
@@ -3862,6 +3864,7 @@ class SQLiteRouterRepository:
                     clean_tenant,
                     str(payload["attemptId"]),
                     expected_run_id=str(payload["expectedRunId"]),
+                    expected_gateway=str(payload["gateway"]),
                     status=str(payload["status"]),
                     result_class=payload.get("resultClass"),
                     error_code=payload.get("errorCode"),

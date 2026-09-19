@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFile,writeFile,open} from 'node:fs/promises';
+import {canonical,sha} from '../plugins/catalog.mjs';
+import {assemble} from '../card-replica/lib/assembly.mjs';
+import {modelRuntime} from '../studio/model-runtime.mjs';
+const root=new URL('../.rpg04-work/model-selector-b5/',import.meta.url),origin='http://127.0.0.1:18449';
+const f=JSON.parse(await readFile(new URL('input-freeze-luna.json',root),'utf8'));
+const s=await (await fetch(origin+'/rpg-app/earth/api/sessions/'+f.sessionId)).json();
+assert.equal(s.revision,f.send.revision);assert.equal(s.modelSelection.revision,f.selectionRevision);assert.deepEqual(s.modelSelection.current,f.model);assert.equal(modelRuntime.hash,f.runtimeHash);assert.ok(s.runtime.compatible);assert.equal(s.turns.length,0);
+const disk=JSON.parse(await readFile(new URL('data/earth/'+s.id+'.json',root),'utf8'));
+const a=assemble({characterText:disk.characterText,world:disk.world,input:f.send.input,history:disk.history});assert.deepEqual(a.messages,f.messages);assert.equal(sha(canonical(a.messages)),f.messagesHash);
+const claim=await open(new URL('luna-generation-invocation.json',root),'wx');await claim.writeFile(JSON.stringify({at:new Date().toISOString(),sessionId:s.id,requestId:f.send.requestId,messagesHash:f.messagesHash,parameters:f.model.parameters,retry:false}));await claim.sync();await claim.close();
+const response=await fetch(origin+'/rpg-app/earth/api/sessions/'+s.id+'/send',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(f.send),signal:AbortSignal.timeout(260000)});
+const body=await response.text();await writeFile(new URL('luna-host-result.json',root),body);const result=JSON.parse(body);
+console.log(JSON.stringify({httpStatus:response.status,sessionId:s.id,turns:result.turns?.length,error:result.error,actualModel:result.turns?.at(-1)?.model?.actualModel,rawChars:result.turns?.at(-1)?.raw?.length}));

@@ -181,6 +181,13 @@ class ProviderChatStableService:
             required_capabilities=normalized,
         )
 
+    async def begin_rpg_certified(self, model_id: str) -> ProviderChatStablePreflight:
+        """Use current text certification without changing stable chat membership."""
+        return await self._begin(
+            model_id, "chat_text", scoped_certified=True,
+            required_capabilities=("chat_text",), scoped_gateway="rpg_scoped",
+        )
+
     async def _begin(
         self,
         model_id: str,
@@ -188,12 +195,15 @@ class ProviderChatStableService:
         *,
         scoped_certified: bool,
         required_capabilities: tuple[ProviderChatCapability, ...],
+        scoped_gateway: str = "ai_research_scoped",
     ) -> ProviderChatStablePreflight:
         if not self.control.feature_enabled():
             return ProviderChatStablePreflight(intercepted=False)
         policy = self.control.get_policy()
         clean_model = str(model_id or "").strip()
-        gateway = "ai_research_scoped" if scoped_certified else "default"
+        gateway = scoped_gateway if scoped_certified else "default"
+        if gateway not in {"default", "ai_research_scoped", "rpg_scoped"}:
+            raise ValueError("provider_chat_scope_invalid")
         if (
             policy.effective_mode == "legacy"
             or (not scoped_certified and clean_model not in policy.stable_model_ids)
@@ -690,7 +700,7 @@ class ProviderChatStableService:
                 total_tokens=total_tokens,
             )
             return True
-        if dispatch.gateway != "ai_research_scoped":
+        if dispatch.gateway not in {"ai_research_scoped", "rpg_scoped"}:
             raise RouterServiceError(
                 "provider_chat_completion_gateway_invalid",
                 "模型调用完成范围无效。",
