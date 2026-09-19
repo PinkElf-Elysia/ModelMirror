@@ -78,14 +78,23 @@ def client_dist(root: Path) -> dict[str, object]:
     entries = list(root.iterdir())
     if len(entries) == 1 and entries[0].name == "dist" and entries[0].is_dir():
         root = entries[0]
-    files = sorted(path for path in root.rglob("*") if path.is_file())
-    pairs = b""
-    for path in files:
+    files: list[tuple[bytes, str, Path]] = []
+    canonical_paths: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
         relative = path.relative_to(root).as_posix()
+        if relative in canonical_paths:
+            raise BaselineFailure(f"duplicate canonical client dist path: {relative}")
+        canonical_paths.add(relative)
+        files.append((relative.encode("utf-8"), relative, path))
+    files.sort(key=lambda item: item[0])
+    pairs = b""
+    for _sort_key, relative, path in files:
         pairs += relative.encode("utf-8") + b"\0" + sha256(path).encode("ascii") + b"\n"
     return {
         "fileCount": len(files),
-        "totalBytes": sum(path.stat().st_size for path in files),
+        "totalBytes": sum(path.stat().st_size for _key, _relative, path in files),
         "aggregateSha256": hashlib.sha256(pairs).hexdigest(),
     }
 
