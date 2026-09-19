@@ -31,7 +31,7 @@ const market = {
 
 const museSource = {
   id: "meta/muse-voice-transcribe-1.0",
-  pricing: { prompt: "0.18" },
+  pricing: { prompt: "0.00005" },
 };
 const museLocal = {
   id: "meta/muse-voice-transcribe-1.0",
@@ -42,14 +42,14 @@ const museMarket = {
   slug: "meta/muse-voice-transcribe-1.0",
   endpoint: {
     model_variant_slug: "meta/muse-voice-transcribe-1.0",
-    pricing: { prompt: "0.18" },
+    pricing: { prompt: "0.00005" },
     display_pricing: [
       {
         kind: "unit",
-        sku_label: "Audio Hours",
-        price: "0.18",
+        sku_label: "Audio Seconds",
+        price: "0.00005",
         displayMultiplier: 1,
-        unitLabel: "/hour",
+        unitLabel: "/second",
       },
     ],
     pricing_json: { "meta_stt:audio_hours": "0.18" },

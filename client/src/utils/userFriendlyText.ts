@@ -104,6 +104,7 @@ const jobCapabilityPlainText: Record<string, string> = {
   translation: "翻译",
   safety: "安全审核",
   world_generation: "3D 世界生成",
+  structured_decision: "结构化决策",
 };
 
 const categoryPlainText: Record<string, string> = {

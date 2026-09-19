@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-17T12:49:36.346Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-19T08:59:40.536Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -42,6 +42,7 @@ export type OutputModality =
   | "transcription"
   | "video"
   | "world"
+  | "decisions"
   | "embeddings"
   | "rerank";
 export type ModelOperation =
@@ -57,6 +58,7 @@ export type ModelOperation =
   | "analyze_video"
   | "generate_video"
   | "generate_world"
+  | "decide"
   | "embed"
   | "rerank";
 export type JobCapability =
@@ -77,9 +79,10 @@ export type JobCapability =
   | "embedding"
   | "rerank"
   | "safety"
-  | "world_generation";
+  | "world_generation"
+  | "structured_decision";
 export type InteractionStatus = "ready" | "planned" | "unsupported";
-export type ModelUiEntrypoint = "chat" | "rag" | "multimodal" | "planned";
+export type ModelUiEntrypoint = "chat" | "rag" | "multimodal" | "decisions" | "planned";
 export type CatalogStatus =
   | "live"
   | "curated"
@@ -221,6 +224,160 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "prism-ml/ternary-bonsai-2-27b",
+    "canonical_slug": "prism-ml/ternary-bonsai-2-27b-20260918",
+    "name": "PrismML: Ternary Bonsai 2 27B",
+    "raw_description": "Bonsai 2 27B is a 27B-parameter reasoning model from PrismML derived from Qwen3.8-27B. It supports coding, mathematics, tool calling, and image understanding with a 262K-token context window. Ternary compression shrinks...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.075,
+      "output": 0.5
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789754046,
+    "expiration_date": null,
+    "model_author": "Prism Ml",
+    "reasoning_declared": true
+  },
+  {
+    "id": "z-ai/glm-5.3-flashx",
+    "canonical_slug": "z-ai/glm-5.3-flashx-20260918",
+    "name": "Z.ai: GLM 5.3 FlashX",
+    "raw_description": "GLM-5.3-FlashX is the high-speed variant of Z.ai's GLM-5.3-Flash, a native multimodal model delivering inference speeds of up to 200 tokens/s. Built on the same hybrid sparse and linear attention architecture...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.37,
+      "output": 1.25
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789744020,
+    "expiration_date": null,
+    "model_author": "Z.ai",
+    "reasoning_declared": true
+  },
+  {
+    "id": "~typesafe/jev-latest",
+    "canonical_slug": "~typesafe/jev-latest",
+    "name": "TypeSafe: Jev Latest",
+    "raw_description": "This model always redirects to the latest model in the Jev family.",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [],
+    "created": 1789689685,
+    "expiration_date": null,
+    "model_author": "Typesafe",
+    "note": "这是结构化决策模型，不生成聊天文本。请在独立决策工作台中提交 state 与类型化 questions。"
+  },
+  {
+    "id": "typesafe/jev-1.13",
+    "canonical_slug": "typesafe/jev-1.13-20260917",
+    "name": "TypeSafe: Jev 1.13",
+    "raw_description": "Jev is a structured decision model from TypeSafe, and the first of its System One models. System One models make fast, structured decisions for software, returning a typed choice rather...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1789689684,
+    "expiration_date": null,
+    "model_author": "Typesafe",
+    "note": "这是结构化决策模型，不生成聊天文本。请在独立决策工作台中提交 state 与类型化 questions。"
+  },
+  {
+    "id": "unbiased/pareto",
+    "canonical_slug": "unbiased/pareto-20260917",
+    "name": "Pareto",
+    "raw_description": "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
+    "context_length": 262144,
+    "pricing": {
+      "input": 2.5,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1789686178,
+    "expiration_date": null,
+    "model_author": "Unbiased"
+  },
+  {
     "id": "stealth/union-alpha",
     "canonical_slug": "stealth/union-alpha",
     "name": "Union Alpha",
@@ -257,40 +414,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        }
-      ]
+      "input": 0.57816,
+      "output": 1.73448
     },
     "input_modalities": [
       "text"
@@ -333,8 +458,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.13,
+      "output": 0.52
     },
     "input_modalities": [
       "text",
@@ -2123,8 +2248,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.22,
-      "output": 0.66
+      "input": 0.21559999999999999,
+      "output": 0.6468
     },
     "input_modalities": [
       "text",
@@ -2291,8 +2416,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.8775,
-      "output": 2.9699999999999998
+      "input": 0.8917999999999999,
+      "output": 2.8028
     },
     "input_modalities": [
       "text"
@@ -2365,8 +2490,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1310720,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.9099999999999999,
+      "output": 2.8600000000000003
     },
     "input_modalities": [
       "text"
@@ -2465,6 +2590,45 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_a",
       "top_k",
       "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786722910,
+    "expiration_date": null,
+    "model_author": "Qwen",
+    "reasoning_declared": true
+  },
+  {
+    "id": "qwen/qwen3.8-27b:free",
+    "canonical_slug": "qwen/qwen3.8-27b-20260814",
+    "name": "Qwen: Qwen3.8 27B (free)",
+    "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
       "top_p"
     ],
     "created": 1786722910,
@@ -2954,40 +3118,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        }
-      ]
+      "input": 0.57816,
+      "output": 1.73448
     },
     "input_modalities": [
       "text"
@@ -3150,7 +3282,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.08,
+      "input": 0.07,
       "output": 0.19999999999999998
     },
     "input_modalities": [
@@ -3275,6 +3407,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
+      "reasoning_effort",
       "response_format",
       "structured_outputs",
       "temperature",
@@ -3294,8 +3427,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.3,
-      "output": 1.1
+      "input": 0.35,
+      "output": 1.5
     },
     "input_modalities": [
       "text",
@@ -3405,7 +3538,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT Transcribe is a high-accuracy speech-to-text model from OpenAI. It is suited for recorded audio, streamed file transcription, and committed Realtime turns, with free-form context, keyword hints, and multiple language...",
     "context_length": 0,
     "pricing": {
-      "input": 4500,
+      "input": 75,
       "output": 0
     },
     "input_modalities": [
@@ -3594,8 +3727,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.03,
-      "output": 0.13
+      "input": 0.04,
+      "output": 0.08
     },
     "input_modalities": [
       "text"
@@ -3640,8 +3773,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.06,
-      "output": 0.12
+      "input": 0.04,
+      "output": 0.08
     },
     "input_modalities": [
       "text"
@@ -3672,6 +3805,48 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_a",
       "top_k",
       "top_logprobs",
+      "top_p"
+    ],
+    "created": 1785478908,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
+  },
+  {
+    "id": "deepseek/deepseek-v4-flash-0731:free",
+    "canonical_slug": "deepseek/deepseek-v4-flash-20260731",
+    "name": "DeepSeek: DeepSeek V4 Flash 0731 (free)",
+    "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
       "top_p"
     ],
     "created": 1785478908,
@@ -4383,7 +4558,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Grok STT is SpaceXAI's speech-to-text model, available via the REST /v1/stt endpoint. It supports transcription with word-level timestamps, optional speaker diarization, and multichannel audio.",
     "context_length": 0,
     "pricing": {
-      "input": 100000,
+      "input": 27.777777777799997,
       "output": 0
     },
     "input_modalities": [
@@ -4760,7 +4935,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openrouter/auto-beta",
     "canonical_slug": "openrouter/auto-beta",
     "name": "Auto Router (Beta)",
-    "raw_description": "Auto Router (Beta) is a task-aware router from OpenRouter. It classifies each request, then routes it the [most popular model](/rankings#task-spend) for that task based on aggregate spend, filtered by your...",
+    "raw_description": "The experimental version of our Auto Router where we test new improvements. Use it to get the latest and greatest version of our general purpose auto router, but expect beta...",
     "context_length": 2000000,
     "pricing": {
       "input": -1000000,
@@ -4836,8 +5011,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 3,
-      "output": 15
+      "input": 1.7,
+      "output": 8.5
     },
     "input_modalities": [
       "text",
@@ -4988,7 +5163,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Deepgram Nova-3 general-purpose speech-to-text model with monolingual and multilingual transcription support.",
     "context_length": 0,
     "pricing": {
-      "input": 4300,
+      "input": 71.6666666667,
       "output": 0
     },
     "input_modalities": [
@@ -6076,8 +6251,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.5544,
+      "output": 1.7424
     },
     "input_modalities": [
       "text"
@@ -6534,8 +6709,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.625,
-      "output": 3.125
+      "input": 0.6,
+      "output": 2.4
     },
     "input_modalities": [
       "text"
@@ -6928,7 +7103,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Parakeet TDT 0.6B v3 is NVIDIA's 600M-parameter multilingual speech-to-text model built on the FastConformer-TDT architecture. Trained on the Granary dataset (670,000+ hours of audio), it supports automatic language detection across...",
     "context_length": 0,
     "pricing": {
-      "input": 1500,
+      "input": 25,
       "output": 0
     },
     "input_modalities": [
@@ -7163,7 +7338,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Voxtral Mini Transcribe is Mistral's speech-to-text model, derived from the Voxtral Mini family. It accepts audio input and returns transcribed text via the standard transcription API. Suited for transcribing meetings,...",
     "context_length": 0,
     "pricing": {
-      "input": 3000,
+      "input": 50,
       "output": 0
     },
     "input_modalities": [
@@ -7663,7 +7838,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Chirp 3 is Google's latest multilingual speech-to-text model. It offers enhanced transcription accuracy across 24 GA languages and 77+ preview languages, with support for automatic language detection, automatic punctuation, and...",
     "context_length": 0,
     "pricing": {
-      "input": 16000,
+      "input": 266.666666667,
       "output": 0
     },
     "input_modalities": [
@@ -8087,7 +8262,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Whisper is OpenAI's open-source automatic speech recognition model, available via API as `whisper-1`. It supports transcription and translation across 50+ languages from audio files up to 25 MB. Accepts formats...",
     "context_length": 0,
     "pricing": {
-      "input": 6000,
+      "input": 100,
       "output": 0
     },
     "input_modalities": [
@@ -8252,8 +8427,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.0999999999999996,
-      "output": 10.950000000000001
+      "input": 1.7,
+      "output": 8.5
     },
     "input_modalities": [
       "text",
@@ -8738,8 +8913,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.5999999999999999,
-      "output": 3.1999999999999997
+      "input": 0.523566,
+      "output": 1.047132
     },
     "input_modalities": [
       "text"
@@ -8783,8 +8958,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.088606,
-      "output": 0.177212
+      "input": 0.04564,
+      "output": 0.09128
     },
     "input_modalities": [
       "text"
@@ -10562,7 +10737,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
-      "top_k",
       "top_p"
     ],
     "created": 1773695685,
@@ -11895,6 +12069,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_completion_tokens",
       "max_tokens",
@@ -12019,6 +12194,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
+      "reasoning_effort",
       "response_format",
       "structured_outputs",
       "temperature",
@@ -14903,7 +15079,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1759870431,
-    "expiration_date": null,
+    "expiration_date": 1805068800,
     "model_author": "Google"
   },
   {
@@ -14954,8 +15130,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13,
-      "output": 0.52
+      "input": 0.19999999999999998,
+      "output": 0.7
     },
     "input_modalities": [
       "text",
@@ -16267,8 +16443,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.037,
-      "output": 0.16999999999999998
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -16882,7 +17058,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753200276,
-    "expiration_date": null,
+    "expiration_date": 1792454400,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -17292,7 +17468,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750172488,
-    "expiration_date": null,
+    "expiration_date": 1792454400,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -17338,7 +17514,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750169544,
-    "expiration_date": null,
+    "expiration_date": 1792454400,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -19343,8 +19519,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.2574,
-      "output": 1.0287
+      "input": 0.32,
+      "output": 0.8899999999999999
     },
     "input_modalities": [
       "text"
@@ -23994,7 +24170,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750172488,
-    "expiration_date": null,
+    "expiration_date": 1792454400,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -24040,7 +24216,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750169544,
-    "expiration_date": null,
+    "expiration_date": 1792454400,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -24449,6 +24625,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "minimax/minimax-m2.7:free",
   "minimax/minimax-m3:free",
   "mistralai/ministral-8b",
+  "mistralai/mistral-large-2512",
   "moonshotai/kimi-k2.6:free",
   "nex-agi/deepseek-v3.1-nex-n1",
   "nousresearch/hermes-3-llama-3.1-405b:free",
@@ -24481,6 +24658,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "sourceful/riverflow-v2-standard-preview",
   "sourceful/riverflow-v2.5-fast:free",
   "sourceful/riverflow-v2.5-pro:free",
+  "stealth/union-alpha",
   "switchpoint/router",
   "thedrummer/rocinante-12b",
   "xiaomi/mimo-v2-flash",
@@ -24744,7 +24922,7 @@ function inferTags(
 }
 
 function describeModalities(values: string[]) {
-  const labels: Record<string, string> = { text: "文本", image: "图片", audio: "音频", video: "视频", embeddings: "向量", speech: "语音", transcription: "转写", rerank: "重排序" };
+  const labels: Record<string, string> = { text: "文本", image: "图片", audio: "音频", video: "视频", decisions: "结构化决策", embeddings: "向量", speech: "语音", transcription: "转写", rerank: "重排序" };
   return values.map((value) => labels[value] ?? value).join("、") || "文本";
 }
 
@@ -24801,6 +24979,7 @@ function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   if (outputs.has("speech")) operations.add("synthesize_speech");
   if (outputs.has("audio")) operations.add("generate_audio");
   if (outputs.has("video")) operations.add("generate_video");
+  if (outputs.has("decisions")) operations.add("decide");
   if (outputs.has("embeddings")) operations.add("embed");
   if (outputs.has("rerank")) operations.add("rerank");
   if (inputs.has("audio") && outputs.has("text")) operations.add("analyze_audio");
@@ -24822,6 +25001,7 @@ function primaryOperation(operations: ModelOperation[]): ModelOperation {
     "synthesize_speech",
     "generate_audio",
     "generate_video",
+    "decide",
     "embed",
     "rerank",
     "chat",
@@ -24853,6 +25033,9 @@ function interactionForOperation(
   }
   if (operation === "embed" || operation === "rerank") {
     return { status: "ready", entrypoint: "rag" };
+  }
+  if (operation === "decide") {
+    return { status: "ready", entrypoint: "decisions" };
   }
   if (
     operation === "generate_image" &&
@@ -24895,6 +25078,7 @@ function inferJobCapabilities(
   if (operations.includes("generate_video")) result.add("video_generation");
   if (operations.includes("embed")) result.add("embedding");
   if (operations.includes("rerank")) result.add("rerank");
+  if (operations.includes("decide")) result.add("structured_decision");
   if (haystack.includes("moderation") || haystack.includes("guard")) {
     result.add("safety");
   }
@@ -25305,7 +25489,11 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
-  "stealth/union-alpha",
+  "prism-ml/ternary-bonsai-2-27b",
+  "z-ai/glm-5.3-flashx",
+  "~typesafe/jev-latest",
+  "typesafe/jev-1.13",
+  "unbiased/pareto",
   "~deepseek/deepseek-pro-latest",
   "~deepseek/deepseek-flash-latest",
   "inference-net/schematron-v2-turbo",

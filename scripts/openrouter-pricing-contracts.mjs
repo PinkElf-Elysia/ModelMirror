@@ -7,11 +7,14 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
       sourcePricingField: "prompt",
       normalizedPricingField: "input",
       normalizedPriceDivisor: 1_000_000,
+      normalizedPriceMultiplier: 3_600,
+      sourcePriceMultiplier: 3_600,
       marketPricing: Object.freeze({
         pricingField: "prompt",
         displayKind: "unit",
-        skuLabel: "Audio Hours",
-        unitLabel: "/hour",
+        skuLabel: "Audio Seconds",
+        unitLabel: "/second",
+        priceMultiplier: 3_600,
         pricingJsonKey: "meta_stt:audio_hours",
       }),
     }),
@@ -47,7 +50,7 @@ export function normalizedCatalogPricePerUnit(model, contract) {
   );
   const divisor = finiteNumber(contract.normalizedPriceDivisor);
   if (value === null || divisor === null || divisor <= 0) return null;
-  return value / divisor;
+  return (value / divisor) * finiteNumber(contract.normalizedPriceMultiplier ?? 1);
 }
 
 function stripBatchSuffix(value) {
@@ -71,11 +74,12 @@ function auditMarketPricingRecord(record, contract, expectedPrice) {
   const endpointPrice = finiteNumber(
     endpoint?.pricing?.[marketContract.pricingField],
   );
+  const marketPriceMultiplier = finiteNumber(marketContract.priceMultiplier ?? 1) ?? 1;
   if (endpointPrice === null) {
     reasons.push("market_endpoint_price_invalid");
   } else if (
     expectedPrice !== null &&
-    Math.abs(endpointPrice - expectedPrice) > 1e-12
+    Math.abs(endpointPrice * marketPriceMultiplier - expectedPrice) > 1e-12
   ) {
     reasons.push("market_endpoint_price_mismatch");
   }
@@ -105,7 +109,7 @@ function auditMarketPricingRecord(record, contract, expectedPrice) {
       reasons.push("market_display_price_invalid");
     } else if (
       expectedPrice !== null &&
-      Math.abs(displayPrice - expectedPrice) > 1e-12
+      Math.abs(displayPrice * marketPriceMultiplier - expectedPrice) > 1e-12
     ) {
       reasons.push("market_display_price_mismatch");
     }
@@ -168,6 +172,10 @@ export function auditAudioHourPricingOverlays({
       const sourcePrice = finiteNumber(
         source?.pricing?.[contract.sourcePricingField],
       );
+      const normalizedSourcePrice =
+        sourcePrice === null
+          ? null
+          : sourcePrice * (finiteNumber(contract.sourcePriceMultiplier ?? 1) ?? 1);
       const overlayPrice = finiteNumber(local?.media_pricing?.usd);
       const reasons = [];
 
@@ -185,14 +193,14 @@ export function auditAudioHourPricingOverlays({
       if (local && local.pricing_basis !== contract.pricingBasis) {
         reasons.push("pricing_basis_not_media");
       }
-      if (sourcePrice === null) reasons.push("invalid_source_price");
+      if (normalizedSourcePrice === null) reasons.push("invalid_source_price");
       if (local?.media_pricing && overlayPrice === null) {
         reasons.push("invalid_overlay_price");
       }
       if (
-        sourcePrice !== null &&
+        normalizedSourcePrice !== null &&
         overlayPrice !== null &&
-        Math.abs(sourcePrice - overlayPrice) > 1e-12
+        Math.abs(normalizedSourcePrice - overlayPrice) > 1e-12
       ) {
         reasons.push("price_mismatch");
       }
@@ -201,7 +209,7 @@ export function auditAudioHourPricingOverlays({
         if (marketRecords.length === 0) {
           reasons.push("market_realtime_record_missing");
         } else {
-          const expectedPrice = overlayPrice ?? sourcePrice;
+          const expectedPrice = overlayPrice ?? normalizedSourcePrice;
           const marketAudits = marketRecords.map((record) =>
             auditMarketPricingRecord(record, contract, expectedPrice),
           );
@@ -215,7 +223,7 @@ export function auditAudioHourPricingOverlays({
       return {
         id,
         reasons,
-        source_usd_per_audio_hour: sourcePrice,
+        source_usd_per_audio_hour: normalizedSourcePrice,
         overlay_usd_per_audio_hour: overlayPrice,
         pricing_basis: local?.pricing_basis ?? null,
         pricing_unit: local?.media_pricing?.unit ?? null,
