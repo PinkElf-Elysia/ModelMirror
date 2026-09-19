@@ -1,0 +1,181 @@
+{
+  "id": "rpg-model-selector-b5-20260919",
+  "authorizedAtRecorded": "2026-09-19T15:49:30.844111+00:00",
+  "userAuthorization": "通过，授权3次真实额度，选择的三个不同模型是：之前测试过的luna、gemini，加上泛化测试的deepseek-v4-flash0731",
+  "scope": "Earth OL model-selector B5 only",
+  "limit": 6,
+  "used": 6,
+  "remaining": 0,
+  "calls": [
+    {
+      "kind": "authentication",
+      "slot": 1,
+      "model": "openai/gpt-5.6-luna",
+      "status": "passed",
+      "evidence": "authentication-result-1.json",
+      "certificationId": "chatcert_1fef59c225c04a82a7c20f524e2c377f"
+    },
+    {
+      "kind": "generation",
+      "slot": 1,
+      "model": "openai/gpt-5.6-luna",
+      "status": "complete",
+      "manual": "accepted in final B5 batch acceptance",
+      "rawHash": "be78f2b7399dcd81e7b29f26db0eeda87b8e058f98d3f4ae6bc451913c623d24",
+      "evidence": "data/dispatches/earth/slot-1/result.json"
+    },
+    {
+      "kind": "authentication",
+      "slot": 2,
+      "model": "google/gemini-3.8-flash",
+      "status": "passed",
+      "certificationId": "chatcert_4a4a5761a49247c0957447964a4a40f5",
+      "evidence": "authentication-result-2.json"
+    },
+    {
+      "kind": "generation",
+      "slot": 2,
+      "model": "google/gemini-3.8-flash",
+      "status": "complete",
+      "manual": "accepted in final B5 batch acceptance",
+      "requestHash": "cd857c5b0a2ac75700e5976f8abd533dfc75fe9d3442b80229ee4a6a527d7294",
+      "evidence": "data/dispatches/earth/slot-2/result.json",
+      "rawHash": "5cf749854d61c33138dcff85039b105ae8a6cf8635e234d49ed6d2cc40934da7"
+    },
+    {
+      "kind": "authentication",
+      "slot": 3,
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "status": "passed",
+      "certificationId": "chatcert_c93e096236cd405a967a586c4724ac93",
+      "evidence": "authentication-result-3.json"
+    },
+    {
+      "kind": "generation",
+      "slot": 3,
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "status": "complete",
+      "manual": "accepted in final B5 batch acceptance",
+      "requestHash": "a0f878c638b37cebc9995a40345987667669f933fb8ac27ddd7d743fa0fe0cef",
+      "evidence": "data/dispatches/earth/slot-3/result.json",
+      "rawHash": "a486a039f99d0ae9077b5fe0cb9b5def950a736088cceb0f9030ea3454265d51"
+    }
+  ],
+  "models": [
+    {
+      "label": "Luna",
+      "previousExactId": "gpt-5.6-luna",
+      "sharedCatalogCandidate": "openai/gpt-5.6-luna",
+      "resolvedSelection": {
+        "kind": "controlled",
+        "model": "openai/gpt-5.6-luna",
+        "selectionId": "573b5b000bb843492c0c143e5e28aca4caec1d733ecc36c8eefb8070892fc6aa",
+        "selectionRevision": "dfc3db6a62c8fa7381fe3049e7bced7fe93e131b29888134cf29b9cf9baa2ea7",
+        "parameters": {
+          "max_tokens": 16384
+        },
+        "configHash": "aaa71a1297fb336ecd8bfd49a9c80d5b6f36ec599b298321364dadc47fd6cc09"
+      }
+    },
+    {
+      "label": "Gemini",
+      "previousExactId": "google/gemini-3.8-flash",
+      "resolvedSelection": {
+        "kind": "controlled",
+        "model": "google/gemini-3.8-flash",
+        "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+        "selectionRevision": "4aa5973ead45603948f025b8c819d1a43cc7434e62e804c619c0a79e1ef34005",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 16384
+        },
+        "configHash": "9b46bb3d41884527a38d1dfa518a95233201530a7452cbaffc4c4514ce7395f6"
+      }
+    },
+    {
+      "label": "DeepSeek",
+      "sharedCatalogCandidate": "deepseek/deepseek-v4-flash-0731",
+      "resolvedSelection": {
+        "kind": "controlled",
+        "model": "deepseek/deepseek-v4-flash-0731",
+        "selectionId": "08a776d66eaa926d07522719186501151eca2b4c3e716cf4a09e06a3744791aa",
+        "selectionRevision": "4ac89fbd9319030e20201f8fe472600a83d3ea31f1d8e0cf2117e7d8370f4cdc",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 16384
+        },
+        "configHash": "d39fc789692f1b2a19e13e7edd1c484d07d4630e09dd8ac668fa6f22775f091c"
+      }
+    }
+  ],
+  "automaticRetry": false,
+  "automaticFallback": false,
+  "manualReviewAfterEveryOutput": true,
+  "failedCancelledUnknownAndNecessaryAuthenticationCount": true,
+  "priorBudgetsInherited": false,
+  "rpg05Allowed": false,
+  "dispatchEnabled": false,
+  "status": "human-accepted-closed-budget-exhausted",
+  "acceptedB4DeliverySha256": "8c3153df56ffb32edaad43a6efa20731d1ce0144f5e24f55c188946a09b159b6",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "worldbook": "disabled",
+  "dispatchLedger": "experiments/ai-rpg-engine/.rpg04-work/model-selector-b5/data/dispatches/earth",
+  "quotaClarification": "Resolved: separate maxima of 3 necessary authentication calls and 3 RPG generations; not fungible.",
+  "additionalUserAuthorization": "另授权最多3次必要认证，保留3次RPG输出",
+  "generationBudget": {
+    "limit": 3,
+    "used": 3,
+    "remaining": 0
+  },
+  "authenticationBudget": {
+    "limit": 3,
+    "used": 3,
+    "remaining": 0
+  },
+  "updatedAt": "2026-09-19T16:47:23.830341+00:00",
+  "parameterExceptionAuthorization": "允许 Luna 参数例外",
+  "parameterExceptions": {
+    "openai/gpt-5.6-luna": {
+      "effective": {
+        "max_tokens": 16384
+      },
+      "omitted": [
+        "temperature",
+        "top_p"
+      ],
+      "reason": "Endpoint metadata does not declare support; use model defaults, not claimed 0.7/0.8"
+    }
+  },
+  "dispatchEnabledMeaning": "Both authorization ledgers exhausted; no further paid dispatch allowed without new explicit budget",
+  "continuationAuthorizations": [
+    {
+      "user": "开始下一次调用",
+      "scope": "Gemini parent continuation only; one necessary authentication if required, one generation; no DeepSeek dispatch",
+      "priorLunaReview": "User explicitly requested continuation; no broader quality acceptance inferred"
+    },
+    {
+      "user": "继续下一批",
+      "scope": "DeepSeek branch continuation; final remaining authentication and generation slots only",
+      "priorGeminiReview": "User explicitly requested next batch; broader quality acceptance not inferred"
+    }
+  ],
+  "finalHumanAcceptance": {
+    "userStatement": "验收通过，可开始收尾",
+    "recordedAt": "2026-09-19T16:47:23.830341+00:00",
+    "scope": "B5 three-model candidate vertical slice and final DeepSeek branch output accepted; B6 local closeout authorized",
+    "notAuthorized": [
+      "new Provider calls",
+      "commit",
+      "push",
+      "new PR",
+      "shared-stack deployment",
+      "merge"
+    ]
+  }
+}

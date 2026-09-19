@@ -1,0 +1,105 @@
+{
+  "batch": "B1",
+  "status": "B1-passed-awaiting-batch-review",
+  "base": "1864ed8446346df1b77eb3da53f94d9e56b7c53f",
+  "branch": "codex/rpg-model-selector",
+  "scope": "contract and standalone prototype only",
+  "userPrototypeApproval": "approved: user 批准 after v2",
+  "providerDispatches": 0,
+  "productionFilesChanged": 5,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false
+  },
+  "checks": {
+    "host": "passed 27/27",
+    "http": "passed 3/3",
+    "affectedRegression": "passed 75/75; offline/mock only",
+    "earthBuild": "passed TypeScript and Vite",
+    "diff": "passed",
+    "productionUI": "not-run; B0 approved prototype only",
+    "realProvider": "not-run; zero dispatches",
+    "sharedDeployment": "not-run"
+  },
+  "artifacts": [],
+  "updatedAt": "2026-09-19T13:40:36.571Z",
+  "preview": {
+    "url": "http://127.0.0.1:18441/",
+    "pidSnapshot": 3044,
+    "mode": "static-fictional-memory-only"
+  },
+  "next": "B2 controlled bridge after B1 review",
+  "prototypeVersion": "v2",
+  "userRevision": "Only model-selection information; connection verification and API configuration owned by ModelMirror control plane",
+  "previousVerification": {
+    "prototypeVersion": "v1",
+    "checks": {
+      "syntax": "passed",
+      "noNetworkOrStorage": "passed; source scan and connect-src none",
+      "browser": "passed: search, cancel, Enter, Esc, draft, historic label, disable, uninstall/reinstall, authorization, expired, error recovery, busy, legacy; loading state disables save",
+      "mobile": "390px: clientWidth=scrollWidth=375; dialog=362",
+      "screenshots": "3 exact original JPEG hashes verified",
+      "productionTests": "not-run; B0 changes no production code",
+      "realProvider": "not-run; no new authorization",
+      "fullPageScreenshot": "not accepted: browser full-page capture showed scaling/blank canvas; retained normal viewport images only"
+    },
+    "artifacts": [
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/CONTRACT.md",
+        "bytes": 11809,
+        "sha256": "c9b2f00b4df5fc4884eb4b3ff229edd67350cca5ec18f7286c2dfe409439f977"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/index.html",
+        "bytes": 19376,
+        "sha256": "0b85cc2a4162b306427f95c302d0624c9a876a853fc49d7e2de635e08399e1fb"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/desktop-picker.jpg",
+        "bytes": 58272,
+        "sha256": "9a08fbe4afc0a87514b06dd31f2d36f3c63e12dfa63f354f8f47b9432b456974"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/mobile-picker.jpg",
+        "bytes": 36581,
+        "sha256": "4fed704e00c3974117f5e5643528f4cab21ca553c642748959c2ba770233d9c9"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/market.jpg",
+        "bytes": 35731,
+        "sha256": "db0d103ea39c4e49f079b0dc3370955315ab8d45f21f2a476a48752c09c17e7a"
+      }
+    ]
+  },
+  "prototypeChecks": {
+    "syntax": "passed",
+    "noNetworkOrStorage": "passed; static source check; connect-src none remains",
+    "browser": "passed: brand filters, search hit/empty, click and Enter immediate selection, Esc/close, disabled unavailable row, draft preserved, historical label unchanged, list-error refresh, loading display",
+    "mobile": "390x844: clientWidth=scrollWidth=375; dialog=362; ChatGPT category reachable",
+    "screenshots": "2 exact original JPEG hashes verified; v1 images preserved",
+    "productionTests": "not-run; prototype only",
+    "realProvider": "not-run; 0 dispatches",
+    "fullKeyboardPath": "not-run; focused Enter/Esc checks only"
+  },
+  "prototypeArtifacts": [
+    {
+      "file": "index.html",
+      "bytes": 20681,
+      "sha256": "8d40315d6bf38c36db29f97852f4705f2e3f434bb19e9c705ae00f4db803cd2c"
+    },
+    {
+      "file": "v2-desktop-picker.jpg",
+      "bytes": 52836,
+      "sha256": "6d72c5b56210af378c8a14222c3bd319f70cbb63d592d88aa6acbf3edb71ce01"
+    },
+    {
+      "file": "v2-mobile-picker.jpg",
+      "bytes": 29174,
+      "sha256": "86eb6d680f99866d69f635e9ee1beb4d9fae9c21db481598737d12aebdec906a"
+    }
+  ],
+  "batchAcceptance": "pending user review",
+  "delivery": "B1-DELIVERY.json"
+}

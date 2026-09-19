@@ -1,0 +1,109 @@
+{
+  "at": "2026-09-19T16:18:11.560644+00:00",
+  "sessionId": "43680038-2b25-45b4-9d0d-a754e219e504",
+  "authentication": {
+    "certification_id": "chatcert_1fef59c225c04a82a7c20f524e2c377f",
+    "connection_id": "conn_0e533bd6e4d046d281b60530d2d20f74",
+    "connection_name": "OpenRouter",
+    "capability": "chat_text",
+    "status": "passed",
+    "can_run": true,
+    "blocked_reason": null,
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "warning_codes": [],
+    "error_code": null,
+    "requested_model": "openai/gpt-5.6-luna",
+    "actual_model": "openai/gpt-5.6-luna",
+    "ttft_ms": 1283.1924189958954,
+    "e2e_ms": 1318.4267839969834,
+    "prompt_tokens": 10,
+    "completion_tokens": 5,
+    "total_tokens": 15,
+    "created_at": "2026-09-19T16:11:21.370681+00:00",
+    "completed_at": "2026-09-19T16:11:22.689353+00:00"
+  },
+  "generation": {
+    "card": "earth",
+    "sessionId": "43680038-2b25-45b4-9d0d-a754e219e504",
+    "requestId": "b5-luna-output-1",
+    "at": "2026-09-19T16:13:20.607Z",
+    "transport": "modelmirror-rpg-s2s-v1",
+    "status": "complete",
+    "requestHash": "2d4f4c5291c4ee02dd716dcf0033170da17a02e3d2ff17d66a25880a296a9272",
+    "controlRequestHash": "a514ca86193348754049f56cb7b03e6f97dc62bd83ecd6c1f56e48ad9b5e4135",
+    "selectionId": "573b5b000bb843492c0c143e5e28aca4caec1d733ecc36c8eefb8070892fc6aa",
+    "selectionRevision": "dfc3db6a62c8fa7381fe3049e7bced7fe93e131b29888134cf29b9cf9baa2ea7",
+    "requestedModel": "openai/gpt-5.6-luna",
+    "parameters": {
+      "max_tokens": 16384
+    },
+    "retries": 0,
+    "rawHash": "be78f2b7399dcd81e7b29f26db0eeda87b8e058f98d3f4ae6bc451913c623d24",
+    "sseHash": "19b3f957d484c49b98ad231e8b1a9756fb5336ff17003883b9b5dd13b796e647",
+    "httpStatus": 200,
+    "receipt": {
+      "gateway": "rpg_scoped",
+      "runId": "chatrun_f6635aad45d8457596d72cce221e7123",
+      "attemptId": "chatattempt_7ab944ed21b14ea7a09ed1db716b355a",
+      "requestedModel": "openai/gpt-5.6-luna",
+      "actualModel": "openai/gpt-5.6-luna",
+      "selectionId": "573b5b000bb843492c0c143e5e28aca4caec1d733ecc36c8eefb8070892fc6aa",
+      "selectionRevision": "dfc3db6a62c8fa7381fe3049e7bced7fe93e131b29888134cf29b9cf9baa2ea7",
+      "parameters": {
+        "max_tokens": 16384
+      },
+      "httpStatus": 200,
+      "dispatched": true,
+      "usage": {
+        "prompt_tokens": 19943,
+        "completion_tokens": 5366,
+        "total_tokens": 25309
+      },
+      "error": null,
+      "retries": 0,
+      "requestHash": "a514ca86193348754049f56cb7b03e6f97dc62bd83ecd6c1f56e48ad9b5e4135",
+      "rawHash": "be78f2b7399dcd81e7b29f26db0eeda87b8e058f98d3f4ae6bc451913c623d24",
+      "sseHash": "19b3f957d484c49b98ad231e8b1a9756fb5336ff17003883b9b5dd13b796e647",
+      "status": "complete"
+    },
+    "error": null,
+    "manual": "pending"
+  },
+  "effectiveParameters": {
+    "max_tokens": 16384
+  },
+  "omittedSampling": [
+    "temperature",
+    "top_p"
+  ],
+  "samplingMeaning": "model defaults, values not claimed",
+  "frozenMessagesMatchWire": true,
+  "persistedSessionRawMatchesOutputBytes": true,
+  "rawBytes": 16843,
+  "rawUnicodeCodePoints": 11151,
+  "rawUtf16CodeUnits": 11162,
+  "runtimeHash": "4717adac39f68fcadd30352d7d939d0fbeaa719fb058e89aef2440941f1147bb",
+  "messagesCanonicalHash": "c123c1fdd0c5687fbf03c62b32f740f2d710d1cf7b5885a9509fce4a60a1a75e",
+  "checks": {
+    "node": "110/110",
+    "pythonBridge": "27/27",
+    "UI": "actual history/current model/body/folded panels observed in formal browser; screenshot inline, no new archived image"
+  },
+  "human": "pending",
+  "pricing": "Provider token usage recorded; no audited billing claim",
+  "paths": {
+    "raw": "experiments\\ai-rpg-engine\\.rpg04-work\\model-selector-b5\\data\\dispatches\\earth\\slot-1\\response.txt",
+    "request": "experiments\\ai-rpg-engine\\.rpg04-work\\model-selector-b5\\data\\dispatches\\earth\\slot-1\\request.json"
+  },
+  "nextDispatch": "paused pending human review"
+}

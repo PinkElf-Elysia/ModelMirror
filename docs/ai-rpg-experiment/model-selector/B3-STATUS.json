@@ -1,0 +1,121 @@
+{
+  "batch": "B3",
+  "status": "B3-offline-gate-passed-awaiting-user",
+  "base": "1864ed8446346df1b77eb3da53f94d9e56b7c53f",
+  "branch": "codex/rpg-model-selector",
+  "scope": "v2 model selection persistence, turn evidence and branch inheritance; server-only flag; production UI pending",
+  "userPrototypeApproval": "approved: user 批准 after v2",
+  "providerDispatches": 0,
+  "productionFilesChanged": 14,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false
+  },
+  "checks": {
+    "host": "passed 27/27",
+    "http": "passed 3/3",
+    "affectedRegression": "108/108 passed, zero skipped; includes actual B5 copies; offline/mock only",
+    "earthBuild": "passed TypeScript and Vite",
+    "diff": "passed",
+    "productionUI": "not-run; B0 approved prototype only",
+    "realProvider": "not-run; zero dispatches",
+    "sharedDeployment": "not-run",
+    "python": "not rerun in B3; parent files byte-identical to B2; historical 229 passed/1 skipped",
+    "controlPlaneBridge": "passed including main app default-disabled registration",
+    "protectedFiles": "11 match HEAD; original two B5 files unchanged; archived B2 25 match",
+    "b3Targeted": "21/21 passed",
+    "syntax": "node --check passed",
+    "rollbackReader": "v1 reader can list/read v2 parent and branch; continuation refuses without mutation"
+  },
+  "artifacts": [],
+  "updatedAt": "2026-09-19T14:48:51.627260+00:00",
+  "preview": {
+    "url": "http://127.0.0.1:18441/",
+    "pidSnapshot": 3044,
+    "mode": "static-fictional-memory-only"
+  },
+  "next": "B4 after user batch acceptance: approved minimal selector UI, help and browser acceptance",
+  "prototypeVersion": "v2",
+  "userRevision": "Only model-selection information; connection verification and API configuration owned by ModelMirror control plane",
+  "previousVerification": {
+    "prototypeVersion": "v1",
+    "checks": {
+      "syntax": "passed",
+      "noNetworkOrStorage": "passed; source scan and connect-src none",
+      "browser": "passed: search, cancel, Enter, Esc, draft, historic label, disable, uninstall/reinstall, authorization, expired, error recovery, busy, legacy; loading state disables save",
+      "mobile": "390px: clientWidth=scrollWidth=375; dialog=362",
+      "screenshots": "3 exact original JPEG hashes verified",
+      "productionTests": "not-run; B0 changes no production code",
+      "realProvider": "not-run; no new authorization",
+      "fullPageScreenshot": "not accepted: browser full-page capture showed scaling/blank canvas; retained normal viewport images only"
+    },
+    "artifacts": [
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/CONTRACT.md",
+        "bytes": 11809,
+        "sha256": "c9b2f00b4df5fc4884eb4b3ff229edd67350cca5ec18f7286c2dfe409439f977"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/index.html",
+        "bytes": 19376,
+        "sha256": "0b85cc2a4162b306427f95c302d0624c9a876a853fc49d7e2de635e08399e1fb"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/desktop-picker.jpg",
+        "bytes": 58272,
+        "sha256": "9a08fbe4afc0a87514b06dd31f2d36f3c63e12dfa63f354f8f47b9432b456974"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/mobile-picker.jpg",
+        "bytes": 36581,
+        "sha256": "4fed704e00c3974117f5e5643528f4cab21ca553c642748959c2ba770233d9c9"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/market.jpg",
+        "bytes": 35731,
+        "sha256": "db0d103ea39c4e49f079b0dc3370955315ab8d45f21f2a476a48752c09c17e7a"
+      }
+    ]
+  },
+  "prototypeChecks": {
+    "syntax": "passed",
+    "noNetworkOrStorage": "passed; static source check; connect-src none remains",
+    "browser": "passed: brand filters, search hit/empty, click and Enter immediate selection, Esc/close, disabled unavailable row, draft preserved, historical label unchanged, list-error refresh, loading display",
+    "mobile": "390x844: clientWidth=scrollWidth=375; dialog=362; ChatGPT category reachable",
+    "screenshots": "2 exact original JPEG hashes verified; v1 images preserved",
+    "productionTests": "not-run; prototype only",
+    "realProvider": "not-run; 0 dispatches",
+    "fullKeyboardPath": "not-run; focused Enter/Esc checks only"
+  },
+  "prototypeArtifacts": [
+    {
+      "file": "index.html",
+      "bytes": 20681,
+      "sha256": "8d40315d6bf38c36db29f97852f4705f2e3f434bb19e9c705ae00f4db803cd2c"
+    },
+    {
+      "file": "v2-desktop-picker.jpg",
+      "bytes": 52836,
+      "sha256": "6d72c5b56210af378c8a14222c3bd319f70cbb63d592d88aa6acbf3edb71ce01"
+    },
+    {
+      "file": "v2-mobile-picker.jpg",
+      "bytes": 29174,
+      "sha256": "86eb6d680f99866d69f635e9ee1beb4d9fae9c21db481598737d12aebdec906a"
+    }
+  ],
+  "batchAcceptance": "B2 approved by user: 通过，进入B3; B3 awaiting review",
+  "delivery": "B3-DELIVERY.json",
+  "boundaries": {
+    "liveConfiguration": false,
+    "providerDispatches": 0,
+    "productionChatWiring": "server-side implemented behind default-off flag; production UI protocol pending B4",
+    "productionUI": "B4 pending",
+    "unknownCompatibility": "unselectable; no inference, refresh or certification from RPG",
+    "humanBatchAcceptance": "pending B3",
+    "legacyMigration": "none; verified explicit v1 hash only",
+    "realProvider": "not run; zero new quota"
+  }
+}

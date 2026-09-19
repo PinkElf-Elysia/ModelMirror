@@ -1,0 +1,197 @@
+{
+  "batch": "B3",
+  "base": "1864ed8446346df1b77eb3da53f94d9e56b7c53f",
+  "branch": "codex/rpg-model-selector",
+  "createdAt": "2026-09-19T14:48:51.627260+00:00",
+  "scope": "v2 model selection persistence, turn evidence and branch inheritance; server-only flag; production UI pending",
+  "providerDispatches": 0,
+  "checks": {
+    "host": "passed 27/27",
+    "http": "passed 3/3",
+    "affectedRegression": "108/108 passed, zero skipped; includes actual B5 copies; offline/mock only",
+    "earthBuild": "passed TypeScript and Vite",
+    "diff": "passed",
+    "productionUI": "not-run; B0 approved prototype only",
+    "realProvider": "not-run; zero dispatches",
+    "sharedDeployment": "not-run",
+    "python": "not rerun in B3; parent files byte-identical to B2; historical 229 passed/1 skipped",
+    "controlPlaneBridge": "passed including main app default-disabled registration",
+    "protectedFiles": "11 match HEAD; original two B5 files unchanged; archived B2 25 match",
+    "b3Targeted": "21/21 passed",
+    "syntax": "node --check passed",
+    "rollbackReader": "v1 reader can list/read v2 parent and branch; continuation refuses without mutation"
+  },
+  "artifacts": [
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B1-DELIVERY.json",
+      "bytes": 2897,
+      "sha256": "c65cdf6dcc25ad461f7f9211f9db5e11e8c89ebcb54b2cb49236749b44eb97a3"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B1-STATUS.json",
+      "bytes": 4213,
+      "sha256": "02bcd673af0cb0d07e0aefc5c3e50daa5b5bb6855a773b9d0f88d3396f90477a"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B1.md",
+      "bytes": 3889,
+      "sha256": "83d5f37b218b8e00cb6cf563188567f95e6a629840a21202366ec5df3d673b5b"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B2-DELIVERY.json",
+      "bytes": 5542,
+      "sha256": "4e0c0d98f8d88c25503a4b593757e47cb60658828878e7cb735ef35ce2f1f817"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B2-STATUS.json",
+      "bytes": 4924,
+      "sha256": "53b57e95bde4e82a477704ba29a12ca1eb24851e0076187702fae026c0bf6fba"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B2.md",
+      "bytes": 9318,
+      "sha256": "0216ea4bf0bd8f914b7d6da203145062fdebb5db12f87cf7113393c87a5c14f8"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/B3.md",
+      "bytes": 10929,
+      "sha256": "4e07446ccfad5793e94f01e5157f414d9d6841f40b658359377aa1ccabe775cc"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/CONTRACT.md",
+      "bytes": 14857,
+      "sha256": "9bf1a3c65c9a82619db64f5e9a599c0468fc10af5d46ff81c6d211f74fc84a85"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/STATUS.json",
+      "bytes": 5369,
+      "sha256": "a998a9319853f048d9ccf118756e634fea2f70239ebf6115cd49afa7a362fa6e"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/index.html",
+      "bytes": 20681,
+      "sha256": "8d40315d6bf38c36db29f97852f4705f2e3f434bb19e9c705ae00f4db803cd2c"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/v2-desktop-picker.jpg",
+      "bytes": 52836,
+      "sha256": "6d72c5b56210af378c8a14222c3bd319f70cbb63d592d88aa6acbf3edb71ce01"
+    },
+    {
+      "file": "docs/ai-rpg-experiment/model-selector/v2-mobile-picker.jpg",
+      "bytes": 29174,
+      "sha256": "86eb6d680f99866d69f635e9ee1beb4d9fae9c21db481598737d12aebdec906a"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/catalog.mjs",
+      "bytes": 3879,
+      "sha256": "c5739c0fa61c3018d46af8514ee980150e0c072b7c174e7aa0970f40f8b18f30"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/host.mjs",
+      "bytes": 15506,
+      "sha256": "4670505a494ecdc11b84a2cd9c594502871e795a0bee1fa1f0f9a171fd650362"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/http.test.mjs",
+      "bytes": 6239,
+      "sha256": "0c2c35c870ac6b380b9512adb23e57939e14a5ab5dc54a6b3b39bbf8ccf339e6"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/model-selector.manifest.json",
+      "bytes": 836,
+      "sha256": "84eafc8edab32c80f3a8523dd6750cbec39d4f69ccc366d905ab97475945d174"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/model-selector.mjs",
+      "bytes": 1009,
+      "sha256": "b1566dabb8b8c241d7794d2ab9d36ededfd7073dff06122781e8395ce32bac9e"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/plugins/multi-host.test.mjs",
+      "bytes": 11002,
+      "sha256": "300dbf8b129fdea6bba0e6ff3d4d66a1654b24a73b676cd10ef373c410fa75d0"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/controlled-provider.mjs",
+      "bytes": 9611,
+      "sha256": "c9ed479c7fe48e041f16fd4e1fa7e87c0bc2923a8b6796f6f62df093d857687f"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/controlled-provider.test.mjs",
+      "bytes": 11004,
+      "sha256": "0512aa1c5996647d0870a164c316c2b2ab3d424b9d7a9fbbcd61d1c1ed554175"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-branch-archive.mjs",
+      "bytes": 1181,
+      "sha256": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-http.test.mjs",
+      "bytes": 12032,
+      "sha256": "8055e33723b64c25c7ab291b9783b5493a37f3853386ddadc15fb5e561d2c88b"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-legacy-copy.test.mjs",
+      "bytes": 3524,
+      "sha256": "2d692f2ac59fa18c7c38a958a64deda9cb24f621a5661cce09d85c2303e3f4da"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "bytes": 4774,
+      "sha256": "82e615a736d218ec5cee9d7dd3d5c7bfb2c0e3d0d8adf4de704535e31e30c35a"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-session-store.mjs",
+      "bytes": 9802,
+      "sha256": "971ab21ae87206e622bca075b3fa358b5c173e458a564ac2ca7aa60d7877b56e"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/model-session-store.test.mjs",
+      "bytes": 13984,
+      "sha256": "88fcfecb7dcf5902fd7440c997610d551a53e47326a7b4d4799a5d2fcd89a1da"
+    },
+    {
+      "file": "experiments/ai-rpg-engine/studio/server.mjs",
+      "bytes": 10318,
+      "sha256": "5388dc56a942b4c26a06d7427a0381b1c51bd8e747ce9bd724571d4bf382c436"
+    },
+    {
+      "file": "server/main.py",
+      "bytes": 1689724,
+      "sha256": "42a01c811c319b72f6269abdfe98bf79d8aa1f886e43053e003e6e947fc62107"
+    },
+    {
+      "file": "server/model_router/chat_stable.py",
+      "bytes": 30628,
+      "sha256": "5b93d29b4f8280fa49f0913b0fbc66bc5c79d9bcf6f511ada9e79e5b279ae023"
+    },
+    {
+      "file": "server/model_router/provider_catalog.py",
+      "bytes": 21991,
+      "sha256": "210372cb94b729de97ea6dfffb68fa0415ddc79f6be2db9b7b6f8f98dbcab063"
+    },
+    {
+      "file": "server/model_router/repository.py",
+      "bytes": 356909,
+      "sha256": "dae6f7b5042f28640bcba60fdf530360c39f0cdd9b0a0b1e05bbc3d0c07b2d31"
+    },
+    {
+      "file": "server/model_router/rpg_bridge.py",
+      "bytes": 15095,
+      "sha256": "861f16c321667d918cf8c11fe9148770997709eb311496c0ba09eeedfdb1170a"
+    },
+    {
+      "file": "server/tests/test_rpg_bridge.py",
+      "bytes": 11259,
+      "sha256": "0d9a41127151a715af9a97cf08828eceaff5a2d9eb9a81609d9960ca9ecd7056"
+    },
+    {
+      "file": "server/tests/test_rpg_control_plane.py",
+      "bytes": 4114,
+      "sha256": "0e18d20eab1f4010806b9e365eeefef8b1a732d6daf708ea0781e6e1e19b7b18"
+    }
+  ],
+  "history": "B2-STATUS preserves prior status; complete B2 original artifact snapshot retained under ignored .rpg04-work/model-selector-b3/pre-b3"
+}

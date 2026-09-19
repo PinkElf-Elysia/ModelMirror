@@ -1,0 +1,131 @@
+{
+  "at": "2026-09-19T16:32:36.450149+00:00",
+  "authorization": "User 开始下一次调用; Gemini parent continuation only",
+  "sessionId": "43680038-2b25-45b4-9d0d-a754e219e504",
+  "authentication": {
+    "certification_id": "chatcert_4a4a5761a49247c0957447964a4a40f5",
+    "connection_id": "conn_0e533bd6e4d046d281b60530d2d20f74",
+    "connection_name": "OpenRouter",
+    "capability": "chat_text",
+    "status": "passed",
+    "can_run": true,
+    "blocked_reason": null,
+    "checks": {
+      "catalog_ok": true,
+      "model_present": true,
+      "chat_http_ok": true,
+      "text_delta_observed": true,
+      "tool_call_observed": false,
+      "file_output_contract_observed": false,
+      "capability_verified": true,
+      "stream_completed": true,
+      "terminal_observed": true
+    },
+    "warning_codes": [],
+    "error_code": null,
+    "requested_model": "google/gemini-3.8-flash",
+    "actual_model": "google/gemini-3.8-flash",
+    "ttft_ms": 2087.508249998791,
+    "e2e_ms": 2094.982633992913,
+    "prompt_tokens": 5,
+    "completion_tokens": 77,
+    "total_tokens": 82,
+    "created_at": "2026-09-19T16:28:08.164873+00:00",
+    "completed_at": "2026-09-19T16:28:10.260027+00:00"
+  },
+  "generation": {
+    "card": "earth",
+    "sessionId": "43680038-2b25-45b4-9d0d-a754e219e504",
+    "requestId": "b5-gemini-output-2",
+    "at": "2026-09-19T16:29:44.639Z",
+    "transport": "modelmirror-rpg-s2s-v1",
+    "status": "complete",
+    "requestHash": "cd857c5b0a2ac75700e5976f8abd533dfc75fe9d3442b80229ee4a6a527d7294",
+    "controlRequestHash": "ba97d10ba2266653a14ed681c9c2fba901c1ed4d0dac76b5b2c4ee391591c020",
+    "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+    "selectionRevision": "4aa5973ead45603948f025b8c819d1a43cc7434e62e804c619c0a79e1ef34005",
+    "requestedModel": "google/gemini-3.8-flash",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "retries": 0,
+    "rawHash": "5cf749854d61c33138dcff85039b105ae8a6cf8635e234d49ed6d2cc40934da7",
+    "sseHash": "881d2ee9543549069615ca430ac922d6160230627e8502ab86ace8a73660ae8f",
+    "httpStatus": 200,
+    "receipt": {
+      "gateway": "rpg_scoped",
+      "runId": "chatrun_6e1cdd01fe3746cb8b5eda70950b0880",
+      "attemptId": "chatattempt_0b6d6300728e441c87e0251c6c77223f",
+      "requestedModel": "google/gemini-3.8-flash",
+      "actualModel": "google/gemini-3.8-flash",
+      "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+      "selectionRevision": "4aa5973ead45603948f025b8c819d1a43cc7434e62e804c619c0a79e1ef34005",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      },
+      "httpStatus": 200,
+      "dispatched": true,
+      "usage": {
+        "prompt_tokens": 24241,
+        "completion_tokens": 7529,
+        "total_tokens": 31770
+      },
+      "error": null,
+      "retries": 0,
+      "requestHash": "ba97d10ba2266653a14ed681c9c2fba901c1ed4d0dac76b5b2c4ee391591c020",
+      "rawHash": "5cf749854d61c33138dcff85039b105ae8a6cf8635e234d49ed6d2cc40934da7",
+      "sseHash": "881d2ee9543549069615ca430ac922d6160230627e8502ab86ace8a73660ae8f",
+      "status": "complete"
+    },
+    "error": null,
+    "manual": "pending"
+  },
+  "effectiveParameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "frozenMessagesMatchWire": true,
+  "messageRoles": [
+    "system",
+    "user",
+    "assistant",
+    "user"
+  ],
+  "originalLunaRawAndHistoricModelUnchanged": true,
+  "currentTurnPrefixSuffixCopies": 1,
+  "worldbook": "disabled",
+  "rawBytes": 24493,
+  "rawUnicodeCodePoints": 15507,
+  "rawUtf16CodeUnits": 15518,
+  "runtimeHash": "4717adac39f68fcadd30352d7d939d0fbeaa719fb058e89aef2440941f1147bb",
+  "messagesCanonicalHash": "55e0833a4ff8b7d7dfc4bf6bedd2ef0a9b0e9db513502a78b92a21a60a43e0d6",
+  "checks": {
+    "syntax": "node --check tooling/model-selector-b5-gemini-once.mjs passed",
+    "preflight": "71 source +24 build +4 author/assembly +14 prior evidence hashes matched before this turn",
+    "wire": "exact messages, selection, parameters matched freeze",
+    "persistence": "Luna and Gemini raw bytes match saved responses, complete history4 messages",
+    "browser": "Formal browser actual two-turn history and per-turn model labels verified",
+    "fullRegression": "not rerun; production sources unchanged",
+    "diff": "git diff --check passed"
+  },
+  "human": "pending Gemini; Luna continuation authorized without claiming global content quality acceptance",
+  "budgets": {
+    "authentication": {
+      "used": 2,
+      "limit": 3
+    },
+    "generation": {
+      "used": 2,
+      "limit": 3
+    }
+  },
+  "providerUsageNotAuditedBilling": true,
+  "rawPath": "experiments\\ai-rpg-engine\\.rpg04-work\\model-selector-b5\\data\\dispatches\\earth\\slot-2\\response.txt",
+  "noAutomaticRetry": true,
+  "deepseekDispatched": false
+}

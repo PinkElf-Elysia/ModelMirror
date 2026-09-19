@@ -1,0 +1,195 @@
+{
+  "batch": "B6-closeout",
+  "status": "human-accepted-pr-publication-authorized",
+  "base": "1864ed8446346df1b77eb3da53f94d9e56b7c53f",
+  "branch": "codex/rpg-model-selector",
+  "scope": "Accepted optional model selector; local documentation and frozen delivery closeout only",
+  "userPrototypeApproval": "approved: user 批准 after v2",
+  "providerDispatches": 6,
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false
+  },
+  "checks": {
+    "affectedRegression": "110/110 Node tests passed, zero skipped; offline/mock",
+    "frontend": "B4 historical77/77; B6 affected help tests54/54 passed",
+    "earthBuild": "B4 historical passed; B5 UI source/build unchanged",
+    "clientBuild": "B6 npm.cmd run build passed; existing chunk-size warning",
+    "diff": "passed",
+    "browser": "Actual conversation list shows parent and child with turn1 origin; child Luna+DeepSeek history restored, model labels and remaining0 visible; send disabled",
+    "realProvider": "3 authentication calls passed and 3 RPG outputs complete with exact actual models; user accepted final B5 batch",
+    "helpImages": "new article images pass; full command exit 1 with same 3 pre-existing unreferenced assets as exact HEAD snapshot",
+    "protectedFiles": "B6 opening:141 delivery entries matched, including77 source artifacts,24 build artifacts,4 author/assembly bindings,36 local evidence files",
+    "python": "27/27 server/tests/test_rpg_bridge.py passed; 4 existing FastAPI warnings",
+    "sharedDeployment": "not-run",
+    "thisTurn": "B6 help-content and HelpCenterPage tests54/54 passed; client TypeScript/Vite production build passed (existing chunk-size warning); formal browser help reflects acceptance/parameter boundaries; final hash/source-scope/diff checks passed",
+    "prePR": "origin/main unchanged,0/0; fresh isolated synthetic UI tutorial replay passed; help images3 known baseline failures only"
+  },
+  "artifacts": [
+    "B4.md",
+    "B4-UI-RECEIPT.json",
+    "b4-desktop.jpg",
+    "b4-mobile.jpg",
+    "b4-plugins.jpg",
+    "B6.md",
+    "B6-ACCEPTANCE.json",
+    "B6-DELIVERY.json"
+  ],
+  "updatedAt": "2026-09-19T16:59:00.458886+00:00",
+  "preview": {
+    "url": "http://127.0.0.1:18449/rpg/earth",
+    "hostPort": 18447,
+    "controlPort": 18446,
+    "mode": "isolated real OpenRouter control plane",
+    "sessionId": "branch-131b27027df5f1723bccb3790863c843cbe8a585477a9264a666f165ead2885e",
+    "data": "experiments\\ai-rpg-engine\\.rpg04-work\\model-selector-b5\\data",
+    "priorB4Preview": "18443/18444 remains synthetic; old runtime cannot be silently rebound",
+    "parentId": "43680038-2b25-45b4-9d0d-a754e219e504"
+  },
+  "next": "Create authorized PR; no merge/deployment/new Provider allowance",
+  "prototypeVersion": "v2",
+  "userRevision": "Only model-selection information; connection verification and API configuration owned by ModelMirror control plane",
+  "previousVerification": {
+    "prototypeVersion": "v1",
+    "checks": {
+      "syntax": "passed",
+      "noNetworkOrStorage": "passed; source scan and connect-src none",
+      "browser": "passed: search, cancel, Enter, Esc, draft, historic label, disable, uninstall/reinstall, authorization, expired, error recovery, busy, legacy; loading state disables save",
+      "mobile": "390px: clientWidth=scrollWidth=375; dialog=362",
+      "screenshots": "3 exact original JPEG hashes verified",
+      "productionTests": "not-run; B0 changes no production code",
+      "realProvider": "not-run; no new authorization",
+      "fullPageScreenshot": "not accepted: browser full-page capture showed scaling/blank canvas; retained normal viewport images only"
+    },
+    "artifacts": [
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/CONTRACT.md",
+        "bytes": 11809,
+        "sha256": "c9b2f00b4df5fc4884eb4b3ff229edd67350cca5ec18f7286c2dfe409439f977"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/index.html",
+        "bytes": 19376,
+        "sha256": "0b85cc2a4162b306427f95c302d0624c9a876a853fc49d7e2de635e08399e1fb"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/desktop-picker.jpg",
+        "bytes": 58272,
+        "sha256": "9a08fbe4afc0a87514b06dd31f2d36f3c63e12dfa63f354f8f47b9432b456974"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/mobile-picker.jpg",
+        "bytes": 36581,
+        "sha256": "4fed704e00c3974117f5e5643528f4cab21ca553c642748959c2ba770233d9c9"
+      },
+      {
+        "path": "docs/ai-rpg-experiment/model-selector/market.jpg",
+        "bytes": 35731,
+        "sha256": "db0d103ea39c4e49f079b0dc3370955315ab8d45f21f2a476a48752c09c17e7a"
+      }
+    ]
+  },
+  "prototypeChecks": {
+    "syntax": "passed",
+    "noNetworkOrStorage": "passed; static source check; connect-src none remains",
+    "browser": "passed: brand filters, search hit/empty, click and Enter immediate selection, Esc/close, disabled unavailable row, draft preserved, historical label unchanged, list-error refresh, loading display",
+    "mobile": "390x844: clientWidth=scrollWidth=375; dialog=362; ChatGPT category reachable",
+    "screenshots": "2 exact original JPEG hashes verified; v1 images preserved",
+    "productionTests": "not-run; prototype only",
+    "realProvider": "not-run; 0 dispatches",
+    "fullKeyboardPath": "not-run; focused Enter/Esc checks only"
+  },
+  "prototypeArtifacts": [
+    {
+      "file": "index.html",
+      "bytes": 20681,
+      "sha256": "8d40315d6bf38c36db29f97852f4705f2e3f434bb19e9c705ae00f4db803cd2c"
+    },
+    {
+      "file": "v2-desktop-picker.jpg",
+      "bytes": 52836,
+      "sha256": "6d72c5b56210af378c8a14222c3bd319f70cbb63d592d88aa6acbf3edb71ce01"
+    },
+    {
+      "file": "v2-mobile-picker.jpg",
+      "bytes": 29174,
+      "sha256": "86eb6d680f99866d69f635e9ee1beb4d9fae9c21db481598737d12aebdec906a"
+    }
+  ],
+  "batchAcceptance": "B0-B5 accepted by user; B6 closeout authorized",
+  "delivery": "PR-DELIVERY.json",
+  "boundaries": {
+    "liveConfiguration": "Existing service config reused only in memory; shared config unchanged",
+    "providerDispatches": 6,
+    "productionChatWiring": "isolated candidate only; shared stack not deployed",
+    "productionUI": "B4 accepted; B5 real candidate accepted",
+    "unknownCompatibility": "unselectable; no inference, refresh or certification from RPG",
+    "humanBatchAcceptance": "User 验收通过，可开始收尾; B5 accepted",
+    "legacyMigration": "none; verified explicit v1 hash only",
+    "realProvider": "authentication3/3; generation3/3; no retries or fallback"
+  },
+  "history": "B4-STATUS and B4-DELIVERY preserved; B4 preview remains synthetic",
+  "helpImageBaselineFailures": [
+    "b266b870/studio-beta-headings.jpg",
+    "eeb5bbd2/creator-cache.jpg",
+    "eeb5bbd2/studio-layout.jpg"
+  ],
+  "authorization": "B5-AUTHORIZATION.json",
+  "authenticationBudget": {
+    "limit": 3,
+    "used": 3,
+    "remaining": 0
+  },
+  "generationBudget": {
+    "limit": 3,
+    "used": 3,
+    "remaining": 0
+  },
+  "manualAcceptance": {
+    "userStatement": "验收通过，可开始收尾",
+    "recordedAt": "2026-09-19T16:47:23.830341+00:00",
+    "scope": "B5 three-model candidate vertical slice and final DeepSeek branch output accepted; B6 local closeout authorized",
+    "notAuthorized": [
+      "new Provider calls",
+      "commit",
+      "push",
+      "new PR",
+      "shared-stack deployment",
+      "merge"
+    ]
+  },
+  "closeout": {
+    "status": "complete",
+    "sharedStack": "not-deployed",
+    "publication": "not-authorized/not-run",
+    "providerAdded": 0,
+    "runtimeSourceChanged": false,
+    "verification": "B6.md",
+    "baselineBlockers": [
+      "3 existing unrelated help image check failures"
+    ],
+    "remainingLimitations": [
+      "shared-stack control metadata/qualification persistence and deployment smoke not validated",
+      "isolation worker certifications are memory-only",
+      "in-flight model-picker tooltip generic"
+    ],
+    "rollback": "retain sessions/snapshots/ledger; disable optional plugin first; no silent v2 downgrade"
+  },
+  "publicationAuthorization": {
+    "userStatement": "授权提交pr",
+    "recordedAt": "2026-09-19T16:59:00.458886+00:00",
+    "scope": [
+      "scoped local commit",
+      "push current branch",
+      "create PR"
+    ],
+    "excluded": [
+      "merge",
+      "shared deployment",
+      "new Provider calls"
+    ]
+  },
+  "publicationSnapshot": "Before publication commit; resulting commit/PR identity is recorded in Git/GitHub and local publication receipt"
+}

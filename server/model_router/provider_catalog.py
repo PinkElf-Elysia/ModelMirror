@@ -129,6 +129,17 @@ def normalize_provider_catalog(
             for key in ("object", "owned_by", "created", "name")
             if (safe := _safe_scalar(record.get(key))) is not None
         }
+        # Preserve bounded provider declarations for workload compatibility.
+        # Missing evidence remains missing; discovery never certifies support.
+        for key in ("context_length", "max_output_tokens"):
+            value = record.get(key)
+            if type(value) is int and 0 < value <= 100_000_000:
+                metadata[key] = value
+        parameters = record.get("supported_parameters")
+        if isinstance(parameters, list) and all(isinstance(p, str) for p in parameters):
+            metadata["supported_parameters"] = sorted(
+                set(parameters) & {"temperature", "top_p", "max_tokens"}
+            )
         if model_id not in normalized:
             normalized[model_id] = {
                 "model_id": model_id,

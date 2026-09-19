@@ -1537,6 +1537,7 @@ try:
         start_provider_batch_recovery,
         stop_provider_batch_recovery,
     )
+    from server.model_router.rpg_bridge import router as rpg_bridge_router
     from server.model_router.ai_research_bridge import (
         router as ai_research_bridge_router,
     )
@@ -1547,6 +1548,7 @@ except ModuleNotFoundError:
         stop_provider_batch_recovery,
     )
     from model_router.ai_research_bridge import router as ai_research_bridge_router
+    from model_router.rpg_bridge import router as rpg_bridge_router
 
 try:
     from server.model_router.expert_team_gateway import (
@@ -2015,6 +2017,7 @@ app.include_router(xpert_evolutions_router)
 app.include_router(model_router_router)
 app.include_router(model_catalog_router)
 app.include_router(ai_research_bridge_router)
+app.include_router(rpg_bridge_router)
 app.include_router(omniroute_router)
 app.include_router(multimodal_router)
 app.include_router(coding_router)

@@ -1,0 +1,53 @@
+{
+  "recordedAt": "2026-09-19T16:48:23.632622+00:00",
+  "userStatement": "验收通过，可开始收尾",
+  "outcome": "passed",
+  "scope": "B5 model-selector real vertical slice in independent candidate: Luna first turn, Gemini parent continuation, DeepSeek branch continuation",
+  "evidence": [
+    {
+      "model": "openai/gpt-5.6-luna",
+      "actualModel": "openai/gpt-5.6-luna",
+      "receipt": "B5-LUNA-RECEIPT.json",
+      "receiptSha256": "3f63f0bd62ba75bcae449dbb1f32c857397b8423e3725ed91c3f2b744b7e6251",
+      "rawSha256": "be78f2b7399dcd81e7b29f26db0eeda87b8e058f98d3f4ae6bc451913c623d24",
+      "result": "complete",
+      "manual": "accepted in final B5 batch"
+    },
+    {
+      "model": "google/gemini-3.8-flash",
+      "actualModel": "google/gemini-3.8-flash",
+      "receipt": "B5-GEMINI-RECEIPT.json",
+      "receiptSha256": "861cc2e32676b15a5899f08117f3b02824b45112f193a8f8e7e0c58ed40ee702",
+      "rawSha256": "5cf749854d61c33138dcff85039b105ae8a6cf8635e234d49ed6d2cc40934da7",
+      "result": "complete",
+      "manual": "accepted in final B5 batch"
+    },
+    {
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "actualModel": "deepseek/deepseek-v4-flash-0731",
+      "receipt": "B5-DEEPSEEK-RECEIPT.json",
+      "receiptSha256": "5c98b1ce46d34db404c5d27ef20a0db8951ec0b92c07286c7ac96494ddd5517c",
+      "rawSha256": "a486a039f99d0ae9077b5fe0cb9b5def950a736088cceb0f9030ea3454265d51",
+      "result": "complete",
+      "manual": "accepted in final B5 batch"
+    }
+  ],
+  "budgets": {
+    "authentication": {
+      "limit": 3,
+      "used": 3,
+      "remaining": 0
+    },
+    "generation": {
+      "limit": 3,
+      "used": 3,
+      "remaining": 0
+    }
+  },
+  "closeoutAuthorized": true,
+  "publicationAuthorized": false,
+  "sharedDeploymentAuthorized": false,
+  "noNewProviderAllowance": true,
+  "historicalReceiptsPreserved": true,
+  "priorGateStatements": "B0-B4 explicit approvals and per-output continuation remain in conversation and earlier delivery history; no earlier pending receipt rewritten"
+}
