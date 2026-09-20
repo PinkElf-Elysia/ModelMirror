@@ -2,10 +2,12 @@ import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {invoke as branchInvoke} from './branch-save.mjs';
 import {invoke as modelInvoke} from './model-selector.mjs';
+import {invoke as historyInvoke} from './history-window.mjs';
 
 export const PLUGIN_ID = 'rpg.branch-save'; // Compatibility default for existing branch callers.
 export const MODEL_SELECTOR_ID = 'rpg.model-selector';
-export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID]);
+export const HISTORY_WINDOW_ID = 'rpg.history-window';
+export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID]);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -16,6 +18,9 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  [HISTORY_WINDOW_ID, {file:'history-window', invoke:historyInvoke,
+    permissions:['session.completed.read','session.history.configure','ui.contribute'],
+    capabilities:['ui.history-action','session.history.configure']}],
   [PLUGIN_ID, {file:'branch-save', invoke:branchInvoke,
     permissions:['session.completed.read','session.branch.prepare','ui.contribute'],
     capabilities:['ui.message-action','session.branch.prepare']}],

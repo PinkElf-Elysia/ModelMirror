@@ -11,15 +11,21 @@ import {createProvider,models} from './provider.mjs';
 import {createLegacyEngine} from './legacy-engine.mjs';
 import {VersionedSessionStore} from './versioned-store.mjs';
 import {ModelSessionStore} from './model-session-store.mjs';
+import {HistorySessionStore} from './history-session-store.mjs';
+import {generateHistoryFixed,generateHistoryControlled} from './history-provider.mjs';
 import {createControlledProvider} from './controlled-provider.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null}={}){
- const provider=await createProvider({directory:join(directory,'dispatches'),key,enabled,limit,fetcher});
- const control=modelControl?await createControlledProvider({...modelControl,directory:join(directory,'dispatches'),limit}):null;
- const fixedGenerate=enabled&&key?(args)=>provider.generate('earth',args):null;
- const earth=control?new ModelSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence:control.evidence}):new VersionedSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate);await earth.init();
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false}={}){
+ const providerOptions={directory:join(directory,'dispatches'),key,enabled,limit,fetcher};
+ const provider=await createProvider(providerOptions);
+ const controlOptions=modelControl?{...modelControl,directory:join(directory,'dispatches'),limit}:null;
+ const originalControl=controlOptions?await createControlledProvider(controlOptions):null;
+ const control=historyWindow&&originalControl?{...originalControl,generate:(card,args)=>args.assertHistoryPolicy?generateHistoryControlled(controlOptions,card,args):originalControl.generate(card,args)}:originalControl;
+ const evidence=control?.evidence||(historyWindow?(await createControlledProvider({directory:join(directory,'dispatches'),enabled:false,limit})).evidence:null);
+ const fixedGenerate=enabled&&key?(args)=>historyWindow&&args.assertHistoryPolicy?generateHistoryFixed(providerOptions,args):provider.generate('earth',args):null;
+ const earth=historyWindow?new HistorySessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence}):control?new ModelSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence:control.evidence}):new VersionedSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate);await earth.init();
  const earthBudget=async()=>{const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await control.status()).enabled}:b;};
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let plugins=null,pluginError=null;
@@ -27,9 +33,11 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
   const s=await earth.read(id);
   return {id:s.id,cardId:'earth',revision:s.revision,completedTurns:s.history.length/2,
    resourceHash:sha(canonical({characterText:s.characterText,world:s.world,params:s.params,mode:s.mode,runtime:s.runtime?.hash||null})),
-   busy:earth.running.has(id),pending:Object.values(s.requests).some(r=>r.status==='pending')};
+   historyWindowCompatible:historyWindow&&s.runtime?.format===3&&earth.status(s).compatible,
+   busy:earth.running.has(id),pending:Object.values(s.requests).some(r=>r.status==='pending')||!!s.historyWindow?.pending};
  }});}catch(e){pluginError=e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_HOST_UNAVAILABLE';}
 
+ if(historyWindow)earth.plugins=plugins;
  const server=http.createServer(async(req,res)=>{
   const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
@@ -64,7 +72,15 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
      }
     }
 
-    const view=s=>({...projection(s),runtime:earth.status(s),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:safeHtml(t.raw)}))});
+    const view=s=>({...projection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:safeHtml(t.raw)}))});
+    const historyRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/history-window$/);
+    if(historyRoute){
+     if(!historyWindow)return send(409,{error:'HISTORY_RUNTIME_INCOMPATIBLE'});
+     const id=historyRoute[1],query=new URL(req.url,'http://rpg').searchParams;
+     if([...query.keys()].some(k=>k!=='operationId')||query.getAll('operationId').length>1)return send(400,{error:'HISTORY_OPERATION_INVALID'});
+     if(req.method==='GET')return send(200,{...await earth.historyWindowStatus(id,plugins),...(query.has('operationId')?{operation:await earth.historyOperation(id,query.get('operationId'))}:{})});
+     if(req.method==='POST'){if(query.size)return send(400,{error:'HISTORY_OPERATION_INVALID'});const r=await earth.saveHistoryWindow(id,data,plugins);return send(200,{...r,session:view(r.session)});}
+    }
     const modelRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/(model-catalog|model-selection)$/);
     if(modelRoute){
      if(!control)return send(503,{error:'CONTROL_DISABLED'});
@@ -98,6 +114,6 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';
  if(!key&&process.env.RPG_CREDENTIAL_FILE){const env=await readFile(process.env.RPG_CREDENTIAL_FILE,'utf8');const line=env.split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');}
- await start({port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
+ await start({historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
  console.log('RPG service started; credentials are server-only; no automatic dispatch.');
 }

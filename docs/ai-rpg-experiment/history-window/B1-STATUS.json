@@ -1,0 +1,54 @@
+{
+  "phase": "B1",
+  "status": "awaiting-B1-user-confirmation",
+  "base": "61b6eea80152904eb8fb3cc0ebba5e7647594828",
+  "branch": "codex/rpg-history-window",
+  "pr383": "merged",
+  "userApproval": "B0 prototype and assembly approved by user: 确认",
+  "productImplementation": "strategy/plugin-lifecycle/configuration-storage/runtime-binding/request-preparation; v3 dispatch and branch not connected",
+  "B1": "offline-verified; awaiting user confirmation",
+  "providerDispatchesThisRound": 0,
+  "newProviderBudget": 0,
+  "sharedDeployment": "not-run",
+  "commitPushPr": "not-authorized",
+  "baselineBindings": [
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/resources/prompts.json",
+      "sha256": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/lib/assembly.mjs",
+      "sha256": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "sha256": "daeac16aa356bdaadfac87617689605c3541f45bcc67448b4b993215f27a3395"
+    },
+    {
+      "path": "client/src/pages/RpgPluginsPage.tsx",
+      "sha256": "51abf32bed19f24fc5bde39370c96531dbe1d90e096d853d1592423392087042"
+    }
+  ],
+  "prototypeUrl": "http://127.0.0.1:18453/",
+  "prototypeUi": "manually-replayed-with-formal-browser-tools",
+  "syntheticContractExamples": "8 internally consistent; not runtime evidence",
+  "productionTests": {
+    "studioPlugins": {
+      "passed": 98,
+      "skipped": 1,
+      "failed": 0
+    },
+    "earth": {
+      "passed": 26,
+      "skipped": 0,
+      "failed": 0
+    }
+  },
+  "screenshots": "4 original browser JPEGs; unaltered",
+  "B2ActualRequestCapture": "not-started",
+  "B3ProductionBuilds": "not-run",
+  "B4RealProvider": "not-authorized/not-run",
+  "B0": "approved",
+  "currentDelivery": "B1-DELIVERY.json",
+  "historicalB0Delivery": "DELIVERY.json; original STATUS bytes preserved in B0-STATUS.json"
+}

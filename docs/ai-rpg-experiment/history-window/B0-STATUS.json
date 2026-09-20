@@ -1,0 +1,40 @@
+{
+  "phase": "B0",
+  "status": "awaiting-B0-user-approval",
+  "base": "61b6eea80152904eb8fb3cc0ebba5e7647594828",
+  "branch": "codex/rpg-history-window",
+  "pr383": "merged",
+  "userApproval": "pending",
+  "productImplementation": "not-started",
+  "B1": "not-started",
+  "providerDispatchesThisRound": 0,
+  "newProviderBudget": 0,
+  "sharedDeployment": "not-run",
+  "commitPushPr": "not-authorized",
+  "baselineBindings": [
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/resources/prompts.json",
+      "sha256": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/lib/assembly.mjs",
+      "sha256": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "sha256": "daeac16aa356bdaadfac87617689605c3541f45bcc67448b4b993215f27a3395"
+    },
+    {
+      "path": "client/src/pages/RpgPluginsPage.tsx",
+      "sha256": "51abf32bed19f24fc5bde39370c96531dbe1d90e096d853d1592423392087042"
+    }
+  ],
+  "prototypeUrl": "http://127.0.0.1:18453/",
+  "prototypeUi": "manually-replayed-with-formal-browser-tools",
+  "syntheticContractExamples": "8 internally consistent; not runtime evidence",
+  "productionTests": "not-run; no production edits",
+  "screenshots": "4 original browser JPEGs; unaltered",
+  "B2ActualRequestCapture": "not-run",
+  "B3ProductionBuilds": "not-run",
+  "B4RealProvider": "not-authorized/not-run"
+}

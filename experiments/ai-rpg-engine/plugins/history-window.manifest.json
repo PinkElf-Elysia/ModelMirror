@@ -1,0 +1,27 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.history-window",
+  "version": "1.0.0",
+  "name": "历史窗口",
+  "description": "选择续玩携带的近期完整回合；完整历史仍保留，不自动总结。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.history-action",
+    "session.history.configure"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.history.configure",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/history-window.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868"
+}

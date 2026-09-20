@@ -1,7 +1,9 @@
 import {mkdir,open,readFile,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
+import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,HISTORY_WINDOW_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
+
+import {validConfig} from './history-window.mjs';
 
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9-]{0,79}$/.test(value);
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -47,6 +49,10 @@ async function atomicWrite(path,value) {
  finally {if(file)await file.close();await unlink(temporary).catch(e=>{if(e.code!=='ENOENT')throw e;});}
 }
 function outputValid(pluginId,capability,value,session,input) {
+ if(pluginId===HISTORY_WINDOW_ID){
+  if(capability==='ui.history-action')return exact(value,['kind','action','label'])&&value.kind==='history-action'&&value.action==='history-settings'&&value.label==='历史窗口';
+  return capability==='session.history.configure'&&validConfig(input)&&exact(value,['kind','sessionId','turns','includeInitialCharacter'])&&value.kind==='history-configuration'&&value.sessionId===session.id&&value.turns===input.turns&&value.includeInitialCharacter===input.includeInitialCharacter;
+ }
  if(pluginId===MODEL_SELECTOR_ID){
   if(capability==='ui.model-action')return exact(value,['kind','action','label']) && value.kind==='model-action' && value.action==='select-model' && value.label==='选择模型';
   if(capability==='model.catalog.read')return exact(value,['kind','sessionId']) && value.kind==='model-catalog-request' && value.sessionId===session.id;
@@ -91,6 +97,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   const s=await lookupSession(sessionId);
   if(!s || s.id!==sessionId || !integer(s.revision) || !integer(s.completedTurns) || !hash(s.resourceHash))throw fail('PLUGIN_SESSION_INVALID',400);
   if(!entry.manifest.compatibleCards.includes(s.cardId))throw fail('PLUGIN_CARD_INCOMPATIBLE');
+  if(entry.manifest.id===HISTORY_WINDOW_ID&&s.historyWindowCompatible!==true)throw fail('HISTORY_RUNTIME_INCOMPATIBLE');
   return s;
  }
  function authorized(s,entry) {
@@ -109,6 +116,29 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
  })};}
  const host={
   catalog:async()=>publicCatalog(),
+  // Explicitly inactive is different from an unreadable/mismatched authorization.
+  async historyAuthorization(sessionId){
+   if(closed)throw fail('PLUGIN_HOST_CLOSED');
+   const entry=entryFor(HISTORY_WINDOW_ID),s=await sessionFor(sessionId,entry);
+   const p=pluginState(HISTORY_WINDOW_ID),g=Object.hasOwn(p.grants,sessionId)?p.grants[sessionId]:null;
+   let enabled=false;
+   if(p.installed){
+    if(!sameBinding(p.installed,{version:entry.manifest.version,...entry}))throw fail('PLUGIN_VERSION_MISMATCH');
+    if(g?.active){authorized(s,entry);enabled=true;}
+   }else if(g?.active)throw fail('PLUGIN_AUTHORIZATION_UNKNOWN');
+   return {enabled,revision:sha(canonical({installed:p.installed,grant:g,resourceHash:s.resourceHash}))};
+  },
+  // Serialize the final authorization check and synchronous network start against
+  // revoke/uninstall. Return the response promise boxed: do not hold the queue
+  // while the model is generating, so cancellation/revocation stays available.
+  async startHistoryDispatch(sessionId,expectedAuthorizationRevision,start){
+   if(!hash(expectedAuthorizationRevision)||typeof start!=='function')throw fail('HISTORY_DISPATCH_GUARD_REQUIRED');
+   return serial(async()=>{
+    const current=await host.historyAuthorization(sessionId);
+    if(current.revision!==expectedAuthorizationRevision)throw fail('HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH');
+    return {response:start()};
+   });
+  },
   async sessionStatus(sessionId,pluginId=PLUGIN_ID){
    const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);let enabled=false;
    try{authorized(s,entry);enabled=true;}catch{}
@@ -186,7 +216,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
    return structuredClone(result);
   },
   async commitResult(result,commit){
-   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
+   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select','session.history.configure'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
    return serial(async()=>{await host.validateResult(result);try{return await commit();}finally{tickets.get(result.pluginId)?.delete(result.ticket);}});
   },
   async close(){if(closed)return;closed=true;await queue;tickets.clear();await lock.close();await unlink(lockPath);},

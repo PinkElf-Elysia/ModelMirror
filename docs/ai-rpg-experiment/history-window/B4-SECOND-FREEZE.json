@@ -1,0 +1,53 @@
+{
+  "at": "2026-09-20T06:26:35.687Z",
+  "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+  "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+  "model": {
+    "kind": "controlled",
+    "model": "google/gemini-3.8-flash",
+    "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+    "selectionRevision": "3b03caf3974bf6713b0021a23b466292508737ec5d2196281e5885e5608de4bc",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "configHash": "14113fccb1e66501454ce5b97b43031fb9abf54c3a65e1c41e0ee123cea41ea3"
+  },
+  "historyPolicy": {
+    "policyVersion": "rpg.history-window/1",
+    "enabled": true,
+    "config": {
+      "turns": 1,
+      "includeInitialCharacter": false
+    },
+    "totalTurns": 1,
+    "selectedTurns": [
+      1
+    ],
+    "initialSnapshotAdded": false,
+    "configRevision": 1,
+    "policyRevision": "0bd437a5c313ef1480a0f61b790d357390bdfff985e048f557891a142546ade1",
+    "authorizationRevision": "a682cd43fbeac6cf1280b529f82a4b22321c61b31d3284951f79aea1550337ba",
+    "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+    "selectedRequestIds": [
+      "m1-b4-rpg-output-1"
+    ],
+    "requestHash": "166c68216afe148d25c0fada4840783377c1edbefb8359b003c49cc16a0358f3"
+  },
+  "playerInput": "我应声答应周芸，先把推车上最后三本文献逐一核对索书号、放回对应书架，再弯腰检查底层靠墙的板子，确认受潮的位置。",
+  "priorRawHash": "cd43dde9acd82b1460853920349cc605369147b48556ddfde1cb6f8ad24f7ea7",
+  "messagesHash": "166c68216afe148d25c0fada4840783377c1edbefb8359b003c49cc16a0358f3",
+  "requestHash": "5f72ef3e18ae4608e3b93c6c6dd6a52c456a29597fdf14141f77b4679af206d0",
+  "actualWireEqualsFrozen": true,
+  "fullFreeze": {
+    "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/second-input-freeze.json",
+    "sha256": "b8e20e8fc2a353cda365b92e5fd098cacf4112d3fb10161d1b7c3f0348b82ed2"
+  },
+  "tooling": {
+    "path": "experiments/ai-rpg-engine/tooling/history-window-b4-second.mjs",
+    "sha256": "953e22aad986e6fe384fe8fb4212b4e28d89265c491755876466d08db8e5c6c9"
+  },
+  "used": 3,
+  "remaining": 1
+}

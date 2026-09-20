@@ -33,7 +33,7 @@ test('corrupt plugin registry disables plugin endpoints without preventing core 
 test('two plugin HTTP lifecycles isolate consent and reject cross-ID requests without dispatch',async t=>{
  const f=await fixture(t),B='rpg.branch-save',M='rpg.model-selector';
  async function payload(action,id,s){const {data}=await f.api('api/plugins'),p=data.plugins.find(p=>p.id===id);return {operationId:randomUUID(),pluginId:id,version:p.version,artifactSha256:p.artifactSha256,manifestSha256:p.manifestSha256,expectedRegistryRevision:data.revision,...(s?{sessionId:s.id,expectedSessionRevision:s.revision}:{}),...(action==='enable'?{permissions:p.permissions}:{})};}
- const cat=(await f.api('api/plugins')).data;assert.deepEqual(cat.plugins.map(p=>p.id),[B,M]);assert.ok(cat.plugins.every(p=>!p.installed));
+ const cat=(await f.api('api/plugins')).data;assert.deepEqual(cat.plugins.map(p=>p.id),[B,M,'rpg.history-window']);assert.ok(cat.plugins.every(p=>!p.installed));
  const install=await payload('install',M);assert.equal((await f.api('api/plugins/'+B+'/install',install)).status,400);
  assert.equal((await f.api('api/plugins/'+M+'/install',install,'https://foreign.invalid')).status,403);
  for(const p of [B,M])assert.equal((await f.api('api/plugins/'+p+'/install',await payload('install',p))).status,200);

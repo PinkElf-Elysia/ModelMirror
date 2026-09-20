@@ -5,7 +5,7 @@ import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {createPluginService} from './host.mjs';
-import {loadReviewedPlugins,loadReviewedCatalog,verifyPackage,PLUGIN_ID as B,MODEL_SELECTOR_ID as M,sha} from './catalog.mjs';
+import {loadReviewedPlugins,loadReviewedCatalog,verifyPackage,PLUGIN_ID as B,MODEL_SELECTOR_ID as M,HISTORY_WINDOW_ID as H,sha} from './catalog.mjs';
 const root=fileURLToPath(new URL('../.rpg04-work/model-selector-b1-tests/',import.meta.url));
 await mkdir(root,{recursive:true});
 async function fixture(t,{override={},timeoutMs=1000}={}){
@@ -23,7 +23,7 @@ async function fixture(t,{override={},timeoutMs=1000}={}){
  };return f;
 }
 test('second package binds its exact capabilities, bytes and proposal-only boundary',async()=>{
- const entries=await loadReviewedPlugins();assert.deepEqual(entries.map(e=>e.manifest.id),[B,M]);
+ const entries=await loadReviewedPlugins();assert.deepEqual(entries.map(e=>e.manifest.id),[B,M,H]);
  const e=await loadReviewedCatalog(M);assert.equal(e.manifest.network,'none');assert.equal(e.manifest.modelAccess,false);
  assert.deepEqual(e.manifest.permissions,['model.catalog.read','session.model.select','ui.contribute']);
  const m=await readFile(new URL('./model-selector.manifest.json',import.meta.url)),a=await readFile(new URL('./model-selector.mjs',import.meta.url));

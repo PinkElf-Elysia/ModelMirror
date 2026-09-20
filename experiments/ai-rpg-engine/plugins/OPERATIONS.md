@@ -36,3 +36,36 @@ Docker构建上下文由studio/Dockerfile.dockerignore排除.env、原件私有�
 优先停用插件回退，保留当前核心服务读取新分支格式。卸载不删除会话、节点或账本。旧B1及更早宿主无法枚举新branches目录，因此尚不允许直接降级镜像；需要先在数据副本验证读取能力。不要修改旧会话runtime来伪造兼容。恢复未确认生成先读原记录，不换ID重发；分支使用同一操作ID核对已提交结果。
 
 只停止已核对归属的本批预览/临时容器。保留18433预览、历史B1/B2/B3清单和全部证据；本文不是操作共享8000/5173的授权。
+
+
+## M1 历史窗口 B1 候选（2026-09-19）
+
+新增审核插件 `rpg.history-window@1.0.0`，仅允许 M1 format=3 会话授权；默认未安装/未启用。配置默认最近3个完整回合、原始开局资料补入关闭。完整历史始终保留，不自动总结或更新人物状态。
+本批仅实现策略、插件生命周期、新运行绑定、配置原子存储与请求准备，尚未接入 `studio/server.mjs`；M1 的实际发送/分支显式拒绝直到 B2。现有入口继续使用旧宿主，不把候选文件发布到共享栈。
+配置保存失败可能留下 pending 操作：使用原 operationId 查询收束；确认未应用时不会自动重新应用。成功但丢失响应的操作直接返回原完成记录。禁止更换操作 ID 绕过未知状态。
+配置和授权共同决定 historyPolicyRevision；停用恢复完整历史，未知权限状态拒绝继续，不自动改变窗口或模型。停用/卸载不删除配置、历史或账本。
+当前证据与回退见 `docs/ai-rpg-experiment/history-window/B1-REVIEW.md`，当前源码登记见同目录 `B1-DELIVERY.json`。旧登记保留，不将 B1 的离线结果当作 B2 实际派发或 B4 真实模型验收。
+
+
+## M1 历史窗口 B2 候选
+
+B1段落为历史批次。本批通过服务端 `historyWindow:true` / `RPG_HISTORY_WINDOW_ENABLED=true` 显式选择 M1 format=3 宿主，默认关闭；只用于新隔离数据目录，正式UI接入留B3。保持 `RPG_ENABLED=false` 与原预算边界，启用M1本身不构成真实调用授权。
+设置接口为 `/rpg-app/earth/api/sessions/:id/history-window`。GET返回当前配置、授权和策略token，可携带唯一 `operationId` 只读查询；POST需同源，严格携带 `operationId/expectedSessionRevision/expectedConfigRevision/turns/includeInitialCharacter`。未知结果用相同ID和相同payload收束，返回 `not-applied` 不自动重新保存；不能更换ID绕过pending。
+M1发送必须携带 `expectedHistoryPolicyRevision`，并沿用请求ID、会话及模型revision；宿主决定选取原文，前端不能提交history/system。停用后完整历史恢复，未知授权拒绝继续。分支继承分支点设置但不继承授权；模型切换、分支和插件重装均不增加预算。
+本批仅本地假Provider HTTP验证，报告和当前登记见 `docs/ai-rpg-experiment/history-window/B2-REVIEW.md`、`B2-DELIVERY.json`。旧B0/B1原型、会话和证据不变；停用是首选回退，保留全历史/配置/账本，旧宿主降级另用副本验证。
+
+
+## M1 历史窗口 B3 候选
+
+B1/B2段落为历史批次。本批市场与会话设置已接入，帮助见 /help/set-rpg-history-window。正式入口仍使用服务端显式 M1 开关，默认关闭，不迁移旧会话。
+构建地球卡用于Studio时必须执行 npm.cmd run build --prefix experiments/ai-rpg-engine/card-replica -- --base=/rpg-app/earth/；父前端另在client运行 npm.cmd run build。只运行默认card build会得到不适用于嵌套入口的 /assets 路径。
+本批18455/18456为独立离线验收实例，数据在 .rpg04-work/history-window-b3/preview-data，Provider关闭、预算0。18453保留为已批准原型。本文不授权共享栈更新或真实派发。
+设置未知结果使用界面“恢复设置结果”，查询或收束原操作；不清浏览器数据、不换ID重放。停用/卸载保留配置和完整历史；重装需重新启用。旧宿主降级另用副本验证，不能直接复用含新插件登记的数据目录。
+当前证据与hash见 docs/ai-rpg-experiment/history-window/B3-REVIEW.md、B3-DELIVERY.json。B3用户验收及B4真实额度仍待后续确认。
+
+
+## M1 已验收候选收尾（2026-09-19，本机时区）
+
+上述B1–B3为历史记录。B0–B3与B4三份真实输出均已获得用户确认。新4次额度计入1次必要认证及3次Gemini生成，已耗尽；不追加、不重试，不沿用旧额度。真实入口18461、宿主18459、独立控制面18458保留用于只读审阅；18455离线入口及18453原型保留。
+真实会话当前启用窗口1、开局资料关闭；第三轮实际请求只包含第2回合，完整三轮历史仍保存。重要：全局 /rpg-app/api/status 的 contextPolicy:retain-all 来自静态卡片默认描述，不能代表逐会话有效策略。运维核对应读取 sessions/:id/history-window 的 effectivePolicy 和回合 historyPolicy，再比对派发 request.json；本次未为纠正文案而改变已验收运行hash。此字段的语义澄清列为后续发布前复核项。
+收尾说明与当前hash见 docs/ai-rpg-experiment/history-window/FINAL-REVIEW.md、FINAL-DELIVERY.json。没有Commit/Push/PR/共享部署授权。回退优先停用插件，不删除会话、分支、配置或调用账本；旧宿主降级必须在数据副本上验证。

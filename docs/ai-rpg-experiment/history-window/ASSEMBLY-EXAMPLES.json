@@ -1,0 +1,626 @@
+{
+  "kind": "synthetic-contract-examples-not-runtime-evidence",
+  "characterText": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）",
+  "cases": [
+    {
+      "id": "first-turn",
+      "T": 0,
+      "N": 3,
+      "enabled": true,
+      "includeInitialCharacter": false,
+      "selectedTurns": [],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n当前输入"
+        }
+      ],
+      "expectedRequestSha256": "6cb89e17447c947dec4478aefac37efe20f02e7b137b05232d26d3c517f3c0b4"
+    },
+    {
+      "id": "less-than-window",
+      "T": 2,
+      "N": 3,
+      "enabled": true,
+      "includeInitialCharacter": true,
+      "selectedTurns": [
+        1,
+        2
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "6576f6248f3395f1cf920d30997a3fd0f4ac9d9d27b5c7d372dd472b9515d818"
+    },
+    {
+      "id": "at-window",
+      "T": 3,
+      "N": 3,
+      "enabled": true,
+      "includeInitialCharacter": true,
+      "selectedTurns": [
+        1,
+        2,
+        3
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "1fe0b7f194dceba86321b9386d86d61867aa40bc8f4387b1da68f94d1d253dc7"
+    },
+    {
+      "id": "over-window-off",
+      "T": 5,
+      "N": 3,
+      "enabled": true,
+      "includeInitialCharacter": false,
+      "selectedTurns": [
+        3,
+        4,
+        5
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "71893f0607a40d352ca21af04330551258aa98390d8c569bc2f840a64edf10ee"
+    },
+    {
+      "id": "over-window-on",
+      "T": 5,
+      "N": 3,
+      "enabled": true,
+      "includeInitialCharacter": true,
+      "selectedTurns": [
+        3,
+        4,
+        5
+      ],
+      "initialSnapshotAdded": true,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "开局角色资料（原始快照）\n姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "2d6904d264ba56943533228409c66d5545bac4db04c264f1addb85f510fa07f9"
+    },
+    {
+      "id": "disabled-retains-full",
+      "T": 5,
+      "N": 3,
+      "enabled": false,
+      "includeInitialCharacter": true,
+      "selectedTurns": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "b413dda93c5e955763ec89696cca9ab83c678fbcaec385e93e1f3b8226dad8b9"
+    },
+    {
+      "id": "minimum-window",
+      "T": 5,
+      "N": 1,
+      "enabled": true,
+      "includeInitialCharacter": false,
+      "selectedTurns": [
+        5
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "1cf92231202c24e0d9700c787b9a1cd15b77d17babab02e4827645e62508b76b"
+    },
+    {
+      "id": "maximum-window",
+      "T": 5,
+      "N": 50,
+      "enabled": true,
+      "includeInitialCharacter": false,
+      "selectedTurns": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "initialSnapshotAdded": false,
+      "persistentHistory": [
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        }
+      ],
+      "expectedMessages": [
+        {
+          "role": "system",
+          "content": "[冻结 system：原样]"
+        },
+        {
+          "role": "user",
+          "content": "姓名：许澄\n开局年龄：24岁\n职业：图书管理员（虚构样例）\n\n开始故事。"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 1\n<LongShortMemory>卡内原文 1</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 2\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 2\n<LongShortMemory>卡内原文 2</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 3\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 3\n<LongShortMemory>卡内原文 3</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 4\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情回复 4\n<LongShortMemory>卡内原文 4</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n玩家输入 5\n[官方后置词：原样]"
+        },
+        {
+          "role": "assistant",
+          "content": "剧情：两年后，许澄已经26岁。\n<LongShortMemory>卡内原文 5</LongShortMemory>"
+        },
+        {
+          "role": "user",
+          "content": "[官方前置词：原样]\n当前输入\n[官方后置词：原样]"
+        }
+      ],
+      "expectedRequestSha256": "b413dda93c5e955763ec89696cca9ab83c678fbcaec385e93e1f3b8226dad8b9"
+    }
+  ]
+}

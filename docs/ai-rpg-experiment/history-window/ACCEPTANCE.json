@@ -1,0 +1,41 @@
+{
+  "at": "2026-09-20T06:42:25.530Z",
+  "baseline": "61b6eea80152904eb8fb3cc0ebba5e7647594828",
+  "branch": "codex/rpg-history-window",
+  "runtime": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+  "acceptedDelivery": "ef13fe533e3b5ff3744111c512ee84ea0e3505ce8debe03b764fc70d4b96ce49",
+  "userDecisions": {
+    "B3": "通过，授权4次额度",
+    "output1": "通过，继续",
+    "output2": "确认继续",
+    "output3": "审阅通过，但我要确认历史窗口真实状态",
+    "closeout": "可开始收尾"
+  },
+  "results": {
+    "offline": "passed; B1/B2 evidence retained",
+    "ui": "passed; B3 approved",
+    "provider": "passed; third real request selected only turn 2",
+    "manual": "all three outputs accepted"
+  },
+  "scope": {
+    "windowTurns": 1,
+    "includeInitialCharacter": false,
+    "trajectoryTurns": 3,
+    "completeHistoryMessages": 6,
+    "providerDispatchesIncludingAuthentication": 4,
+    "remaining": 0
+  },
+  "notClaimed": [
+    "long-session memory stability",
+    "causal contribution of card memory versus raw narrative",
+    "real-model coverage with snapshot enabled",
+    "shared deployment",
+    "PR or release"
+  ],
+  "knownIssues": [
+    "global static contextPolicy:retain-all is not session policy",
+    "3 pre-existing unreferenced help images",
+    "actual legacy session copy test skipped"
+  ],
+  "preservedSnapshot": "experiments/ai-rpg-engine/.rpg04-work/history-window-closeout/accepted-snapshot"
+}
