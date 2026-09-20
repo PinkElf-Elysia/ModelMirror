@@ -518,12 +518,15 @@ function localFallbackReason(code) {
 }
 
 async function finalizeDispatchedFallback(host, active, diagnosticCode, providerResult, { requestCount = 1 } = {}) {
-  const usage = captureUsage(providerResult?.usage) ?? structuredClone(ZERO_USAGE);
   const returnedModel = typeof providerResult?.returnedModel === "string" && providerResult.returnedModel.length <= 128
     ? providerResult.returnedModel
     : null;
+  // A token count for a different/unknown model cannot use this model's price
+  // lock, even if a provider operation incorrectly reports a known charge.
+  const modelMatches = returnedModel === active.plan.model;
+  const usage = (modelMatches ? captureUsage(providerResult?.usage) : null) ?? structuredClone(ZERO_USAGE);
   const expectedCost = requestCount === 1 ? receiptCostFromUsage(usage, active.plan) : null;
-  const knownCost = requestCount === 1 && providerResult?.costUncertain === false &&
+  const knownCost = requestCount === 1 && modelMatches && providerResult?.costUncertain === false &&
     Number.isSafeInteger(providerResult?.actualCostMicrousd) && providerResult.actualCostMicrousd === expectedCost &&
     expectedCost >= 0 && expectedCost <= NPC_COGNITION_LIMITS.perCallMicrousd;
   const receipt = buildReceipt(active, {

@@ -355,9 +355,9 @@ function dynamicResponseSchema(turn) {
   return {
     type: "object", additionalProperties: false, required: ["contextSha256", "dialogueText", "actionChoiceId"],
     properties: {
-      contextSha256: { const: turn.context.contextSha256 },
+      contextSha256: { type: "string", const: turn.context.contextSha256 },
       dialogueText: { type: "string", minLength: 1, maxLength: NPC_COGNITION_LIMITS.dialogueBytes },
-      actionChoiceId: { enum: [null, ...choiceIds] },
+      actionChoiceId: { type: ["string", "null"], enum: [null, ...choiceIds] },
     },
   };
 }
@@ -368,7 +368,7 @@ export function planNpcCognitionCall(input) {
     if (!data || !turn || turn.prepared !== input.prepared) return failure("NPC_COGNITION_TURN_HANDLE_INVALID");
     const responseSchema = dynamicResponseSchema(turn); const responseSchemaJson = canonicalizeJsonValue(responseSchema);
     const providerPayload = {
-      model: NPC_COGNITION_MODEL, reasoning: { effort: "none" }, stream: false, store: false, background: false,
+      model: NPC_COGNITION_MODEL, service_tier: "default", reasoning: { effort: "none" }, stream: false, store: false, background: false,
       truncation: "disabled", max_output_tokens: NPC_COGNITION_LIMITS.maxOutputTokens, instructions: NPC_COGNITION_TRUSTED_INSTRUCTIONS,
       input: turn.context.canonicalContextJson,
       text: { format: { type: "json_schema", name: "matrix_oasis_npc_dialogue_proposal", strict: true, schema: responseSchema } },

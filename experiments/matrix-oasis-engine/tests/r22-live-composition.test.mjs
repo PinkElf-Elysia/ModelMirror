@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
+import { access, lstat, readFile, readdir, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -77,14 +77,288 @@ async function route(live, method, url, body, expected = 200) {
   return JSON.parse(response.body);
 }
 
-async function settled(live, turnId) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const response = await route(live, "GET", `/v1/cognition/status/${turnId}`);
+async function settled(live, turnId, {
+  readStatus = () => route(live, "GET", `/v1/cognition/status/${turnId}`),
+  now = () => performance.now(),
+  pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
+  // This is a test completion budget, not a product timeout. Observe only the
+  // public status route; never close the live controller to force a result.
+  const deadline = now() + 45_000;
+  while (now() < deadline) {
+    const response = await readStatus();
+    if (now() >= deadline) break;
     if (response.status !== "dispatching") return response;
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await pause(Math.min(25, deadline - now()));
   }
-  assert.fail("offline fake provider did not settle");
+  assert.fail("offline fake provider exceeded the 45-second completion deadline");
 }
+
+test("composition status wait has a monotonic total deadline and cannot promote pending or failed outcomes", async () => {
+  let elapsed = 0, reads = 0;
+  const outcome = Object.freeze({ status: "dialogue_only", dialogueText: "Local fixture." });
+  const result = await settled(null, "turn-fixture", {
+    now: () => elapsed,
+    pause: async (milliseconds) => { elapsed += milliseconds; },
+    readStatus: async () => { reads += 1; return reads <= 201 ? { status: "dispatching" } : outcome; },
+  });
+  assert.strictEqual(result, outcome);
+  assert.equal(reads, 202);
+  assert.equal(elapsed, 5025);
+
+  elapsed = 0; reads = 0;
+  await assert.rejects(settled(null, "turn-fixture", {
+    now: () => elapsed,
+    pause: async (milliseconds) => { elapsed += milliseconds; },
+    readStatus: async () => { reads += 1; return { status: "dispatching" }; },
+  }), /exceeded the 45-second completion deadline/u);
+  assert.equal(elapsed, 45_000);
+  assert.equal(reads, 1800);
+
+  for (const completedAt of [44_999, 45_000]) {
+    elapsed = 0;
+    const pending = settled(null, "turn-fixture", {
+      now: () => elapsed,
+      readStatus: async () => { elapsed = completedAt; return outcome; },
+    });
+    if (completedAt === 44_999) assert.strictEqual(await pending, outcome);
+    else await assert.rejects(pending, /exceeded the 45-second completion deadline/u);
+  }
+  const fallback = Object.freeze({ status: "fallback", fallbackCode: "local-fixture" });
+  assert.strictEqual(await settled(null, "turn-fixture", { readStatus: async () => fallback }), fallback);
+  const failure = new Error("local status fixture failure");
+  await assert.rejects(settled(null, "turn-fixture", { readStatus: async () => { throw failure; } }),
+    (error) => error === failure);
+});
+
+test("official file source stays unread before approval and never enters persisted evidence", async (t) => {
+  if (process.platform !== "win32") return t.skip("fixed Windows qualification cache is unavailable");
+  try { await access(path.join(CASE.npcRunRoot, "npc-current.json")); await access(path.join(CASE.derivedStateRoot, "npc-derived-state-bundle.json")); }
+  catch { return t.skip("fixed Windows qualification cache is unavailable"); }
+  const suffix = randomUUID(), base = path.join(TEMP_ROOT, `matrix-oasis-r22-live-${suffix}`);
+  const npcRunRoot = `${base}-npc`, cognitionRunRoot = `${base}-cognition`;
+  const credentialFile = path.join(TEMP_ROOT, `matrix-oasis-r22-test-credential-${suffix}.txt`);
+  const fakeCredential = ["sk", "proj", "offline-fixture", suffix].join("-");
+  await writeFile(credentialFile, fakeCredential, { flag: "wx" });
+  const ownedCredential = await lstat(credentialFile, { bigint: true });
+  t.after(async () => {
+    const current = await lstat(credentialFile, { bigint: true });
+    assert.equal(current.dev, ownedCredential.dev); assert.equal(current.ino, ownedCredential.ino); await unlink(credentialFile);
+    const names = /^matrix-oasis-r22-live-[0-9a-f-]+-(?:npc|cognition)$/u;
+    await removeOwnedDirectory(npcRunRoot, names); await removeOwnedDirectory(cognitionRunRoot, names);
+  });
+  const source = await verifyR22QualifiedSourcePair(CASE, TEMP_ROOT);
+  const common = { source, implementationSha256: SHA_A, godotBinarySha256: SHA_B, temporaryRoot: TEMP_ROOT, npcRunRoot, cognitionRunRoot, credentialFile };
+  await assert.rejects(createR22LiveComposition({ ...common, providerMode: "offline-fake" }), /R22_LIVE_CONFIGURATION_INVALID/u);
+  await assert.rejects(createR22LiveComposition({ ...common, providerMode: "official-once", resume: true }), /R22_LIVE_CONFIGURATION_INVALID/u);
+  let fetches = 0;
+  // A local protocol fixture only: no upstream request or real key is used.
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    fetches += 1;
+    assert.equal(url, "https://api.openai.com/v1/responses");
+    assert.equal(options.headers.authorization === `Bearer ${fakeCredential}`, true);
+    assert.equal(options.redirect, "error");
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.service_tier, "default");
+    // Stay well inside the fixed 30-second Provider contract, but exceed the
+    // old test helper's accidental 200 x 5 ms completion budget.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    return new Response(JSON.stringify({ id: "discarded-response", object: "response", status: "completed", error: null, incomplete_details: null,
+      model: payload.model, service_tier: "default", output: [{ id: "discarded-message", type: "message", status: "completed", role: "assistant", content: [{ type: "output_text", annotations: [],
+        text: JSON.stringify({ contextSha256: sha256(payload.input), dialogueText: "Offline credential integration fixture.", actionChoiceId: null }) }] }],
+      usage: { input_tokens: 200, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 }, output_tokens: 50,
+        output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 250 } }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const live = await createR22LiveComposition({ ...common, providerMode: "official-once" });
+  try {
+    const actorEntityId = JSON.parse(source.npcEntityBindingJson).bindings[0].actorEntityId;
+    assert.equal(live.exportState().sourceCredentialReads, 0); assert.equal(fetches, 0);
+    const declined = await route(live, "POST", "/v1/cognition/turn", { actorEntityId, playerText: "Decline the credential fixture." });
+    await route(live, "POST", "/v1/cognition/decline", { turnId: declined.turnId, approvalHash: declined.approvalHash });
+    assert.equal(live.exportState().sourceCredentialReads, 0); assert.equal(fetches, 0);
+    const approved = await route(live, "POST", "/v1/cognition/turn", { actorEntityId, playerText: "Approve the credential fixture." });
+    assert.equal(live.exportState().sourceCredentialReads, 0); assert.equal(fetches, 0);
+    await route(live, "POST", "/v1/cognition/approve", { turnId: approved.turnId, approvalHash: approved.approvalHash });
+    const outcome = await settled(live, approved.turnId);
+    assert.equal(outcome.status, "dialogue_only"); assert.equal(fetches, 1); assert.equal(live.exportState().sourceCredentialReads, 1);
+    for (const file of await filesBelow(cognitionRunRoot)) {
+      const text = await readFile(file, "utf8");
+      assert.equal(text.includes(fakeCredential), false); assert.equal(text.includes(credentialFile), false);
+      assert.equal(text.includes("Offline credential integration fixture."), false);
+    }
+  } finally { await live.close(); }
+});
+
+test("offline manual profiles reject non-data, unknown, extra, official, and credential-bearing input before resource access", async () => {
+  const base = { providerMode: "offline-fake", implementationSha256: SHA_A, godotBinarySha256: SHA_B };
+  let getterReads = 0, resourceReads = 0;
+  const symbolProfile = { scenario: "normal", windowSize: "960x540" };
+  symbolProfile[Symbol("extra")] = true;
+  const getterProfile = { windowSize: "960x540" };
+  Object.defineProperty(getterProfile, "scenario", { enumerable: true, get() { getterReads += 1; return "normal"; } });
+  const cases = [
+    { ...base, offlineManualProfile: getterProfile },
+    { ...base, offlineManualProfile: { scenario: "unknown", windowSize: "960x540" } },
+    { ...base, offlineManualProfile: { scenario: "normal", windowSize: "800x600" } },
+    { ...base, offlineManualProfile: { scenario: "normal", windowSize: "960x540", extra: true } },
+    { ...base, offlineManualProfile: symbolProfile },
+    { ...base, offlineManualProfile: new Proxy({ scenario: "normal", windowSize: "960x540" }, {}) },
+    { ...base, providerMode: "official-once", offlineManualProfile: { scenario: "normal", windowSize: "960x540" } },
+    { ...base, credentialFile: undefined, offlineManualProfile: { scenario: "normal", windowSize: "960x540" } },
+  ];
+  for (const input of cases) {
+    Object.defineProperty(input, "temporaryRoot", { get() { resourceReads += 1; throw new Error("resource access"); } });
+    await assert.rejects(createR22LiveComposition(input), /R22_LIVE_CONFIGURATION_INVALID/u);
+  }
+  assert.equal(getterReads, 0);
+  assert.equal(resourceReads, 0);
+});
+
+async function createOfflineManualFixture(t, scenario, windowSize = "960x540") {
+  if (process.platform !== "win32") { t.skip("fixed Windows qualification cache is unavailable"); return null; }
+  try { await access(path.join(CASE.npcRunRoot, "npc-current.json")); await access(path.join(CASE.derivedStateRoot, "npc-derived-state-bundle.json")); }
+  catch { t.skip("fixed Windows qualification cache is unavailable"); return null; }
+  const base = path.join(TEMP_ROOT, `matrix-oasis-r22-live-${randomUUID()}`);
+  const npcRunRoot = `${base}-npc`, cognitionRunRoot = `${base}-cognition`;
+  const name = /^matrix-oasis-r22-live-[0-9a-f-]+-(?:npc|cognition)$/u;
+  t.after(async () => {
+    await removeOwnedDirectory(npcRunRoot, name); await removeOwnedDirectory(cognitionRunRoot, name);
+    await rm(path.join(TEMP_ROOT, `.${path.basename(npcRunRoot)}.r20-writer-lock`), { force: true });
+    await rm(path.join(TEMP_ROOT, `.${path.basename(cognitionRunRoot)}.r22-writer-lock`), { force: true });
+  });
+  const source = await verifyR22QualifiedSourcePair(CASE, TEMP_ROOT);
+  const profile = { scenario, windowSize };
+  const live = await createR22LiveComposition({ providerMode: "offline-fake", implementationSha256: SHA_A,
+    godotBinarySha256: SHA_B, source, temporaryRoot: TEMP_ROOT, npcRunRoot, cognitionRunRoot,
+    offlineManualProfile: profile });
+  return { live, source, actorEntityId: JSON.parse(source.npcEntityBindingJson).bindings[0].actorEntityId,
+    cognitionRunRoot, profile };
+}
+
+async function approveOfflineManualTurn(fixture) {
+  const turn = await route(fixture.live, "POST", "/v1/cognition/turn", {
+    actorEntityId: fixture.actorEntityId, playerText: "Exercise the fixed offline manual scenario.",
+  });
+  await route(fixture.live, "POST", "/v1/cognition/approve", { turnId: turn.turnId, approvalHash: turn.approvalHash });
+  return { turn, outcome: await settled(fixture.live, turn.turnId) };
+}
+
+async function completeOfflineCommand(live, turn, outcome) {
+  if (outcome.status !== "fallback") {
+    await route(live, "POST", "/v1/cognition/displayed", { turnId: turn.turnId, displayAckHash: outcome.displayAckHash });
+  }
+  const selected = await route(live, "GET", "/v1/command");
+  assert.equal(selected.status, "command");
+  assert.deepEqual(await route(live, "GET", "/v1/command"), { status: "quiescent" });
+  const arrived = await route(live, "POST", "/v1/arrived", { sequence: selected.command.sequence,
+    pathComplete: true, floorVerified: true, capsuleVerified: true, domainVerified: true, movementTicks: 0, pathLengthMm: 0 });
+  await route(live, "POST", "/v1/mirror", { sequence: selected.command.sequence,
+    beforeSnapshotSha256: arrived.beforeSnapshotSha256, afterSnapshotSha256: arrived.afterSnapshotSha256 });
+  return { selected, arrived };
+}
+
+function syntheticPhysicalMarker(live, source, selected, arrived) {
+  const snapshot = live.exportState().authority;
+  const committed = snapshot.commands.find((item) => item.sequence === selected.command.sequence);
+  const ledger = JSON.parse(snapshot.authority.canonicalWorldEventLedgerJson);
+  const entry = ledger.entries.find((item) => item.intent.id === selected.command.intentId);
+  assert.ok(committed); assert.ok(entry);
+  const identity = Object.fromEntries(["sequence", "actorEntityId", "ruleIndex", "intentId", "nodeId", "actionId"]
+    .map((key) => [key, selected.command[key]]));
+  const authority = { decision: arrived.decision, beforeSnapshotSha256: arrived.beforeSnapshotSha256,
+    afterSnapshotSha256: arrived.afterSnapshotSha256 };
+  const trace = [
+    { sequence: selected.command.sequence, actorEntityId: selected.command.actorEntityId, actionId: selected.command.actionId,
+      state: "arrived", arrivalEvidence: structuredClone(committed.arrivalEvidence) },
+    { sequence: selected.command.sequence, actorEntityId: selected.command.actorEntityId, actionId: selected.command.actionId,
+      state: "mirrored", ...authority },
+  ];
+  const intentJson = canonicalText(entry.intent);
+  return canonicalText({ format: "matrix-oasis.r22-live-physical-evidence", formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1", timelineId: ledger.timeline.id,
+    entityBindingSha256: sha256(source.npcEntityBindingJson),
+    command: { ...identity, commandSha256: sha256(canonicalText({ ...identity, npcIntentJson: intentJson })),
+      intentSha256: sha256(intentJson) },
+    authority, movement: { outbound: structuredClone(committed.arrivalEvidence),
+      return: { kind: "walked-home", returnedHome: true, physicsProcessing: false, positionErrorMm: 0 } },
+    performance: { sampleCount: 300, frameMicros: Array(300).fill(16000), medianFrameMicros: 16000, medianFpsMilli: 62500 },
+    canonicalR20Trace: canonicalText(trace) });
+}
+
+test("offline manual normal, refusal, invalid-response, and injection use one bounded fake dispatch through the real host path", async (t) => {
+  const scenarios = [
+    ["normal", "640x540", "queued_for_r20", null],
+    ["refusal", "960x540", "fallback", "R22_PROVIDER_REFUSED"],
+    ["invalid-response", "960x540", "fallback", "R22_PROVIDER_RESPONSE_INVALID"],
+    ["injection", "960x540", "queued_for_r20", null],
+  ];
+  for (const [scenario, windowSize, status, diagnostic] of scenarios) await t.test(scenario, async (child) => {
+    const fixture = await createOfflineManualFixture(child, scenario, windowSize); if (!fixture) return;
+    const { live, cognitionRunRoot, profile } = fixture;
+    try {
+      assert.deepEqual(live.offlineManualProfile, profile); assert.equal(Object.isFrozen(live.offlineManualProfile), true);
+      profile.scenario = "timeout";
+      assert.equal(live.offlineManualProfile.scenario, scenario);
+      const manifest = JSON.parse(await readFile(path.join(cognitionRunRoot, "cognition-session-manifest.json"), "utf8"));
+      assert.equal(manifest.formatVersion, "0.2.0");
+      assert.deepEqual(manifest.offlineManualProfile, { scenario, windowSize });
+      assert.equal(manifest.implementationSha256, SHA_A);
+      const { turn, outcome } = await approveOfflineManualTurn(fixture);
+      assert.equal(outcome.status, status);
+      if (diagnostic === null) {
+        assert.equal(typeof outcome.displayAckHash, "string");
+      } else {
+        assert.deepEqual(outcome, { status: "fallback", diagnostic });
+      }
+      if (scenario === "injection") {
+        assert.equal(outcome.dialogueText,
+          "[offline link](file:///offline-qa) <b>literal only</b> [color=red]no execution[/color]");
+        const callPlanFile = (await filesBelow(cognitionRunRoot)).find((file) => file.endsWith("call-plan.json"));
+        assert.ok(callPlanFile);
+        const callPlan = JSON.parse(await readFile(callPlanFile, "utf8"));
+        assert.equal(outcome.actionChoiceId, callPlan.candidateChoices[0].choiceId);
+      }
+      assert.equal(live.exportState().fakeDispatches, 1);
+      assert.equal(live.exportState().realProviderRequests, 0);
+      assert.equal(live.exportState().sourceCredentialReads, 0);
+      assert.deepEqual(await route(live, "GET", `/v1/cognition/status/${turn.turnId}`), outcome);
+      assert.equal(live.exportState().fakeDispatches, 1);
+      const completed = await completeOfflineCommand(live, turn, outcome);
+      if (scenario === "injection") {
+        const physical = await live.recordPhysicalEvidence(syntheticPhysicalMarker(live, fixture.source, completed.selected, completed.arrived));
+        const physicalName = /^matrix-oasis-r22-physical-[0-9a-f]{64}$/u;
+        const identity = await inspectOwnedDirectory(physical.output, physicalName);
+        child.after(() => removeOwnedDirectory(physical.output, physicalName, identity));
+        const report = JSON.parse(await readFile(path.join(physical.output, "observation-report.json"), "utf8"));
+        assert.equal(report.formatVersion, "0.2.0");
+        assert.deepEqual(report.offlineManualProfile, { scenario, windowSize });
+        assert.equal(report.implementationSha256, SHA_A);
+        assert.equal(report.providerMode, "offline-fake"); assert.equal(report.realProviderRequests, 0);
+        assert.equal(report.sourceCredentialReads, 0); assert.equal(report.manualAcceptancePassed, false);
+      }
+      const persisted = await Promise.all((await filesBelow(cognitionRunRoot)).map((file) => readFile(file, "utf8")));
+      assert.equal(persisted.some((text) => text.includes("offline-fake-key") || text.includes("Offline fake refusal.") ||
+        text.includes("file:///offline-qa") || text.includes("Exercise the fixed offline manual scenario.")), false);
+    } finally { await live.close(); }
+  });
+});
+
+test("offline manual timeout waits for the real 30-second AbortSignal and never retries", { timeout: 60000 }, async (t) => {
+  const fixture = await createOfflineManualFixture(t, "timeout", "640x540"); if (!fixture) return;
+  const started = performance.now();
+  try {
+    const { turn, outcome } = await approveOfflineManualTurn(fixture);
+    const elapsed = performance.now() - started;
+    assert.deepEqual(outcome, { status: "fallback", diagnostic: "R22_PROVIDER_TIMEOUT" });
+    assert.equal(elapsed >= 29_000, true, `timeout settled too early: ${elapsed}`);
+    assert.equal(elapsed < 45_000, true, `timeout exceeded test budget: ${elapsed}`);
+    const state = fixture.live.exportState();
+    assert.equal(state.fakeDispatches, 1); assert.equal(state.realProviderRequests, 0); assert.equal(state.sourceCredentialReads, 0);
+    assert.deepEqual(await route(fixture.live, "GET", `/v1/cognition/status/${turn.turnId}`), outcome);
+    assert.equal(fixture.live.exportState().fakeDispatches, 1);
+    await completeOfflineCommand(fixture.live, turn, outcome);
+  } finally { await fixture.live.close(); }
+});
 
 test("live composition preserves source, rotates stores on reset, and releases exactly one command per approved turn", async (t) => {
   if (process.platform !== "win32") return t.skip("fixed Windows qualification cache is unavailable");
@@ -114,6 +388,10 @@ test("live composition preserves source, rotates stores on reset, and releases e
   const live = await createR22LiveComposition({ providerMode: "offline-fake", implementationSha256: SHA_A,
     godotBinarySha256: SHA_B, source, temporaryRoot: TEMP_ROOT, npcRunRoot, cognitionRunRoot });
   try {
+    const defaultManifest = JSON.parse(await readFile(path.join(cognitionRunRoot, "cognition-session-manifest.json"), "utf8"));
+    assert.equal(defaultManifest.formatVersion, "0.1.0");
+    assert.equal(Object.hasOwn(defaultManifest, "offlineManualProfile"), false);
+    assert.equal(Object.hasOwn(live, "offlineManualProfile"), false);
     assert.deepEqual(await route(live, "GET", "/v1/command"), { status: "quiescent" });
 
     const declined = await route(live, "POST", "/v1/cognition/turn", { actorEntityId, playerText: "Decline this disclosed turn." });

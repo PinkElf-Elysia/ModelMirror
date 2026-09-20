@@ -709,7 +709,7 @@ function validateOfflinePerformanceBoundary(performance) {
 function fakeResponseEnvelope(callPlan, providerBody, actionChoiceId) {
   const proposal = { contextSha256: callPlan.contextSha256, dialogueText: "Offline bounded dialogue.", actionChoiceId };
   return {
-    id: "resp_discarded", object: "response", created_at: 1, completed_at: 2, status: "completed",
+    id: "resp_discarded", object: "response", created_at: 1, completed_at: 2, status: "completed", service_tier: "default",
     background: false, error: null, incomplete_details: null, instructions: providerBody.instructions,
     max_output_tokens: callPlan.maxOutputTokens, max_tool_calls: null, metadata: {}, model: callPlan.model,
     output: [{ id: "msg_discarded", type: "message", status: "completed", role: "assistant",

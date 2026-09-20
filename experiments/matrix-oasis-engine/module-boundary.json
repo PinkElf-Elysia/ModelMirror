@@ -7,11 +7,12 @@
   "activeRoundBaselineSha": "e927db557f71db420e07a49818c0d4ae1e0d6ce3",
   "activeRoundChangePolicy": {
     "allowedModuleFiles": [
+      "scripts/lib/r22-diagnostic-transaction.mjs", "scripts/r22-tool-usage-diagnostic.mjs", "tests/r22-diagnostic-budget.test.mjs", "tests/r22-diagnostic-transaction.test.mjs", "tests/r22-diagnostic-transport.test.mjs",
       "scripts/lib/r22-live-evidence.mjs", "tests/r22-live-evidence.test.mjs",
       "AGENTS.md", "module-boundary.json", "package-lock.json", "package.json", "docs/V2_STATUS.json",
       "docs/R22_BOUNDED_COGNITION.md", "docs/R22_BOUNDED_COGNITION_THREAT_MODEL.md", "docs/R22_DATA_DISCLOSURE.md", "docs/R22_MINIMUM_SEMANTICS.md", "docs/R22_REFERENCE_AUDIT.md", "docs/R22_TASK_CARD.md",
       "docs/adr/0023-r22-bounded-cognition-governance.md", "docs/rounds/R22_ACCEPTANCE.md", "docs/rounds/R22_FALSIFICATION_EVIDENCE.md",
-      "scripts/check-godot-boundary.mjs", "scripts/check-round-scope.mjs", "scripts/capture-r22.mjs", "scripts/plan-r22-call.mjs", "scripts/preview-r22.mjs", "scripts/qualify-r22.mjs", "scripts/synthesize-npc-cognition-policy.mjs", "scripts/validate-npc-cognition.mjs", "scripts/verify-npc-cognition-godot.mjs", "scripts/verify-r21.mjs", "scripts/verify-r22-references.mjs", "scripts/verify-r22.mjs",
+      "scripts/check-godot-boundary.mjs", "scripts/check-round-scope.mjs", "scripts/capture-r22.mjs", "scripts/plan-r22-call.mjs", "scripts/preview-r22.mjs", "scripts/preview-r22-offline.mjs", "scripts/qualify-r22.mjs", "scripts/synthesize-npc-cognition-policy.mjs", "scripts/validate-npc-cognition.mjs", "scripts/verify-npc-cognition-godot.mjs", "scripts/verify-r21.mjs", "scripts/verify-r22-references.mjs", "scripts/verify-r22.mjs",
       "scripts/lib/boundary-core.mjs", "scripts/lib/r20-host-core.mjs", "scripts/lib/r22-call-store.mjs", "scripts/lib/r22-cli-core.mjs", "scripts/lib/r22-host-core.mjs", "scripts/lib/r22-live-composition.mjs", "scripts/lib/r22-live-preview.mjs", "scripts/lib/r22-live-process.mjs", "scripts/lib/r22-live-provider.mjs", "scripts/lib/r22-live-recovery.mjs", "scripts/lib/r22-qualification-core.mjs", "scripts/lib/r22-recovered-behavior.mjs", "scripts/lib/r22-recovered-coordinator.mjs", "scripts/lib/v2-claim-core.mjs", "scripts/lib/scope-policy.mjs", "packages/npc-behavior-runtime/src/index.mjs", "packages/npc-behavior-runtime/src/index.d.ts",
       "scripts/run-verify.mjs", "tests/extraction-contract.test.mjs", "tests/v2-claim.test.mjs", "tests/round-scope.test.mjs",
       "tests/r18-sources.test.mjs", "tests/r20-gate-truthfulness.test.mjs",

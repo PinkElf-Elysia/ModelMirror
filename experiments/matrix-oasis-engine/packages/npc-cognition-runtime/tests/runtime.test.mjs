@@ -14,6 +14,7 @@ import {
   NPC_COGNITION_LIMITS,
   NPC_COGNITION_MODEL,
   NPC_COGNITION_RETENTION_POLICY_VERSION,
+  computeNpcCognitionApprovalHash,
   validateNpcCognitionTraceJson,
   validateNpcCognitionTurnReceiptJson,
 } from "@matrix-oasis/npc-cognition-contracts";
@@ -171,10 +172,30 @@ test("the bounded turn exposes exactly the current R20 first eligible command as
   const payload = JSON.parse(plan.providerPayloadJson); const context = JSON.parse(payload.input);
   assert.deepEqual(context.candidateActions, [{ choiceId: turn.candidateActions[0].choiceId, label: "Inspect the signal" }]);
   assert.equal(plan.providerPayloadJson.includes("node-loop"), false); assert.equal(plan.providerPayloadJson.includes("action-loop"), false);
-  assert.equal(payload.tools, undefined); assert.equal(payload.store, false); assert.equal(payload.model, NPC_COGNITION_MODEL);
+  assert.equal(payload.tools, undefined); assert.equal(payload.store, false); assert.equal(payload.stream, false); assert.equal(payload.background, false);
+  assert.equal(payload.model, NPC_COGNITION_MODEL); assert.equal(payload.service_tier, "default");
   assert.equal(typeof payload.input, "string"); assert.equal(payload.text.format.name, "matrix_oasis_npc_dialogue_proposal");
-  assert.deepEqual(payload.text.format.schema.properties.actionChoiceId.enum, [null, turn.candidateActions[0].choiceId]);
-  assert.equal(JSON.parse(plan.canonicalNpcCognitionCallPlanJson).retentionPolicyVersion, NPC_COGNITION_RETENTION_POLICY_VERSION);
+  assert.deepEqual(payload.text.format.schema.properties.contextSha256, { type: "string", const: turn.contextSha256 });
+  assert.deepEqual(payload.text.format.schema.properties.actionChoiceId, { type: ["string", "null"], enum: [null, turn.candidateActions[0].choiceId] });
+  const callPlan = JSON.parse(plan.canonicalNpcCognitionCallPlanJson);
+  assert.equal(canonicalizeJsonValue(payload.text.format.schema), plan.responseSchemaJson);
+  assert.equal(hashDocument(plan.responseSchemaJson), callPlan.responseSchemaSha256);
+  assert.equal(hashDocument(plan.providerPayloadJson), callPlan.providerPayloadSha256);
+  assert.equal(new TextEncoder().encode(plan.providerPayloadJson).byteLength, callPlan.requestBytes);
+  assert.equal(computeNpcCognitionApprovalHash(callPlan), plan.approvalHash);
+  assert.equal(hashDocument(plan.canonicalNpcCognitionCallPlanJson), hashCanonicalValue(callPlan));
+  const legacyPayload = { ...payload }; delete legacyPayload.service_tier;
+  const legacyPayloadJson = canonicalizeJsonValue(legacyPayload);
+  const legacyCallPlan = {
+    ...callPlan,
+    providerPayloadSha256: hashDocument(legacyPayloadJson),
+    requestBytes: new TextEncoder().encode(legacyPayloadJson).byteLength,
+  };
+  const legacyApprovalHash = computeNpcCognitionApprovalHash(legacyCallPlan);
+  assert.notEqual(legacyCallPlan.providerPayloadSha256, callPlan.providerPayloadSha256);
+  assert.notEqual(legacyCallPlan.requestBytes, callPlan.requestBytes);
+  assert.notEqual(legacyApprovalHash, plan.approvalHash);
+  assert.equal(callPlan.retentionPolicyVersion, NPC_COGNITION_RETENTION_POLICY_VERSION);
   assert.equal(Object.isFrozen(turn), true); assert.equal(Object.isFrozen(plan), true);
   const outputs = Array.from({ length: 20 }, () => {
     const nextTurn = makeTurn(f); const nextPlan = planNpcCognitionCall({ prepared: f.prepared, turn: nextTurn.turn });
@@ -189,7 +210,7 @@ test("candidate enumeration is scoped to the explicitly visible actor", async ()
   assert.equal(turn.candidateActions[0].actorEntityId, "actor-two");
   assert.equal(turn.candidateActions[0].actionId, "action-loop");
   const plan = planNpcCognitionCall({ prepared: f.prepared, turn: turn.turn }); assert.equal(plan.ok, true);
-  assert.deepEqual(JSON.parse(plan.responseSchemaJson).properties.actionChoiceId, { enum: [null, turn.candidateActions[0].choiceId] });
+  assert.deepEqual(JSON.parse(plan.responseSchemaJson).properties.actionChoiceId, { type: ["string", "null"], enum: [null, turn.candidateActions[0].choiceId] });
 });
 
 test("a model may choose a non-first currently eligible R20 command without changing its identity or next state", async () => {
@@ -294,6 +315,9 @@ test("a cognition policy may shrink but cannot add authority or behavior capabil
   const narrowPrepared = await prepareNpcCognition({ ...base.documents, cognitionPolicyJson: canonicalizeJsonValue(narrow) }); assert.equal(narrowPrepared.ok, true, JSON.stringify(narrowPrepared.diagnostics));
   const noChoice = createNpcCognitionTurn({ prepared: narrowPrepared.prepared, timelineId: "timeline-cognition", actorEntityId: "actor-one", sequence: 1, playerText: "Check.", ...current(base) });
   assert.equal(noChoice.ok, true); assert.deepEqual(noChoice.candidateActions, []);
+  const nullPlan = planNpcCognitionCall({ prepared: narrowPrepared.prepared, turn: noChoice.turn });
+  assert.equal(nullPlan.ok, true);
+  assert.deepEqual(JSON.parse(nullPlan.responseSchemaJson).properties.actionChoiceId, { type: ["string", "null"], enum: [null] });
   const expanded = JSON.parse(base.documents.cognitionPolicyJson); expanded.actors[0].safeActions.push({ nodeId: "node-loop", actionId: "action-forged" }); expanded.actors[0].safeActions.sort((left, right) => left.actionId < right.actionId ? -1 : left.actionId > right.actionId ? 1 : 0);
   const expandedResult = await prepareNpcCognition({ ...base.documents, cognitionPolicyJson: canonicalizeJsonValue(expanded) });
   assert.equal(expandedResult.ok, false); assert(expandedResult.diagnostics.some((value) => value.code === "NPC_COGNITION_POLICY_ACTION_UNAUTHORIZED"));

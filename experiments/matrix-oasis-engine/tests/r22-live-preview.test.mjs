@@ -6,6 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import test, { after } from "node:test";
 import { launchR22LivePreview, parseR22LivePreviewArguments, resolveR22GodotEnginePath } from "../scripts/lib/r22-live-preview.mjs";
+import { parseR22OfflineManualArguments, runR22OfflinePreview, transformR22OfflineProjectConfig } from "../scripts/preview-r22-offline.mjs";
 
 const tmp = path.resolve(os.tmpdir());
 const abs = (name) => path.join(tmp, name);
@@ -47,6 +48,19 @@ test("resume CLI replaces fresh root without changing the other nine required pa
   const duplicate = [...resumeArgs]; duplicate[duplicate.indexOf("--resume-run-root") + 1] = abs("creator"); assert.throws(() => parseR22LivePreviewArguments(duplicate, tmp), /R22_PREVIEW_ARGUMENT_INVALID/u);
 });
 
+test("credential file is explicit, official-only, direct-child and forbidden for recovery", () => {
+  const official = cli(); official[official.length - 1] = "official-once";
+  const withFile = [...official, "--credential-file", abs("credential.txt")];
+  assert.equal(parseR22LivePreviewArguments(withFile, tmp).credentialFile, abs("credential.txt"));
+  assert.equal(Object.hasOwn(parseR22LivePreviewArguments(official, tmp), "credentialFile"), false);
+  assert.throws(() => parseR22LivePreviewArguments([...cli(), "--credential-file", abs("credential.txt")], tmp), /R22_PREVIEW_ARGUMENT_INVALID/u);
+  const resumed = [...withFile]; resumed[resumed.indexOf("--run-root")] = "--resume-run-root";
+  assert.throws(() => parseR22LivePreviewArguments(resumed, tmp), /R22_PREVIEW_ARGUMENT_INVALID/u);
+  assert.throws(() => parseR22LivePreviewArguments([...official, "--credential-file", abs("nested/credential.txt")], tmp), /R22_PREVIEW_ARGUMENT_INVALID/u);
+  const missing = [...withFile]; missing.splice(missing.indexOf("--godot"), 2);
+  assert.throws(() => parseR22LivePreviewArguments(missing, tmp), /R22_PREVIEW_ARGUMENT_INVALID/u);
+});
+
 test("only the exact official console filename maps to its sibling engine", () => {
   assert.equal(resolveR22GodotEnginePath(abs("Godot_v4.6.3-stable_win64_console.exe")), abs("Godot_v4.6.3-stable_win64.exe"));
   assert.equal(resolveR22GodotEnginePath(abs("custom_console.exe")), abs("custom_console.exe"));
@@ -55,7 +69,7 @@ test("only the exact official console filename maps to its sibling engine", () =
 
 test("R22 lifecycle starts only fixed 43122 and preserves unqualified observation status", async () => {
   const calls = []; const spawned = child(); let validations = 0, spawnArgs = null, spawnOptions = null, importEnv = null;
-  const result = await launchR22LivePreview(options(), {
+  const result = await launchR22LivePreview({ ...options(), credentialFile: abs("credential.txt") }, {
     probeGodot: () => {}, writeOverlay: async () => {}, prepareLive: async () => ({ ...liveBase, close: async () => calls.push("live-close"), revalidate: async () => { validations += 1; } }),
     createRuntimePreviewProject: () => ({ projectRoot: abs("project"), temporaryRoot: abs("temp-project"), identity: {} }),
     removeRuntimePreviewProject: () => calls.push("project-close"), configureGdgsProject: () => {}, copySpatialPreviewFiles: async () => abs("project/run"),
@@ -69,6 +83,8 @@ test("R22 lifecycle starts only fixed 43122 and preserves unqualified observatio
   assert.equal(spawnArgs.includes("res://solved_spatial_prototype/solved_spatial_lab.tscn"), false);
   assert.equal(spawnOptions.env.MATRIX_OASIS_R20_SESSION_TOKEN, liveToken);
   assert.equal(Object.hasOwn(importEnv, "OPENAI_API_KEY"), false);
+  assert.equal(Object.hasOwn(spawnOptions.env, "MATRIX_OASIS_R22_OPENAI_API_KEY"), false);
+  assert.equal(JSON.stringify({ spawnArgs, spawnOptions, importEnv }).includes(abs("credential.txt")), false);
   assert.equal(result.qualificationStatus, "unqualified-manual-observation"); await result.cleanup();
   assert.deepEqual(calls, [43122, "server-close", "live-close", "project-close"]);
 });
@@ -249,6 +265,74 @@ function raceDependencies(spawned, processGuard, awaitReadyValue) {
     copySpatialPreviewFiles: async () => abs("race-project/run"), runGodotCommand: async () => "", assertGodotOutputClean: () => {}, startR22LoopbackServer: async () => ({ close: async () => {} }),
     spawnProcess: () => spawned, awaitReady: awaitReadyValue };
 }
+
+const offlineCli = (scenario, windowSize, run = `offline-${scenario}-${windowSize}`) => {
+  const values = cli(run); values.splice(values.indexOf("--provider-mode"), 2);
+  return [...values, "--scenario", scenario, "--window-size", windowSize];
+};
+
+test("offline manual CLI accepts exactly the ten finite fake profiles", () => {
+  const accepted = [];
+  for (const scenario of ["normal", "timeout", "refusal", "invalid-response", "injection"]) {
+    for (const windowSize of ["960x540", "640x540"]) {
+      const parsed = parseR22OfflineManualArguments(offlineCli(scenario, windowSize), tmp);
+      assert.equal(parsed.providerMode, "offline-fake");
+      assert.deepEqual(parsed.offlineManualProfile, { scenario, windowSize });
+      accepted.push(`${scenario}:${windowSize}`);
+    }
+  }
+  assert.equal(accepted.length, 10);
+});
+
+test("offline manual CLI rejects unknown, duplicate, official, credential and custom payload controls", () => {
+  const valid = offlineCli("normal", "960x540");
+  const replace = (name, value) => { const result = [...valid]; result[result.indexOf(name) + 1] = value; return result; };
+  assert.throws(() => parseR22OfflineManualArguments(replace("--scenario", "other"), tmp), /R22_OFFLINE_MANUAL_ARGUMENT_INVALID/u);
+  assert.throws(() => parseR22OfflineManualArguments(replace("--window-size", "800x600"), tmp), /R22_OFFLINE_MANUAL_ARGUMENT_INVALID/u);
+  assert.throws(() => parseR22OfflineManualArguments([...valid.slice(0, -2), "--scenario", "normal"], tmp), /R22_OFFLINE_MANUAL_ARGUMENT_INVALID/u);
+  for (const args of [
+    [...valid, "--provider-mode", "official-once"],
+    [...valid, "--credential-file", abs("credential.txt")],
+    [...valid, "--response", "custom"],
+    [...valid, "--url", "http://127.0.0.1"],
+    [...valid, "--script", "payload.mjs"],
+  ]) assert.throws(() => parseR22OfflineManualArguments(args, tmp), /R22_OFFLINE_MANUAL_ARGUMENT_INVALID/u);
+});
+
+test("offline project transform changes exactly title and four window keys", () => {
+  const source = `config_version=5\nconfig/name="Original"\nrun/main_scene="res://unchanged.tscn"\nwindow/size/viewport_width=960\nwindow/size/viewport_height=540\nwindow/size/window_width_override=960\nwindow/size/window_height_override=540\nwindow/stretch/mode="canvas_items"\n`;
+  const transformed = transformR22OfflineProjectConfig(source, { scenario: "injection", windowSize: "640x540" });
+  assert.equal(transformed, `config_version=5\nconfig/name="Matrix Oasis R22 OFFLINE FAKE QA [injection] [640x540]"\nrun/main_scene="res://unchanged.tscn"\nwindow/size/viewport_width=640\nwindow/size/viewport_height=540\nwindow/size/window_width_override=640\nwindow/size/window_height_override=540\nwindow/stretch/mode="canvas_items"\n`);
+  assert.equal((transformed.match(/OFFLINE FAKE QA/gu) ?? []).length, 1);
+});
+
+test("offline project transform fails closed for malformed or duplicate project keys", () => {
+  const valid = `config/name="A"\nwindow/size/viewport_width=960\nwindow/size/viewport_height=540\nwindow/size/window_width_override=960\nwindow/size/window_height_override=540\n`;
+  assert.throws(() => transformR22OfflineProjectConfig(valid.replace("config/name=\"A\"\n", ""), { scenario: "normal", windowSize: "960x540" }), /R22_OFFLINE_MANUAL_PROJECT_INVALID/u);
+  assert.throws(() => transformR22OfflineProjectConfig(`${valid}window/size/viewport_width=1\n`, { scenario: "normal", windowSize: "960x540" }), /R22_OFFLINE_MANUAL_PROJECT_INVALID/u);
+  assert.throws(() => transformR22OfflineProjectConfig(valid, { scenario: "normal", windowSize: "800x600" }), /R22_OFFLINE_MANUAL_PROJECT_INVALID/u);
+});
+
+test("offline runner injects only the finite fake profile into launch and preparation", async () => {
+  let launchOptions = null, preparedInput = null, configured = false;
+  const ready = { ready: true, providerMode: "offline-fake" };
+  const result = await runR22OfflinePreview(offlineCli("refusal", "640x540", `offline-run-${process.pid}`), {
+    temporaryRoot: tmp,
+    prepareR22LivePreview: async (input) => { preparedInput = input; return { prepared: true }; },
+    launchR22LivePreview: async (input, dependencies) => {
+      launchOptions = input;
+      assert.deepEqual(await dependencies.prepareLive({ providerMode: input.providerMode }), { prepared: true });
+      assert.equal(typeof dependencies.configureGdgsProject, "function"); configured = true;
+      return ready;
+    },
+  });
+  assert.equal(result, ready); assert.equal(configured, true);
+  assert.equal(launchOptions.providerMode, "offline-fake");
+  assert.equal(Object.hasOwn(launchOptions, "credentialFile"), false);
+  assert.deepEqual(launchOptions.offlineManualProfile, { scenario: "refusal", windowSize: "640x540" });
+  assert.deepEqual(preparedInput.offlineManualProfile, { scenario: "refusal", windowSize: "640x540" });
+  assert.equal(JSON.stringify(launchOptions).includes("official-once"), false);
+});
 
 test("spawn listeners retain immediate error and ready arriving while PID persistence awaits", async () => {
   const failed = child(), failureOrder = [], failedGuard = { preflight: async () => {}, guard: async () => {}, reserve: async () => ({}),

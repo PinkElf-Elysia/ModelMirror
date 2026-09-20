@@ -15,6 +15,7 @@ import { createR20TimelineStore, recoverR20UnfinishedTimeline } from "../scripts
 import { closeR22CallStore, computeR22DisplayAckHash, inspectR22CallStore, openR22CallStore, readR22ActiveCallArtifacts, readR22FinalizedTurnReceipt } from "../scripts/lib/r22-call-store.mjs";
 import { acknowledgeR22CognitionDisplay, completeQueuedR22CognitionTurn, createR22TransactionalHost, declineR22CognitionTurn, executeApprovedR22CognitionTurn, issueR22CognitionApproval, registerR22CognitionTurn } from "../scripts/lib/r22-host-core.mjs";
 import { loadR22LiveRecoveryHistory } from "../scripts/lib/r22-live-recovery.mjs";
+import { createR22ToolUsageDiagnosticTransaction, recoverR22ToolUsageDiagnosticTransaction } from "../scripts/lib/r22-diagnostic-transaction.mjs";
 
 const fake = (c) => `sha256:${c.repeat(64)}`;
 const sha = (text) => `sha256:${createHash("sha256").update(text).digest("hex")}`;
@@ -187,4 +188,96 @@ test("active staged receipt accepts its real reserved budget but rejects release
   await writeFile(budgetPath, canonicalizeJsonValue(budget), "utf8");
   await assertStoredContractsRemainValid(forged);
   await assert.rejects(loadR22LiveRecoveryHistory(forged.input), /R22_LIVE_RECOVERY_INVALID/u);
+});
+
+async function diagnosticConfig(value) {
+  const manifestFile = path.join(value.cognitionRunRoot, "cognition-session-manifest.json");
+  const manifest = canonicalizeJsonValue({ format: "matrix-oasis.r22-cognition-session-manifest", formatVersion: "0.1.0",
+    canonicalization: "matrix-oasis.canonical-json/1", hostRunId: value.callConfig.hostRunId, providerMode: "offline-fake",
+    initialTimelineId: value.callConfig.timelineId, sourceCurrentSha256: fake("a"), sourceDerivedBundleSha256: fake("b"),
+    sourceAuthorityManifestSha256: value.callConfig.authoritySessionSha256, cognitionPolicySha256: value.callConfig.cognitionPolicySha256,
+    implementationSha256: fake("f"), godotBinarySha256: fake("1") });
+  try { await writeFile(manifestFile, manifest, { flag: "wx" }); } catch (error) { if (error?.code !== "EEXIST") throw error; }
+  return { temporaryRoot: value.callConfig.temporaryRoot, cognitionRunRoot: value.cognitionRunRoot, hostRunId: value.callConfig.hostRunId,
+    expectedSessionManifestSha256: sha(manifest), expectedHostBudgetSha256: sha(await readFile(path.join(value.cognitionRunRoot, "host-budget.json"), "utf8")),
+    output: path.join(value.callConfig.temporaryRoot, "diagnostic-output") };
+}
+
+test("ordinary live-history recovery recognizes settled diagnostic entries without inventing cognition timelines", async (t) => {
+  const value = await fixture(t, { finalizedDecline: true });
+  const timelinesBefore = (await readdir(path.join(value.cognitionRunRoot, "timelines"))).sort();
+  const checkpoint = await findFile(value.cognitionRunRoot, "cognition-checkpoint.json"), checkpointBefore = await readFile(checkpoint, "utf8");
+  const tx = await createR22ToolUsageDiagnosticTransaction(await diagnosticConfig(value));
+  const id = tx.disclosure.transactionSha256;
+  const approval = await tx.approve({ disclosureSha256: id }); await tx.execute({ ...approval, responseBytes: new Uint8Array([255]) }); await tx.close();
+  const checked = await loadR22LiveRecoveryHistory(value.input); assert.equal(await checked.revalidate(), true);
+  assert.deepEqual((await readdir(path.join(value.cognitionRunRoot, "timelines"))).sort(), timelinesBefore);
+  assert.equal(await readFile(checkpoint, "utf8"), checkpointBefore);
+  const record = path.join(value.cognitionRunRoot, "diagnostics", id.slice(7), "observation-record.json");
+  await writeFile(record, `${await readFile(record, "utf8")} `);
+  await assert.rejects(checked.revalidate(), /R22_LIVE_RECOVERY_INVALID/u);
+  await assert.rejects(loadR22LiveRecoveryHistory(value.input), /R22_LIVE_RECOVERY_INVALID/u);
+});
+
+test("unfinished diagnostic blocks ordinary restart until explicit zero-replay reconciliation", async (t) => {
+  const value = await fixture(t), config = await diagnosticConfig(value);
+  const tx = await createR22ToolUsageDiagnosticTransaction(config, { phase: async (phase) => { if (phase === "dispatch-record.json:published") throw new Error("local crash"); } });
+  const id = tx.disclosure.transactionSha256, approval = await tx.approve({ disclosureSha256: id });
+  await assert.rejects(tx.execute({ ...approval, responseBytes: new Uint8Array([255]) })); await tx.close();
+  await assert.rejects(loadR22LiveRecoveryHistory(value.input), /R22_LIVE_RECOVERY_INVALID/u);
+  const result = await recoverR22ToolUsageDiagnosticTransaction(await diagnosticConfig(value), id);
+  assert.equal(result.terminal.state, "dispatch_uncertain"); assert.equal(result.terminal.chargedMicrousd, 10000);
+  assert.equal(result.terminal.providerReplayRequests, 0);
+  assert.equal(await (await loadR22LiveRecoveryHistory(value.input)).revalidate(), true);
+});
+
+test("a diagnostics directory is not an exemption for an orphan or altered budget entry", async (t) => {
+  const value = await fixture(t), tx = await createR22ToolUsageDiagnosticTransaction(await diagnosticConfig(value));
+  const approval = await tx.approve({ disclosureSha256: tx.disclosure.transactionSha256 });
+  await tx.execute({ ...approval, responseBytes: new Uint8Array([255]) }); await tx.close();
+  const budgetFile = path.join(value.cognitionRunRoot, "host-budget.json"), budget = JSON.parse(await readFile(budgetFile, "utf8"));
+  budget.entries.push({ authoritySessionSha256: fake("e"), callPlanSha256: fake("d"), reservedMicrousd: 10000, chargedMicrousd: 10000, state: "charged" });
+  await writeFile(budgetFile, canonicalizeJsonValue(budget));
+  await assert.rejects(loadR22LiveRecoveryHistory(value.input), /R22_LIVE_RECOVERY_INVALID/u);
+  budget.entries.pop(); budget.entries[0].chargedMicrousd = 0; budget.entries[0].state = "released";
+  await writeFile(budgetFile, canonicalizeJsonValue(budget));
+  await assert.rejects(loadR22LiveRecoveryHistory(value.input), /R22_LIVE_RECOVERY_INVALID/u);
+});
+
+test("128 zero-budget diagnostics remain recoverable and the 129th is rejected without writes", { timeout: 120000 }, async (t) => {
+  const value = await fixture(t, { finalizedDecline: true }), config = await diagnosticConfig(value);
+  const budgetFile = path.join(value.cognitionRunRoot, "host-budget.json"), budgetBefore = await readFile(budgetFile, "utf8");
+  const parent = path.join(value.cognitionRunRoot, "diagnostics");
+  const initial = await createR22ToolUsageDiagnosticTransaction({ ...config, output: path.join(config.temporaryRoot, "cancelled-0") });
+  const first = await initial.cancel(); await initial.close();
+  const firstRoot = path.join(parent, first.transactionSha256.slice(7));
+  const template = JSON.parse(await readFile(path.join(firstRoot, "transaction-plan.json"), "utf8"));
+  // Build fixed canonical history, not 127 recursively re-audited prefixes.
+  // Both boundary calls below still use the real writer, source/history audit,
+  // publication and recovery; no filesystem or validator is mocked.
+  for (let index = 1; index < 127; index += 1) {
+    const plan = { ...template, outputPathSha256: sha(path.join(config.temporaryRoot, `cancelled-${index}`).toLowerCase()) };
+    const id = sha(canonicalizeJsonValue(plan)), root = path.join(parent, id.slice(7));
+    await mkdir(root);
+    await writeFile(path.join(root, "transaction-plan.json"), canonicalizeJsonValue(plan), { flag: "wx" });
+    await writeFile(path.join(root, "terminal-record.json"), canonicalizeJsonValue({ ...first.terminal, transactionSha256: id }), { flag: "wx" });
+  }
+  assert.equal((await readdir(parent)).length, 127);
+  const last = await createR22ToolUsageDiagnosticTransaction({ ...config, output: path.join(config.temporaryRoot, "cancelled-127") });
+  const accepted = await last.cancel(); await last.close(); assert.equal(accepted.terminal.state, "cancelled");
+  const before = (await readdir(parent)).sort();
+  assert.equal(before.length, 128);
+  await assert.rejects(createR22ToolUsageDiagnosticTransaction({ ...config, output: path.join(config.temporaryRoot, "cancelled-128") }), /R22_DIAGNOSTIC_TRANSACTION_LIMIT/u);
+  assert.deepEqual((await readdir(parent)).sort(), before); assert.equal(await readFile(budgetFile, "utf8"), budgetBefore);
+  assert.equal((await readdir(config.temporaryRoot)).includes("cancelled-128"), false);
+  assert.equal(await (await loadR22LiveRecoveryHistory(value.input)).revalidate(), true);
+});
+
+test("pre-disclosure plan recovery unblocks ordinary history without a new Turn or budget entry", async (t) => {
+  const value = await fixture(t, { finalizedDecline: true }), config = await diagnosticConfig(value);
+  await assert.rejects(createR22ToolUsageDiagnosticTransaction(config, { phase: async (phase) => { if (phase === "transaction-plan.json:staged") throw new Error("local fault"); } }));
+  await assert.rejects(loadR22LiveRecoveryHistory(value.input), /R22_LIVE_RECOVERY_INVALID/u);
+  const result = await recoverR22ToolUsageDiagnosticTransaction(config);
+  assert.equal(result.terminal.state, "cancelled"); assert.equal(result.terminal.dispatchCount, 0);
+  assert.equal(await (await loadR22LiveRecoveryHistory(value.input)).revalidate(), true);
 });

@@ -228,7 +228,7 @@ async function writeExclusive(candidate, text, operations) {
   if (await readStableText(candidate, operations) !== text) fail("R22_STORE_WRITE_FAILED");
 }
 
-async function writeAtomic(candidate, text, operations, { immutable = false } = {}) {
+async function writeAtomic(candidate, text, operations, { immutable = false, guardedCleanup = false } = {}) {
   try {
     const existing = await readStableText(candidate, operations);
     if (existing === text) return false;
@@ -248,8 +248,9 @@ async function writeAtomic(candidate, text, operations, { immutable = false } = 
   // turn directory already carries the full content identity.
   const staging = await operations.mkdtemp(path.join(parent, ".s-"));
   let moved = false;
+  let stageIdentity = null;
   try {
-    const stageIdentity = identity(await operations.lstat(staging, { bigint: true }));
+    stageIdentity = identity(await operations.lstat(staging, { bigint: true }));
     if (stageIdentity === null) fail("R22_STORE_WRITE_FAILED");
     await assertDirectory(staging, stageIdentity, operations);
     const staged = path.join(staging, path.basename(candidate));
@@ -273,7 +274,14 @@ async function writeAtomic(candidate, text, operations, { immutable = false } = 
     if (error instanceof R22CallStoreOperationalError) throw error;
     fail("R22_STORE_WRITE_FAILED");
   } finally {
-    await operations.rm(staging, { recursive: true, force: true }).catch(() => {});
+    if (guardedCleanup) {
+      // The new diagnostic lane never recursively removes an uncertain stage.
+      // Partial writes stay fail-closed for inspection, not recursive cleanup.
+      if (stageIdentity !== null) {
+        await assertDirectory(staging, stageIdentity, operations);
+        if ((await operations.readdir(staging)).length === 0) await operations.rmdir(staging);
+      }
+    } else await operations.rm(staging, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -413,7 +421,7 @@ function totalsForBudget(budget) {
 
 async function persistBudget(state) {
   validateHostBudget(state.budget, state.hostRunId);
-  await writeAtomic(state.hostBudgetPath, canonicalizeJsonValue(state.budget), state.operations);
+  await writeAtomic(state.hostBudgetPath, canonicalizeJsonValue(state.budget), state.operations, { guardedCleanup: state.diagnostic === true });
 }
 
 async function persistCheckpoint(state) {
@@ -433,6 +441,26 @@ function replaceBudgetEntry(state, next) {
   entries.sort((left, right) => left.authoritySessionSha256.localeCompare(right.authoritySessionSha256) ||
     left.callPlanSha256.localeCompare(right.callPlanSha256));
   state.budget = { ...state.budget, entries };
+}
+
+// Both lanes reserve against the same account and writer lease. Keep the
+// historical five-field entry and deterministic ordering unchanged.
+async function reserveHostBudget(state, authoritySessionSha256, callPlanSha256) {
+  const totals = totalsForBudget(state.budget);
+  if (state.budget.entries.length >= NPC_COGNITION_LIMITS.callsPerHostRun) {
+    return Object.freeze({ ok: false, diagnosticCode: "R22_BUDGET_EXHAUSTED" });
+  }
+  if (totals.reserved > 0) return Object.freeze({ ok: false, diagnosticCode: "R22_CALL_IN_FLIGHT" });
+  if (totals.charged + NPC_COGNITION_LIMITS.perCallMicrousd > state.budget.limitMicrousd) {
+    return Object.freeze({ ok: false, diagnosticCode: "R22_BUDGET_EXHAUSTED" });
+  }
+  if (state.budget.entries.some((entry) => entry.authoritySessionSha256 === authoritySessionSha256 && entry.callPlanSha256 === callPlanSha256)) {
+    fail("R22_STORE_BUDGET_ENTRY_CONFLICT");
+  }
+  replaceBudgetEntry(state, { callPlanSha256, authoritySessionSha256,
+    reservedMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd, chargedMicrousd: 0, state: "reserved" });
+  await persistBudget(state);
+  return Object.freeze({ ok: true, reservedMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd });
 }
 
 function actorUsage(checkpoint, actorEntityId) {
@@ -683,24 +711,8 @@ export async function reserveR22CallBudget(store, callPlanSha256) {
         state.checkpoint.chargedMicrousd + NPC_COGNITION_LIMITS.perCallMicrousd > NPC_COGNITION_LIMITS.perTimelineMicrousd) {
       return Object.freeze({ ok: false, diagnosticCode: "R22_BUDGET_EXHAUSTED" });
     }
-    const totals = totalsForBudget(state.budget);
-    if (state.budget.entries.length >= NPC_COGNITION_LIMITS.callsPerHostRun) {
-      return Object.freeze({ ok: false, diagnosticCode: "R22_BUDGET_EXHAUSTED" });
-    }
-    if (totals.reserved > 0) return Object.freeze({ ok: false, diagnosticCode: "R22_CALL_IN_FLIGHT" });
-    if (totals.charged + NPC_COGNITION_LIMITS.perCallMicrousd > state.budget.limitMicrousd) {
-      return Object.freeze({ ok: false, diagnosticCode: "R22_BUDGET_EXHAUSTED" });
-    }
-    const prior = budgetEntry(state, callPlanSha256);
-    if (prior !== null) fail("R22_STORE_BUDGET_ENTRY_CONFLICT");
-    replaceBudgetEntry(state, {
-      callPlanSha256,
-      authoritySessionSha256: state.config.authoritySessionSha256,
-      reservedMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd,
-      chargedMicrousd: 0,
-      state: "reserved",
-    });
-    await persistBudget(state);
+    const reservation = await reserveHostBudget(state, state.config.authoritySessionSha256, callPlanSha256);
+    if (!reservation.ok) return reservation;
     state.checkpoint = { ...state.checkpoint, active: { ...active, stage: "reserved" } };
     await persistCheckpoint(state);
     return Object.freeze({ ok: true, reservedMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd });
@@ -1092,4 +1104,148 @@ export async function closeR22CallStore(store) {
     state.closed = true;
     return Object.freeze({ ok: true });
   });
+}
+
+// Host-internal diagnostic account access, deliberately not a normal Turn store.
+// No mkdir of a root/timeline, no readOrCreate budget and no second writer lock.
+export function validateR22CognitionSessionManifest(value, hostRunId) {
+  const hashes = ["sourceCurrentSha256", "sourceDerivedBundleSha256", "sourceAuthorityManifestSha256", "cognitionPolicySha256", "implementationSha256", "godotBinarySha256"];
+  if (!exactObject(value, ["format", "formatVersion", "canonicalization", "hostRunId", "initialTimelineId", "providerMode", ...hashes]) ||
+      value.format !== "matrix-oasis.r22-cognition-session-manifest" || value.formatVersion !== "0.1.0" ||
+      value.canonicalization !== CANONICALIZATION || value.hostRunId !== hostRunId ||
+      !["offline-fake", "official-once"].includes(value.providerMode) ||
+      !hashes.every((key) => typeof value[key] === "string" && SHA256.test(value[key]))) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+  validateIdentifier(value.hostRunId, "R22_DIAGNOSTIC_SOURCE_INVALID");
+  validateIdentifier(value.initialTimelineId, "R22_DIAGNOSTIC_SOURCE_INVALID");
+  return value;
+}
+
+export async function openR22DiagnosticBudgetStore(config, operationsOverride) {
+  const ops = captureOperations(operationsOverride);
+  const keys = ["temporaryRoot", "cognitionRunRoot", "hostRunId", "expectedSessionManifestSha256", "expectedHostBudgetSha256"];
+  if (!exactObject(config, keys) || !SHA256.test(config.expectedSessionManifestSha256 ?? "") ||
+      !SHA256.test(config.expectedHostBudgetSha256 ?? "")) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+  validateIdentifier(config.hostRunId, "R22_DIAGNOSTIC_SOURCE_INVALID");
+  if (![config.temporaryRoot, config.cognitionRunRoot].every((value) => typeof value === "string" && path.isAbsolute(value))) {
+    fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+  }
+  const root = path.resolve(config.cognitionRunRoot), temporaryRoot = path.resolve(config.temporaryRoot);
+  if (!isDirectChild(temporaryRoot, root) || !root.endsWith("-cognition")) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+  const hierarchy = [];
+  for (const directory of [temporaryRoot, root]) {
+    const stat = await ops.lstat(directory, { bigint: true }).catch(() => null);
+    if (!isPlainDirectory(stat) || identity(stat) === null) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+    await assertDirectory(directory, identity(stat), ops);
+    hierarchy.push({ path: directory, identity: identity(stat) });
+  }
+  const pin = async (file, maximumBytes) => {
+    const before = await ops.lstat(file, { bigint: true });
+    if (!isPlainFile(before) || before.nlink !== 1n) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+    const text = await readStableText(file, ops, maximumBytes);
+    const after = await ops.lstat(file, { bigint: true });
+    if (!isPlainFile(after) || after.nlink !== 1n || identity(before) !== identity(after) ||
+        stableState(before) !== stableState(after) || !samePath(await ops.realpath(file), file)) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+    return { text, identity: identity(after), state: stableState(after) };
+  };
+  const manifestPath = path.join(root, "cognition-session-manifest.json"), budgetPath = path.join(root, "host-budget.json");
+  let writer;
+  try {
+    // Require both before acquiring a lock; an absent historical account must
+    // not leave a new root, account, timeline, diagnostic directory or lease.
+    const manifest = await pin(manifestPath, 16 * 1024), budgetBefore = await pin(budgetPath, MAX_INTERNAL_BYTES);
+    if (sha256Text(manifest.text) !== config.expectedSessionManifestSha256 || sha256Text(budgetBefore.text) !== config.expectedHostBudgetSha256) {
+      fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+    }
+    const sessionManifest = parseCanonicalInternal(manifest.text, (value) => validateR22CognitionSessionManifest(value, config.hostRunId), "R22_DIAGNOSTIC_SOURCE_INVALID");
+    const budget = parseCanonicalInternal(budgetBefore.text, (value) => validateHostBudget(value, config.hostRunId), "R22_STORE_HOST_BUDGET_INVALID");
+    const random = ops.randomBytes(32);
+    if (!(random instanceof Uint8Array) || random.byteLength !== 32) fail("R22_STORE_OPERATIONS_INVALID");
+    const processEpochSha256 = sha256Text(Buffer.from(random));
+    writer = await acquireWriterLease(root, ops, processEpochSha256);
+    let budgetPin = budgetBefore, closed = false, closing = false, closeAttempt = null, poisoned = false, queue = Promise.resolve();
+    const state = { operations: ops, hostRunId: config.hostRunId, hostBudgetPath: budgetPath, budget, diagnostic: true };
+    const assertCurrent = async () => {
+      if (closed || poisoned) fail("R22_DIAGNOSTIC_STORE_UNAVAILABLE");
+      for (const directory of hierarchy) await assertDirectory(directory.path, directory.identity, ops);
+      if ((await ops.readdir(root)).some((name) => name.startsWith(".s-"))) fail("R22_DIAGNOSTIC_INCOMPLETE_RECORD");
+      if (await readStableText(writer.leasePath, ops, 64 * 1024) !== writer.record) fail("R22_STORE_WRITER_LOCK_LOST");
+      const nextManifest = await pin(manifestPath, 16 * 1024), nextBudget = await pin(budgetPath, MAX_INTERNAL_BYTES);
+      for (const [next, previous] of [[nextManifest, manifest], [nextBudget, budgetPin]]) {
+        if (next.text !== previous.text || next.identity !== previous.identity || next.state !== previous.state) fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+      }
+    };
+    await assertCurrent();
+    const exclusive = (operation) => {
+      if (closing || closed) return Promise.reject(new R22CallStoreOperationalError("R22_DIAGNOSTIC_STORE_UNAVAILABLE"));
+      const next = queue.then(async () => {
+        try { await assertCurrent(); const result = await operation(); await assertCurrent(); return result; }
+        catch (error) { poisoned = true; if (error instanceof R22CallStoreOperationalError) throw error; fail("R22_DIAGNOSTIC_SOURCE_INVALID"); }
+      });
+      queue = next.catch(() => {});
+      return next;
+    };
+    const readBudgetPin = async () => { budgetPin = await pin(budgetPath, MAX_INTERNAL_BYTES); if (budgetPin.text !== canonicalizeJsonValue(state.budget)) fail("R22_DIAGNOSTIC_SOURCE_INVALID"); };
+    const checkKey = (value) => {
+      const hashKeys = ["authoritySessionSha256", "callPlanSha256", "transactionSha256"];
+      const legacy = exactObject(value, hashKeys);
+      if ((legacy && sessionManifest.providerMode !== "offline-fake") ||
+          (!legacy && !exactObject(value, [...hashKeys, "executionKind", "sourceProviderMode"]))) fail("R22_DIAGNOSTIC_BUDGET_KEY_INVALID");
+      const modes = legacy ? {} : { executionKind: value?.executionKind, sourceProviderMode: value?.sourceProviderMode };
+      if ((!legacy && (!exactObject(value, [...hashKeys, "executionKind", "sourceProviderMode"]) ||
+          !["official-once", "injected-transport"].includes(value.executionKind) || value.sourceProviderMode !== sessionManifest.providerMode ||
+          value.sourceProviderMode !== (value.executionKind === "official-once" ? "official-once" : "offline-fake"))) ||
+          !hashKeys.every((key) => SHA256.test(value?.[key] ?? "")) ||
+          value.authoritySessionSha256 !== sha256Text(canonicalizeJsonValue({ purpose: legacy ? "matrix-oasis.r22-diagnostic-budget/1" : "matrix-oasis.r22-diagnostic-budget/2", ...modes, transactionSha256: value.transactionSha256 }))) {
+        fail("R22_DIAGNOSTIC_BUDGET_KEY_INVALID");
+      }
+    };
+    return Object.freeze({
+      identity: Object.freeze({ hostRunId: config.hostRunId, processEpochSha256,
+        providerMode: sessionManifest.providerMode, sessionManifestSha256: config.expectedSessionManifestSha256 }),
+      revalidate: () => exclusive(async () => true),
+      inspect: () => exclusive(async () => Object.freeze({ canonicalBudgetJson: canonicalizeJsonValue(state.budget), ...totalsForBudget(state.budget) })),
+      reserve: (key) => exclusive(async () => {
+        checkKey(key);
+        const result = await reserveHostBudget(state, key.authoritySessionSha256, key.callPlanSha256);
+        if (result.ok) await readBudgetPin();
+        return result;
+      }),
+      settle: (key, dispatched) => exclusive(async () => {
+        checkKey(key); if (typeof dispatched !== "boolean") fail("R22_DIAGNOSTIC_BUDGET_KEY_INVALID");
+        const previous = state.budget.entries.find((entry) => entry.authoritySessionSha256 === key.authoritySessionSha256 && entry.callPlanSha256 === key.callPlanSha256);
+        if (!previous) fail("R22_STORE_BUDGET_ENTRY_CONFLICT");
+        const target = { ...previous, state: dispatched ? "charged" : "released", chargedMicrousd: dispatched ? previous.reservedMicrousd : 0 };
+        if (previous.state !== "reserved" && canonicalizeJsonValue(previous) !== canonicalizeJsonValue(target)) fail("R22_STORE_BUDGET_ENTRY_CONFLICT");
+        if (canonicalizeJsonValue(previous) !== canonicalizeJsonValue(target)) {
+          replaceBudgetEntry(state, target); await persistBudget(state); await readBudgetPin();
+        }
+        return Object.freeze({ ok: true });
+      }),
+      close() {
+        if (closeAttempt) return closeAttempt;
+        if (closed) return Promise.resolve(Object.freeze({ ok: true }));
+        closing = true;
+        closeAttempt = (async () => {
+          await queue;
+          if (await readStableText(writer.leasePath, ops, 64 * 1024).catch(() => null) !== writer.record) fail("R22_STORE_WRITER_LOCK_LOST");
+          try { await ops.rm(writer.leasePath, { force: false }); }
+          catch {
+            let remaining;
+            try { remaining = await readStableText(writer.leasePath, ops, 64 * 1024); }
+            catch (error) { if (error?.code === "ENOENT") remaining = null; else fail("R22_STORE_WRITER_LOCK_LOST"); }
+            if (remaining !== null) fail(remaining === writer.record ? "R22_STORE_WRITE_FAILED" : "R22_STORE_WRITER_LOCK_LOST");
+          }
+          closed = true;
+          return Object.freeze({ ok: true });
+        })().finally(() => { closeAttempt = null; });
+        // A failed close may retry only this cleanup. Business operations stay
+        // fenced by closing=true, even after a transient filesystem error.
+        return closeAttempt;
+      },
+    });
+  } catch (error) {
+    if (writer && await readStableText(writer.leasePath, ops, 64 * 1024).catch(() => null) === writer.record) await ops.rm(writer.leasePath, { force: false }).catch(() => {});
+    if (error instanceof R22CallStoreOperationalError) throw error;
+    fail("R22_DIAGNOSTIC_SOURCE_INVALID");
+  }
 }

@@ -4,6 +4,11 @@ export const ACTIVE_ROUND_BASELINE_SHA =
   "e927db557f71db420e07a49818c0d4ae1e0d6ce3";
 
 export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
+  "scripts/lib/r22-diagnostic-transaction.mjs",
+  "scripts/r22-tool-usage-diagnostic.mjs",
+  "tests/r22-diagnostic-budget.test.mjs",
+  "tests/r22-diagnostic-transaction.test.mjs",
+  "tests/r22-diagnostic-transport.test.mjs",
   "scripts/lib/r22-live-evidence.mjs",
   "tests/r22-live-evidence.test.mjs",
   "AGENTS.md",
@@ -25,6 +30,7 @@ export const ROUND_ALLOWED_MODULE_FILES = Object.freeze([
   "scripts/capture-r22.mjs",
   "scripts/plan-r22-call.mjs",
   "scripts/preview-r22.mjs",
+  "scripts/preview-r22-offline.mjs",
   "scripts/qualify-r22.mjs",
   "scripts/synthesize-npc-cognition-policy.mjs",
   "scripts/validate-npc-cognition.mjs",

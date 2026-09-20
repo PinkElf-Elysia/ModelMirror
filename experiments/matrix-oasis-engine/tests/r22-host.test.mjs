@@ -7,9 +7,11 @@ import test from "node:test";
 import {
   computeNpcCognitionApprovalHash,
   NPC_COGNITION_LIMITS,
+  NPC_COGNITION_TRUSTED_INSTRUCTIONS,
   validateNpcCognitionTurnReceiptJson,
 } from "@matrix-oasis/npc-cognition-contracts";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
+import { createOpenAiNpcCognitionProvider, executeApprovedNpcCognitionTurn } from "@matrix-oasis/npc-cognition-provider-openai";
 import {
   closeR22CallStore,
   computeR22DisplayAckHash,
@@ -692,7 +694,68 @@ test("every post-dispatch provider ambiguity is charged at the full reservation 
   await closeR22CallStore(f.store);
 });
 
-test("provider refusal and model mismatch with valid usage retain their exact known charge", async (t) => {
+test("provider diagnostics cannot change durable Receipt, budget, checkpoint or approval bytes", async (t) => {
+  const snapshots = [];
+  for (const extra of [
+    {},
+    { responseDiagnostic: { status: 200, stage: "root_echo", checks: [
+      { rule: "echo_instructions", status: "failed" }, { rule: "model", status: "failed" },
+      { rule: "content", status: "not_checked" },
+    ] } },
+    { responseDiagnostic: { status: 200, stage: "root_echo", checks: [
+      { rule: "PRIVATE_RULE", status: "PRIVATE_VALUE", body: "PRIVATE_RESPONSE" },
+    ] } },
+    { responseDiagnostic: { status: 200, stage: "root_fields" } },
+    { responseDiagnostic: { status: 200, stage: "root_fields", rootFields: {
+      rootKind: "record", missingRequiredMask: 192, unknownKeysPresent: true,
+    } } },
+    ...[0, 1, 16, 17].map((count) => ({ responseDiagnostic: { status: 200, stage: "root_fields", rootFields: {
+      rootKind: "record", missingRequiredMask: 192, unknownKeysPresent: true,
+      unknownFields: Array.from({ length: Math.min(count, 16) }, (_, index) => ({ name: `future_field_${index}`, jsonType: "object" })),
+      unknownFieldsOmitted: count === 0 || count > 16,
+    } } })),
+    { responseDiagnostic: { status: 200, stage: "PRIVATE_UNTRUSTED_STAGE", text: "PRIVATE_RAW_RESPONSE" },
+      httpDiagnostic: { status: 400, message: "PRIVATE_HTTP_BODY" } },
+    { responseDiagnostic: { status: 200, stage: "root_fields", rootFields: {
+      rootKind: "PRIVATE_KIND", missingRequiredMask: "PRIVATE_VALUE", unknownKeysPresent: true,
+      unknownKeys: ["PRIVATE_FIELD_NAME"], unknownFields: [{ name: "PRIVATE_NAME", jsonType: "PRIVATE_TYPE", value: "PRIVATE_VALUE" }],
+    } } },
+  ]) {
+    let requests = 0;
+    const f = await makeFixture(t, "diagnostic-envelope", {
+      // The live store intentionally rotates its process epoch. Pin that
+      // existing test seam so this comparison varies only the diagnostic.
+      storeOperations: { randomBytes: () => new Uint8Array(32).fill(8) }, operations: {
+      async providerExecutor() {
+        requests += 1;
+        return { ok: false, diagnosticCode: "R22_PROVIDER_RESPONSE_INVALID", requestCount: 1,
+          costUncertain: true, returnedModel: null, usage: null, actualCostMicrousd: null, ...extra };
+      },
+    } });
+    const turn = await approved(f.host);
+    const result = await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
+    const receipt = JSON.parse(result.turnReceiptJson);
+    assert.equal(requests, 1);
+    assert.equal(receipt.fallbackReason, "NPC_COGNITION_FALLBACK_PROVIDER_RESPONSE_INVALID");
+    assert.equal(receipt.budget.actualMicrousd, NPC_COGNITION_LIMITS.perCallMicrousd);
+    assert.deepEqual(receipt.ledger.before, receipt.ledger.after);
+    assert.equal(receipt.mappedIntentSha256, null);
+    await closeR22CallStore(f.store);
+    const files = await allFiles(f.cognitionRunRoot);
+    const snapshot = Object.fromEntries(await Promise.all(files.map(async (file) => [
+      path.relative(f.cognitionRunRoot, file), await readFile(file, "utf8"),
+    ])));
+    assert.equal(JSON.stringify(snapshot).includes("PRIVATE"), false);
+    assert.equal(JSON.stringify(snapshot).includes("responseDiagnostic"), false);
+    assert.equal(JSON.stringify(snapshot).includes("httpDiagnostic"), false);
+    assert.equal(JSON.stringify(snapshot).includes("unknownFields"), false);
+    assert.equal(JSON.stringify(snapshot).includes("future_field"), false);
+    snapshots.push(snapshot);
+  }
+  for (const snapshot of snapshots.slice(1)) assert.deepEqual(snapshot, snapshots[0]);
+});
+
+test("only the locked model can retain a known charge; mismatched-model usage consumes the full reservation", async (t) => {
   for (const [diagnosticCode, fallbackReason, returnedModel] of [
     ["R22_PROVIDER_REFUSED", "NPC_COGNITION_FALLBACK_PROVIDER_REFUSED", "gpt-5.6-luna"],
     ["R22_PROVIDER_MODEL_MISMATCH", "NPC_COGNITION_FALLBACK_MODEL_MISMATCH", "gpt-5.6-luna-drifted"],
@@ -716,12 +779,390 @@ test("provider refusal and model mismatch with valid usage retain their exact kn
       const result = await executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: turn.approval.approvalHash });
       const receipt = JSON.parse(result.turnReceiptJson);
       assert.equal(receipt.fallbackReason, fallbackReason);
-      assert.equal(receipt.budget.actualMicrousd, 8);
+      const modelMatches = returnedModel === "gpt-5.6-luna";
+      assert.equal(receipt.budget.actualMicrousd, modelMatches ? 8 : NPC_COGNITION_LIMITS.perCallMicrousd);
+      assert.equal(receipt.usage.totalTokens, modelMatches ? 15 : 0);
       assert.equal(receipt.returnedModel, returnedModel);
       assert.equal(validateNpcCognitionTurnReceiptJson(result.turnReceiptJson).valid, true);
       await closeR22CallStore(f.store);
     });
   }
+});
+
+test("actual offline Provider zero-tool and observed billing profiles settle and recover without releasing uncertain reservations", async (t) => {
+  // No live transport, credential source or real response is used here. Unlike
+  // host-only stubs this exercises the actual parser before durable settlement.
+  const cases = [
+    { profile: "absent", outcome: "success", charge: 16 },
+    { profile: "empty", outcome: "success", charge: 16 },
+    { profile: "observed", outcome: "success", charge: 16 },
+    { profile: "absent", outcome: "output", charge: 16 },
+    { profile: "empty", outcome: "output", charge: 16 },
+    { profile: "observed", outcome: "output", charge: 10000 },
+    { profile: "observed", outcome: "refusal", charge: 10000 },
+    { profile: "observed", outcome: "tool", charge: 10000 },
+    { profile: "observed", outcome: "unknown-count", charge: 10000 },
+    { profile: "observed", outcome: "output", charge: 10000, crash: true },
+  ];
+  for (const profile of ["absent", "empty", "observed"]) {
+    for (const outcome of ["success", "output", "refusal", "tool", "reasoning", "usage", "tier", "choice"]) {
+      cases.push({ profile, outcome, billing: { payer: "developer" }, billingCase: "developer",
+        charge: outcome === "success" ? 16 : 10000 });
+    }
+  }
+  for (const [billingCase, billing] of [
+    ["empty", {}], ["user", { payer: "user" }], ["null-payer", { payer: null }],
+    ["amount", { payer: "developer", amount: 0 }], ["tools", { payer: "developer", tool_costs: { total: 0 } }],
+  ]) cases.push({ profile: "absent", outcome: "billing", billing, billingCase, charge: 10000 });
+  for (const outcome of ["success", "output"]) cases.push({ profile: "absent", outcome,
+    billing: { payer: "developer" }, billingCase: "developer", charge: outcome === "success" ? 16 : 10000, crash: true });
+  for (const scenario of cases) await t.test(`${scenario.profile}-${scenario.outcome}-${scenario.billingCase ?? "no-billing"}${scenario.crash ? "-crash" : ""}`, async (child) => {
+    let fakeKeyReads = 0, fakeFetches = 0, validations = 0, crashed = false;
+    const f = await makeFixture(child, "zero-tool-settlement", {
+      ...(scenario.crash ? { storeOperations: { async rename(source, target) {
+        await rename(source, target);
+        if (!crashed && path.basename(target) === "turn-receipt.json") {
+          crashed = true;
+          throw new Error("synthetic process exit after receipt rename");
+        }
+      } } } : {}),
+      operations: {
+        async keyReader() { fakeKeyReads += 1; return "PRIVATE_FAKE_KEY"; },
+        async providerExecutor({ apiKey, ...input }) {
+          const plan = JSON.parse(input.callPlanJson);
+          const provider = createOpenAiNpcCognitionProvider({ apiKey, fetchImplementation: async (url, options) => {
+            fakeFetches += 1;
+            assert.equal(url, plan.endpoint);
+            assert.equal(options.body, input.providerRequestJson);
+            assert.equal(Object.hasOwn(JSON.parse(options.body), "tools"), false);
+            const response = {
+              id: "PRIVATE_RESPONSE_ID", object: "response", status: "completed", error: null,
+              incomplete_details: null, model: plan.model, service_tier: "default", tools: [], tool_choice: "auto",
+              output: [{ id: "PRIVATE_MESSAGE_ID", type: "message", status: "completed", role: "assistant",
+                content: [{ type: "output_text", annotations: [], text: JSON.stringify({
+                  contextSha256: plan.contextSha256, dialogueText: "PRIVATE_MODEL_DIALOGUE", actionChoiceId: null,
+                }) }] }],
+              usage: { input_tokens: 20, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+                output_tokens: 10, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 30 },
+            };
+            if (scenario.profile === "empty") response.tool_usage = {};
+            if (scenario.profile === "observed") response.tool_usage = {
+              image_gen: { input_tokens: 0, input_tokens_details: { image_tokens: 0, text_tokens: 0 },
+                output_tokens: 0, output_tokens_details: { image_tokens: 0, text_tokens: 0 }, total_tokens: 0 },
+              web_search: { num_requests: 0 },
+            };
+            if (scenario.billingCase) response.billing = structuredClone(scenario.billing);
+            if (scenario.outcome === "output") response.output = [];
+            if (scenario.outcome === "refusal") response.output[0].content = [{ type: "refusal", refusal: "PRIVATE_REFUSAL" }];
+            if (scenario.outcome === "tool") response.output = [{ type: "web_search_call", status: "completed", id: "PRIVATE_TOOL_ID" }];
+            if (scenario.outcome === "unknown-count") response.tool_usage.web_search.extra = 0;
+            if (scenario.outcome === "reasoning") response.reasoning = { effort: "none", context: "unapproved" };
+            if (scenario.outcome === "usage") response.usage.total_tokens += 1;
+            if (scenario.outcome === "tier") response.service_tier = "priority";
+            if (scenario.outcome === "choice") {
+              const part = response.output[0].content[0];
+              part.text = JSON.stringify({ ...JSON.parse(part.text), actionChoiceId: `choice-${"f".repeat(64)}` });
+            }
+            return new Response(JSON.stringify(response), { headers: { "content-type": "application/json" } });
+          } });
+          return executeApprovedNpcCognitionTurn(input, provider);
+        },
+        async proposalValidator({ proposalJson }) { validations += 1; return validProposal(proposalJson); },
+      },
+    });
+    const body = JSON.parse(payload());
+    body.instructions = NPC_COGNITION_TRUSTED_INSTRUCTIONS;
+    body.service_tier = "default";
+    const contextSha256 = shaText(body.input);
+    const schema = { type: "object", additionalProperties: false,
+      required: ["contextSha256", "dialogueText", "actionChoiceId"], properties: {
+        contextSha256: { type: "string", const: contextSha256 },
+        dialogueText: { type: "string", minLength: 1, maxLength: NPC_COGNITION_LIMITS.dialogueBytes },
+        actionChoiceId: { type: ["string", "null"], enum: [null] },
+      } };
+    body.text.format.schema = schema;
+    const providerRequestJson = canonicalizeJsonValue(body);
+    const plan = JSON.parse(callPlan(providerRequestJson));
+    plan.contextSha256 = contextSha256;
+    plan.responseSchemaSha256 = shaText(canonicalizeJsonValue(schema));
+    plan.approval.hash = computeNpcCognitionApprovalHash(plan);
+    const callPlanJson = canonicalizeJsonValue(plan);
+    const result = await registerR22CognitionTurn(f.host, { turnId: "turn-1", sequence: 1, actorEntityId: "actor-one",
+      callPlanJson, providerRequestJson, beforeLedgerPoint: ledgerPoint() });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(fakeKeyReads, 0);
+    assert.equal(fakeFetches, 0);
+    const approval = issueR22CognitionApproval(f.host, { turnId: "turn-1", disclosureSha256: result.disclosureSha256 });
+    assert.equal(approval.ok, true);
+    const execute = () => executeApprovedR22CognitionTurn(f.host, { turnId: "turn-1", approvalHash: approval.approvalHash });
+    if (scenario.crash && scenario.outcome !== "success") await assert.rejects(execute(), /NPC_COGNITION_INTERNAL_ERROR/u);
+    else {
+      const actual = await execute();
+      assert.equal(actual.status, scenario.outcome === "success" ? "dialogue_only" : "fallback");
+      if (scenario.outcome === "success") {
+        // Dialogue-only success publishes its receipt at display ACK, unlike
+        // fallback which finalizes during execute. Inject the same rename fault
+        // at the actual publication boundary, not before the receipt exists.
+        const acknowledge = () => acknowledgeDirectDisplay(f.host, { callPlanJson, result, approval }, actual);
+        if (scenario.crash) await assert.rejects(acknowledge(), /NPC_COGNITION_INTERNAL_ERROR/u);
+        else await acknowledge();
+      }
+    }
+    assert.equal(fakeKeyReads, 1);
+    assert.equal(fakeFetches, 1);
+    assert.equal(validations, scenario.outcome === "success" ? 1 : 0);
+    const receiptPath = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    assert.ok(receiptPath);
+    const receiptText = await readFile(receiptPath, "utf8"), receipt = JSON.parse(receiptText);
+    assert.equal(validateNpcCognitionTurnReceiptJson(receiptText).valid, true);
+    assert.equal(receipt.requestCount, 1);
+    assert.equal(receipt.budget.actualMicrousd, scenario.charge);
+    assert.equal(receipt.usage.totalTokens, scenario.charge === 16 ? 30 : 0);
+    assert.deepEqual(receipt.ledger.before, receipt.ledger.after);
+    assert.equal(receipt.mappedIntentSha256, null);
+    assert.equal(receipt.adjudicationResultSha256, null);
+    if (scenario.outcome !== "success") assert.equal(receipt.proposalSha256, null);
+    await closeR22CallStore(f.store);
+
+    const reopened = await openR22CallStore(f.config);
+    const recoveredHost = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async keyReader() { assert.fail("recovery cannot read a key"); },
+      async providerExecutor() { assert.fail("recovery cannot replay the provider"); },
+    }) });
+    const recovery = await recoverR22TransactionalHost(recoveredHost);
+    assert.equal(recovery.providerReplayRequests, 0);
+    if (scenario.crash) assert.equal(recovery.turnReceiptJson, receiptText);
+    else assert.equal(recovery.status, "idle");
+    assert.deepEqual(inspectR22CallStore(reopened).hostBudget, {
+      chargedMicrousd: scenario.charge, reservedMicrousd: 0, limitMicrousd: NPC_COGNITION_LIMITS.perHostRunMicrousd,
+    });
+    assert.equal(await readFile(receiptPath, "utf8"), receiptText);
+    await closeR22CallStore(reopened);
+    for (const file of await allFiles(f.cognitionRunRoot)) {
+      const persisted = await readFile(file, "utf8");
+      assert.equal(persisted.includes("PRIVATE"), false);
+      assert.equal(persisted.includes("tool_usage"), false);
+      assert.equal(persisted.includes('"billing"'), false);
+      assert.equal(persisted.includes('"payer"'), false);
+      assert.equal(persisted.includes("responseDiagnostic"), false);
+    }
+    assert.equal(fakeKeyReads, 1);
+    assert.equal(fakeFetches, 1);
+  });
+});
+
+test("real Provider field-policy rejection remains one-shot, fully charged and recovery-safe", async (t) => {
+  function createSignedProviderInput(sequence = 1) {
+    const body = JSON.parse(payload(sequence));
+    body.instructions = NPC_COGNITION_TRUSTED_INSTRUCTIONS;
+    body.service_tier = "default";
+    const contextSha256 = shaText(body.input);
+    const schema = { type: "object", additionalProperties: false,
+      required: ["contextSha256", "dialogueText", "actionChoiceId"], properties: {
+        contextSha256: { type: "string", const: contextSha256 },
+        dialogueText: { type: "string", minLength: 1, maxLength: NPC_COGNITION_LIMITS.dialogueBytes },
+        actionChoiceId: { type: ["string", "null"], enum: [null] },
+      } };
+    body.text.format.schema = schema;
+    const providerRequestJson = canonicalizeJsonValue(body);
+    const plan = JSON.parse(callPlan(providerRequestJson, sequence));
+    plan.contextSha256 = contextSha256;
+    plan.responseSchemaSha256 = shaText(canonicalizeJsonValue(schema));
+    plan.approval.hash = computeNpcCognitionApprovalHash(plan);
+    return { providerRequestJson, callPlanJson: canonicalizeJsonValue(plan), plan };
+  }
+
+  function responseFor(input, reasoning, billing) {
+    const plan = JSON.parse(input.callPlanJson);
+    const request = JSON.parse(input.providerRequestJson);
+    const response = {
+      id: "PRIVATE_RESPONSE_ID", object: "response", status: "completed", error: null,
+      incomplete_details: null, model: plan.model, service_tier: "default", tools: [], tool_choice: "auto",
+      background: false, instructions: NPC_COGNITION_TRUSTED_INSTRUCTIONS,
+      max_output_tokens: NPC_COGNITION_LIMITS.maxOutputTokens, metadata: {}, parallel_tool_calls: true,
+      previous_response_id: null, store: false, text: { format: structuredClone(request.text.format) },
+      truncation: "disabled",
+      reasoning,
+      output: [{ id: "PRIVATE_MESSAGE_ID", type: "message", status: "completed", role: "assistant",
+        content: [{ type: "output_text", annotations: [], text: JSON.stringify({
+          contextSha256: plan.contextSha256, dialogueText: "PRIVATE_MODEL_DIALOGUE", actionChoiceId: null,
+        }) }] }],
+      usage: { input_tokens: 20, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
+        output_tokens: 10, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 30 },
+    };
+    if (billing !== undefined) response.billing = billing;
+    return response;
+  }
+
+  const durableSnapshots = [];
+  for (const [scenarioIndex, scenario] of [
+    {
+      name: "billing-and-synthetic-invalid-reasoning",
+      reasoning: { effort: "none", mode: "synthetic_invalid_mode", context: "all_turns" },
+      failures: ["billing", "reasoning"],
+    },
+    {
+      name: "billing-only-with-official-all-turns",
+      reasoning: { effort: "none", mode: "standard", context: "all_turns" },
+      failures: ["billing"],
+    },
+  ].entries()) await t.test(scenario.name, async (child) => {
+    const dummyApiKey = "offline-placeholder-fixture";
+    let fakeKeyReads = 0;
+    let fakeFetches = 0;
+    let validations = 0;
+    let providerResult;
+    const signed = createSignedProviderInput();
+    const f = await makeFixture(child, `field-policy-${scenarioIndex}`, {
+      storeOperations: { randomBytes: () => new Uint8Array(32).fill(9) },
+      operations: {
+      async keyReader() { fakeKeyReads += 1; return dummyApiKey; },
+      async providerExecutor({ apiKey, ...input }) {
+        assert.equal(apiKey, dummyApiKey);
+        const provider = createOpenAiNpcCognitionProvider({ apiKey, fetchImplementation: async (url, options) => {
+          fakeFetches += 1;
+          assert.equal(url, signed.plan.endpoint);
+          assert.equal(options.body, signed.providerRequestJson);
+          return new Response(JSON.stringify(responseFor(input, scenario.reasoning, {
+            private_billing_details: "PRIVATE_BILLING",
+          })), { headers: { "content-type": "application/json" } });
+        } });
+        providerResult = await executeApprovedNpcCognitionTurn(input, provider);
+        return providerResult;
+      },
+      async proposalValidator() { validations += 1; assert.fail("field-policy failures cannot reach proposal validation"); },
+      },
+    });
+    const planned = await registerR22CognitionTurn(f.host, {
+      turnId: "turn-1", sequence: 1, actorEntityId: "actor-one",
+      callPlanJson: signed.callPlanJson, providerRequestJson: signed.providerRequestJson,
+      beforeLedgerPoint: ledgerPoint(),
+    });
+    assert.equal(planned.ok, true, JSON.stringify(planned));
+    assert.equal(fakeKeyReads, 0);
+    assert.equal(fakeFetches, 0);
+    const approval = issueR22CognitionApproval(f.host, {
+      turnId: "turn-1", disclosureSha256: planned.disclosureSha256,
+    });
+    assert.equal(approval.ok, true, JSON.stringify(approval));
+    const actual = await executeApprovedR22CognitionTurn(f.host, {
+      turnId: "turn-1", approvalHash: approval.approvalHash,
+    });
+    assert.equal(actual.status, "fallback");
+    assert.equal(fakeKeyReads, 1);
+    assert.equal(fakeFetches, 1);
+    assert.equal(validations, 0);
+    assert.equal(providerResult.ok, false);
+    assert.equal(providerResult.diagnosticCode, "R22_PROVIDER_RESPONSE_INVALID");
+    assert.equal(providerResult.requestCount, 1);
+    assert.equal(providerResult.costUncertain, true);
+    assert.equal(providerResult.returnedModel, null);
+    assert.equal(providerResult.usage, null);
+    assert.equal(providerResult.actualCostMicrousd, null);
+    assert.equal(Object.hasOwn(providerResult, "proposal"), false);
+    assert.equal(providerResult.responseDiagnostic.stage, "envelope_profile");
+    assert.equal(providerResult.responseDiagnostic.envelopeProfile, "matrix-oasis.responses-envelope/1");
+    assert.deepEqual(providerResult.responseDiagnostic.fieldPolicyFailures, scenario.failures);
+    const expectedFieldPolicyChecks = [
+      { rule: "billing_absent_or_null", status: "failed", jsonType: "object" },
+      { rule: "reasoning_closed_record_or_null", status: "passed", jsonType: "object" },
+      { rule: "reasoning_effort_none", status: "passed", jsonType: "string" },
+      { rule: "reasoning_mode_standard", status: scenario.failures.includes("reasoning") ? "failed" : "passed", jsonType: "string" },
+      { rule: "reasoning_context_supported", status: "passed", jsonType: "string" },
+      { rule: "reasoning_summary_supported", status: "passed", jsonType: "absent" },
+      { rule: "reasoning_generate_summary_supported", status: "passed", jsonType: "absent" },
+    ];
+    assert.deepEqual(providerResult.responseDiagnostic.fieldPolicyChecks, expectedFieldPolicyChecks);
+    assert.equal(providerResult.responseDiagnostic.checks.length, 28);
+    assert.equal(providerResult.responseDiagnostic.checks.every(({ status }) => status === "passed"), true);
+
+    const receipt = JSON.parse(actual.turnReceiptJson);
+    assert.equal(validateNpcCognitionTurnReceiptJson(actual.turnReceiptJson).valid, true);
+    assert.equal(receipt.requestCount, 1);
+    assert.equal(receipt.fallbackReason, "NPC_COGNITION_FALLBACK_PROVIDER_RESPONSE_INVALID");
+    assert.equal(receipt.budget.actualMicrousd, NPC_COGNITION_LIMITS.perCallMicrousd);
+    assert.deepEqual(receipt.usage, {
+      inputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, outputTokens: 0, totalTokens: 0,
+    });
+    assert.equal(receipt.returnedModel, null);
+    assert.equal(receipt.proposalSha256, null);
+    assert.equal(receipt.actionChoiceId, null);
+    assert.equal(receipt.mappedIntentSha256, null);
+    assert.equal(receipt.adjudicationResultSha256, null);
+    assert.deepEqual(receipt.ledger.before, receipt.ledger.after);
+    const beforeClose = inspectR22CallStore(f.store);
+    assert.equal(beforeClose.checkpoint.providerRequests, 1);
+    assert.equal(beforeClose.checkpoint.active, null);
+    assert.deepEqual(beforeClose.hostBudget, {
+      chargedMicrousd: NPC_COGNITION_LIMITS.perCallMicrousd,
+      reservedMicrousd: 0,
+      limitMicrousd: NPC_COGNITION_LIMITS.perHostRunMicrousd,
+    });
+    const receiptPath = (await allFiles(f.cognitionRunRoot)).find((file) => file.endsWith("turn-receipt.json"));
+    assert.ok(receiptPath);
+    const receiptText = await readFile(receiptPath, "utf8");
+    assert.equal(receiptText, actual.turnReceiptJson);
+    await closeR22CallStore(f.store);
+
+    const persistedFiles = await allFiles(f.cognitionRunRoot);
+    const persistedSnapshot = Object.fromEntries(await Promise.all(persistedFiles.map(async (file) => [
+      path.relative(f.cognitionRunRoot, file), await readFile(file, "utf8"),
+    ])));
+    const persistedText = JSON.stringify(persistedSnapshot);
+    for (const forbidden of [
+      dummyApiKey, "PRIVATE_RAW_PLAYER_TEXT", "PRIVATE_RESPONSE_ID", "PRIVATE_MESSAGE_ID",
+      "PRIVATE_MODEL_DIALOGUE", "PRIVATE_BILLING", "synthetic_invalid_mode", "fieldPolicyFailures",
+      "fieldPolicyChecks", "responseDiagnostic", "private_billing_details",
+    ]) assert.equal(persistedText.includes(forbidden), false, forbidden);
+    durableSnapshots.push(persistedSnapshot);
+
+    let replayKeyReads = 0;
+    let providerReplays = 0;
+    const reopened = await openR22CallStore(f.config);
+    const recoveredHost = createR22TransactionalHost({ store: reopened, operations: hostOperations({
+      async keyReader() { replayKeyReads += 1; assert.fail("recovery cannot read a credential"); },
+      async providerExecutor() { providerReplays += 1; assert.fail("recovery cannot replay the Provider"); },
+    }) });
+    const recovered = await recoverR22TransactionalHost(recoveredHost);
+    assert.deepEqual(recovered, { ok: true, status: "idle", providerReplayRequests: 0 });
+    assert.equal(replayKeyReads, 0);
+    assert.equal(providerReplays, 0);
+    const recoveredReceipt = await readR22FinalizedTurnReceipt(reopened, {
+      timelineId: f.config.timelineId, turnId: "turn-1", callPlanSha256: shaText(signed.callPlanJson),
+    });
+    assert.equal(recoveredReceipt.turnReceiptJson, receiptText);
+    const afterRecovery = inspectR22CallStore(reopened);
+    assert.equal(afterRecovery.checkpoint.providerRequests, 1);
+    assert.equal(afterRecovery.checkpoint.active, null);
+    assert.deepEqual(afterRecovery.hostBudget, beforeClose.hostBudget);
+    await closeR22CallStore(reopened);
+    assert.equal(fakeKeyReads, 1);
+    assert.equal(fakeFetches, 1);
+  });
+  assert.deepEqual(durableSnapshots[1], durableSnapshots[0],
+    "billing-only and billing-plus-reasoning diagnostics must not change durable bytes");
+
+  for (const context of ["current_turn", "auto", "all_turns"]) await t.test(`no billing accepts ${context}`, async () => {
+    const signed = createSignedProviderInput();
+    let fakeFetches = 0;
+    const provider = createOpenAiNpcCognitionProvider({
+      apiKey: "offline-placeholder-fixture",
+      fetchImplementation: async () => {
+        fakeFetches += 1;
+        return new Response(JSON.stringify(responseFor(signed, {
+          effort: "none", mode: "standard", context,
+        })), { headers: { "content-type": "application/json" } });
+      },
+    });
+    const result = await executeApprovedNpcCognitionTurn({ callPlanJson: signed.callPlanJson,
+      providerRequestJson: signed.providerRequestJson, approvalHash: signed.plan.approval.hash }, provider);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.requestCount, 1);
+    assert.equal(result.costUncertain, false);
+    assert.equal(Object.hasOwn(result, "responseDiagnostic"), false);
+    assert.equal(result.proposal.actionChoiceId, null);
+    assert.equal(fakeFetches, 1);
+  });
 });
 
 test("context drift and local choice mapping failures are recorded only after provider output validation", async (t) => {

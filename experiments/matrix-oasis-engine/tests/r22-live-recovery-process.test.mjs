@@ -17,6 +17,7 @@ const CASE = Object.freeze({ caseId: "neutral-cache", sourceKind: "qualified-cac
   expectedNpcCurrentSha256: "sha256:187221f904f7eee7fc97c0194fe16f075365b1b489050ac00a04be0c4da91135",
   expectedDerivedStateBundleSha256: "sha256:7cfc9b43e6318076b57ee97e34a759a9b9a52c31377a9beaaf5d8d829d1a008b" });
 const SHA_A = `sha256:${"a".repeat(64)}`, SHA_B = `sha256:${"b".repeat(64)}`;
+const MANUAL_PROFILE = Object.freeze({ scenario: "invalid-response", windowSize: "640x540" });
 
 async function modules() {
   const [composition, host, qualification] = await Promise.all([
@@ -25,9 +26,10 @@ async function modules() {
   ]);
   return { ...composition, ...host, ...qualification };
 }
-function configuration(base, source, mode = "offline-fake", resume = false) {
+function configuration(base, source, mode = "offline-fake", resume = false, offlineManualProfile) {
   return { source, temporaryRoot: TEMP_ROOT, npcRunRoot: `${base}-npc`, cognitionRunRoot: `${base}-cognition`,
-    implementationSha256: SHA_A, godotBinarySha256: SHA_B, providerMode: mode, resume };
+    implementationSha256: SHA_A, godotBinarySha256: SHA_B, providerMode: mode, resume,
+    ...(offlineManualProfile === undefined ? {} : { offlineManualProfile }) };
 }
 async function route(api, live, method, url, body = {}, expected = 200) {
   const response = await api.handleR22LoopbackRequestAsync(live.controller, { remoteAddress: "127.0.0.1", method, url,
@@ -56,8 +58,23 @@ async function commit(api, live, command) {
 if (process.argv[2] === "--r22-crash-worker") {
   const scenario = process.argv[3], base = process.argv[4];
   const mode = scenario === "official-planned" ? "official-once" : "offline-fake";
+  let manualCredentialReads = 0, manualExternalFetches = 0;
+  if (scenario === "manual-finalized") {
+    // Install before any R22 module is loaded. This fixture may exercise the
+    // real parser and disk transaction, but never a real transport or key.
+    globalThis.fetch = () => { manualExternalFetches += 1; throw new Error("R22_TEST_EXTERNAL_FETCH_FORBIDDEN"); };
+    process.env = new Proxy(process.env, {
+      get(target, key) {
+        if (/(?:OPENAI|OPENROUTER|MESHY|MARBLE|API_KEY|CREDENTIAL)/u.test(String(key))) {
+          manualCredentialReads += 1;
+          throw new Error("R22_TEST_CREDENTIAL_READ_FORBIDDEN");
+        }
+        return Reflect.get(target, key);
+      },
+    });
+  }
   function crash(phase) {
-    writeSync(1, JSON.stringify({ phase, sourceCredentialReads: 0, realProviderRequests: 0 }));
+    writeSync(1, JSON.stringify({ phase, sourceCredentialReads: manualCredentialReads, realProviderRequests: manualExternalFetches }));
     process.exit(81);
   }
   if (scenario === "dispatch") {
@@ -81,7 +98,8 @@ if (process.argv[2] === "--r22-crash-worker") {
   }
   const api = await modules();
   const source = await api.verifyR22QualifiedSourcePair(CASE, TEMP_ROOT);
-  const live = await api.createR22LiveComposition(configuration(base, source, mode));
+  const live = await api.createR22LiveComposition(configuration(base, source, mode, false,
+    scenario === "manual-finalized" ? MANUAL_PROFILE : undefined));
   const actorEntityId = JSON.parse(source.npcEntityBindingJson).bindings[0].actorEntityId;
   if (scenario === "reset-queued") {
     const first = await route(api, live, "POST", "/v1/cognition/turn", { actorEntityId, playerText: "First timeline bounded action." });
@@ -97,6 +115,16 @@ if (process.argv[2] === "--r22-crash-worker") {
   if (scenario === "planned" || scenario === "official-planned") crash("planned");
   await route(api, live, "POST", "/v1/cognition/approve", { turnId: turn.turnId, approvalHash: turn.approvalHash });
   const outcome = await settled(api, live, turn.turnId);
+  if (scenario === "manual-finalized") {
+    assert.equal(outcome.status, "fallback");
+    const state = live.exportState();
+    assert.equal(state.fakeDispatches, 1);
+    assert.equal(state.realProviderRequests, 0);
+    assert.equal(state.sourceCredentialReads, 0);
+    assert.equal(state.callStore.checkpoint.active, null);
+    assert.equal(state.callStore.checkpoint.finalized.length, 1);
+    crash("manual-finalized");
+  }
   assert.equal(outcome.status, "queued_for_r20");
   await route(api, live, "POST", "/v1/cognition/displayed", { turnId: turn.turnId, displayAckHash: outcome.displayAckHash });
   if (scenario === "queued" || scenario === "reset-queued") crash("queued");
@@ -229,6 +257,46 @@ if (process.argv[2] === "--r22-crash-worker") {
       assert.equal(live.exportState().sourceCredentialReads, 0);
       assert.equal(live.exportState().realProviderRequests, 0);
       assert.equal(live.exportState().callStore.hostBudget.chargedMicrousd, 0);
+    } finally { await live.close(); }
+  });
+
+  test("offline manual process recovery binds scenario and viewport and never replays its fake request", { timeout: 90000 }, async (t) => {
+    if (!await supported(t)) return;
+    const base = await ownRoot(t), api = await modules();
+    const crashed = await crashWorker(base, "manual-finalized");
+    assert.equal(crashed.sourceCredentialReads, 0);
+    assert.equal(crashed.realProviderRequests, 0);
+    const source = await api.verifyR22QualifiedSourcePair(CASE, TEMP_ROOT);
+    const manifestFile = path.join(`${base}-cognition`, "cognition-session-manifest.json");
+    const budgetFile = path.join(`${base}-cognition`, "host-budget.json");
+    const manifestBefore = await fs.readFile(manifestFile);
+    const budgetBefore = await fs.readFile(budgetFile);
+    const manifest = JSON.parse(manifestBefore);
+    assert.equal(manifest.formatVersion, "0.2.0");
+    assert.deepEqual(manifest.offlineManualProfile, MANUAL_PROFILE);
+    for (const drift of [undefined, { ...MANUAL_PROFILE, scenario: "normal" },
+      { ...MANUAL_PROFILE, windowSize: "960x540" }]) {
+      await assert.rejects(api.createR22LiveComposition(configuration(base, source, "offline-fake", true, drift)),
+        /R22_RECOVERY_SESSION_IDENTITY_MISMATCH/u);
+      assert.deepEqual(await fs.readFile(manifestFile), manifestBefore);
+      assert.deepEqual(await fs.readFile(budgetFile), budgetBefore);
+    }
+    const live = await api.createR22LiveComposition(configuration(base, source, "offline-fake", true, MANUAL_PROFILE));
+    try {
+      const state = live.exportState();
+      assert.equal(state.fakeDispatches, 0);
+      assert.equal(state.realProviderRequests, 0);
+      assert.equal(state.sourceCredentialReads, 0);
+      assert.equal(state.recovery.providerReplayRequests, 0);
+      assert.equal(state.callStore.checkpoint.providerRequests, 1);
+      assert.equal(state.callStore.checkpoint.finalized.length, 1);
+      assert.equal(state.callStore.checkpoint.active, null);
+      assert.equal(state.authority.commands.length, 0);
+      assert.equal(JSON.parse(state.authority.authority.canonicalWorldEventLedgerJson).revision, 0);
+      assert.equal(live.resumeQueuedAction, false);
+      assert.deepEqual(await fs.readFile(manifestFile), manifestBefore);
+      assert.deepEqual(await fs.readFile(budgetFile), budgetBefore);
+      await live.revalidate();
     } finally { await live.close(); }
   });
 }

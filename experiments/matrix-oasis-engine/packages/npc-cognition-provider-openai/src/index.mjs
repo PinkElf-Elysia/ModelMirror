@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { types } from "node:util";
 import {
   NPC_COGNITION_ENDPOINT,
   NPC_COGNITION_LIMITS,
@@ -8,6 +9,12 @@ import {
   validateNpcCognitionCallPlanJson,
 } from "@matrix-oasis/npc-cognition-contracts";
 import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
+import { observeToolUsage } from "./tool-usage-observer.mjs";
+import { createNpcCognitionToolUsageDiagnosticPlan } from "./tool-usage-diagnostic-profile.mjs";
+import { observeBilling } from "./billing-observer.mjs";
+import { createNpcCognitionBillingDiagnosticPlan } from "./billing-diagnostic-profile.mjs";
+
+export { createNpcCognitionToolUsageDiagnosticPlan, createNpcCognitionBillingDiagnosticPlan };
 
 const PROVIDER_STATE = new WeakMap();
 const INTERNAL_CODE = "NPC_COGNITION_INTERNAL_ERROR";
@@ -16,9 +23,27 @@ const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const CHOICE_ID = /^choice-[0-9a-f]{64}$/u;
 const RESPONSE_DEPTH_LIMIT = 256;
 const RESPONSE_CHUNK_LIMIT = 4096;
+const BYTE_LENGTH_GETTER = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
+const BUFFER_GETTER = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "buffer").get;
 const STRUCTURED_OUTPUT_NAME = "matrix_oasis_npc_dialogue_proposal";
 const TIMEOUT_RESULT = Object.freeze({ kind: "timeout" });
 const MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
+const HTTP_ERROR_TYPES = new Set([
+  "invalid_request_error", "authentication_error", "permission_denied_error",
+  "insufficient_quota", "rate_limit_error", "server_error", "service_unavailable_error",
+]);
+const HTTP_ERROR_CODES = new Set([
+  "invalid_json_schema", "invalid_value", "unsupported_value", "unsupported_parameter",
+  "missing_required_parameter", "invalid_api_key", "model_not_found", "insufficient_quota",
+  "rate_limit_exceeded", "slow_down", "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded", "organization_usage_limit_exceeded", "server_is_overloaded",
+  "context_length_exceeded", "content_policy_violation",
+]);
+const HTTP_ERROR_PARAMETERS = new Set([
+  "model", "input", "instructions", "reasoning", "reasoning.effort", "max_output_tokens",
+  "text", "text.format", "text.format.schema", "text.format.name", "text.format.strict",
+  "store", "stream", "background", "truncation", "service_tier",
+]);
 const PROPOSAL_KEYS = Object.freeze(["contextSha256", "dialogueText", "actionChoiceId"]);
 const PAYLOAD_KEYS = Object.freeze([
   "background",
@@ -27,6 +52,7 @@ const PAYLOAD_KEYS = Object.freeze([
   "max_output_tokens",
   "model",
   "reasoning",
+  "service_tier",
   "store",
   "stream",
   "text",
@@ -42,8 +68,11 @@ const RESPONSE_ROOT_REQUIRED_KEYS = Object.freeze([
   "output",
   "usage",
 ]);
-// Current documented Responses fields. Unused fields remain inert, but an
-// unknown root field is treated as provider-schema drift and fails closed.
+// This is a versioned *local* capability profile, not the complete Responses API
+// schema. Every known field is checked below or explicitly bounded and discarded.
+// New upstream fields are compatible API changes, but need classification before
+// this no-tools, fixed-price profile may accept them. Names alone are not proof.
+const RESPONSE_ENVELOPE_PROFILE = "matrix-oasis.responses-envelope/1";
 const RESPONSE_ROOT_OPTIONAL_KEYS = Object.freeze([
   "agent",
   "background",
@@ -52,6 +81,7 @@ const RESPONSE_ROOT_OPTIONAL_KEYS = Object.freeze([
   "context_management",
   "conversation",
   "created_at",
+  "frequency_penalty",
   "instructions",
   "max_output_tokens",
   "max_tool_calls",
@@ -59,6 +89,7 @@ const RESPONSE_ROOT_OPTIONAL_KEYS = Object.freeze([
   "moderation",
   "parallel_tool_calls",
   "previous_response_id",
+  "presence_penalty",
   "prompt",
   "prompt_cache_diagnostics",
   "prompt_cache_key",
@@ -71,6 +102,7 @@ const RESPONSE_ROOT_OPTIONAL_KEYS = Object.freeze([
   "temperature",
   "text",
   "tool_choice",
+  "tool_usage",
   "tools",
   "top_logprobs",
   "top_p",
@@ -135,6 +167,8 @@ function failure(
     returnedModel = null,
     usage = null,
     actualCostMicrousd = null,
+    httpDiagnostic = null,
+    responseDiagnostic = null,
   } = {},
 ) {
   return deepFreeze({
@@ -145,6 +179,8 @@ function failure(
     returnedModel,
     usage,
     actualCostMicrousd,
+    ...(httpDiagnostic === null ? {} : { httpDiagnostic }),
+    ...(responseDiagnostic === null ? {} : { responseDiagnostic }),
   });
 }
 
@@ -224,7 +260,7 @@ function safeText(value, { allowLf = true, rejectBidi = true } = {}) {
   return !rejectBidi || !/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u.test(value);
 }
 
-function scanStrictJson(text) {
+function scanStrictJson(text, { rejectNumberUnderflow = false } = {}) {
   let offset = 0;
   const whitespace = () => {
     while (offset < text.length && /[\u0009\u000a\u000d\u0020]/u.test(text[offset])) offset += 1;
@@ -316,6 +352,12 @@ function scanStrictJson(text) {
     }
     const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/u.exec(text.slice(offset));
     if (!match) throw new Error("json");
+    // Used only by the expanded observed-zero response profile. JSON.parse can
+    // round a nonzero counter such as 1e-999 to zero; it is not a neutral count.
+    // Ignore exponent digits and quoted strings. Legacy parsing is unchanged.
+    if (rejectNumberUnderflow && Number(match[0]) === 0 && /[1-9]/u.test(match[0].split(/[eE]/u)[0])) {
+      throw new Error("number_underflow");
+    }
     offset += match[0].length;
   };
   value(1);
@@ -349,14 +391,16 @@ function validateDynamicResponseSchema(value, contextSha256) {
     !PROPOSAL_KEYS.every((key, index) => schema.required[index] === key)
   ) return null;
   const properties = exactKeys(schema.properties, PROPOSAL_KEYS);
-  const context = properties && exactKeys(properties.contextSha256, ["const"]);
+  const context = properties && exactKeys(properties.contextSha256, ["type", "const"]);
   const dialogue = properties && exactKeys(properties.dialogueText, ["type", "minLength", "maxLength"]);
-  const choice = properties && exactKeys(properties.actionChoiceId, ["enum"]);
+  const choice = properties && exactKeys(properties.actionChoiceId, ["type", "enum"]);
   if (
-    !context || context.const !== contextSha256 ||
+    !context || context.type !== "string" || context.const !== contextSha256 ||
     !dialogue || dialogue.type !== "string" || dialogue.minLength !== 1 ||
     dialogue.maxLength !== NPC_COGNITION_LIMITS.dialogueBytes ||
-    !choice || !Array.isArray(choice.enum) || choice.enum.length < 1 ||
+    !choice || !Array.isArray(choice.type) || choice.type.length !== 2 ||
+    choice.type[0] !== "string" || choice.type[1] !== "null" ||
+    !Array.isArray(choice.enum) || choice.enum.length < 1 ||
     choice.enum.length > NPC_COGNITION_LIMITS.candidateActionsPerTurn + 1
   ) return null;
   let nulls = 0;
@@ -373,7 +417,7 @@ function validateDynamicResponseSchema(value, contextSha256) {
   return nulls === 1 ? Object.freeze({ schema: value, choices }) : null;
 }
 
-function validateProviderPayload(providerRequestJson, callPlan) {
+function validateProviderPayload(providerRequestJson, callPlan, diagnostic = false) {
   if (
     typeof providerRequestJson !== "string" ||
     new TextEncoder().encode(providerRequestJson).byteLength !== callPlan.requestBytes ||
@@ -389,10 +433,13 @@ function validateProviderPayload(providerRequestJson, callPlan) {
     return null;
   }
   if (canonical !== providerRequestJson) return null;
-  const body = exactKeys(parsed, PAYLOAD_KEYS);
+  const body = exactKeys(parsed, diagnostic ? [...PAYLOAD_KEYS, "tools", "tool_choice"] : PAYLOAD_KEYS);
+  if (diagnostic && (!body || !Array.isArray(body.tools) || body.tools.length !== 0 || body.tool_choice !== "none" ||
+      callPlan.candidateChoices.length !== 0)) return null;
   if (
     !body || body.background !== false || body.stream !== false || body.store !== false ||
     body.truncation !== "disabled" || body.model !== NPC_COGNITION_MODEL ||
+    body.service_tier !== "default" ||
     body.max_output_tokens !== NPC_COGNITION_LIMITS.maxOutputTokens ||
     body.instructions !== NPC_COGNITION_TRUSTED_INSTRUCTIONS ||
     typeof body.input !== "string" || !safeText(body.input) || !/\S/u.test(body.input)
@@ -423,7 +470,7 @@ function validateProviderPayload(providerRequestJson, callPlan) {
   return Object.freeze({ body, responseSchema });
 }
 
-function validateExecutionInput(input) {
+function validateExecutionInput(input, diagnostic = false) {
   const captured = captureRecord(input, ["callPlanJson", "providerRequestJson", "approvalHash"]);
   if (!captured || typeof captured.callPlanJson !== "string" || typeof captured.approvalHash !== "string") return null;
   let validation;
@@ -456,7 +503,7 @@ function validateExecutionInput(input) {
     callPlan.maxCostMicrousd !== NPC_COGNITION_LIMITS.perCallMicrousd ||
     callPlan.requestLimit !== 1 || callPlan.retryLimit !== 0
   ) return null;
-  const payload = validateProviderPayload(captured.providerRequestJson, callPlan);
+  const payload = validateProviderPayload(captured.providerRequestJson, callPlan, diagnostic);
   return payload ? Object.freeze({ ...captured, callPlan, payload }) : null;
 }
 
@@ -551,6 +598,27 @@ async function readBoundedResponse(response, deadline) {
   }
 }
 
+async function readHttpDiagnostic(response, deadline, status) {
+  // Error bodies can contain echoed input and credentials. Read them only in
+  // memory under the same absolute deadline/byte/depth limits as success. Never
+  // return message, identifiers, body hashes or arbitrary provider strings.
+  const body = await readBoundedResponse(response, deadline);
+  if (!body.ok) cancelResponseBody(response);
+  const parsed = body.ok ? parseStrictJson(body.text) : null;
+  const error = parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+    Object.hasOwn(parsed, "error") && parsed.error && typeof parsed.error === "object" &&
+    !Array.isArray(parsed.error) ? parsed.error : null;
+  const bodyStatus = body.ok ? (error ? "parsed" : "invalid") :
+    body.code === "R22_PROVIDER_TIMEOUT" ? "timeout" :
+    body.code === "R22_PROVIDER_RESPONSE_LIMIT_EXCEEDED" ? "limit_exceeded" :
+    body.code === "R22_PROVIDER_NETWORK_AMBIGUOUS" ? "unavailable" : "invalid";
+  return deepFreeze({ status, bodyStatus,
+    errorType: HTTP_ERROR_TYPES.has(error?.type) ? error.type : null,
+    errorCode: HTTP_ERROR_CODES.has(error?.code) ? error.code : null,
+    parameter: HTTP_ERROR_PARAMETERS.has(error?.param) ? error.param : null,
+  });
+}
+
 function usageEvidence(value, callPlan) {
   const usage = captureRecord(value, [
     "input_tokens",
@@ -604,120 +672,408 @@ function parseFlatProposal(text) {
   return proposal ?? null;
 }
 
-function validateResponseRootEchoes(envelope, callPlan, providerBody, responseSchema) {
-  if (
-    (Object.hasOwn(envelope, "background") && envelope.background !== false) ||
-    (Object.hasOwn(envelope, "store") && envelope.store !== false) ||
-    (Object.hasOwn(envelope, "truncation") && envelope.truncation !== "disabled") ||
-    (Object.hasOwn(envelope, "max_output_tokens") && envelope.max_output_tokens !== callPlan.maxOutputTokens) ||
-    (Object.hasOwn(envelope, "instructions") && envelope.instructions !== providerBody.instructions) ||
-    (Object.hasOwn(envelope, "previous_response_id") && envelope.previous_response_id !== null) ||
-    (Object.hasOwn(envelope, "conversation") && envelope.conversation !== null) ||
-    (Object.hasOwn(envelope, "prompt") && envelope.prompt !== null)
-  ) return false;
-  if (Object.hasOwn(envelope, "tools") && (!Array.isArray(envelope.tools) || envelope.tools.length !== 0)) return false;
-  if (
-    Object.hasOwn(envelope, "tool_choice") &&
-    envelope.tool_choice !== "auto" &&
-    envelope.tool_choice !== "none"
-  ) return false;
-  if (
-    Object.hasOwn(envelope, "parallel_tool_calls") &&
-    typeof envelope.parallel_tool_calls !== "boolean"
-  ) return false;
-  if (Object.hasOwn(envelope, "metadata")) {
-    const metadata = captureRecord(envelope.metadata, []);
-    if (!metadata || Reflect.ownKeys(metadata).length !== 0) return false;
-  }
-  if (Object.hasOwn(envelope, "text")) {
-    const textConfig = captureRecord(envelope.text, ["format"], ["verbosity"]);
-    const format = textConfig && exactKeys(textConfig.format, ["type", "name", "strict", "schema"]);
-    if (
-      !format || format.type !== "json_schema" || format.name !== STRUCTURED_OUTPUT_NAME ||
-      format.strict !== true || !validateDynamicResponseSchema(format.schema, callPlan.contextSha256)
-    ) return false;
-    let responseSchemaJson;
-    try {
-      responseSchemaJson = canonicalizeJsonValue(format.schema);
-    } catch {
-      return false;
-    }
-    if (sha256Text(responseSchemaJson) !== callPlan.responseSchemaSha256) return false;
-  }
-  return responseSchema.schema.properties.actionChoiceId.enum.includes(null);
+const RESPONSE_CHECK_RULES = Object.freeze([
+  "echo_frequency_penalty", "echo_presence_penalty", "echo_tool_usage",
+  "echo_background", "echo_store", "echo_truncation", "echo_max_output_tokens",
+  "echo_instructions", "echo_previous_response_id", "echo_conversation", "echo_prompt",
+  "echo_tools", "echo_tool_choice", "echo_parallel_tool_calls", "echo_metadata",
+  "echo_service_tier", "echo_text_format", "echo_schema", "usage", "model",
+  "completion", "output", "message", "content", "proposal_json",
+  "proposal_context", "dialogue_text", "action_choice",
+]);
+
+function responseJsonType(parent, key) {
+  if (parent === null) return "unavailable";
+  if (!Object.hasOwn(parent, key)) return "absent";
+  const value = parent[key];
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  const type = typeof value;
+  return ["object", "string", "number", "boolean"].includes(type) ? type : "unavailable";
 }
 
-function parseResponseEnvelope(text, callPlan, providerBody, responseSchema) {
+function inspectReasoningPolicy(value) {
+  const record = captureRecord(value, [], ["effort", "summary", "mode", "context", "generate_summary"]);
+  const nullableEnum = (key, values) => Boolean(record &&
+    (!Object.hasOwn(record, key) || record[key] === null || values.includes(record[key])));
+  const effort = Boolean(record && (!Object.hasOwn(record, "effort") || record.effort === "none"));
+  const mode = Boolean(record && (!Object.hasOwn(record, "mode") || record.mode === "standard"));
+  // The API returns the effective context mode; this request leaves it unset.
+  // GPT-5.6 defaults to all_turns. Accepting that metadata does not add history:
+  // conversation/previous_response_id and all non-message output gates remain.
+  const context = nullableEnum("context", ["auto", "current_turn", "all_turns"]);
+  const summary = nullableEnum("summary", ["auto", "concise", "detailed"]);
+  const generateSummary = nullableEnum("generate_summary", ["auto", "concise", "detailed"]);
+  return { record, effort, mode, context, summary, generateSummary,
+    valid: Boolean(record && effort && mode && context && summary && generateSummary) };
+}
+
+function isObservedDeveloperBilling(value) {
+  // Exact redacted observation, not an upstream billing schema or cost proof.
+  // No coercion, optional charges, observer-derived authority or default payer.
+  const billing = captureRecord(value, ["payer"]);
+  return Boolean(billing && billing.payer === "developer");
+}
+
+function describeResponseFieldPolicy(envelope) {
+  const reasoning = inspectReasoningPolicy(envelope.reasoning);
+  const detail = (rule, checked, valid, parent, key) => ({ rule,
+    status: checked ? valid ? "passed" : "failed" : "not_checked",
+    jsonType: responseJsonType(parent, key) });
+  // A fixed seven-rule diagnostic only. No values, dynamic names, object keys,
+  // provider identifiers, counts or pricing inference are captured.
+  return [
+    // Preserve the legacy diagnostic vocabulary: the absence-only subrule is
+    // inapplicable to the separate observed shape, not a failed billing gate.
+    detail("billing_absent_or_null", !isObservedDeveloperBilling(envelope.billing),
+      !Object.hasOwn(envelope, "billing") || envelope.billing === null, envelope, "billing"),
+    detail("reasoning_closed_record_or_null", true,
+      !Object.hasOwn(envelope, "reasoning") || envelope.reasoning === null || Boolean(reasoning.record), envelope, "reasoning"),
+    detail("reasoning_effort_none", Boolean(reasoning.record), reasoning.effort, reasoning.record, "effort"),
+    detail("reasoning_mode_standard", Boolean(reasoning.record), reasoning.mode, reasoning.record, "mode"),
+    detail("reasoning_context_supported", Boolean(reasoning.record), reasoning.context, reasoning.record, "context"),
+    detail("reasoning_summary_supported", Boolean(reasoning.record), reasoning.summary, reasoning.record, "summary"),
+    detail("reasoning_generate_summary_supported", Boolean(reasoning.record), reasoning.generateSummary, reasoning.record, "generate_summary"),
+  ];
+}
+
+function describeResponseEchoDetails(envelope) {
+  // Observation only, after strict parsing and root capture. Inspect fixed keys,
+  // never disclose provider values, unknown names, sizes or nested schema data.
+  const jsonType = responseJsonType;
+  const status = (checked, valid) => checked ? valid ? "passed" : "failed" : "not_checked";
+  const record = (value) => value !== null && typeof value === "object" && !Array.isArray(value)
+    ? captureRecord(value, [], Object.keys(value)) : null;
+  const requiredKeys = (value, keys) => Boolean(value && keys.every((key) => Object.hasOwn(value, key)));
+  const allowedKeys = (value, keys) => Boolean(value && Object.keys(value).every((key) => keys.includes(key)));
+  const toolUsageType = jsonType(envelope, "tool_usage");
+  const toolUsage = record(envelope.tool_usage);
+  const textType = jsonType(envelope, "text");
+  const textRecord = record(envelope.text);
+  const textConfig = captureRecord(envelope.text, ["format"], ["verbosity"]);
+  const formatType = jsonType(textConfig, "format");
+  const formatRecord = record(textConfig?.format);
+  const format = textConfig && captureRecord(textConfig.format, ["type", "name", "strict", "schema"], ["description"]);
+  const descriptionType = jsonType(format, "description");
+  const descriptionPresent = Boolean(format && Object.hasOwn(format, "description"));
+  const descriptionString = descriptionPresent && typeof format.description === "string";
+  return {
+    toolUsage: {
+      jsonType: toolUsageType,
+      objectRecord: status(toolUsageType !== "absent", Boolean(toolUsage)),
+      emptyRecord: status(Boolean(toolUsage), Boolean(captureRecord(envelope.tool_usage, []))),
+    },
+    textFormat: {
+      textJsonType: textType, formatJsonType: formatType, descriptionJsonType: descriptionType,
+      textRecord: status(textType !== "absent", Boolean(textRecord)),
+      textRequiredKeys: status(Boolean(textRecord), requiredKeys(textRecord, ["format"])),
+      textAllowedKeys: status(Boolean(textRecord), allowedKeys(textRecord, ["format", "verbosity"])),
+      formatRecord: status(Boolean(textConfig), Boolean(formatRecord)),
+      formatRequiredKeys: status(Boolean(formatRecord), requiredKeys(formatRecord, ["type", "name", "strict", "schema"])),
+      formatAllowedKeys: status(Boolean(formatRecord), allowedKeys(formatRecord, ["type", "name", "strict", "schema", "description"])),
+      typeJsonSchema: status(Boolean(format), format?.type === "json_schema"),
+      nameExact: status(Boolean(format), format?.name === STRUCTURED_OUTPUT_NAME),
+      strictTrue: status(Boolean(format), format?.strict === true),
+      descriptionString: status(descriptionPresent, descriptionString),
+      descriptionSafeText: status(descriptionString, descriptionString && safeText(format.description)),
+      descriptionUtf8Limit: status(descriptionString, descriptionString &&
+        new TextEncoder().encode(format.description).byteLength <= NPC_COGNITION_LIMITS.dialogueBytes),
+    },
+  };
+}
+
+function createResponseChecks(envelope, retainReservationOnFailure = false) {
+  const statuses = new Map(RESPONSE_CHECK_RULES.map((rule) => [rule, "not_checked"]));
+  const fieldPolicyFailures = [];
+  let firstFailure = null;
+  return {
+    check(rule, valid, stage, code = "R22_PROVIDER_RESPONSE_INVALID", evidence) {
+      // All rule names and states are internal literals, never provider values.
+      if (!statuses.has(rule) || statuses.get(rule) !== "not_checked") operational();
+      statuses.set(rule, valid ? "passed" : "failed");
+      if (!valid) firstFailure ??= responseFailure(code, stage, evidence);
+      return Boolean(valid);
+    },
+    field(field, valid) {
+      if (valid) return;
+      // Only internal literals from validateResponseFieldPolicy, never response
+      // names or values. Do not steal the original rules' refusal/failure code.
+      fieldPolicyFailures.push(field);
+    },
+    finish() {
+      if (fieldPolicyFailures.length > 0) {
+        firstFailure ??= responseFailure("R22_PROVIDER_RESPONSE_INVALID", "envelope_profile");
+        // An unexplained capability/billing field cannot be fully priced from
+        // language tokens alone. Keep the old primary diagnostic, but never let
+        // its usage evidence refund an uncertain reservation.
+        if (firstFailure.evidence) firstFailure = { ...firstFailure, evidence: {
+          ...firstFailure.evidence, usage: null, actualCostMicrousd: null, costUncertain: true,
+        } };
+      }
+      if (firstFailure === null) return null;
+      // Observed counters/payer are narrow compatibility shapes, not a complete
+      // bill. A later invalid output/usage/choice must not refund the old
+      // conservative reservation using language-token evidence alone.
+      if (retainReservationOnFailure && firstFailure.evidence) {
+        firstFailure = { ...firstFailure, evidence: {
+          ...firstFailure.evidence, usage: null, actualCostMicrousd: null, costUncertain: true,
+        } };
+      }
+      let echoDetails;
+      try { echoDetails = describeResponseEchoDetails(envelope); }
+      catch { /* A diagnostic failure must not change the original rejection or accounting. */ }
+      let fieldPolicyChecks;
+      if (fieldPolicyFailures.includes("billing") || fieldPolicyFailures.includes("reasoning")) {
+        try { fieldPolicyChecks = describeResponseFieldPolicy(envelope); }
+        catch { /* Observation only: never override rejection, cost or publication. */ }
+      }
+      return { ...firstFailure, responseDiagnostic: { ...firstFailure.responseDiagnostic,
+        checks: RESPONSE_CHECK_RULES.map((rule) => ({ rule, status: statuses.get(rule) })),
+        ...(fieldPolicyFailures.length === 0 ? {} : {
+          envelopeProfile: RESPONSE_ENVELOPE_PROFILE, fieldPolicyFailures,
+        }),
+        ...(fieldPolicyChecks === undefined ? {} : { fieldPolicyChecks }),
+        ...(echoDetails === undefined ? {} : { echoDetails }) } };
+    },
+  };
+}
+
+function validateResponseFieldPolicy(envelope, checks) {
+  const optional = (key, valid) => checks.field(key, !Object.hasOwn(envelope, key) || valid);
+  const nonnegativeInteger = (value) => Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
+  const finiteRange = (value, min, max) => typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+  // Opaque service metadata: never returned, stored, interpreted as authority or
+  // used to derive an action. Limits are local, not a vendor ID format guarantee.
+  checks.field("id", typeof envelope.id === "string" && envelope.id.length >= 1 &&
+    envelope.id.length <= 256 && safeText(envelope.id, { allowLf: false }));
+  optional("created_at", nonnegativeInteger(envelope.created_at));
+  optional("completed_at", envelope.completed_at === null || nonnegativeInteger(envelope.completed_at));
+  // These capabilities/identities were not requested. null is accepted only as
+  // absence; an empty object, known name or zero-looking nested value is NOT a
+  // documented neutral configuration. Only the separately observed exact payer
+  // record is accepted as discarded metadata, never as a price or authority.
+  for (const key of ["agent", "billing", "context_management", "moderation", "prompt_cache_diagnostics",
+    "max_tool_calls", "prompt_cache_key", "safety_identifier", "user"]) {
+    optional(key, envelope[key] === null || (key === "billing" && isObservedDeveloperBilling(envelope[key])));
+  }
+  optional("reasoning", envelope.reasoning === null || inspectReasoningPolicy(envelope.reasoning).valid);
+  // Public PromptCacheOptions (pinned source in the reference audit) describes
+  // applied caching, not token charges. Charges still come only from strict usage.
+  // This request declares no explicit cache key or comparison response identity.
+  const cache = captureRecord(envelope.prompt_cache_options, ["mode", "ttl"], ["comparison_response_id"]);
+  optional("prompt_cache_options", Boolean(cache && cache.mode === "implicit" && cache.ttl === "30m" &&
+    (!Object.hasOwn(cache, "comparison_response_id") || cache.comparison_response_id === null)));
+  optional("prompt_cache_retention", envelope.prompt_cache_retention === null ||
+    ["in_memory", "24h"].includes(envelope.prompt_cache_retention));
+  // Generation metadata is discarded. Output length, usage and the closed
+  // proposal remain independently checked; no model configuration is executed.
+  optional("temperature", envelope.temperature === null || finiteRange(envelope.temperature, 0, 2));
+  optional("top_p", envelope.top_p === null || finiteRange(envelope.top_p, 0, 1));
+  optional("top_logprobs", envelope.top_logprobs === null || Object.is(envelope.top_logprobs, 0));
+  const text = captureRecord(envelope.text, ["format"], ["verbosity"]);
+  checks.field("text_verbosity", !text || !Object.hasOwn(text, "verbosity") ||
+    text.verbosity === null || ["low", "medium", "high"].includes(text.verbosity));
+}
+
+function classifyToolUsage(value, responseText) {
+  if (captureRecord(value, [])) return "empty";
+  // Exact shape observed in the separately approved diagnostic; not the full
+  // upstream schema. Do not authorize from observer output, recurse over unknown
+  // zero fields, coerce values, or fill missing counters. All other gates apply.
+  const usage = captureRecord(value, ["image_gen", "web_search"]);
+  const image = usage && captureRecord(usage.image_gen, [
+    "input_tokens", "input_tokens_details", "output_tokens", "output_tokens_details", "total_tokens",
+  ]);
+  const web = usage && captureRecord(usage.web_search, ["num_requests"]);
+  const input = image && captureRecord(image.input_tokens_details, ["image_tokens", "text_tokens"]);
+  const output = image && captureRecord(image.output_tokens_details, ["image_tokens", "text_tokens"]);
+  if (!image || !web || !input || !output || ![
+    image.input_tokens, input.image_tokens, input.text_tokens,
+    image.output_tokens, output.image_tokens, output.text_tokens, image.total_tokens, web.num_requests,
+  ].every((counter) => Object.is(counter, 0))) return null;
+  // Bounded second scan only for the new form; preserve original JSON and the
+  // legacy absent/empty results. Ambiguous underflow anywhere fails closed.
+  try { scanStrictJson(responseText, { rejectNumberUnderflow: true }); }
+  catch { return null; }
+  return "observed-zero";
+}
+
+function validateResponseRootEchoes(envelope, callPlan, providerBody, responseSchema, checks, toolUsageKind) {
+  const echo = (key, valid) => checks.check(`echo_${key}`, valid, "root_echo");
+  const optional = (key, valid) => echo(key, !Object.hasOwn(envelope, key) || valid);
+  // The two penalty echoes still allow parsed positive zero only. Tool usage
+  // separately accepts the complete observed zero-counter shape, never names alone.
+  for (const key of ["frequency_penalty", "presence_penalty"]) {
+    optional(key, Object.is(envelope[key], 0));
+  }
+  optional("tool_usage", toolUsageKind !== null);
+  optional("background", envelope.background === false);
+  optional("store", envelope.store === false);
+  optional("truncation", envelope.truncation === "disabled");
+  optional("max_output_tokens", envelope.max_output_tokens === callPlan.maxOutputTokens);
+  optional("instructions", envelope.instructions === providerBody.instructions);
+  optional("previous_response_id", envelope.previous_response_id === null);
+  optional("conversation", envelope.conversation === null);
+  optional("prompt", envelope.prompt === null);
+  optional("tools", Array.isArray(envelope.tools) && envelope.tools.length === 0);
+  optional("tool_choice", envelope.tool_choice === "auto" || envelope.tool_choice === "none");
+  optional("parallel_tool_calls", typeof envelope.parallel_tool_calls === "boolean");
+  optional("metadata", envelope.metadata === null || Boolean(captureRecord(envelope.metadata, [])));
+  // Omitted requests inherit project settings. Both the approved request and
+  // actual returned tier must be Standard; unknown tiers cannot use its prices.
+  echo("service_tier", envelope.service_tier === "default");
+  if (Object.hasOwn(envelope, "text")) {
+    const textConfig = captureRecord(envelope.text, ["format"], ["verbosity"]);
+    const format = textConfig && captureRecord(textConfig.format, ["type", "name", "strict", "schema"], ["description"]);
+    checks.check("echo_text_format", Boolean(format && format.type === "json_schema" &&
+      format.name === STRUCTURED_OUTPUT_NAME && format.strict === true &&
+      // Observed null is a service normalization, not an official nullable-schema
+      // assertion. A bounded description is discarded; name/strict/schema still
+      // bind the approved format and the model's three-field result stays closed.
+      (!Object.hasOwn(format, "description") || format.description === null || (typeof format.description === "string" &&
+        safeText(format.description) && new TextEncoder().encode(format.description).byteLength <= NPC_COGNITION_LIMITS.dialogueBytes))),
+    "text_format");
+    if (format) {
+      let schemaMatches = false;
+      try {
+        schemaMatches = Boolean(validateDynamicResponseSchema(format.schema, callPlan.contextSha256)) &&
+          sha256Text(canonicalizeJsonValue(format.schema)) === callPlan.responseSchemaSha256 &&
+          responseSchema.schema.properties.actionChoiceId.enum.includes(null);
+      } catch { /* Fixed failure below, no raw schema or exception. */ }
+      checks.check("echo_schema", schemaMatches, "schema_echo");
+    }
+  }
+}
+
+function describeRejectedResponseRoot(value) {
+  // Called only after strict JSON.parse and the unchanged captureRecord gate.
+  // The user-approved observer exposes at most 16 simple root names and their
+  // shallow JSON types. Names remain untrusted data, not acceptance evidence.
+  // Never disclose values, nested names, lengths or hashes. The fixed mask is:
+  // id, object, status, error, incomplete_details, model, output, usage.
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { rootKind: Array.isArray(value) ? "array" : "non_object",
+      missingRequiredMask: null, unknownKeysPresent: null };
+  }
+  const allowed = new Set([...RESPONSE_ROOT_REQUIRED_KEYS, ...RESPONSE_ROOT_OPTIONAL_KEYS]);
+  const missingRequiredMask = RESPONSE_ROOT_REQUIRED_KEYS.reduce((mask, key, index) =>
+    Object.hasOwn(value, key) ? mask : mask | (1 << index), 0);
+  const unknownNames = Object.keys(value).filter((key) => !allowed.has(key));
+  const rootFields = { rootKind: "record", missingRequiredMask, unknownKeysPresent: unknownNames.length > 0 };
+  if (unknownNames.length === 0) return rootFields;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const unknownFields = [];
+  let unknownFieldsOmitted = false;
+  for (const name of unknownNames.sort()) {
+    const descriptor = descriptors[name];
+    if (!/^[a-z][a-z0-9_]{0,63}$/u.test(name) || !descriptor?.enumerable ||
+        !Object.hasOwn(descriptor, "value") || unknownFields.length === 16) {
+      unknownFieldsOmitted = true;
+      continue;
+    }
+    const fieldValue = descriptor.value;
+    const jsonType = fieldValue === null ? "null" : Array.isArray(fieldValue) ? "array" : typeof fieldValue;
+    if (!["null", "array", "object", "string", "number", "boolean"].includes(jsonType)) {
+      unknownFieldsOmitted = true;
+      continue;
+    }
+    unknownFields.push({ name, jsonType });
+  }
+  return { ...rootFields, unknownFields, unknownFieldsOmitted };
+}
+
+function responseFailure(code, stage, evidence, rootFields = null) {
+  // Internal enum literals identify the rejecting check. The bounded root-name
+  // observer is the sole exception; values, IDs, body hashes and dialogue stay out.
+  return { ok: false, code, evidence, responseDiagnostic: { status: 200, stage,
+    ...(rootFields === null ? {} : { rootFields }) } };
+}
+
+function parseResponseEnvelope(text, callPlan, providerBody, responseSchema, observationState = null) {
   const parsedEnvelope = parseStrictJson(text);
+  if (parsedEnvelope === null) return responseFailure("R22_PROVIDER_RESPONSE_INVALID", "json");
   const envelope = parsedEnvelope && captureRecord(
     parsedEnvelope,
     RESPONSE_ROOT_REQUIRED_KEYS,
     RESPONSE_ROOT_OPTIONAL_KEYS,
   );
-  if (!envelope || !validateResponseRootEchoes(envelope, callPlan, providerBody, responseSchema)) {
-    return { ok: false, code: "R22_PROVIDER_RESPONSE_INVALID" };
+  if (!envelope) return responseFailure("R22_PROVIDER_RESPONSE_INVALID", "root_fields", undefined,
+    describeRejectedResponseRoot(parsedEnvelope));
+  if (observationState !== null) {
+    // Private one-way tap AFTER the same strict parser/root capture. Never feeds
+    // the response checks, primary diagnostic, usage accounting, or proposal.
+    observationState.value = observationState.billing
+      ? observeBilling(envelope.billing, observationState.binding, { present: Object.hasOwn(envelope, "billing") })
+      : observeToolUsage(envelope.tool_usage, observationState.binding, { present: Object.hasOwn(envelope, "tool_usage") });
   }
+  const toolUsageKind = classifyToolUsage(envelope.tool_usage, text);
+  const checks = createResponseChecks(envelope,
+    toolUsageKind === "observed-zero" || isObservedDeveloperBilling(envelope.billing));
+  validateResponseRootEchoes(envelope, callPlan, providerBody, responseSchema, checks, toolUsageKind);
+  validateResponseFieldPolicy(envelope, checks);
   const model = typeof envelope.model === "string" && MODEL_ID.test(envelope.model)
     ? envelope.model
     : null;
   const usage = usageEvidence(envelope.usage, callPlan);
+  // Still diagnose usage independently of tier/echo failures. Such failures
+  // retain the original conservative first-failure evidence, never this cost.
+  const pricedUsage = model === callPlan.model ? usage : null;
   const evidence = {
     returnedModel: model,
-    usage: usage?.usage ?? null,
-    actualCostMicrousd: usage?.actualCostMicrousd ?? null,
-    costUncertain: usage === null,
+    usage: pricedUsage?.usage ?? null,
+    actualCostMicrousd: pricedUsage?.actualCostMicrousd ?? null,
+    costUncertain: pricedUsage === null,
   };
-  if (!usage) return { ok: false, code: "R22_PROVIDER_USAGE_INVALID", evidence };
-  if (model !== NPC_COGNITION_MODEL) {
-    return { ok: false, code: "R22_PROVIDER_MODEL_MISMATCH", evidence };
-  }
-  if (envelope.object !== "response" || envelope.status !== "completed" || envelope.error !== null || envelope.incomplete_details !== null) {
-    return { ok: false, code: "R22_PROVIDER_RESPONSE_INVALID", evidence };
-  }
+  checks.check("usage", Boolean(usage), "usage", "R22_PROVIDER_USAGE_INVALID", evidence);
+  checks.check("model", model === NPC_COGNITION_MODEL, "model", "R22_PROVIDER_MODEL_MISMATCH", evidence);
+  checks.check("completion", envelope.object === "response" && envelope.status === "completed" &&
+    envelope.error === null && envelope.incomplete_details === null, "completion", "R22_PROVIDER_RESPONSE_INVALID", evidence);
   if (!Array.isArray(envelope.output) || envelope.output.length !== 1) {
     const refused = Array.isArray(envelope.output) && envelope.output.some((item) =>
       item?.type === "message" && Array.isArray(item.content) && item.content.some((part) => part?.type === "refusal"));
-    return { ok: false, code: refused ? "R22_PROVIDER_REFUSED" : "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
+    checks.check("output", false, "output", refused ? "R22_PROVIDER_REFUSED" : "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+    return checks.finish();
   }
+  checks.check("output", true, "output");
   const message = captureRecord(
     envelope.output[0],
     ["id", "type", "status", "role", "content"],
     ["phase"],
   );
-  if (!message || message.type !== "message" || message.status !== "completed" || message.role !== "assistant" ||
-      typeof message.id !== "string" || message.id.length < 1 || message.id.length > 256 || !safeText(message.id, { allowLf: false }) ||
-      (Object.hasOwn(message, "phase") && message.phase !== "final_answer")) {
-    return { ok: false, code: "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
-  }
+  checks.check("message", Boolean(message && message.type === "message" && message.status === "completed" && message.role === "assistant" &&
+    typeof message.id === "string" && message.id.length >= 1 && message.id.length <= 256 && safeText(message.id, { allowLf: false }) &&
+    (!Object.hasOwn(message, "phase") || message.phase === null || message.phase === "final_answer")),
+  "message", "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+  if (!message) return checks.finish();
   if (!Array.isArray(message.content) || message.content.length !== 1) {
     const refused = Array.isArray(message.content) && message.content.some((part) => part?.type === "refusal");
-    return { ok: false, code: refused ? "R22_PROVIDER_REFUSED" : "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
+    checks.check("content", false, "content", refused ? "R22_PROVIDER_REFUSED" : "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+    return checks.finish();
   }
   if (message.content[0]?.type === "refusal") {
-    return { ok: false, code: "R22_PROVIDER_REFUSED", evidence };
+    checks.check("content", false, "content", "R22_PROVIDER_REFUSED", evidence);
+    return checks.finish();
   }
   const content = captureRecord(message.content[0], ["type", "text", "annotations"], ["logprobs"]);
-  if (
-    !content || content.type !== "output_text" || !Array.isArray(content.annotations) || content.annotations.length !== 0 ||
-    (Object.hasOwn(content, "logprobs") && (!Array.isArray(content.logprobs) || content.logprobs.length !== 0))
-  ) return { ok: false, code: "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
+  checks.check("content", Boolean(content && content.type === "output_text" && Array.isArray(content.annotations) && content.annotations.length === 0 &&
+    (!Object.hasOwn(content, "logprobs") || (Array.isArray(content.logprobs) && content.logprobs.length === 0))),
+  "content", "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+  if (!content) return checks.finish();
   const proposal = parseFlatProposal(content.text);
-  if (!proposal) return { ok: false, code: "R22_PROVIDER_RESPONSE_INVALID", evidence };
-  if (proposal.contextSha256 !== callPlan.contextSha256) {
-    return { ok: false, code: "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
-  }
-  if (
-    typeof proposal.dialogueText !== "string" ||
-    !safeText(proposal.dialogueText) || !/\S/u.test(proposal.dialogueText) ||
-    new TextEncoder().encode(proposal.dialogueText).byteLength > NPC_COGNITION_LIMITS.dialogueBytes ||
-    proposal.dialogueText.split("\n").length > NPC_COGNITION_LIMITS.dialogueLines
-  ) return { ok: false, code: "R22_UNTRUSTED_OUTPUT_REJECTED", evidence };
-  if (proposal.actionChoiceId !== null && !responseSchema.choices.has(proposal.actionChoiceId)) {
-    return { ok: false, code: "R22_ACTION_CHOICE_UNKNOWN", evidence };
-  }
-  if (proposal.actionChoiceId === null && !responseSchema.schema.properties.actionChoiceId.enum.includes(null)) {
-    return { ok: false, code: "R22_ACTION_CHOICE_UNKNOWN", evidence };
-  }
+  checks.check("proposal_json", Boolean(proposal), "proposal_json", "R22_PROVIDER_RESPONSE_INVALID", evidence);
+  if (!proposal) return checks.finish();
+  checks.check("proposal_context", proposal.contextSha256 === callPlan.contextSha256,
+    "proposal_context", "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+  checks.check("dialogue_text", typeof proposal.dialogueText === "string" &&
+    safeText(proposal.dialogueText) && /\S/u.test(proposal.dialogueText) &&
+    new TextEncoder().encode(proposal.dialogueText).byteLength <= NPC_COGNITION_LIMITS.dialogueBytes &&
+    proposal.dialogueText.split("\n").length <= NPC_COGNITION_LIMITS.dialogueLines,
+  "dialogue_text", "R22_UNTRUSTED_OUTPUT_REJECTED", evidence);
+  checks.check("action_choice", proposal.actionChoiceId === null
+    ? responseSchema.schema.properties.actionChoiceId.enum.includes(null)
+    : responseSchema.choices.has(proposal.actionChoiceId), "action_choice", "R22_ACTION_CHOICE_UNKNOWN", evidence);
+  const rejected = checks.finish();
+  if (rejected) return rejected;
   const normalized = deepFreeze({
     contextSha256: proposal.contextSha256,
     dialogueText: proposal.dialogueText,
@@ -750,10 +1106,53 @@ export function createOpenAiNpcCognitionProvider(config) {
 }
 
 export async function executeApprovedNpcCognitionTurn(input, provider) {
+  return executeProviderTurn(input, provider);
+}
+
+// Offline diagnostic conformance entry only. It accepts bytes, NOT a credential,
+// fetch callback, environment reader, durable root, or Godot/Runtime handle. The
+// shared parser is driven by an in-memory Response. The separately guarded CLI
+// owns dispatch/approval/budget; this public fixture entry never grants a request.
+export async function evaluateNpcCognitionToolUsageDiagnosticFixture(input, responseBytes) {
+  return evaluateDiagnosticFixture(input, responseBytes, createNpcCognitionToolUsageDiagnosticPlan(), false);
+}
+
+export async function evaluateNpcCognitionBillingDiagnosticFixture(input, responseBytes) {
+  return evaluateDiagnosticFixture(input, responseBytes, createNpcCognitionBillingDiagnosticPlan(), true);
+}
+
+async function evaluateDiagnosticFixture(input, responseBytes, expected, billing) {
+  try {
+    const captured = types.isProxy(input) ? null : captureRecord(input, Object.keys(expected));
+    if (!captured || Object.keys(expected).some((key) => captured[key] !== expected[key]) ||
+        types.isProxy(responseBytes) || !types.isUint8Array(responseBytes) ||
+        types.isSharedArrayBuffer(BUFFER_GETTER.call(responseBytes)) ||
+        BYTE_LENGTH_GETTER.call(responseBytes) > NPC_COGNITION_LIMITS.providerResponseBytes + 1) {
+      return deepFreeze({ fixtureOnly: true, realRequestCount: 0, qualificationEligible: false,
+        providerResult: failure("R22_APPROVAL_MISMATCH"), observation: null });
+    }
+    const binding = { callPlanSha256: sha256Text(captured.callPlanJson),
+      diagnosticApprovalSha256: captured.diagnosticApprovalSha256 };
+    const observationState = { binding, value: null, billing };
+    const bytes = new Uint8Array(BYTE_LENGTH_GETTER.call(responseBytes));
+    Uint8Array.prototype.set.call(bytes, responseBytes);
+    const provider = createOpenAiNpcCognitionProvider({ apiKey: "offline-placeholder-fixture",
+      fetchImplementation: async () => new Response(bytes, { headers: { "content-type": "application/json" } }) });
+    const providerResult = await executeProviderTurn({ callPlanJson: captured.callPlanJson,
+      providerRequestJson: captured.providerRequestJson, approvalHash: captured.approvalHash }, provider, observationState);
+    const observation = observationState.value ?? (providerResult.requestCount === 1 ? {
+      profile: expected.diagnosticProfile, capturePolicySha256: expected.capturePolicySha256,
+      binding, semanticCoverage: "observation_only", qualificationEligible: false, status: "not_captured",
+    } : null);
+    return deepFreeze({ fixtureOnly: true, realRequestCount: 0, qualificationEligible: false, providerResult, observation });
+  } catch { operational(); }
+}
+
+async function executeProviderTurn(input, provider, observationState = null) {
   try {
     const state = PROVIDER_STATE.get(provider);
     if (!state) operational();
-    const execution = validateExecutionInput(input);
+    const execution = validateExecutionInput(input, observationState !== null);
     if (!execution) return failure("R22_APPROVAL_MISMATCH");
     if (state.credential === null) return failure("R22_PROVIDER_CREDENTIAL_UNAVAILABLE");
 
@@ -818,13 +1217,14 @@ export async function executeApprovedNpcCognitionTurn(input, provider) {
         cancelResponseBody(response);
         return failure("R22_PROVIDER_RESPONSE_INVALID", { requestCount: 1, costUncertain: true });
       }
-      if (redirected || (status >= 300 && status < 400) || status >= 500) {
+      if (redirected || (status >= 300 && status < 400)) {
         cancelResponseBody(response);
         return failure("R22_PROVIDER_NETWORK_AMBIGUOUS", { requestCount: 1, costUncertain: true });
       }
       if (status >= 400) {
-        cancelResponseBody(response);
-        return failure("R22_PROVIDER_REFUSED", { requestCount: 1, costUncertain: true });
+        const httpDiagnostic = await readHttpDiagnostic(response, deadline, status);
+        return failure(status >= 500 ? "R22_PROVIDER_NETWORK_AMBIGUOUS" : "R22_PROVIDER_REFUSED",
+          { requestCount: 1, costUncertain: true, httpDiagnostic });
       }
       if (status !== 200) {
         cancelResponseBody(response);
@@ -835,16 +1235,19 @@ export async function executeApprovedNpcCognitionTurn(input, provider) {
         contentType = response.headers?.get("content-type") ?? "";
       } catch {
         cancelResponseBody(response);
-        return failure("R22_PROVIDER_RESPONSE_INVALID", { requestCount: 1, costUncertain: true });
+        return failure("R22_PROVIDER_RESPONSE_INVALID", { requestCount: 1, costUncertain: true,
+          responseDiagnostic: { status: 200, stage: "content_type" } });
       }
       if (typeof contentType !== "string" || !JSON_CONTENT_TYPE.test(contentType)) {
         cancelResponseBody(response);
-        return failure("R22_PROVIDER_RESPONSE_INVALID", { requestCount: 1, costUncertain: true });
+        return failure("R22_PROVIDER_RESPONSE_INVALID", { requestCount: 1, costUncertain: true,
+          responseDiagnostic: { status: 200, stage: "content_type" } });
       }
       const body = await readBoundedResponse(response, deadline);
       if (!body.ok) {
         cancelResponseBody(response);
-        return failure(body.code, { requestCount: 1, costUncertain: true });
+        return failure(body.code, { requestCount: 1, costUncertain: true,
+          responseDiagnostic: { status: 200, stage: "body" } });
       }
       if (deadline.controller.signal.aborted) {
         return failure("R22_PROVIDER_TIMEOUT", { requestCount: 1, costUncertain: true });
@@ -854,12 +1257,14 @@ export async function executeApprovedNpcCognitionTurn(input, provider) {
         execution.callPlan,
         execution.payload.body,
         execution.payload.responseSchema,
+        observationState,
       );
       if (deadline.controller.signal.aborted) {
         return failure("R22_PROVIDER_TIMEOUT", { requestCount: 1, costUncertain: true });
       }
       if (!parsed.ok) {
-        return failure(parsed.code, { requestCount: 1, costUncertain: true, ...parsed.evidence });
+        return failure(parsed.code, { requestCount: 1, costUncertain: true, ...parsed.evidence,
+          responseDiagnostic: parsed.responseDiagnostic });
       }
       return deepFreeze({
         ok: true,

@@ -18,8 +18,8 @@ export const R22_LIVE_READY_MARKER = "MATRIX_OASIS_R22_COGNITION_PREVIEW_READY";
 function fail(code) { throw new Error(code); }
 
 export function parseR22LivePreviewArguments(args, temporaryRoot) {
-  if (!Array.isArray(args) || args.length !== 20) fail("R22_PREVIEW_ARGUMENT_INVALID");
-  const names = { "--qualified-root": "qualifiedRoot", "--case-spec": "caseSpecPath", "--prototype-run-root": "prototypeRunRoot", "--spatial-run-root": "spatialRunRoot", "--solved-run-root": "solvedRunRoot", "--evidence-run-root": "evidenceRunRoot", "--creator-qualified-root": "creatorQualifiedRoot", "--run-root": "runRoot", "--resume-run-root": "resumeRunRoot", "--godot": "godotCommand", "--provider-mode": "providerMode" };
+  if (!Array.isArray(args) || ![20, 22].includes(args.length)) fail("R22_PREVIEW_ARGUMENT_INVALID");
+  const names = { "--qualified-root": "qualifiedRoot", "--case-spec": "caseSpecPath", "--prototype-run-root": "prototypeRunRoot", "--spatial-run-root": "spatialRunRoot", "--solved-run-root": "solvedRunRoot", "--evidence-run-root": "evidenceRunRoot", "--creator-qualified-root": "creatorQualifiedRoot", "--run-root": "runRoot", "--resume-run-root": "resumeRunRoot", "--godot": "godotCommand", "--provider-mode": "providerMode", "--credential-file": "credentialFile" };
   const values = Object.create(null);
   for (let index = 0; index < args.length; index += 2) {
     const name = names[args[index]], value = args[index + 1];
@@ -27,9 +27,11 @@ export function parseR22LivePreviewArguments(args, temporaryRoot) {
     if (name === "providerMode") { if (!["offline-fake", "official-once"].includes(value)) fail("R22_PREVIEW_ARGUMENT_INVALID"); values[name] = value; }
     else { if (!path.isAbsolute(value)) fail("R22_PREVIEW_ARGUMENT_INVALID"); values[name] = path.resolve(value); }
   }
+  if (["qualifiedRoot", "caseSpecPath", "prototypeRunRoot", "spatialRunRoot", "solvedRunRoot", "evidenceRunRoot", "creatorQualifiedRoot", "godotCommand", "providerMode"].some((name) => !Object.hasOwn(values, name))) fail("R22_PREVIEW_ARGUMENT_INVALID");
   const root = path.resolve(temporaryRoot);
   const resume = Object.hasOwn(values, "resumeRunRoot");
   if (resume === Object.hasOwn(values, "runRoot")) fail("R22_PREVIEW_ARGUMENT_INVALID");
+  if (Object.hasOwn(values, "credentialFile") && (values.providerMode !== "official-once" || resume || path.dirname(values.credentialFile) !== root)) fail("R22_PREVIEW_ARGUMENT_INVALID");
   const runRoot = resume ? values.resumeRunRoot : values.runRoot;
   if (path.dirname(runRoot) !== root || /-(?:npc|cognition)$/u.test(runRoot)) fail("R22_PREVIEW_ARGUMENT_INVALID");
   const sourceRoots = [values.prototypeRunRoot, values.spatialRunRoot, values.solvedRunRoot, values.evidenceRunRoot, values.creatorQualifiedRoot];

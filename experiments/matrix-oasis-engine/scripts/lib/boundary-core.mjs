@@ -1638,6 +1638,78 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 }
 
 function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/r22-diagnostic-transaction.mjs") {
+    // A narrowly named, high-level transactional adapter. This static gate is
+    // supplemented by the dispatch/identity/crash matrix, not a JS sandbox.
+    const nativeCapture = `const nativeRequest = globalThis.${FETCH_GLOBAL_NAME};`;
+    const credentialRead = "process.env.MATRIX_OASIS_R22_OPENAI_API_KEY";
+    const credentialPresence = 'Object.hasOwn(process.env, "MATRIX_OASIS_R22_OPENAI_API_KEY")';
+    const remaining = content.replace(nativeCapture, "").replace(credentialRead, "").replace(credentialPresence, "");
+    const publicFunctions = ["createR22OfficialToolUsageDiagnosticTransaction", "createR22InjectedToolUsageDiagnosticTransaction",
+      "recoverR22OfficialToolUsageDiagnosticTransaction", "recoverR22InjectedToolUsageDiagnosticTransaction",
+      "describeR22OfficialToolUsageDiagnosticTransaction", "createR22ToolUsageDiagnosticTransaction",
+      "recoverR22ToolUsageDiagnosticTransaction", "auditR22DiagnosticBudgetHistory"];
+    const declarations = [...content.matchAll(/\bexport\s+async\s+function\s+(\w+)\s*\(/gu)];
+    const exportSurfaceInvalid = !isDeepStrictEqual(declarations.map((match) => match[1]), publicFunctions) ||
+      /\bexport\b/u.test(content.replace(/\bexport\s+async\s+function\s+\w+\s*\(/gu, ""));
+    const controls = [
+      "async function sendDiagnosticRequest(operations, revalidateDispatch, phase, captureProfile)",
+      'fixedPlan(captureProfile)',
+      'if (captureProfile === "billing") return createNpcCognitionBillingDiagnosticPlan();',
+      'validateObservation(evaluated.observation, state.captureProfile);',
+      "export async function createR22OfficialToolUsageDiagnosticTransaction(config)",
+      'if (arguments.length !== 1) fail("R22_APPROVAL_MISMATCH")',
+      'if (typeof nativeRequest !== "function") fail("R22_DIAGNOSTIC_LIVE_DISABLED")',
+      'createTransaction(config, undefined, "official-once", Object.freeze({',
+      "fixture: false, timeoutMs: 30000",
+      "requestImplementation: (endpoint, options) => nativeRequest(endpoint, options)",
+      "operations.requestImplementation(callPlan.endpoint, {",
+      'method: "POST", redirect: "error", credentials: "omit", cache: "no-store", signal: controller.signal',
+      "body: fixed.providerRequestJson",
+      "await revalidateDispatch();",
+      "await state.account.settle(budgetKey(plan), true);",
+      'state.fs.immutable(root, "dispatch-record.json", dispatch, state.fs.ops.phase)',
+      'if (mode === "official-once" && (state.additionalAuthorization ? ids.length !== 1 || ids[0] !== state.previousTransactionSha256.slice(7) : ids.length !== 0))',
+      'await prepareOfficialClaim(state);',
+      'await revalidateOfficialClaim(state, id, plan);',
+      'terminal.state !== "transport_failed" || terminal.realRequestCount !== 0 || terminal.chargedMicrousd !== 10000',
+      'transport.status !== "credential_unavailable" || transport.requestCount !== 0',
+      'grant.kind !== "single-zero-request-credential-repair" || grant.officialDiagnosticLimit !== 2',
+      'validateAdditionalLink(additional[0].plan, official.find((item) => item !== additional[0]));',
+      'config.captureProfile !== "billing" || typeof config.billingAfterTransactionSha256 !== "string"',
+      'grant.kind !== "single-billing-observation" || grant.officialDiagnosticLimit !== 3 || grant.previousFormatVersion !== "0.4.0"',
+      'terminal.state !== "observed" || terminal.realRequestCount !== 1 || terminal.chargedMicrousd !== 10000',
+      'transport.status !== "response" || transport.requestCount !== 1 || observation?.observation?.status !== "observed"',
+      'validateBillingLink(billing[0].plan, previous);',
+      'canonicalText(plan.credentialSource) !== canonicalText(previous.plan.credentialSource)',
+      'credentialConfiguration(state).identitySha256 !== previous.plan.credentialSource.identitySha256',
+      'validateOfficialHistory(prefix);',
+      'names.length >= (billingAfterTransactionSha256 ? 3 : 2)',
+      'import { prepareR22FileCredentialReader } from "./r22-live-provider.mjs"',
+      'state.expectedDisclosureSha256 !== id) fail("R22_APPROVAL_MISMATCH")',
+      '!credentialConfiguration(state).configured) fail("R22_DIAGNOSTIC_CREDENTIAL_NOT_CONFIGURED")',
+      'Object.freeze({ ...transportOperations, readCredential: state.credentialReader })',
+      "new Uint8Array(65536)", "++chunks > 4096", "controller.abort()",
+    ];
+    const invalid = exportSurfaceInvalid || !content.includes(nativeCapture) || !content.includes(credentialRead) || !content.includes(credentialPresence) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`, "u").test(remaining)) ||
+      /\b(?:globalThis|global)\b/u.test(remaining) ||
+      /\bprocess\s*\.\s*env\b/u.test(remaining) || usesNetworkModule(specifiers) || hasExternalOrProtocolRelativeUrl(content) ||
+      [...content.matchAll(/\bnativeRequest\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bnativeRequest\b/gu)].length !== 3 ||
+      [...content.matchAll(/\bsendDiagnosticRequest\b/gu)].length !== 2 ||
+      [...content.matchAll(/\boperations\.requestImplementation\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bprepareR22FileCredentialReader\b/gu)].length !== 2 ||
+      [...content.matchAll(/\bprepareR22FileCredentialReader\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\boperations\s*\.\s*readCredential\b/gu)].length !== 1 ||
+      [...content.matchAll(/\boperations\s*\.\s*readCredential\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bstate\s*\.\s*credentialReader\b/gu)].length !== 8 ||
+      /\bstate\s*\.\s*credentialReader\s*(?:\.\s*(?:call|apply|bind)\s*)?\(/u.test(content) ||
+      /export\s+(?:async\s+)?function\s+sendDiagnosticRequest/u.test(content) || controls.some((control) => !content.includes(control));
+    if (invalid) addViolation(violations, "r22-diagnostic-network-invalid", relative,
+      "Only the private, content-approved, budgeted single-request diagnostic transport and its fixed dispatch-only credential are allowed.");
+    return;
+  }
   if (relative === "scripts/lib/r18-discovery-core.mjs") {
     const hostBlock = content.match(/const EXPECTED_HOSTS = Object\.freeze\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
     const declaredHosts = [...hostBlock.matchAll(/"([a-z0-9.-]+)"/gu)].map((match) => match[1]);

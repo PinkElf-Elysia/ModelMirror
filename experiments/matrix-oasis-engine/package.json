@@ -69,6 +69,7 @@
     "plan:r22-call": "node scripts/plan-r22-call.mjs",
     "qualify:r22": "node scripts/qualify-r22.mjs",
     "preview:r22": "node scripts/preview-r22.mjs",
+    "preview:r22:offline": "node scripts/preview-r22-offline.mjs",
     "capture:r22": "node scripts/capture-r22.mjs",
     "validate:npc-cognition": "node scripts/validate-npc-cognition.mjs",
     "verify:r22": "node scripts/verify-r22.mjs",

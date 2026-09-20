@@ -6,6 +6,7 @@ import { canonicalizeJsonValue } from "@matrix-oasis/runtime-pack-contracts";
 import { buildR20BridgeArtifacts } from "./r20-cli-core.mjs";
 import { closeR22CallStore, inspectR22CallStore, openR22CallStore, readR22ActiveCallArtifacts, readR22FinalizedTurnReceipt } from "./r22-call-store.mjs";
 import { rebuildR22RecoveredBehavior } from "./r22-recovered-behavior.mjs";
+import { auditR22DiagnosticBudgetHistory } from "./r22-diagnostic-transaction.mjs";
 
 const CODE = "R22_LIVE_RECOVERY_INVALID";
 const SHA = /^sha256:[0-9a-f]{64}$/u;
@@ -182,8 +183,15 @@ export async function loadR22LiveRecoveryHistory(input) {
         }
       } finally { if (store) await closeR22CallStore(store); }
     }
+    const diagnostics = await auditR22DiagnosticBudgetHistory({ cognitionRunRoot: cognition, hostRunId, budget, remember, rememberDirectory });
     for (const entry of budget.entries) {
       const key = `${entry.authoritySessionSha256}:${entry.callPlanSha256}`, receipt = receipts.get(key);
+      if (diagnostics.has(key)) {
+        if (receipt || activeBudgets.has(key)) fail();
+        const diagnostic = diagnostics.get(key);
+        if (entry.chargedMicrousd !== diagnostic.chargedMicrousd || entry.state !== diagnostic.state) fail();
+        continue;
+      }
       if (!receipt && !activeBudgets.has(key)) fail();
       if (receipt && (entry.chargedMicrousd !== receipt.chargedMicrousd || entry.state !== (receipt.requestCount === 1 ? "charged" : "released"))) fail();
     }

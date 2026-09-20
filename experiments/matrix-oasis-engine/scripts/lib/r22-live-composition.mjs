@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { types } from "node:util";
 import { createNpcAuthoritySession, restoreNpcAuthoritySession } from "@matrix-oasis/npc-authority-session";
 import { prepareDeterministicNpcBehavior, selectNextNpcBehaviorCommand, selectEligibleNpcBehaviorCommand } from "@matrix-oasis/npc-behavior-runtime";
 import { createNpcCognitionTurn, planNpcCognitionCall, prepareNpcCognition, validateNpcDialogueProposal, mapNpcDialogueProposalToIntent } from "@matrix-oasis/npc-cognition-runtime";
@@ -9,7 +10,7 @@ import { acquireR20WriterLease, releaseR20WriterLease, createR20TimelineStore,
   recoverR20UnfinishedTimeline, resumeR20TimelineStore } from "./r20-cli-core.mjs";
 import { createR20Coordinator, exportR20Coordinator, handleR20CoordinatorRequestAsync } from "./r20-host-core.mjs";
 import { closeR22CallStore, inspectR22CallStore, openR22CallStore, readR22ActiveCallArtifacts, readR22FinalizedTurnReceipt } from "./r22-call-store.mjs";
-import { createR22OfficialOneShotOperations } from "./r22-live-provider.mjs";
+import { createR22OfficialOneShotOperations, prepareR22FileCredentialReader } from "./r22-live-provider.mjs";
 import { validateR22LivePhysicalEvidence } from "./r22-live-evidence.mjs";
 import { rebuildR22RecoveredCoordinator } from "./r22-recovered-coordinator.mjs";
 import { loadR22LiveRecoveryHistory } from "./r22-live-recovery.mjs";
@@ -24,14 +25,42 @@ import { createR16QualificationReferenceVerifier } from "./r16-creator-core.mjs"
 import { selectR15EvidenceRun } from "./r15-preview-core.mjs";
 
 const SHA = /^sha256:[0-9a-f]{64}$/u;
+const OFFLINE_MANUAL_SCENARIOS = new Set(["normal", "timeout", "refusal", "invalid-response", "injection"]);
+const OFFLINE_MANUAL_WINDOWS = new Set(["960x540", "640x540"]);
 function fail(code) { throw new Error(code); }
 function requireOk(result, code) { if (result?.ok !== true) fail(code); return result; }
+function captureOfflineManualProfile(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input) || types.isProxy(input)) fail("R22_LIVE_CONFIGURATION_INVALID");
+  const descriptor = Object.getOwnPropertyDescriptor(input, "offlineManualProfile");
+  if (descriptor === undefined) return null;
+  if (!Object.hasOwn(descriptor, "value")) fail("R22_LIVE_CONFIGURATION_INVALID");
+  const profile = descriptor.value;
+  if (!profile || typeof profile !== "object" || Array.isArray(profile) || types.isProxy(profile) ||
+      Object.getPrototypeOf(profile) !== Object.prototype) fail("R22_LIVE_CONFIGURATION_INVALID");
+  const descriptors = Object.getOwnPropertyDescriptors(profile);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.some((key) => typeof key !== "string") || keys.sort().join("\0") !== "scenario\0windowSize" ||
+      !Object.hasOwn(descriptors.scenario, "value") || !Object.hasOwn(descriptors.windowSize, "value") ||
+      !OFFLINE_MANUAL_SCENARIOS.has(descriptors.scenario.value) || !OFFLINE_MANUAL_WINDOWS.has(descriptors.windowSize.value)) {
+    fail("R22_LIVE_CONFIGURATION_INVALID");
+  }
+  return Object.freeze({ scenario: descriptors.scenario.value, windowSize: descriptors.windowSize.value });
+}
+function validateOfflineManualMode(input, profile) {
+  if (profile === null) return;
+  const provider = Object.getOwnPropertyDescriptor(input, "providerMode");
+  if (!provider || !Object.hasOwn(provider, "value") || provider.value !== "offline-fake" || Object.hasOwn(input, "credentialFile")) {
+    fail("R22_LIVE_CONFIGURATION_INVALID");
+  }
+}
 function point(authority) {
   const ledger = JSON.parse(authority.canonicalWorldEventLedgerJson);
   return { revision: ledger.revision, headSha256: ledger.headSha256, runtimeSnapshotSha256: sha256(canonicalText(authority.runtimeSnapshot)) };
 }
 
 export async function prepareR22LivePreview(options) {
+  const offlineManualProfile = captureOfflineManualProfile(options);
+  validateOfflineManualMode(options, offlineManualProfile);
   const temporaryRoot = await trustR22TemporaryRoot(options.temporaryRoot);
   const qualification = await verifyR22OfflineQualification(options.qualifiedRoot, temporaryRoot.path,
     { caseSpecPath: options.caseSpecPath });
@@ -62,13 +91,15 @@ export async function prepareR22LivePreview(options) {
     fail("R22_PREVIEW_SOURCE_IDENTITY_MISMATCH");
   }
   const calculateImplementation = () => calculateR20ImplementationIdentity(options.moduleRoot,
-    { entryFiles: ["scripts/preview-r22.mjs"], resourceTrees: ["apps/runtime-godot"] });
+    { entryFiles: [offlineManualProfile === null ? "scripts/preview-r22.mjs" : "scripts/preview-r22-offline.mjs"],
+      resourceTrees: ["apps/runtime-godot"] });
   const implementation = await calculateImplementation();
   const binary = await readStableR22File(options.godotCommand, 256 * 1024 * 1024, temporaryRoot);
   const composition = await createR22LiveComposition({ source, npcRunRoot: options.npcRunRoot,
     cognitionRunRoot: options.cognitionRunRoot, temporaryRoot: temporaryRoot.path,
     implementationSha256: implementation.sha256, godotBinarySha256: binary.sha256, providerMode: options.providerMode,
-    resume: options.resume === true });
+    resume: options.resume === true, ...(Object.hasOwn(options, "credentialFile") ? { credentialFile: options.credentialFile } : {}),
+    ...(offlineManualProfile === null ? {} : { offlineManualProfile }) });
   return Object.freeze({ ...composition, source, previewIdentity, previewFiles, qualification, selectedCreatorEvidence,
     revalidate: async () => {
       await revalidateR22FileRecord(boundSpec.record, 1024 * 1024, temporaryRoot);
@@ -83,7 +114,7 @@ export async function prepareR22LivePreview(options) {
 // provider-shaped response still passes the real bounded Responses validator.
 function offlineResponse(plan, request) {
   return {
-    id: "resp_discarded", object: "response", created_at: 1, completed_at: 2, status: "completed",
+    id: "resp_discarded", object: "response", created_at: 1, completed_at: 2, status: "completed", service_tier: "default",
     background: false, error: null, incomplete_details: null, instructions: request.instructions,
     max_output_tokens: plan.maxOutputTokens, max_tool_calls: null, metadata: {}, model: plan.model,
     output: [{ id: "msg_discarded", type: "message", status: "completed", role: "assistant", content: [{
@@ -97,12 +128,46 @@ function offlineResponse(plan, request) {
   };
 }
 
+function offlineScenarioResponse(scenario, plan, request) {
+  const response = offlineResponse(plan, request);
+  if (scenario === "normal") return response;
+  if (scenario === "refusal") {
+    response.output[0].content = [{ type: "refusal", refusal: "Offline fake refusal." }];
+    return response;
+  }
+  if (scenario === "injection") {
+    response.output[0].content[0].text = JSON.stringify({ contextSha256: plan.contextSha256,
+      dialogueText: "[offline link](file:///offline-qa) <b>literal only</b> [color=red]no execution[/color]",
+      actionChoiceId: plan.candidateChoices[0]?.choiceId ?? null });
+    return response;
+  }
+  fail("R22_LIVE_CONFIGURATION_INVALID");
+}
+
+function awaitOfflineTimeout(signal) {
+  if (!signal || typeof signal.addEventListener !== "function" || typeof signal.aborted !== "boolean") {
+    fail("R22_FAKE_REQUEST_INVALID");
+  }
+  return new Promise((_resolve, reject) => {
+    const abort = () => { const error = new Error("R22_OFFLINE_FAKE_TIMEOUT"); error.name = "AbortError"; reject(error); };
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
 export async function createR22LiveComposition(input) {
+  const offlineManualProfile = captureOfflineManualProfile(input);
+  validateOfflineManualMode(input, offlineManualProfile);
   if (!["offline-fake", "official-once"].includes(input?.providerMode) || !SHA.test(input.implementationSha256 ?? "") ||
       !SHA.test(input.godotBinarySha256 ?? "") || (input.resume !== undefined && typeof input.resume !== "boolean")) fail("R22_LIVE_CONFIGURATION_INVALID");
   const resume = input.resume === true;
+  if (input.credentialFile !== undefined && (input.providerMode !== "official-once" || resume)) fail("R22_LIVE_CONFIGURATION_INVALID");
   const { source } = input;
   const trustedRoot = await trustR22TemporaryRoot(input.temporaryRoot);
+  // Pin metadata only. The returned reader cannot consume credential bytes until
+  // the one-shot operations have verified the approved, persisted dispatch.
+  const readCredential = input.credentialFile === undefined ? undefined : await prepareR22FileCredentialReader({
+    credentialFile: input.credentialFile, temporaryRoot: trustedRoot.path });
   const npcRunRoot = directR22TemporaryChild(input.npcRunRoot, trustedRoot);
   const cognitionRunRoot = directR22TemporaryChild(input.cognitionRunRoot, trustedRoot);
   if (!npcRunRoot.endsWith("-npc") || !cognitionRunRoot.endsWith("-cognition") ||
@@ -140,11 +205,13 @@ export async function createR22LiveComposition(input) {
   const manifestFor = (timelineId) => canonicalText({ ...baseManifest, timelineId,
     identities: { ...baseManifest.identities, implementationSha256: input.implementationSha256,
       godotBinarySha256: input.godotBinarySha256 } });
-  const sessionManifestJson = canonicalText({ format: "matrix-oasis.r22-cognition-session-manifest", formatVersion: "0.1.0",
+  const sessionManifestJson = canonicalText({ format: "matrix-oasis.r22-cognition-session-manifest",
+    formatVersion: offlineManualProfile === null ? "0.1.0" : "0.2.0",
     canonicalization: "matrix-oasis.canonical-json/1", hostRunId, initialTimelineId, providerMode: input.providerMode,
     sourceCurrentSha256: source.npc.record.sha256, sourceDerivedBundleSha256: source.derived.record.sha256,
     sourceAuthorityManifestSha256: sha256(source.authorityManifestJson), cognitionPolicySha256: sha256(cognitionPolicyJson),
-    implementationSha256: input.implementationSha256, godotBinarySha256: input.godotBinarySha256 });
+    implementationSha256: input.implementationSha256, godotBinarySha256: input.godotBinarySha256,
+    ...(offlineManualProfile === null ? {} : { offlineManualProfile }) });
   let sessionManifestRecord = null;
   const readBoundSessionManifest = async () => {
     const record = await readStableR22File(path.join(cognitionRunRoot, "cognition-session-manifest.json"), 16 * 1024, trustedRoot);
@@ -165,6 +232,7 @@ export async function createR22LiveComposition(input) {
   const stores = new Set();
   const physicalCommands = new Set();
   const officialOperations = input.providerMode === "official-once" ? createR22OfficialOneShotOperations({
+    ...(readCredential === undefined ? {} : { readCredential }),
     readDispatch: async () => {
       if (closed || callStore === null) fail("R22_OFFICIAL_ONE_SHOT_UNAVAILABLE");
       await revalidateQualifiedSource(source, trustedRoot);
@@ -217,7 +285,11 @@ export async function createR22LiveComposition(input) {
       const provider = createOpenAiNpcCognitionProvider({ apiKey, fetchImplementation: async (url, options) => {
         if (url !== plan.endpoint || options?.method !== "POST" || options?.body !== providerRequestJson) fail("R22_FAKE_REQUEST_INVALID");
         fakeDispatches += 1;
-        return new Response(JSON.stringify(offlineResponse(plan, request)), { status: 200, headers: { "content-type": "application/json" } });
+        const scenario = offlineManualProfile?.scenario ?? "normal";
+        if (scenario === "timeout") return awaitOfflineTimeout(options.signal);
+        const body = scenario === "invalid-response" ? JSON.stringify({ object: "response", status: "completed" }) :
+          JSON.stringify(offlineScenarioResponse(scenario, plan, request));
+        return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
       } });
       return executeApprovedNpcCognitionTurn({ callPlanJson, providerRequestJson, approvalHash }, provider);
     },
@@ -296,7 +368,8 @@ export async function createR22LiveComposition(input) {
       }
     }
     if (receipts.length > 1) fail("R22_LIVE_PHYSICAL_RECEIPT_INVALID");
-    const report = { format: "matrix-oasis.r22-live-observation", formatVersion: "0.1.0", canonicalization: "matrix-oasis.canonical-json/1",
+    const report = { format: "matrix-oasis.r22-live-observation",
+      formatVersion: offlineManualProfile === null ? "0.1.0" : "0.2.0", canonicalization: "matrix-oasis.canonical-json/1",
       implementationSha256: input.implementationSha256, godotBinarySha256: input.godotBinarySha256,
       sourceCurrentSha256: source.npc.record.sha256, sourceDerivedBundleSha256: source.derived.record.sha256,
       authorityManifestSha256: sha256(manifestFor(checkpoint.timelineId)), observationSha256: checked.observationSha256,
@@ -305,7 +378,8 @@ export async function createR22LiveComposition(input) {
       performancePassed: checked.performancePassed, providerMode: input.providerMode,
       realProviderRequests: officialOperations?.inspect().providerRequests ?? 0,
       sourceCredentialReads: officialOperations?.inspect().sourceCredentialReads ?? 0,
-      qualificationStatus: "unqualified-manual-observation", manualAcceptancePassed: false };
+      qualificationStatus: "unqualified-manual-observation", manualAcceptancePassed: false,
+      ...(offlineManualProfile === null ? {} : { offlineManualProfile }) };
     const reportJson = canonicalText(report);
     const artifacts = new Map([["physical-observation.json", text], ["observation-report.json", reportJson],
       ["world-event-ledger.json", snapshot.authority.canonicalWorldEventLedgerJson]]);
@@ -431,10 +505,12 @@ export async function createR22LiveComposition(input) {
         await revalidateQualifiedSource(source, trustedRoot);
         await revalidateR22FileRecord(sessionManifestRecord, 16 * 1024, trustedRoot);
       },
+      ...(offlineManualProfile === null ? {} : { offlineManualProfile }),
       exportState: () => Object.freeze({ authority: exportR20Coordinator(coordinator), fakeDispatches,
         recovery: recoveryResult, callStore: inspectR22CallStore(callStore),
         providerMode: input.providerMode, realProviderRequests: officialOperations?.inspect().providerRequests ?? 0,
-        sourceCredentialReads: officialOperations?.inspect().sourceCredentialReads ?? 0 }),
+        sourceCredentialReads: officialOperations?.inspect().sourceCredentialReads ?? 0,
+        ...(offlineManualProfile === null ? {} : { offlineManualProfile }) }),
     });
   } catch (error) {
     try { await close(); } catch { fail("R22_LIVE_COMPOSITION_CLEANUP_FAILED"); }
