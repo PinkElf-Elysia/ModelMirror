@@ -116,16 +116,34 @@ describe("ProviderWorkloadControlSettings", () => {
     });
   });
 
-  it("opens integrated R8B through R8D certifications while later multimodal shapes remain blocked", async () => {
+  it("opens integrated R8B through R8E certifications while Realtime remains blocked", async () => {
     const multimodalConnection = {
       ...connection,
-      scopes: ["chat", "image", "audio"],
+      scopes: ["chat", "image", "audio", "video"],
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/router/connections") return jsonResponse([multimodalConnection]);
       if (url === "/api/router/certifications/workloads" && !init) {
         return jsonResponse({ certifications: [] });
+      }
+      if (url.includes("/certifications/workloads") && init?.method === "POST") {
+        return jsonResponse({
+          certification_id: "cert-video-generation-pending",
+          connection_id: multimodalConnection.id,
+          connection_name: multimodalConnection.name,
+          provider_kind: multimodalConnection.kind,
+          execution_shape: "video_generation_async",
+          status: "uncertain",
+          can_run: false,
+          requested_model: "alibaba/wan-2.6",
+          actual_model: null,
+          candidate_model_ids: [],
+          error_code: "provider_video_certification_pending",
+          provider_dispatch_state: "confirmed",
+          retry_allowed: false,
+          refresh_available: true,
+        });
       }
       throw new Error(`Unexpected fetch ${url}`);
     });
@@ -181,6 +199,31 @@ describe("ProviderWorkloadControlSettings", () => {
 
     fireEvent.change(screen.getByLabelText("执行形态"), {
       target: { value: "chat_video_stream" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
+    })).toBeEnabled());
+    expect(screen.queryByText(/该多模态形态目前仅建立 Adapter/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "video_generation_async" },
+    });
+    fireEvent.change(screen.getByLabelText("精确模型 ID"), {
+      target: { value: "alibaba/wan-2.6" },
+    });
+    await waitFor(() => expect(screen.getByRole("button", {
+      name: "运行资格认证",
+    })).toBeEnabled());
+    expect(screen.getByLabelText("Adapter Contract")).toHaveValue(
+      "openrouter_video_jobs_v1",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "运行资格认证" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认并运行" }));
+    expect(await screen.findByText(/异步资格已提交，等待只读刷新/)).toBeVisible();
+    expect(screen.getByRole("status")).toHaveAttribute("data-tone", "warning");
+
+    fireEvent.change(screen.getByLabelText("执行形态"), {
+      target: { value: "realtime_voice_session" },
     });
     await waitFor(() => expect(screen.getByRole("button", {
       name: "运行资格认证",
@@ -285,17 +328,17 @@ describe("ProviderWorkloadControlSettings", () => {
     })).not.toBeInTheDocument();
   });
 
-  it("manually refreshes pending audio model evidence without a billed-call retry", async () => {
+  it("manually refreshes pending video model evidence without a billed-call retry", async () => {
     let refreshed = false;
     const pendingCertification = {
-      certification_id: "cert-audio-pending",
+      certification_id: "cert-video-pending",
       connection_id: connection.id,
       connection_name: connection.name,
       provider_kind: connection.kind,
-      execution_shape: "audio_transcription",
+      execution_shape: "video_generation_async",
       status: "uncertain",
       can_run: false,
-      requested_model: "openai/whisper-1",
+      requested_model: "alibaba/wan-2.6",
       actual_model: null,
       candidate_model_ids: [],
       error_code: "provider_multimodal_actual_model_pending",
@@ -306,22 +349,22 @@ describe("ProviderWorkloadControlSettings", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/router/connections") {
-        return jsonResponse([{ ...connection, scopes: ["audio"] }]);
+        return jsonResponse([{ ...connection, scopes: ["video"] }]);
       }
       if (url === "/api/router/certifications/workloads" && !init) {
         return jsonResponse({
           certifications: refreshed
-            ? [{ ...pendingCertification, status: "passed", can_run: true, actual_model: "openai/whisper-1", error_code: null, refresh_available: false }]
+            ? [{ ...pendingCertification, status: "passed", can_run: true, actual_model: "alibaba/wan-2.6-20260327", error_code: null, refresh_available: false }]
             : [pendingCertification],
         });
       }
-      if (url === "/api/router/certifications/workloads/cert-audio-pending/refresh") {
+      if (url === "/api/router/certifications/workloads/cert-video-pending/refresh") {
         refreshed = true;
         return jsonResponse({
           ...pendingCertification,
           status: "passed",
           can_run: true,
-          actual_model: "openai/whisper-1",
+          actual_model: "alibaba/wan-2.6-20260327",
           error_code: null,
           refresh_available: false,
         });
@@ -333,15 +376,15 @@ describe("ProviderWorkloadControlSettings", () => {
     render(<ProviderWorkloadControlSettings csrfToken="csrf-value" view="certifications" />);
 
     expect(await screen.findByText("只读刷新模型证据")).toBeVisible();
-    expect(screen.getByText(/不会重新提交音频或产生第二次模型 POST/)).toBeVisible();
+    expect(screen.getByText(/不会重新提交视频或产生第二次模型 POST/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "只读刷新模型证据" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/router/certifications/workloads/cert-audio-pending/refresh",
+      "/api/router/certifications/workloads/cert-video-pending/refresh",
       expect.objectContaining({ method: "POST" }),
     ));
     const call = fetchMock.mock.calls.find(([url]) =>
-      String(url).endsWith("/cert-audio-pending/refresh")
+      String(url).endsWith("/cert-video-pending/refresh")
     );
     expect(call?.[1]?.headers).toEqual(expect.objectContaining({
       "X-ModelMirror-CSRF": "csrf-value",

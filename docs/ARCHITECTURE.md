@@ -191,7 +191,21 @@ Chat SSE 与音频任务两套独立执行协议。三种 shape 必须分别认�
 断流、超时、取消或重启结果记为 `uncertain`，不得切换第二 IP、连接、模型、Adapter 或 legacy，
 也不得自动重放。`MODEL_CONTROL_CHAT_AUDIO_ENABLED` 与
 `MODEL_CONTROL_AUDIO_GENERATION_ENABLED` 默认关闭；Policy 为 `legacy` 时沿用旧路径，只有
-Feature Flag 与 `managed_required` Policy 同时满足才接管。视频与 Realtime 继续等待 R8E—R8F。
+Feature Flag 与 `managed_required` Policy 同时满足才接管。
+
+Round 8E 继续在同一外壳内接入独立视频分析、Chat 视频与异步视频生成。三条路径分别使用
+`video_analysis_unary`、`chat_video_stream` 与 `video_generation_async`，资格不能互相继承。
+独立分析与 Chat 视频复用 OpenRouter Chat Video Adapter，但仍保留普通 JSON 与 Chat SSE 两种
+协议；异步生成只允许 `openrouter_video_jobs_v1`，当前资格固定为纯文本生成、5 秒、720p、16:9
+和单一输出，不覆盖编辑、放大、首尾帧、参考媒体或其他高级参数。运行请求必须与该固定组合完全
+一致，否则在 POST 前失败关闭。受管入口派发前要求 1—200 字符的幂等键，同一逻辑键最多
+一个 POST；派发后不得切换第二 IP、连接、模型、Adapter 或 legacy。
+
+异步生成在 POST 前保存 reservation，在取得上游任务 ID 后只允许通过原连接执行 GET。任务、
+Workload Call 与 Workload Run 的终态在同一 SQLite 事务收敛；重启只恢复已取得上游 ID 的只读
+轮询，无 ID 的已派发任务转为 `uncertain`，绝不重发。完成态只有在实际模型精确匹配、输出元数据
+数量与引用均合法后才能标记成功。视频、Prompt、输出 URL 与模型正文不进入控制面存储。
+Realtime 仍等待 R8F。
 
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed
@@ -311,7 +325,10 @@ flowchart LR
 ### 视频生成
 
 视频生成不复用聊天 SSE。前端提交任务后，后端保存不含 Prompt 或媒体正文的
-租户级任务元数据，按上游状态刷新，最终通过鉴权内容代理播放或下载。
+租户级任务元数据，按上游状态刷新，最终通过鉴权内容代理播放或下载。R8E 的 Managed
+路径为提交和轮询绑定同一连接、模型与 Adapter；GET 轮询不会创建新的 Provider Call，也不
+计作第二次付费提交。当前 Managed 生成资格只覆盖 5 秒、720p、16:9、单一输出的纯文本生成。
+旧任务和 Feature Flag 关闭时的 legacy 路径保持兼容。
 
 ## 存储与隔离边界
 

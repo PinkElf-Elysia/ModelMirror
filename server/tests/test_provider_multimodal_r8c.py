@@ -1915,7 +1915,7 @@ async def test_openrouter_audio_pending_evidence_survives_crash_before_finalizer
 
     monkeypatch.setattr(
         service.repository,
-        "complete_workload_certification",
+        "get_workload_certification",
         simulate_process_crash,
     )
     with pytest.raises(

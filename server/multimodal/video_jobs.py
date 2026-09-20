@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -7,21 +8,54 @@ import logging
 import math
 import os
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field
 
 try:
     from server.model_router.egress import ProviderEgressPolicy, request_provider_url
+    from server.model_router.multimodal_control import (
+        R8E_VIDEO_GENERATION_ASPECT_RATIO,
+        R8E_VIDEO_GENERATION_DURATION_SECONDS,
+        R8E_VIDEO_GENERATION_OUTPUT_COUNT,
+        R8E_VIDEO_GENERATION_RESOLUTION,
+        clean_provider_video_identifier,
+        is_valid_openrouter_video_output_reference,
+        openrouter_video_catalog_model_matches,
+    )
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, request_provider_url
+    from model_router.multimodal_control import (
+        R8E_VIDEO_GENERATION_ASPECT_RATIO,
+        R8E_VIDEO_GENERATION_DURATION_SECONDS,
+        R8E_VIDEO_GENERATION_OUTPUT_COUNT,
+        R8E_VIDEO_GENERATION_RESOLUTION,
+        clean_provider_video_identifier,
+        is_valid_openrouter_video_output_reference,
+        openrouter_video_catalog_model_matches,
+    )
     from model_router.service import ModelRouterService
+
+if TYPE_CHECKING:
+    try:
+        from server.model_router.multimodal_gateway import (
+            ManagedMultimodalChatDispatch,
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    except ModuleNotFoundError:
+        from model_router.multimodal_gateway import (
+            ManagedMultimodalChatDispatch,
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
 
 from .stt import MultimodalServiceError, OpenRouterTarget
 from .video_analysis import video_file_data_url, validated_video_url
@@ -34,10 +68,25 @@ from .video_catalog import (
 
 logger = logging.getLogger("modelmirror.multimodal")
 
+
+def _managed_multimodal_gateway_types() -> tuple[type[Any], type[Exception]]:
+    try:
+        from server.model_router.multimodal_gateway import (
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    except ModuleNotFoundError:
+        from model_router.multimodal_gateway import (
+            ManagedMultimodalError,
+            ManagedMultimodalGateway,
+        )
+    return ManagedMultimodalGateway, ManagedMultimodalError
+
 MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024
 MAX_REFERENCE_IMAGE_COUNT = 3
 MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024
 MAX_VIDEO_GENERATION_PROMPT_CHARS = 4_000
+MAX_VIDEO_JOB_RESPONSE_BYTES = 1024 * 1024
 MAX_IDEMPOTENCY_KEY_CHARS = 128
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "expired"}
@@ -65,6 +114,18 @@ SAFE_JOB_ERRORS: dict[str, str] = {
     ),
     "invalid_upstream_response": (
         "视频服务返回了无法识别的任务信息，请稍后重试。"
+    ),
+    "provider_result_uncertain": (
+        "视频任务可能已经提交，但尚未取得可轮询编号；为避免重复计费，系统不会自动重试。"
+    ),
+    "provider_workload_call_cancelled": "视频任务在提交前被取消。",
+    "provider_workload_binding_changed": "视频生成 Binding 已变化，请重新完成资格和激活。",
+    "provider_workload_model_mismatch": "视频 Provider 返回的实际模型与 Binding 不一致。",
+    "provider_multimodal_actual_model_pending": (
+        "上游任务已结束，但实际模型证据尚不可用；系统只会继续只读查询。"
+    ),
+    "provider_multimodal_video_output_metadata_invalid": (
+        "视频任务已结束，但上游未返回可验证的输出元数据。"
     ),
 }
 
@@ -114,6 +175,13 @@ class VideoJob(BaseModel):
     updated_at: str
     error: VideoJobError | None = None
     output_count: int = 0
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, object]] = Field(default_factory=list)
+    provider_dispatch_state: Literal[
+        "not_dispatched", "dispatched", "confirmed", "uncertain"
+    ] | None = None
+    retry_allowed: bool = True
+    fallback_reason_codes: list[str] = Field(default_factory=list)
 
 
 class VideoJobList(BaseModel):
@@ -175,6 +243,52 @@ class OpenRouterVideoJobAdapter:
         self._raise_for_status(response, submitting=True)
         return self._json(response)
 
+    async def submit_managed(
+        self,
+        dispatch: "ManagedMultimodalChatDispatch",
+        payload: dict[str, object],
+        *,
+        on_dispatched: Callable[[], None],
+    ) -> dict[str, Any]:
+        """Send one qualified async-video POST through the durable guard."""
+
+        async with self._managed_client_factory() as client:
+            response: httpx.Response | None = None
+            try:
+                response = await dispatch.send(
+                    client,
+                    payload,
+                    on_dispatched=on_dispatched,
+                )
+                self._raise_for_status(response, submitting=True)
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > MAX_VIDEO_JOB_RESPONSE_BYTES:
+                        raise MultimodalServiceError(
+                            "invalid_upstream_response",
+                            SAFE_JOB_ERRORS["invalid_upstream_response"],
+                            status_code=502,
+                        )
+                    chunks.append(chunk)
+                response._content = b"".join(chunks)  # noqa: SLF001
+                return self._json(response)
+            except MultimodalServiceError:
+                raise
+            except (
+                httpx.ConnectTimeout,
+                httpx.ReadTimeout,
+                httpx.WriteTimeout,
+                httpx.PoolTimeout,
+            ) as exc:
+                raise self._transport_error(timeout=True) from exc
+            except httpx.HTTPError as exc:
+                raise self._transport_error(timeout=False) from exc
+            finally:
+                if response is not None:
+                    await response.aclose()
+
     async def poll(
         self,
         target: OpenRouterTarget,
@@ -186,6 +300,7 @@ class OpenRouterVideoJobAdapter:
             else self._client_factory
         )
         async with client_factory() as client:
+            response: httpx.Response | None = None
             try:
                 response = await request_provider_url(
                     client,
@@ -196,7 +311,10 @@ class OpenRouterVideoJobAdapter:
                         target.base_url, f"videos/{upstream_job_id}"
                     ),
                     headers=self._headers(target.api_key),
+                    stream=True,
                 )
+                self._raise_for_status(response, submitting=False)
+                return await self._bounded_json(response)
             except (
                 httpx.ConnectTimeout,
                 httpx.ReadTimeout,
@@ -205,8 +323,55 @@ class OpenRouterVideoJobAdapter:
                 raise self._transport_error(timeout=True) from exc
             except httpx.HTTPError as exc:
                 raise self._transport_error(timeout=False) from exc
-        self._raise_for_status(response, submitting=False)
-        return self._json(response)
+            finally:
+                if response is not None:
+                    await response.aclose()
+
+    async def generation_model(
+        self,
+        target: OpenRouterTarget,
+        generation_id: str,
+    ) -> str | None:
+        """Resolve one actual model through a bounded, pinned metadata GET."""
+
+        clean_generation_id = str(generation_id or "").strip()
+        if not clean_generation_id:
+            return None
+        client_factory = (
+            self._managed_client_factory
+            if target.connection_id
+            else self._client_factory
+        )
+        async with client_factory() as client:
+            response: httpx.Response | None = None
+            try:
+                response = await request_provider_url(
+                    client,
+                    self._egress_policy or ProviderEgressPolicy(),
+                    target.connection_id if self._egress_policy else None,
+                    "GET",
+                    self._api_url(target.base_url, "generation"),
+                    headers=self._headers(target.api_key),
+                    params={"id": clean_generation_id},
+                    stream=True,
+                )
+                if not 200 <= response.status_code < 300:
+                    return None
+                try:
+                    payload = await self._bounded_json(response)
+                except MultimodalServiceError:
+                    return None
+                data = payload.get("data") if isinstance(payload, dict) else None
+                model = data.get("model") if isinstance(data, dict) else None
+                return clean_provider_video_identifier(
+                    model,
+                    kind="model",
+                )
+            except (httpx.HTTPError, TimeoutError):
+                return None
+            finally:
+                if response is not None:
+                    await response.aclose()
 
     async def content(
         self,
@@ -351,6 +516,35 @@ class OpenRouterVideoJobAdapter:
         return payload
 
     @staticmethod
+    async def _bounded_json(response: httpx.Response) -> dict[str, Any]:
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in response.aiter_bytes():
+            total += len(chunk)
+            if total > MAX_VIDEO_JOB_RESPONSE_BYTES:
+                raise MultimodalServiceError(
+                    "invalid_upstream_response",
+                    SAFE_JOB_ERRORS["invalid_upstream_response"],
+                    status_code=502,
+                )
+            chunks.append(chunk)
+        try:
+            payload = json.loads(b"".join(chunks))
+        except (TypeError, ValueError) as exc:
+            raise MultimodalServiceError(
+                "invalid_upstream_response",
+                SAFE_JOB_ERRORS["invalid_upstream_response"],
+                status_code=502,
+            ) from exc
+        if not isinstance(payload, dict):
+            raise MultimodalServiceError(
+                "invalid_upstream_response",
+                SAFE_JOB_ERRORS["invalid_upstream_response"],
+                status_code=502,
+            )
+        return payload
+
+    @staticmethod
     def _transport_error(*, timeout: bool) -> MultimodalServiceError:
         if timeout:
             return MultimodalServiceError(
@@ -434,12 +628,18 @@ class VideoJobService:
         catalog_service: VideoCatalogService,
         *,
         adapter: OpenRouterVideoJobAdapter | None = None,
+        managed_gateway: "ManagedMultimodalGateway | None" = None,
     ) -> None:
         self.router_service = router_service
         self.catalog_service = catalog_service
         self.adapter = adapter or OpenRouterVideoJobAdapter(
             egress_policy=router_service.egress_policy
         )
+        if managed_gateway is None:
+            managed_gateway_type, _ = _managed_multimodal_gateway_types()
+            self.managed_gateway = managed_gateway_type.for_router(router_service)
+        else:
+            self.managed_gateway = managed_gateway
 
     async def create(
         self,
@@ -483,16 +683,34 @@ class VideoJobService:
         )
         if existing is not None:
             return self._public(existing)
-        profile = await self._profile(
-            clean_model,
-            force=bool(
-                provider_options
-                or source_type
-                or source_video_filename
-                or source_video_url
-                or upscale_factor is not None
-                or creativity is not None
-            ),
+        managed_mode = (
+            self.managed_gateway.routing_mode("video_generation") != "legacy"
+        )
+        profile = (
+            VideoModelProfile(
+                model_id=clean_model,
+                operation="generate_video",
+                supported_resolutions=[R8E_VIDEO_GENERATION_RESOLUTION],
+                supported_aspect_ratios=[
+                    R8E_VIDEO_GENERATION_ASPECT_RATIO
+                ],
+                supported_durations=[
+                    R8E_VIDEO_GENERATION_DURATION_SECONDS
+                ],
+                interaction_status="ready",
+            )
+            if managed_mode
+            else await self._profile(
+                clean_model,
+                force=bool(
+                    provider_options
+                    or source_type
+                    or source_video_filename
+                    or source_video_url
+                    or upscale_factor is not None
+                    or creativity is not None
+                ),
+            )
         )
         clean_prompt = self._prompt(
             prompt,
@@ -537,6 +755,14 @@ class VideoJobService:
             profile,
             provider_options,
         )
+        if managed_mode:
+            duration = (
+                R8E_VIDEO_GENERATION_DURATION_SECONDS
+                if duration is None
+                else duration
+            )
+            resolution = resolution or R8E_VIDEO_GENERATION_RESOLUTION
+            aspect_ratio = aspect_ratio or R8E_VIDEO_GENERATION_ASPECT_RATIO
         self._validate_parameters(
             profile,
             duration=duration,
@@ -578,53 +804,6 @@ class VideoJobService:
             stored_option_keys.append(f"upscale_factor:{upscale_factor:g}")
         if creativity is not None:
             stored_option_keys.append(f"creativity:{creativity}")
-        target = self.catalog_service.resolve_target()
-        job_id = f"local_{uuid.uuid4().hex}"
-        row, created = (
-            self.router_service.repository.create_video_job_if_absent(
-                tenant_id,
-                job_id=job_id,
-                idempotency_key_hash=key_hash,
-                connection_id=target.connection_id,
-                requested_model=clean_model,
-                provider="openrouter",
-                duration=duration,
-                resolution=resolution,
-                aspect_ratio=aspect_ratio,
-                generate_audio=generate_audio,
-                seed=seed,
-                has_first_frame=frame_data_url is not None,
-                has_last_frame=last_frame_data_url is not None,
-                reference_image_count=len(reference_data_urls),
-                provider_option_keys=stored_option_keys,
-            )
-        )
-        if not created:
-            return self._public(row)
-
-        try:
-            decision_id = self._record_start(
-                target,
-                model_id=clean_model,
-                input_bytes=(
-                    len(clean_prompt.encode("utf-8"))
-                    + len(first_frame_content or b"")
-                    + len(last_frame_content or b"")
-                    + sum(
-                        len(content)
-                        for content in (reference_image_contents or [])
-                    )
-                    + len(source_video_content or b"")
-                ),
-            )
-        except MultimodalServiceError as exc:
-            self._update(
-                job_id,
-                status="failed",
-                error_code=exc.code,
-            )
-            raise
-        row = self._update(job_id, decision_id=decision_id)
         payload: dict[str, object] = {"model": clean_model}
         if clean_prompt:
             payload["prompt"] = clean_prompt
@@ -678,6 +857,62 @@ class VideoJobService:
             payload["creativity"] = creativity
         if provider_payload is not None:
             payload["provider"] = provider_payload
+        input_bytes = (
+            len(clean_prompt.encode("utf-8"))
+            + len(first_frame_content or b"")
+            + len(last_frame_content or b"")
+            + sum(len(content) for content in (reference_image_contents or []))
+            + len(source_video_content or b"")
+        )
+        if managed_mode:
+            return await self._create_managed(
+                model_id=clean_model,
+                idempotency_key_hash=key_hash,
+                payload=payload,
+                input_bytes=input_bytes,
+                duration=duration,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                generate_audio=generate_audio,
+                seed=seed,
+                has_first_frame=frame_data_url is not None,
+                has_last_frame=last_frame_data_url is not None,
+                reference_image_count=len(reference_data_urls),
+                provider_option_keys=stored_option_keys,
+            )
+
+        target = self.catalog_service.resolve_target()
+        job_id = f"local_{uuid.uuid4().hex}"
+        row, created = self.router_service.repository.create_video_job_if_absent(
+            tenant_id,
+            job_id=job_id,
+            idempotency_key_hash=key_hash,
+            connection_id=target.connection_id,
+            requested_model=clean_model,
+            provider="openrouter",
+            duration=duration,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            generate_audio=generate_audio,
+            seed=seed,
+            has_first_frame=frame_data_url is not None,
+            has_last_frame=last_frame_data_url is not None,
+            reference_image_count=len(reference_data_urls),
+            provider_option_keys=stored_option_keys,
+        )
+        if not created:
+            return self._public(row)
+
+        try:
+            decision_id = self._record_start(
+                target,
+                model_id=clean_model,
+                input_bytes=input_bytes,
+            )
+        except MultimodalServiceError as exc:
+            self._update(job_id, status="failed", error_code=exc.code)
+            raise
+        row = self._update(job_id, decision_id=decision_id)
         try:
             upstream = await self.adapter.submit(target, payload)
             changes = self._upstream_changes(
@@ -694,6 +929,596 @@ class VideoJobService:
         row = self._update(job_id, **changes)
         self._update_audit(row)
         return self._public(row)
+
+    async def _create_managed(
+        self,
+        *,
+        model_id: str,
+        idempotency_key_hash: str,
+        payload: dict[str, object],
+        input_bytes: int,
+        duration: int | None,
+        resolution: str | None,
+        aspect_ratio: str | None,
+        generate_audio: bool,
+        seed: int | None,
+        has_first_frame: bool,
+        has_last_frame: bool,
+        reference_image_count: int,
+        provider_option_keys: list[str],
+    ) -> VideoJob:
+        _, managed_error_type = _managed_multimodal_gateway_types()
+        entry_id = "video_generation"
+        execution_shape = "video_generation_async"
+        try:
+            exact_model = self.managed_gateway.exact_model_id(
+                entry_id,
+                execution_shape,
+                requested_model=model_id,
+            )
+            policy = self.managed_gateway.call_service.control.get_policy(entry_id)
+            binding = next(
+                (
+                    item
+                    for item in policy.bindings
+                    if item.execution_shape == execution_shape
+                    and item.model_id == exact_model
+                    and item.valid
+                ),
+                None,
+            )
+            if binding is None:
+                raise managed_error_type(
+                    "provider_workload_binding_missing",
+                    "视频生成缺少当前精确模型的合格 Managed Binding。",
+                    status_code=409,
+                    receipt=self.managed_gateway.blocked_receipt(
+                        entry_id, "provider_workload_binding_missing"
+                    ),
+                )
+            certified_profile = self.managed_gateway.certified_video_parameters(
+                entry_id,
+                certification_id=binding.certification_id,
+                execution_shape=execution_shape,
+            )
+            if self._managed_generation_parameter_reason(
+                certified_profile,
+                duration=duration,
+                resolution=resolution,
+                aspect_ratio=aspect_ratio,
+                generate_audio=generate_audio,
+                seed=seed,
+                has_first_frame=has_first_frame,
+                has_last_frame=has_last_frame,
+                reference_image_count=reference_image_count,
+                provider_option_keys=provider_option_keys,
+            ) is not None:
+                raise managed_error_type(
+                    "provider_multimodal_video_parameters_not_certified",
+                    "当前 Managed 视频资格只覆盖纯文本生成；本次高级参数尚未认证。",
+                    status_code=422,
+                    receipt=self.managed_gateway.blocked_receipt(
+                        entry_id,
+                        "provider_multimodal_video_parameters_not_certified",
+                    ),
+                )
+        except managed_error_type as exc:
+            raise self._managed_error(exc) from exc
+
+        tenant_id = self.router_service.tenant_id
+        job_id = f"local_{uuid.uuid4().hex}"
+        row, created = self.router_service.repository.create_video_job_if_absent(
+            tenant_id,
+            job_id=job_id,
+            idempotency_key_hash=idempotency_key_hash,
+            connection_id=binding.connection_id,
+            requested_model=exact_model,
+            provider="openrouter",
+            duration=duration,
+            resolution=resolution,
+            aspect_ratio=aspect_ratio,
+            generate_audio=generate_audio,
+            seed=seed,
+            has_first_frame=has_first_frame,
+            has_last_frame=has_last_frame,
+            reference_image_count=reference_image_count,
+            provider_option_keys=provider_option_keys,
+            workload_run_id=f"managed-reservation:{job_id}",
+            connection_fingerprint=binding.connection_fingerprint,
+            adapter_contract=binding.adapter_contract,
+            protocol_version=binding.protocol_version,
+        )
+        if not created:
+            return self._public(row)
+
+        dispatch: ManagedMultimodalChatDispatch | None = None
+        try:
+            dispatch = await self.managed_gateway.prepare_chat_dispatch(
+                entry_id,
+                execution_shape=execution_shape,
+                requested_model=exact_model,
+                parent_run_reference=f"video-job:{job_id}",
+            )
+            prepared = dispatch.prepared
+            if (
+                prepared.entry_id != entry_id
+                or prepared.execution_shape != execution_shape
+                or prepared.model_id != exact_model
+                or prepared.connection_id != binding.connection_id
+                or prepared.certification_id != binding.certification_id
+                or prepared.connection_fingerprint != binding.connection_fingerprint
+                or prepared.adapter_contract != binding.adapter_contract
+                or prepared.protocol_version != binding.protocol_version
+                or prepared.policy_fingerprint != policy.policy_fingerprint
+            ):
+                raise managed_error_type(
+                    "provider_workload_binding_changed",
+                    "视频生成 Binding 或资格已变化，本次调用在 Provider 派发前失败关闭。",
+                    status_code=409,
+                )
+            row = self._update(
+                job_id,
+                workload_run_id=prepared.run_id,
+                workload_call_id=prepared.call_id,
+                policy_fingerprint=prepared.policy_fingerprint,
+                connection_fingerprint=prepared.connection_fingerprint,
+                adapter_contract=prepared.adapter_contract,
+                protocol_version=prepared.protocol_version,
+            )
+            upstream = await self.adapter.submit_managed(
+                dispatch,
+                payload,
+                on_dispatched=lambda: self._update(
+                    job_id,
+                    provider_dispatch_state="dispatched",
+                    post_dispatched=True,
+                    provider_terminal_status="submitted",
+                ),
+            )
+            accepted_changes = self._upstream_changes(
+                upstream,
+                previous=row,
+                submitting=True,
+                managed=True,
+            )
+            row = self._update(
+                job_id,
+                upstream_job_id=accepted_changes.get("upstream_job_id"),
+                generation_id=accepted_changes.get("generation_id"),
+                status="running",
+                provider_dispatch_state="confirmed",
+                post_dispatched=True,
+                provider_terminal_status=str(
+                    accepted_changes.get("status") or "queued"
+                ),
+            )
+            target = self._target_for_row(row)
+            changes, provider_status = await self._managed_upstream_changes(
+                upstream,
+                previous=row,
+                target=target,
+                submitting=False,
+            )
+            if str(changes.get("status")) in TERMINAL_STATUSES:
+                row = self._finalize_managed_terminal(
+                    row,
+                    changes,
+                    provider_terminal_status=provider_status,
+                )
+            else:
+                row = self._update(
+                    job_id,
+                    **changes,
+                    provider_dispatch_state="confirmed",
+                    post_dispatched=True,
+                    provider_terminal_status=provider_status,
+                )
+            return self._public(row)
+        except asyncio.CancelledError:
+            current = self._row(job_id)
+            if not str(current.get("upstream_job_id") or "").strip():
+                self._finalize_managed_failure(
+                    job_id,
+                    dispatch=dispatch,
+                    code=(
+                        "provider_result_uncertain"
+                        if dispatch is not None and dispatch.dispatched
+                        else "provider_workload_call_cancelled"
+                    ),
+                    uncertain=bool(dispatch is not None and dispatch.dispatched),
+                )
+            raise
+        except managed_error_type as exc:
+            dispatched = bool(dispatch and dispatch.dispatched)
+            uncertain = dispatched and exc.code in {
+                "provider_workload_connect_timeout",
+                "provider_workload_read_timeout",
+                "provider_workload_write_timeout",
+                "provider_workload_transport_error",
+                "provider_workload_dispatch_uncertain",
+            }
+            self._finalize_managed_failure(
+                job_id,
+                dispatch=dispatch,
+                code=exc.code,
+                uncertain=uncertain,
+            )
+            raise self._managed_error(exc) from exc
+        except MultimodalServiceError as exc:
+            dispatched = bool(dispatch and dispatch.dispatched)
+            uncertain = dispatched and exc.code in {
+                "upstream_timeout",
+                "upstream_unreachable",
+                "invalid_upstream_response",
+                "provider_result_uncertain",
+            }
+            receipt = self._finalize_managed_failure(
+                job_id,
+                dispatch=dispatch,
+                code=("provider_result_uncertain" if uncertain else exc.code),
+                uncertain=uncertain,
+            )
+            raise MultimodalServiceError(
+                "provider_result_uncertain" if uncertain else exc.code,
+                (
+                    SAFE_JOB_ERRORS["provider_result_uncertain"]
+                    if uncertain
+                    else exc.message
+                ),
+                status_code=504 if uncertain else exc.status_code,
+                route_receipt=receipt,
+            ) from exc
+        except Exception as exc:
+            dispatched = bool(dispatch and dispatch.dispatched)
+            receipt = self._finalize_managed_failure(
+                job_id,
+                dispatch=dispatch,
+                code=(
+                    "provider_result_uncertain"
+                    if dispatched
+                    else "provider_workload_preflight_failed"
+                ),
+                uncertain=dispatched,
+            )
+            raise MultimodalServiceError(
+                (
+                    "provider_result_uncertain"
+                    if dispatched
+                    else "provider_workload_preflight_failed"
+                ),
+                (
+                    SAFE_JOB_ERRORS["provider_result_uncertain"]
+                    if dispatched
+                    else "视频生成在 Provider 派发前被阻断。"
+                ),
+                status_code=504 if dispatched else 409,
+                route_receipt=receipt,
+            ) from exc
+
+    def _finalize_managed_failure(
+        self,
+        job_id: str,
+        *,
+        dispatch: "ManagedMultimodalChatDispatch | None",
+        code: str,
+        uncertain: bool,
+    ) -> dict[str, Any] | None:
+        dispatched = bool(dispatch and dispatch.dispatched)
+        result_class = (
+            "transport_error"
+            if uncertain
+            else "provider_error"
+            if dispatched
+            else "preflight_failure"
+        )
+        current = self._row(job_id)
+        detached_receipt: dict[str, Any] | None = None
+        if dispatch is not None and not dispatch.completed:
+            attached = (
+                str(current.get("workload_run_id") or "")
+                == dispatch.prepared.run_id
+                and str(current.get("workload_call_id") or "")
+                == dispatch.prepared.call_id
+            )
+            if not attached:
+                detached_receipt = dispatch.complete(
+                    status="uncertain" if uncertain else "failed",
+                    result_class=result_class,
+                    error_code=code,
+                )
+                current = self._update(
+                    job_id,
+                    status="failed",
+                    error_code=code,
+                    provider_dispatch_state=(
+                        "uncertain"
+                        if uncertain
+                        else "confirmed"
+                        if dispatched
+                        else "not_dispatched"
+                    ),
+                    post_dispatched=dispatched,
+                    provider_terminal_status=(
+                        "uncertain" if uncertain else "failed"
+                    ),
+                )
+            else:
+                current = self.router_service.repository.finalize_managed_video_job(
+                    self.router_service.tenant_id,
+                    job_id,
+                    job_status="failed",
+                    workload_status="uncertain" if uncertain else "failed",
+                    result_class=result_class,
+                    error_code=code,
+                    actual_model=(
+                        str(current["actual_model"])
+                        if current.get("actual_model")
+                        else None
+                    ),
+                    generation_id=(
+                        str(current["generation_id"])
+                        if current.get("generation_id")
+                        else None
+                    ),
+                    cost_usd=(
+                        float(current["cost_usd"])
+                        if current.get("cost_usd") is not None
+                        else None
+                    ),
+                    cost_kind=str(current.get("cost_kind") or "unavailable"),
+                    output_count=0,
+                    provider_dispatch_state=(
+                        "uncertain"
+                        if uncertain
+                        else "confirmed"
+                        if dispatched
+                        else "not_dispatched"
+                    ),
+                    provider_terminal_status=(
+                        "uncertain" if uncertain else "failed"
+                    ),
+                    upstream_job_id=(
+                        str(current["upstream_job_id"])
+                        if current.get("upstream_job_id")
+                        else None
+                    ),
+                    post_dispatched=dispatched,
+                )
+                dispatch.completed = True
+        else:
+            current = self._update(
+                job_id,
+                status="failed",
+                error_code=code,
+                provider_dispatch_state=(
+                    "uncertain"
+                    if uncertain
+                    else "confirmed"
+                    if dispatched
+                    else "not_dispatched"
+                ),
+                post_dispatched=dispatched,
+                provider_terminal_status=(
+                    "uncertain" if uncertain else "failed"
+                ),
+            )
+        receipts = self._managed_receipts(current)
+        return detached_receipt or (receipts[0] if receipts else None)
+
+    async def _managed_upstream_changes(
+        self,
+        payload: dict[str, Any],
+        *,
+        previous: dict[str, object],
+        target: OpenRouterTarget,
+        submitting: bool,
+    ) -> tuple[dict[str, object], str]:
+        changes = self._upstream_changes(
+            payload,
+            previous=previous,
+            submitting=submitting,
+            managed=True,
+        )
+        provider_status = str(changes.get("status") or "running")
+        requested_model = str(previous["requested_model"])
+        actual_model = str(changes.get("actual_model") or "").strip()
+        if actual_model and not self._managed_actual_model_matches(
+            previous,
+            actual_model,
+        ):
+            changes.update(
+                status="failed",
+                error_code="provider_workload_model_mismatch",
+                output_count=0,
+            )
+            return changes, provider_status
+        if provider_status in {"failed", "cancelled", "expired"}:
+            changes["output_count"] = 0
+            return changes, provider_status
+        if provider_status in {"queued", "running"}:
+            changes["error_code"] = None
+            changes["output_count"] = max(
+                0, int(previous.get("output_count") or 0)
+            )
+            return changes, provider_status
+
+        outputs = payload.get("unsigned_urls")
+        upstream_job_id = str(changes.get("upstream_job_id") or "").strip()
+        if not (
+            isinstance(outputs, list)
+            and len(outputs) == R8E_VIDEO_GENERATION_OUTPUT_COUNT
+            and all(
+                is_valid_openrouter_video_output_reference(item, upstream_job_id)
+                for item in outputs
+            )
+        ):
+            changes.update(
+                status="failed",
+                error_code="provider_multimodal_video_output_metadata_invalid",
+                output_count=0,
+            )
+            return changes, provider_status
+        generation_id = str(changes.get("generation_id") or "").strip()
+        if not actual_model and generation_id:
+            actual_model = str(
+                await self.adapter.generation_model(target, generation_id) or ""
+            ).strip()
+        if actual_model and not self._managed_actual_model_matches(
+            previous,
+            actual_model,
+        ):
+            changes.update(
+                status="failed",
+                actual_model=actual_model,
+                error_code="provider_workload_model_mismatch",
+                output_count=0,
+            )
+            return changes, provider_status
+        if not actual_model:
+            changes.update(
+                status="running",
+                actual_model=None,
+                error_code="provider_multimodal_actual_model_pending",
+                output_count=0,
+            )
+            return changes, provider_status
+        changes.update(
+            status="succeeded",
+            actual_model=actual_model,
+            error_code=None,
+            output_count=len(outputs),
+        )
+        return changes, provider_status
+
+    def _managed_actual_model_matches(
+        self,
+        previous: dict[str, object],
+        actual_model: str,
+    ) -> bool:
+        """Use the dispatch-time certification's exact catalog mapping."""
+
+        call_id = str(previous.get("workload_call_id") or "").strip()
+        if not call_id:
+            return False
+        call = self.router_service.repository.get_workload_call(
+            self.router_service.tenant_id,
+            call_id,
+        )
+        certification_id = str(
+            (call or {}).get("certification_id") or ""
+        ).strip()
+        if not certification_id:
+            return False
+        try:
+            profile = self.managed_gateway.certified_video_parameters(
+                "video_generation",
+                certification_id=certification_id,
+                execution_shape="video_generation_async",
+            )
+        except Exception:
+            return False
+        requested_model = str(previous.get("requested_model") or "")
+        return openrouter_video_catalog_model_matches(
+            requested_model=requested_model,
+            catalog_model_id=profile.get("video_catalog_model_id"),
+            canonical_model_id=profile.get(
+                "video_catalog_canonical_model_id"
+            ),
+            actual_model=actual_model,
+        )
+
+    @staticmethod
+    def _managed_generation_parameter_reason(
+        profile: dict[str, object],
+        *,
+        duration: int | None,
+        resolution: str | None,
+        aspect_ratio: str | None,
+        generate_audio: bool,
+        seed: int | None,
+        has_first_frame: bool,
+        has_last_frame: bool,
+        reference_image_count: int,
+        provider_option_keys: list[str],
+    ) -> str | None:
+        if (
+            profile.get("certified_task_type") != "generate"
+            or profile.get("certified_duration_seconds")
+            != R8E_VIDEO_GENERATION_DURATION_SECONDS
+            or profile.get("certified_resolution")
+            != R8E_VIDEO_GENERATION_RESOLUTION
+            or profile.get("certified_aspect_ratio")
+            != R8E_VIDEO_GENERATION_ASPECT_RATIO
+            or profile.get("certified_output_count")
+            != R8E_VIDEO_GENERATION_OUTPUT_COUNT
+        ):
+            return "provider_multimodal_video_parameter_profile_invalid"
+        if any(
+            (
+                duration != R8E_VIDEO_GENERATION_DURATION_SECONDS,
+                resolution != R8E_VIDEO_GENERATION_RESOLUTION,
+                aspect_ratio != R8E_VIDEO_GENERATION_ASPECT_RATIO,
+                generate_audio,
+                seed is not None,
+                has_first_frame,
+                has_last_frame,
+                reference_image_count > 0,
+                bool(provider_option_keys),
+            )
+        ):
+            return "provider_multimodal_video_parameters_not_certified"
+        return None
+
+    def _finalize_managed_terminal(
+        self,
+        row: dict[str, object],
+        changes: dict[str, object],
+        *,
+        provider_terminal_status: str,
+    ) -> dict[str, object]:
+        job_status = str(changes.get("status") or "failed")
+        succeeded = job_status == "succeeded"
+        error_code = str(changes.get("error_code") or "").strip() or None
+        result_class = (
+            "success"
+            if succeeded
+            else "model_mismatch"
+            if error_code == "provider_workload_model_mismatch"
+            else "provider_error"
+        )
+        return self.router_service.repository.finalize_managed_video_job(
+            self.router_service.tenant_id,
+            str(row["id"]),
+            job_status=job_status,
+            workload_status="passed" if succeeded else "failed",
+            result_class=result_class,
+            error_code=error_code,
+            actual_model=(
+                str(changes["actual_model"])
+                if changes.get("actual_model")
+                else None
+            ),
+            generation_id=(
+                str(changes["generation_id"])
+                if changes.get("generation_id")
+                else None
+            ),
+            cost_usd=(
+                float(changes["cost_usd"])
+                if changes.get("cost_usd") is not None
+                else None
+            ),
+            cost_kind=str(changes.get("cost_kind") or "unavailable"),
+            output_count=max(0, int(changes.get("output_count") or 0)),
+            provider_dispatch_state="confirmed",
+            provider_terminal_status=provider_terminal_status,
+            upstream_job_id=(
+                str(changes["upstream_job_id"])
+                if changes.get("upstream_job_id")
+                else None
+            ),
+            post_dispatched=True,
+        )
 
     def list(self, *, limit: int = 50) -> VideoJobList:
         rows = self.router_service.repository.list_video_jobs(
@@ -718,10 +1543,32 @@ class VideoJobService:
             )
         target = self._target_for_row(row)
         upstream = await self.adapter.poll(target, upstream_job_id)
-        changes = self._upstream_changes(
-            upstream, previous=row, submitting=False
-        )
-        row = self._update(job_id, **changes)
+        if row.get("workload_run_id"):
+            changes, provider_status = await self._managed_upstream_changes(
+                upstream,
+                previous=row,
+                target=target,
+                submitting=False,
+            )
+            if str(changes.get("status")) in TERMINAL_STATUSES:
+                row = self._finalize_managed_terminal(
+                    row,
+                    changes,
+                    provider_terminal_status=provider_status,
+                )
+            else:
+                row = self._update(
+                    job_id,
+                    **changes,
+                    provider_dispatch_state="confirmed",
+                    post_dispatched=True,
+                    provider_terminal_status=provider_status,
+                )
+        else:
+            changes = self._upstream_changes(
+                upstream, previous=row, submitting=False
+            )
+            row = self._update(job_id, **changes)
         self._update_audit(row)
         return self._public(row)
 
@@ -754,11 +1601,88 @@ class VideoJobService:
         )
 
     def delete(self, job_id: str) -> VideoJobDeleteResult:
+        row = self._row(job_id)
+        if row.get("workload_run_id"):
+            raise MultimodalServiceError(
+                "managed_video_job_retained",
+                "Managed 视频任务保留幂等与审计记录，不能从控制面删除。",
+                status_code=409,
+            )
         if not self.router_service.repository.delete_video_job(
             self.router_service.tenant_id, job_id
         ):
             raise self._not_found()
         return VideoJobDeleteResult(removed=True)
+
+    def recover_interrupted(self) -> None:
+        """Never replay a managed submission after process interruption."""
+
+        while True:
+            rows = (
+                self.router_service.repository.list_interrupted_managed_video_jobs(
+                    self.router_service.tenant_id,
+                    limit=100,
+                )
+            )
+            if not rows:
+                return
+            for row in rows:
+                if not row.get("workload_call_id"):
+                    dispatched = bool(row.get("post_dispatched"))
+                    self._update(
+                        str(row["id"]),
+                        status="failed",
+                        error_code=(
+                            "provider_result_uncertain"
+                            if dispatched
+                            else "provider_workload_call_cancelled"
+                        ),
+                        provider_dispatch_state=(
+                            "uncertain" if dispatched else "not_dispatched"
+                        ),
+                        post_dispatched=dispatched,
+                        provider_terminal_status=(
+                            "uncertain" if dispatched else "failed"
+                        ),
+                    )
+                    continue
+                call = None
+                if row.get("workload_call_id"):
+                    call = self.router_service.repository.get_workload_call(
+                        self.router_service.tenant_id,
+                        str(row["workload_call_id"]),
+                    )
+                dispatched = bool(row.get("post_dispatched")) or bool(
+                    call and call.get("dispatched")
+                )
+                code = (
+                    "provider_result_uncertain"
+                    if dispatched
+                    else "provider_workload_call_cancelled"
+                )
+                self.router_service.repository.finalize_managed_video_job(
+                    self.router_service.tenant_id,
+                    str(row["id"]),
+                    job_status="failed",
+                    workload_status="uncertain" if dispatched else "failed",
+                    result_class=(
+                        "transport_error" if dispatched else "client_cancelled"
+                    ),
+                    error_code=code,
+                    actual_model=None,
+                    generation_id=None,
+                    cost_usd=None,
+                    cost_kind="unavailable",
+                    output_count=0,
+                    provider_dispatch_state=(
+                        "uncertain" if dispatched else "not_dispatched"
+                    ),
+                    provider_terminal_status=(
+                        "uncertain" if dispatched else "failed"
+                    ),
+                    upstream_job_id=None,
+                    post_dispatched=dispatched,
+                )
 
     async def _profile(
         self,
@@ -1440,14 +2364,23 @@ class VideoJobService:
         if not connection_id:
             return self.catalog_service.resolve_target()
         try:
-            connection = self.router_service.repository.get_connection(
-                self.router_service.tenant_id, connection_id
+            connection, api_key, current_fingerprint = (
+                self.router_service.repository.get_connection_credential_snapshot(
+                    self.router_service.tenant_id, connection_id
+                )
             )
             if connection.kind != "openrouter" or not connection.enabled:
                 raise ValueError("not an OpenRouter connection")
-            api_key = self.router_service.repository.resolve_api_key(
-                self.router_service.tenant_id, connection_id
-            )
+            expected_fingerprint = str(
+                row.get("connection_fingerprint") or ""
+            ).strip()
+            if expected_fingerprint and current_fingerprint != expected_fingerprint:
+                raise ValueError("connection fingerprint changed")
+            if row.get("workload_run_id") and (
+                str(row.get("adapter_contract") or "")
+                != "openrouter_video_jobs_v1"
+            ):
+                raise ValueError("adapter contract changed")
         except Exception as exc:
             raise MultimodalServiceError(
                 "video_job_connection_unavailable",
@@ -1475,8 +2408,13 @@ class VideoJobService:
         *,
         previous: dict[str, object],
         submitting: bool,
+        managed: bool = False,
     ) -> dict[str, object]:
-        upstream_id = str(payload.get("id") or "").strip()
+        upstream_id = self._provider_identifier(
+            payload.get("id"),
+            field="job",
+            pattern=r"[A-Za-z0-9._:-]{1,256}",
+        )
         if submitting and not upstream_id:
             raise MultimodalServiceError(
                 "invalid_upstream_response",
@@ -1484,22 +2422,53 @@ class VideoJobService:
                 status_code=502,
             )
         if not upstream_id:
-            upstream_id = str(previous.get("upstream_job_id") or "").strip()
+            upstream_id = self._provider_identifier(
+                previous.get("upstream_job_id"),
+                field="job",
+                pattern=r"[A-Za-z0-9._:-]{1,256}",
+            )
+        previous_upstream_id = self._provider_identifier(
+            previous.get("upstream_job_id"),
+            field="job",
+            pattern=r"[A-Za-z0-9._:-]{1,256}",
+        )
+        if (
+            previous_upstream_id
+            and upstream_id
+            and upstream_id != previous_upstream_id
+        ):
+            raise MultimodalServiceError(
+                "video_job_identity_mismatch",
+                "视频服务返回了不一致的任务编号，本次状态未写入。",
+                status_code=502,
+            )
         status = self._status(payload.get("status"))
         actual_model = (
-            str(payload.get("model") or "").strip()
+            self._provider_identifier(
+                payload.get("model"),
+                field="model",
+                pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}",
+            )
             or (
-                str(previous["actual_model"])
-                if previous.get("actual_model")
-                else None
+                self._provider_identifier(
+                    previous.get("actual_model"),
+                    field="model",
+                    pattern=r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}",
+                )
             )
         )
         generation_id = (
-            str(payload.get("generation_id") or "").strip()
+            self._provider_identifier(
+                payload.get("generation_id"),
+                field="generation",
+                pattern=r"[A-Za-z0-9._:-]{1,256}",
+            )
             or (
-                str(previous["generation_id"])
-                if previous.get("generation_id")
-                else None
+                self._provider_identifier(
+                    previous.get("generation_id"),
+                    field="generation",
+                    pattern=r"[A-Za-z0-9._:-]{1,256}",
+                )
             )
         )
         outputs = payload.get("unsigned_urls")
@@ -1508,7 +2477,7 @@ class VideoJobService:
             if isinstance(outputs, list)
             else int(previous.get("output_count") or 0)
         )
-        if status == "succeeded":
+        if status == "succeeded" and not managed:
             output_count = max(1, output_count)
         usage = payload.get("usage")
         cost = self._cost(usage)
@@ -1531,6 +2500,31 @@ class VideoJobService:
             "error_code": error_code,
             "output_count": max(0, output_count),
         }
+
+    @staticmethod
+    def _provider_identifier(
+        value: object,
+        *,
+        field: str,
+        pattern: str,
+    ) -> str | None:
+        if value is None or value == "":
+            return None
+        kind: Literal["job", "generation", "model"] = (
+            "model"
+            if field == "model"
+            else "generation"
+            if field == "generation"
+            else "job"
+        )
+        cleaned = clean_provider_video_identifier(value, kind=kind)
+        if cleaned is None or not re.fullmatch(pattern, cleaned):
+            raise MultimodalServiceError(
+                "invalid_upstream_response",
+                "视频服务返回了无法识别的任务信息，请稍后重试。",
+                status_code=502,
+            )
+        return cleaned
 
     @staticmethod
     def _status(value: object) -> str:
@@ -1636,9 +2630,21 @@ class VideoJobService:
                 "Unable to update video job audit failure: %s", decision_id
             )
 
-    @staticmethod
-    def _public(row: dict[str, object]) -> VideoJob:
+    def _public(self, row: dict[str, object]) -> VideoJob:
         error_code = str(row.get("error_code") or "").strip()
+        execution_mode: Literal["managed", "legacy"] = (
+            "managed" if row.get("workload_run_id") else "legacy"
+        )
+        dispatch_state = str(
+            row.get("provider_dispatch_state") or ""
+        ).strip()
+        if dispatch_state not in {
+            "not_dispatched",
+            "dispatched",
+            "confirmed",
+            "uncertain",
+        }:
+            dispatch_state = ""
         (
             provider_option_keys,
             has_source_video,
@@ -1716,6 +2722,97 @@ class VideoJobService:
                 else None
             ),
             output_count=max(0, int(row.get("output_count") or 0)),
+            execution_mode=execution_mode,
+            provider_route_receipts=(
+                self._managed_receipts(row)
+                if execution_mode == "managed"
+                else []
+            ),
+            provider_dispatch_state=(dispatch_state if dispatch_state else None),
+            retry_allowed=not (
+                execution_mode == "managed"
+                and bool(row.get("post_dispatched"))
+            ),
+            fallback_reason_codes=(
+                [error_code]
+                if execution_mode == "managed" and error_code
+                else []
+            ),
+        )
+
+    def _managed_receipts(
+        self, row: dict[str, object]
+    ) -> list[dict[str, object]]:
+        run_id = str(row.get("workload_run_id") or "").strip()
+        call_id = str(row.get("workload_call_id") or "").strip()
+        if not run_id or not call_id:
+            return []
+        try:
+            run = self.router_service.repository.get_workload_run(
+                self.router_service.tenant_id, run_id
+            )
+            call = self.router_service.repository.get_workload_call(
+                self.router_service.tenant_id, call_id
+            )
+        except Exception:
+            logger.warning(
+                "Unable to project video job workload receipt: %s", row.get("id")
+            )
+            return []
+        if call is None or str(call.get("run_id") or "") != run_id:
+            return []
+        try:
+            raw_reasons = json.loads(str(run.get("reason_codes_json") or "[]"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            raw_reasons = []
+        reasons = (
+            [str(item) for item in raw_reasons if isinstance(item, str)]
+            if isinstance(raw_reasons, list)
+            else []
+        )
+        dispatched = bool(call.get("dispatched"))
+        return [
+            {
+                "contract_version": "modelmirror-provider-workload-routing-v1",
+                "entry_id": "video_generation",
+                "routing_mode": "managed_required",
+                "run_reference": run_id,
+                "status": str(run.get("status") or "failed"),
+                "call_count": 1 if dispatched else 0,
+                "reason_codes": reasons,
+                "calls": [
+                    {
+                        "call_sequence": max(
+                            1, int(call.get("call_sequence") or 1)
+                        ),
+                        "model_id": str(call.get("requested_model") or ""),
+                        "actual_model": (
+                            str(call["actual_model"])
+                            if call.get("actual_model")
+                            else None
+                        ),
+                        "dispatched": dispatched,
+                        "status": str(call.get("status") or "failed"),
+                        "error_code": (
+                            str(call["error_code"])
+                            if call.get("error_code")
+                            else None
+                        ),
+                        "prompt_tokens": None,
+                        "completion_tokens": None,
+                        "total_tokens": None,
+                    }
+                ],
+            }
+        ]
+
+    @staticmethod
+    def _managed_error(exc: "ManagedMultimodalError") -> MultimodalServiceError:
+        return MultimodalServiceError(
+            exc.code,
+            exc.public_message,
+            status_code=exc.status_code,
+            route_receipt=exc.receipt,
         )
 
     @staticmethod

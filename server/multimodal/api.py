@@ -130,6 +130,10 @@ class VideoAnalysisResponse(BaseModel):
     request_id: str
     source_kind: Literal["file", "url"]
     usage: VideoAnalysisUsageResponse
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: list[dict[str, object]] = Field(default_factory=list)
+    provider_dispatch_state: ProviderDispatchState | None = None
+    fallback_reason_codes: list[str] = Field(default_factory=list)
 
 
 @asynccontextmanager
@@ -360,10 +364,12 @@ def configure_video_job_service(service: VideoJobService | None) -> None:
 def get_video_job_service() -> VideoJobService:
     global _video_job_service
     if _video_job_service is None:
-        _video_job_service = VideoJobService(
+        service = VideoJobService(
             get_model_router_service(),
             get_video_catalog_service(),
         )
+        service.recover_interrupted()
+        _video_job_service = service
     return _video_job_service
 
 
@@ -642,6 +648,7 @@ async def analyze_video(
     source_type: Literal["file", "url"] = Form(...),
     file: UploadFile | None = File(default=None),
     video_url: str | None = Form(default=None),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> VideoAnalysisResponse:
     try:
         content = (
@@ -657,13 +664,11 @@ async def analyze_video(
             content_type=file.content_type if file is not None else None,
             content=content,
             video_url=video_url,
+            idempotency_key=idempotency_key,
         )
         return _video_analysis_response(result)
     except MultimodalServiceError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": exc.message},
-        ) from exc
+        raise _http_error(exc) from exc
     finally:
         if file is not None:
             await file.close()
@@ -943,6 +948,7 @@ def _speech_response(result: SpeechResult) -> Response:
 def _video_analysis_response(
     result: VideoAnalysisResult,
 ) -> VideoAnalysisResponse:
+    receipts = list(result.provider_route_receipts)
     return VideoAnalysisResponse(
         text=result.text,
         requested_model=result.requested_model,
@@ -957,6 +963,10 @@ def _video_analysis_response(
             cost_usd=result.usage.cost_usd,
             cost_kind=result.usage.cost_kind,
         ),
+        execution_mode=result.execution_mode,
+        provider_route_receipts=receipts,
+        provider_dispatch_state=provider_dispatch_state_from_receipts(receipts),
+        fallback_reason_codes=[],
     )
 
 

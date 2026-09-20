@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
 import time
 import uuid
@@ -25,6 +26,7 @@ from .multimodal_control import (
     R8DAudioSseEventBuffer,
     R8DAudioSseFrame,
     chat_audio_pcm16_to_wav,
+    clean_provider_video_identifier,
     is_valid_chat_audio_pcm16,
     is_complete_wav,
     load_strict_json_object,
@@ -42,6 +44,7 @@ from .workload_control import (
     ProviderWorkloadPreparedCall,
     r8c_audio_parameter_profile_reason,
     r8d_audio_parameter_profile_reason,
+    r8e_video_parameter_profile_reason,
 )
 
 
@@ -60,6 +63,9 @@ R8BEntryId = Literal[
     "chat_audio_input",
     "chat_audio_output",
     "audio_generation",
+    "multimodal_video_analysis",
+    "chat_video",
+    "video_generation",
 ]
 R8BRoutingMode = Literal["legacy", "managed_required", "degraded_required"]
 _T = TypeVar("_T")
@@ -97,6 +103,7 @@ class ManagedMultimodalError(RuntimeError):
     ) -> None:
         super().__init__(message)
         self.code = code
+        self.public_message = message
         self.status_code = status_code
         self.receipt = receipt
 
@@ -110,6 +117,7 @@ class ManagedMultimodalChatStreamEvidence:
         "chat_document_stream",
         "chat_audio_input",
         "chat_audio_output",
+        "chat_video_stream",
     ]
     expected_model: str
     started_at: float
@@ -138,6 +146,8 @@ class ManagedMultimodalChatStreamEvidence:
     delivery_text_length: int = 0
     input_delivery_events: list[bytes] = field(default_factory=list)
     input_delivery_length: int = 0
+    video_delivery_pending: list[bytes] = field(default_factory=list)
+    video_delivery_length: int = 0
     _r8d_contract: R8DAudioSseContract | None = field(
         default=None,
         init=False,
@@ -165,14 +175,33 @@ class ManagedMultimodalChatStreamEvidence:
             self.actual_model == self.expected_model and not self.model_mismatch
         )
 
-    def feed(self, value: str) -> None:
+    def feed(self, value: str) -> tuple[bytes, ...]:
         if self._r8d_event_buffer is not None:
             self._feed_r8d_bytes(value.encode("utf-8"))
-            return
+            return ()
         self.buffer += value.replace("\r\n", "\n").replace("\r", "\n")
+        if len(self.buffer.encode("utf-8")) > self.max_event_bytes:
+            self.buffer = ""
+            self.video_delivery_pending.clear()
+            self.video_delivery_length = 0
+            self.hard_error_code = "provider_multimodal_sse_event_too_large"
+            return ()
+        delivery: list[bytes] = []
         while "\n\n" in self.buffer:
             event, self.buffer = self.buffer.split("\n\n", 1)
             self._consume_event(event)
+            delivery.extend(self._video_delivery_for_event(event))
+        return tuple(delivery)
+
+    def flush_video_delivery(self) -> tuple[bytes, ...]:
+        """Finish one bounded Chat Video SSE event without forwarding raw fields."""
+
+        if self.execution_shape != "chat_video_stream" or not self.buffer.strip():
+            return ()
+        event = self.buffer
+        self.buffer = ""
+        self._consume_event(event)
+        return self._video_delivery_for_event(event)
 
     def finish(
         self,
@@ -332,6 +361,31 @@ class ManagedMultimodalChatStreamEvidence:
                     checks,
                     warnings,
                 )
+        if self.execution_shape == "chat_video_stream":
+            if self.finish_reason not in (None, "stop"):
+                error_code = {
+                    "error": "provider_workload_stream_error",
+                    "content_filter": "provider_workload_content_filtered",
+                    "length": "provider_workload_output_truncated",
+                }.get(
+                    self.finish_reason,
+                    "provider_workload_invalid_finish_reason",
+                )
+                return (
+                    "failed",
+                    "hard_failure",
+                    error_code,
+                    checks,
+                    warnings,
+                )
+            if self.finish_reason is None and not self.done_observed:
+                return (
+                    "failed",
+                    "hard_failure",
+                    "provider_chat_missing_terminal",
+                    checks,
+                    warnings,
+                )
         if not self.terminal_observed:
             return (
                 "failed",
@@ -412,7 +466,20 @@ class ManagedMultimodalChatStreamEvidence:
                 "provider_multimodal_upstream_stream_error"
             )
             return
-        item_generation_id = self._clean_identifier(payload.get("id"), max_length=200)
+        raw_generation_id = payload.get("id")
+        if self.execution_shape == "chat_video_stream":
+            item_generation_id = clean_provider_video_identifier(
+                raw_generation_id,
+                kind="generation",
+            )
+            if raw_generation_id not in (None, "") and item_generation_id is None:
+                self.invalid = True
+                return
+        else:
+            item_generation_id = self._clean_identifier(
+                raw_generation_id,
+                max_length=200,
+            )
         if (
             item_generation_id is not None
             and self.generation_id is not None
@@ -423,8 +490,15 @@ class ManagedMultimodalChatStreamEvidence:
         if self.generation_id is None:
             self.generation_id = item_generation_id
         model = payload.get("model")
-        if isinstance(model, str) and model.strip():
-            observed = model.strip()
+        if model not in (None, ""):
+            observed = (
+                clean_provider_video_identifier(model, kind="model")
+                if self.execution_shape == "chat_video_stream"
+                else self._clean_identifier(model, max_length=512)
+            )
+            if observed is None:
+                self.invalid = True
+                return
             if self.actual_model is not None and self.actual_model != observed:
                 self.model_mismatch = True
             self.actual_model = observed
@@ -558,6 +632,18 @@ class ManagedMultimodalChatStreamEvidence:
                     self.invalid = True
                 self.finish_reason = finish_reason
                 self.terminal_observed = True
+                if (
+                    self.execution_shape == "chat_video_stream"
+                    and finish_reason != "stop"
+                ):
+                    self.hard_error_code = {
+                        "error": "provider_workload_stream_error",
+                        "content_filter": "provider_workload_content_filtered",
+                        "length": "provider_workload_output_truncated",
+                    }.get(
+                        finish_reason,
+                        "provider_workload_invalid_finish_reason",
+                    )
             for container_name in ("delta", "message"):
                 container = choice.get(container_name)
                 if not isinstance(container, dict):
@@ -589,6 +675,37 @@ class ManagedMultimodalChatStreamEvidence:
                             self.audio_encoded_parts.append(encoded)
                             self.audio_observed = True
                             self._observe_ttft()
+
+    def _video_delivery_for_event(self, event: str) -> tuple[bytes, ...]:
+        if self.execution_shape != "chat_video_stream":
+            return ()
+        if self.invalid or self.model_mismatch or self.hard_error_code is not None:
+            self.video_delivery_pending.clear()
+            self.video_delivery_length = 0
+            return ()
+        data_lines: list[str] = []
+        for line in event.split("\n"):
+            stripped = self._normalized_sse_field_line(line)
+            if stripped.startswith("data:"):
+                data_lines.append(stripped[5:].lstrip())
+        if not data_lines:
+            return ()
+        normalized = (
+            "".join(f"data: {line}\n" for line in data_lines) + "\n"
+        ).encode("utf-8")
+        self.video_delivery_length += len(normalized)
+        if self.video_delivery_length > self.max_event_bytes:
+            self.video_delivery_pending.clear()
+            self.video_delivery_length = 0
+            self.hard_error_code = "provider_multimodal_stream_too_large"
+            return ()
+        self.video_delivery_pending.append(normalized)
+        if not self.model_verified:
+            return ()
+        delivery = tuple(self.video_delivery_pending)
+        self.video_delivery_pending.clear()
+        self.video_delivery_length = 0
+        return delivery
 
     def _consume_r8d_audio_event(self, event: str) -> None:
         contract = self._r8d_contract
@@ -1014,6 +1131,46 @@ class ManagedMultimodalGateway:
             raise self._blocked(entry_id, reason)
         return profile
 
+    def certified_video_parameters(
+        self,
+        entry_id: R8BEntryId,
+        *,
+        certification_id: str,
+        execution_shape: Literal[
+            "video_analysis_unary",
+            "chat_video_stream",
+            "video_generation_async",
+        ],
+    ) -> dict[str, object]:
+        row = self.call_service.repository.get_workload_certification(
+            self.call_service.router_service.tenant_id,
+            certification_id,
+        )
+        if row is None or str(row.get("execution_shape") or "") != execution_shape:
+            raise self._blocked(
+                entry_id,
+                "provider_multimodal_video_parameter_contract_stale",
+            )
+        try:
+            parsed = json.loads(str(row.get("profile_json") or "{}"))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            parsed = {}
+        profile = parsed if isinstance(parsed, dict) else {}
+        reason = r8e_video_parameter_profile_reason(execution_shape, profile)
+        if reason is not None:
+            raise self._blocked(entry_id, reason)
+        profile_fingerprint = hashlib.sha256(
+            json.dumps(profile, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+        if str(row.get("profile_fingerprint") or "") != profile_fingerprint:
+            raise self._blocked(
+                entry_id,
+                "provider_workload_certification_profile_invalid",
+            )
+        return profile
+
     def start_run(
         self,
         entry_id: R8BEntryId,
@@ -1056,6 +1213,8 @@ class ManagedMultimodalGateway:
             "chat_audio_input",
             "chat_audio_output",
             "audio_generation",
+            "chat_video",
+            "video_generation",
         ],
         *,
         execution_shape: Literal[
@@ -1064,6 +1223,8 @@ class ManagedMultimodalGateway:
             "chat_audio_input",
             "chat_audio_output",
             "audio_generation_stream",
+            "chat_video_stream",
+            "video_generation_async",
         ],
         requested_model: str,
         parent_run_reference: str,
@@ -1091,7 +1252,7 @@ class ManagedMultimodalGateway:
             receipt = run.finish_failure(exc.code)
             raise ManagedMultimodalError(
                 exc.code,
-                "多模态 Chat 在 Provider 派发前被阻断。",
+                "多模态调用在 Provider 派发前被阻断。",
                 status_code=exc.status_code,
                 receipt=receipt,
             ) from exc
@@ -1303,6 +1464,186 @@ class ManagedMultimodalRun:
             raise ManagedMultimodalError(
                 code,
                 "图片生成 Managed Provider 调用失败，系统未重试或切换目标。",
+                status_code=getattr(exc, "status_code", 502),
+                receipt=self._delegate.receipt_summary(),
+            ) from exc
+
+    async def complete_video_analysis(
+        self,
+        *,
+        logical_call_key: str,
+        model_id: str,
+        expected_connection_id: str,
+        expected_certification_id: str,
+        expected_connection_fingerprint: str,
+        expected_adapter_contract: str | None,
+        expected_protocol_version: str | None,
+        payload: Mapping[str, object],
+        parse_response: Callable[[httpx.Response], _T],
+    ) -> tuple[_T, dict[str, Any]]:
+        prepared: ProviderWorkloadPreparedCall | None = None
+        dispatched = False
+        response_complete = False
+        determinate_response = False
+        started = time.perf_counter()
+        try:
+            prepared = await self.gateway.call_service.prepare_call(
+                run_id=self._delegate.run_id,
+                entry_id=self.entry_id,
+                execution_shape="video_analysis_unary",
+                model_id=model_id,
+                logical_call_key=logical_call_key,
+                call_sequence=1,
+            )
+            if (
+                prepared.connection_id != expected_connection_id
+                or prepared.certification_id != expected_certification_id
+                or prepared.connection_fingerprint
+                != expected_connection_fingerprint
+                or prepared.adapter_contract != expected_adapter_contract
+                or prepared.protocol_version != expected_protocol_version
+            ):
+                raise RouterServiceError(
+                    "provider_workload_binding_changed",
+                    "视频 Binding 或资格已变化，本次调用在 Provider 派发前失败关闭。",
+                    status_code=409,
+                )
+            target = prepared.multimodal_target
+            if target is None:
+                raise RouterServiceError(
+                    "provider_multimodal_target_missing",
+                    "视频理解缺少已授权的 Adapter 目标。",
+                    status_code=409,
+                )
+            request_payload = dict(payload)
+            request_payload["model"] = model_id
+            request_payload["stream"] = False
+            async with self._client() as client:
+                request = self.gateway.call_service.multimodal_transport.build_authorized_json_request(
+                    client,
+                    target,
+                    prepared.authorized_target,
+                    request_payload,
+                )
+                self.gateway.call_service.mark_dispatched(prepared)
+                dispatched = True
+                response = await self.gateway.call_service.multimodal_transport.send_authorized(
+                    client, request
+                )
+                try:
+                    try:
+                        self._validate_status(response.status_code)
+                    except ManagedMultimodalError:
+                        determinate_response = True
+                        raise
+                    await self._read_bounded(response)
+                    response_complete = True
+                    result = parse_response(response)
+                    determinate_response = True
+                finally:
+                    await response.aclose()
+            actual_model = str(getattr(result, "actual_model", "") or "").strip()
+            if not actual_model:
+                raise ManagedMultimodalError(
+                    "provider_multimodal_actual_model_unverified",
+                    "视频 Provider 未提供可验证的实际模型证据。",
+                    status_code=502,
+                )
+            if actual_model != model_id:
+                raise ManagedMultimodalError(
+                    "provider_workload_model_mismatch",
+                    "视频 Provider 返回的实际模型与 Binding 不一致。",
+                    status_code=502,
+                )
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            usage = getattr(result, "usage", None)
+            self.gateway.call_service.complete_call(
+                prepared,
+                status="passed",
+                result_class="success",
+                actual_model=actual_model,
+                ttft_ms=elapsed_ms,
+                e2e_ms=elapsed_ms,
+                prompt_tokens=getattr(usage, "input_tokens", None),
+                completion_tokens=getattr(usage, "output_tokens", None),
+                total_tokens=getattr(usage, "total_tokens", None),
+            )
+            self._delegate.calls.append(
+                WorkflowProviderCallReceipt(
+                    call_sequence=1,
+                    model_id=model_id,
+                    actual_model=actual_model,
+                    dispatched=True,
+                    status="passed",
+                    prompt_tokens=getattr(usage, "input_tokens", None),
+                    completion_tokens=getattr(usage, "output_tokens", None),
+                    total_tokens=getattr(usage, "total_tokens", None),
+                )
+            )
+            self._delegate.finish("passed")
+            return result, self._delegate.receipt_summary()
+        except asyncio.CancelledError:
+            status = "uncertain" if dispatched else "failed"
+            code = (
+                "provider_workload_dispatch_uncertain"
+                if dispatched
+                else "provider_workload_call_cancelled"
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                "client_cancelled",
+                code,
+            )
+            raise
+        except ManagedMultimodalError as exc:
+            status = (
+                "failed"
+                if response_complete or determinate_response or not dispatched
+                else "uncertain"
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                (
+                    "provider_error"
+                    if response_complete or determinate_response
+                    else "transport_error"
+                ),
+                exc.code,
+            )
+            raise ManagedMultimodalError(
+                exc.code,
+                str(exc),
+                status_code=exc.status_code,
+                receipt=self._delegate.receipt_summary(),
+            ) from exc
+        except Exception as exc:
+            status = (
+                "failed"
+                if response_complete or not dispatched
+                else "uncertain"
+            )
+            code = self._error_code(
+                exc,
+                dispatched=dispatched,
+                complete=response_complete,
+            )
+            self._record_failure(
+                prepared,
+                model_id,
+                dispatched,
+                status,
+                "provider_error" if response_complete else "transport_error",
+                code,
+            )
+            raise ManagedMultimodalError(
+                code,
+                "视频理解 Managed Provider 调用失败，系统未重试或切换目标。",
                 status_code=getattr(exc, "status_code", 502),
                 receipt=self._delegate.receipt_summary(),
             ) from exc

@@ -4831,12 +4831,18 @@ def upstream_chat_messages(
     messages: list[ChatMessage],
     *,
     audio_attachment: ClaimedChatAttachment | None = None,
+    video_attachment: ClaimedChatAttachment | None = None,
     resolved_chat_files: tuple[ResolvedChatFile, ...] = (),
     resolved_output_images: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     encoded_audio = (
         base64.b64encode(audio_attachment.content).decode("ascii")
         if audio_attachment is not None
+        else None
+    )
+    encoded_video = (
+        base64.b64encode(video_attachment.content).decode("ascii")
+        if video_attachment is not None
         else None
     )
     resolved_files_by_id = {
@@ -4865,6 +4871,27 @@ def upstream_chat_messages(
                         "input_audio": {
                             "data": encoded_audio,
                             "format": audio_attachment.format,
+                        },
+                    }
+                )
+            elif isinstance(part, InputVideoContentPart):
+                if (
+                    video_attachment is None
+                    or part.attachment_id
+                    != video_attachment.attachment_id
+                    or encoded_video is None
+                ):
+                    raise ValueError(
+                        "video attachment was not resolved for upstream"
+                    )
+                content.append(
+                    {
+                        "type": "video_url",
+                        "video_url": {
+                            "url": (
+                                f"data:{video_attachment.mime_type};base64,"
+                                + encoded_video
+                            )
                         },
                     }
                 )
@@ -4921,6 +4948,7 @@ def build_upstream_payload(
     model_id: str,
     *,
     audio_attachment: ClaimedChatAttachment | None = None,
+    video_attachment: ClaimedChatAttachment | None = None,
     resolved_chat_files: tuple[ResolvedChatFile, ...] = (),
     resolved_output_images: dict[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -4929,6 +4957,7 @@ def build_upstream_payload(
         "messages": upstream_chat_messages(
             payload.messages,
             audio_attachment=audio_attachment,
+            video_attachment=video_attachment,
             resolved_chat_files=resolved_chat_files,
             resolved_output_images=resolved_output_images,
         ),
@@ -33009,8 +33038,15 @@ async def chat(payload: ChatRequest, request: Request):
         if response_audio_requested and payload.gateway == "default"
         else "legacy"
     )
+    video_control_mode = (
+        managed_multimodal_gateway.routing_mode("chat_video")
+        if direct_video_requested and payload.gateway == "default"
+        else "legacy"
+    )
     managed_multimodal_entry = (
-        "chat_audio_input"
+        "chat_video"
+        if direct_video_requested and video_control_mode != "legacy"
+        else "chat_audio_input"
         if direct_audio_requested and audio_input_control_mode != "legacy"
         else "chat_audio_output"
         if response_audio_requested and audio_output_control_mode != "legacy"
@@ -33021,7 +33057,9 @@ async def chat(payload: ChatRequest, request: Request):
         else None
     )
     managed_multimodal_shape = (
-        "chat_audio_input"
+        "chat_video_stream"
+        if managed_multimodal_entry == "chat_video"
+        else "chat_audio_input"
         if managed_multimodal_entry == "chat_audio_input"
         else "chat_audio_output"
         if managed_multimodal_entry == "chat_audio_output"
@@ -33032,7 +33070,9 @@ async def chat(payload: ChatRequest, request: Request):
         else None
     )
     managed_multimodal_mode = (
-        audio_input_control_mode
+        video_control_mode
+        if managed_multimodal_entry == "chat_video"
+        else audio_input_control_mode
         if managed_multimodal_entry == "chat_audio_input"
         else audio_output_control_mode
         if managed_multimodal_entry == "chat_audio_output"
@@ -33048,7 +33088,6 @@ async def chat(payload: ChatRequest, request: Request):
         and payload.output_mode == "none"
         and payload.skill_application is None
         and payload.routing is None
-        and not direct_video_requested
         and (
             (
                 managed_multimodal_entry
@@ -33066,6 +33105,14 @@ async def chat(payload: ChatRequest, request: Request):
             or (
                 managed_multimodal_entry == "chat_audio_output"
                 and response_audio_requested
+                and not direct_audio_requested
+                and not direct_image_requested
+                and not direct_file_requested
+            )
+            or (
+                managed_multimodal_entry == "chat_video"
+                and direct_video_requested
+                and not response_audio_requested
                 and not direct_audio_requested
                 and not direct_image_requested
                 and not direct_file_requested
@@ -33155,6 +33202,10 @@ async def chat(payload: ChatRequest, request: Request):
         use_managed_multimodal_chat
         and managed_multimodal_entry
         in {"chat_audio_input", "chat_audio_output"}
+    )
+    use_managed_chat_video = bool(
+        use_managed_multimodal_chat
+        and managed_multimodal_entry == "chat_video"
     )
     chat_canary_session_id = (
         payload.routing.session_id
@@ -33928,9 +33979,111 @@ async def chat(payload: ChatRequest, request: Request):
             },
         )
 
-    if direct_video_requested:
+    video_attachment: ClaimedChatAttachment | None = None
+    video_attachment_store = None
+    managed_video_attachment_finalized = False
+
+    def finalize_managed_video_attachment(*, dispatched: bool) -> None:
+        nonlocal managed_video_attachment_finalized
+        if (
+            not use_managed_chat_video
+            or managed_video_attachment_finalized
+            or video_attachment is None
+            or video_attachment_store is None
+        ):
+            return
+        try:
+            if dispatched:
+                video_attachment_store.complete(video_attachment.attachment_id)
+            else:
+                video_attachment_store.release_for_retry(
+                    video_attachment.attachment_id
+                )
+        except MultimodalServiceError:
+            logger.warning(
+                "Managed Chat Video attachment finalization failed "
+                "model=%s dispatched=%s",
+                payload.model_id,
+                dispatched,
+            )
+        managed_video_attachment_finalized = True
+
+    if use_managed_chat_video:
+        try:
+            if managed_multimodal_dispatch is None:
+                raise ManagedMultimodalError(
+                    "provider_multimodal_chat_dispatch_missing",
+                    "Chat Video Managed 调用缺少已声明的派发记录。",
+                    status_code=409,
+                )
+            parameters = managed_multimodal_gateway.certified_video_parameters(
+                "chat_video",
+                certification_id=(
+                    managed_multimodal_dispatch.prepared.certification_id
+                ),
+                execution_shape="chat_video_stream",
+            )
+            attachment_ids = video_attachment_ids(payload.messages)
+            if len(attachment_ids) != 1:
+                raise MultimodalServiceError(
+                    "invalid_video_attachment",
+                    "每轮必须且只能提交一个视频附件。",
+                    status_code=422,
+                )
+            video_attachment_store = get_chat_attachment_store()
+            video_attachment = video_attachment_store.claim(
+                attachment_ids[0], expected_kind="video"
+            )
+            expected_reuse = resolved_output_attachments.get(
+                video_attachment.attachment_id
+            )
+            if expected_reuse is not None and (
+                expected_reuse[0] != "video"
+                or not secrets.compare_digest(
+                    expected_reuse[1], video_attachment.content
+                )
+            ):
+                raise MultimodalServiceError(
+                    "output_reuse_integrity_failed",
+                    "The reused video no longer matches the confirmed output.",
+                    status_code=409,
+                )
+            certified_formats = parameters.get("certified_input_formats")
+            if (
+                not isinstance(certified_formats, list)
+                or video_attachment.format not in certified_formats
+            ):
+                raise ManagedMultimodalError(
+                    "provider_multimodal_video_format_not_certified",
+                    "该视频格式未包含在当前 Provider 资格合同中。",
+                    status_code=415,
+                )
+        except (ManagedMultimodalError, MultimodalServiceError) as exc:
+            finalize_managed_video_attachment(dispatched=False)
+            code = getattr(exc, "code", "provider_multimodal_preflight_failed")
+            message = getattr(exc, "message", str(exc))
+            receipt = (
+                managed_multimodal_dispatch.complete(
+                    status="failed",
+                    result_class="preflight_failure",
+                    error_code=code,
+                )
+                if managed_multimodal_dispatch is not None
+                else managed_multimodal_gateway.blocked_receipt(
+                    "chat_video", code
+                )
+            )
+            return JSONResponse(
+                status_code=getattr(exc, "status_code", 409),
+                content={
+                    "error": message,
+                    "code": code,
+                    "route_receipt": receipt,
+                },
+            )
+
+    if direct_video_requested and not use_managed_chat_video:
         attachment_store = get_chat_attachment_store()
-        video_attachment: ClaimedChatAttachment | None = None
         try:
             attachment_ids = video_attachment_ids(payload.messages)
             if len(attachment_ids) != 1:
@@ -33974,6 +34127,7 @@ async def chat(payload: ChatRequest, request: Request):
                 filename=f"chat-video.{video_attachment.format}",
                 content_type=video_attachment.mime_type,
                 content=video_attachment.content,
+                force_legacy=True,
             )
             attachment_store.complete(video_attachment.attachment_id)
             latency_ms = int(
@@ -34636,6 +34790,8 @@ async def chat(payload: ChatRequest, request: Request):
                 managed_chat_audio_client_kwargs()
                 if use_managed_chat_audio
                 else ProviderChatTransport.client_kwargs()
+                if use_managed_chat_video
+                else ProviderChatTransport.client_kwargs()
                 if use_chat_canary or use_stable_chat
                 else llm_client_kwargs()
             )
@@ -35209,6 +35365,13 @@ async def chat(payload: ChatRequest, request: Request):
                 client,
                 request_payload,
                 headers=llm_gateway_headers(""),
+                on_dispatched=(
+                    lambda: finalize_managed_video_attachment(
+                        dispatched=True
+                    )
+                    if use_managed_chat_video
+                    else None
+                ),
             )
         if use_stable_chat:
             if stable_chat_dispatch is None:
@@ -35317,6 +35480,7 @@ async def chat(payload: ChatRequest, request: Request):
             upstream_chat_payload,
             model_id,
             audio_attachment=audio_attachment,
+            video_attachment=video_attachment,
             resolved_chat_files=resolved_chat_files,
             resolved_output_images=resolved_output_images,
         )
@@ -35357,6 +35521,7 @@ async def chat(payload: ChatRequest, request: Request):
                     runtime_payload,
                     model_id,
                     audio_attachment=audio_attachment,
+                    video_attachment=video_attachment,
                     resolved_chat_files=resolved_chat_files,
                     resolved_output_images=resolved_output_images,
                 )
@@ -35401,6 +35566,7 @@ async def chat(payload: ChatRequest, request: Request):
                 runtime_payload,
                 model_id,
                 audio_attachment=audio_attachment,
+                video_attachment=video_attachment,
                 resolved_chat_files=resolved_chat_files,
                 resolved_output_images=resolved_output_images,
             )
@@ -35713,7 +35879,7 @@ async def chat(payload: ChatRequest, request: Request):
             error_code=error_code,
             actual_model=(
                 actual_model
-                if use_managed_chat_audio
+                if use_managed_chat_audio or use_managed_chat_video
                 else actual_model or actual_model_id
             ),
             ttft_ms=ttft_ms,
@@ -35724,7 +35890,40 @@ async def chat(payload: ChatRequest, request: Request):
 
     try:
         response = await send_initial_response()
+    except asyncio.CancelledError:
+        dispatched = bool(
+            managed_multimodal_dispatch is not None
+            and managed_multimodal_dispatch.dispatched
+        )
+        finalize_managed_video_attachment(dispatched=dispatched)
+        if (
+            use_managed_multimodal_chat
+            and managed_multimodal_dispatch is not None
+            and not managed_multimodal_dispatch.completed
+        ):
+            try:
+                finalize_managed_multimodal_chat(
+                    status="uncertain" if dispatched else "cancelled",
+                    result_class="client_cancelled",
+                    error_code="provider_chat_client_cancelled",
+                )
+            except Exception:
+                logger.warning(
+                    "Managed multimodal cancellation audit failed "
+                    "model=%s code=audit_unavailable",
+                    payload.model_id,
+                )
+        try:
+            await close_request_client()
+        finally:
+            raise
     except RouterServiceError as exc:
+        finalize_managed_video_attachment(
+            dispatched=bool(
+                managed_multimodal_dispatch is not None
+                and managed_multimodal_dispatch.dispatched
+            )
+        )
         finalize_auto_failure("preflight_failure", exc.code)
         await finalize_runtime("error", actual_model_id, error=exc.code)
         await close_request_client()
@@ -35747,6 +35946,12 @@ async def chat(payload: ChatRequest, request: Request):
             error_content["route_receipt"] = managed_multimodal_receipt
         return JSONResponse(status_code=exc.status_code, content=error_content)
     except httpx.TimeoutException:
+        finalize_managed_video_attachment(
+            dispatched=bool(
+                managed_multimodal_dispatch is not None
+                and managed_multimodal_dispatch.dispatched
+            )
+        )
         finalize_auto_failure("transient_failure", "provider_chat_timeout")
         finalize_chat_canary_failure(
             "transient_failure", "provider_chat_timeout"
@@ -35798,6 +36003,12 @@ async def chat(payload: ChatRequest, request: Request):
             )
         return JSONResponse(status_code=504, content=timeout_content)
     except httpx.HTTPError as exc:
+        finalize_managed_video_attachment(
+            dispatched=bool(
+                managed_multimodal_dispatch is not None
+                and managed_multimodal_dispatch.dispatched
+            )
+        )
         finalize_auto_failure(
             "transient_failure", "provider_chat_transport_error"
         )
@@ -35866,6 +36077,12 @@ async def chat(payload: ChatRequest, request: Request):
             )
         return JSONResponse(status_code=502, content=transport_content)
     except Exception:
+        finalize_managed_video_attachment(
+            dispatched=bool(
+                managed_multimodal_dispatch is not None
+                and managed_multimodal_dispatch.dispatched
+            )
+        )
         finalize_auto_failure(
             "uncertain", "provider_chat_unexpected_error", status="uncertain"
         )
@@ -36337,7 +36554,7 @@ async def chat(payload: ChatRequest, request: Request):
             expected_audio_format=managed_chat_audio_transport_format,
             max_event_bytes=MANAGED_CHAT_AUDIO_MAX_EVENT_BYTES,
         )
-        if use_managed_chat_audio
+        if use_managed_chat_audio or use_managed_chat_video
         else ProviderChatCanaryStreamEvidence(
             started_at=managed_multimodal_started_at
         )
@@ -37040,6 +37257,7 @@ async def chat(payload: ChatRequest, request: Request):
                     buffer = lines[-1] if lines else buffer
 
                 for line in complete_lines:
+                    managed_video_delivery_events: tuple[bytes, ...] = ()
                     if use_managed_chat_audio:
                         if line.rstrip("\r\n"):
                             managed_audio_event_bytes += len(
@@ -37067,7 +37285,34 @@ async def chat(payload: ChatRequest, request: Request):
                     if stable_chat_stream_evidence is not None:
                         stable_chat_stream_evidence.feed(line)
                     if managed_multimodal_stream_evidence is not None:
-                        managed_multimodal_stream_evidence.feed(line)
+                        managed_video_delivery_events = (
+                            managed_multimodal_stream_evidence.feed(line)
+                        )
+                    if (
+                        use_managed_chat_video
+                        and isinstance(
+                            managed_multimodal_stream_evidence,
+                            ManagedMultimodalChatStreamEvidence,
+                        )
+                    ):
+                        if (
+                            managed_multimodal_stream_evidence.invalid
+                            or managed_multimodal_stream_evidence.model_mismatch
+                            or managed_multimodal_stream_evidence.hard_error_code
+                            is not None
+                        ):
+                            managed_audio_stream_aborted = True
+                            break
+                        for delivery_event in managed_video_delivery_events:
+                            delivery_text = delivery_event.decode("utf-8")
+                            if delivery_text.strip() == "data: [DONE]":
+                                deferred_done = True
+                                continue
+                            accumulated_chunks.extend(
+                                sse_delta_text(delivery_text)
+                            )
+                            yield delivery_event
+                        continue
                     if use_omniroute:
                         update_stream_state(line, omniroute_stream_state)
                         if (
@@ -37388,12 +37633,44 @@ async def chat(payload: ChatRequest, request: Request):
                 )
                 return
             if buffer and not managed_audio_stream_aborted:
+                managed_video_delivery_events: tuple[bytes, ...] = ()
                 if chat_canary_stream_evidence is not None:
                     chat_canary_stream_evidence.feed(buffer)
                 if stable_chat_stream_evidence is not None:
                     stable_chat_stream_evidence.feed(buffer)
                 if managed_multimodal_stream_evidence is not None:
-                    managed_multimodal_stream_evidence.feed(buffer)
+                    managed_video_delivery_events = (
+                        managed_multimodal_stream_evidence.feed(buffer)
+                    )
+                    if use_managed_chat_video:
+                        managed_video_delivery_events += (
+                            managed_multimodal_stream_evidence.flush_video_delivery()
+                        )
+                if (
+                    use_managed_chat_video
+                    and isinstance(
+                        managed_multimodal_stream_evidence,
+                        ManagedMultimodalChatStreamEvidence,
+                    )
+                ):
+                    if (
+                        managed_multimodal_stream_evidence.invalid
+                        or managed_multimodal_stream_evidence.model_mismatch
+                        or managed_multimodal_stream_evidence.hard_error_code
+                        is not None
+                    ):
+                        managed_audio_stream_aborted = True
+                    else:
+                        for delivery_event in managed_video_delivery_events:
+                            delivery_text = delivery_event.decode("utf-8")
+                            if delivery_text.strip() == "data: [DONE]":
+                                deferred_done = True
+                                continue
+                            accumulated_chunks.extend(
+                                sse_delta_text(delivery_text)
+                            )
+                            yield delivery_event
+                    buffer = ""
                 if use_omniroute:
                     update_stream_state(buffer, omniroute_stream_state)
                     if (
@@ -37410,7 +37687,9 @@ async def chat(payload: ChatRequest, request: Request):
                 if capture_chat_media and not use_managed_chat_audio:
                     update_stream_state(buffer, media_output_stream_state)
                     media_capture.consume_line(buffer)
-                if buffer.lstrip().startswith(":"):
+                if use_managed_chat_video:
+                    pass
+                elif buffer.lstrip().startswith(":"):
                     pass
                 elif (
                     (use_omniroute or native_audio_requested or direct_file_requested or capture_chat_media or chat_canary_requested or use_stable_chat or use_managed_multimodal_chat)
@@ -38268,7 +38547,7 @@ async def chat(payload: ChatRequest, request: Request):
                 )
                 observed_model = (
                     managed_multimodal_stream_evidence.actual_model
-                    if use_managed_chat_audio
+                    if use_managed_chat_audio or use_managed_chat_video
                     else managed_multimodal_stream_evidence.actual_model
                     or actual_model_id
                 )
@@ -38532,7 +38811,7 @@ async def chat(payload: ChatRequest, request: Request):
             async for event in inner_stream:
                 yield event
         except (asyncio.CancelledError, GeneratorExit):
-            if use_managed_chat_audio:
+            if use_managed_multimodal_chat:
                 if (
                     managed_multimodal_dispatch is not None
                     and not managed_multimodal_dispatch.completed
@@ -38550,13 +38829,20 @@ async def chat(payload: ChatRequest, request: Request):
                         )
                     except Exception:
                         logger.warning(
-                            "Managed Chat Audio cancellation audit failed "
+                            "Managed multimodal Chat cancellation audit failed "
                             "model=%s code=audit_unavailable",
                             payload.model_id,
                         )
-                finalize_native_audio_failure(
-                    "provider_chat_client_cancelled"
+                finalize_managed_video_attachment(
+                    dispatched=bool(
+                        managed_multimodal_dispatch is not None
+                        and managed_multimodal_dispatch.dispatched
+                    )
                 )
+                if use_managed_chat_audio:
+                    finalize_native_audio_failure(
+                        "provider_chat_client_cancelled"
+                    )
                 try:
                     await finalize_runtime(
                         "error",
@@ -38565,7 +38851,7 @@ async def chat(payload: ChatRequest, request: Request):
                     )
                 except Exception:
                     logger.warning(
-                        "Managed Chat Audio cancellation audit failed "
+                        "Managed multimodal Chat cancellation audit failed "
                         "model=%s code=runtime_audit_unavailable",
                         payload.model_id,
                     )

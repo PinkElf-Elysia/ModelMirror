@@ -427,11 +427,11 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
-            name="OpenRouter video",
-            kind="openrouter",
-            base_url="https://openrouter.ai/api/v1",
+            name="OpenAI realtime",
+            kind="openai",
+            base_url="https://api.openai.com/v1",
             api_key="test-secret",
-            scopes=["chat", "video"],
+            scopes=["realtime"],
         ),
     )
 
@@ -448,9 +448,9 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
         ).run(
             connection.id,
             ProviderWorkloadCertificationRequest(
-                model_id="provider/video-chat",
-                execution_shape="chat_video_stream",
-                adapter_contract="openrouter_chat_video_v1",
+                model_id="gpt-realtime",
+                execution_shape="realtime_voice_session",
+                adapter_contract="openai_realtime_sdp_v1",
                 acknowledge_billed_call=True,
             ),
             idempotency_key="future-r8-no-paid-call",
@@ -2704,6 +2704,9 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
             "chat_audio_input",
             "chat_audio_output",
             "audio_generation",
+            "multimodal_video_analysis",
+            "chat_video",
+            "video_generation",
         }
         assert all(
             item["data_plane_integrated"] is (entry_id in r8_integrated_entries)

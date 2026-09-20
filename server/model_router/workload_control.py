@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from typing import Awaitable, Callable, Mapping
 import httpx
 
 from . import chat_audio_input_fixture as chat_input_fixture
+from . import r8e_video_fixture as video_fixture
 from .chat_control import ProviderChatControlService
 from .egress import AuthorizedProviderTarget, ProviderEgressError
 from .provider_catalog import ProviderCatalogService
@@ -44,10 +46,17 @@ from .multimodal_control import (
     CHAT_AUDIO_PCM16_PARAMETER_EVIDENCE,
     CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ,
     OPENROUTER_AUDIO_GENERATION_REQUEST_CONTRACT,
+    OpenRouterVideoCatalogError,
     PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
     R8B_EXECUTION_SHAPES,
     R8C_EXECUTION_SHAPES,
     R8D_EXECUTION_SHAPES,
+    R8E_EXECUTION_SHAPES,
+    R8E_SYNC_EXECUTION_SHAPES,
+    R8E_VIDEO_GENERATION_ASPECT_RATIO,
+    R8E_VIDEO_GENERATION_DURATION_SECONDS,
+    R8E_VIDEO_GENERATION_OUTPUT_COUNT,
+    R8E_VIDEO_GENERATION_RESOLUTION,
     R8DAudioSseContract,
     R8DAudioSseContractError,
     R8DAudioSseEventBuffer,
@@ -57,8 +66,11 @@ from .multimodal_control import (
     ProviderMultimodalTransport,
     build_openrouter_audio_generation_payload,
     chat_audio_pcm16_to_wav,
+    clean_provider_video_identifier,
     is_valid_chat_audio_pcm16,
     is_complete_wav,
+    is_valid_openrouter_video_output_reference,
+    openrouter_video_catalog_model_matches,
     validate_multimodal_adapter,
 )
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
@@ -98,6 +110,12 @@ R8D_CHAT_AUDIO_INPUT_PARAMETER_CONTRACT_VERSION = (
 R8D_CHAT_AUDIO_OUTPUT_PARAMETER_CONTRACT_VERSION = (
     "modelmirror-provider-chat-audio-output-parameters-v4"
 )
+R8E_VIDEO_PARAMETER_CONTRACT_VERSION = (
+    "modelmirror-provider-video-parameters-v2"
+)
+R8E_VIDEO_GENERATION_CATALOG_CONTRACT_VERSION = (
+    "modelmirror-openrouter-video-models-v2"
+)
 PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
@@ -125,6 +143,16 @@ SYNTHETIC_AUDIO_GENERATION_PROMPT = (
 )
 SYNTHETIC_AUDIO_GENERATION_PROMPT_SHA256 = hashlib.sha256(
     SYNTHETIC_AUDIO_GENERATION_PROMPT.encode("utf-8")
+).hexdigest()
+SYNTHETIC_VIDEO_PROMPT = "Describe the blue shape in one short sentence."
+SYNTHETIC_VIDEO_PROMPT_SHA256 = hashlib.sha256(
+    SYNTHETIC_VIDEO_PROMPT.encode("utf-8")
+).hexdigest()
+SYNTHETIC_VIDEO_GENERATION_PROMPT = (
+    "A single blue circle moving slowly on a plain white background."
+)
+SYNTHETIC_VIDEO_GENERATION_PROMPT_SHA256 = hashlib.sha256(
+    SYNTHETIC_VIDEO_GENERATION_PROMPT.encode("utf-8")
 ).hexdigest()
 SYNTHETIC_AUDIO_GENERATION_IMAGE_FIXTURE_ID = (
     "r8d-audio-generation-image-v2"
@@ -316,6 +344,108 @@ def r8d_audio_certification_evidence_reason(
         and checks.get("image_prompt_request_verified") is not True
     ):
         return "provider_multimodal_audio_evidence_incomplete"
+    return None
+
+
+def r8e_video_parameter_profile_reason(
+    execution_shape: str,
+    profile: Mapping[str, object],
+) -> str | None:
+    """Reject video qualifications whose fixed synthetic contract has drifted."""
+
+    if execution_shape not in R8E_EXECUTION_SHAPES:
+        return None
+    if execution_shape == "video_generation_async":
+        catalog_model_id = profile.get("video_catalog_model_id")
+        canonical_model_id = profile.get("video_catalog_canonical_model_id")
+        if (
+            profile.get("video_parameter_contract_version")
+            != R8E_VIDEO_PARAMETER_CONTRACT_VERSION
+            or profile.get("certification_prompt_sha256")
+            != SYNTHETIC_VIDEO_GENERATION_PROMPT_SHA256
+            or profile.get("certified_task_type") != "generate"
+            or profile.get("certified_duration_seconds")
+            != R8E_VIDEO_GENERATION_DURATION_SECONDS
+            or profile.get("certified_resolution")
+            != R8E_VIDEO_GENERATION_RESOLUTION
+            or profile.get("certified_aspect_ratio")
+            != R8E_VIDEO_GENERATION_ASPECT_RATIO
+            or profile.get("certified_output_count")
+            != R8E_VIDEO_GENERATION_OUTPUT_COUNT
+            or profile.get("async_poll_only") is not True
+            or profile.get("video_catalog_contract_version")
+            != R8E_VIDEO_GENERATION_CATALOG_CONTRACT_VERSION
+            or profile.get("video_catalog_source")
+            != "openrouter_videos_models"
+            or not isinstance(catalog_model_id, str)
+            or clean_provider_video_identifier(
+                catalog_model_id,
+                kind="model",
+            )
+            != catalog_model_id
+            or catalog_model_id != profile.get("model_id")
+            or not isinstance(canonical_model_id, str)
+            or clean_provider_video_identifier(
+                canonical_model_id,
+                kind="model",
+            )
+            != canonical_model_id
+        ):
+            return "provider_multimodal_video_parameter_profile_invalid"
+        return None
+    if (
+        profile.get("video_parameter_contract_version")
+        != R8E_VIDEO_PARAMETER_CONTRACT_VERSION
+        or profile.get("video_fixture_id")
+        != video_fixture.SYNTHETIC_VIDEO_FIXTURE_ID
+        or profile.get("video_fixture_sha256")
+        != video_fixture.SYNTHETIC_VIDEO_MP4_SHA256
+        or profile.get("video_media_type")
+        != video_fixture.SYNTHETIC_VIDEO_MEDIA_TYPE
+        or profile.get("video_width") != video_fixture.SYNTHETIC_VIDEO_WIDTH
+        or profile.get("video_height") != video_fixture.SYNTHETIC_VIDEO_HEIGHT
+        or profile.get("video_duration_ms")
+        != video_fixture.SYNTHETIC_VIDEO_DURATION_MS
+        or profile.get("certified_input_formats") != ["mp4"]
+        or profile.get("certification_prompt_sha256")
+        != SYNTHETIC_VIDEO_PROMPT_SHA256
+        or profile.get("stream") != (execution_shape == "chat_video_stream")
+    ):
+        return "provider_multimodal_video_parameter_profile_invalid"
+    return None
+
+
+def r8e_video_certification_evidence_reason(
+    execution_shape: str,
+    checks: Mapping[str, object],
+) -> str | None:
+    """Require exact-model, fixture, Adapter, and terminal proof for R8E."""
+
+    if execution_shape not in R8E_EXECUTION_SHAPES:
+        return None
+    required = (
+        "http_ok",
+        "response_complete",
+        "content_observed",
+        "actual_model_verified",
+        "media_format_verified",
+        "multimodal_adapter_verified",
+    )
+    if not all(checks.get(name) is True for name in required):
+        return "provider_multimodal_video_evidence_incomplete"
+    if execution_shape == "video_generation_async" and (
+        checks.get("async_job_id_verified") is not True
+        or checks.get("output_metadata_verified") is not True
+        or checks.get("terminal_signal_verified") is not True
+        or checks.get("video_catalog_model_verified") is not True
+        or checks.get("video_catalog_parameters_verified") is not True
+    ):
+        return "provider_multimodal_video_evidence_incomplete"
+    if execution_shape == "chat_video_stream" and (
+        checks.get("terminal_signal_verified") is not True
+        or checks.get("safe_terminal_verified") is not True
+    ):
+        return "provider_multimodal_video_evidence_incomplete"
     return None
 
 
@@ -588,6 +718,9 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "chat_audio_input",
         "chat_audio_output",
         "audio_generation",
+        "multimodal_video_analysis",
+        "chat_video",
+        "video_generation",
     }
 )
 
@@ -855,7 +988,12 @@ class ProviderWorkloadCertificationService:
         if (
             payload.execution_shape in MULTIMODAL_WORKLOAD_SHAPES
             and payload.execution_shape
-            not in R8B_EXECUTION_SHAPES | R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            not in (
+                R8B_EXECUTION_SHAPES
+                | R8C_EXECUTION_SHAPES
+                | R8D_EXECUTION_SHAPES
+                | R8E_EXECUTION_SHAPES
+            )
         ):
             raise RouterServiceError(
                 "provider_multimodal_certification_not_integrated",
@@ -886,13 +1024,34 @@ class ProviderWorkloadCertificationService:
             if (
                 str(existing["execution_shape"]) != payload.execution_shape
                 or str(existing["requested_model"]) != payload.model_id
-                or str(existing["profile_fingerprint"]) != profile_fingerprint
+                or str(existing.get("adapter_contract") or "")
+                != str(payload.adapter_contract or "")
             ):
                 raise RouterServiceError(
                     "provider_workload_certification_idempotency_conflict",
                     "该 Idempotency-Key 已用于另一份 Workload 资格配置。",
                     status_code=409,
                 )
+            if payload.execution_shape != "video_generation_async" and (
+                str(existing["profile_fingerprint"]) != profile_fingerprint
+            ):
+                raise RouterServiceError(
+                    "provider_workload_certification_idempotency_conflict",
+                    "该 Idempotency-Key 已用于另一份 Workload 资格配置。",
+                    status_code=409,
+                )
+            if payload.execution_shape == "video_generation_async":
+                stored_profile = _safe_json_object(
+                    json.loads(str(existing.get("profile_json") or "{}"))
+                )
+                if str(existing["profile_fingerprint"]) != _fingerprint(
+                    stored_profile
+                ):
+                    raise RouterServiceError(
+                        "provider_workload_certification_idempotency_conflict",
+                        "该 Idempotency-Key 对应的视频资格证据已损坏。",
+                        status_code=409,
+                    )
             if (
                 payload.execution_shape
                 in {"openrouter_batch_chat", "openrouter_batch_embeddings"}
@@ -959,19 +1118,97 @@ class ProviderWorkloadCertificationService:
             required_models.extend(payload.candidate_model_ids)
             if payload.judge_model_id is not None:
                 required_models.append(payload.judge_model_id)
-        for model_id in dict.fromkeys(required_models):
-            if not self.repository.list_catalog_models(
-                self.router_service.tenant_id,
-                connection_id=connection_id,
-                model_id=model_id,
-                status="active",
-                limit=1,
-            ):
+        video_catalog_verified = False
+        if payload.execution_shape == "video_generation_async":
+            try:
+                target = ProviderMultimodalTarget.create(
+                    provider_kind=connection.kind,
+                    connection_id=connection.id,
+                    base_url=connection.base_url,
+                    api_key=api_key,
+                    adapter_contract=str(payload.adapter_contract),  # type: ignore[arg-type]
+                    execution_shape=payload.execution_shape,
+                )
+                async with self._client_factory() as client:
+                    video_catalog_evidence = (
+                        await self.multimodal_transport
+                        .verify_openrouter_video_generation_model(
+                            client,
+                            target,
+                            payload.model_id,
+                            duration_seconds=(
+                                R8E_VIDEO_GENERATION_DURATION_SECONDS
+                            ),
+                            resolution=R8E_VIDEO_GENERATION_RESOLUTION,
+                            aspect_ratio=R8E_VIDEO_GENERATION_ASPECT_RATIO,
+                        )
+                    )
+            except OpenRouterVideoCatalogError as exc:
                 raise RouterServiceError(
-                    "provider_workload_certification_model_not_found",
-                    "资格所需的精确模型不在最新完整目录中，未发送付费调用。",
+                    exc.code,
+                    "专用视频模型目录未能证明该模型支持固定认证参数，未发送付费调用。",
+                    status_code=409,
+                ) from exc
+            except ProviderEgressError as exc:
+                raise RouterServiceError(
+                    exc.code,
+                    "专用视频模型目录的安全出口校验失败，未发送付费调用。",
+                    status_code=409,
+                ) from exc
+            except (httpx.HTTPError, TimeoutError) as exc:
+                raise RouterServiceError(
+                    "provider_video_generation_catalog_unavailable",
+                    "专用视频模型目录不可用，未发送付费调用。",
+                    status_code=409,
+                ) from exc
+            current_connection, current_api_key, current_fingerprint = (
+                self.repository.get_connection_credential_snapshot(
+                    self.router_service.tenant_id,
+                    connection_id,
+                )
+            )
+            self._validate_connection(
+                current_connection,
+                payload.execution_shape,
+                adapter_contract=payload.adapter_contract,
+            )
+            if current_fingerprint != connection_fingerprint:
+                raise RouterServiceError(
+                    "provider_workload_catalog_stale",
+                    "模型服务配置在专用视频目录校验后发生变化，未发送资格认证调用。",
                     status_code=409,
                 )
+            connection = current_connection
+            api_key = current_api_key
+            video_catalog_verified = bool(
+                video_catalog_evidence.model_verified
+                and video_catalog_evidence.parameters_verified
+            )
+            profile.update(
+                {
+                    "video_catalog_model_id": (
+                        video_catalog_evidence.catalog_model_id
+                    ),
+                    "video_catalog_canonical_model_id": (
+                        video_catalog_evidence.canonical_model_id
+                    ),
+                }
+            )
+            profile_fingerprint = _fingerprint(profile)
+        else:
+            for model_id in dict.fromkeys(required_models):
+                if not self.repository.list_catalog_models(
+                    self.router_service.tenant_id,
+                    connection_id=connection_id,
+                    model_id=model_id,
+                    status="active",
+                    limit=1,
+                ):
+                    raise RouterServiceError(
+                        "provider_workload_certification_model_not_found",
+                        "资格所需的精确模型不在最新完整目录中，未发送付费调用。",
+                        status_code=409,
+                    )
         if (
             payload.adapter_contract == "openrouter_chat_audio_v1"
             and payload.execution_shape
@@ -987,7 +1224,12 @@ class ProviderWorkloadCertificationService:
 
         multimodal_session_id = (
             f"mmcertsession_{uuid.uuid4().hex}"
-            if payload.execution_shape in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            if payload.execution_shape
+            in (
+                R8C_EXECUTION_SHAPES
+                | R8D_EXECUTION_SHAPES
+                | R8E_EXECUTION_SHAPES
+            )
             else None
         )
         try:
@@ -1047,6 +1289,19 @@ class ProviderWorkloadCertificationService:
             raise
         if not created:
             return self._summary(connection, row)
+        if payload.execution_shape == "video_generation_async":
+            return await self._submit_video_generation_certification(
+                connection,
+                api_key,
+                payload,
+                certification_id=str(row["id"]),
+                session_id=str(multimodal_session_id),
+                connection_fingerprint=connection_fingerprint,
+                video_catalog_verified=video_catalog_verified,
+                catalog_canonical_model_id=(
+                    video_catalog_evidence.canonical_model_id
+                ),
+            )
         if payload.execution_shape in R8D_EXECUTION_SHAPES:
             return await self._complete_r8d_audio_certification_supervised(
                 connection,
@@ -1086,6 +1341,17 @@ class ProviderWorkloadCertificationService:
                         )
                     elif payload.execution_shape in R8D_EXECUTION_SHAPES:
                         await self._run_r8d_audio_certification(
+                            client,
+                            connection,
+                            api_key,
+                            payload,
+                            evidence,
+                            started,
+                            session_id=str(multimodal_session_id),
+                            connection_fingerprint=connection_fingerprint,
+                        )
+                    elif payload.execution_shape in R8E_SYNC_EXECUTION_SHAPES:
+                        await self._run_r8e_video_certification(
                             client,
                             connection,
                             api_key,
@@ -1218,22 +1484,17 @@ class ProviderWorkloadCertificationService:
                         "provider_multimodal_certification_result_uncertain"
                     ))
                     completed = self._repository_method(
-                        "complete_workload_certification"
+                        "get_workload_certification"
                     )(
                         self.router_service.tenant_id,
                         str(row["id"]),
-                        status=status,
-                        checks=evidence.checks,
-                        warning_codes=evidence.warning_codes,
-                        error_code=error_code,
-                        actual_model=evidence.actual_model,
-                        ttft_ms=evidence.ttft_ms,
-                        e2e_ms=(time.perf_counter() - started) * 1000,
-                        prompt_tokens=evidence.prompt_tokens,
-                        completion_tokens=evidence.completion_tokens,
-                        total_tokens=evidence.total_tokens,
-                        vector_dimension=evidence.vector_dimension,
                     )
+                    if completed is None:
+                        raise RouterServiceError(
+                            "provider_workload_certification_not_found",
+                            "认证记录不存在，请重新发起认证。",
+                            status_code=404,
+                        )
                 elif session is not None and str(session["status"]) == "running":
                     post_dispatched = bool(session["post_dispatched"])
                     if status != "passed" and post_dispatched and (
@@ -1413,6 +1674,9 @@ class ProviderWorkloadCertificationService:
         checks = _safe_json_object(
             json.loads(str(claimed.get("checks_json") or "{}"))
         )
+        profile = _safe_json_object(
+            json.loads(str(claimed.get("profile_json") or "{}"))
+        )
         checks["actual_model_verified"] = False
         status = "uncertain"
         error_code: str | None = "provider_multimodal_actual_model_pending"
@@ -1443,24 +1707,169 @@ class ProviderWorkloadCertificationService:
                 adapter_contract=str(claimed["adapter_contract"]),  # type: ignore[arg-type]
                 execution_shape=str(claimed["execution_shape"]),  # type: ignore[arg-type]
             )
-            async with asyncio.timeout(30):
-                async with self._client_factory() as client:
-                    actual_model = _clean_provider_evidence_identifier(
-                        await self.multimodal_transport.fetch_openrouter_generation_model(
-                            client,
-                            target,
-                            str(claimed_session["upstream_operation_id"]),
+            if str(claimed["execution_shape"]) == "video_generation_async":
+                profile_reason = r8e_video_parameter_profile_reason(
+                    "video_generation_async",
+                    profile,
+                )
+                if profile_reason is not None:
+                    raise _WorkloadCertificationFailure(profile_reason)
+                async with asyncio.timeout(60):
+                    async with self._client_factory() as client:
+                        response_status, response_payload = (
+                            await self.multimodal_transport.fetch_openrouter_video_job(
+                                client,
+                                target,
+                                str(claimed_session["upstream_operation_id"]),
+                            )
+                        )
+                        self._validate_status(response_status)
+                        if response_payload is None:
+                            raise _WorkloadCertificationFailure(
+                                "provider_video_certification_invalid_response"
+                            )
+                        response_job_id = clean_provider_video_identifier(
+                            response_payload.get("id"),
+                            kind="job",
+                        )
+                        if response_job_id != str(
+                            claimed_session["upstream_operation_id"]
+                        ):
+                            raise _WorkloadCertificationFailure(
+                                "provider_video_certification_job_mismatch"
+                            )
+                        job_status = str(
+                            response_payload.get("status") or ""
+                        ).strip().lower()
+                        if job_status not in {
+                            "pending",
+                            "in_progress",
+                            "completed",
+                            "failed",
+                            "cancelled",
+                            "expired",
+                        }:
+                            raise _WorkloadCertificationFailure(
+                                "provider_video_certification_invalid_status"
+                            )
+                        raw_actual_model = (
+                            response_payload.get("model")
+                            or claimed.get("actual_model")
+                        )
+                        actual_model = clean_provider_video_identifier(
+                            raw_actual_model,
+                            kind="model",
+                        )
+                        if (
+                            raw_actual_model not in (None, "")
+                            and actual_model is None
+                        ):
+                            raise _WorkloadCertificationFailure(
+                                "provider_video_certification_invalid_model"
+                            )
+                        raw_generation_id = response_payload.get("generation_id")
+                        generation_id = clean_provider_video_identifier(
+                            raw_generation_id,
+                            kind="generation",
+                        )
+                        if (
+                            raw_generation_id not in (None, "")
+                            and generation_id is None
+                        ):
+                            raise _WorkloadCertificationFailure(
+                                "provider_video_certification_invalid_generation_id"
+                            )
+                        if actual_model is None and generation_id:
+                            metadata_model = await (
+                                self.multimodal_transport.fetch_openrouter_generation_model(
+                                    client,
+                                    target,
+                                    generation_id,
+                                    timeout_seconds=30,
+                                )
+                            )
+                            actual_model = clean_provider_video_identifier(
+                                metadata_model,
+                                kind="model",
+                            )
+                            if (
+                                metadata_model not in (None, "")
+                                and actual_model is None
+                            ):
+                                raise _WorkloadCertificationFailure(
+                                    "provider_video_certification_invalid_model"
+                                )
+                if actual_model:
+                    if not openrouter_video_catalog_model_matches(
+                        requested_model=str(claimed["requested_model"]),
+                        catalog_model_id=profile.get("video_catalog_model_id"),
+                        canonical_model_id=profile.get(
+                            "video_catalog_canonical_model_id"
                         ),
-                        max_length=512,
+                        actual_model=actual_model,
+                    ):
+                        status = "failed"
+                        error_code = "provider_workload_model_mismatch"
+                    else:
+                        checks["actual_model_verified"] = True
+                if job_status in {"pending", "in_progress"}:
+                    error_code = "provider_video_certification_pending"
+                elif job_status == "completed":
+                    checks["terminal_signal_verified"] = True
+                    checks["async_terminal_verified"] = True
+                    unsigned_urls = response_payload.get("unsigned_urls")
+                    expected_output_count = profile.get("certified_output_count")
+                    output_metadata_verified = bool(
+                        isinstance(unsigned_urls, list)
+                        and expected_output_count == 1
+                        and len(unsigned_urls) == expected_output_count
+                        and all(
+                            is_valid_openrouter_video_output_reference(
+                                item,
+                                str(claimed_session["upstream_operation_id"]),
+                            )
+                            for item in unsigned_urls
+                        )
                     )
-            if actual_model:
-                checks["actual_model_verified"] = True
-                if actual_model == str(claimed["requested_model"]):
-                    status = "passed"
-                    error_code = None
+                    checks["output_metadata_verified"] = output_metadata_verified
+                    checks["media_format_verified"] = output_metadata_verified
+                    if not output_metadata_verified:
+                        status = "failed"
+                        error_code = (
+                            "provider_video_certification_output_metadata_invalid"
+                        )
+                    elif checks.get("actual_model_verified") is True:
+                        status = "passed"
+                        error_code = None
+                    elif actual_model is not None:
+                        status = "failed"
+                        error_code = "provider_workload_model_mismatch"
+                    else:
+                        error_code = "provider_multimodal_actual_model_pending"
                 else:
+                    checks["terminal_signal_verified"] = True
+                    checks["async_terminal_verified"] = True
                     status = "failed"
-                    error_code = "provider_workload_model_mismatch"
+                    error_code = f"provider_video_certification_{job_status}"
+            else:
+                async with asyncio.timeout(30):
+                    async with self._client_factory() as client:
+                        actual_model = _clean_provider_evidence_identifier(
+                            await self.multimodal_transport.fetch_openrouter_generation_model(
+                                client,
+                                target,
+                                str(claimed_session["upstream_operation_id"]),
+                            ),
+                            max_length=512,
+                        )
+                if actual_model:
+                    checks["actual_model_verified"] = True
+                    if actual_model == str(claimed["requested_model"]):
+                        status = "passed"
+                        error_code = None
+                    else:
+                        status = "failed"
+                        error_code = "provider_workload_model_mismatch"
         except asyncio.CancelledError:
             cancelled = True
             error_code = "provider_workload_cancelled"
@@ -1470,6 +1879,9 @@ class ProviderWorkloadCertificationService:
             error_code = "provider_workload_credential_unavailable"
         except RouterRepositoryError as exc:
             error_code = str(exc)
+        except _WorkloadCertificationFailure as exc:
+            status = "failed"
+            error_code = exc.code
         except (httpx.HTTPError, TimeoutError):
             error_code = "provider_multimodal_generation_metadata_unavailable"
         except Exception:
@@ -1804,8 +2216,58 @@ class ProviderWorkloadCertificationService:
                         "image_prompt_height": (
                             SYNTHETIC_AUDIO_GENERATION_IMAGE_HEIGHT
                         ),
+                }
+            )
+        elif payload.execution_shape in R8E_EXECUTION_SHAPES:
+            profile.update(
+                (
+                    {
+                        "video_parameter_contract_version": (
+                            R8E_VIDEO_PARAMETER_CONTRACT_VERSION
+                        ),
+                        "certification_prompt_sha256": (
+                            SYNTHETIC_VIDEO_GENERATION_PROMPT_SHA256
+                        ),
+                        "certified_task_type": "generate",
+                        "certified_duration_seconds": (
+                            R8E_VIDEO_GENERATION_DURATION_SECONDS
+                        ),
+                        "certified_resolution": (
+                            R8E_VIDEO_GENERATION_RESOLUTION
+                        ),
+                        "certified_aspect_ratio": (
+                            R8E_VIDEO_GENERATION_ASPECT_RATIO
+                        ),
+                        "certified_output_count": (
+                            R8E_VIDEO_GENERATION_OUTPUT_COUNT
+                        ),
+                        "async_poll_only": True,
+                        "video_catalog_contract_version": (
+                            R8E_VIDEO_GENERATION_CATALOG_CONTRACT_VERSION
+                        ),
+                        "video_catalog_source": "openrouter_videos_models",
+                    }
+                    if payload.execution_shape == "video_generation_async"
+                    else {
+                    "video_parameter_contract_version": (
+                        R8E_VIDEO_PARAMETER_CONTRACT_VERSION
+                    ),
+                    "video_fixture_id": video_fixture.SYNTHETIC_VIDEO_FIXTURE_ID,
+                    "video_fixture_sha256": (
+                        video_fixture.SYNTHETIC_VIDEO_MP4_SHA256
+                    ),
+                    "video_media_type": video_fixture.SYNTHETIC_VIDEO_MEDIA_TYPE,
+                    "video_width": video_fixture.SYNTHETIC_VIDEO_WIDTH,
+                    "video_height": video_fixture.SYNTHETIC_VIDEO_HEIGHT,
+                    "video_duration_ms": video_fixture.SYNTHETIC_VIDEO_DURATION_MS,
+                    "certified_input_formats": ["mp4"],
+                    "certification_prompt_sha256": (
+                        SYNTHETIC_VIDEO_PROMPT_SHA256
+                    ),
+                    "stream": payload.execution_shape == "chat_video_stream",
                     }
                 )
+            )
         return profile
 
     @staticmethod
@@ -1910,6 +2372,364 @@ class ProviderWorkloadCertificationService:
         finally:
             await response.aclose()
         evidence.checks["multimodal_adapter_verified"] = True
+
+    async def _run_r8e_video_certification(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        """Certify one exact OpenRouter video Chat shape with one pinned POST."""
+
+        try:
+            await self._run_r8e_video_certification_once(
+                client,
+                connection,
+                api_key,
+                payload,
+                evidence,
+                started,
+                session_id=session_id,
+                connection_fingerprint=connection_fingerprint,
+            )
+        except _WorkloadCertificationFailure as exc:
+            if (
+                exc.code == "provider_workload_stream_interrupted"
+                and self._r8c_certification_was_dispatched(session_id)
+            ):
+                raise _WorkloadCertificationUncertain(exc.code) from exc
+            raise
+        except asyncio.CancelledError:
+            raise
+        except RouterRepositoryError as exc:
+            if str(exc) == "provider_multimodal_dispatch_preconditions_changed":
+                raise _WorkloadCertificationFailure(str(exc)) from exc
+            raise
+        except Exception as exc:
+            error_code = self._r8c_transport_error_code(exc)
+            if self._r8c_certification_was_dispatched(session_id):
+                raise _WorkloadCertificationUncertain(error_code) from exc
+            raise
+
+    async def _submit_video_generation_certification(
+        self,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        *,
+        certification_id: str,
+        session_id: str,
+        connection_fingerprint: str,
+        video_catalog_verified: bool,
+        catalog_canonical_model_id: str,
+    ) -> ProviderWorkloadCertificationSummary:
+        """Submit one paid video job; every later action is GET-only polling."""
+
+        evidence = _CertificationEvidence.create()
+        evidence.checks.update(
+            {
+                "media_format_verified": False,
+                "multimodal_adapter_verified": False,
+                "async_job_id_verified": False,
+                "output_metadata_verified": False,
+                "terminal_signal_verified": False,
+                "video_catalog_model_verified": video_catalog_verified,
+                "video_catalog_parameters_verified": video_catalog_verified,
+            }
+        )
+        started = time.perf_counter()
+        dispatched = False
+        status = "failed"
+        error_code: str | None = None
+        upstream_operation_id: str | None = None
+        try:
+            target = ProviderMultimodalTarget.create(
+                provider_kind=connection.kind,
+                connection_id=connection.id,
+                base_url=connection.base_url,
+                api_key=api_key,
+                adapter_contract=str(payload.adapter_contract),  # type: ignore[arg-type]
+                execution_shape=payload.execution_shape,
+            )
+            authorized = await self.multimodal_transport.authorize(target)
+            request_payload = {
+                "model": payload.model_id,
+                "prompt": SYNTHETIC_VIDEO_GENERATION_PROMPT,
+                "duration": R8E_VIDEO_GENERATION_DURATION_SECONDS,
+                "resolution": R8E_VIDEO_GENERATION_RESOLUTION,
+                "aspect_ratio": R8E_VIDEO_GENERATION_ASPECT_RATIO,
+            }
+            async with asyncio.timeout(60):
+                async with self._client_factory() as client:
+                    request = self.multimodal_transport.build_authorized_json_request(
+                        client,
+                        target,
+                        authorized,
+                        request_payload,
+                    )
+                    self._repository_method(
+                        "update_multimodal_certification_session"
+                    )(
+                        self.router_service.tenant_id,
+                        session_id,
+                        status="running",
+                        provider_dispatch_state="dispatched",
+                        post_dispatched=True,
+                        expected_connection_fingerprint=connection_fingerprint,
+                    )
+                    dispatched = True
+                    response = await self.multimodal_transport.send_authorized(
+                        client, request
+                    )
+                    try:
+                        self._validate_status(response.status_code)
+                        evidence.checks["http_ok"] = True
+                        response_payload = await self._read_json_response(response)
+                        evidence.checks["response_complete"] = True
+                        evidence.checks["content_observed"] = True
+                    finally:
+                        await response.aclose()
+            candidate_upstream_operation_id = clean_provider_video_identifier(
+                response_payload.get("id"),
+                kind="job",
+            )
+            if candidate_upstream_operation_id is None:
+                raise _WorkloadCertificationUncertain(
+                    "provider_video_certification_missing_upstream_id"
+                )
+            upstream_operation_id = candidate_upstream_operation_id
+            initial_status = str(
+                response_payload.get("status") or "pending"
+            ).strip().lower()
+            if initial_status not in {
+                "pending",
+                "in_progress",
+                "completed",
+                "failed",
+                "cancelled",
+                "expired",
+            }:
+                raise _WorkloadCertificationUncertain(
+                    "provider_video_certification_invalid_status"
+                )
+            evidence.checks["multimodal_adapter_verified"] = True
+            evidence.checks["async_job_id_verified"] = True
+            raw_actual_model = response_payload.get("model")
+            if raw_actual_model not in (None, ""):
+                actual_model = clean_provider_video_identifier(
+                    raw_actual_model,
+                    kind="model",
+                )
+                if actual_model is None:
+                    raise _WorkloadCertificationFailure(
+                        "provider_video_certification_invalid_model"
+                    )
+                evidence.actual_model = actual_model
+                if not openrouter_video_catalog_model_matches(
+                    requested_model=payload.model_id,
+                    catalog_model_id=payload.model_id,
+                    canonical_model_id=catalog_canonical_model_id,
+                    actual_model=actual_model,
+                ):
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_model_mismatch"
+                    )
+                evidence.checks["actual_model_verified"] = True
+            else:
+                evidence.warning_codes.append("actual_model_missing")
+            self._repository_method(
+                "record_multimodal_certification_pending_evidence"
+            )(
+                self.router_service.tenant_id,
+                session_id,
+                upstream_operation_id=upstream_operation_id,
+                checks=evidence.checks,
+                warning_codes=evidence.warning_codes,
+                error_code="provider_video_certification_pending",
+                ttft_ms=(time.perf_counter() - started) * 1000,
+                e2e_ms=(time.perf_counter() - started) * 1000,
+                prompt_tokens=None,
+                completion_tokens=None,
+                total_tokens=None,
+                expected_connection_fingerprint=connection_fingerprint,
+                actual_model=evidence.actual_model,
+            )
+            status = "uncertain"
+            error_code = "provider_video_certification_pending"
+        except _WorkloadCertificationFailure as exc:
+            error_code = exc.code
+        except _WorkloadCertificationUncertain as exc:
+            status = "uncertain" if dispatched else "failed"
+            error_code = exc.code
+        except asyncio.CancelledError:
+            status = "uncertain" if dispatched else "failed"
+            error_code = "provider_workload_cancelled"
+            raise
+        except (httpx.TimeoutException, TimeoutError, httpx.HTTPError):
+            status = "uncertain" if dispatched else "failed"
+            error_code = (
+                "provider_video_certification_submit_uncertain"
+                if dispatched
+                else "provider_workload_transport_error"
+            )
+        except ProviderEgressError as exc:
+            error_code = exc.code
+        except Exception:
+            status = "uncertain" if dispatched else "failed"
+            error_code = (
+                "provider_video_certification_submit_uncertain"
+                if dispatched
+                else "provider_workload_unexpected_error"
+            )
+        finally:
+            session = self._repository_method(
+                "get_multimodal_certification_session"
+            )(
+                self.router_service.tenant_id,
+                session_id=session_id,
+            )
+            if session is not None and str(session["status"]) == "running":
+                if status == "uncertain":
+                    self._repository_method(
+                        "update_multimodal_certification_session"
+                    )(
+                        self.router_service.tenant_id,
+                        session_id,
+                        status="uncertain",
+                        provider_dispatch_state=(
+                            "uncertain" if dispatched else "not_dispatched"
+                        ),
+                        post_dispatched=dispatched,
+                        upstream_operation_id=upstream_operation_id,
+                        error_code=error_code,
+                        completed=True,
+                    )
+                    completed = self._repository_method(
+                        "complete_workload_certification"
+                    )(
+                        self.router_service.tenant_id,
+                        certification_id,
+                        status="uncertain",
+                        checks=evidence.checks,
+                        warning_codes=evidence.warning_codes,
+                        error_code=error_code,
+                        actual_model=evidence.actual_model,
+                        ttft_ms=evidence.ttft_ms,
+                        e2e_ms=(time.perf_counter() - started) * 1000,
+                    )
+                else:
+                    completed, _ = self._repository_method(
+                        "complete_multimodal_workload_certification"
+                    )(
+                        self.router_service.tenant_id,
+                        certification_id,
+                        session_id,
+                        status="failed",
+                        checks=evidence.checks,
+                        warning_codes=evidence.warning_codes,
+                        error_code=error_code,
+                        actual_model=evidence.actual_model,
+                        ttft_ms=evidence.ttft_ms,
+                        e2e_ms=(time.perf_counter() - started) * 1000,
+                    )
+            else:
+                completed = self._repository_method(
+                    "get_workload_certification"
+                )(self.router_service.tenant_id, certification_id)
+        return self._summary(connection, completed)
+
+    async def _run_r8e_video_certification_once(
+        self,
+        client: httpx.AsyncClient,
+        connection: RouterConnection,
+        api_key: str,
+        payload: ProviderWorkloadCertificationRequest,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        session_id: str,
+        connection_fingerprint: str,
+    ) -> None:
+        if payload.adapter_contract is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_adapter_required"
+            )
+        target = ProviderMultimodalTarget.create(
+            provider_kind=connection.kind,
+            connection_id=connection.id,
+            base_url=connection.base_url,
+            api_key=api_key,
+            adapter_contract=payload.adapter_contract,
+            execution_shape=payload.execution_shape,
+        )
+        authorized = await self.multimodal_transport.authorize(target)
+        request_payload = self._r8e_video_request_payload(payload)
+        if not self._r8e_video_payload_uses_fixture(request_payload):
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_video_fixture_invalid"
+            )
+        evidence.checks["media_format_verified"] = True
+        request = self.multimodal_transport.build_authorized_json_request(
+            client,
+            target,
+            authorized,
+            request_payload,
+            headers=(
+                {"Accept": "text/event-stream"}
+                if payload.execution_shape == "chat_video_stream"
+                else None
+            ),
+        )
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="dispatched",
+            post_dispatched=True,
+            expected_connection_fingerprint=connection_fingerprint,
+        )
+        response = await self.multimodal_transport.send_authorized(client, request)
+        try:
+            self._validate_status(response.status_code)
+            evidence.checks["http_ok"] = True
+            if payload.execution_shape == "chat_video_stream":
+                await self._consume_r8e_video_stream(
+                    response,
+                    evidence,
+                    started,
+                    expected_model=payload.model_id,
+                )
+            else:
+                await self._consume_unary_response(
+                    response,
+                    evidence,
+                    started,
+                    requested_model=payload.model_id,
+                    execution_shape=payload.execution_shape,
+                )
+        finally:
+            await response.aclose()
+        if evidence.actual_model is None:
+            raise _WorkloadCertificationFailure(
+                "provider_multimodal_actual_model_unverified"
+            )
+        if evidence.actual_model != payload.model_id:
+            raise _WorkloadCertificationFailure("provider_workload_model_mismatch")
+        evidence.checks["actual_model_verified"] = True
+        evidence.checks["multimodal_adapter_verified"] = True
+        self._repository_method("update_multimodal_certification_session")(
+            self.router_service.tenant_id,
+            session_id,
+            status="running",
+            provider_dispatch_state="confirmed",
+            post_dispatched=True,
+        )
 
     async def _run_r8c_audio_certification(
         self,
@@ -3198,6 +4018,58 @@ class ProviderWorkloadCertificationService:
         return request
 
     @staticmethod
+    def _r8e_video_request_payload(
+        payload: ProviderWorkloadCertificationRequest,
+    ) -> dict[str, object]:
+        return {
+            "model": payload.model_id,
+            "stream": payload.execution_shape == "chat_video_stream",
+            "temperature": 0,
+            "max_tokens": 64,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": SYNTHETIC_VIDEO_PROMPT},
+                        {
+                            "type": "video_url",
+                            "video_url": {
+                                "url": video_fixture.SYNTHETIC_VIDEO_MP4_DATA_URL
+                            },
+                        },
+                    ],
+                }
+            ],
+        }
+
+    @staticmethod
+    def _r8e_video_payload_uses_fixture(payload: Mapping[str, object]) -> bool:
+        messages = payload.get("messages")
+        if not isinstance(messages, list) or len(messages) != 1:
+            return False
+        message = messages[0]
+        if not isinstance(message, dict):
+            return False
+        content = message.get("content")
+        if not isinstance(content, list) or len(content) != 2:
+            return False
+        text_part, video_part = content
+        if (
+            not isinstance(text_part, dict)
+            or text_part.get("type") != "text"
+            or text_part.get("text") != SYNTHETIC_VIDEO_PROMPT
+            or not isinstance(video_part, dict)
+            or video_part.get("type") != "video_url"
+        ):
+            return False
+        video_url = video_part.get("video_url")
+        return bool(
+            isinstance(video_url, dict)
+            and video_url.get("url")
+            == video_fixture.SYNTHETIC_VIDEO_MP4_DATA_URL
+        )
+
+    @staticmethod
     def _validate_image_generation_response(
         payload: Mapping[str, object],
         evidence: _CertificationEvidence,
@@ -3888,8 +4760,17 @@ class ProviderWorkloadCertificationService:
         ProviderWorkloadCertificationService._read_usage(payload, evidence)
         model = payload.get("model")
         if isinstance(model, str) and model:
-            evidence.actual_model = model
-            if model != requested_model:
+            observed_model = (
+                clean_provider_video_identifier(model, kind="model")
+                if execution_shape == "video_analysis_unary"
+                else model
+            )
+            if observed_model is None:
+                raise _WorkloadCertificationFailure(
+                    "provider_video_certification_invalid_model"
+                )
+            evidence.actual_model = observed_model
+            if observed_model != requested_model:
                 raise _WorkloadCertificationFailure(
                     "provider_workload_model_mismatch"
                 )
@@ -3920,6 +4801,103 @@ class ProviderWorkloadCertificationService:
                     "provider_workload_json_object_contract_mismatch"
                 )
             evidence.checks["json_object_verified"] = True
+
+    @staticmethod
+    async def _consume_r8e_video_stream(
+        response: httpx.Response,
+        evidence: _CertificationEvidence,
+        started: float,
+        *,
+        expected_model: str,
+    ) -> None:
+        """Use the runtime Chat Video evidence contract during certification."""
+
+        # Local import avoids the module-level workload_control -> multimodal_gateway
+        # cycle while keeping certification and runtime on the same parser.
+        from .multimodal_gateway import ManagedMultimodalChatStreamEvidence
+
+        contract = ManagedMultimodalChatStreamEvidence(
+            execution_shape="chat_video_stream",
+            expected_model=expected_model,
+            started_at=started,
+            max_event_bytes=MAX_WORKLOAD_SSE_EVENT_BYTES,
+        )
+        buffer = b""
+        total_bytes = 0
+        try:
+            async for chunk in response.aiter_bytes(
+                chunk_size=WORKLOAD_RESPONSE_CHUNK_BYTES
+            ):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_WORKLOAD_STREAM_BYTES:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_stream_too_large"
+                    )
+                buffer += chunk
+                while True:
+                    delimiters = [
+                        (index, delimiter)
+                        for delimiter in (b"\n\n", b"\r\n\r\n", b"\r\r")
+                        if (index := buffer.find(delimiter)) >= 0
+                    ]
+                    if not delimiters:
+                        break
+                    index, delimiter = min(delimiters, key=lambda item: item[0])
+                    event_bytes = buffer[:index]
+                    buffer = buffer[index + len(delimiter) :]
+                    if len(event_bytes) > MAX_WORKLOAD_SSE_EVENT_BYTES:
+                        raise _WorkloadCertificationFailure(
+                            "provider_workload_sse_event_too_large"
+                        )
+                    try:
+                        event = event_bytes.decode("utf-8")
+                    except UnicodeDecodeError as exc:
+                        raise _WorkloadCertificationFailure(
+                            "provider_workload_invalid_sse"
+                        ) from exc
+                    contract.feed(event + "\n\n")
+                if len(buffer) > MAX_WORKLOAD_SSE_EVENT_BYTES:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_sse_event_too_large"
+                    )
+            if buffer.strip():
+                try:
+                    contract.feed(buffer.decode("utf-8"))
+                except UnicodeDecodeError as exc:
+                    raise _WorkloadCertificationFailure(
+                        "provider_workload_invalid_sse"
+                    ) from exc
+        except _WorkloadCertificationFailure:
+            raise
+        except Exception as exc:
+            raise _WorkloadCertificationFailure(
+                "provider_workload_stream_interrupted"
+            ) from exc
+
+        status, _result_class, error_code, checks, warnings = contract.finish(
+            transport_completed=True
+        )
+        evidence.actual_model = contract.actual_model
+        evidence.ttft_ms = contract.ttft_ms
+        evidence.prompt_tokens = contract.prompt_tokens
+        evidence.completion_tokens = contract.completion_tokens
+        evidence.total_tokens = contract.total_tokens
+        evidence.checks.update(
+            {
+                "response_complete": checks["stream_completed"],
+                "content_observed": checks["text_delta_observed"],
+                "actual_model_verified": checks["actual_model_verified"],
+                "terminal_signal_verified": checks["terminal_observed"],
+                "safe_terminal_verified": status == "succeeded",
+            }
+        )
+        evidence.warning_codes.extend(
+            warning for warning in warnings if warning not in evidence.warning_codes
+        )
+        if status != "succeeded":
+            raise _WorkloadCertificationFailure(
+                error_code or "provider_workload_invalid_sse"
+            )
 
     @staticmethod
     async def _consume_fusion_stream(
@@ -4239,7 +5217,9 @@ class ProviderWorkloadCertificationService:
         checks = _safe_json_object(json.loads(str(row["checks_json"] or "{}")))
         if (
             str(row["execution_shape"])
-            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            in R8C_EXECUTION_SHAPES
+            | R8D_EXECUTION_SHAPES
+            | R8E_EXECUTION_SHAPES
             and status == "passed"
             and (
                 not row.get("actual_model")
@@ -4260,21 +5240,39 @@ class ProviderWorkloadCertificationService:
                 status = "stale"
                 blocked_reason = evidence_reason
         if (
-            str(row["execution_shape"])
-            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            str(row["execution_shape"]) in R8E_EXECUTION_SHAPES
             and status == "passed"
         ):
-            profile_reason = (
-                r8c_audio_parameter_profile_reason(
-                    str(row["execution_shape"]),
-                    profile,
-                )
-                if str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
-                else r8d_audio_parameter_profile_reason(
-                    str(row["execution_shape"]),
-                    profile,
-                )
+            evidence_reason = r8e_video_certification_evidence_reason(
+                str(row["execution_shape"]),
+                checks,
             )
+            if evidence_reason is not None:
+                status = "stale"
+                blocked_reason = evidence_reason
+        if (
+            str(row["execution_shape"])
+            in R8C_EXECUTION_SHAPES
+            | R8D_EXECUTION_SHAPES
+            | R8E_EXECUTION_SHAPES
+            and status == "passed"
+        ):
+            execution_shape = str(row["execution_shape"])
+            if execution_shape in R8C_EXECUTION_SHAPES:
+                profile_reason = r8c_audio_parameter_profile_reason(
+                    str(row["execution_shape"]),
+                    profile,
+                )
+            elif execution_shape in R8D_EXECUTION_SHAPES:
+                profile_reason = r8d_audio_parameter_profile_reason(
+                    str(row["execution_shape"]),
+                    profile,
+                )
+            else:
+                profile_reason = r8e_video_parameter_profile_reason(
+                    execution_shape,
+                    profile,
+                )
             if profile_reason is not None:
                 status = "stale"
                 blocked_reason = profile_reason
@@ -4283,7 +5281,9 @@ class ProviderWorkloadCertificationService:
         refresh_available = False
         if (
             str(row["execution_shape"])
-            in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
+            in R8C_EXECUTION_SHAPES
+            | R8D_EXECUTION_SHAPES
+            | R8E_EXECUTION_SHAPES
         ):
             session = self._repository_method(
                 "get_multimodal_certification_session"
@@ -4304,7 +5304,11 @@ class ProviderWorkloadCertificationService:
                     else None
                 )
                 refresh_available = bool(
-                    str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+                    (
+                        str(row["execution_shape"]) in R8C_EXECUTION_SHAPES
+                        or str(row["execution_shape"])
+                        == "video_generation_async"
+                    )
                     and str(row["status"]) == "uncertain"
                     and str(session.get("status") or "") == "uncertain"
                     and str(session.get("provider_dispatch_state") or "")
@@ -4316,10 +5320,21 @@ class ProviderWorkloadCertificationService:
                     and all(
                         checks.get(name) is True
                         for name in (
-                            "http_ok",
-                            "content_observed",
-                            "response_complete",
-                            "media_format_verified",
+                            (
+                                "http_ok",
+                                "content_observed",
+                                "response_complete",
+                                "multimodal_adapter_verified",
+                                "async_job_id_verified",
+                            )
+                            if str(row["execution_shape"])
+                            == "video_generation_async"
+                            else (
+                                "http_ok",
+                                "content_observed",
+                                "response_complete",
+                                "media_format_verified",
+                            )
                         )
                     )
                     and str(row.get("contract_version") or "")
@@ -5042,33 +6057,34 @@ class ProviderWorkloadControlService:
         fingerprint = self.repository.connection_config_fingerprint(
             self.router_service.tenant_id, connection_id
         )
-        inventory = self.repository.list_catalog_models(
-            self.router_service.tenant_id,
-            connection_id=connection_id,
-            model_id=model_id,
-            status="active",
-            limit=1,
-        )
-        if not inventory:
-            return None, "provider_workload_model_inventory_missing"
-        refresh = next(
-            (
-                item
-                for item in self.repository.list_catalog_refreshes(
-                    self.router_service.tenant_id,
-                    connection_id=connection_id,
-                    limit=500,
-                )
-                if str(item["id"]) == str(inventory[0]["last_refresh_id"])
-            ),
-            None,
-        )
-        if refresh is None or str(refresh["status"]) != "succeeded":
-            return None, "provider_workload_catalog_refresh_missing"
-        if bool(refresh["truncated"]):
-            return None, "provider_workload_catalog_refresh_truncated"
-        if str(refresh["connection_fingerprint"]) != fingerprint:
-            return None, "provider_workload_catalog_stale"
+        if execution_shape != "video_generation_async":
+            inventory = self.repository.list_catalog_models(
+                self.router_service.tenant_id,
+                connection_id=connection_id,
+                model_id=model_id,
+                status="active",
+                limit=1,
+            )
+            if not inventory:
+                return None, "provider_workload_model_inventory_missing"
+            refresh = next(
+                (
+                    item
+                    for item in self.repository.list_catalog_refreshes(
+                        self.router_service.tenant_id,
+                        connection_id=connection_id,
+                        limit=500,
+                    )
+                    if str(item["id"]) == str(inventory[0]["last_refresh_id"])
+                ),
+                None,
+            )
+            if refresh is None or str(refresh["status"]) != "succeeded":
+                return None, "provider_workload_catalog_refresh_missing"
+            if bool(refresh["truncated"]):
+                return None, "provider_workload_catalog_refresh_truncated"
+            if str(refresh["connection_fingerprint"]) != fingerprint:
+                return None, "provider_workload_catalog_stale"
         certification = self._repository_method(
             "get_latest_workload_certification"
         )(
@@ -5094,7 +6110,9 @@ class ProviderWorkloadControlService:
                 PROVIDER_MULTIMODAL_PROTOCOL_VERSION
             ):
                 return None, "provider_multimodal_protocol_stale"
-        if execution_shape in R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES:
+        if execution_shape in (
+            R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES | R8E_EXECUTION_SHAPES
+        ):
             checks = _safe_json_object(
                 json.loads(str(certification.get("checks_json") or "{}"))
             )
@@ -5110,12 +6128,22 @@ class ProviderWorkloadControlService:
                 r8c_audio_parameter_profile_reason(execution_shape, profile)
                 if execution_shape in R8C_EXECUTION_SHAPES
                 else r8d_audio_parameter_profile_reason(execution_shape, profile)
+                if execution_shape in R8D_EXECUTION_SHAPES
+                else r8e_video_parameter_profile_reason(execution_shape, profile)
             )
             if profile_reason is not None:
                 return None, profile_reason
-            evidence_reason = r8d_audio_certification_evidence_reason(
-                execution_shape,
-                checks,
+            if str(certification.get("profile_fingerprint") or "") != (
+                _fingerprint(profile)
+            ):
+                return None, "provider_workload_certification_profile_invalid"
+            evidence_reason = (
+                r8e_video_certification_evidence_reason(execution_shape, checks)
+                if execution_shape in R8E_EXECUTION_SHAPES
+                else r8d_audio_certification_evidence_reason(
+                    execution_shape,
+                    checks,
+                )
             )
             if evidence_reason is not None:
                 return None, evidence_reason
@@ -5149,7 +6177,20 @@ class ProviderWorkloadControlService:
                         actual_model=str(actual_model),
                     )
                     if execution_shape.startswith("openrouter_batch_")
-                    else str(actual_model) == expected_actual_model
+                    else (
+                        openrouter_video_catalog_model_matches(
+                            requested_model=expected_actual_model,
+                            catalog_model_id=profile.get(
+                                "video_catalog_model_id"
+                            ),
+                            canonical_model_id=profile.get(
+                                "video_catalog_canonical_model_id"
+                            ),
+                            actual_model=str(actual_model),
+                        )
+                        if execution_shape == "video_generation_async"
+                        else str(actual_model) == expected_actual_model
+                    )
                 )
             )
             if not matches:
