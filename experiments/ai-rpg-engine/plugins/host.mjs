@@ -1,9 +1,10 @@
 import {mkdir,open,readFile,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,HISTORY_WINDOW_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
+import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
 
 import {validConfig} from './history-window.mjs';
+import {validSettings,validEdit} from './rolling-summary.mjs';
 
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9-]{0,79}$/.test(value);
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -49,6 +50,12 @@ async function atomicWrite(path,value) {
  finally {if(file)await file.close();await unlink(temporary).catch(e=>{if(e.code!=='ENOENT')throw e;});}
 }
 function outputValid(pluginId,capability,value,session,input) {
+ if(pluginId===ROLLING_SUMMARY_ID){
+  if(capability==='ui.summary-action')return exact(value,['kind','action','label'])&&value.kind==='summary-action'&&value.action==='summary-settings'&&value.label==='自动总结';
+  if(capability==='session.summary.configure')return validSettings(input)&&canonical(value)===canonical({kind:'summary-configuration',sessionId:session.id,...input});
+  if(capability==='session.summary.revise')return validEdit(input)&&canonical(value)===canonical({kind:'summary-revision',sessionId:session.id,...input});
+  return capability==='session.summary.request'&&exact(input,[])&&canonical(value)===canonical({kind:'summary-request',sessionId:session.id});
+ }
  if(pluginId===HISTORY_WINDOW_ID){
   if(capability==='ui.history-action')return exact(value,['kind','action','label'])&&value.kind==='history-action'&&value.action==='history-settings'&&value.label==='历史窗口';
   return capability==='session.history.configure'&&validConfig(input)&&exact(value,['kind','sessionId','turns','includeInitialCharacter'])&&value.kind==='history-configuration'&&value.sessionId===session.id&&value.turns===input.turns&&value.includeInitialCharacter===input.includeInitialCharacter;
@@ -97,6 +104,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   const s=await lookupSession(sessionId);
   if(!s || s.id!==sessionId || !integer(s.revision) || !integer(s.completedTurns) || !hash(s.resourceHash))throw fail('PLUGIN_SESSION_INVALID',400);
   if(!entry.manifest.compatibleCards.includes(s.cardId))throw fail('PLUGIN_CARD_INCOMPATIBLE');
+  if(entry.manifest.id===ROLLING_SUMMARY_ID&&s.rollingSummaryCompatible!==true)throw fail('SUMMARY_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===HISTORY_WINDOW_ID&&s.historyWindowCompatible!==true)throw fail('HISTORY_RUNTIME_INCOMPATIBLE');
   return s;
  }
@@ -117,10 +125,13 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
  const host={
   catalog:async()=>publicCatalog(),
   // Explicitly inactive is different from an unreadable/mismatched authorization.
-  async historyAuthorization(sessionId){
+  async historyAuthorization(sessionId){return host.contextAuthorization(sessionId,HISTORY_WINDOW_ID);},
+  async summaryAuthorization(sessionId){return host.contextAuthorization(sessionId,ROLLING_SUMMARY_ID);},
+  async contextAuthorization(sessionId,pluginId){
+   if(![HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID].includes(pluginId))throw fail('PLUGIN_UNKNOWN',404);
    if(closed)throw fail('PLUGIN_HOST_CLOSED');
-   const entry=entryFor(HISTORY_WINDOW_ID),s=await sessionFor(sessionId,entry);
-   const p=pluginState(HISTORY_WINDOW_ID),g=Object.hasOwn(p.grants,sessionId)?p.grants[sessionId]:null;
+   const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);
+   const p=pluginState(pluginId),g=Object.hasOwn(p.grants,sessionId)?p.grants[sessionId]:null;
    let enabled=false;
    if(p.installed){
     if(!sameBinding(p.installed,{version:entry.manifest.version,...entry}))throw fail('PLUGIN_VERSION_MISMATCH');
@@ -138,6 +149,10 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
     if(current.revision!==expectedAuthorizationRevision)throw fail('HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH');
     return {response:start()};
    });
+  },
+  async guardSummaryTask(sessionId,expectedRevision,action){
+   if(!hash(expectedRevision)||typeof action!=='function')throw fail('SUMMARY_DISPATCH_GUARD_REQUIRED');
+   return serial(async()=>{const auth=await host.summaryAuthorization(sessionId);if(auth.revision!==expectedRevision)throw fail('SUMMARY_AUTHORIZATION_CHANGED');return action(auth);});
   },
   async sessionStatus(sessionId,pluginId=PLUGIN_ID){
    const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);let enabled=false;
@@ -216,7 +231,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
    return structuredClone(result);
   },
   async commitResult(result,commit){
-   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select','session.history.configure'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
+   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
    return serial(async()=>{await host.validateResult(result);try{return await commit();}finally{tickets.get(result.pluginId)?.delete(result.ticket);}});
   },
   async close(){if(closed)return;closed=true;await queue;tickets.clear();await lock.close();await unlink(lockPath);},

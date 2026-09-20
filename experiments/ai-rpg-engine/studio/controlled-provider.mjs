@@ -31,7 +31,7 @@ async function boundedJSON(response) {
 
 // This adapter is server-only. B3 supplies a persisted, authorized session selection.
 // Sharing the existing card directory keeps old and controlled transports on one budget.
-export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch}) {
+export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch, reserveSlot=null}) {
   if(!Number.isInteger(limit)||limit<0||limit>100) throw fail('INVALID_BUDGET');
   let endpoint;
   if(baseURL) {
@@ -64,7 +64,7 @@ export async function createControlledProvider({directory, baseURL, serviceToken
       return item;
     });
   }
-  async function generate(card,{messages,params,signal,sessionId,requestId,selection}) {
+  async function generate(card,{messages,params,signal,sessionId,requestId,selection,lease,purpose,beforeDispatch}) {
     if(card!=='earth') throw fail('CONTROL_CARD_INCOMPATIBLE');
     if(!active) throw fail('CONTROL_DISABLED');
     if(!identity(sessionId)||!identity(requestId)||!identity(selection?.selectionId)||!identity(selection?.selectionRevision)||typeof selection?.model!=='string') throw fail('CONTROL_SELECTION_REQUIRED');
@@ -77,22 +77,22 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     const claims=join(folder,'controlled-requests');await mkdir(claims,{recursive:true});
     try { await durable(join(claims,sha(JSON.stringify([sessionId,requestId]))+'.json'),{requestHash:sha(wire),status:'claimed-no-replay'}); }
     catch(e){if(e.code==='EEXIST') throw fail('REQUEST_ALREADY_CLAIMED');throw e;}
-    if((await status()).remaining===0) throw fail('BUDGET_EXHAUSTED');
-    let slot;
-    for(let i=1;i<=limit;i++) {
+    if(!reserveSlot&&(await status()).remaining===0) throw fail('BUDGET_EXHAUSTED');
+    let slot=reserveSlot?await reserveSlot(lease,{sessionId,requestId,purpose}):null;
+    for(let i=1;!reserveSlot&&i<=limit;i++) {
       try {slot=join(folder,'slot-'+i);await mkdir(slot);break;}
       catch(e){if(e.code!=='EEXIST') throw e;slot=null;}
     }
     if(!slot) throw fail('BUDGET_EXHAUSTED');
     const save=(name,value)=>durable(join(slot,name),value);
     const reservation={card,sessionId,requestId,at:new Date().toISOString(),transport:'modelmirror-rpg-s2s-v1',
-      status:'reserved',requestHash:sha(wire),controlRequestHash:bodyHash(payload),selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,
+      status:'reserved',...(reserveSlot?{purpose}:{}),requestHash:sha(wire),controlRequestHash:bodyHash(payload),selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,
       requestedModel:selection.model,parameters:parametersFor(selection.model),retries:0};
     await save('reservation.json',reservation); await save('request.json',wire);
     let raw='',sse='',receipt=null,httpStatus=null,error=null;
     try {
       if(signal?.aborted) throw fail('CANCELLED');
-      const response=await request('chat/completions',wire,signal); httpStatus=response.status;
+      const response=beforeDispatch?await (await beforeDispatch(()=>request('chat/completions',wire,signal),sha(wire))).response:await request('chat/completions',wire,signal); httpStatus=response.status;
       const value=await boundedJSON(response);
       if(typeof value.raw==='string') raw=value.raw;
       if(typeof value.sse==='string') sse=value.sse;
@@ -131,5 +131,14 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     if(matches.length>1) throw fail('MODEL_RECEIPT_AMBIGUOUS');
     return matches[0]??null;
   }
-  return {catalog,generate,status,evidence};
+  async function recoveredOutput(sessionId,requestId){
+    const found=await evidence(sessionId,requestId);if(!found)return null;
+    const slot=found.ref.split('/')[1],raw=await readFile(join(folder,slot,'response.txt'),'utf8'),sse=await readFile(join(folder,slot,'response.sse'),'utf8');
+    const result=JSON.parse(await readFile(join(folder,slot,'result.json'),'utf8'));
+    if(sha(raw)!==result.rawHash||sha(sse)!==result.sseHash)throw fail('CONTROL_RECEIPT_INVALID');
+    let finishReason=null;
+    for(const block of sse.split(/\r?\n\r?\n/)){const data=block.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');if(data&&data!=='[DONE]'){try{const value=JSON.parse(data);for(const c of value.choices||[])if(c.finish_reason)finishReason=c.finish_reason;}catch{throw fail('CONTROL_RECEIPT_INVALID');}}}
+    return {raw,finishReason,evidence:found,failureKnown:result.receipt?.dispatched===true&&(result.receipt.status==='failed'||result.receipt.status==='complete'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&!raw.trim())};
+  }
+  return {catalog,generate,status,evidence,recoveredOutput};
 }
