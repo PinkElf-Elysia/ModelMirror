@@ -60,15 +60,57 @@ export function prepareDeterministicNpcBehavior(input){
 }
 
 function executionMap(state){const map=new Map();for(const value of state.executions??[]){if(!Number.isSafeInteger(value.ruleIndex)||!Number.isSafeInteger(value.count)||!Number.isSafeInteger(value.lastRevision))return null;const key=`${value.actorEntityId}\0${value.ruleIndex}`;if(map.has(key))return null;map.set(key,value)}return map}
+function eligibleNpcBehaviorSelections(data,input,actorEntityId=null){
+  const {runtimeSnapshot,runtimeInspection,worldEventLedgerJson,behaviorState}=input;
+  if(!runtimeSnapshot||!runtimeInspection||!behaviorState||!Number.isSafeInteger(behaviorState.nextSequence)||behaviorState.nextSequence<1)return fail("NPC_BEHAVIOR_STATE_INVALID");
+  const ledgerReport=validateWorldEventLedgerJson(worldEventLedgerJson);if(!ledgerReport.valid)return freeze({ok:false,diagnostics:ledgerReport.diagnostics});const ledger=JSON.parse(worldEventLedgerJson);
+  if(runtimeInspection.status==="ended")return freeze({ok:true,status:"ended",selections:[],nextBehaviorState:freeze(structuredClone(behaviorState))});
+  const currentNodeId=runtimeInspection.location?.id;const available=new Set((runtimeInspection.actions??[]).filter((action)=>action.available).map((action)=>action.id));const executions=executionMap(behaviorState);if(!executions)return fail("NPC_BEHAVIOR_STATE_INVALID");
+  const selections=[];
+  for(const actor of data.policy.actors){
+    if(actorEntityId!==null&&actor.actorEntityId!==actorEntityId)continue;
+    const binding=data.bindingMap.get(actor.actorEntityId);if(!binding.visibleNodeIds.includes(currentNodeId))continue;
+    for(let ruleIndex=0;ruleIndex<actor.rules.length;ruleIndex+=1){
+      const rule=actor.rules[ruleIndex];if(rule.nodeId!==currentNodeId||!available.has(rule.actionId))continue;
+      const key=`${actor.actorEntityId}\0${ruleIndex}`,prior=executions.get(key)??{actorEntityId:actor.actorEntityId,ruleIndex,count:0,lastRevision:0};if(prior.count>=rule.executionLimit||ledger.revision-prior.lastRevision<rule.minimumRevisionGap)continue;
+      const sequence=behaviorState.nextSequence;const identity=hash(canonicalizeJsonValue({timelineId:ledger.timeline.id,sequence,actorEntityId:actor.actorEntityId,ruleIndex})).slice(7,23);
+      const intent={format:"matrix-oasis.npc-intent",formatVersion:"0.1.0",canonicalization:"matrix-oasis.canonical-json/1",id:`intent-${String(sequence).padStart(6,"0")}-${identity}`,actorEntityId:actor.actorEntityId,timelineId:ledger.timeline.id,nodeId:rule.nodeId,actionId:rule.actionId,observed:{revision:ledger.revision,headSha256:ledger.headSha256,runtimeSnapshotSha256:hash(canonicalizeJsonValue(runtimeSnapshot))}};
+      const nextExecutions=[...executions.values().filter((value)=>!(value.actorEntityId===actor.actorEntityId&&value.ruleIndex===ruleIndex)),{actorEntityId:actor.actorEntityId,ruleIndex,count:prior.count+1,lastRevision:ledger.revision+1}].sort((a,b)=>data.policy.actors.findIndex((value)=>value.actorEntityId===a.actorEntityId)-data.policy.actors.findIndex((value)=>value.actorEntityId===b.actorEntityId)||a.ruleIndex-b.ruleIndex);
+      const command={sequence,actorEntityId:actor.actorEntityId,ruleIndex,nodeId:rule.nodeId,actionId:rule.actionId,intentId:intent.id,npcIntentJson:canonicalizeJsonValue(intent)};
+      selections.push({command,nextBehaviorState:{nextSequence:sequence+1,executions:nextExecutions}});
+    }
+  }
+  return freeze({ok:true,status:"candidates",selections});
+}
+export function enumerateEligibleNpcBehaviorCommands(input){
+  try{
+    const data=preparedBehaviors.get(input?.prepared);if(!data)return fail("NPC_BEHAVIOR_PREPARED_INVALID");
+    if(typeof input.actorEntityId!=="string"||!Number.isSafeInteger(input.maximumCandidates)||input.maximumCandidates<1||input.maximumCandidates>256)return fail("NPC_BEHAVIOR_ENUMERATION_INPUT_INVALID");
+    const result=eligibleNpcBehaviorSelections(data,input,input.actorEntityId);if(!result.ok)return result;
+    if(result.status==="ended")return freeze({ok:true,status:"ended",candidates:[]});
+    if(result.selections.length>input.maximumCandidates)return fail("NPC_BEHAVIOR_CANDIDATE_LIMIT_EXCEEDED");
+    const candidates=result.selections.map(({command})=>({actorEntityId:command.actorEntityId,ruleIndex:command.ruleIndex,nodeId:command.nodeId,actionId:command.actionId,intentId:command.intentId,npcIntentSha256:hash(command.npcIntentJson)}));
+    return freeze({ok:true,status:"candidates",candidates});
+  }catch{return fail("NPC_BEHAVIOR_ENUMERATE_INTERNAL_ERROR")}
+}
+export function selectEligibleNpcBehaviorCommand(input){
+  try{
+    const data=preparedBehaviors.get(input?.prepared);if(!data)return fail("NPC_BEHAVIOR_PREPARED_INVALID");
+    if(typeof input.actorEntityId!=="string"||typeof input.expectedIntentId!=="string"||!/^sha256:[0-9a-f]{64}$/u.test(input.expectedNpcIntentSha256??""))return fail("NPC_BEHAVIOR_SELECTION_INPUT_INVALID");
+    const result=eligibleNpcBehaviorSelections(data,input,input.actorEntityId);if(!result.ok)return result;
+    if(result.status==="ended")return freeze({ok:true,status:"ended",nextBehaviorState:result.nextBehaviorState});
+    const matches=result.selections.filter(({command})=>command.intentId===input.expectedIntentId&&hash(command.npcIntentJson)===input.expectedNpcIntentSha256);
+    if(matches.length!==1)return fail("NPC_BEHAVIOR_SELECTION_STALE");
+    return freeze({ok:true,status:"command",command:matches[0].command,nextBehaviorState:matches[0].nextBehaviorState});
+  }catch{return fail("NPC_BEHAVIOR_SELECT_ELIGIBLE_INTERNAL_ERROR")}
+}
 export function selectNextNpcBehaviorCommand(input){
   try{
     const data=preparedBehaviors.get(input?.prepared);if(!data)return fail("NPC_BEHAVIOR_PREPARED_INVALID");
-    const {runtimeSnapshot,runtimeInspection,worldEventLedgerJson,behaviorState}=input;
-    if(!runtimeSnapshot||!runtimeInspection||!behaviorState||!Number.isSafeInteger(behaviorState.nextSequence)||behaviorState.nextSequence<1)return fail("NPC_BEHAVIOR_STATE_INVALID");
-    const ledgerReport=validateWorldEventLedgerJson(worldEventLedgerJson);if(!ledgerReport.valid)return freeze({ok:false,diagnostics:ledgerReport.diagnostics});const ledger=JSON.parse(worldEventLedgerJson);
-    if(runtimeInspection.status==="ended")return freeze({ok:true,status:"ended",nextBehaviorState:freeze(structuredClone(behaviorState))});
-    const currentNodeId=runtimeInspection.location?.id;const available=new Set((runtimeInspection.actions??[]).filter((action)=>action.available).map((action)=>action.id));const executions=executionMap(behaviorState);if(!executions)return fail("NPC_BEHAVIOR_STATE_INVALID");
-    for(const actor of data.policy.actors){const binding=data.bindingMap.get(actor.actorEntityId);if(!binding.visibleNodeIds.includes(currentNodeId))continue;for(let ruleIndex=0;ruleIndex<actor.rules.length;ruleIndex+=1){const rule=actor.rules[ruleIndex];if(rule.nodeId!==currentNodeId||!available.has(rule.actionId))continue;const key=`${actor.actorEntityId}\0${ruleIndex}`,prior=executions.get(key)??{actorEntityId:actor.actorEntityId,ruleIndex,count:0,lastRevision:0};if(prior.count>=rule.executionLimit||ledger.revision-prior.lastRevision<rule.minimumRevisionGap)continue;const sequence=behaviorState.nextSequence;const identity=hash(canonicalizeJsonValue({timelineId:ledger.timeline.id,sequence,actorEntityId:actor.actorEntityId,ruleIndex})).slice(7,23);const intent={format:"matrix-oasis.npc-intent",formatVersion:"0.1.0",canonicalization:"matrix-oasis.canonical-json/1",id:`intent-${String(sequence).padStart(6,"0")}-${identity}`,actorEntityId:actor.actorEntityId,timelineId:ledger.timeline.id,nodeId:rule.nodeId,actionId:rule.actionId,observed:{revision:ledger.revision,headSha256:ledger.headSha256,runtimeSnapshotSha256:hash(canonicalizeJsonValue(runtimeSnapshot))}};const nextExecutions=[...executions.values().filter((value)=>!(value.actorEntityId===actor.actorEntityId&&value.ruleIndex===ruleIndex)),{actorEntityId:actor.actorEntityId,ruleIndex,count:prior.count+1,lastRevision:ledger.revision+1}].sort((a,b)=>data.policy.actors.findIndex((value)=>value.actorEntityId===a.actorEntityId)-data.policy.actors.findIndex((value)=>value.actorEntityId===b.actorEntityId)||a.ruleIndex-b.ruleIndex);const command={sequence,actorEntityId:actor.actorEntityId,ruleIndex,nodeId:rule.nodeId,actionId:rule.actionId,intentId:intent.id,npcIntentJson:canonicalizeJsonValue(intent)};return freeze({ok:true,status:"command",command,nextBehaviorState:{nextSequence:sequence+1,executions:nextExecutions}})}}
-    return freeze({ok:true,status:"quiescent",nextBehaviorState:freeze(structuredClone(behaviorState))});
+    const result=eligibleNpcBehaviorSelections(data,input);if(!result.ok)return result;
+    if(result.status==="ended")return freeze({ok:true,status:"ended",nextBehaviorState:result.nextBehaviorState});
+    const selected=result.selections[0];
+    if(selected)return freeze({ok:true,status:"command",command:selected.command,nextBehaviorState:selected.nextBehaviorState});
+    return freeze({ok:true,status:"quiescent",nextBehaviorState:freeze(structuredClone(input.behaviorState))});
   }catch{return fail("NPC_BEHAVIOR_SELECT_INTERNAL_ERROR")}
 }

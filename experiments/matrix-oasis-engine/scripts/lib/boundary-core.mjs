@@ -119,6 +119,7 @@ const NETWORK_GLOBAL_NAMES = [
   ["send", "Beacon"].join(""),
 ];
 const FETCH_GLOBAL_NAME = NETWORK_GLOBAL_NAMES[0];
+const FETCH_TYPE_DECLARATION = ["typeof", FETCH_GLOBAL_NAME].join(" ");
 const APPROVED_CREATOR_LOOPBACK_CLIENT_SOURCE =
   "apps/creator-web/src/prototype-builder.ts";
 const NETWORK_MODULES = new Set([
@@ -154,10 +155,20 @@ const MESHY_ENDPOINT = [
   "text-to-3d",
 ].join("/");
 const MARBLE_ENDPOINT = ["https:", "", "api.worldlabs.ai", "marble", "v1"].join("/");
+const R22_OPENAI_RESPONSES_ENDPOINT = ["https:", "", "api.openai.com", "v1", "responses"].join("/");
+const R22_CONTRACT_ENDPOINT_METADATA_SOURCES = new Map([
+  ["packages/npc-cognition-contracts/src/index.d.ts", 2],
+  ["packages/npc-cognition-contracts/src/schema.mjs", 1],
+  ["packages/npc-cognition-contracts/tests/contracts.test.mjs", 1],
+  ["packages/npc-cognition-contracts/tests/fixtures.mjs", 1],
+  ["packages/npc-cognition-provider-openai/src/index.d.ts", 1],
+]);
+const R22_PROVIDER_TEST_SOURCE = "packages/npc-cognition-provider-openai/tests/provider.test.mjs";
 const APPROVED_PROVIDER_NETWORK_SOURCES = new Set([
   "packages/prototype-generator/src/openai-compatible.mjs",
   "packages/prototype-asset-pipeline/src/meshy-provider.mjs",
   "packages/prototype-environment-pipeline/src/marble-provider.mjs",
+  "packages/npc-cognition-provider-openai/src/index.mjs",
 ]);
 const STATIC_SECRET_PATTERNS = [
   /-----BEGIN(?: [A-Z0-9]+)? PRIVATE KEY-----/,
@@ -193,7 +204,7 @@ const R9_SHARP_LIBVIPS_LICENSE_EXCEPTIONS = [
 }));
 
 const REQUIRED_POLICY_VALUES = [
-  [["schemaVersion"], 21],
+  [["schemaVersion"], 22],
   [["moduleId"], "matrix-oasis-engine"],
   [["moduleRoot"], "."],
   [["moduleRootResolution"], "directory-containing-module-boundary"],
@@ -205,7 +216,7 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "creatorSource"], "none"],
   [["networkPolicy", "godotFirstPartySource"], "none"],
   [["networkPolicy", "verificationScripts"], "loopback-only"],
-  [["networkPolicy", "providerCalls"], "openai-compatible-meshy-and-marble-adapters-only"],
+  [["networkPolicy", "providerCalls"], "approved-meshy-marble-and-r22-responses-adapters-only"],
   [["networkPolicy", "splatQualification"], "source-checkout-and-loopback-disposable-only"],
   [["networkPolicy", "r12QualificationCalls"], "human-approved-only"],
   [["networkPolicy", "r13AnalysisCalls"], "none"],
@@ -231,21 +242,26 @@ const REQUIRED_POLICY_VALUES = [
   [["networkPolicy", "r21ReferenceAuditCalls"], "fixed-public-source-read-only"],
   [["networkPolicy", "r21ProviderCalls"], "none"],
   [["networkPolicy", "r21ExternalIndexCalls"], "none"],
+  [["networkPolicy", "r22OrdinaryVerificationCalls"], "none"],
+  [["networkPolicy", "r22ReferenceAuditCalls"], "fixed-public-source-read-only"],
+  [["networkPolicy", "r22LoopbackCalls"], "127.0.0.1:43122-only"],
+  [["networkPolicy", "r22ProviderCalls"], "content-bound-human-approved-single-request-only"],
+  [["networkPolicy", "r22ProviderCredentialReads"], "approved-dispatch-only"],
   [["mvpClaimPolicy", "status"], "r16-qualified"],
   [["mvpClaimPolicy", "claimAllowed"], true],
   [["mvpClaimPolicy", "blockingRound"], null],
   [["mvpClaimPolicy", "acceptanceRecord"], "docs/rounds/R16_ACCEPTANCE.md"],
   [["mvpClaimPolicy", "machineStatus"], "docs/MVP_STATUS.json"],
   [["mvpClaimPolicy", "completionMarker"], "MATRIX_OASIS_R16_CREATOR_MVP_READY"],
-  [["v2ClaimPolicy", "status"], "r21-derived-state-qualified"],
+  [["v2ClaimPolicy", "status"], "r22-cognition-qualified"],
   [["v2ClaimPolicy", "claimAllowed"], false],
   [["v2ClaimPolicy", "blockingRound"], "R25"],
   [["v2ClaimPolicy", "machineStatus"], "docs/V2_STATUS.json"],
-  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.npc-derived-state/1"],
+  [["v2ClaimPolicy", "qualificationProfile"], "matrix-oasis.bounded-npc-cognition/1"],
   [["v2ClaimPolicy", "trackedCandidateSourceAllowed"], false],
   [["v2ClaimPolicy", "trackedQualificationEvidenceAllowed"], false],
-  [["v2ClaimPolicy", "providerCallsAllowed"], false],
-  [["v2ClaimPolicy", "providerCredentialsAllowed"], false],
+  [["v2ClaimPolicy", "providerCallsAllowed"], "r22-approved-turn-only"],
+  [["v2ClaimPolicy", "providerCredentialsAllowed"], "r22-approved-dispatch-only"],
   [["v2ClaimPolicy", "containerExecutionRequiresHumanApproval"], true],
   [["r20NpcBridgePolicy", "behaviorPolicyFormat"], "matrix-oasis.npc-behavior-policy"],
   [["r20NpcBridgePolicy", "entityBindingFormat"], "matrix-oasis.npc-entity-binding"],
@@ -310,6 +326,65 @@ const REQUIRED_POLICY_VALUES = [
   [["r21DerivedStatePolicy", "creatorIntegrationAllowed"], false],
   [["r21DerivedStatePolicy", "dynamicTasksAllowed"], false],
   [["r21DerivedStatePolicy", "dynamicEventsAllowed"], false],
+  [["r22BoundedCognitionPolicy", "policyFormat"], "matrix-oasis.npc-cognition-policy"],
+  [["r22BoundedCognitionPolicy", "turnRequestFormat"], "matrix-oasis.npc-cognition-turn-request"],
+  [["r22BoundedCognitionPolicy", "callPlanFormat"], "matrix-oasis.npc-cognition-call-plan"],
+  [["r22BoundedCognitionPolicy", "dialogueProposalFormat"], "matrix-oasis.npc-dialogue-proposal"],
+  [["r22BoundedCognitionPolicy", "turnReceiptFormat"], "matrix-oasis.npc-cognition-turn-receipt"],
+  [["r22BoundedCognitionPolicy", "traceFormat"], "matrix-oasis.npc-cognition-trace"],
+  [["r22BoundedCognitionPolicy", "qualificationFormat"], "matrix-oasis.npc-cognition-qualification-report"],
+  [["r22BoundedCognitionPolicy", "formatVersion"], "0.1.0"],
+  [["r22BoundedCognitionPolicy", "qualificationProfile"], "matrix-oasis.bounded-npc-cognition/1"],
+  [["r22BoundedCognitionPolicy", "canonicalization"], "matrix-oasis.canonical-json/1"],
+  [["r22BoundedCognitionPolicy", "host"], "127.0.0.1"],
+  [["r22BoundedCognitionPolicy", "port"], 43122],
+  [["r22BoundedCognitionPolicy", "endpoint"], R22_OPENAI_RESPONSES_ENDPOINT],
+  [["r22BoundedCognitionPolicy", "model"], "gpt-5.6-luna"],
+  [["r22BoundedCognitionPolicy", "reasoningEffort"], "none"],
+  [["r22BoundedCognitionPolicy", "maxRealActors"], 6],
+  [["r22BoundedCognitionPolicy", "maxSafeActionsPerActor"], 64],
+  [["r22BoundedCognitionPolicy", "callsPerTimeline"], 16],
+  [["r22BoundedCognitionPolicy", "callsPerActor"], 8],
+  [["r22BoundedCognitionPolicy", "concurrentCalls"], 1],
+  [["r22BoundedCognitionPolicy", "candidateActionsPerTurn"], 64],
+  [["r22BoundedCognitionPolicy", "memoryEpisodesPerActor"], 16],
+  [["r22BoundedCognitionPolicy", "relationshipEdgesPerActor"], 64],
+  [["r22BoundedCognitionPolicy", "transientDialogueExchanges"], 4],
+  [["r22BoundedCognitionPolicy", "transientDialogueBytes"], 8192],
+  [["r22BoundedCognitionPolicy", "playerTextBytes"], 4096],
+  [["r22BoundedCognitionPolicy", "derivedContextBytes"], 16384],
+  [["r22BoundedCognitionPolicy", "providerRequestBytes"], 32768],
+  [["r22BoundedCognitionPolicy", "providerResponseBytes"], 65536],
+  [["r22BoundedCognitionPolicy", "localBodyBytes"], 65536],
+  [["r22BoundedCognitionPolicy", "dialogueBytes"], 2048],
+  [["r22BoundedCognitionPolicy", "dialogueLines"], 8],
+  [["r22BoundedCognitionPolicy", "maxOutputTokens"], 512],
+  [["r22BoundedCognitionPolicy", "timeoutMs"], 30000],
+  [["r22BoundedCognitionPolicy", "approvalLifetimeMs"], 300000],
+  [["r22BoundedCognitionPolicy", "inputMicrousdPerMillionTokens"], 200000],
+  [["r22BoundedCognitionPolicy", "outputMicrousdPerMillionTokens"], 1200000],
+  [["r22BoundedCognitionPolicy", "perCallMicrousd"], 10000],
+  [["r22BoundedCognitionPolicy", "perTimelineMicrousd"], 160000],
+  [["r22BoundedCognitionPolicy", "perHostRunMicrousd"], 1000000],
+  [["r22BoundedCognitionPolicy", "requestsPerTurn"], 1],
+  [["r22BoundedCognitionPolicy", "providerRetryLimit"], 0],
+  [["r22BoundedCognitionPolicy", "hostRetryLimit"], 0],
+  [["r22BoundedCognitionPolicy", "streamAllowed"], false],
+  [["r22BoundedCognitionPolicy", "storeAllowed"], false],
+  [["r22BoundedCognitionPolicy", "backgroundAllowed"], false],
+  [["r22BoundedCognitionPolicy", "toolsAllowed"], false],
+  [["r22BoundedCognitionPolicy", "remoteConversationAllowed"], false],
+  [["r22BoundedCognitionPolicy", "modelDirectRuntimeWriteAllowed"], false],
+  [["r22BoundedCognitionPolicy", "modelDirectLedgerWriteAllowed"], false],
+  [["r22BoundedCognitionPolicy", "modelDerivedStateWriteAllowed"], false],
+  [["r22BoundedCognitionPolicy", "dynamicTaskOrEventProposalAllowed"], false],
+  [["r22BoundedCognitionPolicy", "rawTurnPersistenceAllowed"], false],
+  [["r22BoundedCognitionPolicy", "rawDialoguePersistenceAllowed"], false],
+  [["r22BoundedCognitionPolicy", "modelOutputReproducible"], false],
+  [["r22BoundedCognitionPolicy", "providerReplayRequests"], 0],
+  [["r22BoundedCognitionPolicy", "humanApprovalPerTurnRequired"], true],
+  [["r22BoundedCognitionPolicy", "ordinaryVerificationNetworkAllowed"], false],
+  [["r22BoundedCognitionPolicy", "creatorIntegrationAllowed"], false],
   [["r18LandscapePolicy", "catalogFormat"], "matrix-oasis.v2-candidate-catalog"],
   [["r18LandscapePolicy", "landscapeFormat"], "matrix-oasis.v2-decision-landscape"],
   [["r18LandscapePolicy", "roadmapFormat"], "matrix-oasis.v2-roadmap"],
@@ -693,13 +768,14 @@ const REQUIRED_POLICY_VALUES = [
   [["thirdPartyPolicy", "sceneAssetManifest"], "third-party/kenney-prototype-kit/asset.lock.json"],
   [["thirdPartyPolicy", "splatAddonManifest"], "third-party/godot-gaussian-splatting.lock.json"],
   [["thirdPartyPolicy", "spatialReferenceManifest"], "third-party/spatial-layout-references/reference.lock.json"],
+  [["thirdPartyPolicy", "npcCognitionReferenceManifest"], "third-party/npc-cognition-references/reference.lock.json"],
   [
     ["thirdPartyPolicy", "allowedVendoredRoots"],
     ["apps/runtime-godot/addons/gdUnit4", "apps/runtime-godot/addons/gdgs", "examples/scene-bundles/kenney-prototype/assets"],
   ],
   [
     ["thirdPartyPolicy", "allowedReferenceRoots"],
-    ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit", "third-party/godot-gaussian-splatting", "third-party/spatial-layout-references"],
+    ["third-party/godot-demo-projects", "third-party/kenney-prototype-kit", "third-party/godot-gaussian-splatting", "third-party/spatial-layout-references", "third-party/npc-cognition-references"],
   ],
   [["thirdPartyPolicy", "modificationsRequireHumanApproval"], true],
   [["licensePolicy", "moduleLicense"], "UNLICENSED"],
@@ -1340,6 +1416,55 @@ function checkRuntimeNetwork(relative, content, specifiers, violations) {
     }
     return;
   }
+  if (R22_CONTRACT_ENDPOINT_METADATA_SOURCES.has(relative)) {
+    const expectedEndpointOccurrences = R22_CONTRACT_ENDPOINT_METADATA_SOURCES.get(relative);
+    const endpointOccurrences = content.split(R22_OPENAI_RESPONSES_ENDPOINT).length - 1;
+    let remainingContent = content.replaceAll(R22_OPENAI_RESPONSES_ENDPOINT, "");
+    if (relative === "packages/npc-cognition-provider-openai/src/index.d.ts") {
+      const fetchTypeOccurrences = remainingContent.split(FETCH_TYPE_DECLARATION).length - 1;
+      if (fetchTypeOccurrences !== 1) {
+        addViolation(
+          violations,
+          "r22-provider-type-metadata-invalid",
+          relative,
+          "The R22 provider type declaration may expose exactly one inert injected request-function type.",
+        );
+      }
+      remainingContent = remainingContent.replace(FETCH_TYPE_DECLARATION, "");
+    }
+    const forbiddenCapability =
+      endpointOccurrences !== expectedEndpointOccurrences ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(remainingContent)) ||
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(remainingContent) ||
+      /\bprocess\s*\.\s*env\b/u.test(remainingContent);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "r22-contract-endpoint-metadata-invalid",
+        relative,
+        "R22 inert metadata may contain only its declared locked endpoint and no network capability.",
+      );
+    }
+    return;
+  }
+  if (relative === R22_PROVIDER_TEST_SOURCE) {
+    const forbiddenCapability =
+      usesNetworkModule(specifiers) ||
+      hasExternalOrProtocolRelativeUrl(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content) ||
+      new RegExp(`\\bglobalThis\\s*\\.\\s*${FETCH_GLOBAL_NAME}\\b`, "u").test(content) ||
+      new RegExp(`\\b${FETCH_GLOBAL_NAME}\\s*\\(`, "u").test(content);
+    if (forbiddenCapability) {
+      addViolation(
+        violations,
+        "r22-provider-test-network-invalid",
+        relative,
+        "R22 provider tests may inject a fake request function but may not access a real network capability.",
+      );
+    }
+    return;
+  }
   if (APPROVED_PROVIDER_NETWORK_SOURCES.has(relative)) {
     const forbiddenCapability =
       NETWORK_GLOBAL_NAMES
@@ -1513,6 +1638,78 @@ function checkSmokeNetwork(relative, content, specifiers, violations) {
 }
 
 function checkScriptNetwork(relative, content, specifiers, policy, violations) {
+  if (relative === "scripts/lib/r22-diagnostic-transaction.mjs") {
+    // A narrowly named, high-level transactional adapter. This static gate is
+    // supplemented by the dispatch/identity/crash matrix, not a JS sandbox.
+    const nativeCapture = `const nativeRequest = globalThis.${FETCH_GLOBAL_NAME};`;
+    const credentialRead = "process.env.MATRIX_OASIS_R22_OPENAI_API_KEY";
+    const credentialPresence = 'Object.hasOwn(process.env, "MATRIX_OASIS_R22_OPENAI_API_KEY")';
+    const remaining = content.replace(nativeCapture, "").replace(credentialRead, "").replace(credentialPresence, "");
+    const publicFunctions = ["createR22OfficialToolUsageDiagnosticTransaction", "createR22InjectedToolUsageDiagnosticTransaction",
+      "recoverR22OfficialToolUsageDiagnosticTransaction", "recoverR22InjectedToolUsageDiagnosticTransaction",
+      "describeR22OfficialToolUsageDiagnosticTransaction", "createR22ToolUsageDiagnosticTransaction",
+      "recoverR22ToolUsageDiagnosticTransaction", "auditR22DiagnosticBudgetHistory"];
+    const declarations = [...content.matchAll(/\bexport\s+async\s+function\s+(\w+)\s*\(/gu)];
+    const exportSurfaceInvalid = !isDeepStrictEqual(declarations.map((match) => match[1]), publicFunctions) ||
+      /\bexport\b/u.test(content.replace(/\bexport\s+async\s+function\s+\w+\s*\(/gu, ""));
+    const controls = [
+      "async function sendDiagnosticRequest(operations, revalidateDispatch, phase, captureProfile)",
+      'fixedPlan(captureProfile)',
+      'if (captureProfile === "billing") return createNpcCognitionBillingDiagnosticPlan();',
+      'validateObservation(evaluated.observation, state.captureProfile);',
+      "export async function createR22OfficialToolUsageDiagnosticTransaction(config)",
+      'if (arguments.length !== 1) fail("R22_APPROVAL_MISMATCH")',
+      'if (typeof nativeRequest !== "function") fail("R22_DIAGNOSTIC_LIVE_DISABLED")',
+      'createTransaction(config, undefined, "official-once", Object.freeze({',
+      "fixture: false, timeoutMs: 30000",
+      "requestImplementation: (endpoint, options) => nativeRequest(endpoint, options)",
+      "operations.requestImplementation(callPlan.endpoint, {",
+      'method: "POST", redirect: "error", credentials: "omit", cache: "no-store", signal: controller.signal',
+      "body: fixed.providerRequestJson",
+      "await revalidateDispatch();",
+      "await state.account.settle(budgetKey(plan), true);",
+      'state.fs.immutable(root, "dispatch-record.json", dispatch, state.fs.ops.phase)',
+      'if (mode === "official-once" && (state.additionalAuthorization ? ids.length !== 1 || ids[0] !== state.previousTransactionSha256.slice(7) : ids.length !== 0))',
+      'await prepareOfficialClaim(state);',
+      'await revalidateOfficialClaim(state, id, plan);',
+      'terminal.state !== "transport_failed" || terminal.realRequestCount !== 0 || terminal.chargedMicrousd !== 10000',
+      'transport.status !== "credential_unavailable" || transport.requestCount !== 0',
+      'grant.kind !== "single-zero-request-credential-repair" || grant.officialDiagnosticLimit !== 2',
+      'validateAdditionalLink(additional[0].plan, official.find((item) => item !== additional[0]));',
+      'config.captureProfile !== "billing" || typeof config.billingAfterTransactionSha256 !== "string"',
+      'grant.kind !== "single-billing-observation" || grant.officialDiagnosticLimit !== 3 || grant.previousFormatVersion !== "0.4.0"',
+      'terminal.state !== "observed" || terminal.realRequestCount !== 1 || terminal.chargedMicrousd !== 10000',
+      'transport.status !== "response" || transport.requestCount !== 1 || observation?.observation?.status !== "observed"',
+      'validateBillingLink(billing[0].plan, previous);',
+      'canonicalText(plan.credentialSource) !== canonicalText(previous.plan.credentialSource)',
+      'credentialConfiguration(state).identitySha256 !== previous.plan.credentialSource.identitySha256',
+      'validateOfficialHistory(prefix);',
+      'names.length >= (billingAfterTransactionSha256 ? 3 : 2)',
+      'import { prepareR22FileCredentialReader } from "./r22-live-provider.mjs"',
+      'state.expectedDisclosureSha256 !== id) fail("R22_APPROVAL_MISMATCH")',
+      '!credentialConfiguration(state).configured) fail("R22_DIAGNOSTIC_CREDENTIAL_NOT_CONFIGURED")',
+      'Object.freeze({ ...transportOperations, readCredential: state.credentialReader })',
+      "new Uint8Array(65536)", "++chunks > 4096", "controller.abort()",
+    ];
+    const invalid = exportSurfaceInvalid || !content.includes(nativeCapture) || !content.includes(credentialRead) || !content.includes(credentialPresence) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`, "u").test(remaining)) ||
+      /\b(?:globalThis|global)\b/u.test(remaining) ||
+      /\bprocess\s*\.\s*env\b/u.test(remaining) || usesNetworkModule(specifiers) || hasExternalOrProtocolRelativeUrl(content) ||
+      [...content.matchAll(/\bnativeRequest\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bnativeRequest\b/gu)].length !== 3 ||
+      [...content.matchAll(/\bsendDiagnosticRequest\b/gu)].length !== 2 ||
+      [...content.matchAll(/\boperations\.requestImplementation\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bprepareR22FileCredentialReader\b/gu)].length !== 2 ||
+      [...content.matchAll(/\bprepareR22FileCredentialReader\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\boperations\s*\.\s*readCredential\b/gu)].length !== 1 ||
+      [...content.matchAll(/\boperations\s*\.\s*readCredential\s*\(/gu)].length !== 1 ||
+      [...content.matchAll(/\bstate\s*\.\s*credentialReader\b/gu)].length !== 8 ||
+      /\bstate\s*\.\s*credentialReader\s*(?:\.\s*(?:call|apply|bind)\s*)?\(/u.test(content) ||
+      /export\s+(?:async\s+)?function\s+sendDiagnosticRequest/u.test(content) || controls.some((control) => !content.includes(control));
+    if (invalid) addViolation(violations, "r22-diagnostic-network-invalid", relative,
+      "Only the private, content-approved, budgeted single-request diagnostic transport and its fixed dispatch-only credential are allowed.");
+    return;
+  }
   if (relative === "scripts/lib/r18-discovery-core.mjs") {
     const hostBlock = content.match(/const EXPECTED_HOSTS = Object\.freeze\(\[([\s\S]*?)\]\);/u)?.[1] ?? "";
     const declaredHosts = [...hostBlock.matchAll(/"([a-z0-9.-]+)"/gu)].map((match) => match[1]);
@@ -1640,14 +1837,50 @@ function checkScriptNetwork(relative, content, specifiers, policy, violations) {
     }
     return;
   }
+  if (relative === "scripts/lib/r22-host-core.mjs") {
+    const allowedModules = new Set(["http", "node:http"]);
+    if (
+      specifiers.some((specifier) => NETWORK_MODULES.has(specifier) && !allowedModules.has(specifier)) ||
+      NETWORK_GLOBAL_NAMES.some((name) => new RegExp(`\\b${name}\\b`).test(content)) ||
+      !/export const R22_COGNITION_HOST = "127\.0\.0\.1";/u.test(content) ||
+      !/export const R22_COGNITION_HOST_PORT = 43122;/u.test(content) ||
+      !/port !== R22_COGNITION_HOST_PORT/u.test(content) ||
+      !/server\.listen\(R22_COGNITION_HOST_PORT, R22_COGNITION_HOST,/u.test(content) ||
+      /\b(?:connect|createConnection|Socket)\s*\(/u.test(content) ||
+      /\bprocess\s*\.\s*env\b/u.test(content)
+    ) {
+      addViolation(
+        violations,
+        "r22-host-network-invalid",
+        relative,
+        "R22 cognition host may only listen on fixed 127.0.0.1:43122 and may not create outbound clients or read credentials.",
+      );
+    }
+    for (const match of content.matchAll(/\b(?:https?|wss?):\/\/([A-Za-z0-9.:[\]-]+)/gu)) {
+      const host = match[1].replace(/^\[/u, "").replace(/\]$/u, "").split(":", 1)[0];
+      if (!LOOPBACK_HOSTS.has(host)) {
+        addViolation(
+          violations,
+          "r22-host-network-invalid",
+          relative,
+          "R22 cognition host literals must remain loopback-only.",
+        );
+      }
+    }
+    return;
+  }
   if (relative === "scripts/check-godot-boundary.mjs") {
     const expectedModules = new Set(["node:fs", "node:path", "node:url"]);
     if (
       specifiers.some((specifier) => !expectedModules.has(specifier)) ||
       new RegExp(`\\b(?:${FETCH_GLOBAL_NAME}|connect|createConnection|createServer|request)\\s*\\(`, "u").test(content) ||
       !/function isApprovedR20BridgeCapability\(code, source, relativePath\)/u.test(content) ||
+      !/function isApprovedR22CognitionCapability\(code, source, relativePath\)/u.test(content) ||
+      !/function isApprovedR22CognitionProbeCapability\(code, source, relativePath\)/u.test(content) ||
       !/npc_authority_prototype\/npc_authority_lab\.gd/u.test(content) ||
-      !/127\\\.0\\\.0\\\.1:43120/u.test(content)
+      !/npc_cognition_prototype\/npc_cognition_lab\.gd/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43120/u.test(content) ||
+      !/127\\\.0\\\.0\\\.1:43122/u.test(content)
     ) {
       addViolation(
         violations,

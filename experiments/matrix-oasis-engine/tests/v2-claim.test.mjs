@@ -17,9 +17,9 @@ function fixture(t) {
   return root;
 }
 
-test("qualified R21 derived state keeps the V2 completion claim closed until R25", () => {
+test("R22 qualified bounded cognition keeps the V2 completion claim closed until R25", () => {
   assert.deepEqual(checkV2Claim({ moduleRoot }), {
-    status: "r21-derived-state-qualified",
+    status: "r22-cognition-qualified",
     claimAllowed: false,
     blockingRound: "R25",
   });
@@ -28,7 +28,7 @@ test("qualified R21 derived state keeps the V2 completion claim closed until R25
   );
   assert.equal(
     boundary.v2ClaimPolicy.qualificationProfile,
-    "matrix-oasis.npc-derived-state/1",
+    "matrix-oasis.bounded-npc-cognition/1",
   );
 });
 
@@ -43,3 +43,25 @@ test("rejects a premature V2 claim", (t) => {
     (error) => error instanceof V2ClaimError && error.code === "V2_CLAIM_STATUS_MISMATCH",
   );
 });
+
+for (const [field, value] of [
+  ["status", "r22-bounded-cognition-in-progress"],
+  ["claimAllowed", true],
+  ["blockingRound", "R24"],
+]) {
+  test(`rejects synchronized policy and status drift in ${field}`, (t) => {
+    const root = fixture(t);
+    const boundaryPath = path.join(root, "module-boundary.json");
+    const statusPath = path.join(root, "docs", "V2_STATUS.json");
+    const boundary = JSON.parse(readFileSync(boundaryPath, "utf8"));
+    const status = JSON.parse(readFileSync(statusPath, "utf8"));
+    boundary.v2ClaimPolicy[field] = value;
+    status[field] = value;
+    writeFileSync(boundaryPath, `${JSON.stringify(boundary, null, 2)}\n`, "utf8");
+    writeFileSync(statusPath, `${JSON.stringify(status, null, 2)}\n`, "utf8");
+    assert.throws(
+      () => checkV2Claim({ moduleRoot: root }),
+      (error) => error instanceof V2ClaimError && error.code === "V2_CLAIM_POLICY_INVALID",
+    );
+  });
+}
