@@ -5,3 +5,5 @@ export declare function synthesizeNpcEntityBindings(input:{sceneBlueprintJson:st
 declare const preparedBrand:unique symbol;export interface PreparedDeterministicNpcBehavior{readonly [preparedBrand]:true}
 export declare function prepareDeterministicNpcBehavior(input:{behaviorPolicyJson:string;entityBindingJson:string;authorityPolicyJson:string}):unknown;
 export declare function selectNextNpcBehaviorCommand(input:{prepared:PreparedDeterministicNpcBehavior;runtimeSnapshot:unknown;runtimeInspection:unknown;worldEventLedgerJson:string;behaviorState:unknown}):unknown;
+export declare function enumerateEligibleNpcBehaviorCommands(input:{prepared:PreparedDeterministicNpcBehavior;runtimeSnapshot:unknown;runtimeInspection:unknown;worldEventLedgerJson:string;behaviorState:unknown;actorEntityId:string;maximumCandidates:number}):unknown;
+export declare function selectEligibleNpcBehaviorCommand(input:{prepared:PreparedDeterministicNpcBehavior;runtimeSnapshot:unknown;runtimeInspection:unknown;worldEventLedgerJson:string;behaviorState:unknown;actorEntityId:string;expectedIntentId:string;expectedNpcIntentSha256:string}):unknown;

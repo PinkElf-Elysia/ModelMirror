@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "status": "r21-derived-state-qualified",
+  "status": "r22-cognition-qualified",
   "claimAllowed": false,
   "blockingRound": "R25",
-  "qualificationProfile": "matrix-oasis.npc-derived-state/1"
+  "qualificationProfile": "matrix-oasis.bounded-npc-cognition/1"
 }

@@ -167,6 +167,47 @@ function isApprovedR20BridgeCapability(code, source, relativePath) {
     /const SESSION_TOKEN_ENV := "MATRIX_OASIS_R20_SESSION_TOKEN"/u.test(source);
 }
 
+function isApprovedR22CognitionCapability(code, source, relativePath) {
+  if (relativePath !== "npc_cognition_prototype/npc_cognition_lab.gd" ||
+      !["GODOT_FIRST_PARTY_NETWORK", "GODOT_FIRST_PARTY_ENVIRONMENT"].includes(code)) {
+    return false;
+  }
+  const urls = [...source.matchAll(/\bhttps?:\/\/[^\s"']+/gu)].map((match) => match[0]);
+  const environmentCalls = [...source.matchAll(/\bOS\s*\.\s*(get_environment|has_environment)\s*\(\s*([^\n)]*)\)/gu)];
+  return /const R22_LOOPBACK_BASE := "http:\/\/127\.0\.0\.1:43122\/v1\/"/u.test(source) &&
+    /@onready var _cognition_request: HTTPRequest = \$CognitionRequest/u.test(source) &&
+    !/\bHTTPRequest\s*\.\s*new\s*\(/u.test(source) &&
+    !/\b(?:WebSocket|StreamPeerTCP|PacketPeerUDP|ENetMultiplayerPeer|TCPServer)\b/u.test(source) &&
+    !/\b(?:HTTPClient\.new|connect_to_host|request_raw)\b/u.test(source) &&
+    [...source.matchAll(/\b(?:_request|_cognition_request)\.request\s*\(/gu)].length === 2 &&
+    /var error := _request\.request\(R22_LOOPBACK_BASE \+ route, headers, method, body\)/u.test(source) &&
+    /var error := _cognition_request\.request\(R22_LOOPBACK_BASE \+ route, headers, method, encoded\)/u.test(source) &&
+    /route not in \["command", "arrived", "mirror", "reset", "verify"\]/u.test(source) &&
+    /route in \["cognition\/turn", "cognition\/approve", "cognition\/decline", "cognition\/displayed"\]/u.test(source) &&
+    /route\.begins_with\("cognition\/status\/"\)/u.test(source) &&
+    urls.length === 2 &&
+    urls[0] === "http://127.0.0.1:43122/v1/" &&
+    urls[1] === "https://api.openai.com/v1/responses" &&
+    environmentCalls.length === 1 && environmentCalls[0][1] === "get_environment" &&
+    environmentCalls[0][2].trim() === "RESUME_QUEUED_ACTION_ENV" &&
+    /const RESUME_QUEUED_ACTION_ENV := "MATRIX_OASIS_R22_RESUME_QUEUED_ACTION"/u.test(source) &&
+    /_configure_resume_queued_action\(OS\.get_environment\(RESUME_QUEUED_ACTION_ENV\)\)/u.test(source);
+}
+
+function isApprovedR22CognitionProbeCapability(code, source, relativePath) {
+  if (relativePath !== "npc_cognition_prototype/npc_cognition_probe.gd" ||
+      code !== "GODOT_FIRST_PARTY_NETWORK") {
+    return false;
+  }
+  const urls = [...source.matchAll(/\bhttps?:\/\/[^\s"']+/gu)].map((match) => match[0]);
+  return !/\b(?:HTTPRequest|WebSocket|StreamPeerTCP|PacketPeerUDP|ENetMultiplayerPeer|TCPServer)\b/u.test(source) &&
+    !/\b(?:HTTPClient\.new|connect_to_host|request_raw|request)\s*\(/u.test(source) &&
+    [...source.matchAll(/\bHTTPClient\.METHOD_GET\b/gu)].length === 3 &&
+    [...source.matchAll(/\bHTTPClient\.METHOD_POST\b/gu)].length === 1 &&
+    urls.length === 1 && urls[0] === "https://api.openai.com/v1/responses" &&
+    !/\bOS\s*\.\s*(?:get_environment|has_environment)\s*\(/u.test(source);
+}
+
 export function auditGodotBoundary({ root = godotRoot } = {}) {
   const resolvedRoot = fs.realpathSync(root);
   const violations = [];
@@ -174,7 +215,10 @@ export function auditGodotBoundary({ root = godotRoot } = {}) {
     const relativePath = path.relative(resolvedRoot, absolute).replaceAll("\\", "/");
     const source = fs.readFileSync(absolute, "utf8");
     for (const [code, pattern] of FORBIDDEN_CAPABILITIES) {
-      if (pattern.test(source) && !isApprovedR20BridgeCapability(code, source, relativePath)) {
+      if (pattern.test(source) &&
+          !isApprovedR20BridgeCapability(code, source, relativePath) &&
+          !isApprovedR22CognitionCapability(code, source, relativePath) &&
+          !isApprovedR22CognitionProbeCapability(code, source, relativePath)) {
         violations.push({ code, path: relativePath });
       }
     }

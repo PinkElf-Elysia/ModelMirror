@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "format": "matrix-oasis.r22-cognition-reference-lock",
+  "formatVersion": "0.1.0",
+  "implementationDecision": "internal-bounded-cognition-native-control",
+  "policy": {
+    "candidateArtifactsCommitted": false,
+    "candidateExecutionRequired": false,
+    "newProductionDependencies": 0,
+    "transitiveLicenseClosureQualified": false
+  },
+  "references": [
+    {
+      "id": "autogen-python-v0.7.5",
+      "repository": "microsoft/autogen",
+      "tag": "python-v0.7.5",
+      "commit": "83afbf5857aac683340d4c692194e548b1e8edda",
+      "gitTreeSha1": "09a39a20d6f2b2838ebd59d7e607d00722e22635",
+      "license": {"spdx":"MIT","path":"LICENSE-CODE","gitBlobSha1":"9e841e7a26e4eb057b24511e7b92d42b257a80e5","byteLength":1141,"sha256":"c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383","closure":"direct-code-only-transitive-unverified"},
+      "reuse": "rejected-production-dependency",
+      "conclusionCode": "AUTOGEN_SCOPE_AND_MAINTENANCE_MISMATCH"
+    },
+    {
+      "id": "camel-v0.2.90",
+      "repository": "camel-ai/camel",
+      "tag": "v0.2.90",
+      "tagObjectSha1": "a3a21ef8647e6a05b431d25320116d5ce568bfd6",
+      "commit": "deb286f36702ab15a2cb890c6e223a79e4ce4284",
+      "gitTreeSha1": "a461696702c2450d4dd0ef2af0d08807721e0f37",
+      "license": {"spdx":"Apache-2.0","path":"LICENSE","gitBlobSha1":"c46213dce5875ed087fc9fe3ce329b69d98713ed","byteLength":11344,"sha256":"950deb34b1341a0ac95236fae92fe247c318c3a83a62c9ebacbe1882530ab1f6","closure":"direct-only-transitive-unverified"},
+      "reuse": "deferred-architecture-reference",
+      "conclusionCode": "CAMEL_MULTI_AGENT_SURFACE_OUT_OF_SCOPE"
+    },
+    {
+      "id": "dialogue-manager-v3.10.4",
+      "repository": "nathanhoad/godot_dialogue_manager",
+      "tag": "v3.10.4",
+      "commit": "5487c524b9eac303b059e5859e2980b134c59d79",
+      "gitTreeSha1": "e232fb1bf4e584da9816c94c495c13195fe41923",
+      "license": {"spdx":"MIT","path":"LICENSE","gitBlobSha1":"41671396f3920d148a81b93c6866a14982315815","byteLength":1111,"sha256":"21c98fa971b5dd23754a5974901df83c83aaebc351c4f4db60e5615f0571ed8b","closure":"direct-only-transitive-unverified"},
+      "reuse": "trusted-authoring-presentation-backup-only",
+      "conclusionCode": "DIALOGUE_MANAGER_MODEL_TEXT_EXECUTION_SURFACE"
+    },
+    {
+      "id": "dialogue-manager-v4.0.3",
+      "repository": "nathanhoad/godot_dialogue_manager",
+      "tag": "v4.0.3",
+      "commit": "ffc0011a1a3ea38fc6e65729e5f987d07dac0c88",
+      "gitTreeSha1": "b1b655d1737d2ae5fb1d5a9b7f3c0b67a83e7ecf",
+      "license": {"spdx":"MIT","path":"LICENSE","gitBlobSha1":"41671396f3920d148a81b93c6866a14982315815","byteLength":1111,"sha256":"21c98fa971b5dd23754a5974901df83c83aaebc351c4f4db60e5615f0571ed8b","closure":"direct-only-transitive-unverified"},
+      "reuse": "incompatible-version-reference-only",
+      "conclusionCode": "DIALOGUE_MANAGER_GODOT_4_7_ONLY"
+    },
+    {
+      "id": "langgraph-v1.0.5",
+      "repository": "langchain-ai/langgraph",
+      "tag": "v1.0.5",
+      "commit": "84023451a2bd5987b1d4df530f4145d503d75ccb",
+      "gitTreeSha1": "57dca8a7e141a91c51c41c7ad1aece02a6c974ca",
+      "license": {"spdx":"MIT","path":"LICENSE","gitBlobSha1":"fc0602feecdd6748623c852ab534e1ca612673c7","byteLength":1072,"sha256":"d9bb52f2e3540d60ff50d8f0f5b6ba649b7fd346948c4c3d086c8afb120763c7","closure":"direct-only-transitive-unverified"},
+      "reuse": "interrupt-semantics-reference-only",
+      "conclusionCode": "LANGGRAPH_INTERRUPT_REEXECUTION_RISK"
+    }
+  ]
+}
