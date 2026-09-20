@@ -1,6 +1,6 @@
 {
   "phase": "local-closeout",
-  "status": "local-candidate-closed-accepted-real-scope-publication-not-authorized",
+  "status": "accepted-local-candidate-pr-authorized",
   "updatedAt": "2026-09-20T10:56:26.155020+00:00",
   "baseline": {
     "commit": "87431327f3ef27843caa7ebe3115454e06d8ffbe",
@@ -40,9 +40,9 @@
     ]
   },
   "permissions": {
-    "commit": false,
-    "push": false,
-    "pr": false,
+    "commit": true,
+    "push": true,
+    "pr": true,
     "sharedDeployment": false,
     "realProvider": false,
     "realProviderNote": "5/5 authorized calls exhausted; no additional dispatch authorized"
@@ -110,8 +110,7 @@
   ],
   "pending": [
     "Further incremental summary updates, real background timing, real manual-edit continuation, and story after summary version 2 not run",
-    "Old-host downgrade must be verified with a separate copy before deployment",
-    "No Commit/Push/PR/shared deployment authorization"
+    "Old-host downgrade must be verified with a separate copy before deployment"
   ],
   "verificationB1": {
     "offline": {
@@ -334,5 +333,25 @@
     "runtimeUnchanged": true,
     "noNewProviderCalls": true,
     "historicalEvidencePreserved": true
+  },
+  "publication": {
+    "authorized": true,
+    "userText": "条件PR",
+    "interpretation": "提交PR; announced in commentary",
+    "branch": "codex/rpg-rolling-summary-pr",
+    "workspace": "C:\\tmp\\modelmirror-rpg-rolling-summary-pr",
+    "base": "c37f1b1a575e91dc81d9d97c73765bb8f8423640",
+    "sourceCommit": "ce4d13c2a90fa720c527e9f4291628917735dcda",
+    "state": "draft-submission-snapshot",
+    "merge": false,
+    "sharedDeployment": false,
+    "checks": {
+      "regression": "183 passed, 1 existing skip",
+      "frontend": "53 passed",
+      "builds": "both passed",
+      "helpImages": "global failed: same 3 unrelated baseline orphans; no M2 failures"
+    },
+    "preview": "http://127.0.0.1:18477/rpg/earth",
+    "paidCallsThisTurn": 0
   }
 }

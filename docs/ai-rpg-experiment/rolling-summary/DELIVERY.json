@@ -1,23 +1,24 @@
 {
-  "phase": "local-closeout",
+  "phase": "pr-submission",
   "excludesSelf": true,
-  "createdAt": "2026-09-20T10:56:26.155020+00:00",
+  "createdAt": "2026-09-20T11:19:23.321886+00:00",
+  "base": "c37f1b1a575e91dc81d9d97c73765bb8f8423640",
   "runtime": {
     "format": 4,
     "hash": "aaca2ad2796eaec07235d85b989358cc3fd64fdf3745a57e4e512587b67d14b9"
   },
   "files": [
     {
-      "path": "client/public/help-center/87431327/rpg-rolling-summary/desktop-settings.jpg",
-      "sha256": "8599421f623cdf997fded45ce478386f831f4e2961e685bcea23e3cee28e7b50"
+      "path": "client/public/help-center/c37f1b1a/rpg-rolling-summary-desktop-settings.png",
+      "sha256": "90ceb3c7398925225e29b562c523b80952cbafcbc28eba8be60bc06f026ece55"
     },
     {
-      "path": "client/public/help-center/87431327/rpg-rolling-summary/mobile-settings.jpg",
-      "sha256": "51e7f1d02234162686a60052b4ec9f39f2929914eecc6b749eded043d5409336"
+      "path": "client/public/help-center/c37f1b1a/rpg-rolling-summary-mobile-settings.png",
+      "sha256": "5c2db22f809b1e8ac61f7d81f3fc05ad9919bc592185dd5baa975a493514ac1d"
     },
     {
       "path": "client/src/content/help-center/articles/use-rpg-rolling-summary.md",
-      "sha256": "7c960015180ec51d48af807c7a6f81d40ed728dbe261f5388b54de8a106e78bb"
+      "sha256": "6c500613ef9599cf1e185ddc1bea9e182696470f3a25a51294bfe7de1f159af3"
     },
     {
       "path": "client/src/content/help-center/helpContent.test.ts",
@@ -65,19 +66,35 @@
     },
     {
       "path": "docs/ai-rpg-experiment/rolling-summary/CONTRACT.md",
-      "sha256": "cff5827c20622de714335cd9bd57005e3bbd728c514dbb2c9a6a5b2ec551538d"
+      "sha256": "ff698c8da67e0ed9388c166cc9b5401460cc2f6238a4851d972662cbae3c36c9"
     },
     {
       "path": "docs/ai-rpg-experiment/rolling-summary/OPERATIONS.md",
       "sha256": "6ea38e852f943b6854fd2ae98e27e07860626f76cc84ba36fbeab2bb17f11531"
     },
     {
+      "path": "docs/ai-rpg-experiment/rolling-summary/PUBLICATION.md",
+      "sha256": "c1cea6220670d10c3fabb432e7beb9a216b4e2c391df67f083e453ea548f3f34"
+    },
+    {
       "path": "docs/ai-rpg-experiment/rolling-summary/STATUS.json",
-      "sha256": "615470d46d01fb3f860b6a613fb99292c237d957c2f6f10dd0ea0c4142dc8c2b"
+      "sha256": "887e7d154ae6a33e469ec7f9d8a0120e6cd00315972efe5fbb39d073891da7da"
     },
     {
       "path": "docs/ai-rpg-experiment/rolling-summary/index.html",
       "sha256": "e8e9f4ac32eb66423e54794a1926314ceb0349c7098942adf861f25023106c3b"
+    },
+    {
+      "path": "docs/help-center/evidence/rpg-rolling-summary/87431327/desktop-settings.jpg",
+      "sha256": "8599421f623cdf997fded45ce478386f831f4e2961e685bcea23e3cee28e7b50"
+    },
+    {
+      "path": "docs/help-center/evidence/rpg-rolling-summary/87431327/mobile-settings.jpg",
+      "sha256": "51e7f1d02234162686a60052b4ec9f39f2929914eecc6b749eded043d5409336"
+    },
+    {
+      "path": "docs/help-center/evidence/rpg-rolling-summary/PR-REPLAY.md",
+      "sha256": "8aa78f8acf9ef0e926bcebd972e50f67a2a0079aaec6b117d640f336b4e4c883"
     },
     {
       "path": "experiments/ai-rpg-engine/card-replica/src/chat.tsx",
@@ -222,28 +239,28 @@
   ],
   "localBuildArtifacts": [
     {
-      "path": "client/dist/assets/CodingPage-DJ-07u_w.js",
-      "sha256": "13e2f5da2774bab231ce8f2f70326d0bba787910e89e9416c64fb08c414088c0"
+      "path": "client/dist/assets/CodingPage-S6dHcwrY.js",
+      "sha256": "5132ca3e6b28ac2142377474acc8029d331821bb61de9ec5c2bf8c7038779811"
     },
     {
-      "path": "client/dist/assets/file-archive-BOtLG-e9.js",
-      "sha256": "dc6cb96075453193f8ad1093bffc2995162e15193d5f9c82d832c4a1c704e9c3"
+      "path": "client/dist/assets/file-archive-Di2XLK4_.js",
+      "sha256": "9a0a642911a2b4f2f131aff0dab72b98f16178d0395a1e4d5ab07ecf4c6b5c8b"
     },
     {
-      "path": "client/dist/assets/file-x-corner-CJeAMWFe.js",
-      "sha256": "24c18d3bf97aa91af14ece8c655d7bbac780d3426648a44f3a3ff81a4004cb69"
-    },
-    {
-      "path": "client/dist/assets/index-BMY_yb6T.js",
-      "sha256": "6fa1cbb2dad0e7b683cae7ea216def3336eb5e502a1b9e7e0b20138049346671"
+      "path": "client/dist/assets/file-x-corner-Bd8HjboK.js",
+      "sha256": "3076eceaf7c5c35103476fcf74e661ec5e14d3b8336084864599eea7c4cbd81d"
     },
     {
       "path": "client/dist/assets/index-BSv5W8f9.css",
       "sha256": "0d6c594ddfea989ee14cbbd4d64ca768d5e19be8ea7661ebad8ace40a2889fa4"
     },
     {
-      "path": "client/dist/assets/MainApplication-BwTIwmgD.js",
-      "sha256": "de6cca7f4cc0e09510112a631bcd6d71dadedc1b8bda2ad379cbf04ea26571ef"
+      "path": "client/dist/assets/index-N5NO5HVg.js",
+      "sha256": "e9f03e14caffeeb2a05ebb06e00ee826b6a85d2c7ad11222fa4ba675f98fcfd2"
+    },
+    {
+      "path": "client/dist/assets/MainApplication-CpJpnox4.js",
+      "sha256": "1b766113e584ad232702b5844611018d256aee65d0f796b3254541d100a5ac9b"
     },
     {
       "path": "client/dist/assets/MainApplication-DO8_G8cZ.css",
@@ -270,40 +287,40 @@
       "sha256": "e64ad5cf9f10fb78e7518692f953524c3f0dd416afebeb27fa5ec2787fb0c99d"
     },
     {
-      "path": "client/dist/assets/SkillCreatorIndexPage-CIpdl9KZ.js",
-      "sha256": "7b68481012cc6af3899a06ed43d217b8d9f85eb5853acec5727a45f5cdcb9332"
+      "path": "client/dist/assets/SkillCreatorIndexPage-B2hT_jVi.js",
+      "sha256": "c2fedc19d791144d73069acab19df38d090981310b71db9734a728c1fd9eee9f"
     },
     {
-      "path": "client/dist/assets/SkillCreatorStudioPage-B-hklEX4.js",
-      "sha256": "b48ca1a1033e408fa0e551a0d41e11cb18b986df8062b9b99f09e0c8d36bc33f"
+      "path": "client/dist/assets/SkillCreatorStudioPage-C2U5P0Vg.js",
+      "sha256": "736dcc9157ae38d3e081765bda2036556bc38f631af6f559872cb5b8b77f1357"
     },
     {
-      "path": "client/dist/assets/SkillLifecyclePanel-DOXyIszr.js",
-      "sha256": "e413ca76b267850c20422e6ae06426931f1de93a97888ec4e6b362427ff1eead"
+      "path": "client/dist/assets/SkillLifecyclePanel-2PpF74M2.js",
+      "sha256": "593b1b1973b160104e539d7154936436db31e41b751c54625ab469faa2976197"
     },
     {
       "path": "client/dist/assets/skillLocalImportApi-Wplm0oZ7.js",
       "sha256": "c3ee559edfa0a2fbb928bb72251fb465c5f66018041838d0c41e2161dd5032d6"
     },
     {
-      "path": "client/dist/assets/SkillLocalImportDetailPage-6QlMrA8M.js",
-      "sha256": "c5ca57f05b559c25a00314cbec389e48d10412279195233f4d2ca27bafbb17d8"
+      "path": "client/dist/assets/SkillLocalImportDetailPage-BGazX-F2.js",
+      "sha256": "163948551a0a048a6f9b8645aba927aed30b6b6cdfa90606ce104f898f1b9e10"
     },
     {
-      "path": "client/dist/assets/SkillLocalImportIndexPage-CR1Xsb0L.js",
-      "sha256": "05f039521784ce28083ce9ea40f0d4a223b6640567e4f517809b9094fc9e791a"
+      "path": "client/dist/assets/SkillLocalImportIndexPage-B4qQB_V8.js",
+      "sha256": "af6cf5163a4a7f1b72edcb591a6202dfebef818e498b3b35eead3e432cc3c981"
     },
     {
-      "path": "client/dist/assets/SkillLocalImportSummaryPanel-BA2AH0lA.js",
-      "sha256": "a8ccb6cecb1e5e23c355ce2645b97705747a674d7f3df14266067ffc2e13d352"
+      "path": "client/dist/assets/SkillLocalImportSummaryPanel-CAP_ecwW.js",
+      "sha256": "4225aefd8b67bd8099ccd391a2a95f9eeeaf11794e338a0cc67246a6882935e8"
     },
     {
       "path": "client/dist/assets/skillNeedMembers.generated-DKCjfzYh.js",
       "sha256": "1359fa8a36f37dd87af0b9f5020ff1d79374eb3d159afebe92d059abd3cf69df"
     },
     {
-      "path": "client/dist/assets/SkillRerankGovernancePage-B2O9uLy1.js",
-      "sha256": "b46294d5441f6babbcd374f2d7e743181ba11f22f7339d6ed171aaabaa079e2b"
+      "path": "client/dist/assets/SkillRerankGovernancePage-FCyvOZAW.js",
+      "sha256": "764702d10fa9d60343a33b0be52c6dc60c77ea8f858c96d4e017ea0c15dc5ed2"
     },
     {
       "path": "client/dist/assets/skillSetMembers.generated-u4j-EYpZ.js",
@@ -314,12 +331,12 @@
       "sha256": "bfea9f644578d51f8e8b8023811f0ba082b2f270f965e5bc967e8b8f39ac3f69"
     },
     {
-      "path": "client/dist/assets/WorkflowFormPage-Dyu8bh_H.js",
-      "sha256": "bfa6ba42cedac00cb64e372666901c025cef3783bc13f558efc4a9ccc829d7bb"
+      "path": "client/dist/assets/WorkflowFormPage-yMqU5bAg.js",
+      "sha256": "197a62c01773993792d064218af2be932c4e3083546d551e35e15823e1df86e7"
     },
     {
-      "path": "client/dist/assets/WorldGenerationPanel-DBRujq9u.js",
-      "sha256": "71634f7d52609f72677fc8ef53294d0424a10b91a9372cbbc7aa267264127949"
+      "path": "client/dist/assets/WorldGenerationPanel-Bg12tul3.js",
+      "sha256": "feb17a31ddf4eb69497bc578a93c7d2559ffbb3a11478ed4d90c10040b00b559"
     },
     {
       "path": "client/dist/brand/anthropic-symbol-slate.svg",
@@ -370,14 +387,6 @@
       "sha256": "d1a2fa6b5267374136c2170e14247e2c7bdc569956c76a03d15788e7c0982cb5"
     },
     {
-      "path": "client/dist/help-center/87431327/rpg-rolling-summary/desktop-settings.jpg",
-      "sha256": "8599421f623cdf997fded45ce478386f831f4e2961e685bcea23e3cee28e7b50"
-    },
-    {
-      "path": "client/dist/help-center/87431327/rpg-rolling-summary/mobile-settings.jpg",
-      "sha256": "51e7f1d02234162686a60052b4ec9f39f2929914eecc6b749eded043d5409336"
-    },
-    {
       "path": "client/dist/help-center/a29da8a5/rpg-create-branch.png",
       "sha256": "77359dcabd2f059dd9ee655caac4b7979b36c3dbcd9037e043c8c183a353e137"
     },
@@ -422,6 +431,14 @@
       "sha256": "80ea8b90adb25045bed25196cfe32ce6c806b6804bba23062669740e2b8a6dcf"
     },
     {
+      "path": "client/dist/help-center/c37f1b1a/rpg-rolling-summary-desktop-settings.png",
+      "sha256": "90ceb3c7398925225e29b562c523b80952cbafcbc28eba8be60bc06f026ece55"
+    },
+    {
+      "path": "client/dist/help-center/c37f1b1a/rpg-rolling-summary-mobile-settings.png",
+      "sha256": "5c2db22f809b1e8ac61f7d81f3fc05ad9919bc592185dd5baa975a493514ac1d"
+    },
+    {
       "path": "client/dist/help-center/eeb5bbd2/creator-cache.jpg",
       "sha256": "fcd4f31bc47bcfd96d509fa3490479d56bc83016fd7b6bd294b96c923ca1530c"
     },
@@ -443,7 +460,7 @@
     },
     {
       "path": "client/dist/index.html",
-      "sha256": "533cb2576bca5c675c9668859f1704a71d9398bf8f84c5070c795e7c89a98f75"
+      "sha256": "508b31ffb5222a48261026fe46269bec3d6a2619e25433b5b6c1c831aee6efcd"
     },
     {
       "path": "client/dist/logo.png",
@@ -462,393 +479,64 @@
       "sha256": "ebd9aee56afce95942bee4c9cb22b6cf261edff6ba86d47496c501aed99e8947"
     }
   ],
+  "historicalEvidence": {
+    "root": "C:\\tmp\\modelmirror-rpg-rolling-summary",
+    "manifest": "docs/ai-rpg-experiment/rolling-summary/DELIVERY.json",
+    "sha256": "73f9a7c0970e67104c5db99a1da23ebe865f019ba330a4936ea3a3c65eecdf4b",
+    "note": "Historical B0-B5 source/build/evidence snapshot remains in original worktree; no histories or ledgers copied to this PR worktree."
+  },
   "localEvidence": [
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/regression.json",
-      "sha256": "5e1f6c56234d364540ad83cc2e50526382d3c2a4eb478ee3486032ca1ea37a72"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/regression.json",
+      "sha256": "a0116d9daf3467f9cc34ad3a4b5714a807a153f58a31b1bb4a5ad143909c8e1d"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/regression.log",
-      "sha256": "6def7a3ec9ebff588bd8086ccc31dfbf228075916f7eaaf4ffb758e196ed7817"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/regression.log",
+      "sha256": "6141d183360551c0c7fc49e9daa4209541d2cb7e8ecc6b169a5adb3347c1a4cb"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/frontend-checks.json",
-      "sha256": "7ceb2ba11a785a1d74b351c44ee3753f65a644bacb1ca908dd44d1aee9dcc81c"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/frontend.json",
+      "sha256": "2cd40d124d6574cb3bcffd3f6ea17573ba555f625a59d711e8abe7e3f50b5cd0"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/frontend-checks.log",
-      "sha256": "a3e297b514a2132362809ae28bec011bfee960efe323b278a67a32ae52d81cda"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/frontend.log",
+      "sha256": "6964f85aa09974696ca2f026c77594efe640cdf13bac5f266aaf24e4b2da0d7a"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/card-build.json",
-      "sha256": "da86f25381ad9f5ffa086cfc71a7286e7623fa33e6b87dd5accf1ee02ea951cb"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/card-build.json",
+      "sha256": "e90fb7e70c63f1529b0126e339e63d3336bf821fc7fd013fc88fdce00de1f966"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/card-build.log",
-      "sha256": "75f3eb4e6d9cc0df3f5718febc2cb5d31314a9e07377100057854569db5c2858"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/card-build.log",
+      "sha256": "695668602e218bbc9af589495cde15c8ae2fdd85e91c15ee9deee4165a5ed5db"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/studio-build.json",
-      "sha256": "0e1ed74836b4709853b82081b502ff7e404e190a2b7e73749e7a6e440e83b965"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/studio-build.json",
+      "sha256": "198e08958bccd817c1c8c31b0042d431438a529a4d34c3c439c61540bc604f8d"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/studio-build.log",
-      "sha256": "c550075b92c64825fa8f3048b96a579bd75dfb1666eec8187625877d3772fee1"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/studio-build.log",
+      "sha256": "102c5bd7b7d8ab38fbc2a819120393d6632f2952c7bfa0d3197b965e008ea2d6"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/final-fixture.json",
-      "sha256": "6909a3c1609ef08c92e714ea3c83106ca3e0cca42f24d2a7de662473e01f28aa"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/ui-verification.json",
+      "sha256": "06d0f11cbecb69049fe047fe8cb8677065fb52960c981457d61d3770d8fcc8d5"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/visible-session-audit.json",
-      "sha256": "faf71262d25c03088bfb98bbe289e0060c02119b1bcf53d49b24162fa2ab7ce8"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/help-images-main.log",
+      "sha256": "13c45957d5ea3d0a35045b07296af284fe12fffde323a00a82db70fccef2377a"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/desktop-settings.jpg",
-      "sha256": "8599421f623cdf997fded45ce478386f831f4e2961e685bcea23e3cee28e7b50"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/help-images-candidate-final.log",
+      "sha256": "882bbe112a02ca67d41dbed2a60d7d95bcdec81457e49864deda09957f5d8f53"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/desktop-revisions.jpg",
-      "sha256": "2f8ccffeeedd3753f9e38a2fa81425088f6cfabc108a5acdb63cabb13f795221"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/desktop-settings.jpg",
+      "sha256": "0a12968f20e41e5afe1ee28c93d5ec64b66f0fd717aa53a3a0000be27659f3ce"
     },
     {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/mobile-settings.jpg",
-      "sha256": "51e7f1d02234162686a60052b4ec9f39f2929914eecc6b749eded043d5409336"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/desktop-market.jpg",
-      "sha256": "2bc500517ded7db065507f8cfa2956de3d7215c0af8fbe4e24e1de8a089c9d43"
-    }
-  ],
-  "historicalB3Manifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b4\\b3-approved\\DELIVERY.json",
-  "provider": {
-    "realDispatches": 5,
-    "authorizedQuota": 5,
-    "originalQuota": 4,
-    "additionalQuota": 1,
-    "remaining": 0
-  },
-  "human": "second summary and third story pending",
-  "historicalB4Manifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\b4-approved\\DELIVERY.json",
-  "evidenceB5": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/AUTHORIZATION.json",
-      "sha256": "cc3f861c07fab33ccd603a276788e4303060589513ed12251ca0f482fbd2c6b1"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/first-input-freeze.json",
-      "sha256": "2765e9f8177083852efc7c0aab0c5e04227c2a28d014563826de555ecac4975a"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/first-generation-invocation.json",
-      "sha256": "c7ca6bec050973c44e19367c38ceca8528d297efca3798e5eca8a758ca03986a"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/first-verification.json",
-      "sha256": "f7e6831da46ab0e68a76bf40ae7e8a38746121840a08479dea2695af7fd8a45e"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/dispatched.json",
-      "sha256": "33193a0ac73df1f011fef92fd56e824490eb47fbe0880c2e12ea2240ddc6cd90"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/m2-claim.json",
-      "sha256": "4d3f220f2c95f6f6061295aaad0cb2ada6580617bb40aa6bf4e093c2319cfaa5"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/request.json",
-      "sha256": "1de816a4d1643f14ffb495939c195bbeb86ef9fcb5347a4817d24631f7203022"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/reservation.json",
-      "sha256": "788d81adf368aa6691ac08ca53cd8d9ec6a3883c3ed4bc345935646f60a7a844"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/response.sse",
-      "sha256": "60fab77655ccdb588c64916fa3b0a231dc0640e669050ea98f67c24466833076"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/response.txt",
-      "sha256": "6b66607e1d57f1af2384e5caf15618e9029e9ec3aa9dab0faf10768a2a22b7b0"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-1/result.json",
-      "sha256": "e185a61968898240b0ccdc24144cac3eb44ec23d342f64fab11f83d928c1a3f7"
-    }
-  ],
-  "historicalFirstOutputManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\first-approved\\DELIVERY.json",
-  "evidenceB5Second": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/first-approved/human-review.json",
-      "sha256": "8cc9cfcddf5b341cdcdb40cd4b001336bcc2a7077d83f9b564bcdf32e1bff4b2"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/second-input-freeze.json",
-      "sha256": "394d642b519192eed81219d8603043714179f0deaecd454875b911e94d7221b3"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/second-generation-invocation.json",
-      "sha256": "c08531887b38ae9652316dc1ce2dc593b0eab70eb410a7a977b3ce246ddd60cc"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/second-host-result.json",
-      "sha256": "4584f4a587d864c0ca19807db79102410c8be4278ba67d2b1b4f2315eb1163cf"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/second-verification.json",
-      "sha256": "d5d2d6148e0de72ee656c4caa11d91c78ebd9029a01e0247b0f427dd5d34b3ed"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/dispatched.json",
-      "sha256": "43d5a08aef59c997a73fc86c20b6a2b24dfeccef5fa4612b2e2f3c95d5060074"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/m2-claim.json",
-      "sha256": "caf23813351ca008bf1bb7297c56ec3d0fc1da7db26e77692de4be4d25e690d2"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/request.json",
-      "sha256": "bebb858b49178dfa2409a0a9660c79f2d48015877dc0ac5b78b0d89c44bef54b"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/reservation.json",
-      "sha256": "a415e4ec08fae6f6aa08489d7c21b7d35548bd45155271dce66a9bd3e519f64a"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/response.sse",
-      "sha256": "f3f7bf19047fc67477e7ab865bf9b6ee9673b0af62a06bd4e6fc2b6677c1f56c"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/response.txt",
-      "sha256": "e0e7cba35141e8a2c4b6b7878cf6501b37ea935f73d6ec40271d0513513c68a0"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-2/result.json",
-      "sha256": "c841a0ba08cd7b92473b6fd7f53ec60b6c87e0ae83984199af92e7e392525eec"
-    }
-  ],
-  "historicalSecondOutputManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\second-approved\\DELIVERY.json",
-  "evidenceB5Summary": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/second-approved/human-review.json",
-      "sha256": "9a44d9a4fa2815cb1d1b8bbbfbbee223263564914ca1dcdcd55c51b8daf6c8fe"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary-input-freeze.json",
-      "sha256": "d5362e303dfeac346ac1eafd7d6d7ba917b559a7eb21e52d4600370fad29d626"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary-generation-invocation.json",
-      "sha256": "81c2adea493547ed3099b10d7094abf93cfe152dec14a9db9d785918af76b28e"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary-host-result.json",
-      "sha256": "fbdc1beb0413dda24eadda17015ab40afd497c7946e50d98e0930cb1403719c3"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary-verification.json",
-      "sha256": "d08cdf751fcc690ae91f0072103dd70d3a0cfbb7e1e415ff4b0289a48d88cbb1"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/dispatched.json",
-      "sha256": "1ecc562777709d8b70ccc2d30a412211fcc08d5b4891b60104204a3be539d540"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/m2-claim.json",
-      "sha256": "df7e870b5a4b6a4d3cd43670fad31b35dfc46955e1c52d76f5b07901c7e3b95d"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/request.json",
-      "sha256": "95a1517dcd7ba37865a5826bb17368d394f6e4ea2b1596fc696eeed5e0db7f7b"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/reservation.json",
-      "sha256": "d4c75e6915997d22b9c953f9e5c6bdc747e278b8bf029c028ec81fe186dc95a0"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/response.sse",
-      "sha256": "e99048c84303827e3bd452ef968d93013f37fc16ad860da317e7d69fa6dc6487"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/response.txt",
-      "sha256": "d0cc2d84be45dd6c601f673cebaf7bc21789d18b2ac945197188c53a1a6a0e44"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-3/result.json",
-      "sha256": "9c9d5549e10a6bf7b118799db4548b9f79e5009b5ac57e0a56027eb87dc0dc1d"
-    }
-  ],
-  "historicalSummaryManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\summary-approved\\DELIVERY.json",
-  "evidenceB5Third": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary-approved/human-review.json",
-      "sha256": "dbbf38f240f996ac92b5b89b6c409cc6c746d8b32d0d930cf9daa8cc51ed91aa"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/third-input-freeze.json",
-      "sha256": "cffc6dedb8296a12f57b8cbef3ca3c944595007d8f9e426b77e92f67063a19db"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/third-generation-invocation.json",
-      "sha256": "24d671d691e2b9c2f588d3eaa232b3de2f6364b60cc8729455bf086749e3a6a7"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/third-host-result.json",
-      "sha256": "9a6031049c1ca45f1456b2e014bc50335a6bf2921d70d445449e60e60e93bc4a"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/third-verification.json",
-      "sha256": "972f2352132c8dbade40ae18260f9cd4fb828bccf961e1acc89a7b9b6c21cea4"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/ui-status-finding.json",
-      "sha256": "23e05ac0808f38ed785b41fc0804efcc468181ecedce85b6d78b4825260cffec"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/dispatched.json",
-      "sha256": "52fe9031efd7ca889fd05ec55cc1d6097eae9113a7a971fe186cdd00ba12bdec"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/m2-claim.json",
-      "sha256": "3451b5c82988fd8655fd064f7feca202303137603c05e2b318479994f58fef94"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/request.json",
-      "sha256": "1e5597e9fa32393729584dce1d90aa43523f07054fa8273294918b0b6e320e82"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/reservation.json",
-      "sha256": "80d421fff536049c502b53d88e732b38a054a80faac42ca4e42b997a6952a53f"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/response.sse",
-      "sha256": "81ed732fba80499a9f0665365eac1fa98927bfeb3ece24743e8e696b3ea0dc95"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/response.txt",
-      "sha256": "c91838ff381119259ca700a633554f348565fb2362fe0ab66aa0927ccc51e151"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-4/result.json",
-      "sha256": "aa9767ff092a6293afd67464829d38fab299f7bc131266d28c02553099296aa9"
-    }
-  ],
-  "historicalBeforeExtensionManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\before-extension\\DELIVERY.json",
-  "evidenceB5Summary2": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/AUTHORIZATION-EXTENSION-1.json",
-      "sha256": "4755fc5de56ad765e4c0af85eb1d60060e267cb65bc6c5f94b673f3948ea9b2c"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary2-input-freeze.json",
-      "sha256": "c26064a760fc817e9d3c5fcac69a0631af7376f272b2b48244ea78a3d34df0ca"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary2-generation-invocation.json",
-      "sha256": "b9db5aa235b6fff7125c4e5e9c0a4f531a931f83d39a0cfbe724e3015a5f2bf5"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary2-host-result.json",
-      "sha256": "8f9f3e52b4e204d03d9af968f5440c4e8b1127f811ef5b6768eb0ca42fd66d06"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/summary2-verification.json",
-      "sha256": "585cc3db9c6258248657b83165d5101203e098d98158c653f385ca1c8988f438"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/dispatched.json",
-      "sha256": "603d9be73a602afea7f7b94a7059761d08bfbcb67c95091b84f8d4d518310141"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/m2-claim.json",
-      "sha256": "a83fd226b54d11ef6eeb43dccf0dcdd3e4478ab9ca3b0bd4aabf25c9f50f3d9e"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/request.json",
-      "sha256": "ecf06948387e755b74066b7f3a4d9c3f33c8721a7f2b91d91cf8ee8df8164ba2"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/reservation.json",
-      "sha256": "f6db04142c6ea90944665ce7237e03b882a25fa2a2ad06beefe5314649180ee0"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/response.sse",
-      "sha256": "8f2519d9b83868f499eadfd0e5ca685ec7758e2b6247f2bd81888f3747b8efa1"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/response.txt",
-      "sha256": "270524e9288b0910ebb78d79627b484d9d90131812757deaaa9ccbf3be04e60b"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b5/data/dispatches/earth/slot-5/result.json",
-      "sha256": "b1f0b61e16e1782ee0a77e2c2b1cc736393d4cfbfb0e4d94d098b168f44930c4"
-    }
-  ],
-  "historicalBeforeCloseoutManifest": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/before-DELIVERY.json",
-  "evidenceCloseout": [
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/human-acceptance.json",
-      "sha256": "c44badc0b4dcd0a13b0db867a2aa5583d8920018e836ebc46be8768a4f6dc5a3"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/final-state.json",
-      "sha256": "f7f26c40697a877ef28bc65042c263dcaa2c14c367c794f8a528e284a6c63364"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/regression.json",
-      "sha256": "5e1f6c56234d364540ad83cc2e50526382d3c2a4eb478ee3486032ca1ea37a72"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/regression.log",
-      "sha256": "b0988fa03afea9973c94d24a2bc23004757611ca90b75c8199feeafc5ba4c606"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/frontend.json",
-      "sha256": "ae2567b6b3f887cf1777b87c7c5582641355b0c5e8a5e1e0f4bd3d2879790dc4"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/frontend.log",
-      "sha256": "534f5c9ac1c620904ef9f9d3234c7d66ea86be7207827025df6b26b497de5c26"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/card-build.json",
-      "sha256": "6b55da558d964f4933bf2c0cf2240fc78f496ad80d7021f83612c97d812f2c41"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/card-build.log",
-      "sha256": "0c165f5a9b5cbf3b61f49b69aa228053b0cef0c48e398877d4cb5b74d9b67ca9"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/studio-build.json",
-      "sha256": "9efaeeaba849dce79c24b8331fa4a6c4aee656f3a5986b289f01ef6bab26b44c"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/studio-build.log",
-      "sha256": "01d0898b017b7224fd2516f953ea83e667992791838c4a16e158a9c05b61e43e"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/desktop-summary.jpg",
-      "sha256": "c9cd2de0c82009e11a31d81d95d52afd5d0b24e66d08a7cf5551a821bb0b6e09"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/mobile-summary.jpg",
-      "sha256": "9a726a28fcd07f230a2985cf5ee583887b72ca23b9440265f23535923295dec6"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/before-STATUS.json",
-      "sha256": "6a7a2cb06be27a666320798477cee4d84c5dbb1a3b90611f134ae335b15afd47"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/before-DELIVERY.json",
-      "sha256": "59363e522fa7b0caf43dc32d4bf3a0a8b37b6041efbec953712a7c7a4f0138f4"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/before-B5-ACCEPTANCE.md",
-      "sha256": "68ef3145127f601ed484ab7b925dfa1c29294110b75187c337af60eba3bf7a49"
-    },
-    {
-      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/rollback-archive-history.txt",
-      "sha256": "6467a0e7e76931e77734f3935c4ed335cb9ad43e35d050dfd9e7c09658e80113"
+      "path": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/mobile-settings.jpg",
+      "sha256": "ff341171bfc6d5fd78436922d8dbe6333baaf72ddda0da507d9b989b10f22613"
     }
   ]
 }
