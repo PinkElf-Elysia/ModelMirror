@@ -1,0 +1,338 @@
+{
+  "phase": "local-closeout",
+  "status": "local-candidate-closed-accepted-real-scope-publication-not-authorized",
+  "updatedAt": "2026-09-20T10:56:26.155020+00:00",
+  "baseline": {
+    "commit": "87431327f3ef27843caa7ebe3115454e06d8ffbe",
+    "branch": "codex/rpg-rolling-summary",
+    "mergedM1PR": 384,
+    "workspace": "C:\\tmp\\modelmirror-rpg-rolling-summary"
+  },
+  "scope": "M2 implementation and scoped local acceptance closed; 3 real stories, first summary and one incremental summary update approved. Extended real coverage remains unrun.",
+  "gates": {
+    "B0": "approved-by-user",
+    "B1": "approved-by-user",
+    "B2": "approved-by-user",
+    "B3": "approved-by-user",
+    "B4": "approved-by-user",
+    "B5": "approved-for-five-dispatch-scope; extended-plan-real-coverage-not-run"
+  },
+  "preview": {
+    "url": "http://127.0.0.1:18469/rpg/earth",
+    "pidAtLaunch": 5164,
+    "recheckProcessOwnershipBeforeStop": true,
+    "storage": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/preview-data-v3",
+    "network": "loopback only; injected offline Provider; real quota 0"
+  },
+  "evidence": {
+    "directory": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b0",
+    "screenshots": [
+      "desktop-market.jpg",
+      "desktop-settings.jpg",
+      "mobile-market.jpg",
+      "mobile-settings.jpg"
+    ],
+    "capture": "Genuine browser screenshots; JPEG, not PNG; local ignored artifacts, not committed",
+    "history": [
+      "Initial screenshot filesystem write failed with EPERM; authorized loopback receiver archived official browser screenshot bytes.",
+      "Early desktop capture showed chat rather than dialog; retained as desktop-chat.jpg and replaced by verified dialog capture.",
+      "Earlier spacing and copy variants preserved as separate screenshots."
+    ]
+  },
+  "permissions": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false,
+    "realProvider": false,
+    "realProviderNote": "5/5 authorized calls exhausted; no additional dispatch authorized"
+  },
+  "rollback": "Disable M2; preserve histories, summaries, revisions, branches and ledgers. Stop only verified own preview. Old host downgrade requires a separate copy.",
+  "verificationB0": {
+    "offline": {
+      "status": "passed-for-B0-examples-only",
+      "command": "python experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b0/check.py",
+      "assemblyExamplesChecked": 6,
+      "additionalPolicyExamplesDocumented": 6,
+      "checks": [
+        "summary instruction hash",
+        "coverage boundary",
+        "message role order",
+        "latest complete turn unchanged",
+        "persistent history unchanged in fixtures",
+        "incremental summary input",
+        "node --check prototype script"
+      ]
+    },
+    "ui": {
+      "status": "prototype-only-passed",
+      "browser": "Codex in-app browser",
+      "checks": [
+        "install does not grant",
+        "first model selection required",
+        "independent summary model selection and search",
+        "default before-send and selectable background timing",
+        "cancel and Escape discard edits",
+        "manual revision survives refresh",
+        "revision disclosure preserves earlier text",
+        "unknown result disables edits and offers simulated recovery",
+        "disable restores M1 display",
+        "uninstall and reinstall preserve settings without grant",
+        "old session incompatibility",
+        "390px no horizontal overflow"
+      ],
+      "limits": [
+        "UI lifecycle and recovery are local simulations, not host/API proof",
+        "Full keyboard-only journey not run",
+        "Control-plane readiness and real summary quality not tested"
+      ]
+    },
+    "productionTests": "not-run: no product code changed in B0",
+    "productionBuilds": "not-run: no product code changed in B0",
+    "provider": {
+      "dispatches": 0,
+      "authorizedQuota": 0,
+      "status": "not-run"
+    },
+    "human": "approved-by-user"
+  },
+  "implementationGroups": [
+    {
+      "objective": "pure coverage and opt-in lifecycle",
+      "files": 5,
+      "verified": "36/36 passed"
+    },
+    {
+      "objective": "runtime, state, atomic settings and revisions",
+      "files": 4,
+      "verified": "22/22 focused; included in 148-pass regression"
+    }
+  ],
+  "pending": [
+    "Further incremental summary updates, real background timing, real manual-edit continuation, and story after summary version 2 not run",
+    "Old-host downgrade must be verified with a separate copy before deployment",
+    "No Commit/Push/PR/shared deployment authorization"
+  ],
+  "verificationB1": {
+    "offline": {
+      "status": "passed",
+      "tests": 149,
+      "passed": 148,
+      "failed": 0,
+      "skipped": 1,
+      "newM2Tests": 16,
+      "commandManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b1\\regression.json",
+      "log": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b1\\regression.log",
+      "skipReason": "Existing model-legacy-copy.test.mjs requires RPG_B3_LEGACY_COPY. Historical private fixture not provided to this worktree; no source data copied."
+    },
+    "ui": "B0 prototype approved; production UI not connected until B4",
+    "provider": {
+      "dispatches": 0,
+      "authorizedQuota": 0,
+      "status": "not-run"
+    },
+    "human": "approved-by-user",
+    "productionBuilds": "not-run in B1; required in B4",
+    "history": [
+      "Initial focused test passed 36/36.",
+      "First storage suite passed 10/10.",
+      "After adding earlier authorization guard, one test expected the old rejection code. Updated the new M2 assertion to SUMMARY_AUTHORIZATION_CHANGED; exact 22-test suite rerun passed.",
+      "First full regression: 120 passed, 6 test files failed loading missing ajv, 1 skipped. Preserved regression-missing-dependency log.",
+      "Initial regression output printing hit Python GBK UnicodeEncodeError after logs had been saved. UTF-8 printing used for rerun.",
+      "Installed unchanged lockfile dependencies from local npm cache with --offline --ignore-scripts. Same regression rerun: 148 passed, 0 failed, 1 skipped."
+    ]
+  },
+  "implementationGroupsB2": [
+    {
+      "files": 5,
+      "scope": "budget, controlled transport extension, provider adapter, task coordinator, plugin authorization guard"
+    },
+    {
+      "files": 3,
+      "scope": "store/runtime integration and task tests"
+    }
+  ],
+  "verificationB2": {
+    "offlineMock": {
+      "tests": 167,
+      "passed": 166,
+      "failed": 0,
+      "skipped": 1,
+      "newB2Tests": 18,
+      "commandManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b2\\regression.json",
+      "log": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b2\\regression.log",
+      "skipReason": "Existing RPG_B3_LEGACY_COPY fixture not provided; original private histories untouched."
+    },
+    "provider": {
+      "dispatches": 0,
+      "authorizedQuota": 0,
+      "status": "not-run-real-provider",
+      "mockBoundary": "M2 controlled transport captures payload via an injected fake fetcher. Story assembly/publication uses synthetic trusted callbacks; not B3 production assembly proof."
+    },
+    "ui": "B0 approved prototype retained; no new UI or screenshots in B2",
+    "human": "approved-by-user",
+    "productionBuilds": "not-run in B2; B4 gate",
+    "history": [
+      "Existing controlled-provider and B1 storage regression: 25/25 passed.",
+      "Initial B2 suite: 11/12 passed. Valid completed empty output was misclassified unknown; corrected to a known failed output, exact 12-test rerun passed.",
+      "Expanded B2 suite: 18/18 passed, including recovery after terminal persistence failure and release interrupted after archive move.",
+      "Full regression: 166 passed, 0 failed, 1 existing private-fixture skip."
+    ]
+  },
+  "implementationGroupsB3": [
+    {
+      "files": 5,
+      "scope": "assembly, branch archive, operations, policy binding, runtime manifest"
+    },
+    {
+      "files": 4,
+      "scope": "host connection, task admission, atomic story publication and integration tests"
+    }
+  ],
+  "verificationB3": {
+    "offlineMock": {
+      "tests": 181,
+      "passed": 180,
+      "failed": 0,
+      "skipped": 1,
+      "newB3Tests": 14,
+      "commandManifest": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b3\\regression.json",
+      "log": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b3\\regression.log",
+      "wireEvidence": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b3\\wire-evidence.json",
+      "skipReason": "Existing optional RPG_B3_LEGACY_COPY private fixture not provided."
+    },
+    "provider": {
+      "dispatches": 0,
+      "authorizedQuota": 0,
+      "status": "not-run-real-provider"
+    },
+    "ui": "B0 approved prototype retained; production UI not connected until B4",
+    "human": "approved-by-user",
+    "productionBuilds": "not-run; B4 gate",
+    "history": [
+      "Initial new test module failed to load because of wrong branch plugin export name; corrected.",
+      "First integration suite 0/9: story publication replaced active journal references and left operations pending.",
+      "Fixed publication to mutate validated story fields only; same suite 9/9.",
+      "Expanded integration 13/13; regression 179 passed, 1 skipped.",
+      "Added explicit offline-to-real transport refusal; final regression 180 passed, 0 failed, 1 skipped."
+    ]
+  },
+  "previewB0": {
+    "url": "http://127.0.0.1:18465/",
+    "pidAtLaunch": 49544,
+    "recheckProcessOwnershipBeforeStop": true,
+    "storage": "isolated prototype localStorage; no production sessions",
+    "network": "CSP connect-src none; no model calls"
+  },
+  "verification": {
+    "offlineMock": {
+      "tests": 184,
+      "passed": 183,
+      "failed": 0,
+      "skipped": 1,
+      "manifest": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/regression.json",
+      "skipReason": "Existing optional RPG_B3_LEGACY_COPY private fixture unavailable"
+    },
+    "frontend": {
+      "files": 6,
+      "tests": 53,
+      "passed": 53,
+      "manifest": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout/frontend.json"
+    },
+    "builds": {
+      "card": "passed: --base=/rpg-app/earth/",
+      "studio": "passed: existing large chunk warning"
+    },
+    "ui": "B4 lifecycle evidence retained; closeout fresh-build desktop/390px summary read and genuine JPEG captures passed; no paid replay",
+    "human": "B0-B4 approved; all 5 actual B5 outputs approved",
+    "provider": {
+      "status": "five-real-dispatches-complete-approved-scope",
+      "dispatches": 5,
+      "authorizedQuota": 5,
+      "remaining": 0,
+      "purposes": {
+        "story": 3,
+        "summary": 2
+      },
+      "authenticationCalls": 0,
+      "automaticRetries": 0
+    },
+    "finalRuntimeHash": "aaca2ad2796eaec07235d85b989358cc3fd64fdf3745a57e4e512587b67d14b9",
+    "finalFixture": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/final-fixture.json",
+    "helpImagesLoaded": true
+  },
+  "verificationB5": {
+    "authorization": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\AUTHORIZATION.json",
+    "authorizedQuota": 5,
+    "realDispatches": 5,
+    "status": "five-dispatch-scope-approved-budget-exhausted",
+    "summaryModel": "google/gemini-3.8-flash",
+    "human": "all-three-stories-and-both-summaries-approved-by-user",
+    "remaining": 0,
+    "evidence": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\summary2-verification.json",
+    "summaryVersions": 2,
+    "summaryTasksDispatched": 2,
+    "coveredThrough": 2,
+    "savedStoryTurns": 3,
+    "knownUIIssue": {
+      "severity": "non-blocking-display",
+      "file": "experiments/ai-rpg-engine/card-replica/src/rolling-summary.tsx",
+      "line": 38,
+      "observed": "During story-only generation, summary modal says 正在更新 because status.busy is shared across session operations; chat also calls pending story a 总结操作.",
+      "impact": "Can mislead user about whether an additional summary call is happening. Actual dispatch and summary version verified unchanged.",
+      "resolution": "Fixed in local closeout frontend: purpose-specific busy label; temporary status failures clear after successful latest poll while unknown-write alerts remain. 11 focused tests and 53 frontend regression tests passed; runtime unchanged."
+    },
+    "originalQuota": 4,
+    "additionalQuota": 1,
+    "authorizationExtension": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\AUTHORIZATION-EXTENSION-1.json"
+  },
+  "previewB5": {
+    "url": "http://127.0.0.1:18473/rpg/earth",
+    "backendPort": 18471,
+    "pidAtLaunch": 63440,
+    "storage": "C:\\tmp\\modelmirror-rpg-rolling-summary\\experiments\\ai-rpg-engine\\.rpg04-work\\rolling-summary-b5\\data",
+    "controlURL": "http://127.0.0.1:18458/",
+    "controlReusedReadOnly": true,
+    "summaryModel": "google/gemini-3.8-flash"
+  },
+  "verificationB4": {
+    "offlineMock": {
+      "tests": 184,
+      "passed": 183,
+      "failed": 0,
+      "skipped": 1,
+      "manifest": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/regression.json"
+    },
+    "frontend": {
+      "files": 6,
+      "tests": 47,
+      "passed": 47,
+      "manifest": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/frontend-checks.json"
+    },
+    "builds": {
+      "card": "passed: --base=/rpg-app/earth/",
+      "studio": "passed: existing large chunk warning"
+    },
+    "ui": "passed-scoped-live-local-browser; v2 lifecycle; final v3 HTTP fixture; detailed boundaries in B4-ACCEPTANCE.md",
+    "human": "B4 approved-by-user",
+    "provider": {
+      "dispatches": 0,
+      "authorizedQuota": 0,
+      "status": "not-run-real-provider"
+    },
+    "finalRuntimeHash": "aaca2ad2796eaec07235d85b989358cc3fd64fdf3745a57e4e512587b67d14b9",
+    "finalFixture": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-b4/final-fixture.json",
+    "helpImagesLoaded": true
+  },
+  "closeout": {
+    "at": "2026-09-20T10:56:26.155020+00:00",
+    "userStatement": "确认，可以开始收尾",
+    "evidence": "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-closeout",
+    "report": "CLOSEOUT.md",
+    "codeFilesChangedThisBatch": 3,
+    "documentationFilesThisBatch": 5,
+    "runtimeUnchanged": true,
+    "noNewProviderCalls": true,
+    "historicalEvidencePreserved": true
+  }
+}

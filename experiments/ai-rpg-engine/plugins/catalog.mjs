@@ -3,11 +3,13 @@ import {readFile} from 'node:fs/promises';
 import {invoke as branchInvoke} from './branch-save.mjs';
 import {invoke as modelInvoke} from './model-selector.mjs';
 import {invoke as historyInvoke} from './history-window.mjs';
+import {invoke as summaryInvoke} from './rolling-summary.mjs';
 
 export const PLUGIN_ID = 'rpg.branch-save'; // Compatibility default for existing branch callers.
 export const MODEL_SELECTOR_ID = 'rpg.model-selector';
 export const HISTORY_WINDOW_ID = 'rpg.history-window';
-export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID]);
+export const ROLLING_SUMMARY_ID = 'rpg.rolling-summary';
+export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID]);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -18,6 +20,9 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  [ROLLING_SUMMARY_ID, {file:'rolling-summary', invoke:summaryInvoke,
+    permissions:['session.completed.read','session.summary.configure','session.summary.revise','session.summary.request','ui.contribute'],
+    capabilities:['ui.summary-action','session.summary.configure','session.summary.revise','session.summary.request']}],
   [HISTORY_WINDOW_ID, {file:'history-window', invoke:historyInvoke,
     permissions:['session.completed.read','session.history.configure','ui.contribute'],
     capabilities:['ui.history-action','session.history.configure']}],
@@ -58,8 +63,9 @@ export async function loadReviewedCatalog(pluginId = PLUGIN_ID) {
   if (entry.manifest.id !== pluginId || !bound || entry.manifestSha256 !== bound[0] || entry.artifactSha256 !== bound[1]) throw fail('PLUGIN_RELEASE_CHANGED_RESTART_REQUIRED');
   return {...entry, invoke:d.invoke};
 }
-export async function loadReviewedPlugins() {
-  return Promise.all(REVIEWED_PLUGIN_IDS.map(async id => {
+// M2 is advertised only by an explicitly opted-in new host, never legacy entrypoints.
+export async function loadReviewedPlugins({rollingSummary=false}={}) {
+  return Promise.all(REVIEWED_PLUGIN_IDS.filter(id=>rollingSummary||id!==ROLLING_SUMMARY_ID).map(async id => {
     try {return await loadReviewedCatalog(id);} catch(e) {
       return {id,error:e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_PACKAGE_UNAVAILABLE'};
     }

@@ -1,0 +1,31 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.rolling-summary",
+  "version": "1.0.0",
+  "name": "自动总结",
+  "description": "滚动摘要加最近一个完整回合；额外调用所选摘要模型，原始历史仍保留。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.summary-action",
+    "session.summary.configure",
+    "session.summary.revise",
+    "session.summary.request"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.summary.configure",
+    "session.summary.revise",
+    "session.summary.request",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/rolling-summary.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "3fc8f214a25cf2dfa7ed844a2af5ce05a8c2bd6d74f06c6de767dc88bc75784a"
+}
