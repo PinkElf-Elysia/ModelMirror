@@ -12,7 +12,15 @@ export async function summaryHttp({route,method,data,query,store,plugins,view,se
  if(query.size)throw fail('SUMMARY_OPERATION_INVALID',400);
  if(method==='GET'&&!action){
   const status=await store.summaryStatus(id,plugins);
-  if(status.taskState)status.taskState={blocked:status.taskState.blocked,operations:Object.fromEntries(Object.entries(status.taskState.operations).map(([key,o])=>[key,{status:o.status,kind:o.kind,error:o.error,purpose:o.tasks.at(-1)?.purpose||null}]))};
+  if(status.taskState){
+   const operations=Object.entries(status.taskState.operations);
+   status.compressionAttempts=operations.flatMap(([key,o])=>{
+    const candidate=o.tasks.find(t=>t.purpose==='summary'&&t.overflow)||o.tasks.find(t=>t.purpose==='compression')?.candidate;
+    const compression=o.tasks.find(t=>t.purpose==='compression');
+    return candidate&&!compression?.versionId?[{operationId:key,status:o.status,raw:candidate.output.raw,compressedRaw:compression?.output?.raw??null}]:[];
+   });
+   status.taskState={blocked:status.taskState.blocked,operations:Object.fromEntries(operations.map(([key,o])=>[key,{status:o.status,kind:o.kind,error:o.error,purpose:o.tasks.at(-1)?.purpose||null,overflow:o.tasks.some(t=>t.overflow||t.purpose==='compression')}]))};
+  }
   send(200,{...status,busy:store.running.has(id)||store.locks.has(id)});return true;
  }
  if(method==='GET'&&action==='catalog'){send(200,{models:await store.summaryCatalog(id,plugins)});return true;}

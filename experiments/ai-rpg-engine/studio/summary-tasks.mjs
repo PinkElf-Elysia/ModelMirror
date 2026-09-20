@@ -1,3 +1,4 @@
+import {overflow,compressionMessages,compressionEvidence,reusableOverflow,COMPRESSION_MAX} from './summary-compression.mjs';
 import {SUMMARY_INSTRUCTION,summaryUpdateSource,requireSummaryState,modelSummaryVersion,withSummaryVersion,effectiveContextPolicy} from './summary-state.mjs';
 import {canonical,sha,fail} from '../plugins/catalog.mjs';
 import {exact,operationId,revision} from './history-state.mjs';
@@ -8,7 +9,7 @@ export function summaryTaskBlock(s){return Object.values(s.summaryTasks?.operati
 export function requireTaskState(s){
  const state=s.summaryTasks;if(!state)return {operations:{},blocked:null};
  if(!exact(state,['operations','blocked','hash'])||state.hash!==sha(canonical({operations:state.operations,blocked:state.blocked}))||!state.operations||typeof state.operations!=='object'||Array.isArray(state.operations))throw fail('SUMMARY_TASK_STATE_INVALID');
- for(const [key,op] of Object.entries(state.operations))if(!operationId(key)||op.inputHash!==sha(canonical(op.input))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(op.status)||!Array.isArray(op.tasks)||op.tasks.some(t=>t.sessionId!==s.id||!['story','summary'].includes(t.purpose)||t.messagesHash!==sha(canonical(t.messages))))throw fail('SUMMARY_TASK_STATE_INVALID');
+ for(const [key,op] of Object.entries(state.operations))if(!operationId(key)||op.inputHash!==sha(canonical(op.input))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(op.status)||!Array.isArray(op.tasks)||op.tasks.some(t=>t.sessionId!==s.id||!['story','summary','compression'].includes(t.purpose)||t.messagesHash!==sha(canonical(t.messages))))throw fail('SUMMARY_TASK_STATE_INVALID');
  if(state.blocked!==null&&!Object.hasOwn(state.operations,state.blocked))throw fail('SUMMARY_TASK_STATE_INVALID');return state;
 }
 const sealTasks=value=>{const {hash,...body}=value;return {...body,hash:sha(canonical(body))};};
@@ -35,21 +36,27 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
    task.status=!result.dispatched||result.failureKnown?'failed':'unknown';throw fail(task.status==='unknown'?'SUMMARY_TASK_RESULT_UNKNOWN':'SUMMARY_TASK_FAILED');
   }
   if(record.sessionId!==s.id||record.requestId!==task.requestId||record.requestedModel!==task.selection.model||canonical(record.parameters)!==canonical(task.selection.parameters)||record.rawHash!==sha(result.raw))throw fail('SUMMARY_TASK_RECEIPT_INVALID');
-  if(task.purpose==='summary'){
-   const v=modelSummaryVersion(s,{raw:result.raw,finishReason:result.finishReason,model:task.selection,receipt:{requestId:task.requestId,requestHash:record.requestHash,responseHash:record.rawHash},expectedActiveVersionId:task.source.previousVersionId,targetThrough:task.source.targetThrough});
+  if(task.purpose!=='story'){
+   if(task.purpose==='summary'&&overflow(result.raw,result.finishReason)){
+    await guard(s,operation,async()=>{task.overflow=true;task.status='complete';await save(s);});return;
+   }
+   if(task.purpose==='compression'&&(result.finishReason!=='stop'||typeof result.raw!=='string'||!result.raw.trim()||Array.from(result.raw).length>COMPRESSION_MAX))throw fail('SUMMARY_COMPRESSION_REJECTED');
+   const v=modelSummaryVersion(s,{raw:result.raw,finishReason:result.finishReason,model:task.selection,receipt:{requestId:task.requestId,requestHash:record.requestHash,responseHash:record.rawHash},expectedActiveVersionId:task.source.previousVersionId,targetThrough:task.source.targetThrough,...(task.purpose==='compression'?{compression:compressionEvidence(task.candidate)}:{})});
    await guard(s,operation,async()=>{s.rollingSummary=withSummaryVersion(s,v);s.revision++;task.versionId=v.id;task.status='complete';await save(s);});
   }else{
    if(typeof result.raw!=='string'||!result.raw.trim())throw fail('MODEL_EMPTY_OUTPUT');
    await guard(s,operation,async()=>{await commitStory(s,task,result);task.status='complete';await save(s);});
   }
  }
- async function step(s,operation,purpose,lease,controller){
+ async function step(s,operation,purpose,lease,controller,candidate=null){
   if(controller.signal.aborted)throw fail('CANCELLED_BEFORE_DISPATCH');
-  const source=purpose==='summary'?summaryUpdateSource(s):null;
-  const selection=await choose(purpose==='summary'?requireSummaryState(s).config.model:s.modelState.current,s.id);
+  const source=purpose==='story'?null:summaryUpdateSource(s);
+  if(purpose==='compression'&&canonical(candidate?.source)!==canonical(source))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
+  const selection=await choose(purpose!=='story'?requireSummaryState(s).config.model:s.modelState.current,s.id);
   const story=purpose==='story'?await buildStory(s,operation.input.input,effectiveContextPolicy(s,operation.authorization.summary,operation.authorization.history)):null;
-  const messages=purpose==='summary'?summaryMessages(source):story.messages;
-  const task={purpose,sessionId:s.id,requestId:taskId(s.id,operation.input.operationId,purpose),selection,messages:structuredClone(messages),messagesHash:sha(canonical(messages)),source,story,lease,status:'pending',output:null};
+  const messages=purpose==='compression'?compressionMessages(compressionEvidence(candidate).raw):purpose==='summary'?summaryMessages(source):story.messages;
+  if(candidate&&canonical(candidate.selection)!==canonical(selection))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
+  const task={purpose,sessionId:s.id,requestId:taskId(s.id,operation.input.operationId,purpose),selection,messages:structuredClone(messages),messagesHash:sha(canonical(messages)),source,story,lease,status:'pending',output:null,...(candidate?{candidate:structuredClone(candidate)}:{})};
   operation.tasks.push(task);await save(s);
   const result=await transport.execute(task,controller.signal,action=>guard(s,operation,action));
   task.output=structuredClone(result);
@@ -70,19 +77,24 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
    if(kind!=='send'&&!authorization.summary.enabled)throw fail('PLUGIN_NOT_AUTHORIZED');
    if(kind==='send'&&state.blocked&&authorization.summary.enabled)throw fail('SUMMARY_UPDATE_REQUIRES_EXPLICIT_ACTION');
    const needs=authorization.summary.enabled&&summaryUpdateSource(s).needsUpdate;
-   const purposes=kind==='send'?[...(needs?['summary']:[]),'story']:needs?['summary']:[];
+   const reused=needs&&kind!=='send'?reusableOverflow(s,state,summaryUpdateSource(s)):null;
+   const purposes=kind==='send'?[...(needs?['summary','compression']:[]),'story']:needs?(reused?['compression']:['summary','compression']):[];
    const operation={input:structuredClone(input),inputHash:sha(canonical(input)),kind,authorization,policyRevision:policy.revision,status:'pending',tasks:[],leases:[],error:null};
    s.summaryTasks={...state,operations:{...state.operations,[input.operationId]:operation}};await save(s);
    const controller=new AbortController();store.running.set(id,controller);
    try{
     if(purposes.length){operation.leases=await transport.budget.reserve(reservationId(id,input.operationId),id,purposes);await save(s);}
-    for(let i=0;i<purposes.length;i++)await step(s,operation,purposes[i],operation.leases[i],controller);
+    for(let i=0;i<purposes.length;i++){
+     const candidate=purposes[i]==='compression'?(reused||operation.tasks.find(t=>t.purpose==='summary'&&t.overflow)):null;
+     if(purposes[i]==='compression'&&!candidate)continue;
+     await step(s,operation,purposes[i],operation.leases[i],controller,candidate);
+    }
     operation.status='complete';s.summaryTasks.blocked=null;
    }catch(e){
     const last=operation.tasks.at(-1);operation.status=controller.signal.aborted?'cancelled':last?.status==='unknown'?'unknown':last?.status==='revoked'?'revoked':'failed';
-    operation.error=['BUDGET_EXHAUSTED','MODEL_SELECTION_UNAVAILABLE','SUMMARY_OUTPUT_REJECTED','SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH','SUMMARY_TASK_RESULT_UNKNOWN','CANCELLED'].includes(e.code)?e.code:'SUMMARY_TASK_FAILED';
+    operation.error=['BUDGET_EXHAUSTED','MODEL_SELECTION_UNAVAILABLE','SUMMARY_OUTPUT_REJECTED','SUMMARY_COMPRESSION_REJECTED','SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH','SUMMARY_TASK_RESULT_UNKNOWN','CANCELLED'].includes(e.code)?e.code:'SUMMARY_TASK_FAILED';
     // Summary failure blocks future automatic work. Story failure can reuse a committed summary.
-    if(last?.purpose==='summary'||kind!=='send'||!last&&needs&&e.code!=='BUDGET_EXHAUSTED')s.summaryTasks.blocked=input.operationId;
+    if(last&&last.purpose!=='story'||kind!=='send'||!last&&needs&&e.code!=='BUDGET_EXHAUSTED')s.summaryTasks.blocked=input.operationId;
    }finally{
     for(const lease of operation.leases)try{await transport.budget.release(lease);}catch{(operation.releaseErrors??=[]).push(lease.index);}
     store.running.delete(id);
@@ -127,12 +139,14 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
     s.summaryTasks=state;
     for(const task of op.tasks){if(task.status==='complete')continue;
      const result=await transport.recover(task);
-     try{await finishTask(s,op,task,result);}catch(e){task.output=structuredClone(result);if(task.status==='pending'||task.status==='unknown')task.status=['SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH'].includes(e.code)?'revoked':['SUMMARY_OUTPUT_REJECTED','MODEL_EMPTY_OUTPUT'].includes(e.code)?'failed':result.dispatched?'unknown':'failed';}
+     try{await finishTask(s,op,task,result);}catch(e){task.output=structuredClone(result);if(task.status==='pending'||task.status==='unknown')task.status=['SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH'].includes(e.code)?'revoked':['SUMMARY_OUTPUT_REJECTED','SUMMARY_COMPRESSION_REJECTED','MODEL_EMPTY_OUTPUT'].includes(e.code)?'failed':result.dispatched?'unknown':'failed';}
     }
     const group=await transport.budget.recover(reservationId(id,key));op.releaseErrors=[];for(const lease of group?.leases||[])try{await transport.budget.release(lease);}catch{op.releaseErrors.push(lease.index);}
-    op.status=op.tasks.some(t=>t.status==='unknown')?'unknown':op.tasks.some(t=>t.status==='revoked')?'revoked':op.tasks.some(t=>t.status!=='complete')?'failed':op.tasks.length?(op.tasks.some(t=>t.purpose==='story')||op.kind!=='send'?'complete':'failed'):op.kind!=='send'&&!summaryUpdateSource(s).needsUpdate?'complete':'failed';
-    // Recovery never launches an unstarted story or background task.
-    if(op.status==='complete'||op.status==='revoked'||op.status!=='unknown'&&op.tasks.filter(t=>t.purpose==='summary').every(t=>t.status==='complete'))state.blocked=null;else if(op.tasks.some(t=>t.purpose==='summary'&&t.status!=='complete'))state.blocked=key;
+    const published=op.kind==='send'?op.tasks.some(t=>t.purpose==='story'&&t.status==='complete'):!summaryUpdateSource(s).needsUpdate;
+    op.status=op.tasks.some(t=>t.status==='unknown')?'unknown':op.tasks.some(t=>t.status==='revoked')?'revoked':op.tasks.some(t=>t.status!=='complete')?'failed':published?'complete':'failed';
+    // Recovery commits completed receipts only; never launches missing compression or story.
+    if(op.status==='complete'||op.status==='revoked'||op.status!=='unknown'&&!summaryUpdateSource(s).needsUpdate)state.blocked=null;
+    else if(op.tasks.some(t=>t.purpose!=='story'))state.blocked=key;
     await save(s);return structuredClone(op);
    });
   }

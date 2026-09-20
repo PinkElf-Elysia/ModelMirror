@@ -1,0 +1,149 @@
+{
+  "batch": "M2-overflow-supplement",
+  "phase": "initial-release accepted; closeout verified; PR update authorized",
+  "updatedAt": "2026-09-20T14:58:35.885741+00:00",
+  "branch": "codex/rpg-summary-overflow",
+  "base": "fb762c5a3e6d08fd740c72dcfddd54f8314132a3",
+  "authorization": {
+    "overflowBoundary": "approved-by-user",
+    "realCallsNewAllowance": 3,
+    "commit": true,
+    "push": true,
+    "pr": true,
+    "sharedDeploy": false,
+    "realCallsScope": "initial2: synthetic generation + compression; new1: compression after local append; no retries"
+  },
+  "offline": {
+    "hostPluginPassed": 177,
+    "hostPluginFailed": 0,
+    "hostPluginSkipped": 1,
+    "newCompressionTests": 20,
+    "cardTestsPassed": 26,
+    "cardBuild": "passed",
+    "affectedFrontendPassed": 44,
+    "studioIntegrationPassed": 3,
+    "clientBuild": "passed; existing large chunk warning"
+  },
+  "ui": {
+    "prototype": "index.html",
+    "productionUI": "implemented",
+    "browser": "recovered: actual prototype displayed at 18479",
+    "screenshots": [
+      "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-overflow/screenshots/desktop.jpg",
+      "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-overflow/screenshots/failure.jpg",
+      "experiments/ai-rpg-engine/.rpg04-work/rolling-summary-overflow/screenshots/mobile.jpg"
+    ],
+    "desktop": "passed listed visible flows",
+    "mobile390": "passed; no horizontal overflow",
+    "keyboard": "Esc cancel verified; full keyboard path not exhaustively repeated",
+    "screenshotNote": "Official CUA screenshots archived in native JPEG; no generated screenshots",
+    "prototypeAcceptance": "approved-by-user"
+  },
+  "realProvider": {
+    "usedThisBatch": 3,
+    "compressionQuality": "core facts retained with documented losses; user: 基本正常",
+    "longRunStability": "not-established; one controlled repeat only",
+    "remainingThisBatch": 0,
+    "sourceGeneration": {
+      "status": "complete",
+      "failure": null,
+      "dispatched": true,
+      "finishReason": "stop",
+      "characters": 10031,
+      "rawHash": "8b790c2d396824ccf8b5f72d2287a8219642652f7b685948dff01a58d3b60e06",
+      "eligibleForCompression": true,
+      "budget": {
+        "limit": 2,
+        "used": 1,
+        "reserved": 0,
+        "remaining": 1
+      },
+      "manual": "pending"
+    },
+    "sourceReview": "accepted-by-user",
+    "compressionResult": {
+      "status": "complete",
+      "failure": null,
+      "dispatched": true,
+      "finishReason": "stop",
+      "characters": 1900,
+      "rawHash": "ac2070d908ab73bf29a41c71b018f046b73db528508e47b7dec6a63b48e30878",
+      "structurallyAccepted": true,
+      "sourceRawHash": "8b790c2d396824ccf8b5f72d2287a8219642652f7b685948dff01a58d3b60e06",
+      "budget": {
+        "limit": 2,
+        "used": 2,
+        "reserved": 0,
+        "remaining": 0
+      },
+      "manual": "pending"
+    },
+    "firstCompressionUserReview": "基本正常",
+    "repeatCompression": {
+      "status": "complete",
+      "dispatched": true,
+      "failure": null,
+      "finishReason": "stop",
+      "characters": 1933,
+      "rawHash": "724ee83de63dc30cdfdcef9cc62d14e84c661b8600872a30f34c327748bd0d46",
+      "structurallyAccepted": true,
+      "budget": {
+        "limit": 1,
+        "used": 1,
+        "reserved": 0,
+        "remaining": 0
+      },
+      "manual": "accepted-with-known-deviations"
+    },
+    "repeatCompressionQuality": "user accepted known scope/cause/timing deviations for initial release"
+  },
+  "preview": {
+    "url": "http://127.0.0.1:18479/",
+    "pidAtLaunch": 34644,
+    "type": "static-prototype-only",
+    "recheckOwnershipBeforeStop": true,
+    "httpStatus": 200,
+    "servedSha256": "e60517c18f7299834964194825c9b24f45c95a23017cdef9085ea98912657e88",
+    "prototypePreserved": true
+  },
+  "oldPreview": "18473 preserved; no session or ledger migration",
+  "nextGate": "PR review; existing unrelated help-image failures remain; no new quota or deployment",
+  "previewRecovery": {
+    "oldUrl": "http://127.0.0.1:18475/",
+    "oldListenerPid": 1608,
+    "oldProcess": "node.exe experiments/ai-rpg-engine/.rpg04-work/rolling-summary-pr/preview.mjs",
+    "finding": "18475 and 18477 occupied by pre-existing PR preview; prior sandbox port queries denied access, not evidence of vacancy",
+    "oldFailure": "Python bind WinError 10013; original log preserved",
+    "changes": "New static preview on verified unused 18479; no old processes stopped; no firewall/security change"
+  },
+  "formalPreview": {
+    "pid": 60020,
+    "url": "http://127.0.0.1:18483/rpg",
+    "backend": 18481,
+    "fixtures": {
+      "success": "66ead02c-c929-4da6-80d8-d6d2ca0e39bc",
+      "failure": "9afc8e04-55d2-4f1e-912e-d03b6882cd86"
+    },
+    "realProviderEnabled": false,
+    "realAllowance": 0,
+    "syntheticLimit": 100
+  },
+  "manualAcceptance": {
+    "status": "accepted-with-known-deviations",
+    "quote": "有偏差，但在初版可接受范围内，可以收尾后PR",
+    "scope": "current overflow and one repeat compression; not long-run stability"
+  },
+  "closeout": {
+    "main": "09e8a7d644f626b3e1aa606fcf148f360fc9aadc",
+    "integrationBase": "56fe2e2d6d7840d9cfd380bb2c42fa0722ea421e",
+    "existingPr": 387,
+    "hostPassed": 177,
+    "hostSkipped": 1,
+    "cardPassed": 26,
+    "frontendPassed": 62,
+    "builds": "both passed",
+    "helpImages": "3 pre-existing unused images; main/candidate identical",
+    "preview": "http://127.0.0.1:18487/rpg/earth",
+    "realCallsThisTurn": 0
+  }
+}

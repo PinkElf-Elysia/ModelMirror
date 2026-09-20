@@ -1,3 +1,4 @@
+import {reusableOverflow} from './summary-compression.mjs';
 import {join} from 'node:path';
 import {SummaryBranchArchive} from './summary-branch-archive.mjs';
 import {assembleSummaryRequest,commitSummaryStory,requireContextEvidence} from './summary-assembly.mjs';
@@ -6,7 +7,7 @@ import {summaryTaskBlock,requireTaskState,createSummaryTasks} from './summary-ta
 import {randomUUID} from 'node:crypto';
 import {HistorySessionStore} from './history-session-store.mjs';
 import {summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus} from './summary-runtime.mjs';
-import {initialSummaryState,requireSummaryState,sealSummary,manualSummaryVersion,withSummaryVersion,effectiveContextPolicy} from './summary-state.mjs';
+import {initialSummaryState,requireSummaryState,sealSummary,manualSummaryVersion,withSummaryVersion,effectiveContextPolicy,summaryUpdateSource} from './summary-state.mjs';
 import {initialHistoryState,requireHistoryState,exact,revision,operationId} from './history-state.mjs';
 import {initialModelState,fixedChoice,controlledChoice,validChoice,requireModelState} from './model-runtime.mjs';
 import {completeHistory} from './branch-archive.mjs';
@@ -69,7 +70,8 @@ export class SummarySessionStore extends HistorySessionStore {
   const h=await this.requireSummarySession(s);if(!plugins)throw fail('PLUGIN_HOST_UNAVAILABLE',503);
   const auth=await plugins.summaryAuthorization(id),historyAuth=await plugins.historyAuthorization(id),taskState=requireTaskState(s);
   const policy=effectiveContextPolicy(s,auth,historyAuth),taskBlock=summaryTaskBlock(s)?'SUMMARY_TASK_UNCONFIRMED':taskState.blocked&&auth.enabled?'SUMMARY_UPDATE_REQUIRES_EXPLICIT_ACTION':null;
-  return {compatible:true,enabled:auth.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(taskState),effectivePolicy:taskBlock?{...policy,ready:false,reason:taskBlock}:policy};
+  const updatePlan=auth.enabled&&h.config.model&&policy.needsUpdate&&!summaryTaskBlock(s)?(reusableOverflow(s,taskState,summaryUpdateSource(s))?{kind:'compression',maxCalls:1}:{kind:'summary',maxCalls:2}):null;
+  return {updatePlan,compatible:true,enabled:auth.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(taskState),effectivePolicy:taskBlock?{...policy,ready:false,reason:taskBlock}:policy};
  }
  async historyWindowStatus(id,plugins){
   const s=await this.read(id);if(s.runtime?.format!==4)return super.historyWindowStatus(id,plugins);

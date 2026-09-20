@@ -45,7 +45,7 @@ test('foreground 4 stories and 2 summaries, independent Luna parameters, exact s
  assert.deepEqual(JSON.parse(summaries[1].messages[1].content).completedTurns,s.history.slice(2,4));assert.equal(JSON.parse(summaries[1].messages[1].content).previousSummary,'合成输出');
  assert.equal((await f.tasks.send(s.id,input)).replayed,true);assert.equal(f.wires.length,6);assert.equal((await f.transport.status()).used,6);
 });
-test('two permits required atomically; insufficient budget dispatches neither and other sessions cannot reset budget',async t=>{
+test('three permits required atomically; insufficient budget dispatches neither and other sessions cannot reset budget',async t=>{
  const f=await fixture(t,{limit:1});let s=await f.seed(await f.create());const before=structuredClone(s.history),r=await f.tasks.send(s.id,await f.input(s));
  assert.equal(r.error,'BUDGET_EXHAUSTED');assert.equal(f.wires.length,0);assert.equal((await f.transport.status()).remaining,1);assert.deepEqual((await f.store.read(s.id)).history,before);
  const other=await f.create();assert.equal((await f.tasks.send(other.id,await f.input(other))).status,'complete');assert.equal((await f.transport.status()).remaining,0);
@@ -62,9 +62,9 @@ test('successful summary followed by failed story is retained and never summariz
  const first=await f.tasks.send(s.id,await f.input(s));assert.equal(first.status,'failed');assert.equal(first.tasks[0].status,'complete');let disk=await f.store.read(s.id);assert.equal(disk.rollingSummary.versions.length,1);
  const next=await f.tasks.send(s.id,await f.input(disk));assert.equal(next.status,'complete');assert.equal(next.tasks.length,1);assert.equal(next.tasks[0].purpose,'story');assert.equal(f.wires.length,3);
 });
-for(const variant of ['truncated','oversize'])test('invalid summary '+variant+' preserves complete raw evidence without repair',async t=>{
+for(const variant of ['truncated','oversize'])test('invalid summary '+variant+' preserves evidence; oversized complete response gets one compression attempt',async t=>{
  const raw=variant==='oversize'?'😀'.repeat(10001):'不完整';const f=await fixture(t,{onCall:body=>response(body,{raw,finish:variant==='truncated'?'length':'stop'})});const s=await f.seed(await f.create());const r=await f.tasks.send(s.id,await f.input(s));
- assert.equal(r.status,'failed');assert.equal(f.wires.length,1);assert.equal(r.tasks[0].output.raw,raw);assert.equal((await f.store.read(s.id)).rollingSummary.activeVersionId,null);
+ assert.equal(r.status,'failed');assert.equal(f.wires.length,variant==='oversize'?2:1);assert.equal(r.tasks[0].output.raw,raw);assert.equal((await f.store.read(s.id)).rollingSummary.activeVersionId,null);
 });
 test('cancel and late response consume one dispatched permit and never publish summary/story',async t=>{
  const entered=latch(),release=latch();const f=await fixture(t,{onCall:async body=>{entered.resolve();await release.promise;return response(body);}}),s=await f.seed(await f.create());

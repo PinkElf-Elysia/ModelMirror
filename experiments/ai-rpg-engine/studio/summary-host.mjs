@@ -1,3 +1,4 @@
+import {COMPRESSION_INSTRUCTION} from './summary-compression.mjs';
 import {join} from 'node:path';
 import {createSummaryTransport} from './summary-task-provider.mjs';
 import {models} from './provider.mjs';
@@ -9,7 +10,7 @@ export async function summaryHostTransport({directory,control,limit,store,offlin
  const item={model:models.earth.model,name:'离线样例（不调用模型）',selectionId:'offline-sample',selectionRevision:'offline-v1',available:true,parameters:models.earth.parameters};
  const offline=await createSummaryTransport({directory:join(directory,'offline-summary-dispatches'),enabled:true,limit:100,baseURL:'http://127.0.0.1:1/',serviceToken:'offline-internal-synthetic-token-not-a-credential',fetcher:async(url,options)=>{
   if(options.method==='GET')return Response.json({models:[item]});
-  const b=JSON.parse(options.body),raw=b.messages[0].content===SUMMARY_INSTRUCTION?'离线摘要样例：这是一份用于验证设置、覆盖范围和修订的固定文字，不代表模型的总结效果。':await offlineGenerate({signal:options.signal});
+  const b=JSON.parse(options.body),raw=b.messages[0].content===SUMMARY_INSTRUCTION?'离线摘要样例：这是一份用于验证设置、覆盖范围和修订的固定文字，不代表模型的总结效果。':b.messages[0].content===COMPRESSION_INSTRUCTION?'离线二次压缩样例：保留尚未兑现的约定与未确认的事实，不代表真实压缩质量。':await offlineGenerate({signal:options.signal});
   const sse='data: '+JSON.stringify({model:item.model,choices:[{delta:{content:raw},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n';
   return Response.json({raw,sse,receipt:{gateway:'rpg_scoped',sessionId:b.sessionId,requestId:b.requestId,selectionId:b.selectionId,selectionRevision:b.selectionRevision,requestedModel:item.model,actualModel:item.model,parameters:b.parameters,status:'complete',error:null,dispatched:true,retries:0,requestHash:sha(canonical(b)),rawHash:sha(raw),sseHash:sha(sse)}});
  }});

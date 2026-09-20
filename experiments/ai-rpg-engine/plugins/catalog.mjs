@@ -20,7 +20,7 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
-  [ROLLING_SUMMARY_ID, {file:'rolling-summary', invoke:summaryInvoke,
+  [ROLLING_SUMMARY_ID, {file:'rolling-summary', version:'1.1.0', invoke:summaryInvoke,
     permissions:['session.completed.read','session.summary.configure','session.summary.revise','session.summary.request','ui.contribute'],
     capabilities:['ui.summary-action','session.summary.configure','session.summary.revise','session.summary.request']}],
   [HISTORY_WINDOW_ID, {file:'history-window', invoke:historyInvoke,
@@ -48,7 +48,7 @@ export function verifyPackage(manifestBytes, artifactBytes) {
   const d = definitions.get(m?.id);
   if (!d || canonical(Object.keys(m).sort()) !== canonical(keys.slice().sort()) ||
       m.format !== 'modelmirror.rpg.reviewed-plugin' || m.formatVersion !== '1.0.0' ||
-      m.version !== '1.0.0' || m.hostVersion !== HOST_VERSION ||
+      m.version !== (d.version || '1.0.0') || m.hostVersion !== HOST_VERSION ||
       canonical(m.compatibleCards) !== canonical(['earth']) || canonical(m.permissions) !== canonical(d.permissions) ||
       canonical(m.capabilities) !== canonical(d.capabilities) || m.network !== 'none' || m.modelAccess !== false || m.dataRetention !== 'retain' ||
       ['name','description','source','license'].some(k => typeof m[k] !== 'string' || !m[k].trim())) throw fail('PLUGIN_MANIFEST_INVALID');

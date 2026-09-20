@@ -1,3 +1,4 @@
+import {validCompression,COMPRESSION_MAX} from './summary-compression.mjs';
 import {POLICY_VERSION,planCoverage,validText} from '../plugins/rolling-summary.mjs';
 import {sha,canonical,fail} from '../plugins/catalog.mjs';
 import {validChoice} from './model-runtime.mjs';
@@ -18,8 +19,9 @@ export function requireSummaryState(s){
  if(!exact(h,['policyVersion','revision','config','activeVersionId','versions','pending','operations','stateHash'])||h.policyVersion!==POLICY_VERSION||!revision(h.revision)||h.stateHash!==sealSummary(h).stateHash||!exact(h.config,['timing','model'])||!['before','after'].includes(h.config.timing)||(h.config.model!==null&&(!validChoice(h.config.model)||h.config.model.kind!=='controlled'))||!Array.isArray(h.versions)||!record(h.operations))bad();
  const coverage=planCoverage(s.history),seen=new Map(),requestIds=new Set();let previous=null;
  for(const v of h.versions){
-  if(!exact(v,['id','kind','previousVersionId','coveredThrough','sourceHash','raw','effectiveText','model','receipt','restoredFrom']))bad();
+  if(!exact(v,['id','kind','previousVersionId','coveredThrough','sourceHash','raw','effectiveText','model','receipt','restoredFrom',...(Object.hasOwn(v,'compression')?['compression']:[])]))bad();
   const {id,...body}=v;
+  if(Object.hasOwn(v,'compression')&&(v.kind!=='model'||!validCompression(v.compression)||Array.from(v.raw||'').length>COMPRESSION_MAX||v.receipt?.requestId===v.compression.receipt.requestId))bad();
   if(!hash(id)||id!==versionId(body)||seen.has(id)||v.previousVersionId!==(previous?.id||null)||!Number.isSafeInteger(v.coveredThrough)||v.coveredThrough<1||v.coveredThrough>coverage.targetThrough||v.sourceHash!==sourceHash(s,v.coveredThrough)||!validText(v.effectiveText))bad();
   if(v.kind==='model'){
    if(!validText(v.raw)||v.raw!==v.effectiveText||!validChoice(v.model)||v.model.kind!=='controlled'||!exact(v.receipt,['requestId','requestHash','responseHash'])||!operationId(v.receipt.requestId)||!hash(v.receipt.requestHash)||v.receipt.responseHash!==sha(v.raw)||v.restoredFrom!==null||previous&&v.coveredThrough<=previous.coveredThrough)bad();
@@ -40,10 +42,11 @@ export function requireSummaryState(s){
 }
 export function modelSummaryVersion(s,input){
  const h=requireSummaryState(s),prior=activeSummary(h),plan=planCoverage(s.history,prior?.coveredThrough||0);
- if(!exact(input,['raw','finishReason','model','receipt','expectedActiveVersionId','targetThrough'])||input.expectedActiveVersionId!==h.activeVersionId||input.targetThrough!==plan.targetThrough||!plan.needsUpdate)throw fail('SUMMARY_COVERAGE_CONFLICT');
+ if(!exact(input,['raw','finishReason','model','receipt','expectedActiveVersionId','targetThrough',...(Object.hasOwn(input,'compression')?['compression']:[])])||input.expectedActiveVersionId!==h.activeVersionId||input.targetThrough!==plan.targetThrough||!plan.needsUpdate)throw fail('SUMMARY_COVERAGE_CONFLICT');
  if(input.finishReason!=='stop'||!validText(input.raw))throw fail('SUMMARY_OUTPUT_REJECTED');
+ if(Object.hasOwn(input,'compression')&&(!validCompression(input.compression)||Array.from(input.raw).length>COMPRESSION_MAX))throw fail('SUMMARY_COMPRESSION_REJECTED');
  if(!h.config.model||canonical(input.model)!==canonical(h.config.model)||!exact(input.receipt,['requestId','requestHash','responseHash'])||!operationId(input.receipt.requestId)||!hash(input.receipt.requestHash)||input.receipt.responseHash!==sha(input.raw))throw fail('SUMMARY_RECEIPT_INVALID');
- const body={kind:'model',previousVersionId:h.activeVersionId,coveredThrough:plan.targetThrough,sourceHash:sourceHash(s,plan.targetThrough),raw:input.raw,effectiveText:input.raw,model:structuredClone(input.model),receipt:structuredClone(input.receipt),restoredFrom:null};
+ const body={kind:'model',previousVersionId:h.activeVersionId,coveredThrough:plan.targetThrough,sourceHash:sourceHash(s,plan.targetThrough),raw:input.raw,effectiveText:input.raw,model:structuredClone(input.model),receipt:structuredClone(input.receipt),restoredFrom:null,...(input.compression?{compression:structuredClone(input.compression)}:{})};
  return {id:versionId(body),...body};
 }
 export function manualSummaryVersion(s,{text,restoreVersionId=null}){

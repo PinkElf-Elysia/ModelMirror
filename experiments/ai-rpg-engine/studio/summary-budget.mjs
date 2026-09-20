@@ -4,7 +4,7 @@ import {atomicJson} from './branch-archive.mjs';
 import {sha,canonical,fail} from '../plugins/catalog.mjs';
 const queues=new Map();
 const identity=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
-const validLease=lease=>lease&&identity(lease.groupId)&&Number.isInteger(lease.index)&&lease.index>=0&&lease.index<=1&&typeof lease.slot==='string'&&/^slot-\d+$/.test(lease.slot);
+const validLease=lease=>lease&&identity(lease.groupId)&&Number.isInteger(lease.index)&&lease.index>=0&&lease.index<=2&&typeof lease.slot==='string'&&/^slot-\d+$/.test(lease.slot);
 const exists=async p=>{try{return JSON.parse(await readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}};
 // Shared slot names also fence older transports. Released evidence is moved, never erased.
 export async function createSummaryBudget({directory,limit=0}){
@@ -23,7 +23,7 @@ export async function createSummaryBudget({directory,limit=0}){
  const budget={
   async status(){let consumed=0,reserved=0;for(const name of await slots()){const p=join(folder,name);if(await exists(join(p,'m2-claim.json'))&&!await exists(join(p,'dispatched.json')))reserved++;else consumed++;}return {limit,used:consumed,reserved,remaining:Math.max(0,limit-consumed-reserved)};},
   async reserve(groupId,sessionId,purposes){return serial(async()=>{
-   if(!Array.isArray(purposes)||!purposes.length||purposes.length>2||purposes.some(p=>!['summary','story'].includes(p))||new Set(purposes).size!==purposes.length||typeof sessionId!=='string')throw fail('BUDGET_RESERVATION_INVALID');
+   if(!Array.isArray(purposes)||!purposes.length||purposes.length>3||purposes.some(p=>!['summary','compression','story'].includes(p))||new Set(purposes).size!==purposes.length||typeof sessionId!=='string')throw fail('BUDGET_RESERVATION_INVALID');
    const target=path(groupId),prior=await exists(target);if(prior)throw fail('BUDGET_OPERATION_ALREADY_RESERVED');
    if((await budget.status()).remaining<purposes.length)throw fail('BUDGET_EXHAUSTED');
    const group={groupId,sessionId,purposes,leases:[],status:'allocating'};

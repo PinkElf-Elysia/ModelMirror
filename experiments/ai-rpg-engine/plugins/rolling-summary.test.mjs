@@ -34,7 +34,7 @@ async function fixture(t){
 }
 test('opt-in fourth artifact; install never enables; permissions, runtime and hash rejected',async t=>{
  assert.equal((await loadReviewedPlugins()).length,3);const f=await fixture(t);assert.equal((await f.host.catalog()).plugins.length,4);
- const p=await loadReviewedCatalog(R);assert.equal(p.manifest.network,'none');assert.equal(p.manifest.modelAccess,false);
+ const p=await loadReviewedCatalog(R);assert.equal(p.manifest.version,'1.1.0');assert.throws(()=>verifyPackage(Buffer.from(JSON.stringify({...p.manifest,version:'1.0.0'})),Buffer.from('not-used')),/PLUGIN_MANIFEST_INVALID/);assert.equal(p.manifest.network,'none');assert.equal(p.manifest.modelAccess,false);
  assert.throws(()=>verifyPackage(Buffer.from(JSON.stringify(p.manifest)),Buffer.from('wrong')),/PLUGIN_ARTIFACT_MISMATCH/);
  await f.change('install');assert.equal((await f.host.summaryAuthorization('new')).enabled,false);
  await assert.rejects(f.host.invoke({pluginId:R,sessionId:'new',capability:'session.summary.request'}),/PLUGIN_NOT_AUTHORIZED/);
