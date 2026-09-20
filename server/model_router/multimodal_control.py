@@ -42,6 +42,20 @@ R8C_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
 R8D_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
     {"chat_audio_input", "chat_audio_output", "audio_generation_stream"}
 )
+R8E_SYNC_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
+    {"video_analysis_unary", "chat_video_stream"}
+)
+R8E_EXECUTION_SHAPES: frozenset[ProviderWorkloadExecutionShape] = frozenset(
+    {*R8E_SYNC_EXECUTION_SHAPES, "video_generation_async"}
+)
+R8E_VIDEO_GENERATION_DURATION_SECONDS = 5
+R8E_VIDEO_GENERATION_RESOLUTION = "720p"
+R8E_VIDEO_GENERATION_ASPECT_RATIO = "16:9"
+R8E_VIDEO_GENERATION_OUTPUT_COUNT = 1
+_R8E_VIDEO_JOB_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,256}")
+_R8E_VIDEO_MODEL_IDENTIFIER_PATTERN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,511}"
+)
 CHAT_AUDIO_PCM16_SAMPLE_RATE_HZ = 24_000
 CHAT_AUDIO_PCM16_CHANNELS = 1
 CHAT_AUDIO_PCM16_BITS_PER_SAMPLE = 16
@@ -78,11 +92,56 @@ OPENROUTER_AUDIO_GENERATION_REQUEST_CONTRACT = (
     "openrouter-audio-generation-chat-stream-v2"
 )
 _MAX_GENERATION_METADATA_BYTES = 256 * 1024
+_MAX_VIDEO_JOB_METADATA_BYTES = 256 * 1024
+_MAX_VIDEO_MODELS_CATALOG_BYTES = 1024 * 1024
+_MAX_VIDEO_MODELS_CATALOG_RECORDS = 1000
 OPENROUTER_GENERATION_METADATA_REQUEST_TIMEOUT_SECONDS = 2.0
 _OPENROUTER_GENERATION_ID_LOG_PATTERN = re.compile(
     r"([?&]id=)[^&\s]+",
     re.IGNORECASE,
 )
+
+
+def is_valid_openrouter_video_output_reference(
+    value: object,
+    upstream_job_id: str,
+) -> bool:
+    """Validate bounded OpenRouter video output metadata without fetching it."""
+
+    if not isinstance(value, str) or value != value.strip():
+        return False
+    if not value or len(value) > 4096 or not upstream_job_id:
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    if parsed.fragment or parsed.username or parsed.password:
+        return False
+    if parsed.scheme or parsed.netloc:
+        return bool(
+            parsed.scheme == "https"
+            and parsed.hostname
+            and parsed.path
+        )
+    return parsed.path == f"/api/v1/videos/{upstream_job_id}/content"
+
+
+def clean_provider_video_identifier(
+    value: object,
+    *,
+    kind: Literal["job", "generation", "model"],
+) -> str | None:
+    """Return only bounded opaque video identifiers safe for evidence storage."""
+
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    pattern = (
+        _R8E_VIDEO_MODEL_IDENTIFIER_PATTERN
+        if kind == "model"
+        else _R8E_VIDEO_JOB_IDENTIFIER_PATTERN
+    )
+    return value if pattern.fullmatch(value) else None
 
 
 def build_openrouter_audio_generation_payload(
@@ -1086,6 +1145,8 @@ class ProviderMultimodalTarget:
             "openai_compatible_audio_speech_v1",
         }:
             endpoint_url = f"{api_base}/audio/speech"
+        elif adapter_contract == "openrouter_video_jobs_v1":
+            endpoint_url = f"{api_base}/videos"
         else:
             endpoint_url = f"{api_base}/chat/completions"
         return cls(
@@ -1109,6 +1170,53 @@ class ProviderMultimodalTarget:
         return headers
 
 
+@dataclass(frozen=True, slots=True)
+class OpenRouterVideoCatalogEvidence:
+    model_verified: bool
+    parameters_verified: bool
+    catalog_model_id: str
+    canonical_model_id: str
+
+
+def openrouter_video_catalog_model_matches(
+    *,
+    requested_model: str,
+    catalog_model_id: object,
+    canonical_model_id: object,
+    actual_model: str,
+) -> bool:
+    """Match only an exact catalog ID or its exact upstream canonical slug."""
+
+    clean_requested = clean_provider_video_identifier(
+        requested_model,
+        kind="model",
+    )
+    clean_catalog = clean_provider_video_identifier(
+        catalog_model_id,
+        kind="model",
+    )
+    clean_canonical = clean_provider_video_identifier(
+        canonical_model_id,
+        kind="model",
+    )
+    clean_actual = clean_provider_video_identifier(actual_model, kind="model")
+    return bool(
+        clean_requested == requested_model
+        and clean_catalog == requested_model
+        and clean_canonical is not None
+        and clean_actual == actual_model
+        and actual_model in {requested_model, clean_canonical}
+    )
+
+
+class OpenRouterVideoCatalogError(ValueError):
+    """Stable, redacted failure from the specialized OpenRouter video catalog."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class ProviderMultimodalTransport:
     """One-address transport for a qualified multimodal Adapter endpoint."""
 
@@ -1119,6 +1227,164 @@ class ProviderMultimodalTransport:
         self, target: ProviderMultimodalTarget
     ) -> AuthorizedProviderTarget:
         return await self.egress_policy.authorize(target.endpoint_url)
+
+    async def verify_openrouter_video_generation_model(
+        self,
+        client: httpx.AsyncClient,
+        target: ProviderMultimodalTarget,
+        model_id: str,
+        *,
+        duration_seconds: int,
+        resolution: str,
+        aspect_ratio: str,
+        timeout_seconds: float = 15.0,
+    ) -> OpenRouterVideoCatalogEvidence:
+        """Verify one exact model against the selected connection's video catalog."""
+
+        clean_model_id = clean_provider_video_identifier(model_id, kind="model")
+        if (
+            target.provider_kind != "openrouter"
+            or target.adapter_contract != "openrouter_video_jobs_v1"
+            or target.execution_shape != "video_generation_async"
+            or clean_model_id != model_id
+        ):
+            raise OpenRouterVideoCatalogError(
+                "provider_video_generation_catalog_target_invalid"
+            )
+        catalog_url = f"{target.endpoint_url.rstrip('/')}/models"
+        clean_timeout_seconds = max(0.001, float(timeout_seconds))
+        response: httpx.Response | None = None
+        try:
+            async with asyncio.timeout(clean_timeout_seconds):
+                authorized = await self.egress_policy.authorize(catalog_url)
+                extensions = dict(authorized.extensions)
+                extensions["timeout"] = {
+                    phase: clean_timeout_seconds
+                    for phase in ("connect", "read", "write", "pool")
+                }
+                request = client.build_request(
+                    "GET",
+                    authorized.pinned_urls[0],
+                    headers=authorized.request_headers(
+                        target.authorization_headers()
+                    ),
+                    extensions=extensions,
+                )
+                response = await client.send(
+                    request,
+                    stream=True,
+                    follow_redirects=False,
+                )
+                if not 200 <= response.status_code < 300:
+                    raise OpenRouterVideoCatalogError(
+                        "provider_video_generation_catalog_unavailable"
+                    )
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_VIDEO_MODELS_CATALOG_BYTES:
+                        raise OpenRouterVideoCatalogError(
+                            "provider_video_generation_catalog_invalid"
+                        )
+                    chunks.append(chunk)
+                try:
+                    payload = load_strict_json_object(
+                        b"".join(chunks).decode("utf-8")
+                    )
+                except (UnicodeDecodeError, TypeError, ValueError) as exc:
+                    raise OpenRouterVideoCatalogError(
+                        "provider_video_generation_catalog_invalid"
+                    ) from exc
+                items = payload.get("data")
+                if (
+                    not isinstance(items, list)
+                    or len(items) > _MAX_VIDEO_MODELS_CATALOG_RECORDS
+                ):
+                    raise OpenRouterVideoCatalogError(
+                        "provider_video_generation_catalog_invalid"
+                    )
+                matching: dict[str, object] | None = None
+                observed_ids: set[str] = set()
+                for item in items:
+                    if not isinstance(item, dict):
+                        raise OpenRouterVideoCatalogError(
+                            "provider_video_generation_catalog_invalid"
+                        )
+                    item_id = clean_provider_video_identifier(
+                        item.get("id"),
+                        kind="model",
+                    )
+                    if item_id is None or item_id in observed_ids:
+                        raise OpenRouterVideoCatalogError(
+                            "provider_video_generation_catalog_invalid"
+                        )
+                    observed_ids.add(item_id)
+                    if item_id == clean_model_id:
+                        matching = item
+                if matching is None:
+                    raise OpenRouterVideoCatalogError(
+                        "provider_video_generation_model_not_found"
+                    )
+
+                raw_canonical_model_id = matching.get("canonical_slug")
+                if raw_canonical_model_id in (None, ""):
+                    canonical_model_id = clean_model_id
+                else:
+                    canonical_model_id = clean_provider_video_identifier(
+                        raw_canonical_model_id,
+                        kind="model",
+                    )
+                    if canonical_model_id is None:
+                        raise OpenRouterVideoCatalogError(
+                            "provider_video_generation_catalog_invalid"
+                        )
+
+                supported_durations = matching.get("supported_durations")
+                supported_resolutions = matching.get("supported_resolutions")
+                supported_aspect_ratios = matching.get(
+                    "supported_aspect_ratios"
+                )
+                if (
+                    not isinstance(supported_durations, list)
+                    or any(
+                        not isinstance(item, int) or isinstance(item, bool)
+                        for item in supported_durations
+                    )
+                    or not isinstance(supported_resolutions, list)
+                    or any(
+                        not isinstance(item, str) or item != item.strip()
+                        for item in supported_resolutions
+                    )
+                    or not isinstance(supported_aspect_ratios, list)
+                    or any(
+                        not isinstance(item, str) or item != item.strip()
+                        for item in supported_aspect_ratios
+                    )
+                    or bool(matching.get("requires_source_video"))
+                    or matching.get("source_video_task") not in (None, "")
+                    or duration_seconds not in supported_durations
+                    or resolution not in supported_resolutions
+                    or aspect_ratio not in supported_aspect_ratios
+                ):
+                    raise OpenRouterVideoCatalogError(
+                        "provider_video_generation_parameters_not_supported"
+                    )
+                return OpenRouterVideoCatalogEvidence(
+                    model_verified=True,
+                    parameters_verified=True,
+                    catalog_model_id=clean_model_id,
+                    canonical_model_id=canonical_model_id,
+                )
+        finally:
+            if response is not None:
+                try:
+                    async with asyncio.timeout(
+                        min(1.0, clean_timeout_seconds)
+                    ):
+                        await response.aclose()
+                except TimeoutError:
+                    pass
 
     @staticmethod
     def build_authorized_json_request(
@@ -1223,6 +1489,64 @@ class ProviderMultimodalTransport:
                     str(model).strip()
                     if isinstance(model, str) and model.strip()
                     else None
+                )
+        finally:
+            if response is not None:
+                await response.aclose()
+
+    async def fetch_openrouter_video_job(
+        self,
+        client: httpx.AsyncClient,
+        target: ProviderMultimodalTarget,
+        job_id: str,
+        *,
+        timeout_seconds: float = 30.0,
+    ) -> tuple[int, dict[str, object] | None]:
+        """Poll one persisted video job with a bounded, DNS-pinned GET."""
+
+        clean_job_id = str(job_id or "").strip()
+        if (
+            target.provider_kind != "openrouter"
+            or target.adapter_contract != "openrouter_video_jobs_v1"
+            or not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", clean_job_id)
+        ):
+            return 0, None
+        clean_timeout_seconds = max(0.001, float(timeout_seconds))
+        poll_url = f"{target.endpoint_url.rstrip('/')}/{clean_job_id}"
+        authorized = await self.egress_policy.authorize(poll_url)
+        extensions = dict(authorized.extensions)
+        extensions["timeout"] = {
+            phase: clean_timeout_seconds
+            for phase in ("connect", "read", "write", "pool")
+        }
+        request = client.build_request(
+            "GET",
+            authorized.pinned_urls[0],
+            headers=authorized.request_headers(target.authorization_headers()),
+            extensions=extensions,
+        )
+        response: httpx.Response | None = None
+        try:
+            async with asyncio.timeout(clean_timeout_seconds):
+                response = await client.send(
+                    request,
+                    stream=True,
+                    follow_redirects=False,
+                )
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > _MAX_VIDEO_JOB_METADATA_BYTES:
+                        return response.status_code, None
+                    chunks.append(chunk)
+                try:
+                    payload = json.loads(b"".join(chunks))
+                except (TypeError, ValueError):
+                    return response.status_code, None
+                return (
+                    response.status_code,
+                    dict(payload) if isinstance(payload, dict) else None,
                 )
         finally:
             if response is not None:

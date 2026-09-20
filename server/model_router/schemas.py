@@ -920,6 +920,11 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     rerank_results_verified: bool = False
     batch_terminal_verified: bool = False
     media_format_verified: bool = False
+    multimodal_adapter_verified: bool = False
+    async_job_id_verified: bool = False
+    output_metadata_verified: bool = False
+    video_catalog_model_verified: bool = False
+    video_catalog_parameters_verified: bool = False
     audio_transport_format_verified: bool | None = None
     audio_delivery_format_verified: bool | None = None
     terminal_signal_verified: bool = False

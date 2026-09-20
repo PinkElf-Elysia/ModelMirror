@@ -291,11 +291,15 @@ const ACTIVE_MULTIMODAL_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
   "chat_audio_input",
   "chat_audio_output",
   "audio_generation_stream",
+  "video_analysis_unary",
+  "chat_video_stream",
+  "video_generation_async",
 ]);
 
 const REFRESHABLE_MULTIMODAL_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
   "audio_transcription",
   "audio_speech",
+  "video_generation_async",
 ]);
 
 const ADAPTER_OPTIONS: Record<AdapterContract, {
@@ -645,11 +649,15 @@ export default function ProviderWorkloadControlSettings({
       );
       if (!response.ok) throw new Error(await readError(response));
       const result = (await response.json()) as CertificationSummary;
-      setMessage(
-        result.status === "passed"
-          ? "执行形态资格已通过；它不代表任何 Agent 或 Workflow 入口已经启用。"
-          : `资格未通过：${result.error_code ?? result.status}`,
-      );
+      if (result.status === "passed") {
+        setMessage("执行形态资格已通过；它不代表任何 Agent 或 Workflow 入口已经启用。");
+      } else if (result.status === "failed") {
+        setMessageTone("warning");
+        setMessage(`资格未通过：${result.error_code ?? result.status}`);
+      } else {
+        setMessageTone("warning");
+        setMessage(`异步资格已提交，等待只读刷新：${result.error_code ?? result.status}`);
+      }
       setConfirmCertification(false);
       await load();
     } catch (reason) {
@@ -938,7 +946,9 @@ export default function ProviderWorkloadControlSettings({
                 {item.execution_shape === "audio_generation_stream" && item.checks?.sse_text_content_observed ? <p className="mt-1 text-xs text-slate-500">SSE 文本响应：{item.checks.sse_text_content_char_count ?? 0} 字符（仅记录计数）</p> : null}
                 {item.adapter_contract ? <p className="mt-1 break-all text-xs text-slate-500">Adapter：{item.adapter_contract} · {item.protocol_version ?? "协议待确认"}</p> : null}
                 {item.refresh_available && item.certification_id && REFRESHABLE_MULTIMODAL_CERTIFICATION_SHAPES.has(item.execution_shape) ? <div className="mt-3 rounded-lg border border-sky-300/15 bg-sky-300/[0.04] p-3">
-                  <p className="text-xs leading-5 text-sky-100">仅查询已保存 Generation ID 的实际模型证据；不会重新提交音频或产生第二次模型 POST。</p>
+                  <p className="text-xs leading-5 text-sky-100">{item.execution_shape === "video_generation_async"
+                    ? "仅查询已保存视频任务及其 Generation ID 的状态与实际模型证据；不会重新提交视频或产生第二次模型 POST。"
+                    : "仅查询已保存 Generation ID 的实际模型证据；不会重新提交音频或产生第二次模型 POST。"}</p>
                   <button className="mt-2 inline-flex items-center gap-2 rounded-full border border-sky-200/25 px-3 py-1.5 text-xs font-semibold text-sky-100 disabled:cursor-not-allowed disabled:opacity-40" disabled={busy} onClick={() => void refreshCertificationEvidence(item.certification_id!)} type="button"><RefreshCw className="h-3.5 w-3.5" />只读刷新模型证据</button>
                 </div> : null}
               </div>) : <p className="rounded-lg border border-dashed border-white/10 p-4 text-sm text-slate-400">尚无 Workload 资格记录。</p>}

@@ -108,6 +108,7 @@ export async function analyzeChatVideo(
   form.append("file", file, file.name);
   const response = await fetch("/api/multimodal/video/analysis", {
     method: "POST",
+    headers: { "Idempotency-Key": window.crypto.randomUUID() },
     body: form,
     signal,
   });

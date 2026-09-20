@@ -5525,13 +5525,13 @@ class SQLiteRouterRepository:
         completion_tokens: int | None,
         total_tokens: int | None,
         expected_connection_fingerprint: str,
+        actual_model: str | None = None,
     ) -> tuple[dict[str, object], dict[str, object]]:
         """Atomically retain completed POST evidence for a read-only refresh.
 
-        The certification intentionally remains ``running`` so the ordinary
-        completion path can finalize it.  If the process stops after this
-        transaction, startup recovery changes the certification to
-        ``uncertain`` while the already-completed Session remains refreshable.
+        The certification and Session become ``uncertain`` in the same
+        transaction.  A crash after this point therefore remains GET-only and
+        can never replay the paid Provider POST.
         """
 
         clean_tenant = self._tenant_id(tenant_id)
@@ -5542,12 +5542,7 @@ class SQLiteRouterRepository:
             )
         if any(
             checks.get(name) is not True
-            for name in (
-                "http_ok",
-                "content_observed",
-                "response_complete",
-                "media_format_verified",
-            )
+            for name in ("http_ok", "content_observed", "response_complete")
         ):
             raise RouterRepositoryError(
                 "provider_multimodal_pending_evidence_incomplete"
@@ -5600,10 +5595,22 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_dispatch_preconditions_changed"
                 )
+            execution_shape = str(certification["execution_shape"])
+            pending_shape_checks = (
+                ("multimodal_adapter_verified", "async_job_id_verified")
+                if execution_shape == "video_generation_async"
+                else ("media_format_verified",)
+            )
+            if any(checks.get(name) is not True for name in pending_shape_checks):
+                raise RouterRepositoryError(
+                    "provider_multimodal_pending_evidence_incomplete"
+                )
             certification_cursor = connection.execute(
                 """
                 UPDATE provider_workload_certifications
-                SET checks_json = ?, warnings_json = ?, error_code = ?,
+                SET status = 'uncertain', checks_json = ?,
+                    warnings_json = ?, error_code = ?,
+                    actual_model = ?,
                     ttft_ms = ?, e2e_ms = ?, prompt_tokens = ?,
                     completion_tokens = ?, total_tokens = ?, updated_at = ?,
                     completed_at = COALESCE(completed_at, ?)
@@ -5613,6 +5620,7 @@ class SQLiteRouterRepository:
                     json.dumps(checks, sort_keys=True, separators=(",", ":")),
                     json.dumps(warning_codes, separators=(",", ":")),
                     error_code,
+                    actual_model,
                     ttft_ms,
                     e2e_ms,
                     prompt_tokens,
@@ -5717,7 +5725,11 @@ class SQLiteRouterRepository:
                 str(certification["status"]) != "uncertain"
                 or str(session["status"]) != "uncertain"
                 or str(certification["execution_shape"])
-                not in {"audio_transcription", "audio_speech"}
+                not in {
+                    "audio_transcription",
+                    "audio_speech",
+                    "video_generation_async",
+                }
                 or str(certification["contract_version"])
                 != expected_contract_version
                 or str(certification["protocol_version"] or "")
@@ -5733,14 +5745,25 @@ class SQLiteRouterRepository:
                 checks = json.loads(str(certification["checks_json"] or "{}"))
             except (TypeError, ValueError):
                 checks = {}
-            if not isinstance(checks, dict) or any(
-                checks.get(name) is not True
-                for name in (
+            execution_shape = str(certification["execution_shape"])
+            refresh_checks = (
+                (
+                    "http_ok",
+                    "content_observed",
+                    "response_complete",
+                    "multimodal_adapter_verified",
+                    "async_job_id_verified",
+                )
+                if execution_shape == "video_generation_async"
+                else (
                     "http_ok",
                     "content_observed",
                     "response_complete",
                     "media_format_verified",
                 )
+            )
+            if not isinstance(checks, dict) or any(
+                checks.get(name) is not True for name in refresh_checks
             ):
                 raise RouterRepositoryError(
                     "provider_multimodal_certification_not_refreshable"
@@ -5867,9 +5890,45 @@ class SQLiteRouterRepository:
                     "provider_multimodal_certification_refresh_not_claimed"
                 )
             requested_model = str(certification["requested_model"])
+            try:
+                profile = json.loads(str(certification["profile_json"] or "{}"))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                profile = {}
+            profile_fingerprint_valid = bool(
+                isinstance(profile, dict)
+                and str(certification["profile_fingerprint"])
+                == hashlib.sha256(
+                    json.dumps(
+                        profile,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+            )
+            canonical_model = (
+                profile.get("video_catalog_canonical_model_id")
+                if isinstance(profile, dict)
+                else None
+            )
+            exact_catalog_alias_verified = bool(
+                str(certification["execution_shape"])
+                == "video_generation_async"
+                and isinstance(profile, dict)
+                and profile.get("video_catalog_contract_version")
+                == "modelmirror-openrouter-video-models-v2"
+                and profile.get("video_catalog_model_id") == requested_model
+                and isinstance(canonical_model, str)
+                and canonical_model
+                and canonical_model == canonical_model.strip()
+                and actual_model == canonical_model
+            )
             if status == "passed" and (
                 not actual_model
-                or actual_model != requested_model
+                or not profile_fingerprint_valid
+                or (
+                    actual_model != requested_model
+                    and not exact_catalog_alias_verified
+                )
                 or checks.get("actual_model_verified") is not True
             ):
                 raise RouterRepositoryError(
@@ -7394,6 +7453,15 @@ class SQLiteRouterRepository:
         has_last_frame: bool = False,
         reference_image_count: int = 0,
         provider_option_keys: list[str] | None = None,
+        workload_run_id: str | None = None,
+        workload_call_id: str | None = None,
+        policy_fingerprint: str | None = None,
+        connection_fingerprint: str | None = None,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
+        provider_dispatch_state: str = "not_dispatched",
+        post_dispatched: bool = False,
+        provider_terminal_status: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         """Atomically claim an idempotency key before a paid upstream call."""
 
@@ -7420,6 +7488,15 @@ class SQLiteRouterRepository:
                 ensure_ascii=True,
                 separators=(",", ":"),
             ),
+            workload_run_id,
+            workload_call_id,
+            policy_fingerprint,
+            connection_fingerprint,
+            adapter_contract,
+            protocol_version,
+            provider_dispatch_state,
+            int(bool(post_dispatched)),
+            provider_terminal_status,
             now,
             now,
         )
@@ -7431,9 +7508,14 @@ class SQLiteRouterRepository:
                     requested_model, provider, status, duration, resolution,
                     aspect_ratio, generate_audio, seed, has_first_frame,
                     has_last_frame, reference_image_count,
-                    provider_option_keys, created_at, updated_at
+                    provider_option_keys, workload_run_id, workload_call_id,
+                    policy_fingerprint, connection_fingerprint,
+                    adapter_contract, protocol_version,
+                    provider_dispatch_state, post_dispatched,
+                    provider_terminal_status, created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 values,
@@ -7495,6 +7577,45 @@ class SQLiteRouterRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_active_video_jobs(
+        self, tenant_id: str, *, limit: int = 500
+    ) -> list[dict[str, object]]:
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 500))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND status IN ('queued', 'running')
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                """,
+                (clean_tenant, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_interrupted_managed_video_jobs(
+        self, tenant_id: str, *, limit: int = 100
+    ) -> list[dict[str, object]]:
+        """Return only managed active submissions that cannot be polled."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        safe_limit = max(1, min(int(limit), 100))
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ?
+                    AND status IN ('queued', 'running')
+                    AND workload_run_id IS NOT NULL
+                    AND TRIM(COALESCE(upstream_job_id, '')) = ''
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                """,
+                (clean_tenant, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def update_video_job(
         self,
         tenant_id: str,
@@ -7511,17 +7632,95 @@ class SQLiteRouterRepository:
             "cost_kind",
             "error_code",
             "output_count",
+            "workload_run_id",
+            "workload_call_id",
+            "policy_fingerprint",
+            "connection_fingerprint",
+            "adapter_contract",
+            "protocol_version",
+            "provider_dispatch_state",
+            "post_dispatched",
+            "provider_terminal_status",
         }
         selected = {
             key: value for key, value in changes.items() if key in allowed
         }
         if not selected:
             return self.get_video_job(tenant_id, job_id)
-        selected["updated_at"] = utc_now()
-        assignments = ", ".join(f"{key} = ?" for key in selected)
-        values = list(selected.values())
-        values.extend((self._tenant_id(tenant_id), job_id))
+        clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+            if existing is None:
+                return None
+            current_status = str(existing["status"] or "")
+            requested_status = str(selected.get("status") or current_status)
+            if current_status in {
+                "succeeded",
+                "failed",
+                "cancelled",
+                "expired",
+            }:
+                return dict(existing)
+            dispatch_rank = {
+                "not_dispatched": 0,
+                "dispatched": 1,
+                "confirmed": 2,
+                "uncertain": 2,
+            }
+            current_dispatch = str(
+                existing["provider_dispatch_state"] or "not_dispatched"
+            )
+            requested_dispatch = str(
+                selected.get("provider_dispatch_state") or current_dispatch
+            )
+            if (
+                requested_dispatch not in dispatch_rank
+                or dispatch_rank[requested_dispatch]
+                < dispatch_rank.get(current_dispatch, 0)
+                or (bool(existing["post_dispatched"]) and not bool(
+                    selected.get("post_dispatched", existing["post_dispatched"])
+                ))
+            ):
+                raise RouterRepositoryError(
+                    "provider_video_job_dispatch_cannot_regress"
+                )
+            for immutable in (
+                "upstream_job_id",
+                "workload_run_id",
+                "workload_call_id",
+                "policy_fingerprint",
+                "connection_fingerprint",
+                "adapter_contract",
+                "protocol_version",
+            ):
+                current = existing[immutable]
+                proposed_supplied = immutable in selected
+                proposed = selected.get(immutable)
+                reservation_upgrade = (
+                    immutable == "workload_run_id"
+                    and str(current or "") == f"managed-reservation:{job_id}"
+                    and str(proposed or "").startswith("workrun_")
+                )
+                if (
+                    current is not None
+                    and proposed_supplied
+                    and str(current) != str(proposed)
+                    and not reservation_upgrade
+                ):
+                    raise RouterRepositoryError(
+                        f"provider_video_job_{immutable}_cannot_change"
+                    )
+            selected["updated_at"] = utc_now()
+            assignments = ", ".join(f"{key} = ?" for key in selected)
+            values = list(selected.values())
+            values.extend((clean_tenant, job_id))
             cursor = connection.execute(
                 f"""
                 UPDATE video_jobs SET {assignments}
@@ -7531,14 +7730,314 @@ class SQLiteRouterRepository:
             )
             if cursor.rowcount != 1:
                 return None
-        return self.get_video_job(tenant_id, job_id)
+            row = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def finalize_managed_video_job(
+        self,
+        tenant_id: str,
+        job_id: str,
+        *,
+        job_status: str,
+        workload_status: str,
+        result_class: str,
+        error_code: str | None,
+        actual_model: str | None,
+        generation_id: str | None,
+        cost_usd: float | None,
+        cost_kind: str,
+        output_count: int,
+        provider_dispatch_state: str,
+        provider_terminal_status: str,
+        upstream_job_id: str | None,
+        post_dispatched: bool,
+    ) -> dict[str, object]:
+        """Atomically converge an async video job and its original Receipt."""
+
+        terminal_job_statuses = {"succeeded", "failed", "cancelled", "expired"}
+        if job_status not in terminal_job_statuses:
+            raise RouterRepositoryError("invalid_managed_video_job_status")
+        if workload_status not in {"passed", "failed", "uncertain", "cancelled"}:
+            raise RouterRepositoryError("invalid_provider_workload_call_status")
+        if provider_dispatch_state not in {
+            "not_dispatched",
+            "confirmed",
+            "uncertain",
+        }:
+            raise RouterRepositoryError("invalid_managed_video_dispatch_state")
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect_for_atomic_claim(
+            "provider_video_job_store_busy"
+        ) as connection:
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+            except sqlite3.OperationalError as exc:
+                if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                    raise RouterRepositoryError(
+                        "provider_video_job_store_busy"
+                    ) from exc
+                raise
+            job = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+            if job is None:
+                raise RouterRepositoryError("provider_video_job_not_found")
+            if str(job["status"]) in terminal_job_statuses:
+                return dict(job)
+            run_id = str(job["workload_run_id"] or "")
+            call_id = str(job["workload_call_id"] or "")
+            if not run_id or not call_id:
+                raise RouterRepositoryError(
+                    "provider_video_job_workload_evidence_missing"
+                )
+            call = connection.execute(
+                """
+                SELECT * FROM provider_workload_calls
+                WHERE tenant_id = ? AND id = ? AND run_id = ?
+                    AND entry_id = 'video_generation'
+                    AND execution_shape = 'video_generation_async'
+                """,
+                (clean_tenant, call_id, run_id),
+            ).fetchone()
+            run = connection.execute(
+                """
+                SELECT * FROM provider_workload_runs
+                WHERE tenant_id = ? AND id = ?
+                    AND entry_id = 'video_generation'
+                """,
+                (clean_tenant, run_id),
+            ).fetchone()
+            certification = (
+                connection.execute(
+                    """
+                    SELECT * FROM provider_workload_certifications
+                    WHERE tenant_id = ? AND id = ? AND status = 'passed'
+                        AND execution_shape = 'video_generation_async'
+                    """,
+                    (clean_tenant, str(call["certification_id"])),
+                ).fetchone()
+                if call is not None and call["certification_id"]
+                else None
+            )
+            try:
+                certification_profile = (
+                    json.loads(str(certification["profile_json"] or "{}"))
+                    if certification is not None
+                    else {}
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                certification_profile = {}
+            certification_profile_fingerprint_valid = bool(
+                certification is not None
+                and isinstance(certification_profile, dict)
+                and str(certification["profile_fingerprint"])
+                == hashlib.sha256(
+                    json.dumps(
+                        certification_profile,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest()
+            )
+            requested_model = str(job["requested_model"])
+            catalog_canonical_model = (
+                certification_profile.get("video_catalog_canonical_model_id")
+                if isinstance(certification_profile, dict)
+                else None
+            )
+            exact_catalog_alias_verified = bool(
+                certification is not None
+                and str(certification["requested_model"]) == requested_model
+                and isinstance(certification_profile, dict)
+                and certification_profile.get("video_catalog_contract_version")
+                == "modelmirror-openrouter-video-models-v2"
+                and certification_profile.get("video_catalog_model_id")
+                == requested_model
+                and isinstance(catalog_canonical_model, str)
+                and catalog_canonical_model
+                and catalog_canonical_model == catalog_canonical_model.strip()
+                and actual_model == catalog_canonical_model
+            )
+            accepted_legacy_receipt = bool(
+                call is not None
+                and run is not None
+                and str(call["status"]) == "passed"
+                and str(call["result_class"] or "") == "accepted_async"
+                and str(run["status"]) == "passed"
+            )
+            try:
+                restart_reason_codes = json.loads(
+                    str(run["reason_codes_json"] or "[]")
+                ) if run is not None else []
+            except (json.JSONDecodeError, TypeError, ValueError):
+                restart_reason_codes = []
+            recoverable_restarted_receipt = bool(
+                call is not None
+                and run is not None
+                and str(call["status"]) == "uncertain"
+                and str(call["result_class"] or "") == "uncertain"
+                and str(call["error_code"] or "") == "server_restarted"
+                and str(run["status"]) == "uncertain"
+                and str(run["result_class"] or "") == "uncertain"
+                and isinstance(restart_reason_codes, list)
+                and "server_restarted" in restart_reason_codes
+            )
+            if (
+                call is None
+                or run is None
+                or (
+                    (workload_status in {"passed", "uncertain"})
+                    and not bool(call["dispatched"])
+                )
+                or (
+                    not accepted_legacy_receipt
+                    and not recoverable_restarted_receipt
+                    and (
+                        str(call["status"]) != "running"
+                        or str(run["status"]) != "running"
+                    )
+                )
+            ):
+                raise RouterRepositoryError(
+                    "provider_video_job_workload_evidence_changed"
+                )
+            if job_status == "succeeded" and (
+                workload_status != "passed"
+                or not post_dispatched
+                or not actual_model
+                or not certification_profile_fingerprint_valid
+                or (
+                    actual_model != requested_model
+                    and not exact_catalog_alias_verified
+                )
+                or output_count < 1
+                or error_code is not None
+            ):
+                raise RouterRepositoryError(
+                    "provider_video_job_success_evidence_invalid"
+                )
+            existing_upstream_id = str(job["upstream_job_id"] or "")
+            if (
+                existing_upstream_id
+                and existing_upstream_id != str(upstream_job_id or "")
+            ):
+                raise RouterRepositoryError(
+                    "provider_video_job_upstream_job_id_cannot_change"
+                )
+            if bool(call["dispatched"]) != bool(post_dispatched):
+                raise RouterRepositoryError(
+                    "provider_video_job_dispatch_evidence_mismatch"
+                )
+            job_cursor = connection.execute(
+                """
+                UPDATE video_jobs
+                SET status = ?, upstream_job_id = ?, actual_model = ?,
+                    generation_id = ?,
+                    cost_usd = ?, cost_kind = ?, error_code = ?,
+                    output_count = ?, provider_dispatch_state = ?,
+                    post_dispatched = ?, provider_terminal_status = ?,
+                    updated_at = ?
+                WHERE tenant_id = ? AND id = ?
+                    AND status IN ('queued', 'running')
+                """,
+                (
+                    job_status,
+                    upstream_job_id,
+                    actual_model,
+                    generation_id,
+                    cost_usd,
+                    cost_kind,
+                    error_code,
+                    max(0, int(output_count)),
+                    provider_dispatch_state,
+                    int(bool(post_dispatched)),
+                    provider_terminal_status,
+                    now,
+                    clean_tenant,
+                    job_id,
+                ),
+            )
+            if job_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_video_job_terminal_update_failed"
+                )
+            call_cursor = connection.execute(
+                """
+                UPDATE provider_workload_calls
+                SET status = ?, result_class = ?, error_code = ?,
+                    actual_model = ?, provider_dispatch_state = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ? AND run_id = ?
+                """,
+                (
+                    workload_status,
+                    result_class,
+                    error_code,
+                    actual_model,
+                    provider_dispatch_state,
+                    now,
+                    now,
+                    clean_tenant,
+                    call_id,
+                    run_id,
+                ),
+            )
+            if call_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_video_job_call_update_failed"
+                )
+            run_cursor = connection.execute(
+                """
+                UPDATE provider_workload_runs
+                SET status = ?, result_class = ?, reason_codes_json = ?,
+                    updated_at = ?, completed_at = ?
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (
+                    workload_status,
+                    f"video_generation_{result_class}",
+                    json.dumps(
+                        [error_code] if error_code else [],
+                        separators=(",", ":"),
+                    ),
+                    now,
+                    now,
+                    clean_tenant,
+                    run_id,
+                ),
+            )
+            if run_cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_video_job_run_update_failed"
+                )
+            completed = connection.execute(
+                """
+                SELECT * FROM video_jobs
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, job_id),
+            ).fetchone()
+        if completed is None:
+            raise RouterRepositoryError("provider_video_job_not_found")
+        return dict(completed)
 
     def delete_video_job(self, tenant_id: str, job_id: str) -> bool:
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
                 """
                 DELETE FROM video_jobs
-                WHERE tenant_id = ? AND id = ?
+                WHERE tenant_id = ? AND id = ? AND workload_run_id IS NULL
                 """,
                 (self._tenant_id(tenant_id), job_id),
             )

@@ -1,26 +1,34 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import os
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
 
 try:
     from server.model_router.egress import ProviderEgressPolicy, request_provider_url
+    from server.model_router.multimodal_control import (
+        clean_provider_video_identifier,
+    )
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
     from model_router.egress import ProviderEgressPolicy, request_provider_url
+    from model_router.multimodal_control import clean_provider_video_identifier
     from model_router.service import ModelRouterService
 
 from .stt import MultimodalServiceError, OpenRouterTarget
 from .video_catalog import VideoCatalogService
+
+if TYPE_CHECKING:
+    from server.model_router.multimodal_gateway import ManagedMultimodalGateway
 
 
 logger = logging.getLogger("modelmirror.multimodal")
@@ -132,6 +140,8 @@ class VideoAnalysisResult:
     request_id: str
     source_kind: Literal["file", "url"]
     usage: VideoAnalysisUsage
+    execution_mode: Literal["managed", "legacy"] = "legacy"
+    provider_route_receipts: tuple[dict[str, object], ...] = ()
 
 
 class OpenRouterVideoAnalysisAdapter:
@@ -378,12 +388,14 @@ class VideoAnalysisService:
         catalog_service: VideoCatalogService,
         *,
         adapter: OpenRouterVideoAnalysisAdapter | None = None,
+        managed_gateway: ManagedMultimodalGateway | None = None,
     ) -> None:
         self.router_service = router_service
         self.catalog_service = catalog_service
         self.adapter = adapter or OpenRouterVideoAnalysisAdapter(
             egress_policy=router_service.egress_policy
         )
+        self._managed_gateway = managed_gateway
 
     async def analyze(
         self,
@@ -395,6 +407,8 @@ class VideoAnalysisService:
         content_type: str | None = None,
         content: bytes | None = None,
         video_url: str | None = None,
+        idempotency_key: str | None = None,
+        force_legacy: bool = False,
     ) -> VideoAnalysisResult:
         if not self.catalog_service._enabled(
             "MULTIMODAL_VIDEO_ANALYSIS_ENABLED"
@@ -417,6 +431,200 @@ class VideoAnalysisService:
                 raise self._source_error()
             video_source = self._url_source(video_url)
             input_bytes = 0
+        try:
+            from server.model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+                ManagedMultimodalGateway,
+            )
+        except ModuleNotFoundError:
+            from model_router.multimodal_gateway import (
+                ManagedMultimodalError,
+                ManagedMultimodalGateway,
+            )
+        gateway = self._managed_gateway or ManagedMultimodalGateway.for_router(
+            self.router_service
+        )
+        mode = (
+            "legacy"
+            if force_legacy
+            else gateway.routing_mode("multimodal_video_analysis")
+        )
+        if mode == "degraded_required":
+            reason_code = "provider_workload_policy_not_active"
+            raise MultimodalServiceError(
+                reason_code,
+                "视频理解 Managed Provider 策略已降级，调用已在发送前阻断。",
+                status_code=409,
+                route_receipt=gateway.blocked_receipt(
+                    "multimodal_video_analysis", reason_code
+                ),
+            )
+        if mode == "managed_required":
+            clean_key = str(idempotency_key or "").strip()
+            if not clean_key or len(clean_key) > 200:
+                reason_code = "invalid_idempotency_key"
+                raise MultimodalServiceError(
+                    reason_code,
+                    "Managed 视频理解要求 1 至 200 个字符的 Idempotency-Key。",
+                    status_code=422,
+                    route_receipt=gateway.blocked_receipt(
+                        "multimodal_video_analysis", reason_code
+                    ),
+                )
+            try:
+                clean_model = gateway.exact_model_id(
+                    "multimodal_video_analysis",
+                    "video_analysis_unary",
+                    requested_model=clean_model,
+                )
+                policy = gateway.call_service.control.get_policy(
+                    "multimodal_video_analysis"
+                )
+                binding = next(
+                    (
+                        item
+                        for item in policy.bindings
+                        if item.execution_shape == "video_analysis_unary"
+                        and item.model_id == clean_model
+                        and item.valid
+                    ),
+                    None,
+                )
+                if binding is None:
+                    raise ManagedMultimodalError(
+                        "provider_workload_binding_missing",
+                        "视频理解 Binding 在派发前发生漂移。",
+                        status_code=409,
+                        receipt=gateway.blocked_receipt(
+                            "multimodal_video_analysis",
+                            "provider_workload_binding_missing",
+                        ),
+                    )
+                certified_parameters = gateway.certified_video_parameters(
+                    "multimodal_video_analysis",
+                    certification_id=binding.certification_id,
+                    execution_shape="video_analysis_unary",
+                )
+                certified_formats = certified_parameters.get(
+                    "certified_input_formats"
+                )
+                extension = (
+                    Path(filename).suffix.lower().lstrip(".")
+                    if filename is not None
+                    else ""
+                )
+                if (
+                    clean_source_type != "file"
+                    or not isinstance(certified_formats, list)
+                    or extension not in certified_formats
+                ):
+                    raise ManagedMultimodalError(
+                        "provider_multimodal_video_input_not_certified",
+                        "该视频来源或格式未通过当前 Managed Adapter 认证。",
+                        status_code=422,
+                        receipt=gateway.blocked_receipt(
+                            "multimodal_video_analysis",
+                            "provider_multimodal_video_input_not_certified",
+                        ),
+                    )
+                run = gateway.start_run(
+                    "multimodal_video_analysis",
+                    parent_run_reference=(
+                        "video-analysis:"
+                        + hashlib.sha256(clean_key.encode("utf-8")).hexdigest()
+                    ),
+                    stable=True,
+                )
+                payload = {
+                    "model": clean_model,
+                    "stream": False,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": clean_prompt},
+                                {
+                                    "type": "video_url",
+                                    "video_url": {"url": video_source},
+                                },
+                            ],
+                        }
+                    ],
+                }
+
+                def parse_response(response: httpx.Response) -> VideoAnalysisResult:
+                    try:
+                        body = response.json()
+                    except ValueError as exc:
+                        raise ManagedMultimodalError(
+                            "provider_multimodal_video_invalid_json",
+                            "视频 Provider 返回了无效 JSON。",
+                            status_code=502,
+                        ) from exc
+                    text = self.adapter._text(body)  # noqa: SLF001
+                    if not text:
+                        raise ManagedMultimodalError(
+                            "provider_multimodal_video_empty",
+                            "视频 Provider 未返回可用文字。",
+                            status_code=502,
+                        )
+                    raw_actual_model = (
+                        body.get("model") if isinstance(body, dict) else None
+                    )
+                    actual_model = clean_provider_video_identifier(
+                        raw_actual_model,
+                        kind="model",
+                    )
+                    if raw_actual_model not in (None, "") and actual_model is None:
+                        raise ManagedMultimodalError(
+                            "provider_multimodal_video_invalid_model",
+                            "视频 Provider 返回了无效的模型标识。",
+                            status_code=502,
+                        )
+                    usage = self.adapter._usage(  # noqa: SLF001
+                        body.get("usage") if isinstance(body, dict) else None
+                    )
+                    return VideoAnalysisResult(
+                        text=text,
+                        requested_model=clean_model,
+                        actual_model=actual_model or "",
+                        provider=str(binding.provider_kind or "managed"),
+                        request_id="",
+                        source_kind=clean_source_type,
+                        usage=usage,
+                        execution_mode="managed",
+                    )
+
+                result, receipt = await run.complete_video_analysis(
+                    logical_call_key="request",
+                    model_id=clean_model,
+                    expected_connection_id=binding.connection_id,
+                    expected_certification_id=binding.certification_id,
+                    expected_connection_fingerprint=binding.connection_fingerprint,
+                    expected_adapter_contract=binding.adapter_contract,
+                    expected_protocol_version=binding.protocol_version,
+                    payload=payload,
+                    parse_response=parse_response,
+                )
+                return VideoAnalysisResult(
+                    text=result.text,
+                    requested_model=result.requested_model,
+                    actual_model=result.actual_model,
+                    provider=result.provider,
+                    request_id=str(receipt.get("run_reference") or ""),
+                    source_kind=result.source_kind,
+                    usage=result.usage,
+                    execution_mode="managed",
+                    provider_route_receipts=(receipt,),
+                )
+            except ManagedMultimodalError as exc:
+                raise MultimodalServiceError(
+                    exc.code,
+                    str(exc),
+                    status_code=exc.status_code,
+                    route_receipt=exc.receipt,
+                ) from exc
+
         await self._verify_model(clean_model, clean_source_type)
         target = self.catalog_service.resolve_target()
         decision_id = self._record_start(

@@ -162,7 +162,7 @@ function responseErrorMessage(payload: unknown, status: number) {
   return "视频分析没有完成，请检查连接后重试。";
 }
 
-function requestVideoAnalysis({
+export function requestVideoAnalysis({
   file,
   modelId,
   prompt,
@@ -200,6 +200,7 @@ function requestVideoAnalysis({
     const handleAbort = () => xhr.abort();
 
     xhr.open("POST", "/api/multimodal/video/analysis");
+    xhr.setRequestHeader("Idempotency-Key", window.crypto.randomUUID());
     xhr.responseType = "json";
     xhr.upload.onprogress = (event) => {
       const percent = event.lengthComputable

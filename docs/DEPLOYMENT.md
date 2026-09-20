@@ -321,9 +321,10 @@ MODEL_CONTROL_REALTIME_VOICE_ENABLED=false
 R8A 迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格框架。R8B 已接入图片 Chat、
 原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成。R8C 已接入 Dedicated 与 Published Xpert
 的 STT/TTS。R8D 增加 Chat Audio Input、Chat Audio Output 与异步音频生成的独立受管路径；三种
-shape 必须分别完成精确模型和 Adapter 资格，不能互相继承。视频与 Realtime 仍等待 R8E—R8F。
-不得把打开环境变量解释为资格已通过、真实 Smoke 已完成或生产切换已批准；R8D 的真实付费验收
-必须另行授权并记录证据。
+shape 必须分别完成精确模型和 Adapter 资格，不能互相继承。R8E 增加独立视频分析、Chat 视频与
+异步视频生成三条受管路径；三种 shape 同样必须分别认证。Realtime 仍等待 R8F。不得把打开环境
+变量解释为资格已通过、真实 Smoke 已完成或生产切换已批准；每个真实付费认证与用户 Smoke 必须
+另行授权并记录证据。
 
 Managed 图片生成请求必须携带 1—200 字符的 `Idempotency-Key`。OpenAI-compatible Images
 连接使用 `/v1/images/generations`、标准 `size` 和 `response_format=b64_json`；若所选高级参数不在
@@ -355,7 +356,24 @@ Managed Chat Audio 与音频生成还必须遵守以下边界：
 - POST 派发后发生超时、断流、取消或重启时保留 `provider_dispatch_state=uncertain`、
   `retry_allowed=false`；不得自动重放或切换 Provider、Adapter、模型、IP 或 legacy。
 
-部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B—R8D Flag 并显式停用 Policy，
+Managed 视频还必须遵守以下边界：
+
+- `MODEL_CONTROL_VIDEO_ANALYSIS_ENABLED`、`MODEL_CONTROL_CHAT_VIDEO_ENABLED` 和
+  `MODEL_CONTROL_VIDEO_GENERATION_ENABLED` 默认均为 `false`；对应 Policy 为 `legacy` 时保持
+  原执行路径。
+- 独立视频分析、Chat 视频和异步视频生成分别认证。当前异步资格只覆盖 5 秒、720p、16:9、
+  单一输出的纯文本生成；运行参数必须精确匹配。编辑、放大、首尾帧、参考媒体及其他未认证参数
+  在 POST 前失败关闭。
+- 直接付费的视频分析和生成请求必须携带 1—200 字符的 `Idempotency-Key`；同一逻辑键不得产生
+  第二次 POST。Chat 视频继续从既有会话标识生成逻辑调用键。
+- 异步任务取得上游 ID 后只允许通过原连接执行 GET；GET 不创建新 Workload Call。无上游 ID 的
+  已派发任务在重启后转为 `uncertain`，不得重新提交。
+- 完成态必须同时证明实际模型精确匹配、输出数量合法且输出引用属于允许的上游任务元数据；
+  不能由请求模型补写实际模型，也不能把任意字符串当作可播放输出。
+- 关闭三个视频控制面 Flag 并显式停用 Policy 可恢复 legacy；保留 v18 任务、资格和 Receipt，
+  不删除已派发任务或 Provider 数据。
+
+部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B—R8E Flag 并显式停用 Policy，
 保留 v18 表、资格、Receipt 和新增的可空任务证据列。不得删除现有媒体任务、Provider 凭据或
 newAPI 数据。
 
