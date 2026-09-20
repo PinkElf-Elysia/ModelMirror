@@ -39,7 +39,7 @@ try {
     boundary.activeRound !== "R22" ||
     boundary.activeRoundBaselineSha !== "e927db557f71db420e07a49818c0d4ae1e0d6ce3" ||
     boundary.v2ClaimPolicy?.qualificationProfile !== "matrix-oasis.bounded-npc-cognition/1" ||
-    claim.status !== "r22-bounded-cognition-in-progress" ||
+    claim.status !== "r22-cognition-qualified" ||
     claim.claimAllowed !== false ||
     claim.blockingRound !== "R25"
   ) {
@@ -68,6 +68,13 @@ try {
     "模型只可返回纯文本对白",
     "不等于ZDR",
     "不允许模型写Persona",
+  ]);
+  // This checks the committed summary, not a signature or a substitute for execution evidence.
+  requireText("docs/rounds/R22_ACCEPTANCE.md", [
+    "matrix-oasis.bounded-npc-cognition/1",
+    "r22-cognition-qualified",
+    "claimAllowed=false",
+    "blockingRound=R25",
   ]);
 
   const npmExecPath = process.env.npm_execpath;

@@ -78,7 +78,7 @@
     "completionMarker": "MATRIX_OASIS_R16_CREATOR_MVP_READY"
   },
   "v2ClaimPolicy": {
-    "status": "r22-bounded-cognition-in-progress",
+    "status": "r22-cognition-qualified",
     "claimAllowed": false,
     "blockingRound": "R25",
     "machineStatus": "docs/V2_STATUS.json",

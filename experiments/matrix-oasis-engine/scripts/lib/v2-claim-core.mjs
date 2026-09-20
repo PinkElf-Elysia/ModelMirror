@@ -21,7 +21,7 @@ export function checkV2Claim({ moduleRoot }) {
   const policy = boundary.v2ClaimPolicy;
   if (
     boundary.activeRound !== "R22" ||
-    policy?.status !== "r22-bounded-cognition-in-progress" ||
+    policy?.status !== "r22-cognition-qualified" ||
     policy?.machineStatus !== "docs/V2_STATUS.json" ||
     policy?.qualificationProfile !== "matrix-oasis.bounded-npc-cognition/1" ||
     policy?.blockingRound !== "R25" ||
