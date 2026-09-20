@@ -1,0 +1,119 @@
+{
+  "id": "rpg-history-window-b4-20260919",
+  "authorizedAt": "2026-09-20T06:10:51.629Z",
+  "userAuthorization": "通过，授权4次额度",
+  "scope": "M1 history-window real slice, new fictional Earth OL session only",
+  "limit": 4,
+  "used": 4,
+  "remaining": 0,
+  "priorBudgetsInherited": false,
+  "automaticRetry": false,
+  "manualReviewAfterEveryOutput": true,
+  "failedCancelledUnknownAndNecessaryAuthenticationCount": true,
+  "model": "google/gemini-3.8-flash",
+  "provider": "Google AI Studio",
+  "transport": "ModelMirror scoped control plane -> OpenRouter",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "worldbook": "disabled",
+  "historyWindow": {
+    "turns": 1,
+    "includeInitialCharacter": false
+  },
+  "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+  "acceptedB3DeliverySha256": "ead705823ff730fba072d5103b755b9eb608f6af0f378dd1c76b883628fed187",
+  "ledger": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4",
+  "planned": "up to 1 necessary certification and 3 RPG outputs; one output then human review; third request must trim first turn",
+  "status": "accepted-closed-budget-exhausted",
+  "calls": [
+    {
+      "slot": 1,
+      "kind": "necessary-authentication",
+      "model": "google/gemini-3.8-flash",
+      "status": "passed",
+      "certificationId": "chatcert_f0e43e104ecc490fa6d736f2f5661c47",
+      "evidence": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/authentication-result-1.json",
+      "evidenceSha256": "91cf106c9d4e5ae3c3cddb05e8b7511758570c81b1dd667157e702daf71802e0"
+    },
+    {
+      "slot": 2,
+      "kind": "RPG-output",
+      "generationSlot": 1,
+      "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+      "requestId": "m1-b4-rpg-output-1",
+      "status": "complete",
+      "manual": "accepted",
+      "requestHash": "662dda6e559393d416729118ed2bcfa7e18206b19c8dd667918b045952b4ff22",
+      "rawHash": "cd43dde9acd82b1460853920349cc605369147b48556ddfde1cb6f8ad24f7ea7",
+      "actualModel": "google/gemini-3.8-flash",
+      "usage": {
+        "prompt_tokens": 18844,
+        "completion_tokens": 6716,
+        "total_tokens": 25560
+      },
+      "evidence": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-1/result.json",
+      "manualDecision": {
+        "user": "通过，继续",
+        "at": "2026-09-20T06:26:30.247Z",
+        "scope": "first RPG output only; proceed to second"
+      }
+    },
+    {
+      "slot": 3,
+      "kind": "RPG-output",
+      "generationSlot": 2,
+      "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+      "requestId": "m1-b4-rpg-output-2",
+      "status": "complete",
+      "manual": "accepted",
+      "requestHash": "5f72ef3e18ae4608e3b93c6c6dd6a52c456a29597fdf14141f77b4679af206d0",
+      "rawHash": "1b1e98ea37d624edf34de3df5b57ead8e1ddd6ced30b55b5a0f91e878b119f5a",
+      "actualModel": "google/gemini-3.8-flash",
+      "usage": {
+        "prompt_tokens": 25866,
+        "completion_tokens": 7087,
+        "total_tokens": 32953
+      },
+      "evidence": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-2/result.json",
+      "manualDecision": {
+        "user": "确认继续",
+        "at": "2026-09-20T06:31:47.664Z",
+        "scope": "second output accepted; proceed to third"
+      }
+    },
+    {
+      "slot": 4,
+      "kind": "RPG-output",
+      "generationSlot": 3,
+      "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+      "requestId": "m1-b4-rpg-output-3",
+      "status": "complete",
+      "manual": "accepted",
+      "requestHash": "67f60043aa843c415d3d911d46d4007ef0a25f33fb2f65bc53578d3db81f74ff",
+      "rawHash": "9b9ecb14d6f170215b5dff0f71d63c6037770aa954130581dfb652069c6d59ee",
+      "actualModel": "google/gemini-3.8-flash",
+      "usage": {
+        "prompt_tokens": 26767,
+        "completion_tokens": 7256,
+        "total_tokens": 34023
+      },
+      "evidence": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/result.json",
+      "manualDecision": {
+        "user": "审阅通过，但我要确认历史窗口真实状态",
+        "at": "2026-09-20T06:42:25.523Z",
+        "scope": "third output accepted; live policy subsequently verified read-only"
+      }
+    }
+  ],
+  "closeout": {
+    "user": "可开始收尾",
+    "at": "2026-09-20T06:42:25.525Z",
+    "used": 4,
+    "remaining": 0,
+    "noFurtherDispatch": true,
+    "publishAuthorization": false
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "kind": "REAL_PROVIDER_THIRD_OUTPUT_WITH_HISTORY_TRIM",
+  "status": "complete-awaiting-human-review",
+  "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "hostWireEqualsFrozenMessages": true,
+  "requestRoles": [
+    "system",
+    "user",
+    "assistant",
+    "user"
+  ],
+  "selectedTurns": [
+    2
+  ],
+  "omittedTurns": [
+    1
+  ],
+  "priorAssistantIncludingCardMemoryVerbatim": true,
+  "initialCharacterReinjected": false,
+  "currentPrefixSuffixExactlyOnce": true,
+  "persistentHistoryMessages": 6,
+  "persistentHistoryAllThreeTurnsVerbatim": true,
+  "priorOutputsUnchanged": true,
+  "browserRawEqualsSaved": true,
+  "browserRawHash": "9b9ecb14d6f170215b5dff0f71d63c6037770aa954130581dfb652069c6d59ee",
+  "rawBytes": 22884,
+  "rawUtf16Length": 15120,
+  "requestHash": "67f60043aa843c415d3d911d46d4007ef0a25f33fb2f65bc53578d3db81f74ff",
+  "historyPolicy": {
+    "policyVersion": "rpg.history-window/1",
+    "enabled": true,
+    "config": {
+      "turns": 1,
+      "includeInitialCharacter": false
+    },
+    "totalTurns": 2,
+    "selectedTurns": [
+      2
+    ],
+    "initialSnapshotAdded": false,
+    "configRevision": 1,
+    "policyRevision": "0bd437a5c313ef1480a0f61b790d357390bdfff985e048f557891a142546ade1",
+    "authorizationRevision": "a682cd43fbeac6cf1280b529f82a4b22321c61b31d3284951f79aea1550337ba",
+    "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+    "selectedRequestIds": [
+      "m1-b4-rpg-output-2"
+    ],
+    "requestHash": "d7f6eeba8a484cd3a279832f48aac4d0b6b5a98399e1495235bc233e5372b154"
+  },
+  "receipt": {
+    "gateway": "rpg_scoped",
+    "runId": "chatrun_4a7957592ab84b119f4c4a2c1d938323",
+    "attemptId": "chatattempt_58bdf3d3995f4893904dba53d4955cf2",
+    "requestedModel": "google/gemini-3.8-flash",
+    "actualModel": "google/gemini-3.8-flash",
+    "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+    "selectionRevision": "3b03caf3974bf6713b0021a23b466292508737ec5d2196281e5885e5608de4bc",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "httpStatus": 200,
+    "dispatched": true,
+    "usage": {
+      "prompt_tokens": 26767,
+      "completion_tokens": 7256,
+      "total_tokens": 34023
+    },
+    "error": null,
+    "retries": 0,
+    "requestHash": "07ec1f30f55aa35e02509ae45b1967aceeca5872a145fe10f62583d2bb7f230f",
+    "rawHash": "9b9ecb14d6f170215b5dff0f71d63c6037770aa954130581dfb652069c6d59ee",
+    "sseHash": "8de56d933fe1227d42589dae1f130478b75d950868041072572c027aabaf84dd",
+    "status": "complete"
+  },
+  "evidenceFiles": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/third-input-freeze.json",
+      "sha256": "7b640c5a6f7bc8956dffe0a0ee339b156f12f30a91cc09ee836fff8b6b5f5308"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/third-generation-invocation.json",
+      "sha256": "e160a569be1d771c44dd96c3c93619bc0a56cb420e43ae37562fc445a0d4acc3"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/third-host-result.json",
+      "sha256": "f81dbb388af01d87c1b428f69d37041bf05128dfef6321bb59ce304160ffabaf"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/request.json",
+      "sha256": "67f60043aa843c415d3d911d46d4007ef0a25f33fb2f65bc53578d3db81f74ff"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/reservation.json",
+      "sha256": "a503ceefea24aa1a5f6bdc658b4a61d14840f63c3f1f5375b58f288fd8518fc1"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/result.json",
+      "sha256": "25673f782443b374ae2e1caf41d42a6f3f7eede87de213198ecf977362122d8c"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/response.txt",
+      "sha256": "9b9ecb14d6f170215b5dff0f71d63c6037770aa954130581dfb652069c6d59ee"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/data/dispatches/earth/slot-3/response.sse",
+      "sha256": "8de56d933fe1227d42589dae1f130478b75d950868041072572c027aabaf84dd"
+    }
+  ],
+  "budget": {
+    "limit": 4,
+    "used": 4,
+    "remaining": 0,
+    "necessaryAuthentication": 1,
+    "rpgOutputs": 3
+  },
+  "technicalGate": "passed for N=1, initial snapshot off, actual history trim",
+  "contentGate": "awaiting-human-review",
+  "limits": [
+    "Only one short trajectory, not long-session memory validation",
+    "Cannot attribute continuity separately to narrative text versus card memory section",
+    "Initial snapshot on has offline coverage, not real-provider coverage this round"
+  ],
+  "commit": false,
+  "push": false,
+  "pr": false,
+  "sharedDeploy": false
+}

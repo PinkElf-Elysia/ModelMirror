@@ -1,0 +1,68 @@
+{
+  "scope": "B0 prototype/contract only",
+  "base": "61b6eea80152904eb8fb3cc0ebba5e7647594828",
+  "excludesSelf": true,
+  "files": [
+    {
+      "path": "ASSEMBLY-EXAMPLES.json",
+      "bytes": 21344,
+      "sha256": "6bdecdc63414ff2da8db2481207cbd8f85b0f018c0a01816ee7dbb8eb963e091"
+    },
+    {
+      "path": "B0-REVIEW.md",
+      "bytes": 3954,
+      "sha256": "f89d3c6fe086760596f37cecbc00a3be0e073f856fcafce7bce1decc017a4bf6"
+    },
+    {
+      "path": "CONTRACT.md",
+      "bytes": 5500,
+      "sha256": "de0c671d3328dbdda7b13e50ef11fff5d7bf15e9a966994a254fe359c8175398"
+    },
+    {
+      "path": "desktop-market.jpg",
+      "bytes": 32336,
+      "sha256": "d29e7e75dc93cbfb8a63234ba7961b0822f17110194b9db33505f840e022f1cc",
+      "dimensions": [
+        1264,
+        1170
+      ]
+    },
+    {
+      "path": "desktop-settings.jpg",
+      "bytes": 48423,
+      "sha256": "af09c1ff34dfd6578aa0abb2f749d34c96b0d4a83bbadb4e9b6ee74858587006",
+      "dimensions": [
+        1280,
+        900
+      ]
+    },
+    {
+      "path": "index.html",
+      "bytes": 13721,
+      "sha256": "626991deb1118c0953f6dbca150ce9a00605a70a1e4d3a8909d90a5007bada58"
+    },
+    {
+      "path": "mobile-market.jpg",
+      "bytes": 25353,
+      "sha256": "1930049951f8992d4f55acc2e174e926d2fd46b23c3cbc88be376f4c0b8e070d",
+      "dimensions": [
+        374,
+        1262
+      ]
+    },
+    {
+      "path": "mobile-settings.jpg",
+      "bytes": 30993,
+      "sha256": "d3405877e49c3c7533061e38cda88d1d8e38113d3b03d08b586f8aed3fd11ffe",
+      "dimensions": [
+        375,
+        812
+      ]
+    },
+    {
+      "path": "STATUS.json",
+      "bytes": 1544,
+      "sha256": "854befd62ff33149f57b3918975df77c9da16db09446fbdfe3f2ecbd8169ba20"
+    }
+  ]
+}

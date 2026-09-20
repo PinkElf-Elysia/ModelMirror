@@ -1,0 +1,53 @@
+{
+  "at": "2026-09-20T06:31:56.141Z",
+  "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+  "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+  "model": {
+    "kind": "controlled",
+    "model": "google/gemini-3.8-flash",
+    "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+    "selectionRevision": "3b03caf3974bf6713b0021a23b466292508737ec5d2196281e5885e5608de4bc",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "configHash": "14113fccb1e66501454ce5b97b43031fb9abf54c3a65e1c41e0ee123cea41ea3"
+  },
+  "historyPolicy": {
+    "policyVersion": "rpg.history-window/1",
+    "enabled": true,
+    "config": {
+      "turns": 1,
+      "includeInitialCharacter": false
+    },
+    "totalTurns": 2,
+    "selectedTurns": [
+      2
+    ],
+    "initialSnapshotAdded": false,
+    "configRevision": 1,
+    "policyRevision": "0bd437a5c313ef1480a0f61b790d357390bdfff985e048f557891a142546ade1",
+    "authorizationRevision": "a682cd43fbeac6cf1280b529f82a4b22321c61b31d3284951f79aea1550337ba",
+    "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+    "selectedRequestIds": [
+      "m1-b4-rpg-output-2"
+    ],
+    "requestHash": "d7f6eeba8a484cd3a279832f48aac4d0b6b5a98399e1495235bc233e5372b154"
+  },
+  "playerInput": "我先把靠墙的几册书移到干燥的位置，再去洗手，回来向周芸说明刚才检查到的情况，问她按馆里的流程应该怎样处理。",
+  "priorRawHash": "1b1e98ea37d624edf34de3df5b57ead8e1ddd6ced30b55b5a0f91e878b119f5a",
+  "messagesHash": "d7f6eeba8a484cd3a279832f48aac4d0b6b5a98399e1495235bc233e5372b154",
+  "requestHash": "67f60043aa843c415d3d911d46d4007ef0a25f33fb2f65bc53578d3db81f74ff",
+  "actualWireEqualsFrozen": true,
+  "fullFreeze": {
+    "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/third-input-freeze.json",
+    "sha256": "7b640c5a6f7bc8956dffe0a0ee339b156f12f30a91cc09ee836fff8b6b5f5308"
+  },
+  "tooling": {
+    "path": "experiments/ai-rpg-engine/tooling/history-window-b4-third.mjs",
+    "sha256": "f94266599ed22b4099ba3c441a61978aea55a5a1d44df986bb639312e2519487"
+  },
+  "used": 4,
+  "remaining": 0
+}

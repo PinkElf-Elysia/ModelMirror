@@ -1,0 +1,98 @@
+{
+  "phase": "closeout",
+  "status": "accepted-local-candidate-closeout",
+  "base": "61b6eea80152904eb8fb3cc0ebba5e7647594828",
+  "branch": "codex/rpg-history-window",
+  "pr383": "merged",
+  "userApproval": "B0-B3 and all three B4 outputs accepted; user authorized closeout only",
+  "productImplementation": "M1 production market/session settings UI, recovery, help and two production builds",
+  "B1": "approved",
+  "providerDispatchesThisRound": 4,
+  "newProviderBudget": 4,
+  "sharedDeployment": "not-run",
+  "commitPushPr": "not-authorized",
+  "baselineBindings": [
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/resources/prompts.json",
+      "sha256": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+      "status": "unchanged"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/lib/assembly.mjs",
+      "sha256": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed",
+      "status": "unchanged"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "sha256": "daeac16aa356bdaadfac87617689605c3541f45bcc67448b4b993215f27a3395",
+      "status": "unchanged"
+    },
+    {
+      "path": "client/src/pages/RpgPluginsPage.tsx",
+      "sha256": "51abf32bed19f24fc5bde39370c96531dbe1d90e096d853d1592423392087042",
+      "status": "B3 intentionally updated market page; historical hash retained"
+    }
+  ],
+  "prototypeUrl": "http://127.0.0.1:18453/",
+  "prototypeUi": "manually-replayed-with-formal-browser-tools",
+  "syntheticContractExamples": "8 internally consistent; not runtime evidence",
+  "productionTests": {
+    "studioPlugins": {
+      "passed": 106,
+      "skipped": 1,
+      "failed": 0
+    },
+    "earth": {
+      "passed": 26,
+      "skipped": 0,
+      "failed": 0
+    },
+    "frontendHelpStudio": {
+      "passed": 45,
+      "failed": 0,
+      "evidence": "30 non-help tests from frontend-help-final.log; corrected help suite 15 passed in help-tests-final.log; original failed log retained"
+    },
+    "helpImageCheck": {
+      "status": "failed-existing-baseline",
+      "failures": 3,
+      "addedFailures": 0,
+      "baselineReproduced": true
+    }
+  },
+  "screenshots": "5 original browser JPEGs plus one format-converted 900x800 PNG for help",
+  "B2ActualRequestCapture": "8 passing HTTP scenarios, local synthetic Providers only; B2-WIRE-EVIDENCE.json",
+  "B3ProductionBuilds": "earth and parent production builds passed; parent existing chunk-size warning",
+  "B4RealProvider": "passed: three Gemini outputs, third request truly windowed; user accepted each output; 4/4 total budget exhausted",
+  "B0": "approved",
+  "currentDelivery": "FINAL-DELIVERY.json",
+  "historicalB0Delivery": "DELIVERY.json; original STATUS bytes preserved in B0-STATUS.json",
+  "B2": "approved",
+  "B3": "user-accepted",
+  "historicalB1Delivery": "B1-DELIVERY.json unchanged; original source/status bytes in .rpg04-work/history-window-b2/b1-snapshot; B1-STATUS.json retained",
+  "previewUrl": "http://127.0.0.1:18455/rpg/earth",
+  "historicalB2Delivery": "B2-DELIVERY.json unchanged; all 34 original files verified in .rpg04-work/history-window-b3/b2-snapshot; B2-STATUS.json preserved",
+  "historicalB3Delivery": "B3 unchanged; source snapshot in history-window-b4/b3-snapshot and B3-STATUS.json",
+  "B4Preview": "http://127.0.0.1:18461/rpg/earth",
+  "remainingProviderBudget": 0,
+  "B4": "user-accepted",
+  "knownStatusLimitation": "Global /rpg-app/api/status contextPolicy is static retain-all; use session history-window effectivePolicy and per-request historyPolicy. Documented, not changed after runtime freeze.",
+  "publication": {
+    "commit": "not-authorized/not-run",
+    "push": "not-authorized/not-run",
+    "pr": "not-authorized/not-run",
+    "sharedDeployment": "not-authorized/not-run"
+  },
+  "acceptanceBoundary": "M1 N=1 snapshot-off short real trajectory; no long-session memory, summary engine or full product release claim",
+  "closeout": {
+    "status": "complete-local-candidate",
+    "helpTests": {
+      "passed": 15,
+      "failed": 0
+    },
+    "parentBuild": "passed-existing-chunk-warning",
+    "runtimeChanged": false,
+    "acceptedSnapshot": "experiments/ai-rpg-engine/.rpg04-work/history-window-closeout/accepted-snapshot",
+    "knownIssuesPreserved": true,
+    "publication": "not-authorized/not-run"
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "status": "prepared-before-first-generation",
+  "at": "2026-09-20T06:17:03.060Z",
+  "acceptedB3Delivery": "ead705823ff730fba072d5103b755b9eb608f6af0f378dd1c76b883628fed187",
+  "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+  "sessionId": "25905ffc-4c14-4d2d-8990-5b2f001a099e",
+  "model": {
+    "kind": "controlled",
+    "model": "google/gemini-3.8-flash",
+    "selectionId": "28811360b09e37e716d01dd189a05d156bfcceb4860a22344f75ffca0576a9b9",
+    "selectionRevision": "3b03caf3974bf6713b0021a23b466292508737ec5d2196281e5885e5608de4bc",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "configHash": "14113fccb1e66501454ce5b97b43031fb9abf54c3a65e1c41e0ee123cea41ea3"
+  },
+  "historyPolicy": {
+    "policyVersion": "rpg.history-window/1",
+    "enabled": true,
+    "config": {
+      "turns": 1,
+      "includeInitialCharacter": false
+    },
+    "totalTurns": 0,
+    "selectedTurns": [],
+    "initialSnapshotAdded": false,
+    "configRevision": 1,
+    "policyRevision": "0bd437a5c313ef1480a0f61b790d357390bdfff985e048f557891a142546ade1",
+    "authorizationRevision": "a682cd43fbeac6cf1280b529f82a4b22321c61b31d3284951f79aea1550337ba",
+    "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+    "selectedRequestIds": [],
+    "requestHash": "47b10d1b07772f711e6887617355dd31c1f74b2a7b834b48f2e1f646abc0bbb5"
+  },
+  "characterText": "姓名：许澄（虚构验收角色）\n开局24岁，在图书馆工作。",
+  "characterHash": "052666d08745344b1cd8a021505368310d823d8fc8429602a48298e27f75dd27",
+  "playerInput": "请开始。",
+  "messageRoles": [
+    "system",
+    "user"
+  ],
+  "messagesHash": "47b10d1b07772f711e6887617355dd31c1f74b2a7b834b48f2e1f646abc0bbb5",
+  "fullMessages": {
+    "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/first-input-freeze.json",
+    "sha256": "e994ccc36b1d1d966145b014db7d322e2583c24c368b4ef6c6491abddd21dbd6"
+  },
+  "route": {
+    "control": "http://127.0.0.1:18458",
+    "host": "http://127.0.0.1:18459",
+    "ui": "http://127.0.0.1:18461/rpg/earth",
+    "provider": "Google AI Studio",
+    "providerTag": "google-ai-studio",
+    "allowFallbacks": false
+  },
+  "endpointEvidence": {
+    "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b4/metadata-gemini.json",
+    "sha256": "689cf0582505b157d8ac76c7792c03f90534461104622f60afc9b175ff1d0dcd"
+  },
+  "tooling": [
+    {
+      "path": "experiments/ai-rpg-engine/tooling/history-window-b4-control.py",
+      "sha256": "56b31c848035b9fb6595385fef067daa523b125fa5b138a1c07f05830388866e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/history-window-b4-supervisor.mjs",
+      "sha256": "b41c95eeebba811d4cff09bb7ebab5a0ccf74741522fad8a8bd5142b32bc470a"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/history-window-b4-host.mjs",
+      "sha256": "bcbc87cb5ff059fa295e5318c83a0f6c40647f7342462291fa69fae5468bdace"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/tooling/history-window-b4-first.mjs",
+      "sha256": "d508e8ef066e61ff80c103c436dcf93ee1217c65a070bba3bf84f6b52b4afb4b"
+    }
+  ],
+  "limits": {
+    "total": 4,
+    "authenticationUsed": 1,
+    "generationLimit": 3,
+    "retries": 0
+  }
+}

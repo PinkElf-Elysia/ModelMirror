@@ -1,0 +1,162 @@
+{
+  "kind": "FORMAL_BROWSER_UI_WITH_OFFLINE_SAMPLES",
+  "realProviderDispatches": 0,
+  "providerEnabled": false,
+  "providerBudget": 0,
+  "preview": "http://127.0.0.1:18455/rpg/earth",
+  "prototypePreserved": "http://127.0.0.1:18453/",
+  "session": {
+    "id": "36e0c5ba-3ddf-437c-9675-81065d50ee43",
+    "path": "experiments/ai-rpg-engine/.rpg04-work/history-window-b3/preview-data/earth/36e0c5ba-3ddf-437c-9675-81065d50ee43.json",
+    "sha256": "2d78b4ccf55e0f83804f6928abdebe41ec24eb5cb177c7b186c787869150f539",
+    "mode": "offline",
+    "completedTurns": 3,
+    "historyMessages": 6,
+    "historySha256": "376f43380c0903dd236b218bdfc9b5b8053fd6156efa8db33f164a45dbfdc248",
+    "config": {
+      "turns": 1,
+      "includeInitialCharacter": true
+    },
+    "configRevision": 1,
+    "turnPolicies": [
+      {
+        "turn": 1,
+        "rawHash": "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "historyPolicy": {
+          "policyVersion": "rpg.history-window/1",
+          "enabled": true,
+          "config": {
+            "turns": 1,
+            "includeInitialCharacter": true
+          },
+          "totalTurns": 0,
+          "selectedTurns": [],
+          "initialSnapshotAdded": false,
+          "configRevision": 1,
+          "policyRevision": "65ad65990b3297b666b9b20c651d841e58f8fe12da66b32e872f6ce610210311",
+          "authorizationRevision": "a042c6b569c518a13e4540767b62a160235ee705577a3b19ef09991ec0720f84",
+          "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+          "selectedRequestIds": [],
+          "requestHash": "64e08655a4e9a310726060ad1ac861df74255748112846330f18a29fcafeca58"
+        }
+      },
+      {
+        "turn": 2,
+        "rawHash": "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "historyPolicy": {
+          "policyVersion": "rpg.history-window/1",
+          "enabled": true,
+          "config": {
+            "turns": 1,
+            "includeInitialCharacter": true
+          },
+          "totalTurns": 1,
+          "selectedTurns": [
+            1
+          ],
+          "initialSnapshotAdded": false,
+          "configRevision": 1,
+          "policyRevision": "65ad65990b3297b666b9b20c651d841e58f8fe12da66b32e872f6ce610210311",
+          "authorizationRevision": "a042c6b569c518a13e4540767b62a160235ee705577a3b19ef09991ec0720f84",
+          "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+          "selectedRequestIds": [
+            "b1ad761e-e5b5-45e6-a69c-553db383d687"
+          ],
+          "requestHash": "5c5523465a113827a7708cee06545f81c99a612110b704484476eeca0814a376"
+        }
+      },
+      {
+        "turn": 3,
+        "rawHash": "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "historyPolicy": {
+          "policyVersion": "rpg.history-window/1",
+          "enabled": true,
+          "config": {
+            "turns": 1,
+            "includeInitialCharacter": true
+          },
+          "totalTurns": 2,
+          "selectedTurns": [
+            2
+          ],
+          "initialSnapshotAdded": true,
+          "configRevision": 1,
+          "policyRevision": "65ad65990b3297b666b9b20c651d841e58f8fe12da66b32e872f6ce610210311",
+          "authorizationRevision": "a042c6b569c518a13e4540767b62a160235ee705577a3b19ef09991ec0720f84",
+          "runtimeHash": "0e76f0d2997a66e8fbedb57f97a7a2727bfd2344c08154f978897fafbb8e62c9",
+          "selectedRequestIds": [
+            "863b6da3-8cab-4acf-be08-5ddd1b7b4da4"
+          ],
+          "requestHash": "3e9cfbe81b4af0fadb140eaa728743f3d9364262d37c4d015a9c6c8cfb112bb0"
+        }
+      }
+    ]
+  },
+  "uiPassed": [
+    "Install does not enable",
+    "Explicit session enable",
+    "Default 3 / snapshot off",
+    "Reject 51",
+    "Esc and Cancel discard unsaved edits",
+    "Space checkbox / Enter save",
+    "Draft preserved on save and refresh",
+    "Three manually sent offline samples",
+    "Refresh restores complete history and saved policy",
+    "Disable retains config",
+    "Uninstall/reinstall retains data and revokes grants",
+    "Synthetic old session explicitly incompatible without generic fault",
+    "Help -> RPG -> market -> earth -> history -> plugin settings"
+  ],
+  "responsive": {
+    "desktop": [
+      1280,
+      720
+    ],
+    "mobile": [
+      390,
+      844
+    ],
+    "mobileEarthContentWidth": 375,
+    "mobileEarthScrollWidth": 375,
+    "mobileDialogWidth": 362,
+    "mobileMarket": "no horizontal overflow"
+  },
+  "screenshots": [
+    {
+      "path": "docs/ai-rpg-experiment/history-window/b3-screenshots/desktop-market.jpg",
+      "sha256": "edf76f30e5037b80b13dc684b1942009511f42f84c99fd5872b181edb72f30ef"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/history-window/b3-screenshots/desktop-settings.jpg",
+      "sha256": "0b2e6cabc834caf7dc5ace67c3a00353f1ca8b94239dbd35a3f66394e5d7e844"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/history-window/b3-screenshots/mobile-market.jpg",
+      "sha256": "e3c1b87839b675d6f8e84109675927445e1ba8356918aac38c0fbae43b115e44"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/history-window/b3-screenshots/mobile-settings.jpg",
+      "sha256": "07a1a114903921a34c1133dc65aa53acf4f27895943ebc0ab0c24db3feaadc8a"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/history-window/b3-screenshots/settings-help-source.jpg",
+      "sha256": "9e64feb013f778f385140b3401391c5592193304c880e9156a29cddd164675f9"
+    }
+  ],
+  "helpImage": {
+    "path": "client/public/help-center/61b6eea8/rpg-history-window-settings.png",
+    "sha256": "4c83c8c5f11392ef91ed06edb97620519e6bfdc1dffdea9fd6a49e3bbbb20ef0",
+    "width": 900,
+    "height": 800,
+    "source": "docs/ai-rpg-experiment/history-window/b3-screenshots/settings-help-source.jpg",
+    "processing": "JPEG to PNG format conversion only; no resizing, cropping or content edits"
+  },
+  "limits": [
+    "Seed sessions created by host API, not a new character creation UI replay",
+    "Minimal keyboard paths checked; full focus loop not asserted",
+    "Unknown-result recovery validated by frontend and HTTP tests, not a browser network fault injection",
+    "Old session is synthetic; actual archived session copy test skipped",
+    "No real model response or in-card memory quality evidence",
+    "Help image DOM property inspection timed out; figure and text visible, image file/build verified"
+  ]
+}
