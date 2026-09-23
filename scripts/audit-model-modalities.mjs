@@ -15,6 +15,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "typesafe/jev-1.13",
   "~typesafe/jev-latest",
   "meta/muse-voice-transcribe-1.0",
+  "assemblyai/universal-3-5-pro",
+  "inclusionai/ming-image-0.1-design",
   "bytedance-seed/seedream-5-0-pro",
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",

@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-21",
+  "reviewed_at": "2026-09-22",
   "catalog": {
-    "snapshot_total": 624,
-    "serving_variant_total": 72,
+    "snapshot_total": 633,
+    "serving_variant_total": 75,
     "serving_variants_by_type": {
-      "batch": 72
+      "batch": 75
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 530,
-    "uncertain": 86,
+    "live": 538,
+    "uncertain": 87,
     "expired": 8,
-    "onsite_openrouter": 616,
-    "adaptation_denominator": 616,
+    "onsite_openrouter": 625,
+    "adaptation_denominator": 625,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -107,6 +107,14 @@
       "verification_status": "manual_required",
       "support_level": "native",
       "status_reason": "OpenRouter JSON Base64 转写契约和 $0.10/音频小时费率已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
+    },
+    {
+      "model_id": "assemblyai/universal-3-5-pro",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter Sync API 的 JSON Base64 转写契约与基础 $0.0000625/音频秒费率已适配；仅接受最长 120 秒的 16-bit WAV，提示词、关键词和会话上下文增强参数尚未在界面开放，且未执行付费人工验收。"
     },
     {
       "model_id": "meta/muse-voice-transcribe-1.0",

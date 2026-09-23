@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-22T04:50:32.882Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-23T04:04:56.327Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -224,6 +224,309 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "cohere/command-a-plus",
+    "canonical_slug": "cohere/command-a-plus-05-2026",
+    "name": "Cohere: Command A+",
+    "raw_description": "Command A+ is Cohere's flagship model for enterprise agentic workflows. It accepts text and image inputs with a 192K context window, supports native tool calling with strict tool schemas, structured...",
+    "context_length": 192000,
+    "pricing": {
+      "input": 0.3,
+      "output": 1.5
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Cohere",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1790102896,
+    "expiration_date": null,
+    "model_author": "Cohere",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-luna-pro",
+    "canonical_slug": "openai/gpt-6-luna-pro-20260922",
+    "name": "OpenAI: GPT-6 Luna Pro",
+    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.75
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100791,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-luna",
+    "canonical_slug": "openai/gpt-6-luna-20260922",
+    "name": "OpenAI: GPT-6 Luna",
+    "raw_description": "GPT-6 Luna is the fast, cost-efficient model in OpenAI's GPT-6 series, positioned below GPT-6 Sol. It is suited for high-volume and latency-sensitive workloads such as chat, classification, and lightweight agentic...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.19999999999999998,
+          "output": 0.75
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100786,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-sol-pro",
+    "canonical_slug": "openai/gpt-6-sol-pro-20260922",
+    "name": "OpenAI: GPT-6 Sol Pro",
+    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100781,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-sol",
+    "canonical_slug": "openai/gpt-6-sol-20260922",
+    "name": "OpenAI: GPT-6 Sol",
+    "raw_description": "GPT-6 Sol is the cost-efficient high-end model in OpenAI's GPT-6 series, positioned below the flagship GPT-6 Astra and above the fast GPT-6 Luna tier. It is suited for demanding professional...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100775,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "inclusionai/ming-image-0.1-design",
+    "canonical_slug": "inclusionai/ming-image-0.1-design-20260922",
+    "name": "inclusionAI: Ming Image 0.1 Design",
+    "raw_description": "Ming Image 0.1 Design is a text-to-image model from inclusionAI aimed at graphic-design output, with an emphasis on legible text rendering inside the generated image. It generates from a prompt...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "output_format",
+      "n"
+    ],
+    "created": 1790095711,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "pricing_basis_override": "media",
+    "note": "OpenRouter 图片生成契约：仅支持文本提示词，输出 PNG、JPEG 或 WebP，单次固定生成 1 张；不接受参考图、尺寸或宽高比参数，且不支持流式输出。当前目录价格为免费；费用以最终回执为准。"
+  },
+  {
+    "id": "anthropic/claude-opus-5.5",
+    "canonical_slug": "anthropic/claude-opus-5.5-20260921",
+    "name": "Anthropic: Claude Opus 5.5",
+    "raw_description": "Claude Opus 5.5 is Anthropic's flagship model for demanding reasoning, coding, and long-horizon agentic work, succeeding Claude Opus 5. It is particularly strong at multi-step changes in large codebases, code...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 4,
+      "output": 20
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1790094732,
+    "expiration_date": null,
+    "model_author": "Anthropic",
+    "reasoning_declared": true
+  },
+  {
+    "id": "assemblyai/universal-3-5-pro",
+    "canonical_slug": "assemblyai/universal-3-5-pro-20260914",
+    "name": "AssemblyAI: Universal-3.5 Pro",
+    "raw_description": "Universal-3.5 Pro is AssemblyAI's speech-to-text model served through its Sync API, returning a complete transcript with word-level timestamps in a single synchronous response for audio clips up to 120 seconds....",
+    "context_length": 0,
+    "pricing": {
+      "input": 62.5,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790090022,
+    "expiration_date": null,
+    "model_author": "AssemblyAI",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.225
+    },
+    "note": "OpenRouter Sync API 转写契约：仅接受最长 120 秒的 16-bit WAV，返回完整转写与词级时间戳。基础费率为 $0.0000625/音频秒（$0.225/音频小时）；自由文本提示、关键词和会话上下文会使用提示转写费率，当前界面尚未暴露这些增强参数。尚未执行付费人工验收。"
+  },
+  {
     "id": "xiaomi/mimo-v2.6-pro-ultraspeed",
     "canonical_slug": "xiaomi/mimo-v2.6-pro-ultraspeed-20260921",
     "name": "Xiaomi: MiMo-V2.6-Pro-UltraSpeed",
@@ -285,15 +588,20 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_p"
     ],
     "created": 1790021264,
@@ -324,15 +632,20 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_p"
     ],
     "created": 1790021259,
@@ -384,6 +697,49 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1790007541,
     "expiration_date": null,
     "model_author": "xAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "qwen/qwen3.8-omni-flash",
+    "canonical_slug": "qwen/qwen3.8-omni-flash-20260918",
+    "name": "Qwen: Qwen3.8 Omni Flash",
+    "raw_description": "Qwen3.8 Omni Flash is an omni-modal reasoning model from Alibaba, the first Qwen model built around agentic capabilities with native audio-video understanding. It is suited for audio-video analysis and summarization,...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.47
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "audio",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1789959954,
+    "expiration_date": null,
+    "model_author": "Qwen",
     "reasoning_declared": true
   },
   {
@@ -577,8 +933,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.6386160000000001,
-      "output": 1.915848
+      "input": 0.39999999999999997,
+      "output": 4.300000000000001
     },
     "input_modalities": [
       "text"
@@ -621,8 +977,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.12,
-      "output": 0.48
+      "input": 0.095,
+      "output": 0.49
     },
     "input_modalities": [
       "text",
@@ -899,13 +1255,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GPT Luna family.",
     "context_length": 1050000,
     "pricing": {
-      "input": 0.19999999999999998,
-      "output": 1.2,
+      "input": 0.09999999999999999,
+      "output": 0.5,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 0.39999999999999997,
-          "output": 1.7999999999999998
+          "input": 0.19999999999999998,
+          "output": 0.75
         }
       ]
     },
@@ -1976,6 +2332,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "frequency_penalty",
       "include_reasoning",
       "max_completion_tokens",
       "max_tokens",
@@ -1986,7 +2343,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "tool_choice",
-      "tools"
+      "tools",
+      "top_k",
+      "top_p"
     ],
     "created": 1787897375,
     "expiration_date": null,
@@ -2654,8 +3013,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.6545000000000001,
-      "output": 2.057
+      "input": 0.5625,
+      "output": 2.5
     },
     "input_modalities": [
       "text"
@@ -2904,7 +3263,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1786680361,
-    "expiration_date": 1790726400,
+    "expiration_date": 1798675200,
     "model_author": "Dots Studio",
     "reasoning_declared": true
   },
@@ -4147,7 +4506,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -4160,7 +4518,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1785443117,
@@ -6624,7 +6981,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.7062,
-      "output": 3.21
+      "output": 3.3000000000000003
     },
     "input_modalities": [
       "text",
@@ -8696,8 +9053,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.5,
-      "output": 7.5
+      "input": 1.4989,
+      "output": 10.758
     },
     "input_modalities": [
       "text",
@@ -9052,8 +9409,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.3,
-      "output": 2
+      "input": 0.32,
+      "output": 2.7
     },
     "input_modalities": [
       "text",
@@ -9723,8 +10080,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Claude Opus family.",
     "context_length": 1000000,
     "pricing": {
-      "input": 5,
-      "output": 25
+      "input": 4,
+      "output": 20
     },
     "input_modalities": [
       "text",
@@ -16787,8 +17144,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.03,
-      "output": 0.13
+      "input": 0.018,
+      "output": 0.09
     },
     "input_modalities": [
       "text"
@@ -21872,6 +22229,253 @@ const rawCatalogModels: RawCatalogModel[] = [
 
 const rawBatchServingVariants: RawCatalogModel[] = [
   {
+    "id": "openai/gpt-6-luna-pro:batch",
+    "canonical_slug": "openai/gpt-6-luna-pro-20260922",
+    "name": "OpenAI: GPT-6 Luna Pro (batch)",
+    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.25,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.09999999999999999,
+          "output": 0.375
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100791,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-luna:batch",
+    "canonical_slug": "openai/gpt-6-luna-20260922",
+    "name": "OpenAI: GPT-6 Luna (batch)",
+    "raw_description": "GPT-6 Luna is the fast, cost-efficient model in OpenAI's GPT-6 series, positioned below GPT-6 Sol. It is suited for high-volume and latency-sensitive workloads such as chat, classification, and lightweight agentic...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.25,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 0.09999999999999999,
+          "output": 0.375
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100786,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-sol-pro:batch",
+    "canonical_slug": "openai/gpt-6-sol-pro-20260922",
+    "name": "OpenAI: GPT-6 Sol Pro (batch)",
+    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 1,
+      "output": 5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 7.5
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100781,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6-sol:batch",
+    "canonical_slug": "openai/gpt-6-sol-20260922",
+    "name": "OpenAI: GPT-6 Sol (batch)",
+    "raw_description": "GPT-6 Sol is the cost-efficient high-end model in OpenAI's GPT-6 series, positioned below the flagship GPT-6 Astra and above the fast GPT-6 Luna tier. It is suited for demanding professional...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 1,
+      "output": 5,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 2,
+          "output": 7.5
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1790100775,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "anthropic/claude-opus-5.5:batch",
+    "canonical_slug": "anthropic/claude-opus-5.5-20260921",
+    "name": "Anthropic: Claude Opus 5.5 (batch)",
+    "raw_description": "Claude Opus 5.5 is Anthropic's flagship model for demanding reasoning, coding, and long-horizon agentic work, succeeding Claude Opus 5. It is particularly strong at multi-step changes in large codebases, code...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2,
+      "output": 10
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Claude",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1790094732,
+    "expiration_date": null,
+    "model_author": "Anthropic",
+    "reasoning_declared": true
+  },
+  {
+    "id": "deepseek/deepseek-v4.1-flash:batch",
+    "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
+    "name": "DeepSeek: DeepSeek V4.1 Flash (batch)",
+    "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.112,
+      "output": 0.33599999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "DeepSeek",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1789021285,
+    "expiration_date": null,
+    "model_author": "DeepSeek",
+    "reasoning_declared": true
+  },
+  {
     "id": "openai/gpt-6-astra:batch",
     "canonical_slug": "openai/gpt-6-astra-20260903",
     "name": "OpenAI: GPT-6 Astra (batch)",
@@ -22036,8 +22640,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.075,
-      "output": 0.25
+      "input": 0.06,
+      "output": 0.19999999999999998
     },
     "input_modalities": [
       "text",
@@ -22052,68 +22656,25 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1787752741,
     "expiration_date": null,
     "model_author": "Z.ai",
-    "reasoning_declared": true
-  },
-  {
-    "id": "deepseek/deepseek-v4-flash-vision-exp:batch",
-    "canonical_slug": "deepseek/deepseek-v4-flash-vision-exp-20260821",
-    "name": "DeepSeek: DeepSeek V4 Flash Vision Exp (batch)",
-    "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.11,
-      "output": 0.33
-    },
-    "input_modalities": [
-      "text",
-      "image"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "DeepSeek",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1787311563,
-    "expiration_date": null,
-    "model_author": "DeepSeek",
     "reasoning_declared": true
   },
   {
@@ -22123,8 +22684,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.7,
-      "output": 2.2
+      "input": 0.72,
+      "output": 2.4
     },
     "input_modalities": [
       "text"
@@ -22137,20 +22698,20 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1787086655,
@@ -22194,133 +22755,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "created": 1786640581,
     "expiration_date": null,
     "model_author": "Google",
-    "reasoning_declared": true
-  },
-  {
-    "id": "deepseek/deepseek-v4-pro-0813:batch",
-    "canonical_slug": "deepseek/deepseek-v4-pro-20260813",
-    "name": "DeepSeek: DeepSeek V4 Pro 0813 (batch)",
-    "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "DeepSeek",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1786549364,
-    "expiration_date": null,
-    "model_author": "DeepSeek",
-    "reasoning_declared": true
-  },
-  {
-    "id": "meta/muse-glimmer-30b:batch",
-    "canonical_slug": "meta/muse-glimmer-30b-20260810",
-    "name": "Meta: Muse Glimmer 30B (batch)",
-    "raw_description": "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
-    "context_length": 131072,
-    "pricing": {
-      "input": 0.175,
-      "output": 0.75
-    },
-    "input_modalities": [
-      "text",
-      "image"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1786302394,
-    "expiration_date": null,
-    "model_author": "Meta",
-    "reasoning_declared": true
-  },
-  {
-    "id": "deepseek/deepseek-v4-flash-0731:batch",
-    "canonical_slug": "deepseek/deepseek-v4-flash-20260731",
-    "name": "DeepSeek: DeepSeek V4 Flash 0731 (batch)",
-    "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.11,
-      "output": 0.33
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "DeepSeek",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1785478908,
-    "expiration_date": null,
-    "model_author": "DeepSeek",
     "reasoning_declared": true
   },
   {
@@ -22433,6 +22867,50 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "created": 1784646726,
     "expiration_date": null,
     "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
+    "id": "moonshotai/kimi-k3:batch",
+    "canonical_slug": "moonshotai/kimi-k3-20260715",
+    "name": "MoonshotAI: Kimi K3 (batch)",
+    "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 2.2800000000000002,
+      "output": 11.399999999999999
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1784215858,
+    "expiration_date": null,
+    "model_author": "MoonshotAI",
     "reasoning_declared": true
   },
   {
@@ -22721,48 +23199,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "created": 1782843083,
     "expiration_date": null,
     "model_author": "Anthropic",
-    "reasoning_declared": true
-  },
-  {
-    "id": "z-ai/glm-5.2:batch",
-    "canonical_slug": "z-ai/glm-5.2-20260616",
-    "name": "Z.ai: GLM 5.2 (batch)",
-    "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.7,
-      "output": 2.2
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_k",
-      "top_logprobs",
-      "top_p"
-    ],
-    "created": 1781631930,
-    "expiration_date": null,
-    "model_author": "Z.ai",
     "reasoning_declared": true
   },
   {
@@ -24041,6 +24477,48 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "openai/gpt-oss-20b:batch",
+    "canonical_slug": "openai/gpt-oss-20b",
+    "name": "OpenAI: gpt-oss-20b (batch)",
+    "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.024,
+      "output": 0.112
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1754414229,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "anthropic/claude-opus-4.1:batch",
     "canonical_slug": "anthropic/claude-4.1-opus-20250805",
     "name": "Anthropic: Claude Opus 4.1 (batch)",
@@ -24629,6 +25107,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "inflection/inflection-3-pi",
   "inflection/inflection-3-productivity",
   "kwaipilot/kat-coder-air-v2.5",
+  "kwaipilot/kat-coder-pro-v2",
   "liquid/lfm-2-24b-a2b",
   "liquid/lfm-2.5-1.2b-instruct:free",
   "liquid/lfm-2.5-1.2b-thinking:free",
@@ -24972,6 +25451,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "inclusionai/ming-image-0.1-design",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
   "openai/gpt-image-2.5-flare",
@@ -25506,6 +25986,15 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "cohere/command-a-plus",
+  "openai/gpt-6-luna-pro",
+  "openai/gpt-6-luna",
+  "openai/gpt-6-sol-pro",
+  "openai/gpt-6-sol",
+  "inclusionai/ming-image-0.1-design",
+  "anthropic/claude-opus-5.5",
+  "assemblyai/universal-3-5-pro",
+  "qwen/qwen3.8-omni-flash",
   "xiaomi/mimo-v2.6-pro-ultraspeed",
   "xiaomi/mimo-v2.6-flash",
   "xiaomi/mimo-v2.6-pro",
