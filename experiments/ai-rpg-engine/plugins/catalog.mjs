@@ -4,12 +4,14 @@ import {invoke as branchInvoke} from './branch-save.mjs';
 import {invoke as modelInvoke} from './model-selector.mjs';
 import {invoke as historyInvoke} from './history-window.mjs';
 import {invoke as summaryInvoke} from './rolling-summary.mjs';
+import {invoke as memoryInvoke} from './memory-palace.mjs';
 
 export const PLUGIN_ID = 'rpg.branch-save'; // Compatibility default for existing branch callers.
 export const MODEL_SELECTOR_ID = 'rpg.model-selector';
 export const HISTORY_WINDOW_ID = 'rpg.history-window';
 export const ROLLING_SUMMARY_ID = 'rpg.rolling-summary';
-export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID]);
+export const MEMORY_PALACE_ID = 'rpg.memory-palace';
+export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID, MEMORY_PALACE_ID]);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -20,6 +22,9 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  [MEMORY_PALACE_ID, {file:'memory-palace', invoke:memoryInvoke,
+    permissions:['session.completed.read','session.memory.configure','session.memory.revise','session.memory.request','context.memory.contribute','ui.contribute'],
+    capabilities:['ui.memory-action','session.memory.configure','session.memory.revise','session.memory.request']}],
   [ROLLING_SUMMARY_ID, {file:'rolling-summary', version:'1.1.0', invoke:summaryInvoke,
     permissions:['session.completed.read','session.summary.configure','session.summary.revise','session.summary.request','ui.contribute'],
     capabilities:['ui.summary-action','session.summary.configure','session.summary.revise','session.summary.request']}],
@@ -63,9 +68,9 @@ export async function loadReviewedCatalog(pluginId = PLUGIN_ID) {
   if (entry.manifest.id !== pluginId || !bound || entry.manifestSha256 !== bound[0] || entry.artifactSha256 !== bound[1]) throw fail('PLUGIN_RELEASE_CHANGED_RESTART_REQUIRED');
   return {...entry, invoke:d.invoke};
 }
-// M2 is advertised only by an explicitly opted-in new host, never legacy entrypoints.
-export async function loadReviewedPlugins({rollingSummary=false}={}) {
-  return Promise.all(REVIEWED_PLUGIN_IDS.filter(id=>rollingSummary||id!==ROLLING_SUMMARY_ID).map(async id => {
+// M2/M3 are advertised only by explicitly opted-in hosts, never legacy entrypoints.
+export async function loadReviewedPlugins({rollingSummary=false,memoryPalace=false}={}) {
+  return Promise.all(REVIEWED_PLUGIN_IDS.filter(id=>(rollingSummary||id!==ROLLING_SUMMARY_ID)&&(memoryPalace||id!==MEMORY_PALACE_ID)).map(async id => {
     try {return await loadReviewedCatalog(id);} catch(e) {
       return {id,error:e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_PACKAGE_UNAVAILABLE'};
     }

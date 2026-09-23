@@ -1,3 +1,4 @@
+import useRpgMemoryPalace from "./articles/use-rpg-memory-palace.md?raw";
 import useRpgRollingSummary from "./articles/use-rpg-rolling-summary.md?raw";
 import setRpgHistoryWindow from "./articles/set-rpg-history-window.md?raw";
 import chooseRpgModel from "./articles/choose-rpg-model.md?raw";
@@ -120,6 +121,7 @@ export const helpArticles: HelpArticle[] = [
   { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: playRpgCards, nextSlug: "branch-rpg-story" },
   { slug: "branch-rpg-story", title: "从故事中创建另一条路线", summary: "安装分支存档，从正文创建新对话并保留原路线。", category: "按目标找指南", contentType: "how-to", audience: "已完成地球 OL 对话的玩家", estimatedMinutes: 5, keywords: ["RPG", "分支", "存档", "插件市场", "安装", "授权", "卸载", "草稿"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: branchRpgStory, nextSlug: "check-availability-cost-data" },
   { slug: "choose-rpg-model", title: "为下一条 RPG 消息选择模型", summary: "安装并启用模型选择，在同一故事中切换模型。", category: "按目标找指南", contentType: "how-to", audience: "地球 OL 玩家", estimatedMinutes: 4, keywords: ["RPG", "模型选择", "切换", "插件", "品牌", "搜索", "停用"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "1864ed84", verifiedDate: "2026-09-19", content: chooseRpgModel, nextSlug: "branch-rpg-story" },
+  { slug: "use-rpg-memory-palace", title: "为 RPG 建立记忆宫殿", summary: "整理人物和经历，按关键词召回并保留人工修订。", category: "按目标找指南", contentType: "how-to", audience: "地球 OL M3 新版本会话的玩家", estimatedMinutes: 5, keywords: ["RPG", "记忆宫殿", "世界书", "关键词", "保护", "恢复"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "86fdb953", verifiedDate: "2026-09-22", content: useRpgMemoryPalace, nextSlug: "use-rpg-rolling-summary" },
   { slug: "use-rpg-rolling-summary", title: "为 RPG 启用自动总结", summary: "独立选择摘要模型，滚动总结历史并保留原文与修订。", category: "按目标找指南", contentType: "how-to", audience: "地球 OL M2 新版本会话的玩家", estimatedMinutes: 5, keywords: ["RPG", "自动总结", "摘要", "记忆", "修订", "后台"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "56fe2e2d", verifiedDate: "2026-09-20", content: useRpgRollingSummary, nextSlug: "set-rpg-history-window" },
   { slug: "set-rpg-history-window", title: "设置 RPG 每次携带的历史回合", summary: "按完整回合选择近期历史，保留原文并可随时停用。", category: "按目标找指南", contentType: "how-to", audience: "地球 OL 新版本会话的玩家", estimatedMinutes: 4, keywords: ["RPG", "历史窗口", "记忆", "回合", "开局资料", "设置恢复"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "61b6eea8", verifiedDate: "2026-09-19", content: setRpgHistoryWindow, nextSlug: "choose-rpg-model" },
   {
@@ -533,6 +535,7 @@ export const helpSections: HelpSection[] = [
       { id: "rpg-guide", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择角色卡并恢复保存的模型原文。", to: "/help/play-rpg-cards", keywords: ["RPG", "角色卡", "历史"] },
       { id: "rpg-branch-guide", title: "从故事中创建另一条路线", summary: "安装、授权分支存档并切换保留的对话。", to: "/help/branch-rpg-story", keywords: ["RPG", "分支", "插件市场", "存档"] },
       { id: "rpg-model-guide", title: "为下一条 RPG 消息选择模型", summary: "安装、启用模型选择，保留故事并切换下一轮模型。", to: "/help/choose-rpg-model", keywords: ["RPG", "模型选择", "切换", "插件"] },
+      { id: "rpg-memory-guide", title: "为 RPG 建立记忆宫殿", summary: "整理经历、编辑条目并按关键词召回。", to: "/help/use-rpg-memory-palace", keywords: ["RPG", "记忆宫殿", "世界书", "关键词"] },
       { id: "rpg-summary-guide", title: "为 RPG 启用自动总结", summary: "选择摘要模型、修订历史并恢复未确认操作。", to: "/help/use-rpg-rolling-summary", keywords: ["RPG", "自动总结", "记忆", "修订"] },
       { id: "rpg-history-guide", title: "设置 RPG 每次携带的历史回合", summary: "安装历史窗口，选择近期完整回合并保留全部原文。", to: "/help/set-rpg-history-window", keywords: ["RPG", "历史窗口", "记忆", "开局资料"] },
       ...helpModules.map((module) => ({ id: module.id, title: module.title, summary: module.summary, to: `/help/modules/${module.id}`, keywords: module.keywords })),

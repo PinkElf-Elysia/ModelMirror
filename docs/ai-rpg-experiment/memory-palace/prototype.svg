@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="1040" viewBox="0 0 1460 1040"><title>M3记忆宫殿静态设计图，不是运行截图</title><rect width="100%" height="100%" fill="#e9eff7"/>
+<text x="28" y="47" font-family="Microsoft YaHei, sans-serif" font-size="25" fill="#263441" font-weight="700">M3 记忆宫殿 · B0 静态设计图</text>
+<text x="28" y="75" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#536475" font-weight="400">浅色浮层沿用地球 OL；合成内容，仅展示布局与交互意图。不是运行截图。</text>
+<text x="28" y="120" font-family="Microsoft YaHei, sans-serif" font-size="17" fill="#263441" font-weight="700">桌面：会话插件 → 管理记忆</text>
+<text x="600" y="120" font-family="Microsoft YaHei, sans-serif" font-size="17" fill="#263441" font-weight="700">编辑条目</text>
+<text x="1078" y="120" font-family="Microsoft YaHei, sans-serif" font-size="17" fill="#263441" font-weight="700">390px 手机：同一浮层</text>
+<rect x="28" y="142" width="544" height="764" rx="14" fill="#fff"/>
+<text x="50" y="184" font-family="Microsoft YaHei, sans-serif" font-size="22" fill="#263441" font-weight="700">记忆宫殿</text>
+<text x="529" y="184" font-family="Microsoft YaHei, sans-serif" font-size="24" fill="#536475" font-weight="400">×</text>
+<text x="50" y="225" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">记忆模型</text>
+<rect x="50" y="242" width="500" height="44" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="62" y="269" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="400">gemini-3.8-flash</text>
+<text x="521" y="270" font-family="Microsoft YaHei, sans-serif" font-size="18" fill="#263441" font-weight="400">v</text>
+<rect x="50" y="302" width="500" height="46" rx="8" fill="#f1f5fa"/>
+<text x="62" y="330" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">已整理至第 3 回合</text>
+<rect x="50" y="366" width="392" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="62" y="391" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#536475" font-weight="400">搜索名称、关键词或内容</text>
+<rect x="452" y="366" width="98" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="464" y="390" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">＋ 新增</text>
+<text x="50" y="455" font-family="Microsoft YaHei, sans-serif" font-size="17" fill="#263441" font-weight="700">周岚与旧地图</text>
+<rect x="474" y="429" width="76" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="486" y="453" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">编辑</text>
+<text x="50" y="491" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">周岚曾答应带来旧地图，但原件仍未找到；</text>
+<text x="50" y="516" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">她提供了档案馆地址。约定尚未兑现。</text>
+<text x="50" y="551" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#536475" font-weight="400">周岚 · 地图    自动更新 · 已启用</text>
+<path d="M50 571 h500" stroke="#cbd5e1"/>
+<text x="50" y="609" font-family="Microsoft YaHei, sans-serif" font-size="17" fill="#263441" font-weight="700">白塔书店</text>
+<rect x="474" y="583" width="76" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="486" y="607" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">编辑</text>
+<text x="50" y="646" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">许澄与周岚交换旧地图线索的地方。</text>
+<text x="50" y="678" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#536475" font-weight="400">白塔 · 书店    人工保护 · 已启用</text>
+<path d="M50 697 h500" stroke="#cbd5e1"/>
+<text x="50" y="730" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">&gt; 本轮召回</text>
+<text x="50" y="764" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">&gt; 修订与已删除条目</text>
+<rect x="50" y="785" width="500" height="58" rx="8" fill="#f1f5fa"/>
+<text x="62" y="808" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#3f5266" font-weight="400">回复后自动整理，额外调用记忆模型 1 次。</text>
+<text x="62" y="831" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#3f5266" font-weight="400">已派发的更新不会因离开页面而取消。</text>
+<rect x="350" y="852" width="80" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="362" y="876" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">取消</text>
+<rect x="442" y="852" width="108" height="42" rx="8" fill="#2669c9"/>
+<text x="454" y="876" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#fff" font-weight="400">保存设置</text>
+<rect x="600" y="142" width="450" height="828" rx="14" fill="#fff"/>
+<text x="622" y="184" font-family="Microsoft YaHei, sans-serif" font-size="22" fill="#263441" font-weight="700">编辑记忆</text>
+<text x="1007" y="184" font-family="Microsoft YaHei, sans-serif" font-size="24" fill="#536475" font-weight="400">×</text>
+<text x="622" y="225" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">名称</text>
+<rect x="622" y="239" width="406" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="634" y="265" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="400">周岚与旧地图</text>
+<text x="622" y="312" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">触发关键词</text>
+<rect x="622" y="326" width="318" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="634" y="351" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#536475" font-weight="400">输入关键词，按回车添加</text>
+<rect x="948" y="326" width="80" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="960" y="350" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">添加</text>
+<rect x="622" y="380" width="88" height="32" rx="8" fill="#edf4ff"/>
+<text x="631" y="400" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#215fb5" font-weight="400">周岚  ×</text>
+<rect x="720" y="380" width="88" height="32" rx="8" fill="#edf4ff"/>
+<text x="729" y="400" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#215fb5" font-weight="400">地图  ×</text>
+<text x="622" y="445" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">扫描范围</text>
+<rect x="622" y="460" width="112" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="634" y="484" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">[x] 用户</text>
+<rect x="746" y="460" width="98" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="758" y="484" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">[x] AI</text>
+<text x="622" y="538" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">匹配方式</text>
+<rect x="622" y="552" width="136" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="634" y="576" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">(o) 任一命中</text>
+<rect x="770" y="552" width="136" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="782" y="576" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">( ) 全部命中</text>
+<text x="622" y="625" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">内容</text>
+<rect x="622" y="640" width="406" height="116" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="634" y="667" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">周岚曾答应带来旧地图，但原件仍未</text>
+<text x="634" y="694" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">找到；她提供了档案馆地址。</text>
+<text x="634" y="721" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">寻找原件的约定尚未兑现。</text>
+<text x="622" y="786" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">[x] 启用此条目</text>
+<text x="622" y="820" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">[x] 保护内容，不允许 AI 自动修改</text>
+<text x="622" y="852" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#536475" font-weight="400">人工编辑默认受保护，可明确取消保护。</text>
+<text x="622" y="880" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">&gt; 来源、原文与修订</text>
+<rect x="828" y="909" width="80" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="840" y="933" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">取消</text>
+<rect x="920" y="909" width="108" height="42" rx="8" fill="#2669c9"/>
+<text x="932" y="933" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#fff" font-weight="400">保存条目</text>
+<rect x="1070" y="142" width="362" height="764" rx="14" fill="#fff"/>
+<text x="1092" y="184" font-family="Microsoft YaHei, sans-serif" font-size="22" fill="#263441" font-weight="700">记忆宫殿</text>
+<text x="1389" y="184" font-family="Microsoft YaHei, sans-serif" font-size="24" fill="#536475" font-weight="400">×</text>
+<text x="1088" y="224" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="700">记忆模型</text>
+<rect x="1088" y="239" width="326" height="44" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1100" y="268" font-family="Microsoft YaHei, sans-serif" font-size="15" fill="#263441" font-weight="400">gemini-3.8-flash</text>
+<text x="1383" y="269" font-family="Microsoft YaHei, sans-serif" font-size="18" fill="#263441" font-weight="400">v</text>
+<rect x="1088" y="298" width="326" height="47" rx="8" fill="#f1f5fa"/>
+<text x="1100" y="327" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">已整理至第 3 回合</text>
+<rect x="1088" y="362" width="236" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1098" y="389" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#536475" font-weight="400">搜索记忆</text>
+<rect x="1332" y="362" width="82" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1344" y="386" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">＋ 新增</text>
+<text x="1088" y="449" font-family="Microsoft YaHei, sans-serif" font-size="16" fill="#263441" font-weight="700">周岚与旧地图</text>
+<rect x="1338" y="422" width="76" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1350" y="446" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">编辑</text>
+<text x="1088" y="490" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#263441" font-weight="400">周岚曾答应带来旧地图，但原件仍未</text>
+<text x="1088" y="515" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#263441" font-weight="400">找到；她提供了档案馆地址。</text>
+<text x="1088" y="549" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#536475" font-weight="400">周岚 · 地图   自动更新 · 已启用</text>
+<path d="M1088 568 h326" stroke="#cbd5e1"/>
+<text x="1088" y="606" font-family="Microsoft YaHei, sans-serif" font-size="16" fill="#263441" font-weight="700">白塔书店</text>
+<rect x="1338" y="579" width="76" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1350" y="603" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">编辑</text>
+<text x="1088" y="645" font-family="Microsoft YaHei, sans-serif" font-size="13" fill="#263441" font-weight="400">许澄与周岚交换旧地图线索的地方。</text>
+<text x="1088" y="677" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#536475" font-weight="400">白塔 · 书店   人工保护 · 已启用</text>
+<path d="M1088 696 h326" stroke="#cbd5e1"/>
+<text x="1088" y="730" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">&gt; 本轮召回</text>
+<text x="1088" y="763" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">&gt; 修订与已删除条目</text>
+<rect x="1088" y="785" width="326" height="57" rx="8" fill="#f1f5fa"/>
+<text x="1098" y="808" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#3f5266" font-weight="400">回复后额外调用记忆模型 1 次。</text>
+<text x="1098" y="830" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#3f5266" font-weight="400">离开页面不取消已派发的更新。</text>
+<rect x="1214" y="853" width="80" height="42" rx="8" fill="#fff" stroke="#aab7c8"/>
+<text x="1226" y="877" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#263441" font-weight="400">取消</text>
+<rect x="1306" y="853" width="108" height="42" rx="8" fill="#2669c9"/>
+<text x="1318" y="877" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#fff" font-weight="400">保存设置</text>
+<text x="28" y="960" font-family="Microsoft YaHei, sans-serif" font-size="16" fill="#263441" font-weight="700">入口保持轻量</text>
+<text x="28" y="990" font-family="Microsoft YaHei, sans-serif" font-size="14" fill="#536475" font-weight="400">安装不启用；编辑不生成；M2 与 M3 可独立开关。</text>
+<text x="1078" y="955" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#536475" font-weight="400">手机浮层可滚动；Esc / 取消放弃未保存编辑。</text>
+<text x="1078" y="986" font-family="Microsoft YaHei, sans-serif" font-size="12" fill="#536475" font-weight="400">交互原型另提供后台、失败、未知、容量状态。</text>
+</svg>

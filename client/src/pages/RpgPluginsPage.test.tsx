@@ -17,3 +17,5 @@ it('summary installation discloses bounded extra compression calls before enabli
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({revision:0,plugins:[{...plugin,id:'rpg.rolling-summary',name:'自动总结',version:'1.1.0'}]})}));render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);
  const row=await screen.findByRole('article',{name:'自动总结'});expect(within(row).getByText('每次总结最多 2 次调用，含按需二次压缩')).toBeInTheDocument();expect(within(row).getByText(/v1.1.0/)).toBeInTheDocument();expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it('memory palace advertises independent model fees and non-trimming retention',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({revision:0,plugins:[{...plugin,id:'rpg.memory-palace',name:'记忆宫殿'}]})}));render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);const row=await screen.findByRole('article',{name:'记忆宫殿'});expect(within(row).getByText('地球 OL · M3 新版本会话')).toBeInTheDocument();expect(within(row).getByText('每次回复后额外 1 次记忆调用')).toBeInTheDocument();expect(within(row).getByText(/不会裁剪历史/)).toBeInTheDocument();expect(fetch).toHaveBeenCalledTimes(1);});
