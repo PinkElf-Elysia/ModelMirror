@@ -1,0 +1,513 @@
+{
+  "schema": "modelmirror.rpg.memory-palace.pre-pr/1",
+  "at": "2026-09-23T05:14:51.520220+00:00",
+  "base": "86fdb953590e625dffeb073137357cddb3af267f",
+  "upstreamAudited": "08dba5f6ae5adab2043ba966c3de7fc2ffc41f49",
+  "branch": "codex/rpg-memory-palace",
+  "scope": "accepted2-group candidate; full live vertical-slice incomplete; local pre-PR closeout; no publication authorization",
+  "sources": {
+    "client/public/help-center/86fdb953/rpg-memory-editor-mobile.png": {
+      "bytes": 139487,
+      "sha256": "cf55cd923d3a5c3d4510232e310aafe415503061c0f4ec0020eafccf8ed06874"
+    },
+    "client/public/help-center/86fdb953/rpg-memory-palace.png": {
+      "bytes": 108093,
+      "sha256": "cdacfa8c4be7985d3343e8ff226c53642f63e7cf1da5f225eec6fc581fe7a5b7"
+    },
+    "client/src/content/help-center/articles/use-rpg-memory-palace.md": {
+      "bytes": 4974,
+      "sha256": "a76020d4a9c07097545b06f0d528621ab98b1f5436caca589cc13c5dc90f20e8"
+    },
+    "client/src/content/help-center/index.ts": {
+      "bytes": 62435,
+      "sha256": "c582ecde8aba5128718fda4d018b7b02a417f2d1760cdb1980df971a7cff5b4d"
+    },
+    "client/src/pages/RpgMemoryPalace.test.tsx": {
+      "bytes": 8994,
+      "sha256": "511708be38ff02b277cdbe23a3d342456e2cb86d8fb3c68af06d6fe553afd2bf"
+    },
+    "client/src/pages/RpgPluginsPage.test.tsx": {
+      "bytes": 5956,
+      "sha256": "83ca707364fcbc4597ec0d6cda92ca0a9aa5dc9b304a81c35541cfe5381b3ecc"
+    },
+    "client/src/pages/RpgPluginsPage.tsx": {
+      "bytes": 9628,
+      "sha256": "384d35f9391cb32500ab854d2387ac56ee12f0b1dfae8ecfc0ad6c1e4918346d"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B4-DELIVERY.json": {
+      "bytes": 22235,
+      "sha256": "3198775b0edc22cdabf8954f80f0a4b843062a210beea7b70ccac2ee2e0b2480"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B4-REPORT.md": {
+      "bytes": 6679,
+      "sha256": "1574fb6ac729fdfc32c5d42d15b31512bd04fd4916ffac30f4e04389d2660df0"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B5-GROUP1-DELIVERY.json": {
+      "bytes": 9180,
+      "sha256": "25b910fd8b1969fa8ec2bcd48030172c57b4c147046eac8c4c77556585093066"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B5-GROUP1-REVIEW.md": {
+      "bytes": 4022,
+      "sha256": "b8778f67a4f575fc4b44f245f940fd3f325af04bc8f61b0c842170934f6752f3"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B5-GROUP2-DELIVERY.json": {
+      "bytes": 5887,
+      "sha256": "d140e24283061e374ad08b148a1e7c302c5b7f6c7462c1205470ed8b1183ca0a"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B5-GROUP2-REVIEW.md": {
+      "bytes": 4824,
+      "sha256": "c241ced43e1dd30f217193d7436efdf1e94745271ddd271aefb4a33a2f3b0b6d"
+    },
+    "docs/ai-rpg-experiment/memory-palace/CONTRACT.md": {
+      "bytes": 16497,
+      "sha256": "6775db852f548f01e40dee1c2b12fc96264499c943a86bb1ace1767182dded44"
+    },
+    "docs/ai-rpg-experiment/memory-palace/PR-DRAFT.md": {
+      "bytes": 2630,
+      "sha256": "aaf01e9a40f0c6efaeb0e22b0340fd3d0b16ab2437fa1923393eafc26aa6766b"
+    },
+    "docs/ai-rpg-experiment/memory-palace/PRE-PR-CLOSEOUT.md": {
+      "bytes": 4688,
+      "sha256": "c878f4afe72e3bd9278c9e84de3c80aa6b275b1630a795dd401f3fcf574c5af3"
+    },
+    "docs/ai-rpg-experiment/memory-palace/STATUS.json": {
+      "bytes": 53904,
+      "sha256": "28aa69595ad64baf5945a888c2f9c9892b4ca005620b01d0b44c11619cdb2820"
+    },
+    "docs/ai-rpg-experiment/memory-palace/index.html": {
+      "bytes": 29511,
+      "sha256": "af17e62c6dd43e540312dbe863febc126b7f82ab42edca9226adef3f2d79bace"
+    },
+    "docs/ai-rpg-experiment/memory-palace/preview-app.mjs": {
+      "bytes": 2459,
+      "sha256": "b597e4de23097d0b5e1f54961ab7233321bb5098914a8322e34496b5a4a6c23e"
+    },
+    "docs/ai-rpg-experiment/memory-palace/preview.mjs": {
+      "bytes": 4620,
+      "sha256": "b26ef6e1001f747ddfa480c6a0e1ec06dc3a8f80afe5ac0fb480892a06c27de9"
+    },
+    "docs/ai-rpg-experiment/memory-palace/prototype.svg": {
+      "bytes": 14540,
+      "sha256": "0738030958d2591abc8a2333b200bb3279ec11f892014f27e9f6bb2e015453cd"
+    },
+    "experiments/ai-rpg-engine/card-replica/src/chat.tsx": {
+      "bytes": 28336,
+      "sha256": "414ad9cb2391c1327b8c83aa2a59b95cc0901f883813e9b5ee68bc9c130248d1"
+    },
+    "experiments/ai-rpg-engine/card-replica/src/memory-palace.css": {
+      "bytes": 1872,
+      "sha256": "e1ce16ed6917807603ba3b471db09c658c2a7d2ff55d948561120f9ec2e5d02e"
+    },
+    "experiments/ai-rpg-engine/card-replica/src/memory-palace.tsx": {
+      "bytes": 15669,
+      "sha256": "76e59738fa0334189112ac1e2af1d562332d3e63223e6356544eefa7ffe73d94"
+    },
+    "experiments/ai-rpg-engine/card-replica/src/rolling-summary.tsx": {
+      "bytes": 12997,
+      "sha256": "627461cc28d04b95a55a1c09ad12dbdce5024cd76c38d7d5d734079d1e22e722"
+    },
+    "experiments/ai-rpg-engine/card-replica/src/session-client.ts": {
+      "bytes": 5643,
+      "sha256": "7b23ed907305b0ba4fa03f4e49c240db050dce99a0a7beb25c9d2060ff0b1265"
+    },
+    "experiments/ai-rpg-engine/plugins/catalog.mjs": {
+      "bytes": 5442,
+      "sha256": "f90340029b206c9acc274bf1b6b75a26f9d6e29dbac2a55b7e3604e1d87f9320"
+    },
+    "experiments/ai-rpg-engine/plugins/host.mjs": {
+      "bytes": 21092,
+      "sha256": "20e87e2ed7f10bf53b51e7e37f2322486c485ecd9c9b64853b70890cd3249275"
+    },
+    "experiments/ai-rpg-engine/plugins/memory-palace.manifest.json": {
+      "bytes": 1026,
+      "sha256": "402e5be29dc35ea2b77aa2ac4867d6a7fe6848ac1172666a9c6cfc61600f1104"
+    },
+    "experiments/ai-rpg-engine/plugins/memory-palace.mjs": {
+      "bytes": 10262,
+      "sha256": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7"
+    },
+    "experiments/ai-rpg-engine/plugins/memory-palace.test.mjs": {
+      "bytes": 8594,
+      "sha256": "601c1fd3cf47a175fddf88d7dbb14fe110759195fda2cd0dd23f3944c0ed74e8"
+    },
+    "experiments/ai-rpg-engine/studio/memory-assembly.mjs": {
+      "bytes": 7026,
+      "sha256": "e76bfb75999a16cfcef09f65e9fa434bdaadeff503b5c157f3d2b686668b0551"
+    },
+    "experiments/ai-rpg-engine/studio/memory-branch-archive.mjs": {
+      "bytes": 2327,
+      "sha256": "890d305b8d9970a7102d8d83338d4e04a38d033e3180038fde8e51cbf0f1b9b1"
+    },
+    "experiments/ai-rpg-engine/studio/memory-budget.mjs": {
+      "bytes": 6933,
+      "sha256": "23da551972268ea4672465ea3b26bc4ee70ca8e6845f7528414b61e0f5c77264"
+    },
+    "experiments/ai-rpg-engine/studio/memory-host.mjs": {
+      "bytes": 3288,
+      "sha256": "7200216018874288757b04829845efb105bdaddab782158cfed5e39d8808dac8"
+    },
+    "experiments/ai-rpg-engine/studio/memory-http.mjs": {
+      "bytes": 6914,
+      "sha256": "f115502a7e09c9cb60aead857d76e57e6fa93e6777f196949655a2e72f36dc0f"
+    },
+    "experiments/ai-rpg-engine/studio/memory-http.test.mjs": {
+      "bytes": 8618,
+      "sha256": "4d05cfecd73499916c092fa4f8d83a6d3fd5088aaa83536e75eb422fe6ff11fe"
+    },
+    "experiments/ai-rpg-engine/studio/memory-integration.test.mjs": {
+      "bytes": 28588,
+      "sha256": "e5baa869dd9177729a4aa2606dd2157b902ccc9dd6e4046ebd78380f32ca93ee"
+    },
+    "experiments/ai-rpg-engine/studio/memory-runtime.mjs": {
+      "bytes": 2174,
+      "sha256": "135cf0a630995cef26ca99ef630b697888424b550bbb7bd6467a5452ed4b2954"
+    },
+    "experiments/ai-rpg-engine/studio/memory-session-store.mjs": {
+      "bytes": 17923,
+      "sha256": "5b0b5f32d90277751e976d8c86e086f5372cf75f50b27091eba07145b61e6bc8"
+    },
+    "experiments/ai-rpg-engine/studio/memory-state.mjs": {
+      "bytes": 4970,
+      "sha256": "13e985e98cacd6788a23405c7b8895762e6a2ee4f752fc6f50b5e92a47b19954"
+    },
+    "experiments/ai-rpg-engine/studio/memory-store.test.mjs": {
+      "bytes": 10711,
+      "sha256": "0df64847ed9e2daa1c0e2e3ee56e4afbc6ee941b7c74810fb2ece5530c4377cd"
+    },
+    "experiments/ai-rpg-engine/studio/memory-task-provider.mjs": {
+      "bytes": 2586,
+      "sha256": "64f3c45c480ce84a49d541c9527bbd76b9c00b29ab4235a5e05bc5ba9113b55f"
+    },
+    "experiments/ai-rpg-engine/studio/memory-task-state.mjs": {
+      "bytes": 9195,
+      "sha256": "59c7314b1c95047cb68815003d418fba0e568dc05f1e53c2ace53265a2474353"
+    },
+    "experiments/ai-rpg-engine/studio/memory-tasks.mjs": {
+      "bytes": 19374,
+      "sha256": "ba36074d63663f3fbb101a09f351885e5c2c3094c5a47617897bd468c35cad18"
+    },
+    "experiments/ai-rpg-engine/studio/memory-tasks.test.mjs": {
+      "bytes": 29837,
+      "sha256": "2db7d55b3d70dc63b7c5ef3b62ab5c61faee101b7bcbb308364e78bc5d8c0398"
+    },
+    "experiments/ai-rpg-engine/studio/server.mjs": {
+      "bytes": 14667,
+      "sha256": "67b05ac3211d1d6f193faa1d1fcc918be1943a7c58f866082a7894d907f591c9"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-control.py": {
+      "bytes": 7862,
+      "sha256": "def3608774d420b7671c25b0360618e413e41989e833d04e1d37a7b28537bd43"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-first.mjs": {
+      "bytes": 6303,
+      "sha256": "7602e877167fc1953ffc644e2222b98e2314934be24cd6cb9f9dc0086a02677c"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-host.mjs": {
+      "bytes": 2767,
+      "sha256": "91ed3ca169141c8d79d926bd999e72443be0559d2f13860f2291f05bb3debe20"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-second.mjs": {
+      "bytes": 5065,
+      "sha256": "5132eb10cae9129a6d6330eb6f87fcc9b8841a49dc074f8eda0a702cff629225"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-supervisor.mjs": {
+      "bytes": 5578,
+      "sha256": "6758390ce9323fa7d6c906d75a756e2532330d5612a3f825d884332f76bbf08a"
+    }
+  },
+  "buildArtifacts": {
+    "client/dist/assets/CodingPage-CVo6opCk.js": {
+      "bytes": 149792,
+      "sha256": "cb6a9104af818d7bf3e55c53a5fb6713e3853e7e8fd62eb6fe9ce57123bfeeb0"
+    },
+    "client/dist/assets/file-archive-DZ2zjScQ.js": {
+      "bytes": 442,
+      "sha256": "3c7a53e17e6dbe91d1c5f543c92ccfb4c1216903f8988990d94987fe481b40ce"
+    },
+    "client/dist/assets/file-x-corner-B1_KXCU3.js": {
+      "bytes": 940,
+      "sha256": "ae9ffca9f812252538f7125eb4f1e682ecb7d78443953734c046f7bfe3a310c1"
+    },
+    "client/dist/assets/index-BSv5W8f9.css": {
+      "bytes": 154526,
+      "sha256": "0d6c594ddfea989ee14cbbd4d64ca768d5e19be8ea7661ebad8ace40a2889fa4"
+    },
+    "client/dist/assets/index-CxBtV34f.js": {
+      "bytes": 216614,
+      "sha256": "7b204d38979faff7d1d2e620fd99625c3f748dce92fe607a23eda4d3aac3881d"
+    },
+    "client/dist/assets/MainApplication-BHM6eVcS.js": {
+      "bytes": 9795574,
+      "sha256": "812fd8db5d0266d87d706a8c67a6fe8a25db84849f569be02d6242c32f3de638"
+    },
+    "client/dist/assets/MainApplication-DO8_G8cZ.css": {
+      "bytes": 26492,
+      "sha256": "9fb8fcb281ca243adb9ef78aaee40dff46cb1f3cf6c5a9294fedb5bc38586a38"
+    },
+    "client/dist/assets/matrix-oasis-final-1600-C1Cvs15Q.webp": {
+      "bytes": 253022,
+      "sha256": "5b7636b8f9f5e2cd996b395d0ed74c58e8689da9a727e9fb9a31487a2142f456"
+    },
+    "client/dist/assets/matrix-oasis-final-900-CYeccXR-.webp": {
+      "bytes": 95902,
+      "sha256": "adf113fea9a9d721f4aaf329a3853dfe3dc21561268d37d9cb813635f6232b75"
+    },
+    "client/dist/assets/matrix-oasis-gateway-1600-Bq_U2VTU.webp": {
+      "bytes": 112898,
+      "sha256": "7ff4641cf57b7cc2681fcd57447f51e6bbfd8227997123a2769731c8215a4a63"
+    },
+    "client/dist/assets/matrix-oasis-gateway-900-CJpjQ5NM.webp": {
+      "bytes": 48992,
+      "sha256": "1af7a7caca908f0490a29a396633b380d8b01ab3f3882eb1200825a26ce45bde"
+    },
+    "client/dist/assets/matrix-oasis-teaser-640-DSAH-zEA.webp": {
+      "bytes": 22598,
+      "sha256": "e64ad5cf9f10fb78e7518692f953524c3f0dd416afebeb27fa5ec2787fb0c99d"
+    },
+    "client/dist/assets/SkillCreatorIndexPage-MvOvW-b3.js": {
+      "bytes": 13886,
+      "sha256": "917040df5d8639e22aee582be475130a81be10cdad7e222f877000c2eaff800b"
+    },
+    "client/dist/assets/SkillCreatorStudioPage-Bje6jvZJ.js": {
+      "bytes": 202677,
+      "sha256": "d991c03e748105652378609525143dc28ff92572f67402f59d164604002bca44"
+    },
+    "client/dist/assets/SkillLifecyclePanel-BN4zxuZi.js": {
+      "bytes": 12252,
+      "sha256": "56c52525fa0566e62aceaf44389579f26d69e43e66c53b404ff8224da7713549"
+    },
+    "client/dist/assets/skillLocalImportApi-Wplm0oZ7.js": {
+      "bytes": 2503,
+      "sha256": "c3ee559edfa0a2fbb928bb72251fb465c5f66018041838d0c41e2161dd5032d6"
+    },
+    "client/dist/assets/SkillLocalImportDetailPage-CJd6NkXw.js": {
+      "bytes": 16513,
+      "sha256": "377957ad81ca1284b3104991680597e06a05719b8361dc1072e346fd55600932"
+    },
+    "client/dist/assets/SkillLocalImportIndexPage-CPpjPoJX.js": {
+      "bytes": 9832,
+      "sha256": "ef8aea5e2a6f12eefb5f0a659c5efc21501ff92864f7d63828afc34a8987eda4"
+    },
+    "client/dist/assets/SkillLocalImportSummaryPanel-CLiivmMV.js": {
+      "bytes": 4738,
+      "sha256": "d529a1739479266aea6e47373a2066d3c63d8bd127fb4cd96279edb205362592"
+    },
+    "client/dist/assets/skillNeedMembers.generated-DKCjfzYh.js": {
+      "bytes": 1895754,
+      "sha256": "1359fa8a36f37dd87af0b9f5020ff1d79374eb3d159afebe92d059abd3cf69df"
+    },
+    "client/dist/assets/SkillRerankGovernancePage-CMV1e28f.js": {
+      "bytes": 14213,
+      "sha256": "90bcc78fa59a37dde1a6443b306c2bdad2204ecc9bfa6a5e97cc74ceb78b4dda"
+    },
+    "client/dist/assets/skillSetMembers.generated-u4j-EYpZ.js": {
+      "bytes": 1476650,
+      "sha256": "6708df1a84f163bd08440e11122df645732e5591cee5399706fc0aa2e2f595bb"
+    },
+    "client/dist/assets/t2cn-F4TDI9Zx.js": {
+      "bytes": 103236,
+      "sha256": "bfea9f644578d51f8e8b8023811f0ba082b2f270f965e5bc967e8b8f39ac3f69"
+    },
+    "client/dist/assets/WorkflowFormPage-DBUh70sG.js": {
+      "bytes": 11043,
+      "sha256": "a768c500e818b3ad7b3caa8d42b23b08f6fcd8dad1ed571a5a9d08d9905729bc"
+    },
+    "client/dist/assets/WorldGenerationPanel-BaKL3zoB.js": {
+      "bytes": 910671,
+      "sha256": "af1cf8990e2a695425dc454b58ede628aa9f3fa29f7075f2cdbe207857e48d32"
+    },
+    "client/dist/brand/anthropic-symbol-slate.svg": {
+      "bytes": 354,
+      "sha256": "e6173267879c063a0e2c31a527bf3ac9d3e7ac0106054e71d211e722a687781a"
+    },
+    "client/dist/brand/openai-blossom.svg": {
+      "bytes": 2553,
+      "sha256": "0c5f0369c2c08aaa4095de69d628ee5bb5366e1d919116410e2e564403861e2c"
+    },
+    "client/dist/help-center/07cbd6d1/gemini38-batch-settings.png": {
+      "bytes": 107754,
+      "sha256": "93a080aa49ed61f46c180f70e811c64008ea6f53470ae6114636ceb470ceb0da"
+    },
+    "client/dist/help-center/07cbd6d1/muse13-contributor-notice.png": {
+      "bytes": 117266,
+      "sha256": "31489d9c14d3fca9bacb9d4706656b0f8afbdc34f4f84e05720cd8faf78f9999"
+    },
+    "client/dist/help-center/1864ed84/rpg-model-selector-mobile.png": {
+      "bytes": 127716,
+      "sha256": "3612f4d912e911fe280d8e2530380af59294088381780ca48b5a6ea982009519"
+    },
+    "client/dist/help-center/1864ed84/rpg-model-selector.png": {
+      "bytes": 93717,
+      "sha256": "929647af34388709c92c4973dfc0d55b72d4804d38093e6ac2c6cef34b5a0677"
+    },
+    "client/dist/help-center/48254740/workflow-restricted-retry-config.png": {
+      "bytes": 168769,
+      "sha256": "5cf8b3ac483f1e89580b95023dcafb0b01ab7e3a03b0bfe9def7ff40ec8e8523"
+    },
+    "client/dist/help-center/56fe2e2d/rpg-summary-overflow-desktop.png": {
+      "bytes": 81787,
+      "sha256": "f814eb2b2718a5a1e552df8607d3b2c6b47542d2884608dc180b09771df948ed"
+    },
+    "client/dist/help-center/56fe2e2d/rpg-summary-overflow-mobile.png": {
+      "bytes": 187052,
+      "sha256": "0d4ba3f9a098b867204ccae31a5171ce182f17ee97c145729f5604c6a366a522"
+    },
+    "client/dist/help-center/61b6eea8/rpg-history-window-settings.png": {
+      "bytes": 143093,
+      "sha256": "4c83c8c5f11392ef91ed06edb97620519e6bfdc1dffdea9fd6a49e3bbbb20ef0"
+    },
+    "client/dist/help-center/64880801/evaluation-vision-anchors.png": {
+      "bytes": 138064,
+      "sha256": "3455e30f5aff071a1e99d4a7c3f1f93c90632bbfb14a96ca055075a6214636d6"
+    },
+    "client/dist/help-center/64880801/evaluation-vision-assertions.png": {
+      "bytes": 167712,
+      "sha256": "f088595e491a59ba74ce5b67b33e05b6049a841803bc67ce4e460059c194f24a"
+    },
+    "client/dist/help-center/821067a7/rss-inspect-atom.png": {
+      "bytes": 86908,
+      "sha256": "93e205bb6640b043a558474aa211ee68c83f77bad3ba196b4e82ece62d789b45"
+    },
+    "client/dist/help-center/821067a7/rss-real-model-result.png": {
+      "bytes": 96338,
+      "sha256": "d1a2fa6b5267374136c2170e14247e2c7bdc569956c76a03d15788e7c0982cb5"
+    },
+    "client/dist/help-center/86fdb953/rpg-memory-editor-mobile.png": {
+      "bytes": 139487,
+      "sha256": "cf55cd923d3a5c3d4510232e310aafe415503061c0f4ec0020eafccf8ed06874"
+    },
+    "client/dist/help-center/86fdb953/rpg-memory-palace.png": {
+      "bytes": 108093,
+      "sha256": "cdacfa8c4be7985d3343e8ff226c53642f63e7cf1da5f225eec6fc581fe7a5b7"
+    },
+    "client/dist/help-center/a29da8a5/rpg-create-branch.png": {
+      "bytes": 105038,
+      "sha256": "77359dcabd2f059dd9ee655caac4b7979b36c3dbcd9037e043c8c183a353e137"
+    },
+    "client/dist/help-center/a29da8a5/rpg-entry.png": {
+      "bytes": 244860,
+      "sha256": "072a09c7ffd20b1c4e1a461cd1772004574f926ce63b2fffb14a3186bc69764b"
+    },
+    "client/dist/help-center/ae284fbb/provider-audio-certification-evidence.png": {
+      "bytes": 70770,
+      "sha256": "33e2e3b2f765a6e796cffb0f8b3a6236615df3bcec50732b3d938243064d96cc"
+    },
+    "client/dist/help-center/b266b870/studio-beta-headings.jpg": {
+      "bytes": 5213,
+      "sha256": "705e85290319bcd148bfeebe09eca1b22d339e2b90f7ea1cf592e132c0a2daf7"
+    },
+    "client/dist/help-center/b5e0e85e/agent-create-form.png": {
+      "bytes": 124359,
+      "sha256": "7e3ea9bae4ff58f086bfe19eb41bbfc7d4f380129ebeb450ef50747e9adfd129"
+    },
+    "client/dist/help-center/b5e0e85e/agent-preflight-ready.png": {
+      "bytes": 93534,
+      "sha256": "2f12ada5fccd8e739a419c0fd2a490e677160ae162ca5a6a541fb66d8e11bb09"
+    },
+    "client/dist/help-center/b5e0e85e/model-market-qwen38-image-understanding.png": {
+      "bytes": 190333,
+      "sha256": "f6ac9642e0d84f1667132c61e276c857ba25da0c6575db8c2fffb7590ca093c6"
+    },
+    "client/dist/help-center/b5e0e85e/qwen38-add-image-menu.png": {
+      "bytes": 123609,
+      "sha256": "353d87c56f697efd98771dd1ad7f6d667af143d8b8130fe98ffed5eaf636bc2e"
+    },
+    "client/dist/help-center/b5e0e85e/workflow-default-template.png": {
+      "bytes": 42934,
+      "sha256": "de8f429cf33ae58ae6f35d6f1bd743ffdaead15ee276ed2893302d0e50975f34"
+    },
+    "client/dist/help-center/b5e0e85e/workflow-draft-saved.png": {
+      "bytes": 49884,
+      "sha256": "0b5beb69aa1ae32c4e06b7d8d508d543d21913677eae3510dfc1538731aeedcb"
+    },
+    "client/dist/help-center/bf486f25/creator-run-experience-prefilled.png": {
+      "bytes": 155834,
+      "sha256": "80ea8b90adb25045bed25196cfe32ce6c806b6804bba23062669740e2b8a6dcf"
+    },
+    "client/dist/help-center/eeb5bbd2/creator-cache.jpg": {
+      "bytes": 77501,
+      "sha256": "fcd4f31bc47bcfd96d509fa3490479d56bc83016fd7b6bd294b96c923ca1530c"
+    },
+    "client/dist/help-center/eeb5bbd2/studio-layout.jpg": {
+      "bytes": 35505,
+      "sha256": "d56a06347af9a1f9b9512f83b30af4a813671fcbb7dc2ee68a68cf18ea9dab89"
+    },
+    "client/dist/help-center/f67f4013/rag-diagnostic-candidate.png": {
+      "bytes": 169152,
+      "sha256": "d29809830d6bbdbf0fa0a1117c368973790d45439341c215cad3f62ca5a3e986"
+    },
+    "client/dist/help-center/f67f4013/rag-estimated-token-budget.png": {
+      "bytes": 137636,
+      "sha256": "141c120b6bc834da5f018164e0ec245c4daadb76629e9aab18d0a6c4eed4f5f5"
+    },
+    "client/dist/help-center/f67f4013/rag-parser-degraded.png": {
+      "bytes": 187438,
+      "sha256": "7a8d0c9ae08dbe409daa54d7d05089d697978a1265adcb068dc78b8d8877d14b"
+    },
+    "client/dist/index.html": {
+      "bytes": 427,
+      "sha256": "60d58538a91083d9edff070ab40855a1c4021f1356cafe45b4bc1c40f9157dfb"
+    },
+    "client/dist/logo.png": {
+      "bytes": 2689585,
+      "sha256": "19118be563a30d792e4fa7ba35d8c864793078040741a1737c6e3b787b470b35"
+    },
+    "experiments/ai-rpg-engine/card-replica/dist/assets/index-ARMyoN40.js": {
+      "bytes": 432671,
+      "sha256": "bb11274c83879e2fd4eba0caf0f86f1d635df71a92568b8ace20a8c1bc3b576e"
+    },
+    "experiments/ai-rpg-engine/card-replica/dist/assets/index-DAzWEOC8.css": {
+      "bytes": 22974,
+      "sha256": "b1ded1e8c4ed0534ef871773745bbfdc8ce07f3415a67787c9e2171ae4d36159"
+    },
+    "experiments/ai-rpg-engine/card-replica/dist/index.html": {
+      "bytes": 446,
+      "sha256": "0e6a1213c1509b0a224ff519283a09dccf9f0e9574e9e798bf691243b744cf0e"
+    }
+  },
+  "localEvidence": {
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/final-scope-check.json": {
+      "bytes": 268,
+      "sha256": "6ac081baf530ef575a89395ff380c8d0b93afaf2849663b8f93a08ad64f24d8c"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/frontend-focused.log": {
+      "bytes": 244,
+      "sha256": "a2dce89653651d733ef630c002ab0dcf517d703e70fc271c0a2168397c911168"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/frontend-remaining.log": {
+      "bytes": 240,
+      "sha256": "5fbea97a408b868110d6490e244a6a15c0adfca0a2fac0793077b35beb202b2f"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/frontend.log": {
+      "bytes": 707,
+      "sha256": "61f36bbc6aa4d5ef346965bba7bac068936fe2c7c7547ecca6f09e70b878fc22"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/host.log": {
+      "bytes": 26612,
+      "sha256": "8de6ec9e3c01ac7b52a1b791662829e630cdc252b9c00c0dc49a177089ff7d47"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/parent-build.log": {
+      "bytes": 2752,
+      "sha256": "bac4ade5543af68e7edec587921a9848f436cabfa125cc18e49da112d2c9eb65"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/precloseout-audit.json": {
+      "bytes": 3633,
+      "sha256": "e7620ebba727173d1c34dc9c4fd56d86b89855c75d4e82c7e8e36e98cf89e96e"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/user-acceptance.json": {
+      "bytes": 272,
+      "sha256": "7938a336bb91e5b179c77adb285e7493b6ca03751edad26460680954e0e8ce1a"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/validation.json": {
+      "bytes": 2821,
+      "sha256": "2fb91284c738e42e4fb9889daec1fb695cd04319f3f486914d528e32b4d38f88"
+    }
+  },
+  "excludes": [
+    "this manifest",
+    "dependencies",
+    "credentials",
+    "unreviewed private logs"
+  ],
+  "historicalManifestsAreSnapshots": true
+}

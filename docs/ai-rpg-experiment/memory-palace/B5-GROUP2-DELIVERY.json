@@ -1,0 +1,122 @@
+{
+  "schema": "modelmirror.rpg.memory-palace.b5-group2/1",
+  "at": "2026-09-23T04:39:07.011738+00:00",
+  "scope": "Second group historical source/evidence snapshot; current B4 product delivery unchanged",
+  "base": "86fdb953590e625dffeb073137357cddb3af267f",
+  "historicalSnapshotsPreserved": [
+    "B4-DELIVERY.json",
+    "B5-GROUP1-DELIVERY.json"
+  ],
+  "excludes": [
+    "credentials",
+    "environment",
+    "logs",
+    "this manifest itself"
+  ],
+  "files": {
+    "docs/ai-rpg-experiment/memory-palace/STATUS.json": {
+      "bytes": 47533,
+      "sha256": "7de8c02d5816d6772f92316368b7822c50cbe406502e7240ccb4d6b3d6fe19bb"
+    },
+    "docs/ai-rpg-experiment/memory-palace/B5-GROUP2-REVIEW.md": {
+      "bytes": 4824,
+      "sha256": "c241ced43e1dd30f217193d7436efdf1e94745271ddd271aefb4a33a2f3b0b6d"
+    },
+    "experiments/ai-rpg-engine/tooling/memory-palace-b5-second.mjs": {
+      "bytes": 5065,
+      "sha256": "5132eb10cae9129a6d6330eb6f87fcc9b8841a49dc074f8eda0a702cff629225"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/group1-user-review.json": {
+      "bytes": 167,
+      "sha256": "c6ce0c0a8c255d8bd80f1a575e340484e59184e12d0fd8905420a6c4137dc4d5"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/second-input-freeze.json": {
+      "bytes": 138007,
+      "sha256": "58080a6a67b2b84d3ef8fe38147c4fbf9c5ead064eab1eb8570c2e5d8f9643bc"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/second-generation-invocation.json": {
+      "bytes": 311,
+      "sha256": "4f8230349d94cc0dbed527050e1e1ed6f575ab44a8acd5a30c1860d775eafb3c"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/second-host-result.json": {
+      "bytes": 127740,
+      "sha256": "a9c1bdaf40758769d8f7e52e0f999adde8fa162fdfbb4b2e34bf9be8f24d56c8"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/second-verification.json": {
+      "bytes": 21180,
+      "sha256": "c6f4205f211d8e1ff016196732515cb5ce9743c940a9cc8e6d03f8209c0db9a9"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/second-additional-verification.json": {
+      "bytes": 1302,
+      "sha256": "2cfe2e10cc4f86eb65a48ebb7fcaff4a03a57dc3887ea0838d0ccdafc4ff2b98"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/USAGE-GROUP2.json": {
+      "bytes": 370,
+      "sha256": "6f99fd4cc7ec796b2ff9749205a914d04ab30196448b39e710181ecdfb7ea769"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/verify-second.mjs": {
+      "bytes": 3788,
+      "sha256": "e2ed67e0f527e755af07406a40950bb0b7f7aacba7db1d63490a1ce335be003e"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/dispatched.json": {
+      "bytes": 179,
+      "sha256": "31a7e69553e9a1cda72bfca42ffc9de35bebb9c18222aecc92b3c7837a235bd5"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/m3-claim.json": {
+      "bytes": 217,
+      "sha256": "b14e56736963adbb1afd001cfc9024c7c996a901a0b87077b7cdc471d219a295"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/request.json": {
+      "bytes": 90954,
+      "sha256": "8f17c6a01c107fb7ab6cc3cacec25321dffd219023deb0703b6e7fb214756271"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/reservation.json": {
+      "bytes": 788,
+      "sha256": "4f861febd67aebaec982e4493469afce4af47f6e606a90d043fb4aeec1fe943b"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/response.sse": {
+      "bytes": 125999,
+      "sha256": "f63561afe20b70ed7211e1e3f42288d3485598f5150574666cf36c07f69f3302"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/response.txt": {
+      "bytes": 27237,
+      "sha256": "8ffb069c99b59e491c2bb1ea8eec006e7e1104ff84ebd5dfabaeeaf25a14ae2f"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-3/result.json": {
+      "bytes": 2031,
+      "sha256": "49e16ea80706b9e66dd9c1d4743f8d91bd97fd254d45a902f7d6a8d5cc55f4bb"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/dispatched.json": {
+      "bytes": 180,
+      "sha256": "6a37cd25030394cceab29bf0d0c11b1edcf27b262883bd9597c3865c2e76b001"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/m3-claim.json": {
+      "bytes": 225,
+      "sha256": "0c552ea112f2ac90de089bad894f9d36d369eaaee1ae4b0471e102442fa4188c"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/request.json": {
+      "bytes": 37093,
+      "sha256": "93e060e01932d44b0d01a96a746ba0985b2956a4bf6a71e09ebac5d4587d1ce3"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/reservation.json": {
+      "bytes": 789,
+      "sha256": "9656e60bd8baf39d364aff4e3d8b0038cd421bf373504b8cf2f67f97e61b685f"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/response.sse": {
+      "bytes": 16137,
+      "sha256": "ba2ed8476cf33435d00755b8a40f31c2b8881bbea4d67c7d761646df5df72ccf"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/response.txt": {
+      "bytes": 1732,
+      "sha256": "bd758b01095a94680fa5ba6b429421a8ade2d75e660a4ea9b00fef17eb873257"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/dispatches/earth/slot-4/result.json": {
+      "bytes": 2032,
+      "sha256": "95a30e88c8e68c7cad845ce3857acc4cd6f6686ea7327f6721912abf5ecac48c"
+    },
+    "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/data/earth/fb57eeb2-4c55-4eea-a677-c317fd977147.json": {
+      "bytes": 771619,
+      "sha256": "b546f73762e3f2755a643fabb045503382a4701a0245ad5bf91d26df15b563d4"
+    }
+  }
+}

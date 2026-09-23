@@ -1,10 +1,11 @@
 import {mkdir,open,readFile,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
+import {loadReviewedPlugins,PLUGIN_ID,MODEL_SELECTOR_ID,HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID,MEMORY_PALACE_ID,REVIEWED_PLUGIN_IDS,canonical,sha,fail} from './catalog.mjs';
 
 import {validConfig} from './history-window.mjs';
 import {validSettings,validEdit} from './rolling-summary.mjs';
+import {validChange as validMemoryChange,validSettings as validMemorySettings} from './memory-palace.mjs';
 
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9-]{0,79}$/.test(value);
 const hash = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -50,6 +51,12 @@ async function atomicWrite(path,value) {
  finally {if(file)await file.close();await unlink(temporary).catch(e=>{if(e.code!=='ENOENT')throw e;});}
 }
 function outputValid(pluginId,capability,value,session,input) {
+ if(pluginId===MEMORY_PALACE_ID){
+  if(capability==='ui.memory-action')return exact(input,[])&&canonical(value)===canonical({kind:'memory-action',action:'memory-settings',label:'记忆宫殿'});
+  if(capability==='session.memory.revise')return validMemoryChange(input)&&canonical(value)===canonical({kind:'memory-revision',sessionId:session.id,...input});
+  if(capability==='session.memory.configure')return validMemorySettings(input)&&canonical(value)===canonical({kind:'memory-configuration',sessionId:session.id,...input});
+  return capability==='session.memory.request'&&exact(input,[])&&canonical(value)===canonical({kind:'memory-request',sessionId:session.id});
+ }
  if(pluginId===ROLLING_SUMMARY_ID){
   if(capability==='ui.summary-action')return exact(value,['kind','action','label'])&&value.kind==='summary-action'&&value.action==='summary-settings'&&value.label==='自动总结';
   if(capability==='session.summary.configure')return validSettings(input)&&canonical(value)===canonical({kind:'summary-configuration',sessionId:session.id,...input});
@@ -104,6 +111,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   const s=await lookupSession(sessionId);
   if(!s || s.id!==sessionId || !integer(s.revision) || !integer(s.completedTurns) || !hash(s.resourceHash))throw fail('PLUGIN_SESSION_INVALID',400);
   if(!entry.manifest.compatibleCards.includes(s.cardId))throw fail('PLUGIN_CARD_INCOMPATIBLE');
+  if(entry.manifest.id===MEMORY_PALACE_ID&&s.memoryPalaceCompatible!==true)throw fail('MEMORY_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===ROLLING_SUMMARY_ID&&s.rollingSummaryCompatible!==true)throw fail('SUMMARY_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===HISTORY_WINDOW_ID&&s.historyWindowCompatible!==true)throw fail('HISTORY_RUNTIME_INCOMPATIBLE');
   return s;
@@ -126,9 +134,10 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   catalog:async()=>publicCatalog(),
   // Explicitly inactive is different from an unreadable/mismatched authorization.
   async historyAuthorization(sessionId){return host.contextAuthorization(sessionId,HISTORY_WINDOW_ID);},
+  async memoryAuthorization(sessionId){return host.contextAuthorization(sessionId,MEMORY_PALACE_ID);},
   async summaryAuthorization(sessionId){return host.contextAuthorization(sessionId,ROLLING_SUMMARY_ID);},
   async contextAuthorization(sessionId,pluginId){
-   if(![HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID].includes(pluginId))throw fail('PLUGIN_UNKNOWN',404);
+   if(![HISTORY_WINDOW_ID,ROLLING_SUMMARY_ID,MEMORY_PALACE_ID].includes(pluginId))throw fail('PLUGIN_UNKNOWN',404);
    if(closed)throw fail('PLUGIN_HOST_CLOSED');
    const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);
    const p=pluginState(pluginId),g=Object.hasOwn(p.grants,sessionId)?p.grants[sessionId]:null;
@@ -153,6 +162,16 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   async guardSummaryTask(sessionId,expectedRevision,action){
    if(!hash(expectedRevision)||typeof action!=='function')throw fail('SUMMARY_DISPATCH_GUARD_REQUIRED');
    return serial(async()=>{const auth=await host.summaryAuthorization(sessionId);if(auth.revision!==expectedRevision)throw fail('SUMMARY_AUTHORIZATION_CHANGED');return action(auth);});
+  },
+  // One registry queue fences all context grants against final dispatch/publication.
+  async guardMemoryTask(sessionId,expected,action){
+   if(!exact(expected,['memory','summary','history'])||Object.values(expected).some(a=>!a||!hash(a.revision))||typeof action!=='function')throw fail('MEMORY_DISPATCH_GUARD_REQUIRED');
+   return serial(async()=>{
+    for(const [name,id] of [['memory',MEMORY_PALACE_ID],['summary',ROLLING_SUMMARY_ID],['history',HISTORY_WINDOW_ID]]){
+     const a=await host.contextAuthorization(sessionId,id);if(a.revision!==expected[name].revision)throw fail('MEMORY_AUTHORIZATION_CHANGED');
+    }
+    return action();
+   });
   },
   async sessionStatus(sessionId,pluginId=PLUGIN_ID){
    const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);let enabled=false;
@@ -210,7 +229,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
     const s=await sessionFor(sessionId,entry),g=authorized(s,entry);
     if(s.busy||s.pending)throw fail('PLUGIN_SESSION_BUSY');
     const lease={sessionId,sessionRevision:s.revision,resourceHash:s.resourceHash,installationId:pluginState(pluginId).installed.installationId,epoch:g.epoch};
-    let cleanInput;try{cleanInput=JSON.parse(canonical(input));if(canonical(cleanInput).length>4096)throw Error();}catch{throw fail('PLUGIN_INPUT_INVALID',400);}
+    let cleanInput;try{cleanInput=JSON.parse(canonical(input));if(canonical(cleanInput).length>(pluginId===MEMORY_PALACE_ID?16384:4096))throw Error();}catch{throw fail('PLUGIN_INPUT_INVALID',400);}
     const safeSession={id:s.id,revision:s.revision,completedTurns:s.completedTurns};
     const timeout=new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(fail('PLUGIN_TIMEOUT'));},timeoutMs);});
     const value=await Promise.race([Promise.resolve().then(()=>entry.invoke({capability,session:structuredClone(safeSession),input:cleanInput,signal:controller.signal})).catch(()=>{throw fail('PLUGIN_EXECUTION_FAILED');}),timeout]);
@@ -231,7 +250,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
    return structuredClone(result);
   },
   async commitResult(result,commit){
-   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
+   if(typeof commit!=='function'||!['session.branch.prepare','session.model.select','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request','session.memory.revise','session.memory.configure','session.memory.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
    return serial(async()=>{await host.validateResult(result);try{return await commit();}finally{tickets.get(result.pluginId)?.delete(result.ticket);}});
   },
   async close(){if(closed)return;closed=true;await queue;tickets.clear();await lock.close();await unlink(lockPath);},

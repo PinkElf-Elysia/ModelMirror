@@ -1,0 +1,32 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.memory-palace",
+  "version": "1.0.0",
+  "name": "记忆宫殿",
+  "description": "将已完成经历整理为可编辑条目，按关键词补入剧情；回复后额外调用记忆模型。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.memory-action",
+    "session.memory.configure",
+    "session.memory.revise",
+    "session.memory.request"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.memory.configure",
+    "session.memory.revise",
+    "session.memory.request",
+    "context.memory.contribute",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/memory-palace.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7"
+}

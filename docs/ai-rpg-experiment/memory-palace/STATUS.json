@@ -1,0 +1,1271 @@
+{
+  "schema": "modelmirror.rpg.memory-palace.delivery/1",
+  "updatedAt": "2026-09-23T05:24:24.880602+00:00",
+  "batch": "B5",
+  "status": "publication-authorized; integrated-validation-passed; awaiting-PR-creation",
+  "plugin": {
+    "id": "rpg.memory-palace",
+    "plannedVersion": "1.0.0",
+    "implemented": true,
+    "implementationPhase": "B0-B4 implemented and accepted; B5 two real groups accepted; minimum4-group and early-history-eviction proof remain incomplete"
+  },
+  "baseline": {
+    "branch": "codex/rpg-memory-palace",
+    "commit": "86fdb953590e625dffeb073137357cddb3af267f",
+    "upstream": "origin/main",
+    "pr": 387,
+    "merged": true,
+    "initialWorktree": "clean",
+    "primaryWorkspace": "preexisting-dirty-preserved",
+    "sourceBindings": {
+      "experiments/ai-rpg-engine/card-replica/resources/prompts.json": {
+        "sha256": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/card-replica/resources/MANIFEST.json": {
+        "sha256": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/card-replica/lib/assembly.mjs": {
+        "sha256": "7507921b7c15695d62a71e65acc4f7bf5f8d8083a9812b855f17bd5585905bed",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/studio/summary-assembly.mjs": {
+        "sha256": "3eac85d8a8aef24cc04eb0e0ad6c24c4d9973177e25e528c87d4e908da510d31",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/studio/summary-budget.mjs": {
+        "sha256": "abc61772e32bbb991af74695fd117c3f8bdaad50542ea674b7b4e841a1073b70",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/studio/summary-runtime.mjs": {
+        "sha256": "b6de504e932ca25cb77a1dd636a78d6b9c37ae48063d2df6c7450b338d1f4167",
+        "matchesBaseline": true
+      },
+      "experiments/ai-rpg-engine/studio/summary-branch-archive.mjs": {
+        "sha256": "a57aae0dbbe59244a8c06f2c3c0b3ae058c801db533b7c8fc79e440eab4901e7",
+        "matchesBaseline": true
+      }
+    }
+  },
+  "scope": {
+    "batch": "pre-pr-closeout",
+    "productionChanges": "No new runtime implementation changes; acceptance, help, PR draft and current delivery record only",
+    "uiChanges": true,
+    "dependencyVersionChanges": false,
+    "dataMigration": false,
+    "sharedDeployment": false
+  },
+  "delivery": {
+    "scope": "B0 static candidate, not production tests",
+    "files": {
+      "CONTRACT.md": {
+        "sha256": "6775db852f548f01e40dee1c2b12fc96264499c943a86bb1ace1767182dded44",
+        "bytes": 16497
+      },
+      "index.html": {
+        "sha256": "af17e62c6dd43e540312dbe863febc126b7f82ab42edca9226adef3f2d79bace",
+        "bytes": 29511
+      },
+      "prototype.svg": {
+        "sha256": "0738030958d2591abc8a2333b200bb3279ec11f892014f27e9f6bb2e015453cd",
+        "bytes": 14540
+      },
+      "preview.mjs": {
+        "sha256": "b26ef6e1001f747ddfa480c6a0e1ec06dc3a8f80afe5ac0fb480892a06c27de9",
+        "bytes": 4620
+      }
+    },
+    "instructionSha256": "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+    "wrapperSha256": "acee2f664a82cba6c6c207428942d830f674b6bbe7356ec9bdaea9e6d4f4577a",
+    "checks": {
+      "scriptSyntax": "pass",
+      "domReferences": "pass",
+      "noNetworkCalls": "pass",
+      "externalResources": "none",
+      "contrast": {
+        "text": 12.73,
+        "hint": 6.09,
+        "primary": 5.32,
+        "fee": 7.35
+      }
+    },
+    "browser": "not-run",
+    "excludes": [
+      "STATUS.json (self)",
+      "ignored local evidence and process logs"
+    ],
+    "artifactKind": "interactive static prototype and explicitly labelled designed image"
+  },
+  "validation": {
+    "offline": {
+      "status": "通过",
+      "hostTests": {
+        "pass": 250,
+        "skip": 1,
+        "fail": 0
+      },
+      "cardTests": {
+        "pass": 26,
+        "fail": 0
+      },
+      "frontendTests": {
+        "pass": 99,
+        "files": 8,
+        "fail": 0
+      },
+      "details": "B4-REPORT.md"
+    },
+    "http": {
+      "status": "通过",
+      "focusedTests": 4,
+      "preview": "http://127.0.0.1:18491/rpg/earth",
+      "meaning": "isolated real HTTP host with synthetic providers, not real model evidence"
+    },
+    "browser": {
+      "status": "通过",
+      "surface": "official Codex in-app browser",
+      "desktop": [
+        1280,
+        720
+      ],
+      "mobile": [
+        390,
+        844
+      ],
+      "screenshots": "4 genuine JPEG files; 2 derived PNG help assets",
+      "keyboard": "Tab, Escape, explicit discard",
+      "limits": "No physical mobile device or cross-browser certification"
+    },
+    "productionTests": {
+      "status": "通过",
+      "cardBuild": "TypeScript and Vite; base=/rpg-app/earth/",
+      "parentBuild": "TypeScript and Vite; existing large chunk warning"
+    },
+    "helpImages": {
+      "status": "基线失败",
+      "m3Images": "2 passed",
+      "failures": 3,
+      "reason": "Three unchanged unreferenced baseline JPG assets; B4-REPORT.md lists exact paths"
+    },
+    "provider": {
+      "status": "通过",
+      "meaning": "Two Gemini story-memory pairs complete and user accepted; full planned4-group vertical slice incomplete; no new quota",
+      "generationAuthorized": 4,
+      "generationUsed": 4,
+      "generationRemaining": 0,
+      "authenticationAuthorized": 1,
+      "authenticationUsed": 1,
+      "automaticRetries": 0
+    },
+    "manual": {
+      "status": "通过",
+      "gate": "B0-B4 and both authorized B5 groups approved",
+      "latestQuote": "确认有效，可以进入PR前收尾",
+      "scope": "Existing two groups only; not a waiver of outstanding coverage"
+    },
+    "prePrCloseout": {
+      "status": "通过",
+      "hostPass": 250,
+      "hostSkip": 1,
+      "frontendFiles": 8,
+      "frontendPass": 99,
+      "parentBuild": "通过",
+      "browserHelp": "通过",
+      "evidence": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/validation.json"
+    }
+  },
+  "preview": {
+    "url": "http://127.0.0.1:18491/rpg/earth",
+    "market": "http://127.0.0.1:18491/rpg/plugins",
+    "help": "http://127.0.0.1:18491/help/use-rpg-memory-palace",
+    "mode": "offline-only",
+    "providerEnabled": false,
+    "realLimit": 0,
+    "pidAtLastRestore": 14084,
+    "dataDirectory": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b4/preview",
+    "fixtureSession": "07cf59a6-eaf9-4460-99ee-12cd89cfb1ae",
+    "ownership": "Only self-owned preview restarted after checking PID; check fresh ownership before any future stop"
+  },
+  "history": [
+    {
+      "stage": "first read-only upstream check",
+      "result": "sandbox network denied; permitted escalation succeeded"
+    },
+    {
+      "stage": "CUA initialization and one documented retry",
+      "result": "request-header policy failed both times; no alternate browser-control bypass"
+    },
+    {
+      "stage": "static artwork",
+      "result": "initial font lacked some symbols; replaced unsupported glyphs and regenerated"
+    },
+    {
+      "stage": "untracked-file whitespace check",
+      "result": "CRLF whitespace failures found first in contract/preview, then Python-written HTML/SVG; normalized all four new text artifacts to LF"
+    },
+    {
+      "stage": "B1 original plugins regression",
+      "result": "36 passed; 1 suite could not load parse5 before installing existing card lock dependencies"
+    },
+    {
+      "stage": "B1 first full host regression",
+      "result": "ajv missing in module dependency scope; failure log retained; existing module npm ci --ignore-scripts installed locked dependencies, no lock edits"
+    },
+    {
+      "stage": "B1 final regression",
+      "result": "196 passed, 1 existing conditional skip, 0 failures; card26 passed; new M3 subset19 passed"
+    },
+    {
+      "stage": "B1 final status sync interrupted",
+      "result": "Automatic approval review could not complete due to Codex usage limit; command did not execute. After user reported reset, hashes reverified and status synchronization resumed. No additional Provider quota granted."
+    },
+    {
+      "stage": "B1 final verification wrapper",
+      "result": "git diff --no-index --check returned 1 with empty output for new files; wrapper incorrectly stopped before writing. Corrected wrapper to accept 0 or 1 with no diagnostics; all source and log hashes reverified, no implementation change."
+    },
+    {
+      "stage": "B2 first task-state write",
+      "result": "Automatic approval review could not complete due to Codex usage limit; no write executed. User reported restored quota; resumed scoped implementation, no Provider budget granted."
+    },
+    {
+      "stage": "B2 first test invocation",
+      "result": "Log redirection directory absent; Node tests did not run. Created ignored evidence directory and reran."
+    },
+    {
+      "stage": "B2 first executed tests",
+      "result": "19 passed,1 failed: controlled cancellation treated a validated late complete response as unknown. Added receipt-based known-cancelled classification; rerun passed."
+    },
+    {
+      "stage": "B2 expanded tests",
+      "result": "One loader failure from an extra parenthesis in test path read; fixed and reran. Failed log retained."
+    },
+    {
+      "stage": "B2 final fault audit",
+      "result": "Added publication-acknowledgement-loss protection, cancellation recovery fencing, owned-reservation recovery and overflow reuse; final31 new tests pass."
+    },
+    {
+      "stage": "B2 untracked whitespace check",
+      "result": "Two CRLF endings in newly appended test blocks flagged; normalized test file to LF and reran all31 new tests with source hashes."
+    },
+    {
+      "stage": "B2 preview recovery",
+      "result": "18489 connection refused; restricted CIM initially denied. Authorized read confirmed no listener and no matching process; restarted only B0 static preview, verified PID21640 and HTTP200. Historical preview logs retained."
+    },
+    {
+      "stage": "B3 first actual host tests",
+      "result": "1 passed,3 failed: settlement attempted to validate in-progress task-state checksum; changed snapshot to validate standalone frozen config. Two tests used wrong M1 field name, corrected. Original log memory-palace-b2/b3-initial-tests.log retained."
+    },
+    {
+      "stage": "B3 request-purity assertion",
+      "result": "3 passed,1 failed because ID-pattern assertion scanned unchanged author system too; scoped assertion to M3 appended data. No author text edited."
+    },
+    {
+      "stage": "B3 prepared legacy intent fencing",
+      "result": "5 passed,3 failed: common summary read gate blocked original prepared intent. Moved exclusion to selection/plugin mutation gates; original-ID execution remains available. One UTF-8 patch initially did not execute under Python default GBK; retried explicitly UTF-8. Logs retained."
+    },
+    {
+      "stage": "B3 recovery audit",
+      "result": "14 passed,1 failed after an instance plugin install changed authorization revision while an unstarted intent existed. Added original-ID not-applied recovery and disabled-plugin receipt replay. Final19 focused tests and full247 regression passed except the existing conditional skip."
+    },
+    {
+      "stage": "B3 static checks",
+      "result": "Restricted shell did not resolve python; repeated with absolute interpreter. B1 host historical hash intentionally differs because approved B2 added registry guard; B2 six files verified unchanged. All7 protected baseline bindings and5 B3 whitespace checks passed."
+    },
+    {
+      "stage": "B3 preview recovery",
+      "result": "18489 connection refused confirmed in host environment; no listener or matching preview process. Restored only B0 static preview hidden, PID11332, api/status200 and Provider disabled."
+    },
+    {
+      "stage": "B4 initial HTTP assertions",
+      "result": "Two initial fixture assertions failed (expected origin status and old-session host scope); corrected tests to actual contract, final four HTTP tests pass. Earlier logs retained."
+    },
+    {
+      "stage": "B4 browser screenshot archive",
+      "result": "Read-only CUA filesystem could not persist JPEG. Formal browser screenshots were transferred to a temporary loopback image-only writer; no shell/CDP browser control. Original JPEGs retained."
+    },
+    {
+      "stage": "B4 desktop restart recovery",
+      "result": "Offline preview stopped; restored process met PLUGIN_STORE_ALREADY_OWNED. owner.lock held PID53552, verified absent via CIM; checked and stopped only new self-owned PID37384, archived stale lock to owner-53552-abandoned.json, restored preview PID14084. No history, registry, drafts or tasks reset; browser Recovery action restored status without replay."
+    },
+    {
+      "stage": "B4 production asset base",
+      "result": "npm run verify passed card tests/build but nested npm did not forward --base (warning retained). Explicit npm run build -- --base=/rpg-app/earth/ passed and is the served/frozen artifact."
+    },
+    {
+      "stage": "B4 help image validation",
+      "result": "Full image verifier fails on 3 unchanged baseline orphan JPGs; both M3 PNGs satisfy format/size/reference rules. No unrelated asset cleanup."
+    },
+    {
+      "stage": "B5 controlled route",
+      "result": "Old independent control was exited and shared Gemini not stable. User explicitly authorized separate1 certification. New isolated control18493 uses read-only shared configuration snapshot held in memory, exact model/endpoints/parameters, no shared writes. Certification passed; first story+memory pair complete. No automatic retry or second pair."
+    },
+    {
+      "stage": "B5 group1 user review",
+      "result": "User 确认 approved first outputs and continuation within remaining2 generation slots."
+    },
+    {
+      "stage": "B5 second verifier first run",
+      "result": "Verifier hash comparison used wrong representation; corrected only verifier to check host byte hash and normalized control hash separately; rerun passed, no Provider retry."
+    },
+    {
+      "stage": "B5 second real pair",
+      "result": "4 recalled memories,2 updates,1 create; complete story and memory; generation4/4 and certification1/1 consumed; group2 user review pending."
+    },
+    {
+      "stage": "pre-PR closeout",
+      "result": "User accepted group2. Local closeout only; refreshed origin/main (6 ahead,0 intersecting paths), no merge/rebase; tests250+99 passed,existing skip1; parent rebuilt. Incorrect frontend npm argument routing and two unmatched paths corrected with logs retained. No generation,commit,push,PR or deployment."
+    },
+    {
+      "stage": "publication integration",
+      "result": "User authorized PR. Created independent latest-main worktree at 08dba5f6ae5adab2043ba966c3de7fc2ffc41f49;53 candidate files hash-verified; implementation unchanged. Fresh250 host+26 card+99 frontend checks passed, both builds passed. New offline18501 visible flow passed, no new Provider calls.3 baseline help-image failures retained."
+    }
+  ],
+  "nextGate": "User confirms B3 evidence, then B4 HTTP/UI/help/build; B5 real calls require separate quota",
+  "publication": {
+    "authorization": "授权提交PR",
+    "branch": "codex/rpg-memory-palace-pr",
+    "worktree": "C:\\tmp\\modelmirror-rpg-memory-palace-pr",
+    "base": "08dba5f6ae5adab2043ba966c3de7fc2ffc41f49",
+    "sourceWorktree": "C:\\tmp\\modelmirror-rpg-memory-palace",
+    "sourcePreserved": true,
+    "newProviderCalls": 0,
+    "mergeAuthorized": false,
+    "sharedDeployment": false,
+    "report": "PR-VALIDATION.md",
+    "evidence": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-pr/validation.json"
+  },
+  "rollback": "Keep M3 host opt-in disabled; preserve all entries, revisions and isolated B1 test data. Existing sessions were not migrated. Keep the approved B0 preview and prior acceptance entrances available.",
+  "batches": {
+    "B0": {
+      "status": "user-approved",
+      "manualDecision": "批准",
+      "delivery": {
+        "scope": "B0 static candidate, not production tests",
+        "files": {
+          "CONTRACT.md": {
+            "sha256": "6775db852f548f01e40dee1c2b12fc96264499c943a86bb1ace1767182dded44",
+            "bytes": 16497
+          },
+          "index.html": {
+            "sha256": "af17e62c6dd43e540312dbe863febc126b7f82ab42edca9226adef3f2d79bace",
+            "bytes": 29511
+          },
+          "prototype.svg": {
+            "sha256": "0738030958d2591abc8a2333b200bb3279ec11f892014f27e9f6bb2e015453cd",
+            "bytes": 14540
+          },
+          "preview.mjs": {
+            "sha256": "b26ef6e1001f747ddfa480c6a0e1ec06dc3a8f80afe5ac0fb480892a06c27de9",
+            "bytes": 4620
+          }
+        },
+        "instructionSha256": "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+        "wrapperSha256": "acee2f664a82cba6c6c207428942d830f674b6bbe7356ec9bdaea9e6d4f4577a",
+        "checks": {
+          "scriptSyntax": "pass",
+          "domReferences": "pass",
+          "noNetworkCalls": "pass",
+          "externalResources": "none",
+          "contrast": {
+            "text": 12.73,
+            "hint": 6.09,
+            "primary": 5.32,
+            "fee": 7.35
+          }
+        },
+        "browser": "not-run",
+        "excludes": [
+          "STATUS.json (self)",
+          "ignored local evidence and process logs"
+        ],
+        "artifactKind": "interactive static prototype and explicitly labelled designed image"
+      },
+      "browser": {
+        "status": "未运行",
+        "attempts": 2,
+        "reason": "Unable to load browser request-header policy. Retry the browser command.",
+        "screenshots": "not-captured",
+        "visibleClicks": "not-run",
+        "keyboard": "not-run",
+        "mobileOverflow": "not-run",
+        "openInCodex": "queued; not proof of navigation"
+      }
+    },
+    "B1": {
+      "status": "user-approved",
+      "goal": "Entry versions, protection, literal recall, capacity, opt-in lifecycle and persistence adapter",
+      "fileCount": 8,
+      "fileCountReason": "7 implementation/test files plus this status; pure plugin, storage adapter and lifecycle registration kept separate; implementation divided into small edit groups",
+      "files": {
+        "experiments/ai-rpg-engine/plugins/memory-palace.mjs": {
+          "sha256": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7",
+          "bytes": 10262
+        },
+        "experiments/ai-rpg-engine/plugins/memory-palace.manifest.json": {
+          "sha256": "402e5be29dc35ea2b77aa2ac4867d6a7fe6848ac1172666a9c6cfc61600f1104",
+          "bytes": 1026
+        },
+        "experiments/ai-rpg-engine/plugins/memory-palace.test.mjs": {
+          "sha256": "601c1fd3cf47a175fddf88d7dbb14fe110759195fda2cd0dd23f3944c0ed74e8",
+          "bytes": 8594
+        },
+        "experiments/ai-rpg-engine/studio/memory-state.mjs": {
+          "sha256": "13e985e98cacd6788a23405c7b8895762e6a2ee4f752fc6f50b5e92a47b19954",
+          "bytes": 4970
+        },
+        "experiments/ai-rpg-engine/studio/memory-store.test.mjs": {
+          "sha256": "0df64847ed9e2daa1c0e2e3ee56e4afbc6ee941b7c74810fb2ece5530c4377cd",
+          "bytes": 10711
+        },
+        "experiments/ai-rpg-engine/plugins/catalog.mjs": {
+          "sha256": "f90340029b206c9acc274bf1b6b75a26f9d6e29dbac2a55b7e3604e1d87f9320",
+          "bytes": 5442
+        },
+        "experiments/ai-rpg-engine/plugins/host.mjs": {
+          "sha256": "cd7dc95dbef25990ef829cec94b9f4860c4fac2714735ac2e899079a8ba206f2",
+          "bytes": 20440
+        }
+      },
+      "logs": {
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b0/b1-host-tests.log": {
+          "sha256": "cc4bf5b04da30cb205bcbdb9e925de0c9d59a2d4df483905829a79fd90520d38",
+          "bytes": 26283
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b0/b1-host-tests-final.log": {
+          "sha256": "d4005cd6e6a673cb0b61e1b69567e56f1746b80f8b43f4ec97df6da7eb98f84f",
+          "bytes": 20857
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b0/b1-card-tests.log": {
+          "sha256": "867b6f3e77a4b3c8b4bb65234da1781f5287dbc2676b30492596faccc1758851",
+          "bytes": 2651
+        }
+      },
+      "tests": {
+        "new": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/plugins/memory-palace.test.mjs experiments/ai-rpg-engine/studio/memory-store.test.mjs",
+          "pass": 19,
+          "fail": 0
+        },
+        "host": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+          "total": 197,
+          "pass": 196,
+          "fail": 0,
+          "skipped": 1,
+          "skipReason": "existing optional B5 private-session-copy test lacks private copy; not bypassed"
+        },
+        "card": {
+          "status": "通过",
+          "command": "npm.cmd test (card-replica)",
+          "pass": 26,
+          "fail": 0
+        }
+      },
+      "verified": [
+        "manual create/edit protects; explicit unlock only",
+        "delete/restore versions retain originals",
+        "model proposals all-or-none, protected and stale targets rejected",
+        "100 entries / 60000 codepoints / 2000 per body",
+        "current raw input + last10 complete turns, role filters, any/all, literal lowercase matching",
+        "max10 and 8000 body cap; current/latest/stable-ID order",
+        "default old catalog remains 3; M2 opt-in4; M3 opt-in5",
+        "version/hash/permissions checked; old session incompatible",
+        "revoke rejects late proposals; uninstall/reinstall preserves entries but not grant",
+        "same-operation recovery distinguishes pending/not-applied/complete, no replay",
+        "same session locks block simultaneous save/generation/unknown request",
+        "minimal synthetic store fixture has no Earth character fields"
+      ],
+      "boundaries": [
+        "B1 trusted test host marks compatibility explicitly; no production M3 runtime/session constructor yet",
+        "memory model calls, raw worker-output store and processedThrough updates wait for B2",
+        "whole story assembly and branch snapshots wait for B3",
+        "production UI/help and two builds wait for B4; B0 prototype remains unchanged",
+        "fake tests are not real Provider evidence"
+      ],
+      "operationsGuide": [
+        "Pure policy: plugins/memory-palace.mjs",
+        "Storage: memoryOperations(existingStore,plugins) uses read/write/exclusive; no parallel session database",
+        "Capability only usable after explicit memoryPalace catalog opt-in, compatible host session and matching install/grant",
+        "recover(sessionId,originalOperationId) closes persisted intent as not-applied, never reapplies it",
+        "rollback: keep M3 host opt-in off; no old sessions were migrated, all new B1 data is isolated test data"
+      ],
+      "manual": {
+        "status": "通过",
+        "decision": "确认"
+      },
+      "staticChecks": {
+        "whitespace": "通过",
+        "secretPatternScan": "通过",
+        "frozenResources": "7 source hashes unchanged",
+        "evidenceHashes": "all 7 B1 sources and 3 logs unchanged",
+        "stagedFiles": 0
+      }
+    },
+    "B2": {
+      "status": "user-approved",
+      "goal": "Controlled memory updates and stage-specific M2/M3 coordination using fake Provider only",
+      "scope": [
+        "studio/memory-budget.mjs",
+        "studio/memory-task-provider.mjs",
+        "studio/memory-task-state.mjs",
+        "studio/memory-tasks.mjs",
+        "studio/memory-tasks.test.mjs",
+        "plugins/host.mjs",
+        "STATUS.json"
+      ],
+      "fileCountReason": "Separate budget, controlled transport, validated task state and coordinator; test actual wire and storage together. Small edit groups; one coordination acceptance goal.",
+      "baseline": "B1 source hashes retained under batches.B1; existing source changes remain uncommitted",
+      "risk": "Session persistence, shared quota reservations and controlled dispatch; only synthetic loopback fetch in tests, no secrets or real calls",
+      "checks": [
+        "node --test experiments/ai-rpg-engine/studio/memory-tasks.test.mjs",
+        "node --test experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+        "npm.cmd test in card-replica"
+      ],
+      "rollback": "M3 remains unconnected in production; keep old M2 source and preview unchanged. Retain test data and receipts.",
+      "boundaries": [
+        "Production runtime constructor, full story assembly and branch integration B3",
+        "HTTP/UI B4",
+        "Real Provider B5 with separate quota"
+      ],
+      "fileCount": 7,
+      "files": {
+        "experiments/ai-rpg-engine/studio/memory-budget.mjs": {
+          "sha256": "23da551972268ea4672465ea3b26bc4ee70ca8e6845f7528414b61e0f5c77264",
+          "bytes": 6933
+        },
+        "experiments/ai-rpg-engine/studio/memory-task-provider.mjs": {
+          "sha256": "64f3c45c480ce84a49d541c9527bbd76b9c00b29ab4235a5e05bc5ba9113b55f",
+          "bytes": 2586
+        },
+        "experiments/ai-rpg-engine/studio/memory-task-state.mjs": {
+          "sha256": "59c7314b1c95047cb68815003d418fba0e568dc05f1e53c2ace53265a2474353",
+          "bytes": 9195
+        },
+        "experiments/ai-rpg-engine/studio/memory-tasks.mjs": {
+          "sha256": "ba36074d63663f3fbb101a09f351885e5c2c3094c5a47617897bd468c35cad18",
+          "bytes": 19374
+        },
+        "experiments/ai-rpg-engine/studio/memory-tasks.test.mjs": {
+          "sha256": "2db7d55b3d70dc63b7c5ef3b62ab5c61faee101b7bcbb308364e78bc5d8c0398",
+          "bytes": 29837
+        },
+        "experiments/ai-rpg-engine/plugins/host.mjs": {
+          "sha256": "20e87e2ed7f10bf53b51e7e37f2322486c485ecd9c9b64853b70890cd3249275",
+          "bytes": 21092
+        }
+      },
+      "logs": {
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/card-tests.log": {
+          "sha256": "816a8f5945d0584e51d575a73e79bcc9155def6fd60ce0ec713291113306f75c",
+          "bytes": 2653
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/delivery-run.json": {
+          "sha256": "a158398fa5c482e4807f7e1261d684a132fe3e9208decc095b3f03a8621fc7ce",
+          "bytes": 1927
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/delivery-tests.log": {
+          "sha256": "9aca5843f1c82f87a0f2d0dbb1658af339fa6b07e21f927300357de3e4432aef",
+          "bytes": 3306
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/final-host-tests.log": {
+          "sha256": "c5f061d9ebbe95925997fc241eedf7e0d2b25172b58f6aec074060d24a6bf981",
+          "bytes": 24067
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/final-new-tests.log": {
+          "sha256": "86edd1beabcd9c4a26b0623d373f4238e6fb671c4b481778c8c8be98910e2bf1",
+          "bytes": 3130
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/first-tests.log": {
+          "sha256": "62bc9f74c42119518c586bda2ec0b93575a4a5fa5a50fd016828684e41f00f36",
+          "bytes": 2994
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/fourth-tests.log": {
+          "sha256": "d95d00b6299e61a0bca95fde25ffd5d96fda054d7d440265f92ca80662bc45a5",
+          "bytes": 2913
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/host-tests.log": {
+          "sha256": "b51b221a79fa27fdc682496faddc70a0f4b685764da1bf153de2bbe2942a4d66",
+          "bytes": 23830
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/preview-20260921-022444.stderr.log": {
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "bytes": 0
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/preview-20260921-022444.stdout.log": {
+          "sha256": "5c7c6d863357bd31df645b41374d941765e00ba56c1d9b1cb6950a03608d7468",
+          "bytes": 54
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/recovery-tests.log": {
+          "sha256": "c902cfe015a8323e36d27fd7c7849f81838b54cf378b289d95b6b820a4868381",
+          "bytes": 3345
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/second-tests.log": {
+          "sha256": "100cbf35808f2814fd580e9c5f69080405391d8514fa4f5f3c95ec624788cc2b",
+          "bytes": 2211
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/third-tests.log": {
+          "sha256": "6c412d7d10253660e47a669551fa5e07169eafd7ec09e8e51b08b6a9e553eb17",
+          "bytes": 1505
+        }
+      },
+      "representativeSyntheticEvidence": {
+        "unknownPreserved": {
+          "path": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/case-7bWHS4/sessions/590c420f-1474-4531-90bd-40925e8a5202.json",
+          "sha256": "93f95ea8fcb636d855aa7335fd4d8b5b745530509ad3cb81fa26251bf6ae9bc2",
+          "operationId": "8137fa8a-425b-4081-99a8-d42461159418",
+          "status": "unknown",
+          "stages": [
+            "story",
+            "memory-after"
+          ],
+          "processedThrough": 0
+        },
+        "completedIncrementalMemory": {
+          "path": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/case-CsFvmE/sessions/a622c2bc-17ae-4104-aac2-1f453caefa84.json",
+          "sha256": "97c793f6e3a4cf79f3e73aabb829867ef285145dcdf3577595c5c1cb5a35f005",
+          "operationId": "f1f9e287-2517-4a66-9888-677222e9df9d",
+          "status": "complete",
+          "stages": [
+            "story",
+            "memory-after"
+          ],
+          "processedThrough": 3
+        },
+        "sixStageCombination": {
+          "path": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b2/case-rtPZ1D/sessions/0db1d62c-ef66-4a06-af73-d2dfdfe43dd9.json",
+          "sha256": "d5c259347eedde811d5a2bfbf4bd31c208205c1dcc299bc7b59e5f1e935904e6",
+          "operationId": "ad64a56b-b85a-4551-9995-4b2835963e75",
+          "status": "complete",
+          "stages": [
+            "summary-before",
+            "compression-before",
+            "story",
+            "summary-after",
+            "compression-after",
+            "memory-after"
+          ],
+          "processedThrough": 3
+        }
+      },
+      "instructionSha256": "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+      "tests": {
+        "new": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/studio/memory-tasks.test.mjs",
+          "pass": 31,
+          "fail": 0
+        },
+        "host": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+          "total": 228,
+          "pass": 227,
+          "fail": 0,
+          "skipped": 1,
+          "skipReason": "existing optional B5 private-session-copy test lacks private copy; same preexisting skip"
+        },
+        "card": {
+          "status": "通过",
+          "command": "npm.cmd test (card-replica)",
+          "pass": 26,
+          "fail": 0
+        }
+      },
+      "staticChecks": {
+        "whitespace": "通过",
+        "secretPatternScan": "通过",
+        "frozenSourceHashes": "7 unchanged",
+        "b0Delivery": "unchanged and verify-delivery passed",
+        "stagedFiles": 0
+      },
+      "verified": [
+        "Independent explicit memory model; configure/catalog/status do not generate",
+        "Controlled transport captures actual synthetic wires, exact raw turns and all current entries; Luna parameter exception preserved",
+        "Shared card slot budget; immutable stage IDs; up to6 reservations before any dispatch",
+        "Story committed before background; M2 then M3; next send waits; single session lock",
+        "Strict duplicate-key/extra-field/truncation/capacity/protection rejection; no partial activation",
+        "Failures retain raw responses and old data; unknown blocks new IDs even after disable",
+        "Revocation/cancellation discard late activation; original-ID recovery never launches missing stages",
+        "Atomic publication acknowledgement loss cannot overwrite committed state",
+        "Interrupted budget allocation releases only durably proven owned slots",
+        "Explicit compression repair reuses matching overflow instead of repeating summary",
+        "No M3 delegates outside its lock to the existing host path; production wiring is B3"
+      ],
+      "operationsGuide": [
+        "createMemoryTasks takes trusted store/plugins/transport and host story callbacks; never accept callbacks from HTTP",
+        "Use initialMemoryTasks on new M3 sessions only; do not migrate existing sessions",
+        "configure and recoverSetting use original operation ID; save alone never dispatches",
+        "status exposes actual base policy, memory authorization, task plan and maxCalls; production UI mapping B4",
+        "send resolves after committed story with background=true; poll status/wait for final operation outcome",
+        "recover reads the original controlled receipt and publishes at most once; no missing stage is started",
+        "Memory task state and library state share the existing session envelope; no secondary user database",
+        "M3 disabled delegates to legacySend only after confirming there is no unknown operation; no budget reset"
+      ],
+      "manual": {
+        "status": "通过",
+        "decision": "确认"
+      }
+    },
+    "B3": {
+      "status": "user-approved",
+      "goal": "M3 runtime binding, real host assembly and branch snapshots captured through synthetic controlled Provider",
+      "scope": [
+        "studio/memory-runtime.mjs",
+        "studio/memory-assembly.mjs",
+        "studio/memory-branch-archive.mjs",
+        "studio/memory-session-store.mjs",
+        "studio/memory-integration.test.mjs",
+        "STATUS.json"
+      ],
+      "fileCountReason": "5 cohesive runtime/assembly/storage/test files plus status; no parent frontend changes",
+      "risk": "Persisted new-version sessions and branch provenance; isolated synthetic data only",
+      "checks": [
+        "node --test experiments/ai-rpg-engine/studio/memory-integration.test.mjs",
+        "node --test experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+        "npm.cmd test (card-replica)"
+      ],
+      "rollback": "Production entry not switched; retain old preview, sessions and ledgers. Only new M3 sessions use format5; no migration.",
+      "boundaries": [
+        "HTTP/UI integration B4",
+        "Real Provider and content quality B5, separate authorization"
+      ],
+      "runtime": {
+        "format": 5,
+        "hash": "13ad1acaf95328658fcbf20fca8c16cfe65bc9ed0befdb2a8a78736316f5b988",
+        "oldSessions": "readable; no migration or runtime backfill"
+      },
+      "files": {
+        "experiments/ai-rpg-engine/studio/memory-runtime.mjs": {
+          "sha256": "135cf0a630995cef26ca99ef630b697888424b550bbb7bd6467a5452ed4b2954",
+          "bytes": 2174
+        },
+        "experiments/ai-rpg-engine/studio/memory-assembly.mjs": {
+          "sha256": "e76bfb75999a16cfcef09f65e9fa434bdaadeff503b5c157f3d2b686668b0551",
+          "bytes": 7026
+        },
+        "experiments/ai-rpg-engine/studio/memory-branch-archive.mjs": {
+          "sha256": "890d305b8d9970a7102d8d83338d4e04a38d033e3180038fde8e51cbf0f1b9b1",
+          "bytes": 2327
+        },
+        "experiments/ai-rpg-engine/studio/memory-session-store.mjs": {
+          "sha256": "5b0b5f32d90277751e976d8c86e086f5372cf75f50b27091eba07145b61e6bc8",
+          "bytes": 17923
+        },
+        "experiments/ai-rpg-engine/studio/memory-integration.test.mjs": {
+          "sha256": "e5baa869dd9177729a4aa2606dd2157b902ccc9dd6e4046ebd78380f32ca93ee",
+          "bytes": 28588
+        }
+      },
+      "logs": {
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/integration-08.log": {
+          "sha256": "ad5a6542ce219b080b4b92b3d6b1e5edccbe75a3bd265b3f9c10e65ac9836e80",
+          "bytes": 2233
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/host-tests.log": {
+          "sha256": "809021a13cd1823ffe050b56e5917a64a10ec9c3210f909a5109237fea47285b",
+          "bytes": 26191
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/card-tests.log": {
+          "sha256": "70136f95d7a75b82bc8666f1e5c33b78fd7ef6dafa343e6931ee5f498e8b63aa",
+          "bytes": 2653
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/delivery-run.json": {
+          "sha256": "0a729bc8faa9d4fdf022ff75dc4f9c23f2e4d2a120e9e5905721c0b3acb8ad3f",
+          "bytes": 3751
+        },
+        "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/request-evidence-index.json": {
+          "sha256": "3560403ebe05fdff459cfa4d0f4d273e870655919909d1de8f217ad4d304001c",
+          "bytes": 12444
+        }
+      },
+      "evidenceIndex": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b3/request-evidence-index.json",
+      "tests": {
+        "new": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/studio/memory-integration.test.mjs",
+          "pass": 19,
+          "fail": 0
+        },
+        "host": {
+          "status": "通过",
+          "command": "node --test experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+          "total": 247,
+          "pass": 246,
+          "fail": 0,
+          "skipped": 1,
+          "skipReason": "existing optional B5 private-session-copy test lacks private copy; unchanged condition"
+        },
+        "card": {
+          "status": "通过",
+          "command": "npm.cmd test (card-replica)",
+          "pass": 26,
+          "fail": 0
+        }
+      },
+      "staticChecks": {
+        "whitespace": "5 new files passed",
+        "credentialPatternScan": "no credential-like token found in5 new files; synthetic test token is explicitly fake",
+        "frozenSourceHashes": "7 unchanged",
+        "B2Files": "6 unchanged",
+        "B0Delivery": "unchanged; verify-delivery passed",
+        "stagedFiles": 0
+      },
+      "verified": [
+        "Zero installed plugins: first/continued messages exactly equal original assembly",
+        "M1/M2/M3 combinations: one system, author then summary then memory names/body only; no duplicate wrapping; full stored history unchanged",
+        "Raw-role scan independent of outgoing history window; complete-entry capacity and no recursive triggering",
+        "Actual six-stage catch-up/compression/story/background order captured with shared reservations",
+        "Each turn freezes used memory and settled memory separately; branch inherits sealed point settings, no grants/tasks/requests",
+        "Future parent model/config/content/manual edits isolated; child survives fresh store read and shares original budget",
+        "Common lock and background waiting; revocation keeps receipts, unknown blocks after restart and disable",
+        "Unstarted legacy intent can recover as not-applied with same ID; completed M3 operations remain idempotent after uninstall",
+        "Offline sessions cannot dispatch live summary/memory tasks; original runtime/receipt mismatch rejected"
+      ],
+      "operationsGuide": [
+        "Connect MemorySessionStore with reviewed catalog opt-ins and createMemoryTransport only from trusted host code; HTTP wiring is B4",
+        "New format5 sessions require operationId, expectedSessionRevision, expectedMemoryRevision and expectedContextPolicyRevision for send",
+        "memoryTasks.status exposes effective base context plus M3 authorization and blocked readiness; runtime descriptor is default only",
+        "memoryTasks.configure and memoryEdits.save are non-generating; explicit model selection required",
+        "Use memoryTasks.update for explicit coordinated M2/M3 work while M3 enabled; do not call the legacy M2 task dispatcher in that state",
+        "Use recoverMemoryOperation(sessionId,operationId) to inspect/settle original M3 task or legacy send intent; never invent replacement IDs for unknown results",
+        "Story return background=true does not imply memory finished; wait/status before next send or branch",
+        "Branch memory is sealed at background settlement; a later explicit repair/manual edit belongs to the parent future, not the earlier sealed point",
+        "Rollback: keep live HTTP on prior host or disable M3 through lifecycle; retain all sessions, branch envelopes, library versions and ledgers; no old-host downgrade against new data"
+      ],
+      "manual": {
+        "status": "通过",
+        "decision": "确认"
+      },
+      "limitations": [
+        "No M3 HTTP endpoint or production UI connected in B3",
+        "No real Provider calls or semantic content-quality acceptance",
+        "Browser screenshots and both frontend builds remain B4",
+        "Synthetic capacity and framing correctness do not prove extraction fidelity or long-context quality"
+      ]
+    },
+    "B4": {
+      "status": "user-approved",
+      "scope": "Approved UI, HTTP, help, screenshots and two builds",
+      "subBatches": [
+        {
+          "id": "B4a",
+          "scope": [
+            "studio/memory-host.mjs",
+            "studio/memory-http.mjs",
+            "studio/memory-http.test.mjs",
+            "studio/server.mjs",
+            "STATUS.json"
+          ],
+          "check": "node --test studio/memory-http.test.mjs studio/summary-http.test.mjs"
+        },
+        {
+          "id": "B4b",
+          "scope": "memory dialog/hook/style, chat integration, client types; then focused UI tests"
+        },
+        {
+          "id": "B4c",
+          "scope": "market/help documentation and package validation"
+        },
+        {
+          "id": "B4d",
+          "scope": "real screenshot derivatives, help references, report/status/current manifest",
+          "check": "M3 image checks, frozen hashes and final manifest verification"
+        }
+      ],
+      "risk": "Session writes and local offline simulated tasks; live Provider disabled",
+      "rollback": "New memoryPalace host flag default off; original previews/data untouched; no old host downgrade using new data",
+      "realProvider": "not-authorized; zero calls",
+      "manual": {
+        "status": "通过",
+        "decision": "确认，授权4次调用"
+      },
+      "tests": {
+        "offline": {
+          "status": "通过",
+          "hostTests": {
+            "pass": 250,
+            "skip": 1,
+            "fail": 0
+          },
+          "cardTests": {
+            "pass": 26,
+            "fail": 0
+          },
+          "frontendTests": {
+            "pass": 99,
+            "files": 8,
+            "fail": 0
+          },
+          "details": "B4-REPORT.md"
+        },
+        "http": {
+          "status": "通过",
+          "focusedTests": 4,
+          "preview": "http://127.0.0.1:18491/rpg/earth",
+          "meaning": "isolated real HTTP host with synthetic providers, not real model evidence"
+        },
+        "browser": {
+          "status": "通过",
+          "surface": "official Codex in-app browser",
+          "desktop": [
+            1280,
+            720
+          ],
+          "mobile": [
+            390,
+            844
+          ],
+          "screenshots": "4 genuine JPEG files; 2 derived PNG help assets",
+          "keyboard": "Tab, Escape, explicit discard",
+          "limits": "No physical mobile device or cross-browser certification"
+        },
+        "productionTests": {
+          "status": "通过",
+          "cardBuild": "TypeScript and Vite; base=/rpg-app/earth/",
+          "parentBuild": "TypeScript and Vite; existing large chunk warning"
+        },
+        "helpImages": {
+          "status": "基线失败",
+          "m3Images": "2 passed",
+          "failures": 3,
+          "reason": "Three unchanged unreferenced baseline JPG assets; B4-REPORT.md lists exact paths"
+        },
+        "provider": {
+          "status": "未运行",
+          "authorized": 0,
+          "used": 0,
+          "remaining": 0
+        },
+        "manual": {
+          "status": "待确认",
+          "gate": "B4 candidate; B0-B3 approved"
+        }
+      },
+      "report": "B4-REPORT.md",
+      "delivery": "B4-DELIVERY.json"
+    },
+    "B5": {
+      "status": "authorized-two-groups-user-accepted; full-vertical-slice-incomplete",
+      "authorization": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/AUTHORIZATION.json",
+      "models": {
+        "story": "google/gemini-3.8-flash",
+        "memory": "google/gemini-3.8-flash"
+      },
+      "scope": "Two authorized story-memory groups completed; no calls remaining",
+      "qualification": "New isolated Gemini certification passed; original 18458 and shared stack unchanged",
+      "completeVerticalSlice": "pending:2 of suggested4 groups; early-history eviction and M2 joint real calls unrun",
+      "release": "Commit/Push/PR authorized after two-group user acceptance; merge/deploy not authorized; live coverage limitations unchanged",
+      "preview": "http://127.0.0.1:18497/rpg/earth",
+      "sessionId": "fb57eeb2-4c55-4eea-a677-c317fd977147",
+      "runtimeHash": "bf0fc432ea41f8107d7dee101f378a69fc5b3374e062be5ec56c5ee497204fe5",
+      "generations": {
+        "used": 4,
+        "remaining": 0,
+        "firstGroup": [
+          "story complete",
+          "memory complete"
+        ],
+        "entries": 5,
+        "secondGroup": [
+          "story complete",
+          "memory complete"
+        ]
+      },
+      "authentication": {
+        "used": 1,
+        "limit": 1,
+        "result": "passed"
+      },
+      "technicalChecks": [
+        "second-verification.json",
+        "second-additional-verification.json"
+      ],
+      "humanReview": {
+        "group1": "approved: 确认",
+        "group2": "approved: 确认有效，可以进入PR前收尾"
+      },
+      "limitations": [
+        "M1 early-history eviction with memory recall not tested live",
+        "M2+M3 live combination not run",
+        "Only2 of planned minimum4 groups",
+        "Extraction shifts preparation to action in one detail; source attribution weakened"
+      ],
+      "report": "B5-GROUP2-REVIEW.md",
+      "delivery": "B5-GROUP2-DELIVERY.json"
+    }
+  },
+  "historicalValidation": {
+    "beforeB4": {
+      "offline": {
+        "status": "通过",
+        "newTests": 19,
+        "hostTests": {
+          "pass": 246,
+          "skip": 1,
+          "fail": 0
+        },
+        "cardTests": 26,
+        "details": "batches.B3.tests"
+      },
+      "http": {
+        "status": "通过",
+        "port": 18489,
+        "paths": {
+          "/": 200,
+          "/?scene=ready": 200,
+          "/prototype.svg": 200,
+          "/api/status": 200,
+          "/no-such-file": 404
+        },
+        "meaning": "static-server response only",
+        "postStatus": 405,
+        "latestRecheck": {
+          "status": "通过",
+          "port": 18489,
+          "path": "/api/status",
+          "httpStatus": 200,
+          "meaning": "B0 static preview restored only; no B3 UI acceptance claim"
+        }
+      },
+      "designImage": {
+        "status": "通过",
+        "method": "generated static artboard reviewed with view_image; not a browser screenshot",
+        "path": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b0/prototype-design.png",
+        "sha256": "b25a27fdf7b7a2b450aa7889fb166dd0998315af724038082e0d2cd4ab48cd6d"
+      },
+      "browser": {
+        "status": "未运行",
+        "attempts": 2,
+        "reason": "Unable to load browser request-header policy. Retry the browser command.",
+        "screenshots": "not-captured",
+        "visibleClicks": "not-run",
+        "keyboard": "not-run",
+        "mobileOverflow": "not-run",
+        "openInCodex": "queued; not proof of navigation"
+      },
+      "productionTests": {
+        "status": "通过",
+        "scope": "Local actual MemorySessionStore integration with injected synthetic Provider plus existing host/plugin/card regression; HTTP not wired",
+        "frontendBuilds": "未运行: no frontend changes in B3; both builds required in B4"
+      },
+      "provider": {
+        "status": "未运行",
+        "authorized": 0,
+        "used": 0,
+        "remaining": 0
+      },
+      "manual": {
+        "status": "待确认",
+        "gate": "B3 evidence awaiting user; B0/B1/B2 approved"
+      }
+    },
+    "beforePrePrCloseout": {
+      "status": "B5-group2-awaiting-user-review",
+      "validation": {
+        "offline": {
+          "status": "通过",
+          "hostTests": {
+            "pass": 250,
+            "skip": 1,
+            "fail": 0
+          },
+          "cardTests": {
+            "pass": 26,
+            "fail": 0
+          },
+          "frontendTests": {
+            "pass": 99,
+            "files": 8,
+            "fail": 0
+          },
+          "details": "B4-REPORT.md"
+        },
+        "http": {
+          "status": "通过",
+          "focusedTests": 4,
+          "preview": "http://127.0.0.1:18491/rpg/earth",
+          "meaning": "isolated real HTTP host with synthetic providers, not real model evidence"
+        },
+        "browser": {
+          "status": "通过",
+          "surface": "official Codex in-app browser",
+          "desktop": [
+            1280,
+            720
+          ],
+          "mobile": [
+            390,
+            844
+          ],
+          "screenshots": "4 genuine JPEG files; 2 derived PNG help assets",
+          "keyboard": "Tab, Escape, explicit discard",
+          "limits": "No physical mobile device or cross-browser certification"
+        },
+        "productionTests": {
+          "status": "通过",
+          "cardBuild": "TypeScript and Vite; base=/rpg-app/earth/",
+          "parentBuild": "TypeScript and Vite; existing large chunk warning"
+        },
+        "helpImages": {
+          "status": "基线失败",
+          "m3Images": "2 passed",
+          "failures": 3,
+          "reason": "Three unchanged unreferenced baseline JPG assets; B4-REPORT.md lists exact paths"
+        },
+        "provider": {
+          "status": "通过",
+          "meaning": "Two story-memory pairs complete; actual request and data checks passed; group2 content awaiting review; early-history eviction not run",
+          "generationAuthorized": 4,
+          "generationUsed": 4,
+          "generationRemaining": 0,
+          "authenticationAuthorized": 1,
+          "authenticationUsed": 1,
+          "automaticRetries": 0
+        },
+        "manual": {
+          "status": "待确认",
+          "gate": "B4 and B5 group1 approved; B5 group2 pending"
+        }
+      },
+      "B5": {
+        "status": "group2-awaiting-user-review",
+        "authorization": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-b5/AUTHORIZATION.json",
+        "models": {
+          "story": "google/gemini-3.8-flash",
+          "memory": "google/gemini-3.8-flash"
+        },
+        "scope": "Two authorized story-memory groups completed; no calls remaining",
+        "qualification": "New isolated Gemini certification passed; original 18458 and shared stack unchanged",
+        "completeVerticalSlice": "pending; approved plan recommends 4 groups, this authorization covers 2",
+        "release": "not authorized",
+        "preview": "http://127.0.0.1:18497/rpg/earth",
+        "sessionId": "fb57eeb2-4c55-4eea-a677-c317fd977147",
+        "runtimeHash": "bf0fc432ea41f8107d7dee101f378a69fc5b3374e062be5ec56c5ee497204fe5",
+        "generations": {
+          "used": 4,
+          "remaining": 0,
+          "firstGroup": [
+            "story complete",
+            "memory complete"
+          ],
+          "entries": 5,
+          "secondGroup": [
+            "story complete",
+            "memory complete"
+          ]
+        },
+        "authentication": {
+          "used": 1,
+          "limit": 1,
+          "result": "passed"
+        },
+        "technicalChecks": [
+          "second-verification.json",
+          "second-additional-verification.json"
+        ],
+        "humanReview": {
+          "group1": "approved: 确认",
+          "group2": "pending"
+        },
+        "limitations": [
+          "M1 early-history eviction with memory recall not tested live",
+          "M2+M3 live combination not run",
+          "Only2 of planned minimum4 groups",
+          "Extraction shifts preparation to action in one detail; source attribution weakened"
+        ],
+        "report": "B5-GROUP2-REVIEW.md",
+        "delivery": "B5-GROUP2-DELIVERY.json"
+      },
+      "currentDelivery": {
+        "path": "B4-DELIVERY.json",
+        "scope": "current B1-B4 candidate; original B0 delivery preserved",
+        "excludes": [
+          "STATUS.json (self-referential state)",
+          "B4-DELIVERY.json (self)",
+          "node_modules",
+          "private or shared runtime data"
+        ],
+        "B5Supplement": "B5-GROUP2-DELIVERY.json"
+      }
+    },
+    "beforePublicationIntegration": {
+      "status": "pre-pr-closeout-complete; publication-not-authorized",
+      "prePrCloseout": {
+        "at": "2026-09-23T05:14:02.427595+00:00",
+        "upstream": "08dba5f6ae5adab2043ba966c3de7fc2ffc41f49",
+        "aheadBehind": "0 local commits /6 upstream commits",
+        "intersections": [],
+        "mainIntegrated": true,
+        "requiresBeforePublication": [
+          "Stage exact candidate paths and inspect staged diff",
+          "Commit, push and create PR under explicit authorization; no merge or deployment"
+        ],
+        "report": "PRE-PR-CLOSEOUT.md",
+        "prDraft": "PR-DRAFT.md",
+        "userAcceptance": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/user-acceptance.json",
+        "commit": false,
+        "push": false,
+        "pr": false,
+        "sharedDeployment": false
+      },
+      "currentDelivery": {
+        "path": "PRE-PR-DELIVERY.json",
+        "scope": "Current candidate sources and rebuilt parent artifacts; historical B4/B5 manifests preserved as snapshots",
+        "excludes": [
+          "manifest self",
+          "credentials",
+          "dependencies",
+          "logs in version control",
+          "private/session/dispatch data in version control"
+        ],
+        "historical": [
+          "B4-DELIVERY.json",
+          "B5-GROUP1-DELIVERY.json",
+          "B5-GROUP2-DELIVERY.json"
+        ]
+      }
+    }
+  },
+  "historicalPreviews": {
+    "B0": {
+      "url": "http://127.0.0.1:18489/",
+      "mode": "static-prototype",
+      "providerEnabled": false,
+      "persistence": "in-memory demo resets on refresh",
+      "pidAtLaunch": 60224,
+      "ownership": "No listener/process before restoration; launched only this worktree static preview, CIM process11332 and HTTP200 checked; recheck before stopping",
+      "restoredPid": 11332
+    }
+  },
+  "currentDelivery": {
+    "path": "PR-DELIVERY.json",
+    "scope": "Current latest-main integrated source and build snapshot; original preview/session/ledger untouched",
+    "historical": [
+      "B4-DELIVERY.json",
+      "B5-GROUP1-DELIVERY.json",
+      "B5-GROUP2-DELIVERY.json",
+      "PRE-PR-DELIVERY.json"
+    ]
+  },
+  "prePrCloseout": {
+    "at": "2026-09-23T05:14:02.427595+00:00",
+    "upstream": "08dba5f6ae5adab2043ba966c3de7fc2ffc41f49",
+    "aheadBehind": "0 local commits /6 upstream commits",
+    "intersections": [],
+    "mainIntegrated": true,
+    "requiresBeforePublication": [
+      "Stage exact candidate paths and inspect staged diff",
+      "Commit, push and create PR under explicit authorization; no merge or deployment"
+    ],
+    "report": "PRE-PR-CLOSEOUT.md",
+    "prDraft": "PR-DRAFT.md",
+    "userAcceptance": "experiments/ai-rpg-engine/.rpg04-work/memory-palace-closeout/user-acceptance.json",
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeployment": false
+  }
+}
