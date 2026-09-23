@@ -55,7 +55,8 @@ def test_qwen3_asr_snapshots_are_adapted_for_manual_verification() -> None:
 
     assert expected_models <= MANUAL_TRANSCRIPTION_PROFILES.keys()
     assert not expected_models & VERIFIED_TRANSCRIPTION_PROFILES.keys()
-    for profile in MANUAL_TRANSCRIPTION_PROFILES.values():
+    for model_id in expected_models:
+        profile = MANUAL_TRANSCRIPTION_PROFILES[model_id]
         assert {"mp3", "wav", "m4a", "webm"} <= set(
             profile.input_formats
         )
@@ -93,6 +94,14 @@ def test_mai_transcribe_2_is_adapted_for_manual_verification() -> None:
 
 def test_muse_voice_transcribe_is_wav_only_pending_manual_verification() -> None:
     model_id = "meta/muse-voice-transcribe-1.0"
+
+    assert model_id in MANUAL_TRANSCRIPTION_PROFILES
+    assert model_id not in VERIFIED_TRANSCRIPTION_PROFILES
+    assert MANUAL_TRANSCRIPTION_PROFILES[model_id].input_formats == ("wav",)
+
+
+def test_universal_3_5_pro_is_wav_only_pending_manual_verification() -> None:
+    model_id = "assemblyai/universal-3-5-pro"
 
     assert model_id in MANUAL_TRANSCRIPTION_PROFILES
     assert model_id not in VERIFIED_TRANSCRIPTION_PROFILES

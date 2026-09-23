@@ -43,7 +43,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-09-12-muse1"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-09-22-universal35pro"
 
 
 @dataclass(frozen=True)
@@ -86,6 +86,9 @@ MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     )
 }
 MANUAL_TRANSCRIPTION_PROFILES["meta/muse-voice-transcribe-1.0"] = (
+    TranscriptionProfile(input_formats=("wav",))
+)
+MANUAL_TRANSCRIPTION_PROFILES["assemblyai/universal-3-5-pro"] = (
     TranscriptionProfile(input_formats=("wav",))
 )
 

@@ -1,5 +1,26 @@
 export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
   [
+    "assemblyai/universal-3-5-pro",
+    Object.freeze({
+      unit: "audio_hour",
+      pricingBasis: "media",
+      sourcePricingField: "prompt",
+      normalizedPricingField: "input",
+      normalizedPriceDivisor: 1_000_000,
+      normalizedPriceMultiplier: 3_600,
+      sourcePriceMultiplier: 3_600,
+      marketPricing: Object.freeze({
+        pricingField: "prompt",
+        displayKind: "unit",
+        skuLabel: "Audio Seconds",
+        unitLabel: "/second",
+        priceMultiplier: 3_600,
+        pricingJsonKey: "assemblyai_stt:audio_seconds",
+        pricingJsonMultiplier: 0.5 * 3_600,
+      }),
+    }),
+  ],
+  [
     "meta/muse-voice-transcribe-1.0",
     Object.freeze({
       unit: "audio_hour",
@@ -118,11 +139,13 @@ function auditMarketPricingRecord(record, contract, expectedPrice) {
   const pricingJsonValue = finiteNumber(
     endpoint?.pricing_json?.[marketContract.pricingJsonKey],
   );
+  const pricingJsonMultiplier =
+    finiteNumber(marketContract.pricingJsonMultiplier ?? 1) ?? 1;
   if (pricingJsonValue === null) {
     reasons.push("market_pricing_json_sku_missing");
   } else if (
     expectedPrice !== null &&
-    Math.abs(pricingJsonValue - expectedPrice) > 1e-12
+    Math.abs(pricingJsonValue * pricingJsonMultiplier - expectedPrice) > 1e-12
   ) {
     reasons.push("market_pricing_json_price_mismatch");
   }
