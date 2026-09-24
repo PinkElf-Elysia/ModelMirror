@@ -124,6 +124,12 @@ def audio_catalog_payload() -> dict[str, object]:
                 "output_modalities": ["transcription"],
             },
             {
+                "id": "meta/muse-voice-transcribe-1.0",
+                "name": "Meta: Muse Voice Transcribe 1.0",
+                "input_modalities": ["audio"],
+                "output_modalities": ["transcription"],
+            },
+            {
                 "id": "microsoft/mai-voice-2",
                 "name": "Microsoft: MAI Voice 2",
                 "input_modalities": ["text"],
@@ -158,6 +164,20 @@ def audio_catalog_payload() -> dict[str, object]:
             {
                 "id": "google/gemini-3.1-flash-tts-preview",
                 "name": "Google: Gemini 3.1 Flash TTS Preview",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+                "supported_voices": ["Aoede", "Kore", "Puck"],
+            },
+            {
+                "id": "google/gemini-3.8-flash-tts",
+                "name": "Google: Gemini 3.8 Flash TTS",
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+                "supported_voices": ["Aoede", "Kore", "Puck"],
+            },
+            {
+                "id": "google/gemini-3.8-flash-lite-tts",
+                "name": "Google: Gemini 3.8 Flash Lite TTS",
                 "input_modalities": ["text"],
                 "output_modalities": ["speech"],
                 "supported_voices": ["Aoede", "Kore", "Puck"],
@@ -326,7 +346,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-09-03-mai2"
+        "modelmirror-audio-contracts-2026-09-24-gemini38"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -399,6 +419,16 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
     assert by_id[
         "google/gemini-3.1-flash-tts-preview"
     ].output_formats == ["wav"]
+    for model_id in (
+        "google/gemini-3.8-flash-tts",
+        "google/gemini-3.8-flash-lite-tts",
+    ):
+        assert by_id[model_id].interaction_status == "planned"
+        assert by_id[model_id].chat_modes == []
+        assert by_id[model_id].output_formats == ["wav"]
+        assert by_id[model_id].operation_readiness[0].verification_status == (
+            "manual_required"
+        )
     assert by_id["deepgram/aura-2"].interaction_status == "ready"
     assert by_id["deepgram/aura-2"].voices == [
         "aura-2-amalthea-en",
@@ -755,7 +785,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-09-03-mai2"
+        "modelmirror-audio-contracts-2026-09-24-gemini38"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

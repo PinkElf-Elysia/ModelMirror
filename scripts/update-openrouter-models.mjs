@@ -26,6 +26,10 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "recraft/recraft-v4.1-flash",
+  "inclusionai/ming-image-0.1-design-layer",
+  "google/gemini-3.8-flash-tts",
+  "google/gemini-3.8-flash-lite-tts",
   "typesafe/jev-1.13",
   "~typesafe/jev-latest",
   "meta/muse-voice-transcribe-1.0",

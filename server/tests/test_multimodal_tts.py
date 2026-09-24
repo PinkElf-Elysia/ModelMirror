@@ -12,13 +12,19 @@ from server.model_router.repository import SQLiteRouterRepository
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_speech_service
-from server.multimodal.audio_catalog import AudioCatalogService
+from server.multimodal.audio_catalog import (
+    OPENROUTER_AUDIO_CONTRACTS,
+    AudioCatalogService,
+)
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.tts import (
     ALLOWED_SPEECH_PROFILES,
     DEEPGRAM_FLUX_TTS_MODEL_ID,
     DEEPGRAM_FLUX_TTS_VOICES,
     FISH_AUDIO_PUBLIC_VOICES,
+    GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+    GEMINI_38_FLASH_TTS_MODEL_ID,
+    GEMINI_38_TTS_VOICES,
     GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
     MINIMAX_SYSTEM_SPEECH_VOICES,
@@ -61,6 +67,70 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert speech_output_format(MODEL_ID) == "mp3"
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
     assert "marin" in OPENAI_SPEECH_PROFILES["gpt-4o-mini-tts"]
+
+
+def test_gemini_38_tts_contracts_are_pcm_wav_and_manually_gated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    assert len(GEMINI_38_TTS_VOICES) == 30
+    for model_id in (
+        GEMINI_38_FLASH_TTS_MODEL_ID,
+        GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+    ):
+        assert ALLOWED_SPEECH_PROFILES[model_id] == GEMINI_38_TTS_VOICES
+        assert speech_output_format(model_id) == "wav"
+        with pytest.raises(MultimodalServiceError) as captured:
+            SpeechService._model_id(model_id)
+        assert captured.value.code == "speech_model_verification_required"
+
+    monkeypatch.setenv(
+        "MULTIMODAL_VERIFICATION_MODEL_IDS",
+        GEMINI_38_FLASH_TTS_MODEL_ID,
+    )
+    assert (
+        SpeechService._model_id(GEMINI_38_FLASH_TTS_MODEL_ID)
+        == GEMINI_38_FLASH_TTS_MODEL_ID
+    )
+
+
+def test_gemini_38_tts_catalog_is_adapted_but_waits_for_manual_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    service = object.__new__(AudioCatalogService)
+    for model_id in (
+        GEMINI_38_FLASH_TTS_MODEL_ID,
+        GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+    ):
+        contract = OPENROUTER_AUDIO_CONTRACTS[model_id]
+        assert contract.interaction_adapted is True
+        assert contract.manual_verification_required is True
+        profile = service._profile_from_item(
+            "openrouter",
+            "connection-test",
+            {
+                "id": model_id,
+                "name": model_id,
+                "architecture": {
+                    "input_modalities": ["text"],
+                    "output_modalities": ["speech"],
+                },
+                "supported_voices": list(GEMINI_38_TTS_VOICES),
+            },
+            chat_enabled=True,
+            streaming_enabled=False,
+            generation_enabled=False,
+            realtime_enabled=False,
+        )
+        assert profile is not None
+        assert profile.interaction_status == "planned"
+        assert profile.chat_modes == []
+        assert profile.output_formats == ["wav"]
+        assert profile.voices == sorted(GEMINI_38_TTS_VOICES)
+        assert profile.operation_readiness[0].verification_status == (
+            "manual_required"
+        )
 
 
 def test_deepgram_flux_tts_uses_the_live_openrouter_voice_contract() -> None:
