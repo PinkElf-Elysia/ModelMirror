@@ -30,6 +30,8 @@ from .stt import (
 )
 from .tts import (
     ALLOWED_SPEECH_PROFILES,
+    GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+    GEMINI_38_FLASH_TTS_MODEL_ID,
     OPENAI_SPEECH_PROFILES,
     speech_output_format,
 )
@@ -43,7 +45,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-12-muse1"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-24-gemini38"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -295,6 +297,23 @@ for _model_id, _voices in ALLOWED_SPEECH_PROFILES.items():
             output_formats=(speech_output_format(_model_id),),
             voices=_voices,
             behavior_verified=True,
+        ),
+    )
+for _model_id in (
+    GEMINI_38_FLASH_TTS_MODEL_ID,
+    GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+):
+    OPENROUTER_AUDIO_CONTRACTS[_model_id] = AudioContract(
+        operations=("synthesize_speech",),
+        chat_modes=("synthesize_speech",),
+        output_formats=("wav",),
+        voices=ALLOWED_SPEECH_PROFILES[_model_id],
+        interaction_adapted=True,
+        manual_verification_required=True,
+        verification_status="manual_required",
+        planned_reason=(
+            "OpenRouter /audio/speech 与 30 个目录声线契约已接入；"
+            "等待本地短音频人工验收。"
         ),
     )
 
@@ -700,7 +719,8 @@ class AudioCatalogService:
         )
 
         if provider == "openrouter" and "transcription" in outputs:
-            input_formats.update(ALLOWED_AUDIO_FORMATS)
+            if not contract or not contract.input_formats:
+                input_formats.update(ALLOWED_AUDIO_FORMATS)
             if contract and contract.behavior_verified and chat_enabled:
                 chat_modes.append("transcribe")
             elif not contract or not contract.behavior_verified:

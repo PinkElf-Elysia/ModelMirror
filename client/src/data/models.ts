@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-23T04:04:56.327Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-24T07:06:07.666Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -93,7 +93,7 @@ export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
 export type PricingBasis = "token" | "media" | "request" | "dynamic" | "free";
-export type MediaPricingUnit = "audio_hour";
+export type MediaPricingUnit = "audio_hour" | "image";
 
 export interface MediaPricing {
   unit: MediaPricingUnit;
@@ -223,6 +223,376 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "fireworks/ember-1",
+    "canonical_slug": "fireworks/ember-1-20260923",
+    "name": "Fireworks: Ember-1",
+    "raw_description": "Ember-1 is a specialized reasoning model from Fireworks Research, built on [Kimi K3](https://openrouter.ai/moonshotai/kimi-k3). It is designed to make every token go further: it produces shorter reasoning traces, using roughly 40%...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 3,
+      "output": 15
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1790208461,
+    "expiration_date": null,
+    "model_author": "Fireworks",
+    "reasoning_declared": true
+  },
+  {
+    "id": "inclusionai/ming-image-0.1-design-layer",
+    "canonical_slug": "inclusionai/ming-image-0.1-design-layer-20260922",
+    "name": "inclusionAI: Ming Image 0.1 Design Layer",
+    "raw_description": "Ming Image 0.1 Design Layer is an image-to-image model from inclusionAI that decomposes a flattened design image into separate RGBA layers, such as a background layer and foreground elements, and...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "output_format",
+      "n",
+      "input_references"
+    ],
+    "created": 1790201839,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "pricing_basis_override": "media",
+    "note": "OpenRouter 图片分层契约：必须提供恰好 1 张参考图和文字提示词，输出 PNG 或 WebP；单次固定生成 1 组 RGBA 图层，每层保持输入图尺寸。该端点不接受显式尺寸或宽高比，也不支持流式输出。当前目录价格为免费；费用以最终回执为准。"
+  },
+  {
+    "id": "google/gemini-3.8-flash-lite-tts",
+    "canonical_slug": "google/gemini-3.8-flash-lite-tts-20260922",
+    "name": "Google: Gemini 3.8 Flash Lite TTS",
+    "raw_description": "Gemini 3.8 Flash Lite TTS is a text-to-speech model from Google and the fast, high-throughput member of the 3.8 TTS family alongside [Gemini 3.8 Flash TTS](https://openrouter.ai/google/gemini-3.8-flash-tts). It is suited for...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.5,
+      "output": 6
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1790200276,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "OpenRouter 专用 /audio/speech 契约：支持目录公开的 30 个 Gemini 声线，当前以 PCM 请求并封装为 WAV 下载；输入 $0.50/M 文本 Token、输出 $6/M 音频 Token。契约已接入，真实短音频仍待本地人工验收。"
+  },
+  {
+    "id": "google/gemini-3.8-flash-tts",
+    "canonical_slug": "google/gemini-3.8-flash-tts-20260922",
+    "name": "Google: Gemini 3.8 Flash TTS",
+    "raw_description": "Gemini 3.8 Flash TTS is a text-to-speech model from Google and the successor to [Gemini 3.1 Flash TTS Preview](https://openrouter.ai/google/gemini-3.1-flash-tts-preview). It is the creative tier of the 3.8 TTS family, suited...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.5,
+      "output": 9
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1790200266,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "OpenRouter 专用 /audio/speech 契约：支持目录公开的 30 个 Gemini 声线，当前以 PCM 请求并封装为 WAV 下载；输入 $0.50/M 文本 Token、输出 $9/M 音频 Token。契约已接入，真实短音频仍待本地人工验收。"
+  },
+  {
+    "id": "z-ai/glm-5.3-prime",
+    "canonical_slug": "z-ai/glm-5.3-prime-20260921",
+    "name": "Z.ai: GLM 5.3 Prime",
+    "raw_description": "GLM-5.3-Prime is the high-speed variant of Z.ai's GLM-5.3, inheriting its full capabilities while delivering 1.5–2× the output throughput through inference acceleration. It supports text input and output with a 1M-token...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 2.8,
+      "output": 8.8
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1790199651,
+    "expiration_date": null,
+    "model_author": "Z.ai",
+    "reasoning_declared": true
+  },
+  {
+    "id": "qwen/qwen3.8-max-prime",
+    "canonical_slug": "qwen/qwen3.8-max-prime-20260923",
+    "name": "Qwen: Qwen3.8 Max Prime",
+    "raw_description": "Qwen3.8 Max Prime is a higher-throughput variant of Qwen3.8 Max from Alibaba's Qwen team, served as a separate SKU at a higher price point. It accepts text, image, and video...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 4,
+      "output": 12
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1790191228,
+    "expiration_date": null,
+    "model_author": "Qwen",
+    "reasoning_declared": true
+  },
+  {
+    "id": "recraft/recraft-v4.1-flash",
+    "canonical_slug": "recraft/recraft-v4.1-flash-20260923",
+    "name": "Recraft: Recraft V4.1 Flash",
+    "raw_description": "Recraft V4.1 Flash is a text-to-image model from Recraft, the speed and cost tier of the V4.1 family. It generates ~1K raster images in about 1.5 seconds end to end,...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "aspect_ratio",
+      "n"
+    ],
+    "created": 1790177946,
+    "expiration_date": null,
+    "model_author": "Recraft",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "image",
+      "usd": 0.007
+    },
+    "note": "OpenRouter 图片生成契约：仅支持文字生成约 1K 光栅图，宽高比可选 1:1、4:3、3:4、16:9、9:16 或自动，单次 1–6 张且不支持流式输出；不接受参考图。目录固定价为 $0.007/张，费用以最终回执为准。"
+  },
+  {
+    "id": "stealth/space-bunny-alpha",
+    "canonical_slug": "stealth/space-bunny-alpha",
+    "name": "Space Bunny Alpha",
+    "raw_description": "Space Bunny Alpha is an anonymous large model with blazing-fast inference, strong coding capabilities and native multimodal input support. It delivers adjustable reasoning effort, and a 1M-token context window. Space...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790174884,
+    "expiration_date": 4070822400,
+    "model_author": "Stealth",
+    "reasoning_declared": true
+  },
+  {
+    "id": "aion-labs/aion-3.5-mini",
+    "canonical_slug": "aion-labs/aion-3.5-mini-20260923",
+    "name": "AionLabs: Aion 3.5 Mini",
+    "raw_description": "Aion 3.5 Mini is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It is the smaller, lower-cost sibling of Aion 3.5 and uses...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.7,
+      "output": 1.4
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790170962,
+    "expiration_date": null,
+    "model_author": "AionLabs",
+    "reasoning_declared": true
+  },
+  {
+    "id": "aion-labs/aion-3.5",
+    "canonical_slug": "aion-labs/aion-3.5-20260923",
+    "name": "AionLabs: Aion 3.5",
+    "raw_description": "Aion 3.5 is a multi-model roleplaying and storytelling system from AionLabs, built on the GLM family of models. It uses a collaborative generation process in which multiple specialized models each...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 3,
+      "output": 6
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790170961,
+    "expiration_date": null,
+    "model_author": "AionLabs",
+    "reasoning_declared": true
+  },
+  {
+    "id": "upstage/solar-mini4",
+    "canonical_slug": "upstage/solar-mini4-20260922",
+    "name": "Upstage: Solar Mini 4",
+    "raw_description": "Solar Mini 4 is Upstage's compact, cost-efficient language model, a 35B-parameter mixture-of-experts with 3B active parameters and a 524K context window. It is built for agentic use cases where response...",
+    "context_length": 524288,
+    "pricing": {
+      "input": 0.049999999999999996,
+      "output": 0.19999999999999998
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "parallel_tool_calls",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790160358,
+    "expiration_date": null,
+    "model_author": "Upstage",
+    "reasoning_declared": true
+  },
   {
     "id": "cohere/command-a-plus",
     "canonical_slug": "cohere/command-a-plus-05-2026",
@@ -817,7 +1187,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1789744020,
-    "expiration_date": null,
+    "expiration_date": 4070822400,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -933,8 +1303,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 4.300000000000001
+      "input": 0.39,
+      "output": 2.9000000000000004
     },
     "input_modalities": [
       "text"
@@ -977,8 +1347,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.095,
-      "output": 0.49
+      "input": 0.04,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -1396,7 +1766,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "inclusionai/ling-3.0-flash-vl-20260910",
     "name": "inclusionAI: Ling 3.0 Flash VL",
     "raw_description": "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
-    "context_length": 131072,
+    "context_length": 262144,
     "pricing": {
       "input": 0.06,
       "output": 0.18
@@ -1414,6 +1784,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -1427,6 +1798,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1789056114,
@@ -1482,40 +1854,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "input": 0.15,
-          "output": 0.6
-        }
-      ]
+      "input": 0.14,
+      "output": 0.42
     },
     "input_modalities": [
       "text",
@@ -2336,9 +2676,12 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "max_completion_tokens",
       "max_tokens",
+      "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
@@ -2469,8 +2812,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.075,
-      "output": 0.25
+      "input": 0.045,
+      "output": 0.14
     },
     "input_modalities": [
       "text",
@@ -2953,7 +3296,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "tencent/hy-mt2-30b-a3b-20260521",
     "name": "Tencent: Hy-MT2-30B-A3B",
     "raw_description": "Hy-MT2-30B-A3B is Tencent's flagship translation model in the Hy-MT2 family. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and...",
-    "context_length": 8192,
+    "context_length": 32768,
     "pricing": {
       "input": 0.074,
       "output": 0.295
@@ -2966,12 +3309,19 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "frequency_penalty",
+      "logprobs",
       "max_completion_tokens",
       "max_tokens",
+      "presence_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
-      "temperature"
+      "temperature",
+      "top_k",
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1787231561,
     "expiration_date": null,
@@ -3715,40 +4065,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "input": 0.66,
-          "output": 1.9800000000000002
-        }
-      ]
+      "input": 0.46199999999999997,
+      "output": 1.386
     },
     "input_modalities": [
       "text"
@@ -3897,7 +4215,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs"
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1786470519,
     "expiration_date": null,
@@ -3911,7 +4230,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.07,
+      "input": 0.08,
       "output": 0.19999999999999998
     },
     "input_modalities": [
@@ -4357,7 +4676,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1310720,
     "pricing": {
       "input": 0.03,
-      "output": 0.7999999999999999
+      "output": 0.32
     },
     "input_modalities": [
       "text"
@@ -4402,8 +4721,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.04,
-      "output": 0.64
+      "input": 0.03,
+      "output": 0.32
     },
     "input_modalities": [
       "text"
@@ -7962,7 +8281,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "mistralai/voxtral-mini-transcribe-2602",
     "name": "Mistral: Voxtral Mini Transcribe",
     "raw_description": "Voxtral Mini Transcribe is Mistral's speech-to-text model, derived from the Voxtral Mini family. It accepts audio input and returns transcribed text via the standard transcription API. Suited for transcribing meetings,...",
-    "context_length": 0,
+    "context_length": 16384,
     "pricing": {
       "input": 50,
       "output": 0
@@ -9053,8 +9372,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.4989,
-      "output": 10.758
+      "input": 1.4,
+      "output": 10.75
     },
     "input_modalities": [
       "text",
@@ -9539,8 +9858,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.9396,
+      "output": 1.8792
     },
     "input_modalities": [
       "text"
@@ -9749,7 +10068,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Orpheus 3B is an English text-to-speech model from Canopy Labs, fine-tuned for natural prosody and expressive delivery. It offers 7 preset voices and is suited for narration, voice assistants, and...",
     "context_length": 4096,
     "pricing": {
-      "input": 15,
+      "input": 7,
       "output": 0
     },
     "input_modalities": [
@@ -15210,8 +15529,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2 is a compact, high-efficiency large language model optimized for end-to-end coding and agentic workflows. With 10 billion activated parameters (230 billion total), it delivers near-frontier intelligence across general reasoning,...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.255,
-      "output": 1.02
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text"
@@ -16404,7 +16723,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
+      "input": 0.09999999999999999,
       "output": 1.1
     },
     "input_modalities": [
@@ -17339,8 +17658,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.04815,
-      "output": 0.19305
+      "input": 0.09999999999999999,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -22684,8 +23003,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.72,
-      "output": 2.4
+      "input": 0.44999999999999996,
+      "output": 2
     },
     "input_modalities": [
       "text"
@@ -24477,6 +24796,48 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "openai/gpt-oss-120b:batch",
+    "canonical_slug": "openai/gpt-oss-120b",
+    "name": "OpenAI: gpt-oss-120b (batch)",
+    "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.0296,
+      "output": 0.136
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1754414231,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "openai/gpt-oss-20b:batch",
     "canonical_slug": "openai/gpt-oss-20b",
     "name": "OpenAI: gpt-oss-20b (batch)",
@@ -25102,6 +25463,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "inception/mercury-2.5-preview",
   "inclusionai/ling-2.6-1t",
   "inclusionai/ling-2.6-flash",
+  "inclusionai/ling-3.0-flash-vl:free",
   "inclusionai/ling-3.0-flash:free",
   "inclusionai/ring-2.6-1t",
   "inflection/inflection-3-pi",
@@ -25120,10 +25482,13 @@ const uncertainCatalogModelIds = new Set<string>([
   "microsoft/phi-4-mini-instruct",
   "minimax/minimax-m2.7:free",
   "minimax/minimax-m3:free",
+  "mistralai/devstral-2512",
   "mistralai/ministral-8b",
   "mistralai/mistral-large-2512",
   "moonshotai/kimi-k2.6:free",
   "nex-agi/deepseek-v3.1-nex-n1",
+  "nex-agi/nex-n2.5-mini",
+  "nex-agi/nex-n2.5-pro",
   "nousresearch/hermes-3-llama-3.1-405b:free",
   "nousresearch/hermes-4-70b",
   "nvidia/llama-3.3-nemotron-super-49b-v1.5",
@@ -25452,10 +25817,12 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
   "inclusionai/ming-image-0.1-design",
+  "inclusionai/ming-image-0.1-design-layer",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
   "openai/gpt-image-2.5-flare",
   "openai/gpt-image-2.5-sunburst",
+  "recraft/recraft-v4.1-flash",
 ]);
 
 function inferOperations(raw: RawCatalogModel): ModelOperation[] {
@@ -25986,6 +26353,17 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "upstage/solar-mini4",
+  "aion-labs/aion-3.5",
+  "aion-labs/aion-3.5-mini",
+  "stealth/space-bunny-alpha",
+  "recraft/recraft-v4.1-flash",
+  "qwen/qwen3.8-max-prime",
+  "z-ai/glm-5.3-prime",
+  "google/gemini-3.8-flash-tts",
+  "google/gemini-3.8-flash-lite-tts",
+  "inclusionai/ming-image-0.1-design-layer",
+  "fireworks/ember-1",
   "cohere/command-a-plus",
   "openai/gpt-6-luna-pro",
   "openai/gpt-6-luna",

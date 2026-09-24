@@ -22,7 +22,11 @@ except ModuleNotFoundError:
 if TYPE_CHECKING:
     from server.model_router.multimodal_gateway import ManagedMultimodalGateway
 
-from .stt import MultimodalServiceError, OpenRouterTarget
+from .stt import (
+    MultimodalServiceError,
+    OpenRouterTarget,
+    manual_verification_enabled,
+)
 
 
 logger = logging.getLogger("modelmirror.multimodal")
@@ -30,8 +34,12 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-08-13-c1"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-09-24-gemini38"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
+GEMINI_38_FLASH_TTS_MODEL_ID = "google/gemini-3.8-flash-tts"
+GEMINI_38_FLASH_LITE_TTS_MODEL_ID = (
+    "google/gemini-3.8-flash-lite-tts"
+)
 DEEPGRAM_FLUX_TTS_MODEL_ID = "deepgram/flux-tts:free"
 FISH_AUDIO_PUBLIC_VOICES = (
     "8ef4a238714b45718ce04243307c57a7",
@@ -85,10 +93,52 @@ DEEPGRAM_FLUX_TTS_VOICES = (
     "flux-wade-en",
     "flux-wes-en",
 )
+GEMINI_38_TTS_VOICES = (
+    "Zephyr",
+    "Puck",
+    "Charon",
+    "Kore",
+    "Fenrir",
+    "Leda",
+    "Orus",
+    "Aoede",
+    "Callirrhoe",
+    "Autonoe",
+    "Enceladus",
+    "Iapetus",
+    "Umbriel",
+    "Algieba",
+    "Despina",
+    "Erinome",
+    "Algenib",
+    "Rasalgethi",
+    "Laomedeia",
+    "Achernar",
+    "Alnilam",
+    "Schedar",
+    "Gacrux",
+    "Pulcherrima",
+    "Achird",
+    "Zubenelgenubi",
+    "Vindemiatrix",
+    "Sadachbia",
+    "Sadaltager",
+    "Sulafat",
+)
+MANUAL_SPEECH_PROFILE_IDS = frozenset(
+    {
+        GEMINI_38_FLASH_TTS_MODEL_ID,
+        GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+    }
+)
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_PCM_TTS_MODEL_ID: "wav",
+    GEMINI_38_FLASH_TTS_MODEL_ID: "wav",
+    GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
+    GEMINI_38_FLASH_LITE_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     DEEPGRAM_FLUX_TTS_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,
     "fish-audio/s1": FISH_AUDIO_PUBLIC_VOICES,
     "fish-audio/s2-pro": FISH_AUDIO_PUBLIC_VOICES,
@@ -1059,6 +1109,15 @@ class SpeechService:
             raise MultimodalServiceError(
                 "unsupported_speech_model",
                 "该语音模型尚未完成行为验证，请从页面的可用模型中选择。",
+                status_code=422,
+            )
+        if (
+            model_id in MANUAL_SPEECH_PROFILE_IDS
+            and not manual_verification_enabled(model_id)
+        ):
+            raise MultimodalServiceError(
+                "speech_model_verification_required",
+                "该语音模型的契约已接入，仍需在本地完成短音频人工验收。",
                 status_code=422,
             )
         return model_id
