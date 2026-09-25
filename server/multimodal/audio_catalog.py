@@ -45,7 +45,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-24-gemini38"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-25-transcribe"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -275,6 +275,32 @@ for _model_id, _profile in MANUAL_TRANSCRIPTION_PROFILES.items():
             ),
         ),
     )
+OPENROUTER_AUDIO_CONTRACTS["fish-audio/transcribe-1-pro"] = AudioContract(
+    operations=("transcribe",),
+    chat_modes=("transcribe",),
+    input_formats=tuple(ALLOWED_AUDIO_FORMATS),
+    interaction_adapted=True,
+    manual_verification_required=True,
+    verification_status="manual_required",
+    planned_reason=(
+        "OpenRouter JSON Base64 同步转写契约已接入；目录说明支持自动语言识别、"
+        "说话人标记、情绪与声音事件提示及词级时间戳，费率为 $0.36/音频小时。"
+        "等待本地短音频人工验收。"
+    ),
+)
+OPENROUTER_AUDIO_CONTRACTS["google/gemini-3.5-transcribe"] = AudioContract(
+    operations=("transcribe",),
+    chat_modes=("transcribe",),
+    input_formats=tuple(ALLOWED_AUDIO_FORMATS),
+    interaction_adapted=True,
+    manual_verification_required=True,
+    verification_status="manual_required",
+    planned_reason=(
+        "OpenRouter JSON Base64 同步转写契约已接入；目录说明支持词级时间戳和"
+        "最多 8 位说话人的分离，普通音频最长 1 小时，启用时间戳或分离时最长 30 分钟。"
+        "等待本地短音频人工验收。"
+    ),
+)
 OPENROUTER_AUDIO_CONTRACTS["meta/muse-voice-transcribe-1.0"] = AudioContract(
     operations=("transcribe",),
     chat_modes=("transcribe",),

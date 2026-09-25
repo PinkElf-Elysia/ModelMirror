@@ -80,6 +80,22 @@ def test_august_14_stt_snapshots_are_adapted_for_manual_verification() -> None:
         assert profile.smoke_languages == ("zh", "en")
 
 
+def test_september_24_stt_snapshots_are_adapted_for_manual_verification() -> None:
+    expected_models = {
+        "fish-audio/transcribe-1-pro",
+        "google/gemini-3.5-transcribe",
+    }
+
+    assert expected_models <= MANUAL_TRANSCRIPTION_PROFILES.keys()
+    assert not expected_models & VERIFIED_TRANSCRIPTION_PROFILES.keys()
+    for model_id in expected_models:
+        profile = MANUAL_TRANSCRIPTION_PROFILES[model_id]
+        assert {"mp3", "wav", "m4a", "webm"} <= set(
+            profile.input_formats
+        )
+        assert profile.smoke_languages == ("zh", "en")
+
+
 def test_mai_transcribe_2_is_adapted_for_manual_verification() -> None:
     model_id = "microsoft/mai-transcribe-2"
 

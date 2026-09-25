@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-24T07:06:07.666Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-25T03:34:15.961Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -223,6 +223,57 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "google/gemini-3.5-transcribe",
+    "canonical_slug": "google/gemini-3.5-transcribe-20260827",
+    "name": "Google: Gemini 3.5 Transcribe",
+    "raw_description": "Gemini 3.5 Transcribe is a speech-to-text model from Google. It is suited for synchronous transcription that needs word-level timestamps or speaker diarization, with support for up to eight speakers. Audio can be up to one hour, or 30 minutes when timestamps or diarization are enabled.",
+    "context_length": 98304,
+    "pricing": {
+      "input": 2,
+      "output": 12
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1790295820,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "通过 OpenRouter /api/v1/audio/transcriptions 的 JSON Base64 契约同步转写；目录价为输入 $2/M Token、输出 $12/M Token。目录说明支持词级时间戳与最多 8 位说话人分离；普通音频最长 1 小时，启用时间戳或分离时最长 30 分钟。契约已适配，真实短音频仍待人工验收，最终费用以上游回执为准。"
+  },
+  {
+    "id": "fish-audio/transcribe-1-pro",
+    "canonical_slug": "fish-audio/transcribe-1-pro-20260924",
+    "name": "Fish Audio: Transcribe 1 Pro",
+    "raw_description": "Transcribe 1 Pro is a speech-to-text model from Fish Audio tuned for interviews, meetings, and podcasts. It labels speakers with inline `speaker` markers, preserves emotion and vocal-event cues such as `[laughter]`, detects language automatically, and can return timestamped word-level segments.",
+    "context_length": 0,
+    "pricing": {
+      "input": 100,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790278301,
+    "expiration_date": null,
+    "model_author": "Fish Audio",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.36
+    },
+    "note": "通过 OpenRouter /api/v1/audio/transcriptions 的 JSON Base64 契约同步转写；目录价为 $0.0001/音频秒（$0.36/音频小时）。目录说明支持自动语言识别、说话人标记、情绪与声音事件提示及词级时间戳。契约已适配，真实短音频仍待人工验收，最终费用以上游回执为准。"
+  },
   {
     "id": "fireworks/ember-1",
     "canonical_slug": "fireworks/ember-1-20260923",
@@ -486,7 +537,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1790174884,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Stealth",
     "reasoning_declared": true
   },
@@ -1187,7 +1238,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1789744020,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -1303,8 +1354,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.39,
-      "output": 2.9000000000000004
+      "input": 0.3498,
+      "output": 1.0494
     },
     "input_modalities": [
       "text"
@@ -1348,7 +1399,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.04,
-      "output": 1
+      "output": 0.49
     },
     "input_modalities": [
       "text",
@@ -1854,8 +1905,40 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.14,
-      "output": 0.42
+      "input": 0.3,
+      "output": 1.2,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "input": 0.15,
+          "output": 0.6
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -2925,8 +3008,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.045,
+      "output": 0.6
     },
     "input_modalities": [
       "text",
@@ -3296,7 +3379,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "tencent/hy-mt2-30b-a3b-20260521",
     "name": "Tencent: Hy-MT2-30B-A3B",
     "raw_description": "Hy-MT2-30B-A3B is Tencent's flagship translation model in the Hy-MT2 family. It supports 33 language pairs and five Chinese dialect and minority-language pairs, with workflows for structured, delimiter-based, contextual, glossary-based, and...",
-    "context_length": 32768,
+    "context_length": 8192,
     "pricing": {
       "input": 0.074,
       "output": 0.295
@@ -3309,19 +3392,12 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
-      "frequency_penalty",
-      "logprobs",
       "max_completion_tokens",
       "max_tokens",
-      "presence_penalty",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
-      "temperature",
-      "top_k",
-      "top_logprobs",
-      "top_p"
+      "temperature"
     ],
     "created": 1787231561,
     "expiration_date": null,
@@ -3363,8 +3439,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.5625,
-      "output": 2.5
+      "input": 0.5614,
+      "output": 1.7644
     },
     "input_modalities": [
       "text"
@@ -3437,8 +3513,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.84,
-      "output": 2.64
+      "input": 1.4,
+      "output": 4.4
     },
     "input_modalities": [
       "text"
@@ -3613,7 +3689,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1786680361,
-    "expiration_date": 1798675200,
+    "expiration_date": null,
     "model_author": "Dots Studio",
     "reasoning_declared": true
   },
@@ -5957,8 +6033,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 3,
-      "output": 15
+      "input": 0.8845,
+      "output": 10.534600000000001
     },
     "input_modalities": [
       "text",
@@ -7299,7 +7375,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.7062,
+      "input": 0.6562,
       "output": 3.3000000000000003
     },
     "input_modalities": [
@@ -9372,8 +9448,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.4,
-      "output": 10.75
+      "input": 0.8845,
+      "output": 10.534600000000001
     },
     "input_modalities": [
       "text",
@@ -9858,8 +9934,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9396,
-      "output": 1.8792
+      "input": 0.817974,
+      "output": 1.635948
     },
     "input_modalities": [
       "text"
@@ -9903,8 +9979,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.088606,
-      "output": 0.177212
+      "input": 0.049,
+      "output": 0.098
     },
     "input_modalities": [
       "text"
@@ -10787,8 +10863,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.966,
-      "output": 3.036
+      "input": 0.9646,
+      "output": 3.0316
     },
     "input_modalities": [
       "text"
@@ -11129,7 +11205,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1775061458,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -11762,7 +11838,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1773583573,
-    "expiration_date": 4070822400,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -13614,8 +13690,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-4.7 is Z.ai’s latest flagship model, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning/execution. It demonstrates significant improvements in executing complex agent tasks while...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 1.75
+      "input": 0.6,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -16023,7 +16099,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1759870431,
-    "expiration_date": 1805068800,
+    "expiration_date": null,
     "model_author": "Google"
   },
   {
@@ -16074,8 +16150,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-VL-30B-A3B-Instruct is a multimodal model that unifies strong text generation with visual understanding for images and videos. Its Instruct variant optimizes instruction-following for general multimodal tasks. It excels in perception...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13,
-      "output": 0.52
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text",
@@ -17719,7 +17795,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753471347,
-    "expiration_date": 1798675200,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -25482,9 +25558,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "microsoft/phi-4-mini-instruct",
   "minimax/minimax-m2.7:free",
   "minimax/minimax-m3:free",
-  "mistralai/devstral-2512",
   "mistralai/ministral-8b",
-  "mistralai/mistral-large-2512",
   "moonshotai/kimi-k2.6:free",
   "nex-agi/deepseek-v3.1-nex-n1",
   "nex-agi/nex-n2.5-mini",
@@ -26353,6 +26427,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "google/gemini-3.5-transcribe",
+  "fish-audio/transcribe-1-pro",
   "upstage/solar-mini4",
   "aion-labs/aion-3.5",
   "aion-labs/aion-3.5-mini",

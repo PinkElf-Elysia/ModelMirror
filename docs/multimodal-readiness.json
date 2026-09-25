@@ -1,16 +1,16 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-24",
+  "reviewed_at": "2026-09-25",
   "catalog": {
-    "snapshot_total": 644,
+    "snapshot_total": 646,
     "serving_variant_total": 76,
     "serving_variants_by_type": {
       "batch": 76
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 545,
-    "uncertain": 91,
-    "expired": 8,
+    "live": 547,
+    "uncertain": 89,
+    "expired": 10,
     "onsite_openrouter": 636,
     "adaptation_denominator": 636,
     "uncertain_included_in_onsite": true,
@@ -123,6 +123,22 @@
       "verification_status": "manual_required",
       "support_level": "native",
       "status_reason": "OpenRouter JSON Base64 转写契约和 $0.10/音频小时费率已适配；尚未完成本地短音频人工验收，不计为已验证可调用。"
+    },
+    {
+      "model_id": "fish-audio/transcribe-1-pro",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter JSON Base64 同步转写契约和 $0.36/音频小时费率已适配；目录说明支持自动语言识别、说话人标记、情绪与声音事件提示及词级时间戳，尚未完成本地短音频人工验收。"
+    },
+    {
+      "model_id": "google/gemini-3.5-transcribe",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter JSON Base64 同步转写契约与 Token 费率已适配；目录说明支持词级时间戳与最多 8 位说话人分离，普通音频最长 1 小时，启用时间戳或分离时最长 30 分钟，尚未完成本地短音频人工验收。"
     },
     {
       "model_id": "assemblyai/universal-3-5-pro",
