@@ -6,6 +6,33 @@ const source = {
   id: "microsoft/mai-transcribe-2",
   pricing: { prompt: "0.1" },
 };
+
+const fishSource = {
+  id: "fish-audio/transcribe-1-pro",
+  pricing: { prompt: "0.0001" },
+};
+const fishLocal = {
+  id: "fish-audio/transcribe-1-pro",
+  pricing_basis: "media",
+  media_pricing: { unit: "audio_hour", usd: 0.36 },
+};
+const fishMarket = {
+  slug: "fish-audio/transcribe-1-pro",
+  endpoint: {
+    model_variant_slug: "fish-audio/transcribe-1-pro",
+    pricing: { prompt: "0.0001" },
+    display_pricing: [
+      {
+        kind: "unit",
+        sku_label: "Audio Seconds",
+        price: "0.0001",
+        displayMultiplier: 1,
+        unitLabel: "/second",
+      },
+    ],
+    pricing_json: { "fish_audio_stt:audio_seconds": "0.0001" },
+  },
+};
 const local = {
   id: "microsoft/mai-transcribe-2",
   pricing_basis: "media",
@@ -89,6 +116,17 @@ test("accepts the discounted Universal-3.5 Pro audio-hour overlay", () => {
       localModels: [assemblyLocal],
       sourceModels: [assemblySource],
       marketModels: [assemblyMarket],
+    }),
+    [],
+  );
+});
+
+test("accepts the required Fish Transcribe 1 Pro audio-hour overlay", () => {
+  assert.deepEqual(
+    auditAudioHourPricingOverlays({
+      localModels: [fishLocal],
+      sourceModels: [fishSource],
+      marketModels: [fishMarket],
     }),
     [],
   );

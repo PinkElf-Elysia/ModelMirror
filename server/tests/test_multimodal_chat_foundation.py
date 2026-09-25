@@ -130,6 +130,18 @@ def audio_catalog_payload() -> dict[str, object]:
                 "output_modalities": ["transcription"],
             },
             {
+                "id": "fish-audio/transcribe-1-pro",
+                "name": "Fish Audio: Transcribe 1 Pro",
+                "input_modalities": ["audio"],
+                "output_modalities": ["transcription"],
+            },
+            {
+                "id": "google/gemini-3.5-transcribe",
+                "name": "Google: Gemini 3.5 Transcribe",
+                "input_modalities": ["audio"],
+                "output_modalities": ["transcription"],
+            },
+            {
                 "id": "microsoft/mai-voice-2",
                 "name": "Microsoft: MAI Voice 2",
                 "input_modalities": ["text"],
@@ -346,7 +358,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-09-24-gemini38"
+        "modelmirror-audio-contracts-2026-09-25-transcribe"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -405,6 +417,22 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
         "manual_required"
     )
     assert "16-bit PCM WAV" in (muse_stt.status_reason or "")
+    fish_pro = by_id["fish-audio/transcribe-1-pro"]
+    assert fish_pro.operations == ["transcribe"]
+    assert fish_pro.chat_modes == []
+    assert fish_pro.interaction_status == "planned"
+    assert fish_pro.operation_readiness[0].verification_status == (
+        "manual_required"
+    )
+    assert "$0.36/音频小时" in (fish_pro.status_reason or "")
+    gemini_stt = by_id["google/gemini-3.5-transcribe"]
+    assert gemini_stt.operations == ["transcribe"]
+    assert gemini_stt.chat_modes == []
+    assert gemini_stt.interaction_status == "planned"
+    assert gemini_stt.operation_readiness[0].verification_status == (
+        "manual_required"
+    )
+    assert "最多 8 位说话人" in (gemini_stt.status_reason or "")
     assert by_id["microsoft/mai-voice-2"].chat_modes == [
         "synthesize_speech"
     ]
@@ -785,7 +813,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-09-24-gemini38"
+        "modelmirror-audio-contracts-2026-09-25-transcribe"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

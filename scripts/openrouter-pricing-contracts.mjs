@@ -1,5 +1,26 @@
 export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
   [
+    "fish-audio/transcribe-1-pro",
+    Object.freeze({
+      unit: "audio_hour",
+      pricingBasis: "media",
+      sourcePricingField: "prompt",
+      normalizedPricingField: "input",
+      normalizedPriceDivisor: 1_000_000,
+      normalizedPriceMultiplier: 3_600,
+      sourcePriceMultiplier: 3_600,
+      marketPricing: Object.freeze({
+        pricingField: "prompt",
+        displayKind: "unit",
+        skuLabel: "Audio Seconds",
+        unitLabel: "/second",
+        priceMultiplier: 3_600,
+        pricingJsonKey: "fish_audio_stt:audio_seconds",
+        pricingJsonMultiplier: 3_600,
+      }),
+    }),
+  ],
+  [
     "assemblyai/universal-3-5-pro",
     Object.freeze({
       unit: "audio_hour",
