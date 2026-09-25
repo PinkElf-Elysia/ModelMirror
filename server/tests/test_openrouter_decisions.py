@@ -83,12 +83,17 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 
 
 @pytest.mark.asyncio
-async def test_decisions_accepts_latest_alias(
+@pytest.mark.parametrize(
+    "model_id",
+    ["jaredpalmer/kev-4b", "~typesafe/jev-latest"],
+)
+async def test_decisions_accepts_supported_models(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
+    model_id: str,
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert json.loads(request.content)["model"] == "~typesafe/jev-latest"
+        assert json.loads(request.content)["model"] == model_id
         return httpx.Response(200, json={"answers": {"risk": {"score": 0.4}}})
 
     monkeypatch.setattr(main_module, "OPENROUTER_API_KEY", "decisions-secret")
@@ -102,7 +107,7 @@ async def test_decisions_accepts_latest_alias(
     response = await client.post(
         "/api/decisions",
         json={
-            "model": "~typesafe/jev-latest",
+            "model": model_id,
             "state": "Candidate evidence",
             "questions": {
                 "risk": {

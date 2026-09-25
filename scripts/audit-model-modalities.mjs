@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "jaredpalmer/kev-4b",
   "fish-audio/transcribe-1-pro",
   "google/gemini-3.5-transcribe",
   "recraft/recraft-v4.1-flash",

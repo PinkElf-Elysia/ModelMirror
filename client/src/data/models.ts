@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-25T03:34:15.961Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-25T17:10:35.762Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -223,6 +223,29 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "jaredpalmer/kev-4b",
+    "canonical_slug": "jaredpalmer/kev-4b-20260924",
+    "name": "Jared Palmer: Kev 4B",
+    "raw_description": "Kev 4B is a small open-weight decision model from Jared Palmer, built as a LoRA adapter and pointer head on Qwen3.5-4B-Base and served over the same /v1/systemone contract as TypeSafe's...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790354233,
+    "expiration_date": null,
+    "model_author": "Jared Palmer",
+    "note": "这是结构化决策模型，不生成聊天文本。请在独立决策工作台中提交 state 与类型化 questions；复用 OpenRouter Decisions 契约，尚未执行该模型的真实付费调用。"
+  },
   {
     "id": "google/gemini-3.5-transcribe",
     "canonical_slug": "google/gemini-3.5-transcribe-20260827",
@@ -26427,6 +26450,7 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "jaredpalmer/kev-4b",
   "google/gemini-3.5-transcribe",
   "fish-audio/transcribe-1-pro",
   "upstage/solar-mini4",

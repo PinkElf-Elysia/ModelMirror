@@ -3590,6 +3590,22 @@ export const openRouterMarketSnapshotByModelId: Record<string, OpenRouterMarketS
     "artificial_analysis": {},
     "design_arena": {}
   },
+  "jaredpalmer/kev-4b": {
+    "series": "Other",
+    "author": "jaredpalmer",
+    "providers": [
+      "SiliconFlow"
+    ],
+    "categories": [],
+    "discounted": false,
+    "distillable": false,
+    "zero_data_retention": true,
+    "regions": [],
+    "created_at": 1790354233,
+    "tool_call_success_rate": null,
+    "artificial_analysis": {},
+    "design_arena": {}
+  },
   "krea/krea-2-large": {
     "series": "Media",
     "author": "krea",

@@ -2,17 +2,17 @@
   "schema_version": 1,
   "reviewed_at": "2026-09-25",
   "catalog": {
-    "snapshot_total": 646,
+    "snapshot_total": 647,
     "serving_variant_total": 76,
     "serving_variants_by_type": {
       "batch": 76
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 547,
+    "live": 548,
     "uncertain": 89,
     "expired": 10,
-    "onsite_openrouter": 636,
-    "adaptation_denominator": 636,
+    "onsite_openrouter": 637,
+    "adaptation_denominator": 637,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -52,6 +52,14 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "jaredpalmer/kev-4b",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已按 text → decisions 目录契约接入 OpenRouter alpha Decisions 工作台、动态上下文与费用预估；尚未执行该模型的真实付费调用。"
+    },
     {
       "model_id": "typesafe/jev-1.13",
       "operation": "decide",

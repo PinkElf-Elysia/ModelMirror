@@ -185,11 +185,11 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(646);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(547);
+    expect(counted).toHaveLength(647);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(548);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(89);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(10);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(636);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(637);
   });
 
   it("adapts the September 24 refresh below the first six rows", () => {
@@ -2529,8 +2529,12 @@ describe("OpenRouter model refresh", () => {
     ]);
   });
 
-  it("keeps JEV on its dedicated structured-decision surface", () => {
-    for (const modelId of ["typesafe/jev-1.13", "~typesafe/jev-latest"]) {
+  it("keeps decision models on their dedicated structured-decision surface", () => {
+    for (const modelId of [
+      "jaredpalmer/kev-4b",
+      "typesafe/jev-1.13",
+      "~typesafe/jev-latest",
+    ]) {
       const model = models.find((candidate) => candidate.id === modelId);
       expect(model).toMatchObject({
         id: modelId,
@@ -2543,5 +2547,8 @@ describe("OpenRouter model refresh", () => {
       });
       expect(model?.operations).not.toContain("chat");
     }
+    expect(models.findIndex((model) => model.id === "jaredpalmer/kev-4b")).toBeGreaterThanOrEqual(
+      2 + 6 * 3,
+    );
   });
 });
