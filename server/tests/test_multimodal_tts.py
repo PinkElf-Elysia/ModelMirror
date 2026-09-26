@@ -29,9 +29,12 @@ from server.multimodal.tts import (
     MAX_SPEECH_INPUT_CHARS,
     MINIMAX_SYSTEM_SPEECH_VOICES,
     OPENAI_SPEECH_PROFILES,
+    SEED_AUDIO_MODEL_ID,
+    SEED_AUDIO_PROMPT_VOICE,
     OpenRouterTtsAdapter,
     SpeechResult,
     SpeechService,
+    speech_request_payload,
     speech_output_format,
 )
 
@@ -131,6 +134,52 @@ def test_gemini_38_tts_catalog_is_adapted_but_waits_for_manual_verification(
         assert profile.operation_readiness[0].verification_status == (
             "manual_required"
         )
+
+
+def test_seed_audio_uses_prompt_driven_voice_and_waits_for_manual_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    assert ALLOWED_SPEECH_PROFILES[SEED_AUDIO_MODEL_ID] == (
+        SEED_AUDIO_PROMPT_VOICE,
+    )
+    assert speech_output_format(SEED_AUDIO_MODEL_ID) == "mp3"
+    assert speech_request_payload(
+        model_id=SEED_AUDIO_MODEL_ID,
+        text="温暖而克制地朗读：欢迎使用模镜。",
+        voice=SEED_AUDIO_PROMPT_VOICE,
+        response_format="mp3",
+        speed=1.0,
+    ) == {
+        "model": SEED_AUDIO_MODEL_ID,
+        "input": "温暖而克制地朗读：欢迎使用模镜。",
+        "response_format": "mp3",
+    }
+
+    service = object.__new__(AudioCatalogService)
+    profile = service._profile_from_item(
+        "openrouter",
+        "connection-test",
+        {
+            "id": SEED_AUDIO_MODEL_ID,
+            "name": SEED_AUDIO_MODEL_ID,
+            "architecture": {
+                "input_modalities": ["text"],
+                "output_modalities": ["speech"],
+            },
+        },
+        chat_enabled=True,
+        streaming_enabled=False,
+        generation_enabled=False,
+        realtime_enabled=False,
+    )
+    assert profile is not None
+    assert profile.interaction_status == "planned"
+    assert profile.output_formats == ["mp3"]
+    assert profile.voices == [SEED_AUDIO_PROMPT_VOICE]
+    assert profile.operation_readiness[0].verification_status == (
+        "manual_required"
+    )
 
 
 def test_deepgram_flux_tts_uses_the_live_openrouter_voice_contract() -> None:

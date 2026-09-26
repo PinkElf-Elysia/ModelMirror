@@ -44,7 +44,8 @@ export default function DecisionPage() {
   }, [questionsSource]);
 
   const estimatedTokens = Math.ceil((state.length + questionsSource.length) / 4);
-  const estimatedCost = (estimatedTokens / 1_000_000) * 0.042;
+  const inputPrice = model?.pricing.input ?? 0;
+  const estimatedCost = (estimatedTokens / 1_000_000) * inputPrice;
   const requestBody = {
     model: decodedModelId,
     state,
@@ -104,7 +105,7 @@ export default function DecisionPage() {
             </div>
             <h1 className="mt-4 text-3xl font-bold">{model.name}</h1>
             <p className="mt-3 text-sm leading-6 text-slate-300">
-              JEV 不生成聊天文本。它根据共享状态回答一组类型化问题，适合路由、排序、验证和快速决策。
+              {model.name} 不生成聊天文本。它根据共享状态回答一组类型化问题，适合路由、排序、验证和快速决策。
             </p>
             <label className="mt-7 block text-sm font-semibold" htmlFor="decision-state">状态</label>
             <textarea
@@ -157,13 +158,13 @@ export default function DecisionPage() {
                 <div className="flex justify-between gap-4"><dt>端点</dt><dd className="font-mono text-xs">/api/alpha/decisions</dd></div>
                 <div className="flex justify-between gap-4"><dt>问题类型</dt><dd>noul / choice / score</dd></div>
                 <div className="flex justify-between gap-4"><dt>输出</dt><dd>类型化 answers</dd></div>
-                <div className="flex justify-between gap-4"><dt>上下文</dt><dd>32K</dd></div>
+                <div className="flex justify-between gap-4"><dt>上下文</dt><dd>{model.context_length > 0 ? `${model.context_length.toLocaleString()} Token` : "目录未披露"}</dd></div>
               </dl>
             </div>
             <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.06] p-6">
               <div className="flex items-center gap-2 text-emerald-200"><ShieldCheck className="h-5 w-5" /><h2 className="font-semibold">费用预估</h2></div>
               <p className="mt-3 text-2xl font-bold">约 ${estimatedCost.toFixed(6)}</p>
-              <p className="mt-2 text-sm text-slate-300">按约 {estimatedTokens.toLocaleString()} 输入 Token、$0.042 / M 估算；输出定价为 $0。</p>
+              <p className="mt-2 text-sm text-slate-300">按约 {estimatedTokens.toLocaleString()} 输入 Token、${inputPrice.toFixed(3)} / M 估算；输出定价为 $0。</p>
             </div>
             <p className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4 text-sm leading-6 text-amber-100">
               提交会将这里填写的状态与问题发送至 OpenRouter Decisions API。请勿填写密钥或未经授权的敏感数据。

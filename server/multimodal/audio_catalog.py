@@ -33,6 +33,7 @@ from .tts import (
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
     GEMINI_38_FLASH_TTS_MODEL_ID,
     OPENAI_SPEECH_PROFILES,
+    SEED_AUDIO_MODEL_ID,
     speech_output_format,
 )
 from .readiness import (
@@ -326,9 +327,11 @@ for _model_id, _voices in ALLOWED_SPEECH_PROFILES.items():
         ),
     )
 for _model_id in (
+    SEED_AUDIO_MODEL_ID,
     GEMINI_38_FLASH_TTS_MODEL_ID,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
 ):
+    _is_seed_audio = _model_id == SEED_AUDIO_MODEL_ID
     OPENROUTER_AUDIO_CONTRACTS[_model_id] = AudioContract(
         operations=("synthesize_speech",),
         chat_modes=("synthesize_speech",),
@@ -338,8 +341,15 @@ for _model_id in (
         manual_verification_required=True,
         verification_status="manual_required",
         planned_reason=(
-            "OpenRouter /audio/speech 与 30 个目录声线契约已接入；"
-            "等待本地短音频人工验收。"
+            (
+                "OpenRouter /audio/speech、MP3 输出与提示词驱动声线契约已接入；"
+                "参考音频和克隆能力尚未暴露；等待本地短音频人工验收。"
+            )
+            if _is_seed_audio
+            else (
+                "OpenRouter /audio/speech 与 30 个目录声线契约已接入；"
+                "等待本地短音频人工验收。"
+            )
         ),
     )
 

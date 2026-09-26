@@ -3341,7 +3341,14 @@ class ChatRequest(BaseModel):
 
 
 class OpenRouterDecisionRequest(BaseModel):
-    model: Literal["typesafe/jev-1.13", "~typesafe/jev-latest"]
+    model: Literal[
+        "respan/span-01",
+        "respan/span-01-lite",
+        "respan/span-01-lite:free",
+        "jaredpalmer/kev-4b",
+        "typesafe/jev-1.13",
+        "~typesafe/jev-latest",
+    ]
     state: str = Field(min_length=1, max_length=100_000)
     questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=50)
 

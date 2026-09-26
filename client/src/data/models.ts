@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-25T03:34:15.961Z.
+﻿// Merged with OpenRouter model catalog on 2026-09-26T18:15:18.808Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -223,6 +223,191 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "respan/span-01",
+    "canonical_slug": "respan/span-01-20260925",
+    "name": "Respan: Span-01",
+    "raw_description": "Span-01 is a behavior scoring model from Respan. It reads a conversation span and returns, for each plain-language behavior you define, the probability that the behavior is present. It is...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790387550,
+    "expiration_date": null,
+    "model_author": "Respan",
+    "note": "这是行为评分决策模型，不生成聊天文本。请在独立决策工作台中提交对话 state 与类型化 questions；已接入 OpenRouter Decisions 契约，尚未执行真实付费调用。"
+  },
+  {
+    "id": "respan/span-01-lite",
+    "canonical_slug": "respan/span-01-lite-20260925",
+    "name": "Respan: Span-01 Lite",
+    "raw_description": "Span-01 Lite is the free, lighter tier of Span-01, a behavior scoring model from Respan. It returns, for each plain-language behavior you define, the probability that the behavior is present...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790387542,
+    "expiration_date": null,
+    "model_author": "Respan",
+    "note": "这是免费的轻量行为评分决策模型，不生成聊天文本。请在独立决策工作台中提交对话 state 与类型化 questions；已接入 OpenRouter Decisions 契约，尚未执行真实调用。"
+  },
+  {
+    "id": "respan/span-01-lite:free",
+    "canonical_slug": "respan/span-01-lite-20260925",
+    "name": "Respan: Span-01 Lite (free)",
+    "raw_description": "Span-01 Lite is the free, lighter tier of Span-01, a behavior scoring model from Respan. It returns, for each plain-language behavior you define, the probability that the behavior is present...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790387542,
+    "expiration_date": null,
+    "model_author": "Respan",
+    "note": "这是 Span-01 Lite 的免费服务变体，仍属于独立可调用模型而非 Batch 档位；请在独立决策工作台使用。"
+  },
+  {
+    "id": "bytedance-seed/seed-audio-1-0",
+    "canonical_slug": "bytedance-seed/seed-audio-1-0-20260630",
+    "name": "ByteDance Seed: Seed Audio 1.0",
+    "raw_description": "Seed Audio 1.0 is ByteDance Seed's non-streaming audio generation model. It produces speech and other audio from a natural-language text prompt that can describe the desired voice, tone, and sound...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 2500
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790372476,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 9
+    },
+    "note": "按生成时长计费：$0.0025/秒（约 $9/小时）。已接入非流式 /audio/speech 与 MP3 输出；声线由文字提示描述，参考音频与克隆能力本轮暂未暴露，等待短音频人工验收。"
+  },
+  {
+    "id": "typesafe/jev-router",
+    "canonical_slug": "typesafe/jev-router",
+    "name": "TypeSafe: Jev Router",
+    "raw_description": "Jev Router picks the best model and reasoning effort for each request, balancing quality, speed, and cost. It runs on [Jev](https://openrouter.ai/~typesafe/jev-latest), TypeSafe's first System One model, and adapts as your...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": -1000000,
+      "output": -1000000
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [],
+    "created": 1790363560,
+    "expiration_date": null,
+    "model_author": "Typesafe"
+  },
+  {
+    "id": "jaredpalmer/kev-4b",
+    "canonical_slug": "jaredpalmer/kev-4b-20260924",
+    "name": "Jared Palmer: Kev 4B",
+    "raw_description": "Kev 4B is a small open-weight decision model from Jared Palmer, built as a LoRA adapter and pointer head on Qwen3.5-4B-Base and served over the same /v1/systemone contract as TypeSafe's...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790354233,
+    "expiration_date": null,
+    "model_author": "Jared Palmer",
+    "note": "这是结构化决策模型，不生成聊天文本。请在独立决策工作台中提交 state 与类型化 questions；复用 OpenRouter Decisions 契约，尚未执行该模型的真实付费调用。"
+  },
+  {
+    "id": "perceptron/perceptron-mk1.5",
+    "canonical_slug": "perceptron/perceptron-mk1.5-20260925",
+    "name": "Perceptron: Perceptron Mk1.5",
+    "raw_description": "Perceptron Mk1.5 is Perceptron's embodied reasoning model for physical agents. It accepts text, image, video, and audio input, and answers with text plus optional structured annotations: points, boxes, polygons, tracks,...",
+    "context_length": 36864,
+    "pricing": {
+      "input": 0.15,
+      "output": 1.5
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1790352661,
+    "expiration_date": null,
+    "model_author": "Perceptron",
+    "reasoning_declared": true
+  },
   {
     "id": "google/gemini-3.5-transcribe",
     "canonical_slug": "google/gemini-3.5-transcribe-20260827",
@@ -1035,7 +1220,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "xiaomi/mimo-v2.6-pro-20260921",
     "name": "Xiaomi: MiMo-V2.6-Pro",
     "raw_description": "MiMo-V2.6-Pro is the flagship foundation model developed by Xiaomi. Built at a scale of over 1T parameters, it is designed to push the ceiling of capability for the most demanding...",
-    "context_length": 1048576,
+    "context_length": 1050000,
     "pricing": {
       "input": 0.435,
       "output": 0.87
@@ -1354,8 +1539,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3498,
-      "output": 1.0494
+      "input": 0.24947999999999998,
+      "output": 0.7484400000000001
     },
     "input_modalities": [
       "text"
@@ -1398,8 +1583,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.04,
-      "output": 0.49
+      "input": 0.035,
+      "output": 0.29
     },
     "input_modalities": [
       "text",
@@ -1819,8 +2004,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Ling 3.0 Flash VL builds on Ling 3.0 Flash (124B total / 5.5B active MoE from InclusionAI), further strengthening its language capabilities while adding native visual perception and advanced visual...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.06,
-      "output": 0.18
+      "input": 0.020999999999999998,
+      "output": 0.061599999999999995
     },
     "input_modalities": [
       "text",
@@ -1906,39 +2091,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.3,
-      "output": 1.2,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "input": 0.15,
-          "output": 0.6
-        }
-      ]
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -2895,8 +3048,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.045,
-      "output": 0.14
+      "input": 0.04,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -3008,8 +3161,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.045,
-      "output": 0.6
+      "input": 0.04,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -3439,8 +3592,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.5614,
-      "output": 1.7644
+      "input": 0.3794,
+      "output": 1.1924
     },
     "input_modalities": [
       "text"
@@ -3513,8 +3666,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1310720,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.3794,
+      "output": 1.1924
     },
     "input_modalities": [
       "text"
@@ -4141,8 +4294,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.46199999999999997,
-      "output": 1.386
+      "input": 0.26399999999999996,
+      "output": 0.792
     },
     "input_modalities": [
       "text"
@@ -4304,7 +4457,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
     "name": "NVIDIA: Nemotron 3.5 Lightning",
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
-    "context_length": 262144,
+    "context_length": 1000000,
     "pricing": {
       "input": 0.08,
       "output": 0.19999999999999998
@@ -4751,7 +4904,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.03,
+      "input": 0.020999999999999998,
       "output": 0.32
     },
     "input_modalities": [
@@ -4797,7 +4950,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.03,
+      "input": 0.020999999999999998,
       "output": 0.32
     },
     "input_modalities": [
@@ -4883,7 +5036,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "thinkingmachines/inkling-small-20260730",
     "name": "Thinking Machines: Inkling Small",
     "raw_description": "Inkling Small is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 12B active parameters out of 276B total. It is positioned as the smaller, more efficient member of...",
-    "context_length": 1048576,
+    "context_length": 524288,
     "pricing": {
       "input": 0.44999999999999996,
       "output": 1.2
@@ -5879,7 +6032,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "thinkingmachines/inkling-20260715",
     "name": "Thinking Machines: Inkling",
     "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
-    "context_length": 1048576,
+    "context_length": 524288,
     "pricing": {
       "input": 1,
       "output": 4.05
@@ -6033,8 +6186,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.8845,
-      "output": 10.534600000000001
+      "input": 3,
+      "output": 15
     },
     "input_modalities": [
       "text",
@@ -6693,8 +6846,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -8415,7 +8568,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Qwen3",
     "supported_parameters": [],
     "created": 1778732776,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen"
   },
   {
@@ -9448,8 +9601,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.8845,
-      "output": 10.534600000000001
+      "input": 1.0301,
+      "output": 9.043
     },
     "input_modalities": [
       "text",
@@ -9793,7 +9946,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1777260242,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -9805,7 +9958,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.32,
-      "output": 2.7
+      "output": 3.1999999999999997
     },
     "input_modalities": [
       "text",
@@ -9934,8 +10087,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.817974,
-      "output": 1.635948
+      "input": 0.348,
+      "output": 0.696
     },
     "input_modalities": [
       "text"
@@ -9979,8 +10132,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.049,
-      "output": 0.098
+      "input": 0.047040000000000005,
+      "output": 0.09408000000000001
     },
     "input_modalities": [
       "text"
@@ -10972,8 +11125,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.3
+      "input": 0.0675,
+      "output": 0.22499999999999998
     },
     "input_modalities": [
       "image",
@@ -12940,7 +13093,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1770671901,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -15674,7 +15827,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1761231332,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen"
   },
   {
@@ -15864,7 +16017,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1760463746,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -15905,7 +16058,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1760463308,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen"
   },
   {
@@ -16139,7 +16292,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1759794479,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -16486,7 +16639,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1758668690,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -16577,7 +16730,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1758662808,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -16627,7 +16780,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1758662707,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen"
   },
   {
@@ -16907,7 +17060,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1757347599,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -17100,7 +17253,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1756399192,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -17902,7 +18055,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753449557,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -19063,7 +19216,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1745876632,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -19184,7 +19337,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1745875757,
-    "expiration_date": null,
+    "expiration_date": 1791504000,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -25517,6 +25670,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "aion-labs/aion-1.0",
   "aion-labs/aion-1.0-mini",
   "allenai/olmo-3-32b-think",
+  "anthropic/claude-3-haiku",
   "anthropic/claude-3.5-haiku",
   "anthropic/claude-opus-4",
   "anthropic/claude-opus-4.6-fast",
@@ -25599,6 +25753,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "xiaomi/mimo-v2-flash",
   "z-ai/glm-4-32b",
   "z-ai/glm-4.5-air:free",
+  "z-ai/glm-5.2:free",
   "zyphra/zonos-v0.1-hybrid",
   "zyphra/zonos-v0.1-transformer"
 ]);
@@ -26427,6 +26582,13 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "respan/span-01",
+  "respan/span-01-lite",
+  "respan/span-01-lite:free",
+  "bytedance-seed/seed-audio-1-0",
+  "typesafe/jev-router",
+  "perceptron/perceptron-mk1.5",
+  "jaredpalmer/kev-4b",
   "google/gemini-3.5-transcribe",
   "fish-audio/transcribe-1-pro",
   "upstage/solar-mini4",
