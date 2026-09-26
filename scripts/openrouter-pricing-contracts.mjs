@@ -1,5 +1,17 @@
 export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
   [
+    "bytedance-seed/seed-audio-1-0",
+    Object.freeze({
+      unit: "audio_hour",
+      pricingBasis: "media",
+      sourcePricingField: "completion",
+      normalizedPricingField: "output",
+      normalizedPriceDivisor: 1_000_000,
+      normalizedPriceMultiplier: 3_600,
+      sourcePriceMultiplier: 3_600,
+    }),
+  ],
+  [
     "fish-audio/transcribe-1-pro",
     Object.freeze({
       unit: "audio_hour",

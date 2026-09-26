@@ -4,6 +4,7 @@ import type { Model } from "../data/models";
 import {
   AudioRequestError,
   DEFAULT_SPEECH_VOICE,
+  SEED_AUDIO_PROMPT_VOICE,
   generateSpeechAudio,
   speechVoiceLabel,
   type AudioProviderRouteReceipt,
@@ -84,6 +85,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
   const [error, setError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const isGenerating = status === "generating";
+  const usesPromptDrivenVoice = voice === SEED_AUDIO_PROMPT_VOICE;
   const characterCount = text.length;
   const canGenerate =
     text.trim().length > 0 &&
@@ -412,7 +414,9 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     ))}
                   </select>
                   <p className="mt-2 text-xs leading-5 text-slate-400">
-                    {managedCertification
+                    {usesPromptDrivenVoice
+                      ? "请直接在文字中描述期望的声线、情绪、语气与音效；本次不会发送虚构的供应商声线 ID。"
+                      : managedCertification
                       ? `Managed Provider 资格固定使用 ${speechVoiceLabel(voice)}，外部输出为 ${responseFormat.toUpperCase()}；更换参数需要重新认证。`
                       : "仅显示实时目录中仍存在且已完成行为验证的声线。"}
                   </p>
@@ -432,7 +436,9 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   </div>
                   <input
                     className="mt-3 w-full accent-cyan-300"
-                    disabled={isGenerating || controlBlocked}
+                    disabled={
+                      isGenerating || controlBlocked || usesPromptDrivenVoice
+                    }
                     id="speech-speed"
                     max="2"
                     min="0.5"
@@ -445,8 +451,8 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     value={speed}
                   />
                   <div className="mt-1 flex justify-between text-xs text-slate-500">
-                    <span>较慢 0.5×</span>
-                    <span>较快 2.0×</span>
+                    <span>{usesPromptDrivenVoice ? "由提示词控制" : "较慢 0.5×"}</span>
+                    <span>{usesPromptDrivenVoice ? "不发送语速参数" : "较快 2.0×"}</span>
                   </div>
                 </div>
               </div>
@@ -553,6 +559,15 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   文字和生成音频仅用于本次请求，不写入模镜数据库。
                 </dd>
               </div>
+              {model.media_pricing?.unit === "audio_hour" ? (
+                <div>
+                  <dt className="text-slate-400">目录费率</dt>
+                  <dd className="mt-1 leading-6 text-slate-200">
+                    约 ${model.media_pricing.usd.toFixed(2)} / 生成音频小时
+                    （最终以实际时长与 Provider 结算为准）
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </aside>
         </div>

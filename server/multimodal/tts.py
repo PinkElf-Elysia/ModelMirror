@@ -35,6 +35,8 @@ MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
 SPEECH_PROFILE_VERSION = "tts-contracts-2026-09-24-gemini38"
+SEED_AUDIO_MODEL_ID = "bytedance-seed/seed-audio-1-0"
+SEED_AUDIO_PROMPT_VOICE = "__prompt__"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
 GEMINI_38_FLASH_TTS_MODEL_ID = "google/gemini-3.8-flash-tts"
 GEMINI_38_FLASH_LITE_TTS_MODEL_ID = (
@@ -127,6 +129,7 @@ GEMINI_38_TTS_VOICES = (
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        SEED_AUDIO_MODEL_ID,
         GEMINI_38_FLASH_TTS_MODEL_ID,
         GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
     }
@@ -137,6 +140,7 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    SEED_AUDIO_MODEL_ID: (SEED_AUDIO_PROMPT_VOICE,),
     GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     DEEPGRAM_FLUX_TTS_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,
@@ -245,6 +249,28 @@ def speech_output_format(model_id: str) -> str:
     return SPEECH_OUTPUT_FORMATS.get(model_id, "mp3")
 
 
+def speech_request_payload(
+    *,
+    model_id: str,
+    text: str,
+    voice: str,
+    response_format: str,
+    speed: float,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model_id,
+        "input": text,
+        "response_format": response_format,
+    }
+    # Seed Audio accepts an optional provider-specific speaker ID. The public
+    # catalog does not publish a safe default ID, so the UI uses a local
+    # sentinel and lets the natural-language prompt drive voice and tone.
+    if model_id != SEED_AUDIO_MODEL_ID:
+        payload["voice"] = voice
+        payload["speed"] = speed
+    return payload
+
+
 @dataclass(frozen=True)
 class SpeechResult:
     content: bytes
@@ -302,13 +328,13 @@ class OpenRouterTtsAdapter:
                     "POST",
                     self._api_url(target.base_url, "audio/speech"),
                     headers=self._headers(target.api_key, provider=provider),
-                    json={
-                        "model": model_id,
-                        "input": text,
-                        "voice": voice,
-                        "response_format": upstream_format,
-                        "speed": speed,
-                    },
+                    json=speech_request_payload(
+                        model_id=model_id,
+                        text=text,
+                        voice=voice,
+                        response_format=upstream_format,
+                        speed=speed,
+                    ),
                 )
             except (
                 httpx.ConnectTimeout,
@@ -920,13 +946,13 @@ class SpeechService:
                 expected_connection_fingerprint=binding.connection_fingerprint,
                 expected_adapter_contract=binding.adapter_contract,
                 expected_protocol_version=binding.protocol_version,
-                payload={
-                    "model": exact_model,
-                    "input": text,
-                    "voice": voice,
-                    "response_format": upstream_format,
-                    "speed": speed,
-                },
+                payload=speech_request_payload(
+                    model_id=exact_model,
+                    text=text,
+                    voice=voice,
+                    response_format=upstream_format,
+                    speed=speed,
+                ),
                 files=None,
                 parse_response=parse_response,
             )

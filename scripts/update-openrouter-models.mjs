@@ -26,6 +26,10 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "respan/span-01",
+  "respan/span-01-lite",
+  "respan/span-01-lite:free",
+  "bytedance-seed/seed-audio-1-0",
   "jaredpalmer/kev-4b",
   "fish-audio/transcribe-1-pro",
   "google/gemini-3.5-transcribe",

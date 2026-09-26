@@ -85,7 +85,13 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "model_id",
-    ["jaredpalmer/kev-4b", "~typesafe/jev-latest"],
+    [
+        "jaredpalmer/kev-4b",
+        "respan/span-01",
+        "respan/span-01-lite",
+        "respan/span-01-lite:free",
+        "~typesafe/jev-latest",
+    ],
 )
 async def test_decisions_accepts_supported_models(
     client: httpx.AsyncClient,

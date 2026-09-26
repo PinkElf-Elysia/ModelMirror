@@ -3342,6 +3342,9 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "respan/span-01",
+        "respan/span-01-lite",
+        "respan/span-01-lite:free",
         "jaredpalmer/kev-4b",
         "typesafe/jev-1.13",
         "~typesafe/jev-latest",

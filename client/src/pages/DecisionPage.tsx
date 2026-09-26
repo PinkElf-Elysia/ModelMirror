@@ -158,7 +158,7 @@ export default function DecisionPage() {
                 <div className="flex justify-between gap-4"><dt>端点</dt><dd className="font-mono text-xs">/api/alpha/decisions</dd></div>
                 <div className="flex justify-between gap-4"><dt>问题类型</dt><dd>noul / choice / score</dd></div>
                 <div className="flex justify-between gap-4"><dt>输出</dt><dd>类型化 answers</dd></div>
-                <div className="flex justify-between gap-4"><dt>上下文</dt><dd>{model.context_length.toLocaleString()} Token</dd></div>
+                <div className="flex justify-between gap-4"><dt>上下文</dt><dd>{model.context_length > 0 ? `${model.context_length.toLocaleString()} Token` : "目录未披露"}</dd></div>
               </dl>
             </div>
             <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.06] p-6">

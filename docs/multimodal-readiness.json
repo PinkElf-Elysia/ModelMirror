@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-25",
+  "reviewed_at": "2026-09-26",
   "catalog": {
-    "snapshot_total": 647,
+    "snapshot_total": 653,
     "serving_variant_total": 76,
     "serving_variants_by_type": {
       "batch": 76
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 548,
-    "uncertain": 89,
+    "live": 552,
+    "uncertain": 91,
     "expired": 10,
-    "onsite_openrouter": 637,
-    "adaptation_denominator": 637,
+    "onsite_openrouter": 643,
+    "adaptation_denominator": 643,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -52,6 +52,38 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "respan/span-01",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已按 text → decisions 目录契约接入 OpenRouter Decisions 工作台与费用预估；尚未执行该模型的真实付费调用。"
+    },
+    {
+      "model_id": "respan/span-01-lite",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已按 text → decisions 目录契约接入 OpenRouter Decisions 工作台；目录标价为免费，尚未执行真实调用。"
+    },
+    {
+      "model_id": "respan/span-01-lite:free",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "作为 Span-01 Lite 的免费模型条目复用专用 Decisions 契约；它不是 Batch 服务档位，尚未执行真实调用。"
+    },
+    {
+      "model_id": "bytedance-seed/seed-audio-1-0",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入 OpenRouter /audio/speech、MP3 输出、提示词驱动声线和按生成时长计费；参考音频及克隆能力尚未暴露，等待本地短音频人工验收。"
+    },
     {
       "model_id": "jaredpalmer/kev-4b",
       "operation": "decide",
