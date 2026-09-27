@@ -1147,6 +1147,8 @@ class ProviderMultimodalTarget:
             endpoint_url = f"{api_base}/audio/speech"
         elif adapter_contract == "openrouter_video_jobs_v1":
             endpoint_url = f"{api_base}/videos"
+        elif adapter_contract == "openai_realtime_sdp_v1":
+            endpoint_url = f"{api_base}/realtime/calls"
         else:
             endpoint_url = f"{api_base}/chat/completions"
         return cls(

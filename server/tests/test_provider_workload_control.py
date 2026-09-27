@@ -2707,6 +2707,7 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
             "multimodal_video_analysis",
             "chat_video",
             "video_generation",
+            "realtime_voice",
         }
         assert all(
             item["data_plane_integrated"] is (entry_id in r8_integrated_entries)

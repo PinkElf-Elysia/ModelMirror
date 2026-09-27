@@ -322,8 +322,10 @@ R8A 迁移 Router SQLite 至 v18，并展示 scope、Adapter、Binding 与资格
 原生 PDF Chat、RAG/Workflow/Xpert Vision 与图片生成。R8C 已接入 Dedicated 与 Published Xpert
 的 STT/TTS。R8D 增加 Chat Audio Input、Chat Audio Output 与异步音频生成的独立受管路径；三种
 shape 必须分别完成精确模型和 Adapter 资格，不能互相继承。R8E 增加独立视频分析、Chat 视频与
-异步视频生成三条受管路径；三种 shape 同样必须分别认证。Realtime 仍等待 R8F。不得把打开环境
-变量解释为资格已通过、真实 Smoke 已完成或生产切换已批准；每个真实付费认证与用户 Smoke 必须
+异步视频生成三条受管路径；三种 shape 同样必须分别认证。R8F 增加官方 OpenAI SDP Realtime
+受管路径；它只接受 `openai` 连接、`realtime` scope、官方 `https://api.openai.com/v1` 地址和
+`openai_realtime_sdp_v1` Adapter。newAPI WebSocket Realtime 不具备该资格。不得把打开环境变量
+解释为资格已通过、真实 Smoke 已完成或生产切换已批准；每个真实付费认证与用户 Smoke 必须
 另行授权并记录证据。
 
 Managed 图片生成请求必须携带 1—200 字符的 `Idempotency-Key`。OpenAI-compatible Images
@@ -373,7 +375,22 @@ Managed 视频还必须遵守以下边界：
 - 关闭三个视频控制面 Flag 并显式停用 Policy 可恢复 legacy；保留 v18 任务、资格和 Receipt，
   不删除已派发任务或 Provider 数据。
 
-部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B—R8E Flag 并显式停用 Policy，
+Managed Realtime 还必须遵守以下边界：
+
+- `MODEL_CONTROL_REALTIME_VOICE_ENABLED` 默认 `false`；Policy 为 `legacy` 时保留原直接 OpenAI
+  Realtime 路径。
+- 创建请求必须携带 1—200 字符的 `Idempotency-Key`。相同键的并发、刷新或重复提交只能观察同一
+  逻辑会话，不能创建第二个上游会话。
+- Provider Key 只在后端进程内存中使用。Offer/Answer SDP 只在一次创建请求和响应中瞬时传递，
+  不写入 SQLite、Receipt、日志、管理 API 或浏览器持久化存储。
+- 已派发创建的网络超时、取消或未知结果记录为 `uncertain`，并要求显式检查或 Hangup；不得自动
+  重连、切换 Provider/Adapter/IP/legacy 或创建替代会话。
+- 浏览器辅助认证必须观察远端媒体轨道、完成显式 Hangup，并由管理员确认媒体可听后才可通过。
+  认证会话和用户 Smoke 是两个独立的真实会话，分别需要授权。
+- Server 重启、十分钟硬时限和显式 Hangup 继续由既有 Realtime 生命周期处理；清理不能产生新的
+  Provider POST。
+
+部署前使用 SQLite Backup API 备份 Router 数据库；回滚时关闭受影响 R8B—R8F Flag 并显式停用 Policy，
 保留 v18 表、资格、Receipt 和新增的可空任务证据列。不得删除现有媒体任务、Provider 凭据或
 newAPI 数据。
 

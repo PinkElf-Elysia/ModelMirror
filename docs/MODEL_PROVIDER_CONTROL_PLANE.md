@@ -331,6 +331,19 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - v18 对现有音频、视频与 Realtime 任务只增加可空的 Workload/Adapter/派发证据字段；旧记录
   视为 legacy，不重写、不联网回填。已派发但结果不确定的会话重启后保持 `uncertain`，不得重放。
 
+## Realtime Voice 数据面（Round 8F）
+
+- `realtime_voice` 只接入 `realtime_voice_session` 与 `openai_realtime_sdp_v1`。资格要求官方
+  `openai` 连接、`realtime` scope、精确模型和官方 `https://api.openai.com/v1` Endpoint。
+- newAPI 的 WebSocket `/v1/realtime` 不是 SDP `/v1/realtime/calls`，不得因协议名称或 URL 相似
+  获得该 Adapter 资格。
+- 管理模式每个逻辑键最多创建一个上游会话。POST 派发后发生超时、取消或响应不确定时记录
+  `uncertain`，不自动重连、不切换连接、模型、Adapter、IP 或 legacy。
+- Provider Key 只存在于后端内存。SDP 只在创建请求/响应中瞬时通过，媒体仍由浏览器与 OpenAI
+  的 WebRTC 连接承载；控制面不保存 SDP、音频或转录。
+- 浏览器辅助认证必须完成麦克风授权、Offer/Answer、远端媒体轨道、显式 Hangup 和人工听觉确认。
+  认证通过只证明该精确模型与 Adapter，不代表 newAPI 多模态默认切换，也不批准生产启用。
+
 ## 图片、Vision 与原生 PDF 数据面（Round 8B）
 
 - R8B 将 `chat_image`、`chat_document_native`、`rag_vision`、Workflow 交互/部署 Vision、

@@ -116,14 +116,23 @@ describe("ProviderWorkloadControlSettings", () => {
     });
   });
 
-  it("opens integrated R8B through R8E certifications while Realtime remains blocked", async () => {
+  it("opens integrated R8B through R8F certifications with exact provider and adapter gates", async () => {
     const multimodalConnection = {
       ...connection,
       scopes: ["chat", "image", "audio", "video"],
     };
+    const realtimeConnection = {
+      id: "connection-openai-realtime",
+      name: "OpenAI Realtime managed",
+      kind: "openai",
+      scopes: ["realtime"],
+      enabled: true,
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/router/connections") return jsonResponse([multimodalConnection]);
+      if (url === "/api/router/connections") {
+        return jsonResponse([multimodalConnection, realtimeConnection]);
+      }
       if (url === "/api/router/certifications/workloads" && !init) {
         return jsonResponse({ certifications: [] });
       }
@@ -226,9 +235,16 @@ describe("ProviderWorkloadControlSettings", () => {
       target: { value: "realtime_voice_session" },
     });
     await waitFor(() => expect(screen.getByRole("button", {
-      name: "运行资格认证",
-    })).toBeDisabled());
-    expect(screen.getByText(/该多模态形态目前仅建立 Adapter/)).toBeVisible();
+      name: "开始浏览器辅助认证",
+    })).toBeEnabled());
+    expect(screen.getByLabelText("Adapter Contract")).toHaveValue(
+      "openai_realtime_sdp_v1",
+    );
+    expect(screen.getByLabelText("Managed 连接")).toHaveValue(
+      realtimeConnection.id,
+    );
+    expect(screen.getByText(/仅支持官方 OpenAI/)).toBeVisible();
+    expect(screen.queryByText(/该多模态形态目前仅建立 Adapter/)).not.toBeInTheDocument();
   });
 
   it("shows certified STT input and TTS external parameters in recent qualifications", async () => {

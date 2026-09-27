@@ -53,6 +53,7 @@ from .image_generation import (
     ImageGenerationService,
 )
 from .realtime import (
+    RealtimeCallEndEvidence,
     RealtimeCallEndResponse,
     RealtimeCallRequest,
     RealtimeCallResponse,
@@ -447,9 +448,16 @@ async def generate_image(
 )
 async def create_realtime_call(
     payload: RealtimeCallRequest,
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+    ),
 ) -> RealtimeCallResponse:
     try:
-        return await get_realtime_voice_service().create(payload)
+        return await get_realtime_voice_service().create(
+            payload,
+            idempotency_key=idempotency_key,
+        )
     except MultimodalServiceError as exc:
         raise _http_error(exc) from exc
 
@@ -460,9 +468,13 @@ async def create_realtime_call(
 )
 async def end_realtime_call(
     session_id: str,
+    payload: RealtimeCallEndEvidence | None = None,
 ) -> RealtimeCallEndResponse:
     try:
-        return await get_realtime_voice_service().end(session_id)
+        return await get_realtime_voice_service().end(
+            session_id,
+            evidence=payload,
+        )
     except MultimodalServiceError as exc:
         raise _http_error(exc) from exc
 
