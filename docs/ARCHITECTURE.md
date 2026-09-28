@@ -205,7 +205,17 @@ Round 8E 继续在同一外壳内接入独立视频分析、Chat 视频与异步
 Workload Call 与 Workload Run 的终态在同一 SQLite 事务收敛；重启只恢复已取得上游 ID 的只读
 轮询，无 ID 的已派发任务转为 `uncertain`，绝不重发。完成态只有在实际模型精确匹配、输出元数据
 数量与引用均合法后才能标记成功。视频、Prompt、输出 URL 与模型正文不进入控制面存储。
-Realtime 仍等待 R8F。
+Round 8F 最后接入 `realtime_voice`，但不把 Realtime 协议并入 Chat SSE 或 WebSocket。
+`realtime_voice_session` 只允许精确绑定官方 OpenAI `openai_realtime_sdp_v1`，目标必须为
+`https://api.openai.com/v1/realtime/calls`；newAPI 的 `/v1/realtime` WebSocket 不能冒充该
+Adapter。浏览器负责麦克风、WebRTC PeerConnection、SDP Offer/Answer 应用和远端媒体播放，
+后端只在瞬时请求内转发 SDP并持有 Provider Key。SDP、音频和转录不写入 SQLite、Receipt 或日志。
+
+Managed 创建使用稳定幂等键和一次 Provider POST；重复点击、取消、断网或派发后未知结果不能
+创建第二个会话。已确认的上游 Call ID只用于原连接 Hangup；重启和十分钟硬上限只清理既有
+会话，不自动重连。浏览器辅助资格必须同时证明 SDP、远端媒体人工确认和显式 Hangup，且不能
+跨模型、连接、Adapter 或形态继承。R8 完成仅表示这些多模态入口具备受管选择与证据路径，
+不代表 newAPI 获得 Realtime 资格、成为多模态默认数据面或任何生产切换已经批准。
 
 Round 5A 在控制面增加 `modelmirror-provider-chat-routing-v1`：`chat_text`、
 `chat_tools` 与 `chat_file_output` 各自具有独立认证、稳定模型资格和有序 Managed

@@ -139,6 +139,29 @@ ProviderDispatchState = Literal[
     "confirmed",
     "uncertain",
 ]
+ProviderRealtimeBrowserErrorCode = Literal[
+    "provider_realtime_browser_answer_missing",
+    "provider_realtime_browser_component_disposed",
+    "provider_realtime_browser_remote_description_failed",
+    "provider_realtime_browser_session_setup_failed",
+]
+ProviderRealtimeBrowserDiagnosticCode = Literal[
+    "provider_realtime_browser_exception_invalid_access_error",
+    "provider_realtime_browser_exception_invalid_modification_error",
+    "provider_realtime_browser_exception_operation_error",
+    "provider_realtime_browser_exception_type_error",
+    "provider_realtime_browser_exception_unknown",
+    "provider_realtime_answer_audio_media_missing",
+    "provider_realtime_answer_application_media_missing",
+    "provider_realtime_answer_bundle_missing",
+    "provider_realtime_answer_dtls_fingerprint_missing",
+    "provider_realtime_answer_ice_credentials_missing",
+    "provider_realtime_answer_setup_missing",
+    "provider_realtime_answer_rtpmap_missing",
+    "provider_realtime_answer_candidate_missing",
+    "provider_realtime_answer_terminal_crlf_missing",
+    "provider_realtime_answer_non_crlf_line_endings",
+]
 ProviderMultimodalSseRejectionReason = Literal[
     "audio_generation_terminal_replay_not_allowed",
     "data_after_done",
@@ -954,6 +977,7 @@ class ProviderWorkloadCertificationChecks(BaseModel):
     image_prompt_request_verified: bool | None = None
     async_terminal_verified: bool = False
     manual_media_verified: bool = False
+    hangup_verified: bool = False
 
 
 class ProviderWorkloadCertificationSummary(BaseModel):
@@ -1150,12 +1174,42 @@ class ProviderRealtimeCertificationSessionRequest(BaseModel):
     @field_validator("offer_sdp")
     @classmethod
     def validate_offer_sdp(cls, value: str) -> str:
-        return _required_text(value, field_name="offer_sdp", limit=128_000)
+        text = str(value or "")
+        if not text.strip():
+            raise ValueError("offer_sdp is required")
+        if len(text) > 128_000:
+            raise ValueError("offer_sdp exceeds 128000 characters")
+        # SDP is a line-oriented wire protocol. Validate its content without
+        # normalizing it: removing the final CRLF makes a browser-generated
+        # offer invalid for strict upstream parsers.
+        return text
 
 
 class ProviderRealtimeCertificationCompleteRequest(BaseModel):
     media_observed: bool
     hangup_observed: bool
+    browser_error_code: ProviderRealtimeBrowserErrorCode | None = None
+    browser_diagnostic_codes: list[
+        ProviderRealtimeBrowserDiagnosticCode
+    ] = Field(default_factory=list, max_length=16)
+
+    @model_validator(mode="after")
+    def validate_browser_error_code(
+        self,
+    ) -> ProviderRealtimeCertificationCompleteRequest:
+        if self.media_observed and self.browser_error_code is not None:
+            raise ValueError(
+                "browser_error_code is only valid when media was not observed"
+            )
+        if self.media_observed and self.browser_diagnostic_codes:
+            raise ValueError(
+                "browser_diagnostic_codes are only valid when media was not observed"
+            )
+        if len(self.browser_diagnostic_codes) != len(
+            set(self.browser_diagnostic_codes)
+        ):
+            raise ValueError("browser_diagnostic_codes must be unique")
+        return self
 
 
 class ProviderRealtimeCertificationSessionResponse(BaseModel):

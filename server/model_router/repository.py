@@ -4845,6 +4845,7 @@ class SQLiteRouterRepository:
         adapter_contract: str | None = None,
         protocol_version: str | None = None,
         multimodal_session_id: str | None = None,
+        multimodal_session_expires_at: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         clean_tenant = self._tenant_id(tenant_id)
         if multimodal_session_id is None:
@@ -4968,9 +4969,9 @@ class SQLiteRouterRepository:
                             requested_model, execution_shape, adapter_contract,
                             protocol_version, idempotency_key_hash,
                             provider_dispatch_state, post_dispatched, status,
-                            created_at, updated_at
+                            expires_at, created_at, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            'not_dispatched', 0, 'running', ?, ?)
+                            'not_dispatched', 0, 'running', ?, ?, ?)
                         """,
                         (
                             multimodal_session_id,
@@ -4982,6 +4983,7 @@ class SQLiteRouterRepository:
                             str(adapter_contract or ""),
                             str(protocol_version or ""),
                             idempotency_key_hash,
+                            multimodal_session_expires_at,
                             now,
                             now,
                         ),
@@ -5030,6 +5032,41 @@ class SQLiteRouterRepository:
                 (clean_tenant, certification_id),
             ).fetchone()
         return dict(row) if row is not None else None
+
+    def update_running_workload_certification_warnings(
+        self,
+        tenant_id: str,
+        certification_id: str,
+        warning_codes: list[str],
+    ) -> dict[str, object]:
+        clean_tenant = self._tenant_id(tenant_id)
+        now = utc_now()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE provider_workload_certifications
+                SET warnings_json = ?, updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                """,
+                (
+                    json.dumps(warning_codes, separators=(",", ":")),
+                    now,
+                    clean_tenant,
+                    certification_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RouterRepositoryError(
+                    "provider_workload_certification_not_running"
+                )
+            row = connection.execute(
+                """
+                SELECT * FROM provider_workload_certifications
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, certification_id),
+            ).fetchone()
+        return dict(row)
 
     def resume_workload_certification(
         self, tenant_id: str, certification_id: str
@@ -8328,6 +8365,15 @@ class SQLiteRouterRepository:
         vad_mode: str,
         language: str,
         expires_at: str,
+        workload_run_id: str | None = None,
+        workload_call_id: str | None = None,
+        policy_fingerprint: str | None = None,
+        connection_fingerprint: str | None = None,
+        adapter_contract: str | None = None,
+        protocol_version: str | None = None,
+        provider_dispatch_state: str = "not_dispatched",
+        post_dispatched: bool = False,
+        provider_terminal_status: str | None = None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
@@ -8337,8 +8383,13 @@ class SQLiteRouterRepository:
                 INSERT INTO realtime_calls (
                     id, tenant_id, decision_id, connection_id, model_id,
                     provider, voice, vad_mode, language, status, expires_at,
+                    workload_run_id, workload_call_id, policy_fingerprint,
+                    connection_fingerprint, adapter_contract,
+                    protocol_version, provider_dispatch_state,
+                    post_dispatched, provider_terminal_status,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'connecting', ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'connecting', ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -8351,6 +8402,15 @@ class SQLiteRouterRepository:
                     vad_mode,
                     language,
                     expires_at,
+                    workload_run_id,
+                    workload_call_id,
+                    policy_fingerprint,
+                    connection_fingerprint,
+                    adapter_contract,
+                    protocol_version,
+                    provider_dispatch_state,
+                    int(post_dispatched),
+                    provider_terminal_status,
                     now,
                     now,
                 ),
@@ -8385,12 +8445,50 @@ class SQLiteRouterRepository:
             rows = connection.execute(
                 """
                 SELECT * FROM realtime_calls
-                WHERE tenant_id = ? AND status IN ('connecting', 'active')
+                WHERE tenant_id = ? AND status IN ('connecting', 'active', 'ending')
                 ORDER BY created_at ASC, id ASC
                 """,
                 (clean_tenant,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def claim_realtime_hangup(
+        self,
+        tenant_id: str,
+        session_id: str,
+    ) -> tuple[dict[str, object] | None, bool]:
+        """Reserve the only Provider Hangup POST for one Realtime session."""
+
+        clean_tenant = self._tenant_id(tenant_id)
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT * FROM realtime_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+            if row is None:
+                return None, False
+            if str(row["status"]) != "active":
+                return dict(row), False
+            cursor = connection.execute(
+                """
+                UPDATE realtime_calls
+                SET status = 'ending', updated_at = ?
+                WHERE tenant_id = ? AND id = ? AND status = 'active'
+                """,
+                (utc_now(), clean_tenant, session_id),
+            )
+            updated = connection.execute(
+                """
+                SELECT * FROM realtime_calls
+                WHERE tenant_id = ? AND id = ?
+                """,
+                (clean_tenant, session_id),
+            ).fetchone()
+        return (dict(updated) if updated is not None else None), cursor.rowcount == 1
 
     def update_realtime_call(
         self,
@@ -8409,6 +8507,15 @@ class SQLiteRouterRepository:
             "cost_usd",
             "cost_kind",
             "error_code",
+            "workload_run_id",
+            "workload_call_id",
+            "policy_fingerprint",
+            "connection_fingerprint",
+            "adapter_contract",
+            "protocol_version",
+            "provider_dispatch_state",
+            "post_dispatched",
+            "provider_terminal_status",
         }
         selected = {
             key: value for key, value in changes.items() if key in allowed

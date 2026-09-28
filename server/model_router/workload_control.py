@@ -116,6 +116,9 @@ R8E_VIDEO_PARAMETER_CONTRACT_VERSION = (
 R8E_VIDEO_GENERATION_CATALOG_CONTRACT_VERSION = (
     "modelmirror-openrouter-video-models-v2"
 )
+R8F_REALTIME_PARAMETER_CONTRACT_VERSION = (
+    "modelmirror-provider-realtime-sdp-parameters-v1"
+)
 PROVIDER_WORKLOAD_CERTIFICATION_ENABLED_ENV = (
     "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED"
 )
@@ -449,6 +452,52 @@ def r8e_video_certification_evidence_reason(
     return None
 
 
+def r8f_realtime_parameter_profile_reason(
+    execution_shape: str,
+    profile: Mapping[str, object],
+) -> str | None:
+    """Reject Realtime qualifications whose browser-assisted contract drifted."""
+
+    if execution_shape != "realtime_voice_session":
+        return None
+    if (
+        profile.get("realtime_parameter_contract_version")
+        != R8F_REALTIME_PARAMETER_CONTRACT_VERSION
+        or profile.get("transport") != "webrtc_sdp"
+        or profile.get("endpoint") != "/v1/realtime/calls"
+        or profile.get("browser_assisted") is not True
+        or profile.get("manual_media_confirmation") is not True
+        or profile.get("sdp_persisted") is not False
+        or profile.get("media_persisted") is not False
+        or profile.get("max_session_seconds") != 600
+    ):
+        return "provider_multimodal_realtime_parameter_profile_invalid"
+    return None
+
+
+def r8f_realtime_certification_evidence_reason(
+    execution_shape: str,
+    checks: Mapping[str, object],
+) -> str | None:
+    """Require protocol and human media proof before Realtime can bind."""
+
+    if execution_shape != "realtime_voice_session":
+        return None
+    required = (
+        "http_ok",
+        "content_observed",
+        "response_complete",
+        "media_format_verified",
+        "actual_model_verified",
+        "multimodal_adapter_verified",
+        "manual_media_verified",
+        "hangup_verified",
+    )
+    if not all(checks.get(name) is True for name in required):
+        return "provider_multimodal_realtime_evidence_incomplete"
+    return None
+
+
 def _audio_generation_certification_payload_uses_fixture(
     payload: Mapping[str, object],
     *,
@@ -721,6 +770,7 @@ DATA_PLANE_INTEGRATED_ENTRIES: frozenset[ProviderWorkloadEntryId] = frozenset(
         "multimodal_video_analysis",
         "chat_video",
         "video_generation",
+        "realtime_voice",
     }
 )
 
@@ -5220,6 +5270,7 @@ class ProviderWorkloadCertificationService:
             in R8C_EXECUTION_SHAPES
             | R8D_EXECUTION_SHAPES
             | R8E_EXECUTION_SHAPES
+            | {"realtime_voice_session"}
             and status == "passed"
             and (
                 not row.get("actual_model")
@@ -5251,10 +5302,22 @@ class ProviderWorkloadCertificationService:
                 status = "stale"
                 blocked_reason = evidence_reason
         if (
+            str(row["execution_shape"]) == "realtime_voice_session"
+            and status == "passed"
+        ):
+            evidence_reason = r8f_realtime_certification_evidence_reason(
+                str(row["execution_shape"]),
+                checks,
+            )
+            if evidence_reason is not None:
+                status = "stale"
+                blocked_reason = evidence_reason
+        if (
             str(row["execution_shape"])
             in R8C_EXECUTION_SHAPES
             | R8D_EXECUTION_SHAPES
             | R8E_EXECUTION_SHAPES
+            | {"realtime_voice_session"}
             and status == "passed"
         ):
             execution_shape = str(row["execution_shape"])
@@ -5268,8 +5331,13 @@ class ProviderWorkloadCertificationService:
                     str(row["execution_shape"]),
                     profile,
                 )
-            else:
+            elif execution_shape in R8E_EXECUTION_SHAPES:
                 profile_reason = r8e_video_parameter_profile_reason(
+                    execution_shape,
+                    profile,
+                )
+            else:
+                profile_reason = r8f_realtime_parameter_profile_reason(
                     execution_shape,
                     profile,
                 )
@@ -5284,6 +5352,7 @@ class ProviderWorkloadCertificationService:
             in R8C_EXECUTION_SHAPES
             | R8D_EXECUTION_SHAPES
             | R8E_EXECUTION_SHAPES
+            | {"realtime_voice_session"}
         ):
             session = self._repository_method(
                 "get_multimodal_certification_session"
@@ -6111,7 +6180,10 @@ class ProviderWorkloadControlService:
             ):
                 return None, "provider_multimodal_protocol_stale"
         if execution_shape in (
-            R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES | R8E_EXECUTION_SHAPES
+            R8C_EXECUTION_SHAPES
+            | R8D_EXECUTION_SHAPES
+            | R8E_EXECUTION_SHAPES
+            | {"realtime_voice_session"}
         ):
             checks = _safe_json_object(
                 json.loads(str(certification.get("checks_json") or "{}"))
@@ -6130,6 +6202,11 @@ class ProviderWorkloadControlService:
                 else r8d_audio_parameter_profile_reason(execution_shape, profile)
                 if execution_shape in R8D_EXECUTION_SHAPES
                 else r8e_video_parameter_profile_reason(execution_shape, profile)
+                if execution_shape in R8E_EXECUTION_SHAPES
+                else r8f_realtime_parameter_profile_reason(
+                    execution_shape,
+                    profile,
+                )
             )
             if profile_reason is not None:
                 return None, profile_reason
@@ -6141,6 +6218,11 @@ class ProviderWorkloadControlService:
                 r8e_video_certification_evidence_reason(execution_shape, checks)
                 if execution_shape in R8E_EXECUTION_SHAPES
                 else r8d_audio_certification_evidence_reason(
+                    execution_shape,
+                    checks,
+                )
+                if execution_shape in R8D_EXECUTION_SHAPES
+                else r8f_realtime_certification_evidence_reason(
                     execution_shape,
                     checks,
                 )

@@ -405,6 +405,12 @@ DELETE /api/multimodal/realtime/calls/{session_id}
 
 - 浏览器只把 SDP 交给模镜后端，永久 OpenAI Key 不进入前端。
 - 音频在浏览器与 OpenAI 之间通过 WebRTC 传输，模镜不转发或保存 PCM。
+- Managed 模式只接受官方 `openai` 连接、`realtime` scope、官方 OpenAI Endpoint 和
+  `openai_realtime_sdp_v1`；newAPI WebSocket Realtime 不会被伪装成 SDP Adapter。
+- Managed 创建必须携带瞬时幂等键；重复点击、刷新、断网、取消或重启不会自动创建替代会话。
+  派发后结果不确定时显示显式检查/Hangup 指引并保持 `uncertain`。
+- 浏览器辅助认证只保存脱敏协议检查和人工媒体确认；Offer/Answer SDP、音频和转录不进入
+  SQLite、Receipt、日志、管理 API 或浏览器持久化存储。
 - 默认 `gpt-realtime-2.1-mini + marin + semantic_vad`，可切换质量版和 Cedar。
 - 单次最多 10 分钟，结束前 60 秒提示；网络中断只提供显式重新连接，不自动创建新付费会话。
 - 首期只做纯语音，不组合 RAG、Skill、MCP、Agent、附件或 `/chat/auto`。
@@ -465,8 +471,10 @@ MULTIMODAL_VOICE_CLONING_ENABLED=false
 任一开关设为 `false` 后，模型仍保留在目录，但对应入口显示“当前未启用”；文本、图片、STT、TTS、RAG、工作流和智能调度不受影响。
 
 直接 OpenAI Realtime 还要求在设置页创建 `openai` 类型连接，地址必须为
-`https://api.openai.com/v1`，用途范围为 `audio + realtime`。环境开关不能替代连接和密钥。
+`https://api.openai.com/v1`，用途范围至少包含 `realtime`；若同一连接还承担 TTS，则再授予
+`audio` scope。环境开关不能替代连接、精确 Adapter 资格和密钥。
 普通 OpenAI TTS 同样复用该连接的 `audio` scope；模型卡和朗读入口在缺少连接时显示“需配置”，连接就绪后无需另开实验白名单。
+R8 完成只表示各形态可被精确 Binding、认证和审计；不代表 newAPI 已成为多模态默认数据面。
 声音克隆开关保持关闭；本轮没有上传授权录音、创建音色或绕过删除安全门禁的接口。
 
 ### 只审计

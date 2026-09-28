@@ -7,6 +7,7 @@ import {
   Route,
   ShieldCheck,
 } from "lucide-react";
+import RealtimeCertificationPanel from "./RealtimeCertificationPanel";
 
 type EntryId =
   | "agent_shadow"
@@ -294,6 +295,7 @@ const ACTIVE_MULTIMODAL_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
   "video_analysis_unary",
   "chat_video_stream",
   "video_generation_async",
+  "realtime_voice_session",
 ]);
 
 const REFRESHABLE_MULTIMODAL_CERTIFICATION_SHAPES = new Set<ExecutionShape>([
@@ -861,6 +863,7 @@ export default function ProviderWorkloadControlSettings({
   if (view === "certifications") {
     const fusionSelected = certificationShape === "fusion_native";
     const multimodalSelected = MULTIMODAL_SHAPES.has(certificationShape);
+    const realtimeSelected = certificationShape === "realtime_voice_session";
     const multimodalFoundationOnly = multimodalSelected
       && !ACTIVE_MULTIMODAL_CERTIFICATION_SHAPES.has(certificationShape);
     const canConfirm = Boolean(
@@ -923,10 +926,18 @@ export default function ProviderWorkloadControlSettings({
                 <option value="llm_json">LLM JSON Adapter</option>
               </select>
             </label> : null}
-            {multimodalFoundationOnly ? <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100">该多模态形态目前仅建立 Adapter、Binding 和状态基础，不会发送付费认证；对应数据面批次接入后才开放此按钮。</p> : null}
-            <button className="inline-flex items-center gap-2 rounded-full bg-violet-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canConfirm || busy} onClick={() => setConfirmCertification(true)} type="button">
-              <ShieldCheck className="h-4 w-4" />运行资格认证
-            </button>
+            {realtimeSelected ? <RealtimeCertificationPanel
+              connectionId={connectionId}
+              csrfToken={csrfToken}
+              disabled={busy || !certificationAdapter}
+              modelId={certificationModel}
+              onComplete={load}
+            /> : <>
+              {multimodalFoundationOnly ? <p className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] p-3 text-xs leading-5 text-amber-100">该多模态形态目前仅建立 Adapter、Binding 和状态基础，不会发送付费认证；对应数据面批次接入后才开放此按钮。</p> : null}
+              <button className="inline-flex items-center gap-2 rounded-full bg-violet-200 px-4 py-2 text-sm font-semibold text-ink-950 disabled:cursor-not-allowed disabled:opacity-40" disabled={!canConfirm || busy} onClick={() => setConfirmCertification(true)} type="button">
+                <ShieldCheck className="h-4 w-4" />运行资格认证
+              </button>
+            </>}
           </div>
           <div>
             <h3 className="text-sm font-semibold text-white">最近资格</h3>
@@ -955,7 +966,7 @@ export default function ProviderWorkloadControlSettings({
             </div>
           </div>
         </div>
-        {confirmCertification ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
+        {confirmCertification && !realtimeSelected ? <div aria-modal="true" className="border-t border-amber-300/20 bg-amber-300/[0.05] p-5" role="dialog">
           <p className="text-sm font-semibold text-amber-100">确认一次真实付费资格调用</p>
           <p className="mt-2 text-sm leading-6 text-slate-300">{certificationInputDisclosure}{certificationShape.startsWith("openrouter_batch_") ? "最多提交一个异步 Batch；后续只读轮询不会重放提交" : "最多一个 Provider POST、零自动重试"}，可能产生少量费用。</p>
           <div className="mt-3 flex gap-2"><button className="rounded-full bg-amber-200 px-4 py-2 text-sm font-semibold text-ink-950" disabled={busy} onClick={() => void runCertification()} type="button">确认并运行</button><button className="rounded-full border border-white/15 px-4 py-2 text-sm text-slate-200" onClick={() => setConfirmCertification(false)} type="button">取消</button></div>

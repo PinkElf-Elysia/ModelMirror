@@ -79,7 +79,6 @@ from .workload_control import (
     ProviderWorkloadCertificationService,
     ProviderWorkloadControlService,
 )
-from .multimodal_control import ProviderMultimodalCertificationSessionService
 from .chat_canary import ProviderChatCanaryService
 from .provider_catalog import ProviderCatalogService
 from .control_plane_catalog import ControlPlaneCatalogService
@@ -632,9 +631,9 @@ async def refresh_multimodal_workload_certification(
     "/connections/{connection_id}/certifications/realtime/session",
     response_model=ProviderRealtimeCertificationSessionResponse,
 )
-def create_realtime_certification_session(
+async def create_realtime_certification_session(
     connection_id: str,
-    _payload: ProviderRealtimeCertificationSessionRequest,
+    payload: ProviderRealtimeCertificationSessionRequest,
     idempotency_key: str = Header(default="", alias="Idempotency-Key"),
     _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> ProviderRealtimeCertificationSessionResponse:
@@ -647,9 +646,15 @@ def create_realtime_certification_session(
             )
         )
     try:
-        ProviderMultimodalCertificationSessionService(
-            get_model_router_service()
-        ).realtime_not_integrated(connection_id)
+        try:
+            from server.multimodal.api import get_realtime_voice_service
+        except ModuleNotFoundError:
+            from multimodal.api import get_realtime_voice_service
+        return await get_realtime_voice_service().begin_certification(
+            connection_id,
+            payload,
+            idempotency_key=idempotency_key,
+        )
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
     raise AssertionError("realtime certification session returned unexpectedly")
@@ -659,15 +664,20 @@ def create_realtime_certification_session(
     "/certifications/realtime/{certification_id}/complete",
     response_model=ProviderWorkloadCertificationSummary,
 )
-def complete_realtime_certification_session(
+async def complete_realtime_certification_session(
     certification_id: str,
-    _payload: ProviderRealtimeCertificationCompleteRequest,
+    payload: ProviderRealtimeCertificationCompleteRequest,
     _principal: ProviderControlPrincipal = Depends(require_provider_admin_csrf),
 ) -> ProviderWorkloadCertificationSummary:
     try:
-        ProviderMultimodalCertificationSessionService(
-            get_model_router_service()
-        ).realtime_complete_not_integrated(certification_id)
+        try:
+            from server.multimodal.api import get_realtime_voice_service
+        except ModuleNotFoundError:
+            from multimodal.api import get_realtime_voice_service
+        return await get_realtime_voice_service().complete_certification(
+            certification_id,
+            payload,
+        )
     except (RouterServiceError, RouterRepositoryError) as exc:
         _raise_public_error(exc)
     raise AssertionError("realtime certification completion returned unexpectedly")

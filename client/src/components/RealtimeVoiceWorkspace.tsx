@@ -35,6 +35,13 @@ type RealtimeStatus =
   | "ended"
   | "error";
 
+type MicrophoneCheckStatus =
+  | "idle"
+  | "checking"
+  | "detected"
+  | "silent"
+  | "error";
+
 interface RealtimeVoiceProfile {
   model_id: string;
   display_name: string;
@@ -60,6 +67,28 @@ interface RealtimeCallResponse {
   expires_at: string;
   model_id: string;
   voice: string;
+  execution_mode?: "managed" | "legacy";
+  provider_dispatch_state?:
+    | "not_dispatched"
+    | "dispatched"
+    | "confirmed"
+    | "uncertain"
+    | null;
+}
+
+interface RealtimeCallEvidence {
+  data_channel_open: boolean;
+  local_audio_observed: boolean;
+  outbound_audio_sent: boolean;
+  input_speech_started: boolean;
+  input_speech_stopped: boolean;
+  response_created: boolean;
+  remote_track_observed: boolean;
+  output_audio_started: boolean;
+  inbound_audio_received: boolean;
+  remote_audio_observed: boolean;
+  response_done: boolean;
+  playback_started: boolean;
 }
 
 interface RealtimeVoiceWorkspaceProps {
@@ -145,23 +174,90 @@ function formatRemaining(seconds: number | null) {
   return `${minutes}:${String(safe % 60).padStart(2, "0")}`;
 }
 
-async function apiError(response: Response, fallback: string) {
+interface ApiErrorDetails {
+  code: string;
+  message: string;
+}
+
+async function apiErrorDetails(
+  response: Response,
+  fallback: string,
+): Promise<ApiErrorDetails> {
   try {
     const payload = (await response.json()) as {
-      detail?: { message?: string } | string;
+      detail?: { code?: string; message?: string } | string;
     };
     if (
       payload.detail &&
       typeof payload.detail === "object" &&
       typeof payload.detail.message === "string"
     ) {
-      return payload.detail.message;
+      return {
+        code: typeof payload.detail.code === "string" ? payload.detail.code : "",
+        message: payload.detail.message,
+      };
     }
-    if (typeof payload.detail === "string") return payload.detail;
+    if (typeof payload.detail === "string") {
+      return { code: "", message: payload.detail };
+    }
   } catch {
     // The UI intentionally does not expose upstream response bodies.
   }
-  return fallback;
+  return { code: "", message: fallback };
+}
+
+function waitForIceGatheringComplete(
+  peer: RTCPeerConnection,
+  timeoutMs = 10_000,
+) {
+  if (peer.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    let timeoutId: number | undefined;
+    const cleanup = () => {
+      peer.removeEventListener("icegatheringstatechange", handleStateChange);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+    const handleStateChange = () => {
+      if (peer.iceGatheringState !== "complete") return;
+      cleanup();
+      resolve();
+    };
+    peer.addEventListener("icegatheringstatechange", handleStateChange);
+    timeoutId = window.setTimeout(() => {
+      cleanup();
+      reject(
+        new Error(
+          "浏览器未能完成语音网络候选收集，未向模型服务发起会话。",
+        ),
+      );
+    }, timeoutMs);
+    handleStateChange();
+  });
+}
+
+async function apiError(response: Response, fallback: string) {
+  return (await apiErrorDetails(response, fallback)).message;
+}
+
+function realtimeIdempotencyKey() {
+  return `realtime-${window.crypto.randomUUID()}`;
+}
+
+function emptyEvidence(): RealtimeCallEvidence {
+  return {
+    data_channel_open: false,
+    local_audio_observed: false,
+    outbound_audio_sent: false,
+    input_speech_started: false,
+    input_speech_stopped: false,
+    response_created: false,
+    remote_track_observed: false,
+    output_audio_started: false,
+    inbound_audio_received: false,
+    remote_audio_observed: false,
+    response_done: false,
+    playback_started: false,
+  };
 }
 
 function microphoneError(error: unknown) {
@@ -204,6 +300,13 @@ export default function RealtimeVoiceWorkspace({
   const [muted, setMuted] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [playbackBlocked, setPlaybackBlocked] = useState(false);
+  const [evidenceRevision, setEvidenceRevision] = useState(0);
+  const [microphoneCheckStatus, setMicrophoneCheckStatus] =
+    useState<MicrophoneCheckStatus>("idle");
+  const [microphoneCheckMessage, setMicrophoneCheckMessage] = useState("");
+  const [microphoneDevices, setMicrophoneDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicrophoneId, setSelectedMicrophoneId] = useState("");
+  const [defaultMicrophoneId, setDefaultMicrophoneId] = useState("");
 
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -213,8 +316,12 @@ export default function RealtimeVoiceWorkspace({
   const expiresAtRef = useRef<number | null>(null);
   const statusRef = useRef<RealtimeStatus>("idle");
   const attemptRef = useRef(0);
+  const startingRef = useRef(false);
   const disposedRef = useRef(false);
   const endingRef = useRef(false);
+  const microphoneCheckRunningRef = useRef(false);
+  const evidenceRef = useRef<RealtimeCallEvidence>(emptyEvidence());
+  const statsTimerRef = useRef<number | null>(null);
 
   const realtimeProfiles = useMemo(
     () =>
@@ -272,7 +379,77 @@ export default function RealtimeVoiceWorkspace({
     if (!disposedRef.current) setStatus(next);
   }, []);
 
+  const observeEvidence = useCallback(
+    (key: keyof RealtimeCallEvidence) => {
+      if (evidenceRef.current[key]) return;
+      evidenceRef.current = { ...evidenceRef.current, [key]: true };
+      if (!disposedRef.current) setEvidenceRevision((value) => value + 1);
+    },
+    [],
+  );
+
+  const stopStatsProbe = useCallback(() => {
+    if (statsTimerRef.current !== null) {
+      window.clearInterval(statsTimerRef.current);
+      statsTimerRef.current = null;
+    }
+  }, []);
+
+  const probeAudioStats = useCallback(
+    async (peer: RTCPeerConnection) => {
+      if (typeof peer.getStats !== "function") return;
+      try {
+        const report = await peer.getStats();
+        report.forEach((raw) => {
+          const item = raw as RTCStats & {
+            audioLevel?: number;
+            kind?: string;
+            mediaType?: string;
+            packetsReceived?: number;
+            packetsSent?: number;
+            totalAudioEnergy?: number;
+          };
+          const isAudio = item.kind === "audio" || item.mediaType === "audio";
+          if (
+            item.type === "outbound-rtp" &&
+            isAudio &&
+            Number(item.packetsSent ?? 0) > 0
+          ) {
+            observeEvidence("outbound_audio_sent");
+          }
+          if (
+            item.type === "inbound-rtp" &&
+            isAudio &&
+            Number(item.packetsReceived ?? 0) > 0
+          ) {
+            observeEvidence("inbound_audio_received");
+          }
+          if (
+            item.type === "inbound-rtp" &&
+            isAudio &&
+            (Number(item.audioLevel ?? 0) > 0.001 ||
+              Number(item.totalAudioEnergy ?? 0) > 0)
+          ) {
+            observeEvidence("remote_audio_observed");
+          }
+          if (
+            item.type === "media-source" &&
+            isAudio &&
+            (Number(item.audioLevel ?? 0) > 0.001 ||
+              Number(item.totalAudioEnergy ?? 0) > 0)
+          ) {
+            observeEvidence("local_audio_observed");
+          }
+        });
+      } catch {
+        // Stats are diagnostic-only and must never alter the call path.
+      }
+    },
+    [observeEvidence],
+  );
+
   const closeLocalMedia = useCallback(() => {
+    stopStatsProbe();
     dataChannelRef.current?.close();
     dataChannelRef.current = null;
     const peer = peerRef.current;
@@ -291,14 +468,22 @@ export default function RealtimeVoiceWorkspace({
       remoteAudio.pause();
       remoteAudio.srcObject = null;
     }
-  }, []);
+  }, [stopStatsProbe]);
 
-  const endRemoteSession = useCallback(async (sessionId: string) => {
+  const endRemoteSession = useCallback(async (
+    sessionId: string,
+    evidence: RealtimeCallEvidence = evidenceRef.current,
+  ) => {
     if (!sessionId) return;
     try {
       await fetch(
         `/api/multimodal/realtime/calls/${encodeURIComponent(sessionId)}`,
-        { method: "DELETE", keepalive: true },
+        {
+          method: "DELETE",
+          keepalive: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(evidence),
+        },
       );
     } catch {
       // The server also enforces the hard expiry, so local cleanup can finish.
@@ -311,14 +496,16 @@ export default function RealtimeVoiceWorkspace({
       nextError = "",
     ) => {
       endingRef.current = true;
+      startingRef.current = false;
       attemptRef.current += 1;
       if (nextStatus === "ended") updateStatus("ending");
       const sessionId = sessionIdRef.current;
+      const evidence = { ...evidenceRef.current };
       sessionIdRef.current = "";
       expiresAtRef.current = null;
       setRemainingSeconds(null);
       closeLocalMedia();
-      await endRemoteSession(sessionId);
+      await endRemoteSession(sessionId, evidence);
       if (disposedRef.current) return;
       setMuted(false);
       setError(nextError);
@@ -344,6 +531,7 @@ export default function RealtimeVoiceWorkspace({
         return;
       }
       if (eventType === "input_audio_buffer.speech_started") {
+        observeEvidence("input_speech_started");
         updateStatus(
           statusRef.current === "assistant_speaking"
             ? "interrupted"
@@ -352,15 +540,21 @@ export default function RealtimeVoiceWorkspace({
         return;
       }
       if (eventType === "input_audio_buffer.speech_stopped") {
+        observeEvidence("input_speech_stopped");
         updateStatus("thinking");
         return;
       }
+      if (eventType === "response.created") {
+        observeEvidence("response_created");
+        updateStatus("assistant_speaking");
+        return;
+      }
       if (
-        eventType === "response.created" ||
         eventType === "response.output_audio.delta" ||
         eventType === "response.audio.delta" ||
         eventType === "output_audio_buffer.started"
       ) {
+        observeEvidence("output_audio_started");
         updateStatus("assistant_speaking");
         return;
       }
@@ -368,6 +562,7 @@ export default function RealtimeVoiceWorkspace({
         eventType === "response.done" ||
         eventType === "output_audio_buffer.stopped"
       ) {
+        if (eventType === "response.done") observeEvidence("response_done");
         updateStatus("listening");
         return;
       }
@@ -375,7 +570,7 @@ export default function RealtimeVoiceWorkspace({
         setError("实时语音服务返回错误。请结束会话后重新连接。");
       }
     },
-    [updateStatus],
+    [observeEvidence, updateStatus],
   );
 
   const refreshCatalog = useCallback(async () => {
@@ -408,7 +603,98 @@ export default function RealtimeVoiceWorkspace({
     }
   }, []);
 
+  const microphoneConstraints = useCallback(
+    (): MediaTrackConstraints => ({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(selectedMicrophoneId
+        ? { deviceId: { exact: selectedMicrophoneId } }
+        : {}),
+    }),
+    [selectedMicrophoneId],
+  );
+
+  const refreshMicrophoneDevices = useCallback(
+    async (stream: MediaStream) => {
+      const currentDeviceId =
+        stream.getAudioTracks()[0]?.getSettings().deviceId ?? "";
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+        (device) => device.kind === "audioinput" && device.deviceId,
+      );
+      if (disposedRef.current) return;
+      setDefaultMicrophoneId(currentDeviceId);
+      setMicrophoneDevices(devices);
+    },
+    [],
+  );
+
+  const runMicrophoneCheck = useCallback(async () => {
+    if (microphoneCheckRunningRef.current || isActive || isBusy) return;
+    microphoneCheckRunningRef.current = true;
+    setMicrophoneCheckStatus("checking");
+    setMicrophoneCheckMessage("请立即对着麦克风连续说话，正在本地检测声音…");
+
+    let stream: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+    let source: MediaStreamAudioSourceNode | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: microphoneConstraints(),
+      });
+      await refreshMicrophoneDevices(stream);
+      const AudioContextConstructor =
+        window.AudioContext ??
+        (window as typeof window & {
+          webkitAudioContext?: typeof AudioContext;
+        }).webkitAudioContext;
+      if (!AudioContextConstructor) {
+        throw new Error("当前浏览器不支持本地音量检测。");
+      }
+      audioContext = new AudioContextConstructor();
+      if (audioContext.state === "suspended") await audioContext.resume();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 1024;
+      source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const deadline = performance.now() + 6_000;
+      let detected = false;
+      while (!disposedRef.current && performance.now() < deadline) {
+        analyser.getFloatTimeDomainData(samples);
+        let energy = 0;
+        for (const sample of samples) energy += sample * sample;
+        if (Math.sqrt(energy / samples.length) >= 0.008) {
+          detected = true;
+          break;
+        }
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, 100);
+        });
+      }
+      if (disposedRef.current) return;
+      setMicrophoneCheckStatus(detected ? "detected" : "silent");
+      setMicrophoneCheckMessage(
+        detected
+          ? "已检测到本地麦克风声音；该检查未连接 Provider，也未保存或上传音频。"
+          : "未检测到本地麦克风声音。请检查系统默认输入设备、硬件静音或改用系统浏览器后再连接 Provider。",
+      );
+    } catch (checkError) {
+      if (disposedRef.current) return;
+      setMicrophoneCheckStatus("error");
+      setMicrophoneCheckMessage(microphoneError(checkError));
+    } finally {
+      source?.disconnect();
+      stream?.getTracks().forEach((track) => track.stop());
+      if (audioContext && audioContext.state !== "closed") {
+        await audioContext.close().catch(() => undefined);
+      }
+      microphoneCheckRunningRef.current = false;
+    }
+  }, [isActive, isBusy, microphoneConstraints, refreshMicrophoneDevices]);
+
   const startSession = useCallback(async () => {
+    if (startingRef.current) return;
     if (!canStart || !selectedProfile || !browserSupported) {
       if (!browserSupported) {
         setError(
@@ -419,8 +705,13 @@ export default function RealtimeVoiceWorkspace({
       return;
     }
 
+    startingRef.current = true;
+    stopStatsProbe();
+    evidenceRef.current = emptyEvidence();
+    setEvidenceRevision((value) => value + 1);
     const attempt = attemptRef.current + 1;
     attemptRef.current = attempt;
+    const idempotencyKey = realtimeIdempotencyKey();
     endingRef.current = false;
     sessionIdRef.current = "";
     expiresAtRef.current = null;
@@ -435,12 +726,9 @@ export default function RealtimeVoiceWorkspace({
     let createdSessionId = "";
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: microphoneConstraints(),
       });
+      await refreshMicrophoneDevices(localStream);
       if (attempt !== attemptRef.current || disposedRef.current) {
         localStream.getTracks().forEach((track) => track.stop());
         return;
@@ -455,17 +743,25 @@ export default function RealtimeVoiceWorkspace({
       }
 
       peer.ontrack = (trackEvent) => {
+        observeEvidence("remote_track_observed");
         const remoteAudio = remoteAudioRef.current;
-        const remoteStream = trackEvent.streams[0];
-        if (!remoteAudio || !remoteStream) return;
+        const remoteStream =
+          trackEvent.streams[0] ?? new MediaStream([trackEvent.track]);
+        if (!remoteAudio) return;
+        remoteAudio.muted = false;
+        remoteAudio.volume = 1;
         remoteAudio.srcObject = remoteStream;
-        void remoteAudio.play().catch(() => setPlaybackBlocked(true));
+        void remoteAudio
+          .play()
+          .then(() => setPlaybackBlocked(false))
+          .catch(() => setPlaybackBlocked(true));
       };
 
       const dataChannel = peer.createDataChannel("oai-events");
       dataChannelRef.current = dataChannel;
       dataChannel.addEventListener("message", handleServerEvent);
       dataChannel.addEventListener("open", () => {
+        observeEvidence("data_channel_open");
         if (!endingRef.current) updateStatus("listening");
       });
 
@@ -489,6 +785,7 @@ export default function RealtimeVoiceWorkspace({
 
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
+      await waitForIceGatheringComplete(peer);
       const sdp = peer.localDescription?.sdp;
       if (!sdp) {
         throw new Error("浏览器没有生成有效的语音连接信息。");
@@ -496,7 +793,10 @@ export default function RealtimeVoiceWorkspace({
 
       const response = await fetch("/api/multimodal/realtime/calls", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({
           sdp,
           model_id: selectedProfile.model_id,
@@ -506,9 +806,13 @@ export default function RealtimeVoiceWorkspace({
         }),
       });
       if (!response.ok) {
-        throw new Error(
-          await apiError(response, "实时语音连接失败，请稍后重试。"),
+        const failure = await apiErrorDetails(
+          response,
+          "实时语音连接失败，请稍后重试。",
         );
+        throw Object.assign(new Error(failure.message), {
+          code: failure.code,
+        });
       }
       const call = (await response.json()) as RealtimeCallResponse;
       createdSessionId = call.session_id;
@@ -536,6 +840,12 @@ export default function RealtimeVoiceWorkspace({
         type: "answer",
         sdp: call.sdp_answer,
       });
+      const establishedPeer = peer;
+      await probeAudioStats(establishedPeer);
+      statsTimerRef.current = window.setInterval(
+        () => void probeAudioStats(establishedPeer),
+        1_000,
+      );
     } catch (startError) {
       if (createdSessionId) await endRemoteSession(createdSessionId);
       if (sessionIdRef.current === createdSessionId) {
@@ -558,7 +868,14 @@ export default function RealtimeVoiceWorkspace({
             ? startError.message
             : "实时语音连接失败，请稍后重试。",
       );
-      updateStatus("error");
+      updateStatus(
+        (startError as { code?: string } | null)?.code ===
+          "provider_realtime_create_result_uncertain"
+          ? "reconnect_required"
+          : "error",
+      );
+    } finally {
+      if (attempt === attemptRef.current) startingRef.current = false;
     }
   }, [
     browserSupported,
@@ -568,7 +885,12 @@ export default function RealtimeVoiceWorkspace({
     finishSession,
     handleServerEvent,
     language,
+    microphoneConstraints,
     selectedProfile,
+    observeEvidence,
+    probeAudioStats,
+    refreshMicrophoneDevices,
+    stopStatsProbe,
     updateStatus,
     voice,
   ]);
@@ -610,14 +932,21 @@ export default function RealtimeVoiceWorkspace({
   useEffect(() => {
     const handlePageHide = () => {
       endingRef.current = true;
+      startingRef.current = false;
       attemptRef.current += 1;
       closeLocalMedia();
       const sessionId = sessionIdRef.current;
+      const evidence = { ...evidenceRef.current };
       sessionIdRef.current = "";
       if (sessionId) {
         void fetch(
           `/api/multimodal/realtime/calls/${encodeURIComponent(sessionId)}`,
-          { method: "DELETE", keepalive: true },
+          {
+            method: "DELETE",
+            keepalive: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(evidence),
+          },
         );
       }
     };
@@ -633,6 +962,7 @@ export default function RealtimeVoiceWorkspace({
       return () => {
         disposedRef.current = true;
         endingRef.current = true;
+        startingRef.current = false;
         attemptRef.current += 1;
         closeLocalMedia();
         const sessionId = sessionIdRef.current;
@@ -780,7 +1110,8 @@ export default function RealtimeVoiceWorkspace({
                     onClick={() => {
                       void remoteAudioRef.current
                         ?.play()
-                        .then(() => setPlaybackBlocked(false));
+                        .then(() => setPlaybackBlocked(false))
+                        .catch(() => setPlaybackBlocked(true));
                     }}
                     type="button"
                   >
@@ -796,11 +1127,32 @@ export default function RealtimeVoiceWorkspace({
                     {error}
                   </p>
                 ) : null}
+                {isActive ? (
+                  <p
+                    className="mt-4 max-w-xl text-xs leading-5 text-slate-500"
+                    data-evidence-revision={evidenceRevision}
+                  >
+                    链路诊断：本地麦克风
+                    {evidenceRef.current.local_audio_observed ? "有输入" : "等待输入"}
+                    {" · "}音频上行
+                    {evidenceRef.current.outbound_audio_sent ? "已发送" : "待确认"}
+                    {" · "}Provider VAD
+                    {evidenceRef.current.input_speech_started ? "已检测" : "未检测"}
+                    {" · "}模型回答
+                    {evidenceRef.current.response_created ? "已创建" : "未创建"}
+                    {" · "}远端 RTP
+                    {evidenceRef.current.inbound_audio_received ? "已接收" : "未接收"}
+                    {" · "}远端音频
+                    {evidenceRef.current.remote_audio_observed ? "有能量" : "无能量"}
+                    {" · "}播放事件
+                    {evidenceRef.current.playback_started ? "已开始" : "未开始"}
+                  </p>
+                ) : null}
               </div>
               <audio
                 autoPlay
                 className="hidden"
-                onCanPlay={() => setPlaybackBlocked(false)}
+                onPlaying={() => observeEvidence("playback_started")}
                 playsInline
                 ref={remoteAudioRef}
               />
@@ -874,6 +1226,62 @@ export default function RealtimeVoiceWorkspace({
                     <option value="ko-KR">한국어</option>
                   </select>
                 </label>
+
+                <div className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  {microphoneDevices.length > 0 ? (
+                    <label className="mb-3 block">
+                      <span className="text-xs font-medium text-slate-300">
+                        输入设备
+                      </span>
+                      <select
+                        className="mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-ink-950/80 px-3 text-xs text-white outline-none transition focus:border-cyan-300/50"
+                        disabled={isActive || isBusy || microphoneCheckStatus === "checking"}
+                        onChange={(event) => {
+                          setSelectedMicrophoneId(event.target.value);
+                          setMicrophoneCheckStatus("idle");
+                          setMicrophoneCheckMessage(
+                            "输入设备已切换；请重新运行本地自检。",
+                          );
+                        }}
+                        value={selectedMicrophoneId}
+                      >
+                        <option value="">系统默认麦克风</option>
+                        {microphoneDevices.map((device, index) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `麦克风 ${index + 1}`}
+                            {device.deviceId === defaultMicrophoneId
+                              ? "（当前默认）"
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+                  <button
+                    className="w-full rounded-lg border border-cyan-300/25 px-3 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isActive || isBusy || microphoneCheckStatus === "checking"}
+                    onClick={() => void runMicrophoneCheck()}
+                    type="button"
+                  >
+                    {microphoneCheckStatus === "checking"
+                      ? "正在检测麦克风…"
+                      : "本地麦克风自检"}
+                  </button>
+                  <p
+                    className={`mt-2 text-xs leading-5 ${
+                      microphoneCheckStatus === "detected"
+                        ? "text-emerald-200"
+                        : microphoneCheckStatus === "silent" ||
+                            microphoneCheckStatus === "error"
+                          ? "text-amber-100"
+                          : "text-slate-400"
+                    }`}
+                    role="status"
+                  >
+                    {microphoneCheckMessage ||
+                      "只在本机检测约 6 秒，不连接 Provider，不保存或上传音频。"}
+                  </p>
+                </div>
               </div>
 
               {catalogLoading ? (
