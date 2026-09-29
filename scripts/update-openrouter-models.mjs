@@ -26,6 +26,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "upstage/solar-decide",
   "respan/span-01",
   "respan/span-01-lite",
   "respan/span-01-lite:free",
