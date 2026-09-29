@@ -86,6 +86,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 @pytest.mark.parametrize(
     "model_id",
     [
+        "upstage/solar-decide",
         "jaredpalmer/kev-4b",
         "respan/span-01",
         "respan/span-01-lite",

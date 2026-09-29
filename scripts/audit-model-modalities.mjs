@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "upstage/solar-decide",
   "respan/span-01",
   "respan/span-01-lite",
   "respan/span-01-lite:free",

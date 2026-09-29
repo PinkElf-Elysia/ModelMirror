@@ -3342,6 +3342,7 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "upstage/solar-decide",
         "respan/span-01",
         "respan/span-01-lite",
         "respan/span-01-lite:free",
