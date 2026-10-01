@@ -73,6 +73,10 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         # Avatar IV 使用单张人物参考图且不发送未公开的音频上传字段，
         # Wan 3.0 支持 2–30 秒、首帧/参考图、生成音频与 seed。
         "heygen/avatar-iv",
+        # 2026-09-30：专用视频目录确认 480p/768p、5–15 秒、
+        # 六种画幅、首帧、seed 与文本/参考素材分档价格；
+        # 本地仅开放通用契约能严格表达的文本与首帧路径，未执行付费生成。
+        "heygen/heygen-video-1",
         "alibaba/wan-3.0",
         # 2026-08-27：Wan 3.0 Prime 专用目录确认 2–30 秒、
         # 480p/720p/1080p、首帧、生成音频、seed 与分辨率价格；

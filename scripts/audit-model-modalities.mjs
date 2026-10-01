@@ -12,6 +12,11 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "heygen/heygen-video-1",
+  "togethercomputer/tev1-4b-experimental",
+  "inception/mercury-decide:free",
+  "voyageai/rerank-3-lite",
+  "voyageai/rerank-3",
   "upstage/solar-decide",
   "respan/span-01",
   "respan/span-01-lite",

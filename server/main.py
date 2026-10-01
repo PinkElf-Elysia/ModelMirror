@@ -3342,6 +3342,8 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "togethercomputer/tev1-4b-experimental",
+        "inception/mercury-decide:free",
         "upstage/solar-decide",
         "respan/span-01",
         "respan/span-01-lite",
@@ -3374,13 +3376,25 @@ class OpenRouterDecisionRequest(BaseModel):
                 if not isinstance(criteria, dict) or set(criteria) != {"true", "false"}:
                     raise ValueError("A noul question requires true and false criteria.")
             elif question_type == "choice":
-                if not isinstance(criteria, dict) or not 2 <= len(criteria) <= 20:
-                    raise ValueError("A choice question requires 2 to 20 criteria.")
+                max_choices = (
+                    24
+                    if self.model == "togethercomputer/tev1-4b-experimental"
+                    else 20
+                )
+                if not isinstance(criteria, dict) or not 2 <= len(criteria) <= max_choices:
+                    raise ValueError(
+                        f"A choice question requires 2 to {max_choices} criteria."
+                    )
             elif not isinstance(criteria, list) or not 2 <= len(criteria) <= 20:
                 raise ValueError("A score question requires 2 to 20 ordered criteria.")
             criteria_values = criteria.values() if isinstance(criteria, dict) else criteria
             if any(not isinstance(value, str) or not value.strip() for value in criteria_values):
                 raise ValueError("Decision criteria must be non-empty strings.")
+        if self.model == "togethercomputer/tev1-4b-experimental":
+            if len(self.questions) != 1:
+                raise ValueError("Tev1 requires exactly one choice question.")
+            if next(iter(self.questions.values())).get("type") != "choice":
+                raise ValueError("Tev1 supports choice questions only.")
         return self
 
 
@@ -32672,6 +32686,96 @@ def openrouter_decision_response_payload(response: httpx.Response) -> Any:
         }
 
 
+TEV_DECISION_MODEL_ID = "togethercomputer/tev1-4b-experimental"
+
+
+def openrouter_tev_request_payload(
+    payload: OpenRouterDecisionRequest,
+) -> tuple[dict[str, Any], str, list[str]]:
+    question_id, question = next(iter(payload.questions.items()))
+    criteria = question["criteria"]
+    option_keys = list(criteria)
+    options = [
+        {
+            "label": chr(ord("A") + index),
+            "key": key,
+            "description": criteria[key],
+        }
+        for index, key in enumerate(option_keys)
+    ]
+    decision = {
+        "state": payload.state,
+        "question": question["instructions"],
+        "options": options,
+    }
+    return (
+        {
+            "model": payload.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Choose exactly one option from the supplied decision. "
+                        "Return only its uppercase label letter and no other text."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(decision, ensure_ascii=False),
+                },
+            ],
+            "temperature": 0,
+            "max_tokens": 8,
+            "reasoning": {"enabled": False},
+        },
+        question_id,
+        option_keys,
+    )
+
+
+def openrouter_tev_response_payload(
+    response: httpx.Response,
+    question_id: str,
+    option_keys: list[str],
+) -> Any:
+    body = openrouter_decision_response_payload(response)
+    if response.status_code >= 400 or not isinstance(body, dict):
+        return body
+    try:
+        content = body["choices"][0]["message"]["content"]
+        if isinstance(content, list):
+            content = "".join(
+                str(part.get("text") or "")
+                for part in content
+                if isinstance(part, dict)
+            )
+        match = re.fullmatch(
+            r"\s*(?:option\s*)?([A-X])\s*[.)]?\s*",
+            str(content),
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            raise ValueError
+        label = match.group(1).upper()
+        index = ord(label) - ord("A")
+        choice = option_keys[index]
+    except (IndexError, KeyError, TypeError, ValueError):
+        raise ValueError("Tev1 returned an invalid option label.") from None
+    return {
+        "id": body.get("id"),
+        "model": body.get("model") or TEV_DECISION_MODEL_ID,
+        "provider": body.get("provider"),
+        "answers": {
+            question_id: {
+                "type": "choice",
+                "choice": choice,
+                "label": label,
+            }
+        },
+        "usage": body.get("usage") or {},
+    }
+
+
 @app.post("/api/decisions")
 async def create_openrouter_decision(
     payload: OpenRouterDecisionRequest,
@@ -32688,23 +32792,40 @@ async def create_openrouter_decision(
                 )
             },
         )
+    tev_request: tuple[dict[str, Any], str, list[str]] | None = None
+    request_url = OPENROUTER_DECISIONS_URL
+    request_body = payload.model_dump()
+    if payload.model == TEV_DECISION_MODEL_ID:
+        tev_request = openrouter_tev_request_payload(payload)
+        request_body = tev_request[0]
+        request_url = CHAT_COMPLETIONS_URL
     try:
         async with httpx.AsyncClient(**llm_client_kwargs()) as client:
             response = await client.post(
-                OPENROUTER_DECISIONS_URL,
+                request_url,
                 headers=llm_gateway_headers(OPENROUTER_API_KEY),
-                json=payload.model_dump(),
+                json=request_body,
             )
     except httpx.RequestError as exc:
         logger.warning("OpenRouter Decisions request failed: %s", exc)
+        api_label = (
+            "OpenRouter Chat Completions API"
+            if tev_request is not None
+            else "OpenRouter Decisions API"
+        )
         return JSONResponse(
             status_code=502,
-            content={"error": "无法连接 OpenRouter Decisions API，请稍后重试。"},
+            content={"error": f"无法连接 {api_label}，请稍后重试。"},
         )
-    return JSONResponse(
-        status_code=response.status_code,
-        content=openrouter_decision_response_payload(response),
-    )
+    try:
+        response_payload = (
+            openrouter_tev_response_payload(response, tev_request[1], tev_request[2])
+            if tev_request is not None
+            else openrouter_decision_response_payload(response)
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return JSONResponse(status_code=response.status_code, content=response_payload)
 
 
 def openrouter_batch_response_payload(response: httpx.Response) -> Any:

@@ -85,23 +85,23 @@ const museMarket = {
 
 const assemblySource = {
   id: "assemblyai/universal-3-5-pro",
-  pricing: { prompt: "0.0000625" },
+  pricing: { prompt: "0.000125" },
 };
 const assemblyLocal = {
   id: "assemblyai/universal-3-5-pro",
   pricing_basis: "media",
-  media_pricing: { unit: "audio_hour", usd: 0.225 },
+  media_pricing: { unit: "audio_hour", usd: 0.45 },
 };
 const assemblyMarket = {
   slug: "assemblyai/universal-3-5-pro",
   endpoint: {
     model_variant_slug: "assemblyai/universal-3-5-pro",
-    pricing: { prompt: "0.0000625" },
+    pricing: { prompt: "0.000125" },
     display_pricing: [
       {
         kind: "unit",
         sku_label: "Audio Seconds",
-        price: "0.0000625",
+        price: "0.000125",
         displayMultiplier: 1,
         unitLabel: "/second",
       },
@@ -110,7 +110,7 @@ const assemblyMarket = {
   },
 };
 
-test("accepts the discounted Universal-3.5 Pro audio-hour overlay", () => {
+test("accepts the Universal-3.5 Pro audio-hour overlay", () => {
   assert.deepEqual(
     auditAudioHourPricingOverlays({
       localModels: [assemblyLocal],

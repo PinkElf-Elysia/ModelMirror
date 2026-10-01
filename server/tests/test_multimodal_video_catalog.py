@@ -69,6 +69,7 @@ def test_verified_video_registry_contains_flux_upscale_contract() -> None:
 def test_verified_video_registry_contains_august_24_contracts() -> None:
     assert {
         "heygen/avatar-iv",
+        "heygen/heygen-video-1",
         "alibaba/wan-3.0",
     } <= VERIFIED_VIDEO_GENERATION_MODELS
 
@@ -291,6 +292,29 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
                             ],
                         },
                         {
+                            "id": "heygen/heygen-video-1",
+                            "supported_resolutions": ["480p", "768p"],
+                            "supported_aspect_ratios": [
+                                "21:9",
+                                "16:9",
+                                "4:3",
+                                "1:1",
+                                "3:4",
+                                "9:16",
+                            ],
+                            "supported_durations": list(range(5, 16)),
+                            "supported_frame_images": ["first_frame"],
+                            "generate_audio": False,
+                            "seed": True,
+                            "pricing_skus": {
+                                "duration_seconds_480p": "0.02",
+                                "duration_seconds_768p": "0.03",
+                                "reference_duration_seconds_480p": "0.04",
+                                "reference_duration_seconds_768p": "0.06",
+                            },
+                            "allowed_passthrough_parameters": [],
+                        },
+                        {
                             "id": "alibaba/wan-3.0",
                             "supported_resolutions": [
                                 "480p",
@@ -403,7 +427,7 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
 
     assert result.status == "online"
     assert result.stale is False
-    assert len(result.profiles) == 12
+    assert len(result.profiles) == 13
     analysis = next(
         item for item in result.profiles if item.operation == "analyze_video"
     )
@@ -442,6 +466,11 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
         item
         for item in result.profiles
         if item.model_id == "heygen/avatar-iv"
+    )
+    heygen_video = next(
+        item
+        for item in result.profiles
+        if item.model_id == "heygen/heygen-video-1"
     )
     wan = next(
         item
@@ -562,6 +591,20 @@ async def test_video_catalog_normalizes_analysis_and_generation_models(
     assert avatar.supports_seed is False
     assert avatar.provider_options == []
     assert avatar.pricing_skus == {"duration_seconds": "0.05"}
+    assert heygen_video.interaction_status == "ready"
+    assert heygen_video.supported_resolutions == ["480p", "768p"]
+    assert heygen_video.supported_durations == list(range(5, 16))
+    assert heygen_video.supported_frame_types == ["first_frame"]
+    assert heygen_video.supports_first_frame is True
+    assert heygen_video.supports_reference_images is False
+    assert heygen_video.supports_generated_audio is False
+    assert heygen_video.supports_seed is True
+    assert heygen_video.pricing_skus == {
+        "duration_seconds_480p": "0.02",
+        "duration_seconds_768p": "0.03",
+        "reference_duration_seconds_480p": "0.04",
+        "reference_duration_seconds_768p": "0.06",
+    }
     assert wan.interaction_status == "ready"
     assert wan.supported_resolutions == ["480p", "720p", "1080p"]
     assert wan.supported_durations == list(range(2, 31))

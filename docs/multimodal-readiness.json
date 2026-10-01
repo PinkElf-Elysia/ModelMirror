@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-29",
+  "reviewed_at": "2026-09-30",
   "catalog": {
-    "snapshot_total": 655,
+    "snapshot_total": 662,
     "serving_variant_total": 77,
     "serving_variants_by_type": {
       "batch": 77
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 554,
+    "live": 561,
     "uncertain": 90,
     "expired": 11,
-    "onsite_openrouter": 644,
-    "adaptation_denominator": 644,
+    "onsite_openrouter": 651,
+    "adaptation_denominator": 651,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 29,
+    "dedicated_profiles": 30,
     "verified": [
       { "model_id": "bytedance/seedance-2.0", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
       { "model_id": "runway/aleph-2", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
@@ -45,6 +45,7 @@
       { "model_id": "black-forest-labs/flux-video-upscale", "verified_at": "2026-08-20", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "source_video", "upscale_factor", "creativity", "cost_estimate"] },
       { "model_id": "black-forest-labs/flux-video-edit", "verified_at": "2026-09-11", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "source_video", "edit_prompt", "cost_estimate"] },
       { "model_id": "heygen/avatar-iv", "verified_at": "2026-08-24", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "reference_images", "unit_cost", "cost_estimate"] },
+      { "model_id": "heygen/heygen-video-1", "verified_at": "2026-09-30", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "first_frame", "seed", "cost_estimate", "tiered_cost_estimate"] },
       { "model_id": "alibaba/wan-3.0", "verified_at": "2026-08-24", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "frame_images", "reference_images", "generated_audio", "seed", "cost_estimate"] },
       { "model_id": "alibaba/wan-3.0-prime", "verified_at": "2026-08-27", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "first_frame", "generated_audio", "seed", "cost_estimate", "reference_rejection"] },
       { "model_id": "openai/sora-2-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] }
@@ -52,6 +53,22 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "togethercomputer/tev1-4b-experimental",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已按官方约束把单个 choice 问题和 2–24 个选项编译为 Chat Completions，并将返回字母映射回稳定选项键；尚未执行真实付费调用。"
+    },
+    {
+      "model_id": "inception/mercury-decide:free",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入 OpenRouter alpha Decisions 的 state、questions 与类型化 answers 契约；目录标价为免费，尚未执行真实调用。"
+    },
     {
       "model_id": "upstage/solar-decide",
       "operation": "decide",
@@ -194,7 +211,7 @@
       "status": "planned",
       "verification_status": "manual_required",
       "support_level": "native",
-      "status_reason": "OpenRouter Sync API 的 JSON Base64 转写契约与基础 $0.0000625/音频秒费率已适配；仅接受最长 120 秒的 16-bit WAV，提示词、关键词和会话上下文增强参数尚未在界面开放，且未执行付费人工验收。"
+      "status_reason": "OpenRouter Sync API 的 JSON Base64 转写契约与基础 $0.000125/音频秒费率已适配；仅接受最长 120 秒的 16-bit WAV，提示词、关键词和会话上下文增强参数尚未在界面开放，且未执行付费人工验收。"
     },
     {
       "model_id": "meta/muse-voice-transcribe-1.0",
