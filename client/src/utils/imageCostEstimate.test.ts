@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   estimateImageCost,
+  FLUX_3_IMAGE_PRICING,
   GROK_IMAGINE_IMAGE_2_PRICING,
   GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID,
   imageTokenPricingSummary,
@@ -8,6 +9,7 @@ import {
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
+  SEEDREAM_5_FLASH_PRICING,
   SEEDREAM_5_PRO_PRICING,
 } from "./imageCostEstimate";
 
@@ -81,6 +83,26 @@ describe("estimateImageCost", () => {
       inputUsd: 0,
       exact: true,
     });
+  });
+
+  it("uses Seedream 5 Flash's flat output rate and free references", () => {
+    expect(
+      estimateImageCost(SEEDREAM_5_FLASH_PRICING, {
+        outputCount: 1,
+        referenceCount: 14,
+        resolution: "2K",
+      }),
+    ).toEqual({ minUsd: 0.018, maxUsd: 0.018, inputUsd: 0, exact: true });
+  });
+
+  it("selects FLUX.3 Image's exact resolution tier", () => {
+    expect(
+      estimateImageCost(FLUX_3_IMAGE_PRICING, {
+        outputCount: 1,
+        referenceCount: 0,
+        resolution: "4K",
+      }),
+    ).toEqual({ minUsd: 0.607, maxUsd: 0.607, inputUsd: 0, exact: true });
   });
 
   it("uses Muse Image's flat output price when endpoint details are empty", () => {

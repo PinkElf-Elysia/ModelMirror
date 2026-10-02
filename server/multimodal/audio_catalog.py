@@ -32,6 +32,7 @@ from .tts import (
     ALLOWED_SPEECH_PROFILES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
     GEMINI_38_FLASH_TTS_MODEL_ID,
+    MANUAL_SPEECH_PROFILE_IDS,
     OPENAI_SPEECH_PROFILES,
     SEED_AUDIO_MODEL_ID,
     speech_output_format,
@@ -46,7 +47,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-09-25-transcribe"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-10-01-mai21"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -326,16 +327,12 @@ for _model_id, _voices in ALLOWED_SPEECH_PROFILES.items():
             behavior_verified=True,
         ),
     )
-for _model_id in (
-    SEED_AUDIO_MODEL_ID,
-    GEMINI_38_FLASH_TTS_MODEL_ID,
-    GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
-):
+for _model_id in MANUAL_SPEECH_PROFILE_IDS:
     _is_seed_audio = _model_id == SEED_AUDIO_MODEL_ID
     OPENROUTER_AUDIO_CONTRACTS[_model_id] = AudioContract(
         operations=("synthesize_speech",),
         chat_modes=("synthesize_speech",),
-        output_formats=("wav",),
+        output_formats=(speech_output_format(_model_id),),
         voices=ALLOWED_SPEECH_PROFILES[_model_id],
         interaction_adapted=True,
         manual_verification_required=True,
@@ -347,7 +344,7 @@ for _model_id in (
             )
             if _is_seed_audio
             else (
-                "OpenRouter /audio/speech 与 30 个目录声线契约已接入；"
+                "OpenRouter /audio/speech 与目录声线契约已接入；"
                 "等待本地短音频人工验收。"
             )
         ),

@@ -34,7 +34,7 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-09-24-gemini38"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-01-mai21"
 SEED_AUDIO_MODEL_ID = "bytedance-seed/seed-audio-1-0"
 SEED_AUDIO_PROMPT_VOICE = "__prompt__"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
@@ -127,11 +127,121 @@ GEMINI_38_TTS_VOICES = (
     "Sadaltager",
     "Sulafat",
 )
+MICROSOFT_MAI_VOICE_21_BASE_VOICES = (
+    "cs-CZ-Grant",
+    "cs-CZ-Harper",
+    "da-DK-Grant",
+    "da-DK-Harper",
+    "de-DE-Grant",
+    "de-DE-Harper",
+    "de-DE-Klaus",
+    "de-DE-Mia",
+    "en-AU-Isla",
+    "en-GB-Emily",
+    "en-GB-Harry",
+    "en-IN-Dhruv",
+    "en-IN-Priya",
+    "en-US-Ethan",
+    "en-US-Grant",
+    "en-US-Harper",
+    "en-US-Iris",
+    "en-US-Jasper",
+    "en-US-Olivia",
+    "en-US-Sage",
+    "es-ES-Marta",
+    "es-MX-Alejo",
+    "es-MX-Grant",
+    "es-MX-Harper",
+    "es-MX-Valeria",
+    "fi-FI-Grant",
+    "fi-FI-Harper",
+    "fr-FR-Grant",
+    "fr-FR-Harper",
+    "fr-FR-Marc",
+    "fr-FR-Soleil",
+    "hi-IN-Arjun",
+    "hi-IN-Dhruv",
+    "hi-IN-Grant",
+    "hi-IN-Harper",
+    "hi-IN-Kavya",
+    "hi-IN-Priya",
+    "hu-HU-Bence",
+    "hu-HU-Grant",
+    "hu-HU-Harper",
+    "hu-HU-Levente",
+    "hu-HU-Lilla",
+    "hu-HU-Reka",
+    "id-ID-Grant",
+    "id-ID-Harper",
+    "it-IT-Grant",
+    "it-IT-Harper",
+    "it-IT-Luca",
+    "it-IT-Rosa",
+    "ko-KR-Grant",
+    "ko-KR-Haena",
+    "ko-KR-Harper",
+    "ko-KR-Junho",
+    "nb-NO-Grant",
+    "nb-NO-Harper",
+    "nl-NL-Grant",
+    "nl-NL-Harper",
+    "nl-NL-Sander",
+    "pl-PL-Grant",
+    "pl-PL-Harper",
+    "pt-BR-Caio",
+    "pt-BR-Grant",
+    "pt-BR-Harper",
+    "pt-BR-Luana",
+    "pt-BR-Pedro",
+    "pt-BR-Rafael",
+    "pt-PT-Grant",
+    "pt-PT-Harper",
+    "pt-PT-Rui",
+    "ro-RO-Andrei",
+    "ro-RO-Elena",
+    "ro-RO-Grant",
+    "ro-RO-Harper",
+    "ro-RO-Ioana",
+    "ro-RO-Radu",
+    "ru-RU-Grant",
+    "ru-RU-Harper",
+    "ru-RU-Lev",
+    "ru-RU-Masha",
+    "sv-SE-Grant",
+    "sv-SE-Harper",
+    "th-TH-Grant",
+    "th-TH-Harper",
+    "th-TH-Krit",
+    "th-TH-Nattapong",
+    "tr-TR-Aydin",
+    "tr-TR-Elif",
+    "tr-TR-Grant",
+    "tr-TR-Harper",
+    "vi-VN-Grant",
+    "vi-VN-Harper",
+    "zh-CN-Bo",
+    "zh-CN-Grant",
+    "zh-CN-Harper",
+    "zh-CN-Lan",
+    "zh-CN-Mei",
+    "zh-CN-Wei",
+)
+MICROSOFT_MAI_VOICE_21_MODEL_ID = "microsoft/mai-voice-2.1"
+MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID = "microsoft/mai-voice-2.1-flash"
+MICROSOFT_MAI_VOICE_21_VOICES = tuple(
+    f"{voice}:MAI-Voice-2.1" for voice in MICROSOFT_MAI_VOICE_21_BASE_VOICES
+)
+MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
+    f"{voice}:MAI-Voice-2.1-Flash"
+    for voice in MICROSOFT_MAI_VOICE_21_BASE_VOICES
+)
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
         SEED_AUDIO_MODEL_ID,
         GEMINI_38_FLASH_TTS_MODEL_ID,
         GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
+        MICROSOFT_MAI_VOICE_21_MODEL_ID,
+        MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID,
     }
 )
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
@@ -161,6 +271,10 @@ ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
         "de-DE-Klaus:MAI-Voice-2",
         "es-MX-Valeria:MAI-Voice-2",
         "fr-FR-Soleil:MAI-Voice-2",
+    ),
+    MICROSOFT_MAI_VOICE_21_MODEL_ID: MICROSOFT_MAI_VOICE_21_VOICES,
+    MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID: (
+        MICROSOFT_MAI_VOICE_21_FLASH_VOICES
     ),
     "mistralai/voxtral-mini-tts-2603": (
         "en_paul_neutral",

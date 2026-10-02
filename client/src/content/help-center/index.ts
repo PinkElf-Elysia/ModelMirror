@@ -13,6 +13,7 @@ import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import prepareVisionEvaluation from "./articles/prepare-vision-evaluation.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
+import reviewSpecializedModels from "./articles/review-specialized-models.md?raw";
 import reviewMetaPlannerBranches from "./articles/review-meta-planner-branches.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
@@ -107,6 +108,7 @@ export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
+export const openRouterSpecializedReviewBaseline = { commit: "6413a273", date: "2026-10-01" };
 export const metaPlannerControlFlowBaseline = { commit: "efa63af2", date: "2026-09-03" };
 export const metaPlannerVisionBaseline = { commit: "64880801", date: "2026-09-06" };
 
@@ -349,6 +351,21 @@ export const helpArticles: HelpArticle[] = [
     nextSlug: "check-availability-cost-data",
   },
   {
+    slug: "review-specialized-models",
+    title: "核对新增图片、语音与决策模型",
+    summary: "在发送前核对 Seedream、FLUX.3、D1、MAI Voice 等新增模型的入口、状态和价格提示。",
+    category: "安全、费用与数据",
+    contentType: "how-to",
+    audience: "准备试用本轮 OpenRouter 新增专用模型的用户",
+    estimatedMinutes: 5,
+    keywords: ["Seedream", "FLUX.3", "D1", "MAI Voice", "图片生成", "语音合成", "结构化决策", "费用", "待适配"],
+    relatedRoutes: ["/models", "/chat/bytedance-seed%2Fseedream-5-0-flash", "/chat/liquid%2Fd1"],
+    verifiedCommit: openRouterSpecializedReviewBaseline.commit,
+    verifiedDate: openRouterSpecializedReviewBaseline.date,
+    content: reviewSpecializedModels,
+    nextSlug: "check-availability-cost-data",
+  },
+  {
     slug: "check-availability-cost-data",
     title: "操作前检查可用性、费用与数据影响",
     summary: "发送、上传或启用工具前，检查是否可用、哪里可能收费，以及资料能否发送。",
@@ -560,6 +577,7 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/safety",
     items: [
       { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
+      { id: "specialized-models", title: "核对新增图片、语音与决策模型", summary: "查看本轮专用模型的入口、待适配状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Seedream", "FLUX.3", "MAI Voice", "D1", "图片", "语音", "费用"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
       { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },

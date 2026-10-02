@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-30",
+  "reviewed_at": "2026-10-01",
   "catalog": {
-    "snapshot_total": 662,
+    "snapshot_total": 669,
     "serving_variant_total": 77,
     "serving_variants_by_type": {
       "batch": 77
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 561,
+    "live": 568,
     "uncertain": 90,
     "expired": 11,
-    "onsite_openrouter": 651,
-    "adaptation_denominator": 651,
+    "onsite_openrouter": 658,
+    "adaptation_denominator": 658,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -53,6 +53,46 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "bytedance-seed/seedream-5-0-flash",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的 1K/2K、18 种宽高比、最多 14 张参考图、seed 与每图价格已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "black-forest-labs/flux-3-image",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的五档分辨率、16 种宽高比、最多 10 张参考图与分档价格已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "liquid/d1",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入 OpenRouter alpha Decisions 的 state、questions 与类型化 answers 契约；尚未执行该模型的真实付费决策调用。"
+    },
+    {
+      "model_id": "microsoft/mai-voice-2.1-flash",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter /audio/speech、97 个目录声线、MP3 输出、倍速与 $15/百万字符费率已接入；PCM 与 Azure 风格参数尚未暴露，等待本地短音频人工验收。"
+    },
+    {
+      "model_id": "microsoft/mai-voice-2.1",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter /audio/speech、97 个目录声线、MP3 输出、倍速与 $22/百万字符费率已接入；PCM 与 Azure 风格参数尚未暴露，等待本地短音频人工验收。"
+    },
     {
       "model_id": "togethercomputer/tev1-4b-experimental",
       "operation": "decide",

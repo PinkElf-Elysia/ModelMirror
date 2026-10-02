@@ -27,6 +27,10 @@ from server.multimodal.tts import (
     GEMINI_38_TTS_VOICES,
     GEMINI_PCM_TTS_MODEL_ID,
     MAX_SPEECH_INPUT_CHARS,
+    MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID,
+    MICROSOFT_MAI_VOICE_21_FLASH_VOICES,
+    MICROSOFT_MAI_VOICE_21_MODEL_ID,
+    MICROSOFT_MAI_VOICE_21_VOICES,
     MINIMAX_SYSTEM_SPEECH_VOICES,
     OPENAI_SPEECH_PROFILES,
     SEED_AUDIO_MODEL_ID,
@@ -54,6 +58,8 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
         "minimax/speech-2.8-hd",
         "minimax/speech-2.8-turbo",
         "microsoft/mai-voice-2",
+        MICROSOFT_MAI_VOICE_21_MODEL_ID,
+        MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID,
         "mistralai/voxtral-mini-tts-2603",
         "qwen/qwen-audio-3.0-tts-flash",
         "x-ai/grok-voice-tts-1.0",
@@ -70,6 +76,35 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
     assert speech_output_format(MODEL_ID) == "mp3"
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"
     assert "marin" in OPENAI_SPEECH_PROFILES["gpt-4o-mini-tts"]
+
+
+def test_mai_voice_21_contracts_use_all_catalog_voices_and_manual_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    assert len(MICROSOFT_MAI_VOICE_21_VOICES) == 97
+    assert len(MICROSOFT_MAI_VOICE_21_FLASH_VOICES) == 97
+    assert MICROSOFT_MAI_VOICE_21_VOICES[15] == (
+        "en-US-Harper:MAI-Voice-2.1"
+    )
+    assert MICROSOFT_MAI_VOICE_21_FLASH_VOICES[15] == (
+        "en-US-Harper:MAI-Voice-2.1-Flash"
+    )
+    for model_id, voices in (
+        (MICROSOFT_MAI_VOICE_21_MODEL_ID, MICROSOFT_MAI_VOICE_21_VOICES),
+        (
+            MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID,
+            MICROSOFT_MAI_VOICE_21_FLASH_VOICES,
+        ),
+    ):
+        assert ALLOWED_SPEECH_PROFILES[model_id] == voices
+        assert speech_output_format(model_id) == "mp3"
+        contract = OPENROUTER_AUDIO_CONTRACTS[model_id]
+        assert contract.output_formats == ("mp3",)
+        assert contract.manual_verification_required is True
+        with pytest.raises(MultimodalServiceError) as captured:
+            SpeechService._model_id(model_id)
+        assert captured.value.code == "speech_model_verification_required"
 
 
 def test_gemini_38_tts_contracts_are_pcm_wav_and_manually_gated(

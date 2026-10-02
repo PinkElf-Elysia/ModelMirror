@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-01T03:28:50.248Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-02T03:54:10.142Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -93,7 +93,7 @@ export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
 export type PricingBasis = "token" | "media" | "request" | "dynamic" | "free";
-export type MediaPricingUnit = "audio_hour" | "image";
+export type MediaPricingUnit = "audio_hour" | "character_million" | "image";
 
 export interface MediaPricing {
   unit: MediaPricingUnit;
@@ -223,6 +223,213 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "bytedance-seed/seedream-5-0-flash",
+    "canonical_slug": "bytedance-seed/seedream-5-0-flash-20261001",
+    "name": "ByteDance Seed: Seedream 5.0 Flash",
+    "raw_description": "Seedream 5.0 Flash is ByteDance Seed's fast, cost-efficient image generation and editing tier for high-volume production and interactive editing workflows.",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed"
+    ],
+    "created": 1790889880,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "note": "OpenRouter 专用 Images API：非流式；支持 1K/2K、18 种宽高比、单次 1 张输出、最多 14 张参考图和 seed；参考图免费，当前输出价格为 $0.018/张。"
+  },
+  {
+    "id": "black-forest-labs/flux-3-image",
+    "canonical_slug": "black-forest-labs/flux-3-image-20261001",
+    "name": "Black Forest Labs: FLUX.3 Image",
+    "raw_description": "FLUX.3 Image is Black Forest Labs' flagship image generation and editing model. It supports up to 10 reference images, five fixed resolution tiers from 768 to 4K, and selectable aspect ratios.",
+    "context_length": 46864,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "safety_tolerance"
+    ],
+    "created": 1790885807,
+    "expiration_date": null,
+    "model_author": "Black Forest Labs",
+    "note": "OpenRouter 专用 Images API：非流式；支持 768/1K/1.5K/2K/4K、16 种宽高比、单次 1 张输出和最多 10 张参考图。端点目录价按分辨率为 $0.041/$0.048/$0.07/$0.10/$0.607 每张；市场页当前显示 50% 优惠，最终以 Provider 回执为准。"
+  },
+  {
+    "id": "liquid/d1",
+    "canonical_slug": "liquid/d1-20260930",
+    "name": "LiquidAI: D1",
+    "raw_description": "D1 is Liquid AI's structured decision model. It accepts a state plus typed choice, score, or yes/no questions and returns probabilities through OpenRouter's System One decisions contract rather than prose.",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.04,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790878711,
+    "expiration_date": null,
+    "model_author": "LiquidAI",
+    "note": "使用独立结构化决策工作台与 OpenRouter Decisions API；支持 noul、choice、score 三类问题，输出为带概率的结构化答案，不作为普通聊天模型使用。"
+  },
+  {
+    "id": "apodex/apodex-1.1-mini:free",
+    "canonical_slug": "apodex/apodex-1.1-mini-20261001",
+    "name": "Apodex: Apodex 1.1 Mini (free)",
+    "raw_description": "Apodex 1.1 Mini is a reasoning-first model from Apodex, built for complex, long-horizon research and forecasting tasks. It works directly with files, data, code, and tools to produce verifiable results,...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1790875335,
+    "expiration_date": null,
+    "model_author": "Apodex",
+    "reasoning_declared": true
+  },
+  {
+    "id": "microsoft/mai-voice-2.1-flash",
+    "canonical_slug": "microsoft/mai-voice-2.1-flash-20261001",
+    "name": "Microsoft AI: MAI-Voice-2.1-Flash",
+    "raw_description": "MAI-Voice-2.1-Flash is Microsoft's low-latency text-to-speech model for responsive voice agents and interactive applications, with expressive synthesis across 23 languages.",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790870485,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 15
+    },
+    "note": "OpenRouter /audio/speech 契约已接入：97 个完整地区声线 ID、MP3 输出和 0.5–2.0 倍速；目录还声明支持 PCM 与 Azure 风格参数，本轮界面未暴露这两项。目录价 $15/百万字符，等待本地短音频人工验收。"
+  },
+  {
+    "id": "microsoft/mai-voice-2.1",
+    "canonical_slug": "microsoft/mai-voice-2.1-20261001",
+    "name": "Microsoft AI: MAI-Voice-2.1",
+    "raw_description": "MAI-Voice-2.1 is Microsoft's highest-fidelity text-to-speech model for studio-grade and long-form synthesis, with expressive speech and consistent speakers across 23 languages.",
+    "context_length": 0,
+    "pricing": {
+      "input": 22,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790870467,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 22
+    },
+    "note": "OpenRouter /audio/speech 契约已接入：97 个完整地区声线 ID、MP3 输出和 0.5–2.0 倍速；目录还声明支持 PCM 与 Azure 风格参数，本轮界面未暴露这两项。目录价 $22/百万字符，等待本地短音频人工验收。"
+  },
+  {
+    "id": "unbiased/pareto-26.10-preview",
+    "canonical_slug": "unbiased/pareto-26.10-preview-20260929",
+    "name": "Pareto 26.10 Preview",
+    "raw_description": "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks. This is a preview of the...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.7999999999999999,
+      "output": 3.1999999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790863623,
+    "expiration_date": null,
+    "model_author": "Unbiased"
+  },
   {
     "id": "heygen/heygen-video-1",
     "canonical_slug": "heygen/heygen-video-1-20260930",
@@ -383,7 +590,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790702886,
     "expiration_date": null,
@@ -426,7 +634,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790702882,
     "expiration_date": null,
@@ -1198,7 +1407,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100791,
     "expiration_date": null,
@@ -1241,7 +1451,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100786,
     "expiration_date": null,
@@ -1284,7 +1495,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100781,
     "expiration_date": null,
@@ -1327,7 +1539,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100775,
     "expiration_date": null,
@@ -1835,8 +2048,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3317,
-      "output": 3.5
+      "input": 0.13199999999999998,
+      "output": 0.396
     },
     "input_modalities": [
       "text"
@@ -1879,8 +2092,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.015543,
-      "output": 0.396
+      "input": 0.019425,
+      "output": 0.75
     },
     "input_modalities": [
       "text",
@@ -2059,7 +2272,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130932,
     "expiration_date": null,
@@ -2102,7 +2316,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130928,
     "expiration_date": null,
@@ -2145,7 +2360,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130925,
     "expiration_date": null,
@@ -2188,7 +2404,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130922,
     "expiration_date": null,
@@ -2388,8 +2605,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.015543,
-      "output": 0.396
+      "input": 0.019425,
+      "output": 0.75
     },
     "input_modalities": [
       "text",
@@ -2706,7 +2923,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552838,
     "expiration_date": null,
@@ -2749,7 +2967,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552835,
     "expiration_date": null,
@@ -3362,8 +3581,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.02,
-      "output": 0.24750000000000003
+      "input": 0.02625,
+      "output": 0.625
     },
     "input_modalities": [
       "text",
@@ -3905,7 +4124,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.19,
+      "input": 0.12,
       "output": 4
     },
     "input_modalities": [
@@ -3979,7 +4198,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
+      "input": 1.4,
       "output": 4.4
     },
     "input_modalities": [
@@ -4155,7 +4374,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1786680361,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Dots Studio",
     "reasoning_declared": true
   },
@@ -4804,8 +5023,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0595,
-      "output": 0.16999999999999998
+      "input": 0.06,
+      "output": 0.16
     },
     "input_modalities": [
       "text"
@@ -5246,8 +5465,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.005742000000000001,
-      "output": 0.13068
+      "input": 0.012825000000000001,
+      "output": 1.5999999999999999
     },
     "input_modalities": [
       "text"
@@ -5292,7 +5511,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0058,
+      "input": 0.0171,
       "output": 1.28
     },
     "input_modalities": [
@@ -6376,7 +6595,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
     "context_length": 524288,
     "pricing": {
-      "input": 1,
+      "input": 0.95,
       "output": 4.05
     },
     "input_modalities": [
@@ -6528,8 +6747,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.28,
-      "output": 10
+      "input": 1.3900000000000001,
+      "output": 13
     },
     "input_modalities": [
       "text",
@@ -6802,7 +7021,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590867,
     "expiration_date": null,
@@ -6845,7 +7065,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590864,
     "expiration_date": null,
@@ -6888,7 +7109,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590861,
     "expiration_date": null,
@@ -6931,7 +7153,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590857,
     "expiration_date": null,
@@ -6974,7 +7197,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590854,
     "expiration_date": null,
@@ -7017,7 +7241,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590850,
     "expiration_date": null,
@@ -7765,8 +7990,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.41,
+      "output": 3.9899999999999998
     },
     "input_modalities": [
       "text"
@@ -8224,8 +8449,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 2.4
+      "input": 0.5,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -8513,10 +8738,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -9881,7 +10104,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777318471,
     "expiration_date": null,
@@ -9942,8 +10166,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.28,
-      "output": 10
+      "input": 1.3900000000000001,
+      "output": 13
     },
     "input_modalities": [
       "text",
@@ -10372,7 +10596,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051896,
     "expiration_date": null,
@@ -10415,7 +10640,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051893,
     "expiration_date": null,
@@ -10429,8 +10655,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.255084,
-      "output": 0.510168
+      "input": 0.20879999999999999,
+      "output": 0.41759999999999997
     },
     "input_modalities": [
       "text"
@@ -10914,7 +11140,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "stop",
       "structured_outputs",
-      "top_logprobs"
+      "top_logprobs",
+      "verbosity"
     ],
     "created": 1776797528,
     "expiration_date": null,
@@ -11080,8 +11307,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.65,
-      "output": 3.41
+      "input": 0.43415,
+      "output": 1.8279999999999998
     },
     "input_modalities": [
       "text",
@@ -12090,7 +12317,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -12099,12 +12325,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1773836697,
@@ -12174,7 +12398,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748187,
     "expiration_date": null,
@@ -12210,7 +12435,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748178,
     "expiration_date": null,
@@ -12538,7 +12764,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734366,
     "expiration_date": null,
@@ -12581,7 +12808,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734352,
     "expiration_date": null,
@@ -12780,8 +13008,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.1625,
-      "output": 1.3
+      "input": 0.15,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -13079,7 +13307,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1771959164,
     "expiration_date": null,
@@ -14013,7 +14242,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1768409315,
     "expiration_date": null,
@@ -14212,7 +14442,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1766378014,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -14415,7 +14645,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389783,
     "expiration_date": null,
@@ -14449,7 +14680,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389780,
     "expiration_date": null,
@@ -14485,7 +14717,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389775,
     "expiration_date": null,
@@ -14785,7 +15018,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1764878934,
     "expiration_date": null,
@@ -15596,7 +15830,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060305,
     "expiration_date": null,
@@ -15661,7 +15896,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060298,
     "expiration_date": null,
@@ -15695,7 +15931,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763057820,
     "expiration_date": null,
@@ -16273,7 +16510,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "top_logprobs",
-      "top_p"
+      "top_p",
+      "verbosity"
     ],
     "created": 1760624583,
     "expiration_date": null,
@@ -16433,7 +16671,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "top_logprobs",
-      "top_p"
+      "top_p",
+      "verbosity"
     ],
     "created": 1760447986,
     "expiration_date": null,
@@ -16703,7 +16942,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1759776663,
     "expiration_date": null,
@@ -17860,7 +18100,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587413,
     "expiration_date": null,
@@ -17896,7 +18137,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587407,
     "expiration_date": null,
@@ -17932,7 +18174,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587402,
     "expiration_date": null,
@@ -18217,8 +18460,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.04815,
-      "output": 0.19305
+      "input": 0.09999999999999999,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -18278,7 +18521,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753471347,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -19899,7 +20142,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "repetition_penalty",
       "response_format",
@@ -23172,7 +23414,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100791,
     "expiration_date": null,
@@ -23214,7 +23457,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100786,
     "expiration_date": null,
@@ -23256,7 +23500,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100781,
     "expiration_date": null,
@@ -23298,7 +23543,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100775,
     "expiration_date": null,
@@ -23419,7 +23665,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552838,
     "expiration_date": null,
@@ -23461,7 +23708,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552835,
     "expiration_date": null,
@@ -23857,7 +24105,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590867,
     "expiration_date": null,
@@ -23899,7 +24148,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590864,
     "expiration_date": null,
@@ -23941,7 +24191,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590861,
     "expiration_date": null,
@@ -23983,7 +24234,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590857,
     "expiration_date": null,
@@ -24025,7 +24277,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590854,
     "expiration_date": null,
@@ -24067,7 +24320,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590850,
     "expiration_date": null,
@@ -24409,7 +24663,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051896,
     "expiration_date": null,
@@ -24451,7 +24706,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051893,
     "expiration_date": null,
@@ -24522,7 +24778,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748187,
     "expiration_date": null,
@@ -24557,7 +24814,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748178,
     "expiration_date": null,
@@ -24638,7 +24896,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734366,
     "expiration_date": null,
@@ -24680,7 +24939,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734352,
     "expiration_date": null,
@@ -24878,7 +25138,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389780,
     "expiration_date": null,
@@ -24913,7 +25174,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389775,
     "expiration_date": null,
@@ -25055,7 +25317,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060305,
     "expiration_date": null,
@@ -25193,7 +25456,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1759776663,
     "expiration_date": null,
@@ -25308,7 +25572,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587413,
     "expiration_date": null,
@@ -25343,7 +25608,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587407,
     "expiration_date": null,
@@ -25378,7 +25644,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587402,
     "expiration_date": null,
@@ -26943,6 +27210,13 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "unbiased/pareto-26.10-preview",
+  "microsoft/mai-voice-2.1",
+  "apodex/apodex-1.1-mini:free",
+  "black-forest-labs/flux-3-image",
+  "liquid/d1",
+  "microsoft/mai-voice-2.1-flash",
+  "bytedance-seed/seedream-5-0-flash",
   "anthropic/claude-sonnet-5.5",
   "upstage/solar-decide",
   "respan/span-01",

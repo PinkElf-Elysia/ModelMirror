@@ -3349,6 +3349,7 @@ class OpenRouterDecisionRequest(BaseModel):
         "respan/span-01-lite",
         "respan/span-01-lite:free",
         "jaredpalmer/kev-4b",
+        "liquid/d1",
         "typesafe/jev-1.13",
         "~typesafe/jev-latest",
     ]
