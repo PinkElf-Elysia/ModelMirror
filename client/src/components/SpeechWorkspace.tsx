@@ -568,6 +568,15 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   </dd>
                 </div>
               ) : null}
+              {model.media_pricing?.unit === "character_million" ? (
+                <div>
+                  <dt className="text-slate-400">目录费率</dt>
+                  <dd className="mt-1 leading-6 text-slate-200">
+                    约 ${model.media_pricing.usd.toFixed(2)} / 百万字符
+                    （最终以 Provider 结算为准）
+                  </dd>
+                </div>
+              ) : null}
             </dl>
           </aside>
         </div>

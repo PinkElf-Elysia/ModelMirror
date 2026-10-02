@@ -168,6 +168,85 @@ async def test_image_catalog_separates_understanding_and_generation(
 
 
 @pytest.mark.asyncio
+async def test_october_image_models_keep_dedicated_parameters_and_pricing(
+    tmp_path: Path,
+) -> None:
+    model_rows = [
+        {
+            "id": "bytedance-seed/seedream-5-0-flash",
+            "name": "Seedream 5.0 Flash",
+            "architecture": {
+                "input_modalities": ["text", "image"],
+                "output_modalities": ["image"],
+            },
+            "supported_parameters": {
+                "resolution": {"type": "enum", "values": ["1K", "2K"]},
+                "aspect_ratio": {"type": "enum", "values": ["1:1", "16:9"]},
+                "n": {"type": "range", "min": 1, "max": 1},
+                "input_references": {"type": "range", "min": 0, "max": 14},
+                "seed": {"type": "boolean"},
+            },
+            "supports_streaming": False,
+        },
+        {
+            "id": "black-forest-labs/flux-3-image",
+            "name": "FLUX.3 Image",
+            "architecture": {
+                "input_modalities": ["text", "image"],
+                "output_modalities": ["image"],
+            },
+            "supported_parameters": {
+                "resolution": {
+                    "type": "enum",
+                    "values": ["768", "1K", "1.5K", "2K", "4K"],
+                },
+                "input_references": {"type": "range", "min": 0, "max": 10},
+            },
+            "supports_streaming": False,
+        },
+    ]
+
+    def handler(request: Request) -> Response:
+        if request.url.path.endswith("/images/models"):
+            return Response(200, json={"data": model_rows})
+        if request.url.path.endswith("/models"):
+            return Response(200, json={"data": []})
+        model_id = request.url.path.split("/images/models/", 1)[1].rsplit(
+            "/endpoints", 1
+        )[0]
+        pricing = (
+            [
+                {"billable": "input_image", "unit": "image", "cost_usd": 0},
+                {"billable": "output_image", "unit": "image", "cost_usd": 0.018},
+            ]
+            if model_id == "bytedance-seed/seedream-5-0-flash"
+            else [
+                {
+                    "billable": "output_image",
+                    "unit": "image",
+                    "cost_usd": 0.607,
+                    "variant": "4k",
+                }
+            ]
+        )
+        return Response(200, json={"id": model_id, "endpoints": [{"pricing": pricing}]})
+
+    catalog = await ImageCatalogService(
+        openrouter_service(tmp_path),
+        client_factory=lambda: httpx.AsyncClient(transport=MockTransport(handler)),
+    ).get_catalog()
+    by_id = {profile.model_id: profile for profile in catalog.profiles}
+    seedream = by_id["bytedance-seed/seedream-5-0-flash"]
+    flux = by_id["black-forest-labs/flux-3-image"]
+    assert seedream.supported_parameters["input_references"].max == 14
+    assert seedream.pricing[1].cost_usd == 0.018
+    assert flux.supported_parameters["resolution"].values[-1] == "4K"
+    assert flux.supported_parameters["input_references"].max == 10
+    assert flux.pricing[0].variant == "4k"
+    assert flux.pricing[0].cost_usd == 0.607
+
+
+@pytest.mark.asyncio
 async def test_image_catalog_uses_stale_cache_on_refresh_error(
     tmp_path: Path,
 ) -> None:

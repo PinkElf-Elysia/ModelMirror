@@ -89,6 +89,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "inception/mercury-decide:free",
         "upstage/solar-decide",
         "jaredpalmer/kev-4b",
+        "liquid/d1",
         "respan/span-01",
         "respan/span-01-lite",
         "respan/span-01-lite:free",
