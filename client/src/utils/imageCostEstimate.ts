@@ -49,6 +49,22 @@ export const SEEDREAM_5_LITE_PRICING: ImagePricingItem[] = [
   { billable: "output_image", unit: "image", cost_usd: 0.035 },
 ];
 
+// Frozen from the dedicated Images endpoint on 2026-10-01. Live endpoint
+// profiles still take precedence; these values keep the estimator useful when
+// the optional pricing-detail request is unavailable.
+export const SEEDREAM_5_FLASH_PRICING: ImagePricingItem[] = [
+  { billable: "input_image", unit: "image", cost_usd: 0 },
+  { billable: "output_image", unit: "image", cost_usd: 0.018 },
+];
+
+export const FLUX_3_IMAGE_PRICING: ImagePricingItem[] = [
+  { billable: "output_image", unit: "image", cost_usd: 0.041, variant: "768" },
+  { billable: "output_image", unit: "image", cost_usd: 0.048, variant: "1k" },
+  { billable: "output_image", unit: "image", cost_usd: 0.07, variant: "1.5k" },
+  { billable: "output_image", unit: "image", cost_usd: 0.1, variant: "2k" },
+  { billable: "output_image", unit: "image", cost_usd: 0.607, variant: "4k" },
+];
+
 // Verified against the Muse Image model page and dedicated Images catalog on
 // 2026-08-26. The endpoint-detail feed is currently empty, so this fallback is
 // used only when no live structured pricing item is available.
@@ -176,6 +192,7 @@ export function estimateImageCost(
       if (variant === "high_resolution") {
         return !resolution || resolution === "2k";
       }
+      if (resolution && variant === resolution) return true;
       if (quality && !variant.startsWith(`${quality}_`)) return false;
       if (resolution && !variant.endsWith(`_${resolution}`)) return false;
       return true;

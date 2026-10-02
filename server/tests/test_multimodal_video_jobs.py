@@ -801,6 +801,35 @@ async def test_wan_30_prime_maps_first_frame_audio_seed_and_rejects_references(
     assert len(adapter.submit_calls) == 1
 
 
+def test_heygen_video_1_uses_reference_rate_for_first_frame() -> None:
+    profile = VideoModelProfile(
+        model_id="heygen/heygen-video-1",
+        operation="generate_video",
+        supported_resolutions=["480p", "768p"],
+        pricing_skus={
+            "duration_seconds_480p": "0.02",
+            "duration_seconds_768p": "0.03",
+            "reference_duration_seconds_480p": "0.04",
+            "reference_duration_seconds_768p": "0.06",
+        },
+    )
+
+    assert VideoJobService._estimated_cost_usd(
+        profile,
+        duration=10,
+        resolution="768p",
+        generate_audio=False,
+        image_input_count=0,
+    ) == pytest.approx(0.3)
+    assert VideoJobService._estimated_cost_usd(
+        profile,
+        duration=10,
+        resolution="768p",
+        generate_audio=False,
+        image_input_count=1,
+    ) == pytest.approx(0.6)
+
+
 @pytest.mark.asyncio
 async def test_provider_options_require_fresh_audited_capability(
     tmp_path: Path,

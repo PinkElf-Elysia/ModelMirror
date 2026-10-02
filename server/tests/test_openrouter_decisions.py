@@ -86,8 +86,10 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 @pytest.mark.parametrize(
     "model_id",
     [
+        "inception/mercury-decide:free",
         "upstage/solar-decide",
         "jaredpalmer/kev-4b",
+        "liquid/d1",
         "respan/span-01",
         "respan/span-01-lite",
         "respan/span-01-lite:free",
@@ -126,6 +128,146 @@ async def test_decisions_accepts_supported_models(
         },
     )
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_tev_decision_compiles_choice_to_chat_and_maps_label(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://openrouter.ai/api/v1/chat/completions"
+        body = json.loads(request.content)
+        assert body["model"] == "togethercomputer/tev1-4b-experimental"
+        assert body["temperature"] == 0
+        assert body["max_tokens"] == 8
+        assert body["reasoning"] == {"enabled": False}
+        decision = json.loads(body["messages"][1]["content"])
+        assert decision == {
+            "state": "A customer requests a refund after a duplicate charge.",
+            "question": "Which team should handle this request?",
+            "options": [
+                {"label": "A", "key": "billing", "description": "Billing support"},
+                {"label": "B", "key": "sales", "description": "Sales team"},
+            ],
+        }
+        return httpx.Response(
+            200,
+            json={
+                "id": "gen-test",
+                "model": "togethercomputer/tev1-4b-experimental",
+                "provider": "Together",
+                "choices": [{"message": {"content": "B"}}],
+                "usage": {"prompt_tokens": 42, "completion_tokens": 1},
+            },
+        )
+
+    monkeypatch.setattr(main_module, "OPENROUTER_API_KEY", "decisions-secret")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(
+        main_module,
+        "llm_client_kwargs",
+        lambda: {"transport": httpx.MockTransport(handler)},
+    )
+
+    response = await client.post(
+        "/api/decisions",
+        json={
+            "model": "togethercomputer/tev1-4b-experimental",
+            "state": "A customer requests a refund after a duplicate charge.",
+            "questions": {
+                "owner": {
+                    "type": "choice",
+                    "instructions": "Which team should handle this request?",
+                    "criteria": {
+                        "billing": "Billing support",
+                        "sales": "Sales team",
+                    },
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["answers"]["owner"] == {
+        "type": "choice",
+        "choice": "sales",
+        "label": "B",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tev_decision_rejects_an_out_of_range_label(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "X"}}]},
+        )
+
+    monkeypatch.setattr(main_module, "OPENROUTER_API_KEY", "decisions-secret")
+    monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
+    monkeypatch.setattr(
+        main_module,
+        "llm_client_kwargs",
+        lambda: {"transport": httpx.MockTransport(handler)},
+    )
+
+    response = await client.post(
+        "/api/decisions",
+        json={
+            "model": "togethercomputer/tev1-4b-experimental",
+            "state": "state",
+            "questions": {
+                "owner": {
+                    "type": "choice",
+                    "instructions": "Choose one.",
+                    "criteria": {"first": "First", "second": "Second"},
+                }
+            },
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "Tev1 returned an invalid option label."}
+
+
+@pytest.mark.asyncio
+async def test_tev_rejects_non_choice_and_multiple_questions(
+    client: httpx.AsyncClient,
+) -> None:
+    for questions in (
+        {
+            "risk": {
+                "type": "score",
+                "instructions": "How risky is this?",
+                "criteria": ["Low", "High"],
+            }
+        },
+        {
+            "first": {
+                "type": "choice",
+                "instructions": "Pick one.",
+                "criteria": {"a": "A", "b": "B"},
+            },
+            "second": {
+                "type": "choice",
+                "instructions": "Pick one again.",
+                "criteria": {"a": "A", "b": "B"},
+            },
+        },
+    ):
+        response = await client.post(
+            "/api/decisions",
+            json={
+                "model": "togethercomputer/tev1-4b-experimental",
+                "state": "state",
+                "questions": questions,
+            },
+        )
+        assert response.status_code == 422
 
 
 @pytest.mark.asyncio

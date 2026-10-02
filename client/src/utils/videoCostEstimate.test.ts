@@ -197,6 +197,39 @@ describe("estimateVideoCost", () => {
     ).toBeCloseTo(1.2);
   });
 
+  it("uses HeyGen Video 1 reference pricing for first-frame requests", () => {
+    const heygenProfile = {
+      supported_resolutions: ["480p", "768p"],
+      supported_aspect_ratios: ["16:9"],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds_480p: "0.02",
+        duration_seconds_768p: "0.03",
+        reference_duration_seconds_480p: "0.04",
+        reference_duration_seconds_768p: "0.06",
+      },
+    };
+
+    expect(
+      estimateVideoCost(heygenProfile, {
+        duration: 10,
+        resolution: "768p",
+        aspectRatio: "16:9",
+        generateAudio: false,
+        imageInputCount: 0,
+      }),
+    ).toBeCloseTo(0.3);
+    expect(
+      estimateVideoCost(heygenProfile, {
+        duration: 10,
+        resolution: "768p",
+        aspectRatio: "16:9",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBeCloseTo(0.6);
+  });
+
   it("shows Avatar IV's unit price when script length determines duration", () => {
     const avatarProfile = {
       supported_resolutions: ["720p", "1080p"],

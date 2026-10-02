@@ -10,6 +10,7 @@ import {
   metaPlannerControlFlowBaseline,
   metaPlannerVisionBaseline,
   modelServingReviewBaseline,
+  openRouterSpecializedReviewBaseline,
   emailReviewBaseline,
   providerMultimodalR8cBaseline,
   ragContentContractBaseline,
@@ -43,6 +44,7 @@ describe("help center content catalog", () => {
       "play-rpg-cards",
       "branch-rpg-story",
       "choose-rpg-model",
+      "use-rpg-memory-palace",
       "use-rpg-rolling-summary",
       "set-rpg-history-window",
       "start-with-a-model",
@@ -60,6 +62,7 @@ describe("help center content catalog", () => {
       "understand-rag-content-contract",
       "recover-unavailable-feature",
       "review-remote-mcp-auth",
+      "review-specialized-models",
       "check-availability-cost-data",
     ]);
     expect(new Set(helpArticles.map((article) => article.slug)).size).toBe(helpArticles.length);
@@ -71,7 +74,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
     expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("a29da8a5");
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
@@ -80,6 +83,11 @@ describe("help center content catalog", () => {
     expect(modelServingArticle?.content).toContain("Contributor 的输入与输出可能用于改进 Meta 产品");
     expect(modelServingArticle?.content).toContain("Gemini 3.8 Flash");
     expect(modelServingArticle?.content).toContain("不填写或提交请求");
+    const specializedArticle = helpArticles.find((article) => article.slug === "review-specialized-models");
+    expect(specializedArticle?.verifiedCommit).toBe(openRouterSpecializedReviewBaseline.commit);
+    expect(specializedArticle?.verifiedDate).toBe(openRouterSpecializedReviewBaseline.date);
+    expect(specializedArticle?.content).toContain("MAI-Voice-2.1");
+    expect(specializedArticle?.content).toContain("没有执行这种调用");
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);

@@ -49,7 +49,7 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
         unitLabel: "/second",
         priceMultiplier: 3_600,
         pricingJsonKey: "assemblyai_stt:audio_seconds",
-        pricingJsonMultiplier: 0.5 * 3_600,
+        pricingJsonMultiplier: 3_600,
       }),
     }),
   ],

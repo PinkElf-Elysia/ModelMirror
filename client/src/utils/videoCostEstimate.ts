@@ -165,11 +165,13 @@ export function videoGenerationUnitRate(
     generateAudio
       ? `duration_seconds_with_audio_${resolutionKey}`
       : `duration_seconds_without_audio_${resolutionKey}`,
+    imageInputCount > 0 ? `reference_duration_seconds_${resolutionKey}` : "",
     `${mode}_duration_seconds_${resolutionKey}`,
     `duration_seconds_${resolutionKey}`,
     generateAudio
       ? "duration_seconds_with_audio"
       : "duration_seconds_without_audio",
+    imageInputCount > 0 ? "reference_duration_seconds" : "",
     `${mode}_duration_seconds`,
     "duration_seconds",
   ];

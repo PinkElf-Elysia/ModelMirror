@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-09-29T06:57:58.735Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-02T03:54:10.142Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -93,7 +93,7 @@ export type SupportedParameter = string;
 export type PricingTier = "free" | "dynamic" | "low" | "medium" | "high";
 export type PricingStatus = "fixed" | "free" | "dynamic";
 export type PricingBasis = "token" | "media" | "request" | "dynamic" | "free";
-export type MediaPricingUnit = "audio_hour" | "image";
+export type MediaPricingUnit = "audio_hour" | "character_million" | "image";
 
 export interface MediaPricing {
   unit: MediaPricingUnit;
@@ -223,6 +223,425 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "bytedance-seed/seedream-5-0-flash",
+    "canonical_slug": "bytedance-seed/seedream-5-0-flash-20261001",
+    "name": "ByteDance Seed: Seedream 5.0 Flash",
+    "raw_description": "Seedream 5.0 Flash is ByteDance Seed's fast, cost-efficient image generation and editing tier for high-volume production and interactive editing workflows.",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed"
+    ],
+    "created": 1790889880,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "note": "OpenRouter 专用 Images API：非流式；支持 1K/2K、18 种宽高比、单次 1 张输出、最多 14 张参考图和 seed；参考图免费，当前输出价格为 $0.018/张。"
+  },
+  {
+    "id": "black-forest-labs/flux-3-image",
+    "canonical_slug": "black-forest-labs/flux-3-image-20261001",
+    "name": "Black Forest Labs: FLUX.3 Image",
+    "raw_description": "FLUX.3 Image is Black Forest Labs' flagship image generation and editing model. It supports up to 10 reference images, five fixed resolution tiers from 768 to 4K, and selectable aspect ratios.",
+    "context_length": 46864,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "safety_tolerance"
+    ],
+    "created": 1790885807,
+    "expiration_date": null,
+    "model_author": "Black Forest Labs",
+    "note": "OpenRouter 专用 Images API：非流式；支持 768/1K/1.5K/2K/4K、16 种宽高比、单次 1 张输出和最多 10 张参考图。端点目录价按分辨率为 $0.041/$0.048/$0.07/$0.10/$0.607 每张；市场页当前显示 50% 优惠，最终以 Provider 回执为准。"
+  },
+  {
+    "id": "liquid/d1",
+    "canonical_slug": "liquid/d1-20260930",
+    "name": "LiquidAI: D1",
+    "raw_description": "D1 is Liquid AI's structured decision model. It accepts a state plus typed choice, score, or yes/no questions and returns probabilities through OpenRouter's System One decisions contract rather than prose.",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.04,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790878711,
+    "expiration_date": null,
+    "model_author": "LiquidAI",
+    "note": "使用独立结构化决策工作台与 OpenRouter Decisions API；支持 noul、choice、score 三类问题，输出为带概率的结构化答案，不作为普通聊天模型使用。"
+  },
+  {
+    "id": "apodex/apodex-1.1-mini:free",
+    "canonical_slug": "apodex/apodex-1.1-mini-20261001",
+    "name": "Apodex: Apodex 1.1 Mini (free)",
+    "raw_description": "Apodex 1.1 Mini is a reasoning-first model from Apodex, built for complex, long-horizon research and forecasting tasks. It works directly with files, data, code, and tools to produce verifiable results,...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1790875335,
+    "expiration_date": null,
+    "model_author": "Apodex",
+    "reasoning_declared": true
+  },
+  {
+    "id": "microsoft/mai-voice-2.1-flash",
+    "canonical_slug": "microsoft/mai-voice-2.1-flash-20261001",
+    "name": "Microsoft AI: MAI-Voice-2.1-Flash",
+    "raw_description": "MAI-Voice-2.1-Flash is Microsoft's low-latency text-to-speech model for responsive voice agents and interactive applications, with expressive synthesis across 23 languages.",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790870485,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 15
+    },
+    "note": "OpenRouter /audio/speech 契约已接入：97 个完整地区声线 ID、MP3 输出和 0.5–2.0 倍速；目录还声明支持 PCM 与 Azure 风格参数，本轮界面未暴露这两项。目录价 $15/百万字符，等待本地短音频人工验收。"
+  },
+  {
+    "id": "microsoft/mai-voice-2.1",
+    "canonical_slug": "microsoft/mai-voice-2.1-20261001",
+    "name": "Microsoft AI: MAI-Voice-2.1",
+    "raw_description": "MAI-Voice-2.1 is Microsoft's highest-fidelity text-to-speech model for studio-grade and long-form synthesis, with expressive speech and consistent speakers across 23 languages.",
+    "context_length": 0,
+    "pricing": {
+      "input": 22,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790870467,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 22
+    },
+    "note": "OpenRouter /audio/speech 契约已接入：97 个完整地区声线 ID、MP3 输出和 0.5–2.0 倍速；目录还声明支持 PCM 与 Azure 风格参数，本轮界面未暴露这两项。目录价 $22/百万字符，等待本地短音频人工验收。"
+  },
+  {
+    "id": "unbiased/pareto-26.10-preview",
+    "canonical_slug": "unbiased/pareto-26.10-preview-20260929",
+    "name": "Pareto 26.10 Preview",
+    "raw_description": "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks. This is a preview of the...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.7999999999999999,
+      "output": 3.1999999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1790863623,
+    "expiration_date": null,
+    "model_author": "Unbiased"
+  },
+  {
+    "id": "heygen/heygen-video-1",
+    "canonical_slug": "heygen/heygen-video-1-20260930",
+    "name": "HeyGen: Video 1",
+    "raw_description": "HeyGen Video 1 is a general-purpose video generation model from HeyGen. It renders short clips with synthesized audio, dialogue, ambience, and sound effects in a single call from text, a first-frame image, or references.",
+    "context_length": 0,
+    "pricing": {
+      "input": -1,
+      "output": -1
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "aspect_ratio",
+      "duration",
+      "frame_images",
+      "input_references",
+      "resolution",
+      "seed"
+    ],
+    "created": 1790798684,
+    "expiration_date": null,
+    "model_author": "HeyGen",
+    "note": "通过 OpenRouter 异步 Video API 提交并轮询；支持 480p/768p、5–15 秒、六种画幅、首帧和 seed，文本生成按 $0.02/$0.03 每秒、首帧生成按 $0.04/$0.06 每秒分辨率计费。目录还声明音频、视频与多参考素材输入，但当前本地工作台只开放可严格校验的文本与首帧路径。已完成静态契约适配，尚未执行付费人工生成。"
+  },
+  {
+    "id": "togethercomputer/tev1-4b-experimental",
+    "canonical_slug": "togethercomputer/tev1-4b-experimental-20260923",
+    "name": "Together: Tev1 4B Experimental",
+    "raw_description": "Tev1 4B Experimental is an experimental decision model from Together AI, a supervised fine-tune of Qwen3.5-4B trained to choose one option from a structured state, question, and list of 2-24 labeled options.",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Qwen3",
+    "supported_parameters": [],
+    "created": 1790795429,
+    "expiration_date": null,
+    "model_author": "Together",
+    "note": "这是实验性单选决策模型，不生成通用聊天文本。独立决策工作台会把 state、单个 choice 问题和 2–24 个选项编译为 Chat Completions 请求，并将返回的单个选项字母映射回稳定选项键；静态契约已适配，尚未执行真实付费调用。"
+  },
+  {
+    "id": "inception/mercury-decide:free",
+    "canonical_slug": "inception/mercury-decide-20260930",
+    "name": "Inception: Mercury Decide (free)",
+    "raw_description": "Mercury Decide is Inception's structured decision model, served as a System One endpoint. Send a state along with typed questions, and it returns a choice, a score, or a yes/no answer with calibrated probabilities.",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790789334,
+    "expiration_date": null,
+    "model_author": "Inception"
+  },
+  {
+    "id": "voyageai/rerank-3-lite",
+    "canonical_slug": "voyageai/rerank-3-lite-20260930",
+    "name": "VoyageAI by MongoDB: rerank-3-lite",
+    "raw_description": "rerank-3-lite is a reranker optimized for both latency and quality and a drop-in upgrade to rerank-2.5-lite, improving on it by 0.94% NDCG@10 on average across domain evaluations and by 1.86%...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790785569,
+    "expiration_date": null,
+    "model_author": "Voyageai",
+    "note": "通过 OpenRouter /api/v1/rerank 接收 query、documents 与可选 top_n，返回按 relevance_score 排序的结果；支持每个查询-文档对合计 32K Token，目录展示价为 $0.02/M 输入 Token。已完成静态契约适配，尚未执行真实调用。"
+  },
+  {
+    "id": "voyageai/rerank-3",
+    "canonical_slug": "voyageai/rerank-3-20260930",
+    "name": "VoyageAI by MongoDB: rerank-3",
+    "raw_description": "rerank-3 is a reranker optimized for quality and a drop-in upgrade to rerank-2.5, improving on it by 0.80% NDCG@10 on average across domain evaluations and by 3.35% on long-document evaluations,...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.05,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790785501,
+    "expiration_date": null,
+    "model_author": "Voyageai",
+    "note": "通过 OpenRouter /api/v1/rerank 接收 query、documents 与可选 top_n，返回按 relevance_score 排序的结果；支持每个查询-文档对合计 32K Token，目录展示价为 $0.05/M 输入 Token。已完成静态契约适配，尚未执行真实调用。"
+  },
+  {
+    "id": "openai/gpt-6.1-sol-pro",
+    "canonical_slug": "openai/gpt-6.1-sol-pro-20260929",
+    "name": "OpenAI: GPT-6.1 Sol Pro",
+    "raw_description": "GPT-6.1 Sol Pro is the same underlying model as [GPT-6.1 Sol](https://openrouter.ai/openai/gpt-6.1-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1790702886,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6.1-sol",
+    "canonical_slug": "openai/gpt-6.1-sol-20260929",
+    "name": "OpenAI: GPT-6.1 Sol",
+    "raw_description": "GPT-6.1 Sol is an upgrade to GPT-6 Sol from OpenAI, positioned below the flagship GPT-6 Astra in the GPT-6 series. It is suited for agentic coding, computer use, document-heavy professional...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1790702882,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
   {
     "id": "anthropic/claude-sonnet-5.5",
     "canonical_slug": "anthropic/claude-sonnet-5.5-20260928",
@@ -401,7 +820,32 @@ const rawCatalogModels: RawCatalogModel[] = [
       "text"
     ],
     "tokenizer": "Router",
-    "supported_parameters": [],
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_completion_tokens",
+      "max_tokens",
+      "min_p",
+      "parallel_tool_calls",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_a",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+      "verbosity"
+    ],
     "created": 1790363560,
     "expiration_date": null,
     "model_author": "Typesafe"
@@ -782,7 +1226,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1790174884,
-    "expiration_date": null,
+    "expiration_date": 1791158400,
     "model_author": "Stealth",
     "reasoning_declared": true
   },
@@ -931,7 +1375,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-6-luna-pro",
     "canonical_slug": "openai/gpt-6-luna-pro-20260922",
     "name": "OpenAI: GPT-6 Luna Pro",
-    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
@@ -963,7 +1407,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100791,
     "expiration_date": null,
@@ -1006,7 +1451,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100786,
     "expiration_date": null,
@@ -1017,7 +1463,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-6-sol-pro",
     "canonical_slug": "openai/gpt-6-sol-pro-20260922",
     "name": "OpenAI: GPT-6 Sol Pro",
-    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 2,
@@ -1049,7 +1495,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100781,
     "expiration_date": null,
@@ -1092,7 +1539,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100775,
     "expiration_date": null,
@@ -1188,9 +1636,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
-      "usd": 0.225
+      "usd": 0.45
     },
-    "note": "OpenRouter Sync API 转写契约：仅接受最长 120 秒的 16-bit WAV，返回完整转写与词级时间戳。基础费率为 $0.0000625/音频秒（$0.225/音频小时）；自由文本提示、关键词和会话上下文会使用提示转写费率，当前界面尚未暴露这些增强参数。尚未执行付费人工验收。"
+    "note": "OpenRouter Sync API 转写契约：仅接受最长 120 秒的 16-bit WAV，返回完整转写与词级时间戳。基础费率为 $0.000125/音频秒（$0.45/音频小时）；自由文本提示、关键词和会话上下文会使用提示转写费率，当前界面尚未暴露这些增强参数。尚未执行付费人工验收。"
   },
   {
     "id": "xiaomi/mimo-v2.6-pro-ultraspeed",
@@ -1236,7 +1684,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "xiaomi/mimo-v2.6-flash-20260921",
     "name": "Xiaomi: MiMo-V2.6-Flash",
     "raw_description": "MiMo-V2.6-Flash is an open-source foundation model developed by Xiaomi. Built on a Mixture-of-Experts architecture with 309B total parameters and 15B activated per token, it employs a hybrid attention mechanism for...",
-    "context_length": 1048576,
+    "context_length": 1050000,
     "pricing": {
       "input": 0.14,
       "output": 0.28
@@ -1553,6 +2001,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Other",
     "supported_parameters": [
       "max_tokens",
+      "response_format",
       "temperature",
       "tool_choice",
       "tools",
@@ -1599,8 +2048,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15808,
-      "output": 1.9584000000000001
+      "input": 0.13199999999999998,
+      "output": 0.396
     },
     "input_modalities": [
       "text"
@@ -1643,8 +2092,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.02,
-      "output": 0.6
+      "input": 0.019425,
+      "output": 0.75
     },
     "input_modalities": [
       "text",
@@ -1704,6 +2153,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "min_p",
       "presence_penalty",
+      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
@@ -1739,6 +2189,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "min_p",
       "presence_penalty",
+      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
@@ -1821,7 +2272,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130932,
     "expiration_date": null,
@@ -1864,7 +2316,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130928,
     "expiration_date": null,
@@ -1907,7 +2360,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130925,
     "expiration_date": null,
@@ -1950,7 +2404,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1789130922,
     "expiration_date": null,
@@ -2150,8 +2605,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.019425,
+      "output": 0.75
     },
     "input_modalities": [
       "text",
@@ -2468,7 +2923,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552838,
     "expiration_date": null,
@@ -2479,7 +2935,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-6-astra-pro",
     "canonical_slug": "openai/gpt-6-astra-pro-20260903",
     "name": "OpenAI: GPT-6 Astra Pro",
-    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 10,
@@ -2511,7 +2967,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552835,
     "expiration_date": null,
@@ -2956,7 +3413,21 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.834,
-      "output": 2.501
+      "output": 2.501,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 1600,
+          "input": 0.834,
+          "output": 2.501
+        },
+        {
+          "utc_start": 1600,
+          "utc_end": 0,
+          "input": 0.7505999999999999,
+          "output": 2.2509
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -3108,10 +3579,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~z-ai/glm-flash-latest",
     "name": "Z.ai: GLM Flash Latest",
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
-      "input": 0.02,
-      "output": 0.3
+      "input": 0.02625,
+      "output": 0.625
     },
     "input_modalities": [
       "text",
@@ -3221,7 +3692,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "z-ai/glm-5.3-flash-20260826",
     "name": "Z.ai: GLM 5.3 Flash",
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
       "input": 0.15,
       "output": 0.5
@@ -3651,9 +4122,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~z-ai/glm-latest",
     "name": "Z.ai: GLM Latest",
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
-      "input": 0.19,
+      "input": 0.12,
       "output": 4
     },
     "input_modalities": [
@@ -3725,7 +4196,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "z-ai/glm-5.3-20260816",
     "name": "Z.ai: GLM 5.3",
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
       "input": 1.4,
       "output": 4.4
@@ -3794,8 +4265,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.06470000000000001,
-      "output": 4.4
+      "input": 0.42,
+      "output": 3
     },
     "input_modalities": [
       "text",
@@ -3903,7 +4374,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1786680361,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Dots Studio",
     "reasoning_declared": true
   },
@@ -4355,8 +4826,40 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 4.199999999999999
+      "input": 1.32,
+      "output": 3.9600000000000004,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "input": 1.32,
+          "output": 3.9600000000000004
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "input": 0.66,
+          "output": 1.9800000000000002
+        }
+      ]
     },
     "input_modalities": [
       "text"
@@ -4518,7 +5021,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
     "name": "NVIDIA: Nemotron 3.5 Lightning",
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
-    "context_length": 1000000,
+    "context_length": 262144,
     "pricing": {
       "input": 0.06,
       "output": 0.16
@@ -4665,8 +5168,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.35,
+      "output": 1.5
     },
     "input_modalities": [
       "text",
@@ -4960,10 +5463,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~deepseek/deepseek-v4-flash-latest",
     "name": "DeepSeek: DeepSeek V4 Flash Latest",
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
-      "input": 0.012,
-      "output": 0.7
+      "input": 0.012825000000000001,
+      "output": 1.5999999999999999
     },
     "input_modalities": [
       "text"
@@ -5006,10 +5509,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "deepseek/deepseek-v4-flash-20260731",
     "name": "DeepSeek: DeepSeek V4 Flash 0731",
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
-    "context_length": 1310720,
+    "context_length": 1048576,
     "pricing": {
-      "input": 0.018,
-      "output": 0.32
+      "input": 0.0171,
+      "output": 1.28
     },
     "input_modalities": [
       "text"
@@ -6092,7 +6595,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
     "context_length": 524288,
     "pricing": {
-      "input": 1,
+      "input": 0.95,
       "output": 4.05
     },
     "input_modalities": [
@@ -6244,8 +6747,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 3,
-      "output": 15
+      "input": 1.3900000000000001,
+      "output": 13
     },
     "input_modalities": [
       "text",
@@ -6486,7 +6989,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-luna-pro",
     "canonical_slug": "openai/gpt-5.6-luna-pro-20260709",
     "name": "OpenAI: GPT-5.6 Luna Pro",
-    "raw_description": "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 0.19999999999999998,
@@ -6518,7 +7021,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590867,
     "expiration_date": null,
@@ -6561,7 +7065,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590864,
     "expiration_date": null,
@@ -6572,7 +7077,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-terra-pro",
     "canonical_slug": "openai/gpt-5.6-terra-pro-20260709",
     "name": "OpenAI: GPT-5.6 Terra Pro",
-    "raw_description": "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 2,
@@ -6604,7 +7109,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590861,
     "expiration_date": null,
@@ -6647,7 +7153,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590857,
     "expiration_date": null,
@@ -6658,7 +7165,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-sol-pro",
     "canonical_slug": "openai/gpt-5.6-sol-pro-20260709",
     "name": "OpenAI: GPT-5.6 Sol Pro",
-    "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 4,
@@ -6690,7 +7197,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590854,
     "expiration_date": null,
@@ -6733,7 +7241,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590850,
     "expiration_date": null,
@@ -7481,8 +7990,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3249,
-      "output": 4.4
+      "input": 0.41,
+      "output": 3.9899999999999998
     },
     "input_modalities": [
       "text"
@@ -7585,8 +8094,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6562,
-      "output": 3.3000000000000003
+      "input": 0.6712,
+      "output": 3.35
     },
     "input_modalities": [
       "text",
@@ -7940,8 +8449,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 2.4
+      "input": 0.5,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -8229,10 +8738,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -9597,7 +10104,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777318471,
     "expiration_date": null,
@@ -9658,8 +10166,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 10
+      "input": 1.3900000000000001,
+      "output": 13
     },
     "input_modalities": [
       "text",
@@ -10088,7 +10596,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051896,
     "expiration_date": null,
@@ -10131,7 +10640,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051893,
     "expiration_date": null,
@@ -10145,8 +10655,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.20879999999999999,
+      "output": 0.41759999999999997
     },
     "input_modalities": [
       "text"
@@ -10190,8 +10700,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.14,
-      "output": 0.28
+      "input": 0.041999999999999996,
+      "output": 0.08399999999999999
     },
     "input_modalities": [
       "text"
@@ -10399,7 +10909,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kokoro 82M is a lightweight, open-weight text-to-speech model from hexgrad. It converts text to speech across 8 languages (American and British English, Spanish, French, Hindi, Italian, Japanese, Portuguese, and Chinese)...",
     "context_length": 4096,
     "pricing": {
-      "input": 4,
+      "input": 0.62,
       "output": 0
     },
     "input_modalities": [
@@ -10534,10 +11044,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -10580,9 +11088,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -10634,7 +11140,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "stop",
       "structured_outputs",
-      "top_logprobs"
+      "top_logprobs",
+      "verbosity"
     ],
     "created": 1776797528,
     "expiration_date": null,
@@ -10800,8 +11307,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.65,
-      "output": 3.41
+      "input": 0.43415,
+      "output": 1.8279999999999998
     },
     "input_modalities": [
       "text",
@@ -11074,8 +11581,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.9646,
+      "output": 3.0316
     },
     "input_modalities": [
       "text"
@@ -11810,7 +12317,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -11819,12 +12325,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1773836697,
@@ -11894,7 +12398,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748187,
     "expiration_date": null,
@@ -11930,7 +12435,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748178,
     "expiration_date": null,
@@ -12258,7 +12764,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734366,
     "expiration_date": null,
@@ -12301,7 +12808,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734352,
     "expiration_date": null,
@@ -12500,8 +13008,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 Series 35B-A3B is a native vision-language model designed with a hybrid architecture that integrates linear attention mechanisms and a sparse mixture-of-experts model, achieving higher inference efficiency. Its overall...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.1625,
-      "output": 1.3
+      "input": 0.15,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -12799,7 +13307,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1771959164,
     "expiration_date": null,
@@ -13733,7 +14242,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1768409315,
     "expiration_date": null,
@@ -13932,7 +14442,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1766378014,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -14135,7 +14645,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389783,
     "expiration_date": null,
@@ -14169,7 +14680,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389780,
     "expiration_date": null,
@@ -14205,7 +14717,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389775,
     "expiration_date": null,
@@ -14505,7 +15018,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1764878934,
     "expiration_date": null,
@@ -15316,7 +15830,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060305,
     "expiration_date": null,
@@ -15381,7 +15896,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060298,
     "expiration_date": null,
@@ -15415,7 +15931,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763057820,
     "expiration_date": null,
@@ -15993,7 +16510,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "top_logprobs",
-      "top_p"
+      "top_p",
+      "verbosity"
     ],
     "created": 1760624583,
     "expiration_date": null,
@@ -16153,7 +16671,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "top_logprobs",
-      "top_p"
+      "top_p",
+      "verbosity"
     ],
     "created": 1760447986,
     "expiration_date": null,
@@ -16423,7 +16942,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1759776663,
     "expiration_date": null,
@@ -16536,22 +17056,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
-      "logprobs",
       "max_tokens",
-      "min_p",
-      "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
-      "seed",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1759150481,
@@ -17588,7 +18100,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587413,
     "expiration_date": null,
@@ -17624,7 +18137,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587407,
     "expiration_date": null,
@@ -17660,7 +18174,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587402,
     "expiration_date": null,
@@ -17674,8 +18189,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.037,
+      "output": 0.16999999999999998
     },
     "input_modalities": [
       "text"
@@ -17945,8 +18460,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.04815,
-      "output": 0.19305
+      "input": 0.09999999999999999,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -18006,7 +18521,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753471347,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -18634,7 +19149,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M1 is a large-scale, open-weight reasoning model designed for extended context and high-efficiency inference. It leverages a hybrid Mixture-of-Experts (MoE) architecture paired with a custom \"lightning attention\" mechanism, allowing it...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.39999999999999997,
+      "input": 0.55,
       "output": 2.2
     },
     "input_modalities": [
@@ -19207,8 +19722,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3, the latest generation in the Qwen large language model series, features both dense and mixture-of-experts (MoE) architectures to excel in reasoning, multilingual support, and advanced agent tasks. Its unique...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.13,
-      "output": 0.52
+      "input": 0.12,
+      "output": 0.5
     },
     "input_modalities": [
       "text"
@@ -19237,7 +19752,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1745878604,
-    "expiration_date": 1791504000,
+    "expiration_date": null,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -19627,7 +20142,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "repetition_penalty",
       "response_format",
@@ -19703,15 +20217,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "DeepSeek",
     "supported_parameters": [
       "frequency_penalty",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
       "response_format",
       "seed",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -22874,7 +23383,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-6-luna-pro:batch",
     "canonical_slug": "openai/gpt-6-luna-pro-20260922",
     "name": "OpenAI: GPT-6 Luna Pro (batch)",
-    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Luna Pro is the same underlying model as [GPT-6 Luna](https://openrouter.ai/openai/gpt-6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 0.049999999999999996,
@@ -22905,7 +23414,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100791,
     "expiration_date": null,
@@ -22947,7 +23457,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100786,
     "expiration_date": null,
@@ -22958,7 +23469,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-6-sol-pro:batch",
     "canonical_slug": "openai/gpt-6-sol-pro-20260922",
     "name": "OpenAI: GPT-6 Sol Pro (batch)",
-    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Sol Pro is the same underlying model as [GPT-6 Sol](https://openrouter.ai/openai/gpt-6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 1,
@@ -22989,7 +23500,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100781,
     "expiration_date": null,
@@ -23031,7 +23543,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1790100775,
     "expiration_date": null,
@@ -23152,7 +23665,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552838,
     "expiration_date": null,
@@ -23163,7 +23677,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-6-astra-pro:batch",
     "canonical_slug": "openai/gpt-6-astra-pro-20260903",
     "name": "OpenAI: GPT-6 Astra Pro (batch)",
-    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-6 Astra Pro is the same underlying model as [GPT-6 Astra](https://openrouter.ai/openai/gpt-6-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 5,
@@ -23194,7 +23708,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1788552835,
     "expiration_date": null,
@@ -23559,7 +24074,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-luna-pro:batch",
     "canonical_slug": "openai/gpt-5.6-luna-pro-20260709",
     "name": "OpenAI: GPT-5.6 Luna Pro (batch)",
-    "raw_description": "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Luna Pro is the same underlying model as [GPT-5.6 Luna](https://openrouter.ai/openai/gpt-5.6-luna), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 0.09999999999999999,
@@ -23590,7 +24105,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590867,
     "expiration_date": null,
@@ -23632,7 +24148,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590864,
     "expiration_date": null,
@@ -23643,7 +24160,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-terra-pro:batch",
     "canonical_slug": "openai/gpt-5.6-terra-pro-20260709",
     "name": "OpenAI: GPT-5.6 Terra Pro (batch)",
-    "raw_description": "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Terra Pro is the same underlying model as [GPT-5.6 Terra](https://openrouter.ai/openai/gpt-5.6-terra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 1,
@@ -23674,7 +24191,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590861,
     "expiration_date": null,
@@ -23716,7 +24234,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590857,
     "expiration_date": null,
@@ -23727,7 +24246,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "id": "openai/gpt-5.6-sol-pro:batch",
     "canonical_slug": "openai/gpt-5.6-sol-pro-20260709",
     "name": "OpenAI: GPT-5.6 Sol Pro (batch)",
-    "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks.\n\nLearn more in OpenAI's docs: https://developers.openai.com/api/docs/guides/reasoning#reasoning-mode",
+    "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
       "input": 1,
@@ -23758,7 +24277,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590854,
     "expiration_date": null,
@@ -23800,7 +24320,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1783590850,
     "expiration_date": null,
@@ -24142,7 +24663,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051896,
     "expiration_date": null,
@@ -24184,7 +24706,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1777051893,
     "expiration_date": null,
@@ -24255,7 +24778,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748187,
     "expiration_date": null,
@@ -24290,7 +24814,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1773748178,
     "expiration_date": null,
@@ -24371,7 +24896,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734366,
     "expiration_date": null,
@@ -24413,7 +24939,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1772734352,
     "expiration_date": null,
@@ -24611,7 +25138,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389780,
     "expiration_date": null,
@@ -24646,7 +25174,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1765389775,
     "expiration_date": null,
@@ -24788,7 +25317,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1763060305,
     "expiration_date": null,
@@ -24926,7 +25456,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1759776663,
     "expiration_date": null,
@@ -25041,7 +25572,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587413,
     "expiration_date": null,
@@ -25076,7 +25608,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587407,
     "expiration_date": null,
@@ -25111,7 +25644,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "seed",
       "structured_outputs",
       "tool_choice",
-      "tools"
+      "tools",
+      "verbosity"
     ],
     "created": 1754587402,
     "expiration_date": null,
@@ -26132,6 +26666,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
   "bytedance/seedance-2.0-mini",
   "bytedance/seedance-2.5",
   "heygen/avatar-iv",
+  "heygen/heygen-video-1",
   "minimax/hailuo-3-max",
   "runway/aleph-2",
   "runway/gen-4.5",
@@ -26675,6 +27210,13 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "unbiased/pareto-26.10-preview",
+  "microsoft/mai-voice-2.1",
+  "apodex/apodex-1.1-mini:free",
+  "black-forest-labs/flux-3-image",
+  "liquid/d1",
+  "microsoft/mai-voice-2.1-flash",
+  "bytedance-seed/seedream-5-0-flash",
   "anthropic/claude-sonnet-5.5",
   "upstage/solar-decide",
   "respan/span-01",
@@ -26800,6 +27342,13 @@ const LATEST_REFRESH_MODEL_IDS = [
   "bytedance-seed/seed-2-1-turbo",
   "bytedance-seed/seed-2.0-code",
   "bytedance/seedance-2.0-mini",
+  "heygen/heygen-video-1",
+  "togethercomputer/tev1-4b-experimental",
+  "inception/mercury-decide:free",
+  "voyageai/rerank-3-lite",
+  "voyageai/rerank-3",
+  "openai/gpt-6.1-sol-pro",
+  "openai/gpt-6.1-sol",
 ];
 const reservedCatalogModelIds = new Set([
   SEEDANCE_2_5_MODEL_ID,

@@ -24,6 +24,8 @@ export default function DecisionPage() {
   const { modelId = "" } = useParams();
   const decodedModelId = decodeURIComponent(modelId);
   const model = models.find((item) => item.id === decodedModelId);
+  const usesChatDecisionContract =
+    decodedModelId === "togethercomputer/tev1-4b-experimental";
   const [state, setState] = useState("");
   const [questionsSource, setQuestionsSource] = useState(DEFAULT_QUESTIONS);
   const [copied, setCopied] = useState(false);
@@ -105,7 +107,9 @@ export default function DecisionPage() {
             </div>
             <h1 className="mt-4 text-3xl font-bold">{model.name}</h1>
             <p className="mt-3 text-sm leading-6 text-slate-300">
-              {model.name} 不生成聊天文本。它根据共享状态回答一组类型化问题，适合路由、排序、验证和快速决策。
+              {usesChatDecisionContract
+                ? `${model.name} 不生成通用聊天文本。它根据共享状态和一个单选问题返回选项字母，适合路由、分类和策略检查。`
+                : `${model.name} 不生成聊天文本。它根据共享状态回答一组类型化问题，适合路由、排序、验证和快速决策。`}
             </p>
             <label className="mt-7 block text-sm font-semibold" htmlFor="decision-state">状态</label>
             <textarea
@@ -115,7 +119,9 @@ export default function DecisionPage() {
               placeholder="描述需要作出判断的事实、约束和上下文……"
               value={state}
             />
-            <label className="mt-5 block text-sm font-semibold" htmlFor="decision-questions">类型化问题（JSON）</label>
+            <label className="mt-5 block text-sm font-semibold" htmlFor="decision-questions">
+              {usesChatDecisionContract ? "单个 choice 问题（JSON）" : "类型化问题（JSON）"}
+            </label>
             <textarea
               className="mt-2 min-h-64 w-full rounded-2xl border border-white/10 bg-black/25 p-4 font-mono text-xs leading-5 outline-none focus:border-violet-300/50"
               id="decision-questions"
@@ -155,9 +161,9 @@ export default function DecisionPage() {
             <div className="rounded-3xl border border-white/10 bg-slate-950/65 p-6">
               <h2 className="font-semibold">契约</h2>
               <dl className="mt-4 space-y-3 text-sm text-slate-300">
-                <div className="flex justify-between gap-4"><dt>端点</dt><dd className="font-mono text-xs">/api/alpha/decisions</dd></div>
-                <div className="flex justify-between gap-4"><dt>问题类型</dt><dd>noul / choice / score</dd></div>
-                <div className="flex justify-between gap-4"><dt>输出</dt><dd>类型化 answers</dd></div>
+                <div className="flex justify-between gap-4"><dt>端点</dt><dd className="font-mono text-xs">{usesChatDecisionContract ? "/api/v1/chat/completions" : "/api/alpha/decisions"}</dd></div>
+                <div className="flex justify-between gap-4"><dt>问题类型</dt><dd>{usesChatDecisionContract ? "choice（2–24 项）" : "noul / choice / score"}</dd></div>
+                <div className="flex justify-between gap-4"><dt>输出</dt><dd>{usesChatDecisionContract ? "选项字母映射为 answers" : "类型化 answers"}</dd></div>
                 <div className="flex justify-between gap-4"><dt>上下文</dt><dd>{model.context_length > 0 ? `${model.context_length.toLocaleString()} Token` : "目录未披露"}</dd></div>
               </dl>
             </div>
@@ -167,7 +173,8 @@ export default function DecisionPage() {
               <p className="mt-2 text-sm text-slate-300">按约 {estimatedTokens.toLocaleString()} 输入 Token、${inputPrice.toFixed(3)} / M 估算；输出定价为 $0。</p>
             </div>
             <p className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4 text-sm leading-6 text-amber-100">
-              提交会将这里填写的状态与问题发送至 OpenRouter Decisions API。请勿填写密钥或未经授权的敏感数据。
+              提交会将这里填写的状态与问题发送至 OpenRouter
+              {usesChatDecisionContract ? " Chat Completions API" : " Decisions API"}。请勿填写密钥或未经授权的敏感数据。
             </p>
           </aside>
         </section>

@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import type { Model } from "../data/models";
 import {
   estimateImageCost,
+  FLUX_3_IMAGE_PRICING,
   GROK_IMAGINE_IMAGE_2_PRICING,
   GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID,
   imageTokenPricingSummary,
@@ -16,6 +17,7 @@ import {
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
+  SEEDREAM_5_FLASH_PRICING,
   SEEDREAM_5_PRO_PRICING,
   type ImagePricingItem,
 } from "../utils/imageCostEstimate";
@@ -155,6 +157,10 @@ export default function ImageGenerationWorkspace({
             ? SEEDREAM_5_PRO_PRICING
           : model.id === "bytedance-seed/seedream-5-0-lite"
             ? SEEDREAM_5_LITE_PRICING
+          : model.id === "bytedance-seed/seedream-5-0-flash"
+            ? SEEDREAM_5_FLASH_PRICING
+          : model.id === "black-forest-labs/flux-3-image"
+            ? FLUX_3_IMAGE_PRICING
           : model.id === "meta/muse-image"
             ? MUSE_IMAGE_PRICING
           : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]

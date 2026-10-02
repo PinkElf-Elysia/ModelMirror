@@ -12,6 +12,16 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "bytedance-seed/seedream-5-0-flash",
+  "black-forest-labs/flux-3-image",
+  "liquid/d1",
+  "microsoft/mai-voice-2.1-flash",
+  "microsoft/mai-voice-2.1",
+  "heygen/heygen-video-1",
+  "togethercomputer/tev1-4b-experimental",
+  "inception/mercury-decide:free",
+  "voyageai/rerank-3-lite",
+  "voyageai/rerank-3",
   "upstage/solar-decide",
   "respan/span-01",
   "respan/span-01-lite",

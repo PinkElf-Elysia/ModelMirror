@@ -1958,6 +1958,11 @@ class VideoJobService:
                 if generate_audio
                 else f"duration_seconds_without_audio_{resolution_key}"
             ),
+            (
+                f"reference_duration_seconds_{resolution_key}"
+                if image_input_count
+                else ""
+            ),
             f"{mode}_duration_seconds_{resolution_key}",
             f"duration_seconds_{resolution_key}",
             (
@@ -1965,6 +1970,7 @@ class VideoJobService:
                 if generate_audio
                 else "duration_seconds_without_audio"
             ),
+            "reference_duration_seconds" if image_input_count else "",
             f"{mode}_duration_seconds",
             "duration_seconds",
         )
