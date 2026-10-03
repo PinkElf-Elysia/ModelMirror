@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { models } from "../data/models";
+import { timeWindowPricingFixture } from "./tokenPricing.fixture";
 import {
   formatPricingOverridesCny,
   formatUtcClock,
@@ -50,30 +51,49 @@ describe("tokenPricingForPrompt", () => {
   });
 
   it("selects the live UTC price with inclusive start and exclusive end", () => {
-    const model = models.find(
-      (candidate) => candidate.id === "deepseek/deepseek-v4-flash-vision-exp",
-    );
-    expect(model).toBeDefined();
+    const model = timeWindowPricingFixture();
 
     const highPriceAtStart = new Date("2026-08-17T01:00:00Z");
     const lowPriceAtEnd = new Date("2026-08-17T04:00:00Z");
     const overnightPrice = new Date("2026-08-17T23:30:00Z");
 
-    expect(pricingWindowForUtcTime(model!, highPriceAtStart)).toMatchObject({
+    expect(pricingWindowForUtcTime(model, highPriceAtStart)).toMatchObject({
       utc_start: 100,
       utc_end: 400,
     });
-    expect(priceCnyForUtcTime(model!, highPriceAtStart)).toEqual({
+    expect(priceCnyForUtcTime(model, highPriceAtStart)).toEqual({
       input: 2.98,
       output: 8.94,
     });
-    expect(priceCnyForUtcTime(model!, lowPriceAtEnd)).toEqual({
+    expect(priceCnyForUtcTime(model, lowPriceAtEnd)).toEqual({
       input: 1.49,
       output: 4.47,
     });
-    expect(pricingWindowForUtcTime(model!, overnightPrice)).toMatchObject({
+    expect(pricingWindowForUtcTime(model, overnightPrice)).toMatchObject({
       utc_start: 1000,
       utc_end: 0,
     });
+  });
+
+  it.each([
+    ["00:00:00", 0],
+    ["00:59:59", 0],
+    ["01:00:00", 100],
+    ["03:59:59", 100],
+    ["04:00:00", 400],
+    ["09:59:59", 600],
+    ["10:00:00", 1000],
+    ["23:59:59", 1000],
+  ])("selects the declared UTC interval at %s", (clock, start) => {
+    expect(pricingWindowForUtcTime(
+      timeWindowPricingFixture(), new Date(`2026-08-17T${clock}Z`),
+    )?.utc_start).toBe(start);
+  });
+
+  it("keeps the base price when no time window is declared", () => {
+    const model = { ...timeWindowPricingFixture(), pricing_time_windows: [] };
+    const at = new Date("2026-08-17T01:00:00Z");
+    expect(pricingWindowForUtcTime(model, at)).toBeNull();
+    expect(priceCnyForUtcTime(model, at)).toEqual(model.price_cny);
   });
 });

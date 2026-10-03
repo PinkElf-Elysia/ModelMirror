@@ -12,9 +12,9 @@
 - **未运行**：新模型/Marble/Meshy 生成，本轮 Provider 请求 0。模型及资产服务显示未就绪，生成按钮禁用。
 - **待人工**：本轮 Godot 原生窗口里的空间、画面与操作体验；不以启动回执代替游戏画面质量验收。
 
-![Science 与 RPG 同行，矩阵绿洲恢复原面板](../../../client/public/help-center/eeb5bbd2/studio-layout.jpg)
+![Science 与 RPG 同行，矩阵绿洲恢复原面板](screenshots/quality-20261003/eeb5bbd2/studio-layout.jpg)
 
-![Creator 恢复已资格缓存并启动 Godot 的界面回执](../../../client/public/help-center/eeb5bbd2/creator-cache.jpg)
+![Creator 恢复已资格缓存并启动 Godot 的界面回执](screenshots/quality-20261003/eeb5bbd2/creator-cache.jpg)
 
 正式浏览器工具实际截图，未重绘。Studio SHA-256 `d56a06347af9a1f9b9512f83b30af4a813671fcbb7dc2ee68a68cf18ea9dab89`；Creator SHA-256 `fcd4f31bc47bcfd96d509fa3490479d56bc83016fd7b6bd294b96c923ca1530c`。从本任务原始工具结果提取并逐字节校验，不含凭据或私人草稿。
 
