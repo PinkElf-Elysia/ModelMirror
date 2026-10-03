@@ -1,0 +1,13 @@
+{
+  "contract_version": "modelmirror-provider-acceptance-v1",
+  "profile": "offline-single-writer-validation",
+  "network_mode": "none",
+  "mounts": [],
+  "ports": [],
+  "paid_calls": false,
+  "production": false,
+  "python_image": "python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7",
+  "node_image": "node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+  "stages": ["guard", "workflow", "backend", "worker", "catalog", "frontend_typecheck", "frontend_tests", "frontend_build", "help_assets"],
+  "timeout_seconds": 3600
+}
