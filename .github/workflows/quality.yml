@@ -120,3 +120,7 @@ jobs:
         env:
           CODING_PROJECT_UPLOAD_ROOT: ${{ runner.temp }}/modelmirror-project-uploads
           PYTHONDONTWRITEBYTECODE: "1"
+      - name: Test Applier temporary-file failure cleanup
+        run: python -m pytest server/tests/test_coding_applier_tempfile.py -q -ra -p no:cacheprovider
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"

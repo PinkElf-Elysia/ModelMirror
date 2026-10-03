@@ -62,3 +62,24 @@
 测试断言不得删除或宽松化，不新增生产依赖。每个修改微批最多五个文件；依赖仅用原 lockfile 安装。回退只恢复本分支相应测试、文档、资产或 CI 配置，不迁移数据、不动 CW10 或原预览。
 
 所有验证状态以实际回执为准；本任务不能代替 CW10 的完整回归、教程或真实模型验收。
+
+## 剩余项收口（2026-10-03）
+
+### 平台边界与句柄释放
+
+`e24e9b49` 的 [Quality run 37115399589](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/37115399589) 三项全部通过。进一步核对 `docs/CODING_AGENT_INTEGRATION.md`、Applier Dockerfile 与独立 Compose overlay：Applier 正式运行于 Linux 容器；Windows 项目写回使用独立 Project Host。Windows 本机全量失败不能据此称为正式部署失败，也不能未经设计把 `fchmod` 换成路径 `chmod`，扩大平台与权限语义。
+
+可独立修复的缺陷是 `_prepare_temp_file` 在权限设置或 `fdopen` 失败时泄漏原始描述符。Windows 随后的清理会遮蔽原始错误；POSIX 同样泄漏描述符。修复仅将描述符所有权固定在函数内，使用 `closefd=False` 加 `finally: os.close`，在关闭后清理临时文件，保留既有 POSIX 权限设置、原子替换、事务回滚与取消语义。不新增 Windows Applier 运行支持。
+
+- 新增故障注入：`fdopen/fchmod/fsync/KeyboardInterrupt`；修复前 3 failed / 1 passed，修复后全部通过。
+- 增加正常写入、内容、mode 参数和描述符关闭验证；具备原生 fchmod 时还检查实际权限位。
+- 临时文件与 worker port 联合回归：14 passed / 1 skipped。Windows CI 增加同一资源释放测试，Linux 全量执行真实权限与原子应用测试，不删除或跳过原有测试。
+- 回退只撤回上述 helper 与对应测试；没有数据迁移、额外平台授权、重试或业务写入。
+
+### 帮助教程离线验收
+
+使用全新隔离目录启动 `15529/15530` 离线 RPG 宿主，真实 Provider 禁用、无凭据，卡片按现有 Dockerfile 的 `/rpg-app/earth/` 基路径构建。通过可见 UI 完成内置插件安装、新建离线会话、逐会话启用、独立离线模型选择、两次固定响应、条目搜索/编辑、人工保护、放弃未保存修改、修订查看、软删除和恢复。第二回合实际显示条目“已携带”，人工修订保持不变。
+
+这补充了前一批只阅读文章的缺口；结果仅证明当前基线离线交互与确定性行为，不替代历史真实 Provider 证据，也不验证新的模型效果。详细操作与限制见 `docs/help-center/evidence/quality-preview-20261003.md`。本轮代码新增后的完整 CI 需另行确认，不能沿用 e24e9b49 的绿灯。
+
+补充自动化回归：在 `experiments/ai-rpg-engine` 执行 `node --test studio/memory-store.test.mjs studio/memory-tasks.test.mjs studio/memory-integration.test.mjs studio/memory-http.test.mjs`，结果 63 passed / 0 failed / 0 skipped。这些测试使用确定性夹具和模拟 transport，不构成真实 Provider 证据。
