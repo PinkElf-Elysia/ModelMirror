@@ -1,6 +1,6 @@
 # 主线质量门禁独立修复
 
-状态：用户已授权提交 Draft PR；完整门禁仍未完成，不可据此标记可合并。
+状态：Draft PR #399 已创建；提交 `5350dab6` 的三项远端 Quality 检查全部通过。后续教程核对增量与本地 Windows 差异仍需独立记录，不自动标记可合并。
 
 ## 范围与基线
 
@@ -39,7 +39,17 @@
 - 补齐环境后的全量范围 `server/tests/ -x`：63 passed、1 failed，未完成全量。失败为 `test_agent_upstream_port.py::test_started_worker_crash_after_model_request_is_never_restarted`；独立重跑仍 1 failed。
 - 失败中预期 `EngineUnavailableError` 被进程清理发送时的 `ConnectionResetError` 覆盖。`server/agent_upstream/port.py` 与对应测试相对 `origin/main` 无差异；不将其归因为本次改动，也不擅自扩大到 Runtime 修复。
 - 独立静态预览 `127.0.0.1:15519` 已实际打开记忆宫殿帮助页并核对章节；未执行 RPG 模型调用或完整教程功能重放，不能计为完整帮助验收。
-- 当前 PR 阻断：后端失败及未完成的全量、完整帮助验收。实际 GitHub CI 未运行。未提交、推送或创建 PR。
+- 上述为创建 PR 前的历史状态：当时后端失败、全量和完整帮助验收未完成，尚未提交或运行 GitHub CI。后续修复及 CI 结果见下节，不覆盖此前失败事实。
+
+## PR 创建后的补充核验
+
+- [Draft PR #399](https://github.com/PinkElf-Elysia/ModelMirror/pull/399)，提交 `5350dab6`，2026-10-03 [Quality run 37114274220](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/37114274220) 全部通过。
+- Linux Backend quality：Workflow 契约 7 passed；其余后端 6942 passed / 32 skipped；Agency worker core/provenance 与 Compose 配置检查通过。Compose 仅静态配置验证，未部署共享栈。
+- Frontend quality：149 个测试文件、1109 项测试通过；TypeScript、构建与帮助图片门禁通过。
+- Windows Project Host：88 passed。这不是 Windows 全量后端通过。
+- 本地修改涉及的三个 Python 文件经 AST 语法检查通过。
+- 修复后的本地 Windows 全量尝试出现额外失败并中止，不能标为全量通过。随后 `server/tests/ -x --tb=short` 得到 254 passed / 4 skipped / 1 failed；首失败为 `test_coding_applier_engine.py::test_apply_is_atomic_and_idempotent`，`coding_applier/engine.py` 调用 Windows 不支持的 `os.fchmod`，异常清理又遇到打开文件的 WinError 32。该路径未在本 PR 修改；不以 Linux CI 通过掩盖本地平台兼容缺口，也不在质量文档微批中顺带修改原子写入实现。
+- 独立静态预览教程核对见 `docs/help-center/evidence/quality-preview-20261003.md`。发现并修正专用图片模型的历史状态文案；保留原截图并明确其历史性，不将卡片状态或离线页面冒充真实模型验收。
 
 ## 验收与回退
 
