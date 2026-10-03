@@ -37,8 +37,10 @@
 
 ## 截图
 
-- `client/public/help-center/6413a273/openrouter-image-model.png`
-- `client/public/help-center/6413a273/openrouter-specialized-models.png`
+- [图片模型截图](screenshots/quality-20261003/6413a273/openrouter-image-model.png)
+- [专用模型截图](screenshots/quality-20261003/6413a273/openrouter-specialized-models.png)
+
+2026-10-03 原样归档至证据目录；原公开路径前缀为 `client/public/help-center/6413a273/`。归档不改变以上历史验收结论。
 
 截图不包含真实用户数据、凭据、Token、内部地址或生成内容。
 

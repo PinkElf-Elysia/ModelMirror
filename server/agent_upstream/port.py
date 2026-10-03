@@ -537,8 +537,12 @@ class NodeUpstreamEnginePort:
             if len(encoded) > MAX_FRAME_BYTES:
                 raise EngineProtocolError("host protocol frame exceeds 4 MiB")
             active.outgoing_seq += 1
-            active.process.stdin.write(encoded + b"\n")
-            await active.process.stdin.drain()
+            try:
+                active.process.stdin.write(encoded + b"\n")
+                await active.process.stdin.drain()
+            except ConnectionError as exc:
+                # Process exit can close stdin before returncode is observed.
+                raise EngineUnavailableError("Upstream worker connection was lost") from exc
 
     def _decode_frame(self, active: _ActiveProcess, raw: bytes) -> dict[str, Any]:
         if len(raw) > MAX_FRAME_BYTES + 1 or not raw.endswith(b"\n"):

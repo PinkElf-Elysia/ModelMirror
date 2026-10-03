@@ -88,6 +88,8 @@ describe("help center content catalog", () => {
     expect(specializedArticle?.verifiedDate).toBe(openRouterSpecializedReviewBaseline.date);
     expect(specializedArticle?.content).toContain("MAI-Voice-2.1");
     expect(specializedArticle?.content).toContain("没有执行这种调用");
+    expect(specializedArticle?.content).toContain("图片生成/编辑已确认");
+    expect(specializedArticle?.content).toContain("待适配状态不代表当前状态");
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);

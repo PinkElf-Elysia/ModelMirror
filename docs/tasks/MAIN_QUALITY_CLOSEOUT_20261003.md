@@ -1,0 +1,85 @@
+# 主线质量门禁独立修复
+
+状态：Draft PR #399 已创建；提交 `5350dab6` 的三项远端 Quality 检查全部通过。后续教程核对增量与本地 Windows 差异仍需独立记录，不自动标记可合并。
+
+## 范围与基线
+
+- 执行基线：`origin/main@8c2a0120226be26f05c875f81c122589b216525d`。
+- 独立工作树：`C:\tmp\modelmirror-main-quality-closeout-20261003`。
+- 分支：`codex/main-quality-closeout-20261003`。
+- 只处理已在干净主线复现的质量阻塞，不包含 CW10 生产实现、固定候选或运行数据。
+- 不调用 Provider、不刷新在线目录、不操作共享栈。后续用户明确授权提交 PR；以 Draft 提交并披露未完成门禁，不自动合并。
+
+## 可验证批次
+
+1. 测试契约：修正过期音频目录版本断言；分时价格使用合成夹具，保留目录快照对当前空时段的独立断言。检查时段边界、默认价格和卡片展示，不修改真实价格。
+2. 帮助资产：核对真实文件格式与引用，保留历史证据；修复文章必需结构，不伪造新实操或付费验证。
+3. CI 准备：根据实际子项目依赖和 Node 引擎范围补齐环境，不跳过门禁或降低断言。实际 GitHub CI 未运行前不称 CI 通过。
+4. 集成：重点测试、前端全量/类型/构建、帮助图片、后端相关测试、语法及敏感信息检查。后端全量与环境失败单列，不能沿用 CW10 中断结果。
+
+## 已确认根因
+
+- `AudioCatalogService` 发布版本为 `modelmirror-audio-contracts-2026-10-02-deepgram-flux`，两项测试仍要求 9 月 25 日版本；隐私断言和可用性断言保留。
+- `models.refresh.test.ts` 明确要求 Flash Vision 条目没有分时时段；两个通用价格测试却仍要求该同一条目有五个时段。用独立固定夹具消除测试间矛盾，不向生产目录补回已移除价格。
+- RPG 帮助文章缺少必需章节；保留原有行为和验证边界，补齐适用对象、开始前、真实范例、常见问题和限制。
+- CI 仅安装 client 和 worker 依赖，遗漏测试读取的 RPG 子项目；其 Node 引擎要求为 24.18.0，原 CI 配置为 22。补齐锁定依赖安装并对齐 Node，不移除现有测试或安全策略。
+
+## 当前验证回执
+
+- 音频基础与 TTS：71 passed，隔离本地测试，无 Provider 调用。
+- 价格、卡片与目录回归：96 passed；帮助中心结构：15 passed。
+- `git diff --check`：通过。
+- `npm.cmd run test:run`：149 个文件、1109 项 Vitest 测试通过，响应头 Node 测试 1 项通过，退出码 0。
+- `npm.cmd run build`：TypeScript 与生产构建通过，保留现有大包警告。
+- 结构化输出后端回归：23 passed，包含 RPG Schema 校验；锁定依赖安装未修改 lockfile。
+- 帮助图片：五张未引用历史资产原样归档并同步证据链接，哈希一致；两张公开图片按后续压缩授权使用 900px 无抖动 256 色 PNG，逐张查看后采用，原图保留。`npm.cmd run verify:help-images`：23 篇文章全部通过。
+- 提交前刷新：`origin/main` 仍为 `8c2a0120`，无上游新增提交。
+- 最终图片入包后的 `npm.cmd run build`：通过，保留大包警告。
+- 后端全量首次启动缺少本工作树 Agency worker 构建产物，已中断；按 CI 原步骤补齐锁定依赖和构建，未修改源码。
+- 补齐环境后的全量范围 `server/tests/ -x`：63 passed、1 failed，未完成全量。失败为 `test_agent_upstream_port.py::test_started_worker_crash_after_model_request_is_never_restarted`；独立重跑仍 1 failed。
+- 失败中预期 `EngineUnavailableError` 被进程清理发送时的 `ConnectionResetError` 覆盖。`server/agent_upstream/port.py` 与对应测试相对 `origin/main` 无差异；不将其归因为本次改动，也不擅自扩大到 Runtime 修复。
+- 独立静态预览 `127.0.0.1:15519` 已实际打开记忆宫殿帮助页并核对章节；未执行 RPG 模型调用或完整教程功能重放，不能计为完整帮助验收。
+- 上述为创建 PR 前的历史状态：当时后端失败、全量和完整帮助验收未完成，尚未提交或运行 GitHub CI。后续修复及 CI 结果见下节，不覆盖此前失败事实。
+
+## PR 创建后的补充核验
+
+- [Draft PR #399](https://github.com/PinkElf-Elysia/ModelMirror/pull/399)，提交 `5350dab6`，2026-10-03 [Quality run 37114274220](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/37114274220) 全部通过。
+- Linux Backend quality：Workflow 契约 7 passed；其余后端 6942 passed / 32 skipped；Agency worker core/provenance 与 Compose 配置检查通过。Compose 仅静态配置验证，未部署共享栈。
+- Frontend quality：149 个测试文件、1109 项测试通过；TypeScript、构建与帮助图片门禁通过。
+- Windows Project Host：88 passed。这不是 Windows 全量后端通过。
+- 本地修改涉及的三个 Python 文件经 AST 语法检查通过。
+- 修复后的本地 Windows 全量尝试出现额外失败并中止，不能标为全量通过。随后 `server/tests/ -x --tb=short` 得到 254 passed / 4 skipped / 1 failed；首失败为 `test_coding_applier_engine.py::test_apply_is_atomic_and_idempotent`，`coding_applier/engine.py` 调用 Windows 不支持的 `os.fchmod`，异常清理又遇到打开文件的 WinError 32。该路径未在本 PR 修改；不以 Linux CI 通过掩盖本地平台兼容缺口，也不在质量文档微批中顺带修改原子写入实现。
+- 独立静态预览教程核对见 `docs/help-center/evidence/quality-preview-20261003.md`。发现并修正专用图片模型的历史状态文案；保留原截图并明确其历史性，不将卡片状态或离线页面冒充真实模型验收。
+
+## 验收与回退
+
+### 经授权追加：worker 断管异常
+
+用户在提交门禁发现失败后明确授权修复。限定 `server/agent_upstream/port.py` 的发送边界与对应测试：将 write/drain 的 ConnectionError 转为既有 EngineUnavailableError，保留 cause；取消信号仍透传。不改变已启动 worker 禁止重试的规则。覆盖两个阶段的 BrokenPipeError/ConnectionResetError、取消以及真实子进程崩溃后不重复模型请求、清理活动注册。验证先运行完整 port 测试，再运行 agent_upstream 相关回归。回退仅撤回异常转换及新增测试，不涉及数据迁移或 Provider 调用。
+
+修复后验证：port 测试 9 passed / 1 skipped；全部五个 agent_upstream 测试文件 27 passed / 2 skipped。原失败用例通过，新增写入/排空错误及取消测试通过。`git diff --check` 通过。此结果不替代修复后的全量后端或部署环境验收，提交门禁继续待完成。
+
+测试断言不得删除或宽松化，不新增生产依赖。每个修改微批最多五个文件；依赖仅用原 lockfile 安装。回退只恢复本分支相应测试、文档、资产或 CI 配置，不迁移数据、不动 CW10 或原预览。
+
+所有验证状态以实际回执为准；本任务不能代替 CW10 的完整回归、教程或真实模型验收。
+
+## 剩余项收口（2026-10-03）
+
+### 平台边界与句柄释放
+
+`e24e9b49` 的 [Quality run 37115399589](https://github.com/PinkElf-Elysia/ModelMirror/actions/runs/37115399589) 三项全部通过。进一步核对 `docs/CODING_AGENT_INTEGRATION.md`、Applier Dockerfile 与独立 Compose overlay：Applier 正式运行于 Linux 容器；Windows 项目写回使用独立 Project Host。Windows 本机全量失败不能据此称为正式部署失败，也不能未经设计把 `fchmod` 换成路径 `chmod`，扩大平台与权限语义。
+
+可独立修复的缺陷是 `_prepare_temp_file` 在权限设置或 `fdopen` 失败时泄漏原始描述符。Windows 随后的清理会遮蔽原始错误；POSIX 同样泄漏描述符。修复仅将描述符所有权固定在函数内，使用 `closefd=False` 加 `finally: os.close`，在关闭后清理临时文件，保留既有 POSIX 权限设置、原子替换、事务回滚与取消语义。不新增 Windows Applier 运行支持。
+
+- 新增故障注入：`fdopen/fchmod/fsync/KeyboardInterrupt`；修复前 3 failed / 1 passed，修复后全部通过。
+- 增加正常写入、内容、mode 参数和描述符关闭验证；具备原生 fchmod 时还检查实际权限位。
+- 临时文件与 worker port 联合回归：14 passed / 1 skipped。Windows CI 增加同一资源释放测试，Linux 全量执行真实权限与原子应用测试，不删除或跳过原有测试。
+- 回退只撤回上述 helper 与对应测试；没有数据迁移、额外平台授权、重试或业务写入。
+
+### 帮助教程离线验收
+
+使用全新隔离目录启动 `15529/15530` 离线 RPG 宿主，真实 Provider 禁用、无凭据，卡片按现有 Dockerfile 的 `/rpg-app/earth/` 基路径构建。通过可见 UI 完成内置插件安装、新建离线会话、逐会话启用、独立离线模型选择、两次固定响应、条目搜索/编辑、人工保护、放弃未保存修改、修订查看、软删除和恢复。第二回合实际显示条目“已携带”，人工修订保持不变。
+
+这补充了前一批只阅读文章的缺口；结果仅证明当前基线离线交互与确定性行为，不替代历史真实 Provider 证据，也不验证新的模型效果。详细操作与限制见 `docs/help-center/evidence/quality-preview-20261003.md`。本轮代码新增后的完整 CI 需另行确认，不能沿用 e24e9b49 的绿灯。
+
+补充自动化回归：在 `experiments/ai-rpg-engine` 执行 `node --test studio/memory-store.test.mjs studio/memory-tasks.test.mjs studio/memory-integration.test.mjs studio/memory-http.test.mjs`，结果 63 passed / 0 failed / 0 skipped。这些测试使用确定性夹具和模拟 transport，不构成真实 Provider 证据。

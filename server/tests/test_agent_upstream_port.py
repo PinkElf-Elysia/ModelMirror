@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ from server.agent_upstream.port import (
     EngineShadowRunSpec,
     EngineUnavailableError,
     NodeUpstreamEnginePort,
+    _ActiveProcess,
 )
 from server.agent_upstream.tools import SHADOW_TOOL_DEFINITIONS, UpstreamShadowToolBridge
 
@@ -181,6 +183,46 @@ for line in sys.stdin:
 
     assert model_requests == ["model-once"]
     assert marker.read_text(encoding="utf-8").splitlines() == ["start"]
+    assert spec.run_id not in port._active
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["write", "drain"])
+@pytest.mark.parametrize("error_type", [BrokenPipeError, ConnectionResetError])
+async def test_send_normalizes_closed_pipe_errors(phase, error_type) -> None:
+    failure = error_type("closed pipe")
+
+    class ClosedPipe:
+        def write(self, _data):
+            if phase == "write":
+                raise failure
+
+        async def drain(self):
+            if phase == "drain":
+                raise failure
+
+    active = _ActiveProcess(
+        run_id="closed-pipe", process=SimpleNamespace(stdin=ClosedPipe(), returncode=None),
+    )
+    with pytest.raises(EngineUnavailableError) as caught:
+        await NodeUpstreamEnginePort()._send(active, "run.shutdown", {})
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.asyncio
+async def test_send_preserves_cancellation() -> None:
+    class CancelledPipe:
+        def write(self, _data):
+            pass
+
+        async def drain(self):
+            raise asyncio.CancelledError()
+
+    active = _ActiveProcess(
+        run_id="cancelled-send", process=SimpleNamespace(stdin=CancelledPipe(), returncode=None),
+    )
+    with pytest.raises(asyncio.CancelledError):
+        await NodeUpstreamEnginePort()._send(active, "run.shutdown", {})
 
 
 def test_worker_environment_excludes_gateway_and_service_secrets(

@@ -937,11 +937,15 @@ def _prepare_temp_file(parent: Path, content: bytes, *, mode: int = 0o644) -> Pa
     descriptor, name = tempfile.mkstemp(prefix=".modelmirror-apply-", dir=parent)
     temporary = Path(name)
     try:
-        os.fchmod(descriptor, mode)
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
+        try:
+            # Keep descriptor ownership here, including fdopen/fchmod failures.
+            with os.fdopen(descriptor, "wb", closefd=False) as handle:
+                os.fchmod(descriptor, mode)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            os.close(descriptor)
     except BaseException:
         temporary.unlink(missing_ok=True)
         raise

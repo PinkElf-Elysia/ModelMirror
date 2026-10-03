@@ -11,7 +11,7 @@
 5. “查看预告”保留原 `/matrix-oasis` 路由，与控制面板分开。
 6. 390×844 视口验证：两个卡片纵向排列，DOM clientWidth=scrollWidth=380，无横向溢出。随后恢复桌面视口。
 
-![Studio 中 Science 与矩阵绿洲的实际 Beta 标识（标题区域裁剪）](../../../client/public/help-center/b266b870/studio-beta-headings.jpg)
+![Studio 中 Science 与矩阵绿洲的实际 Beta 标识（标题区域裁剪）](screenshots/quality-20261003/b266b870/studio-beta-headings.jpg)
 
 截图由正式浏览器工具采集，981×65 JPEG，仅标题区域，不是完整面板截图。SHA-256：`705e85290319bcd148bfeebe09eca1b22d339e2b90f7ea1cf592e132c0a2daf7`。通过本任务工具原始结果提取字节，并校验一致；没有重绘或图像生成。
 

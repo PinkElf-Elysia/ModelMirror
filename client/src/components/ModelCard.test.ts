@@ -6,6 +6,7 @@ import { ModelPreferenceProvider } from "../context/ModelPreferenceContext";
 import { models, type Model } from "../data/models";
 import ModelCard, { deriveDocumentInputPresentation } from "./ModelCard";
 import type { FileSurfaceSummary } from "../data/fileCapabilities";
+import { timeWindowPricingFixture } from "../utils/tokenPricing.fixture";
 
 function summary(
   overrides: Partial<FileSurfaceSummary> = {},
@@ -116,10 +117,15 @@ describe("ModelCard document input presentation", () => {
 
 describe("ModelCard decision-first layout", () => {
   it("shows a compact UTC pricing schedule for time-priced models", () => {
-    const model = models.find(
+    const baseModel = models.find(
       (candidate) => candidate.id === "deepseek/deepseek-v4-flash-vision-exp",
     );
-    expect(model).toBeDefined();
+    expect(baseModel).toBeDefined();
+    const model: Model = {
+      ...baseModel!,
+      id: "test/utc-time-priced",
+      ...timeWindowPricingFixture(),
+    };
 
     render(
       createElement(
@@ -130,7 +136,7 @@ describe("ModelCard decision-first layout", () => {
           null,
           createElement(ModelCard, {
             catalogInvocable: true,
-            model: model!,
+            model,
           }),
         ),
       ),
