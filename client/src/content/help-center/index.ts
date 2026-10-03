@@ -108,7 +108,7 @@ export const emailReviewBaseline = { commit: "afda87ff", date: "2026-08-28" };
 export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09-01" };
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
-export const openRouterSpecializedReviewBaseline = { commit: "6413a273", date: "2026-10-01" };
+export const openRouterSpecializedReviewBaseline = { commit: "0de311ec", date: "2026-10-02" };
 export const metaPlannerControlFlowBaseline = { commit: "efa63af2", date: "2026-09-03" };
 export const metaPlannerVisionBaseline = { commit: "64880801", date: "2026-09-06" };
 
@@ -352,13 +352,13 @@ export const helpArticles: HelpArticle[] = [
   },
   {
     slug: "review-specialized-models",
-    title: "核对新增图片、语音与决策模型",
-    summary: "在发送前核对 Seedream、FLUX.3、D1、MAI Voice 等新增模型的入口、状态和价格提示。",
+    title: "核对新增对话、路由与专用模型",
+    summary: "在发送前核对 Ling 3.1、Switchyard、Flux TTS 等新增模型的入口、状态和价格提示。",
     category: "安全、费用与数据",
     contentType: "how-to",
-    audience: "准备试用本轮 OpenRouter 新增专用模型的用户",
-    estimatedMinutes: 5,
-    keywords: ["Seedream", "FLUX.3", "D1", "MAI Voice", "图片生成", "语音合成", "结构化决策", "费用", "待适配"],
+    audience: "准备试用本轮新增模型的用户",
+    estimatedMinutes: 6,
+    keywords: ["Ling 3.1", "Switchyard", "Flux TTS", "Seedream", "FLUX.3", "D1", "MAI Voice", "图片生成", "语音合成", "费用", "待适配"],
     relatedRoutes: ["/models", "/chat/bytedance-seed%2Fseedream-5-0-flash", "/chat/liquid%2Fd1"],
     verifiedCommit: openRouterSpecializedReviewBaseline.commit,
     verifiedDate: openRouterSpecializedReviewBaseline.date,
@@ -577,7 +577,7 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/safety",
     items: [
       { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
-      { id: "specialized-models", title: "核对新增图片、语音与决策模型", summary: "查看本轮专用模型的入口、待适配状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Seedream", "FLUX.3", "MAI Voice", "D1", "图片", "语音", "费用"] },
+      { id: "specialized-models", title: "核对新增对话、路由与专用模型", summary: "查看本轮模型的入口、可用状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Ling 3.1", "Switchyard", "Flux TTS", "Seedream", "MAI Voice", "语音", "费用"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
       { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },

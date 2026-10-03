@@ -195,11 +195,11 @@ const august28BatchCatalogIds = [
 describe("OpenRouter model refresh", () => {
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(669);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(568);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(90);
+    expect(counted).toHaveLength(672);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(570);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(91);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(11);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(658);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(661);
   });
 
   it("adapts the September 30 contracts below six rows", () => {
@@ -619,7 +619,7 @@ describe("OpenRouter model refresh", () => {
     expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(0.396);
     expect(byId.get("~deepseek/deepseek-flash-latest")).toMatchObject({
       context_length: 1_048_576,
-      pricing: { input: 0.019425, output: 0.75 },
+      pricing: { input: 0.015, output: 0.676999 },
       input_modalities: ["text", "image"],
       operations: ["analyze_image", "chat"],
     });
@@ -662,7 +662,7 @@ describe("OpenRouter model refresh", () => {
       context_length: 262_144,
       input_modalities: ["text"],
       output_modalities: ["text"],
-      pricing: { input: 0.06, output: 0.18 },
+      pricing: { input: 0.041999999999999996, output: 0.12319999999999999 },
       pricing_status: "fixed",
       pricing_basis: "token",
       reasoning_declared: true,
@@ -949,10 +949,10 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
     expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
-      .toEqual(["programming", "marketing", "technology"]);
+      .toEqual(["programming", "technology"]);
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
-        "programming", "roleplay", "marketing", "marketing/seo", "technology",
+        "programming", "marketing", "marketing/seo", "technology",
         "science", "translation", "legal", "finance", "health", "trivia", "academia",
       ]);
   });
@@ -1001,7 +1001,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.019425, output: 0.75 },
+      pricing: { input: 0.3, output: 1.2 },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -1159,12 +1159,12 @@ describe("OpenRouter model refresh", () => {
     }
   });
 
-  it("adds all ten live counted snapshots exactly once", () => {
+  it("keeps all August 13 counted snapshots exactly once", () => {
     for (const modelId of august13ModelIds) {
       const matches = models.filter((model) => model.id === modelId);
       expect(matches).toHaveLength(1);
       expect(matches[0]).toMatchObject({
-        catalog_status: "live",
+        catalog_status: modelId === "deepgram/flux-tts:free" ? "uncertain" : "live",
         catalog_counted: true,
         active: true,
       });
@@ -1944,7 +1944,7 @@ describe("OpenRouter model refresh", () => {
       active: true,
       primary_operation: "chat",
       interaction_status: "ready",
-      pricing: { input: 0.02625, output: 0.625 },
+      pricing: { input: 0.02625, output: 0.9287489999999999 },
       openrouter_market: {
         series: "Router",
         author: "z-ai",
@@ -2249,8 +2249,8 @@ describe("OpenRouter model refresh", () => {
       ]),
     );
 
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.012825);
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(1.6);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.003825);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(1.043574);
     expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.41);
     expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(3.99);
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
@@ -2258,13 +2258,13 @@ describe("OpenRouter model refresh", () => {
       output: 3.35,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 1.32,
-      output: 3.9600000000000004,
+      input: 0.66,
+      output: 1.9800000000000002,
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
-      providers: ["Relace"],
+      providers: ["Wafer"],
       discounted: false,
       zero_data_retention: true,
     });
@@ -2279,8 +2279,8 @@ describe("OpenRouter model refresh", () => {
       output: 3.1999999999999997,
     });
     expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.041999999999999996,
-      output: 0.08399999999999999,
+      input: 0.028,
+      output: 0.056,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
       input: 0.26,
@@ -2333,7 +2333,7 @@ describe("OpenRouter model refresh", () => {
       output: 1.5,
     });
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 1.3900000000000001,
+      input: 0.9900000000000001,
       output: 13,
     });
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
@@ -2456,7 +2456,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(90);
+    expect(uncertain).toHaveLength(91);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -2772,6 +2772,44 @@ describe("OpenRouter model refresh", () => {
       "microsoft/mai-voice-2.1-flash",
       "microsoft/mai-voice-2.1",
       "unbiased/pareto-26.10-preview",
+    ]) {
+      expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
+        2 + 6 * 3,
+      );
+    }
+  });
+
+  it("adds the October 2 catalog models and adapts the paid Flux TTS route", () => {
+    const byId = new Map(models.map((model) => [model.id, model]));
+    expect(byId.get("inclusionai/ling-3.1-flash")).toMatchObject({
+      context_length: 262_144,
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+      pricing: { input: 0, output: 0 },
+      pricing_status: "dynamic",
+      reasoning_declared: true,
+      operations: ["chat"],
+      interaction_status: "ready",
+    });
+    expect(byId.get("nvidia/switchyard")).toMatchObject({
+      context_length: 1_000_000,
+      pricing_status: "dynamic",
+      operations: ["chat"],
+      interaction_status: "ready",
+    });
+    expect(byId.get("deepgram/flux-tts")).toMatchObject({
+      pricing_basis: "media",
+      pricing_status: "dynamic",
+      media_pricing: { unit: "character_million", usd: 45 },
+      output_modalities: ["speech"],
+      operations: ["synthesize_speech"],
+      interaction_status: "planned",
+    });
+    expect(byId.get("deepgram/flux-tts:free")?.catalog_status).toBe("uncertain");
+    for (const modelId of [
+      "inclusionai/ling-3.1-flash",
+      "nvidia/switchyard",
+      "deepgram/flux-tts",
     ]) {
       expect(models.findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(
         2 + 6 * 3,

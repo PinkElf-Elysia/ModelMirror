@@ -20,6 +20,7 @@ from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.tts import (
     ALLOWED_SPEECH_PROFILES,
     DEEPGRAM_FLUX_TTS_MODEL_ID,
+    DEEPGRAM_FLUX_TTS_PAID_MODEL_ID,
     DEEPGRAM_FLUX_TTS_VOICES,
     FISH_AUDIO_PUBLIC_VOICES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
@@ -230,6 +231,23 @@ def test_deepgram_flux_tts_uses_the_live_openrouter_voice_contract() -> None:
         DEEPGRAM_FLUX_TTS_MODEL_ID,
         "flux-alexis-en",
     ) == "flux-alexis-en"
+
+
+def test_paid_deepgram_flux_tts_reuses_voices_but_waits_for_route_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VERIFICATION_MODEL_IDS", raising=False)
+    assert (
+        ALLOWED_SPEECH_PROFILES[DEEPGRAM_FLUX_TTS_PAID_MODEL_ID]
+        == DEEPGRAM_FLUX_TTS_VOICES
+    )
+    assert speech_output_format(DEEPGRAM_FLUX_TTS_PAID_MODEL_ID) == "mp3"
+    contract = OPENROUTER_AUDIO_CONTRACTS[DEEPGRAM_FLUX_TTS_PAID_MODEL_ID]
+    assert contract.interaction_adapted is True
+    assert contract.manual_verification_required is True
+    with pytest.raises(MultimodalServiceError) as captured:
+        SpeechService._model_id(DEEPGRAM_FLUX_TTS_PAID_MODEL_ID)
+    assert captured.value.code == "speech_model_verification_required"
 
 
 def test_fish_audio_profiles_use_documented_public_voice_ids() -> None:
