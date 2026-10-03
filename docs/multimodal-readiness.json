@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-01",
+  "reviewed_at": "2026-10-02",
   "catalog": {
-    "snapshot_total": 669,
+    "snapshot_total": 672,
     "serving_variant_total": 77,
     "serving_variants_by_type": {
       "batch": 77
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 568,
-    "uncertain": 90,
+    "live": 570,
+    "uncertain": 91,
     "expired": 11,
-    "onsite_openrouter": 658,
-    "adaptation_denominator": 658,
+    "onsite_openrouter": 661,
+    "adaptation_denominator": 661,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -53,6 +53,14 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "deepgram/flux-tts",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "OpenRouter /audio/speech、36 个 Flux 英文音色、MP3 输出与 $45/百万字符目录价已适配；付费路由尚未执行本地短音频人工验收。"
+    },
     {
       "model_id": "bytedance-seed/seedream-5-0-flash",
       "operation": "generate_image",

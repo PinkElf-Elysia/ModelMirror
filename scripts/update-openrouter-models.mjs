@@ -57,6 +57,7 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "bytedance-seed/seedream-5-0-lite",
   "bytedance/seedance-2.0-mini",
   "deepgram/flux-tts:free",
+  "deepgram/flux-tts",
   "heygen/avatar-iv",
   "alibaba/wan-3.0",
   "alibaba/wan-3.0-prime",

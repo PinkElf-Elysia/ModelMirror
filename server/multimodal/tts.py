@@ -34,7 +34,7 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-01-mai21"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-02-deepgram-flux"
 SEED_AUDIO_MODEL_ID = "bytedance-seed/seed-audio-1-0"
 SEED_AUDIO_PROMPT_VOICE = "__prompt__"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
@@ -43,6 +43,7 @@ GEMINI_38_FLASH_LITE_TTS_MODEL_ID = (
     "google/gemini-3.8-flash-lite-tts"
 )
 DEEPGRAM_FLUX_TTS_MODEL_ID = "deepgram/flux-tts:free"
+DEEPGRAM_FLUX_TTS_PAID_MODEL_ID = "deepgram/flux-tts"
 FISH_AUDIO_PUBLIC_VOICES = (
     "8ef4a238714b45718ce04243307c57a7",
     "802e3bc2b27e49c2995d23ef70e6ac89",
@@ -242,6 +243,7 @@ MANUAL_SPEECH_PROFILE_IDS = frozenset(
         GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
         MICROSOFT_MAI_VOICE_21_MODEL_ID,
         MICROSOFT_MAI_VOICE_21_FLASH_MODEL_ID,
+        DEEPGRAM_FLUX_TTS_PAID_MODEL_ID,
     }
 )
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
@@ -254,6 +256,7 @@ ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
     GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     DEEPGRAM_FLUX_TTS_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,
+    DEEPGRAM_FLUX_TTS_PAID_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,
     "fish-audio/s1": FISH_AUDIO_PUBLIC_VOICES,
     "fish-audio/s2-pro": FISH_AUDIO_PUBLIC_VOICES,
     "fish-audio/s2.1-pro-free:free": FISH_AUDIO_PUBLIC_VOICES,
