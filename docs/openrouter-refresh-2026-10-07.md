@@ -43,6 +43,10 @@ Space Bunny Alpha 的既有到期时间已生效，修正随时间失效的计�
 - 后端测试使用已有 `modelmirror-gate-q-venv-4764406c`，专属 `--basetemp` 避免系统临时目录权限问题。
 - 首次前端构建因既有 card-replica 子模块未安装依赖失败，按 CI 的锁文件安装后重跑通过，保留大 chunk 警告；未修改依赖清单或锁文件。
 - `git diff --check` 与 `server/main.py` 语法检查通过。
-- 未进行浏览器人工验收或真实提供商调用，未提交、推送、创建 PR 或部署。
+- 后续发布阶段完成独立前端入口检查，详见 `help-center/openrouter-oct07-preview.md`；未进行真实提供商调用或部署。
+
+## 发布前再次复核
+
+重新冻结四源窗口：2026-10-07T05:45:17.7210887-07:00 至 05:45:27.3663306-07:00。574 个非 Batch 与市场 ID 仍完全一致，无模型或 Batch 漏项。此时上游再次发生变化：`~deepseek/deepseek-pro-latest` 与 `~z-ai/glm-flash-latest` 价格漂移，以及侧栏 providers/regions 各 2 项和 129 条工具成功率观测变化。发布前审计状态为 drift，而非 clean；新增变化保留为后续增量审计项，没有将旧时间窗结论套用于新窗口。证据位于本地 `C:/tmp/openrouter-oct07-prepr-audit/summary.json`。
 
 回退：按本分支审阅后的文件差异回退目录、分类快照及 Decisions 白名单/限额；无数据迁移或运行环境变更。
