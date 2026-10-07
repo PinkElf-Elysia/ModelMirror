@@ -13,7 +13,12 @@ from .graph_patch import (
     apply_graph_patch, diff_graph_intents,
 )
 from .node_adapters import get_planner_node_adapter
-from ..workflow_native.node_contracts import canonical_checksum
+try:
+    from server.workflow_native.node_contracts import canonical_checksum
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    from workflow_native.node_contracts import canonical_checksum
 
 
 def retained_recipe(selected, state) -> GenerationRecipeV1 | None:

@@ -90,7 +90,13 @@ describe("help center content catalog", () => {
     expect(specializedArticle?.content).toContain("没有执行这种调用");
     expect(specializedArticle?.content).toContain("图片生成/编辑已确认");
     expect(specializedArticle?.content).toContain("待适配状态不代表当前状态");
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
+    const imageTutorial = helpArticles.find((article) => article.slug === "start-with-a-model");
+    expect(imageTutorial?.verifiedCommit).toBe("e3ac4555");
+    expect(imageTutorial?.verifiedDate).toBe("2026-10-07");
+    expect(imageTutorial?.relatedRoutes).toContain("/chat/qwen%2Fqwen3.8-max-0902");
+    expect(imageTutorial?.content).toContain("不要把相似名称视为同一个模型");
+    expect(imageTutorial?.content).toContain("不上传资料，也不发送模型请求");
+    expect(imageTutorial?.content).toContain("不要因为旁边的“图片”可选");
     expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
@@ -184,8 +190,7 @@ describe("help center content catalog", () => {
         expect(image[2]).toMatch(new RegExp(`^/help-center/${article.verifiedCommit}/`));
       });
     });
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/b5e0e85e/qwen38-add-image-menu.png");
-    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/b5e0e85e/model-market-qwen38-image-understanding.png");
+    expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/e3ac4555/qwen38-0902-add-image-menu.png");
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-create-form.png");
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-preflight-ready.png");
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.content).toContain("/help-center/b5e0e85e/workflow-default-template.png");

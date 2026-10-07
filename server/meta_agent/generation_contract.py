@@ -10,7 +10,12 @@ from .node_adapters import get_planner_node_adapter, planner_capability_metadata
 from .schemas import GraphIntentV3, MetaPlannerTask, MetaPlannerTaskPlan
 from .write_contract import write_value_source_contract
 from .resource_generation_contract import scope_resource_schema
-from ..workflow_native.node_contracts import WorkflowValueSchema
+try:
+    from server.workflow_native.node_contracts import WorkflowValueSchema
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    from workflow_native.node_contracts import WorkflowValueSchema
 
 
 class GenerationTask(MetaPlannerTask):
