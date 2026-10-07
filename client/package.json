@@ -2,11 +2,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b tsconfig.build.json tsconfig.node.json && vite build",
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest --configLoader runner",
-    "test:run": "vitest run --configLoader runner --maxWorkers=1 --fileParallelism=false && node --test server-headers.node.mjs",
+    "test:run": "vitest run --configLoader runner --maxWorkers=1 --fileParallelism=false && node --test server-headers.node.mjs scripts/build-typecheck.node.mjs",
     "test:streaming-audio": "node scripts/verify-streaming-audio.mjs",
     "verify:help-images": "node scripts/verify-help-images.mjs"
   },
