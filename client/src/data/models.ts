@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-03T01:19:23.161Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-07T12:24:30.434Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -224,6 +224,176 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "openai/gpt-6-luna-decisions",
+    "canonical_slug": "openai/gpt-6-luna-decisions-20261006",
+    "name": "OpenAI: GPT-6 Luna Decisions",
+    "raw_description": "GPT-6 Luna Decisions is [GPT-6 Luna](/openai/gpt-6-luna) served through OpenAI's Decisions API. Instead of generating text, it reads the content passed as `state` (text, JSON, or images) and returns typed, probabilistic...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [],
+    "created": 1791321558,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "note": "通过 OpenRouter /api/alpha/decisions 的 System One 契约调用，不生成通用聊天文本；支持 choice、score 与 noul 类型问题，单次最多 200 个问题。当前站内开放文字/JSON 状态输入，图片状态仍待后续界面验收。"
+  },
+  {
+    "id": "x-ai/grok-imagine-video-1.5-lite",
+    "canonical_slug": "x-ai/grok-imagine-video-1.5-lite-20261001",
+    "name": "SpaceXAI: Grok Imagine Video 1.5 Lite",
+    "raw_description": "Grok Imagine Video 1.5 Lite is a faster, lower-cost video generation model from SpaceXAI, distilled from [Grok Imagine Video 1.5](/x-ai/grok-imagine-video-1.5). It supports text-to-video and image-to-video, trading some quality for speed...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Grok",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "duration",
+      "frame_images"
+    ],
+    "created": 1791309778,
+    "expiration_date": null,
+    "model_author": "xAI",
+    "pricing_basis_override": "media",
+    "note": "OpenRouter 专用异步 Videos API：支持文本或首帧生成 1–15 秒视频，480p/720p/1080p 与 7 种画幅；按输出视频秒计费，480p $0.02、720p $0.03、1080p $0.14，首帧另计 $0.01/张。静态契约已适配，等待最低规格人工生成验收。"
+  },
+  {
+    "id": "google/gemini-nano-banana-2.1",
+    "canonical_slug": "google/gemini-nano-banana-2.1-20261006",
+    "name": "Google: Nano Banana 2.1",
+    "raw_description": "Nano Banana 2.1 (Gemini Nano Banana 2.1) is Google's image generation and editing model on the Flash tier, succeeding Nano Banana 2 and Nano Banana Pro. It improves product recontextualization,...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 1.5,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "image",
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p",
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references"
+    ],
+    "created": 1791300825,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true,
+    "pricing_basis_override": "media",
+    "note": "OpenRouter 专用 Images API：非流式；支持 1K/2K/4K、14 种宽高比、单次 1 张输出和最多 14 张参考图。文本输入 $1.50/M Token、文本输出 $7.50/M Token、图片输出 $30/M Token；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
+    "id": "mistralai/mistral-large-4-0",
+    "canonical_slug": "mistralai/mistral-large-4-0-20261006",
+    "name": "Mistral: Mistral Large 4",
+    "raw_description": "Mistral Large 4 is a frontier multimodal (text and image input) model from Mistral AI built for reasoning, coding, and agentic workloads. It offers a 512K-token context window with up...",
+    "context_length": 524288,
+    "pricing": {
+      "input": 0.6799999999999999,
+      "output": 2.09
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1791294122,
+    "expiration_date": null,
+    "model_author": "Mistral AI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "tencent/hy-image-v3.5-preview",
+    "canonical_slug": "tencent/hy-image-v3.5-preview-20260922",
+    "name": "Tencent: Hy Image 3.5 Preview",
+    "raw_description": "Hy Image 3.5 Preview is a unified image generation and editing model from Tencent. It handles text-to-image, image-to-image, and multi-turn editing through one endpoint, taking up to 20 reference images...",
+    "context_length": 100000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed",
+      "size"
+    ],
+    "created": 1791232017,
+    "expiration_date": null,
+    "model_author": "Tencent",
+    "pricing_basis_override": "media",
+    "note": "OpenRouter 专用 Images API：非流式；支持 1K/1.5K/2K/4K、13 种宽高比、单次 1 张输出、最多 20 张参考图、seed 与 size。图片输出按 $1.60/M Token 计费；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
     "id": "inclusionai/ling-3.1-flash",
     "canonical_slug": "inclusionai/ling-3.1-flash-20261002",
     "name": "inclusionAI: Ling 3.1 Flash",
@@ -291,6 +461,30 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "ByteDance Seed",
     "note": "OpenRouter 专用 Images API：非流式；支持 1K/2K、18 种宽高比、单次 1 张输出、最多 14 张参考图和 seed；参考图免费，当前输出价格为 $0.018/张。"
+  },
+  {
+    "id": "perplexity/pplx-decider-v1-27b",
+    "canonical_slug": "perplexity/pplx-decider-v1-27b-20261001",
+    "name": "Perplexity: Decider V1 27B",
+    "raw_description": "Decider V1 27B is a decision model from Perplexity. Instead of generating text, it reads content passed as `state` and returns typed, probabilistic answers to one or more named questions...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.04,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790886451,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "通过 OpenRouter /api/alpha/decisions 的 System One 契约调用，不生成通用聊天文本；支持 choice、score 与 noul 类型问题。当前站内开放文字/JSON 状态输入，图片状态仍待后续界面验收。"
   },
   {
     "id": "black-forest-labs/flux-3-image",
@@ -383,6 +577,54 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "Apodex",
     "reasoning_declared": true
+  },
+  {
+    "id": "cloudflare/clef-flash",
+    "canonical_slug": "cloudflare/clef-flash",
+    "name": "Cloudflare: Clef Flash",
+    "raw_description": "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.09,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [],
+    "created": 1790870973,
+    "expiration_date": null,
+    "model_author": "Cloudflare",
+    "note": "通过 OpenRouter /api/alpha/decisions 的 System One 契约调用，不生成通用聊天文本；支持 choice、score 与 noul 类型问题。上游目录标注 65K 上下文，但当前 Workers AI 端点可能仅处理前约 2K Token，长输入需谨慎。"
+  },
+  {
+    "id": "cloudflare/clef",
+    "canonical_slug": "cloudflare/clef",
+    "name": "Cloudflare: Clef",
+    "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.24,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [],
+    "created": 1790870972,
+    "expiration_date": null,
+    "model_author": "Cloudflare",
+    "note": "通过 OpenRouter /api/alpha/decisions 的 System One 契约调用，不生成通用聊天文本；支持 choice、score 与 noul 类型问题。上游目录标注 65K 上下文，但当前 Workers AI 端点可能仅处理前约 2K Token，长输入需谨慎。"
   },
   {
     "id": "microsoft/mai-voice-2.1-flash",
@@ -2111,8 +2353,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.396
+      "input": 0.19,
+      "output": 5
     },
     "input_modalities": [
       "text"
@@ -2155,8 +2397,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.015,
-      "output": 0.676999
+      "input": 0.049999999999999996,
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -2668,7 +2910,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
+      "input": 0.049999999999999996,
       "output": 1.2
     },
     "input_modalities": [
@@ -3644,8 +3886,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.02625,
-      "output": 0.9287489999999999
+      "input": 0.027800000000000002,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -4187,8 +4429,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.12,
-      "output": 4
+      "input": 0.063,
+      "output": 6.3
     },
     "input_modalities": [
       "text"
@@ -4261,8 +4503,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.07,
+      "output": 7
     },
     "input_modalities": [
       "text"
@@ -4328,8 +4570,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.42,
-      "output": 3
+      "input": 0.425,
+      "output": 2.5500000000000003
     },
     "input_modalities": [
       "text",
@@ -5118,8 +5360,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0595,
-      "output": 0.16999999999999998
+      "input": 0.06,
+      "output": 0.16
     },
     "input_modalities": [
       "text"
@@ -5263,8 +5505,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Muse Glimmer 30B is a dense, open-weight multimodal model from Meta Superintelligence Labs, distilled from Muse Spark and optimized for autonomous agents on consumer hardware. It is suited for long-horizon...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.35,
-      "output": 1.5
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -5560,8 +5802,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0038250000000000003,
-      "output": 1.043574
+      "input": 0.018,
+      "output": 1.28
     },
     "input_modalities": [
       "text"
@@ -5606,7 +5848,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0051,
+      "input": 0.018,
       "output": 1.28
     },
     "input_modalities": [
@@ -6690,7 +6932,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Inkling is an open-weight multimodal mixture-of-experts model from Thinking Machines Lab, with 41B active parameters out of 975B total. It is designed for general-purpose reasoning, coding, agentic and tool-use systems,...",
     "context_length": 524288,
     "pricing": {
-      "input": 0.95,
+      "input": 1,
       "output": 4.05
     },
     "input_modalities": [
@@ -6842,8 +7084,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 2.7,
-      "output": 13.5
+      "input": 0.62,
+      "output": 15
     },
     "input_modalities": [
       "text",
@@ -7263,13 +7505,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
-      "input": 4,
-      "output": 20,
+      "input": 2,
+      "output": 10,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 8,
-          "output": 30
+          "input": 4,
+          "output": 15
         }
       ]
     },
@@ -8061,8 +8303,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.41,
-      "output": 3.9899999999999998
+      "input": 0.171,
+      "output": 7.199999999999999
     },
     "input_modalities": [
       "text"
@@ -10237,7 +10479,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9900000000000001,
+      "input": 0.61,
       "output": 13
     },
     "input_modalities": [
@@ -10594,8 +10836,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6 27B is a dense 27-billion-parameter language model from the Qwen Team at Alibaba, released in April 2026. It features hybrid multimodal capabilities — accepting text, image, and video inputs...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.32,
-      "output": 3.1999999999999997
+      "input": 0.3,
+      "output": 2
     },
     "input_modalities": [
       "text",
@@ -10771,8 +11013,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.028,
-      "output": 0.056
+      "input": 0.03,
+      "output": 1.28
     },
     "input_modalities": [
       "text"
@@ -11374,8 +11616,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.6 is Moonshot AI's next-generation multimodal model, designed for long-horizon coding, coding-driven UI/UX generation, and multi-agent orchestration. It handles complex end-to-end coding tasks across Python, Rust, and Go, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.43415,
-      "output": 1.8279999999999998
+      "input": 0.46499999999999997,
+      "output": 2.4499999999999997
     },
     "input_modalities": [
       "text",
@@ -11648,8 +11890,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 0.966,
+      "output": 3.036
     },
     "input_modalities": [
       "text"
@@ -11757,8 +11999,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0675,
-      "output": 0.22499999999999998
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -13550,8 +13792,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.55,
-      "output": 3.5
+      "input": 0.44999999999999996,
+      "output": 3
     },
     "input_modalities": [
       "text",
@@ -14460,7 +14702,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1766454997,
-    "expiration_date": 1791417600,
+    "expiration_date": null,
     "model_author": "MiniMax",
     "reasoning_declared": true
   },
@@ -17457,14 +17699,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "max_tokens",
-      "min_p",
-      "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
       "temperature",
@@ -18512,8 +18749,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.3
+      "input": 0.04815,
+      "output": 0.19305
     },
     "input_modalities": [
       "text"
@@ -18867,8 +19104,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0875,
-      "output": 0.35
+      "input": 0.09,
+      "output": 0.55
     },
     "input_modalities": [
       "text"
@@ -19909,6 +20146,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -19921,7 +20159,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
+      "top_a",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1745875945,
@@ -20345,6 +20585,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "repetition_penalty",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -21453,8 +21694,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.32
+      "input": 0.22,
+      "output": 0.5
     },
     "input_modalities": [
       "text"
@@ -26382,6 +26623,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "inflection/inflection-3-productivity",
   "kwaipilot/kat-coder-air-v2.5",
   "kwaipilot/kat-coder-pro-v2",
+  "kwaipilot/kat-coder-pro-v2.5",
   "liquid/lfm-2-24b-a2b",
   "liquid/lfm-2.5-1.2b-instruct:free",
   "liquid/lfm-2.5-1.2b-thinking:free",
@@ -26414,12 +26656,14 @@ const uncertainCatalogModelIds = new Set<string>([
   "openai/gpt-oss-20b:free",
   "openai/o3-deep-research",
   "openai/o4-mini-deep-research",
+  "openai/sora-2-pro",
   "openrouter/owl-alpha",
   "poolside/laguna-xs.2:free",
   "prime-intellect/intellect-3",
   "qwen/qwen-plus-2025-07-28:thinking",
   "qwen/qwen3-coder:free",
   "qwen/qwen3-next-80b-a3b-instruct:free",
+  "qwen/qwen3.8-27b:free",
   "qwen/qwen3.8-max",
   "sao10k/l3.1-70b-hanami-x1",
   "sourceful/riverflow-v2-fast-preview",
@@ -27263,6 +27507,14 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "openai/gpt-6-luna-decisions",
+  "x-ai/grok-imagine-video-1.5-lite",
+  "google/gemini-nano-banana-2.1",
+  "mistralai/mistral-large-4-0",
+  "tencent/hy-image-v3.5-preview",
+  "perplexity/pplx-decider-v1-27b",
+  "cloudflare/clef-flash",
+  "cloudflare/clef",
   "inclusionai/ling-3.1-flash",
   "nvidia/switchyard",
   "deepgram/flux-tts",

@@ -94,6 +94,10 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "respan/span-01-lite",
         "respan/span-01-lite:free",
         "~typesafe/jev-latest",
+        "openai/gpt-6-luna-decisions",
+        "perplexity/pplx-decider-v1-27b",
+        "cloudflare/clef-flash",
+        "cloudflare/clef",
     ],
 )
 async def test_decisions_accepts_supported_models(
@@ -128,6 +132,20 @@ async def test_decisions_accepts_supported_models(
         },
     )
     assert response.status_code == 200
+
+
+def test_luna_decision_question_limit_does_not_expand_other_models() -> None:
+    questions = {
+        f"q{index}": {"type": "score", "instructions": "Assess risk", "criteria": ["Low", "High"]}
+        for index in range(200)
+    }
+    assert len(main_module.OpenRouterDecisionRequest(
+        model="openai/gpt-6-luna-decisions", state="Evidence", questions=questions,
+    ).questions) == 200
+    with pytest.raises(ValueError):
+        main_module.OpenRouterDecisionRequest(model="cloudflare/clef", state="Evidence", questions=questions)
+    with pytest.raises(ValueError):
+        main_module.OpenRouterDecisionRequest(model="openai/gpt-6-luna-decisions", state="Evidence", questions={**questions, "extra": questions["q0"]})
 
 
 @pytest.mark.asyncio

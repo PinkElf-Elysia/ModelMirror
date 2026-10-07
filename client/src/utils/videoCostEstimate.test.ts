@@ -32,6 +32,16 @@ const seedance25Profile = {
 };
 
 describe("estimateVideoCost", () => {
+  it("prices Grok Lite resolution tiers and the first frame separately", () => {
+    const profile = {
+      supported_resolutions: ["480p", "720p", "1080p"],
+      supported_aspect_ratios: ["16:9"], supported_sizes: [],
+      pricing_skus: { cents_per_image_input: "1", cents_per_video_output_second_480p: "2", cents_per_video_output_second_720p: "3", cents_per_video_output_second_1080p: "14" },
+    };
+    for (const [resolution, price] of [["480p", 0.1], ["720p", 0.15], ["1080p", 0.7]] as const) {
+      expect(estimateVideoCost(profile, { duration: 5, resolution, aspectRatio: "16:9", generateAudio: false, imageInputCount: 1 })).toBeCloseTo(price + 0.01);
+    }
+  });
   it("estimates Seedance 2.5 from its selected size and video-token rate", () => {
     const estimate = estimateVideoCost(seedance25Profile, {
       duration: 4,

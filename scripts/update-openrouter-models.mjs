@@ -74,6 +74,9 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "recraft/recraft-v4-styles-pro-vector",
   "recraft/recraft-v4-styles-vector",
   "x-ai/grok-imagine-image-2.0",
+  "x-ai/grok-imagine-video-1.5-lite",
+  "google/gemini-nano-banana-2.1",
+  "tencent/hy-image-v3.5-preview",
 ]);
 
 const AUTHOR_NAMES = new Map([
