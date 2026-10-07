@@ -3382,12 +3382,18 @@ class OpenRouterDecisionRequest(BaseModel):
         "liquid/d1",
         "typesafe/jev-1.13",
         "~typesafe/jev-latest",
+        "openai/gpt-6-luna-decisions",
+        "perplexity/pplx-decider-v1-27b",
+        "cloudflare/clef-flash",
+        "cloudflare/clef",
     ]
     state: str = Field(min_length=1, max_length=100_000)
-    questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=50)
+    questions: dict[str, dict[str, Any]] = Field(min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def validate_decision_contract(self) -> "OpenRouterDecisionRequest":
+        if self.model != "openai/gpt-6-luna-decisions" and len(self.questions) > 50:
+            raise ValueError("This decision model accepts at most 50 questions per request.")
         serialized_size = len(json.dumps(self.questions, ensure_ascii=False))
         if serialized_size > 100_000:
             raise ValueError("Decision questions exceed the 100 KB limit.")

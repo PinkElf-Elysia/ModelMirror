@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-02",
+  "reviewed_at": "2026-10-07",
   "catalog": {
-    "snapshot_total": 672,
+    "snapshot_total": 680,
     "serving_variant_total": 77,
     "serving_variants_by_type": {
       "batch": 77
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 570,
-    "uncertain": 91,
-    "expired": 11,
-    "onsite_openrouter": 661,
-    "adaptation_denominator": 661,
+    "live": 574,
+    "uncertain": 94,
+    "expired": 12,
+    "onsite_openrouter": 668,
+    "adaptation_denominator": 668,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -53,6 +53,62 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "x-ai/grok-imagine-video-1.5-lite",
+      "operation": "generate_video",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "异步视频、1–15 秒、三档分辨率、首帧和按秒费用契约已适配；真实生成仍需人工验收。"
+    },
+    {
+      "model_id": "google/gemini-nano-banana-2.1",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "专用 Images API 参数和图片 Token 费用已核对，支持最多 14 张参考图；尚未执行付费生成。"
+    },
+    {
+      "model_id": "tencent/hy-image-v3.5-preview",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "专用 Images API 参数和图片 Token 费用已核对，支持最多 20 张参考图；尚未执行付费生成。"
+    },
+    {
+      "model_id": "openai/gpt-6-luna-decisions",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入专用 Decisions 文本状态和 200 问题契约；图片状态未开放，尚未执行真实调用。"
+    },
+    {
+      "model_id": "perplexity/pplx-decider-v1-27b",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入专用 Decisions 文本状态契约；图片状态未开放，尚未执行真实调用。"
+    },
+    {
+      "model_id": "cloudflare/clef",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入专用 Decisions 文本状态契约；需注意上游约 2K Token 截断限制，尚未执行真实调用。"
+    },
+    {
+      "model_id": "cloudflare/clef-flash",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "已接入专用 Decisions 文本状态契约；需注意上游约 2K Token 截断限制，尚未执行真实调用。"
+    },
     {
       "model_id": "deepgram/flux-tts",
       "operation": "synthesize_speech",
