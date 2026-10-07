@@ -1,5 +1,57 @@
 import { type WorkflowNodeKind } from "../../types/workflow";
 
+export type DataTableWriteOperation = "insert" | "update" | "delete";
+
+export interface DataTableWriteGrant {
+  table_id: string;
+  operations: DataTableWriteOperation[];
+  writable_fields: string[];
+  max_affected_rows: number;
+}
+
+export type MetaPlannerScopeListKey =
+  | "allowed_node_kinds"
+  | "external_xpert_ids"
+  | "knowledge_base_ids"
+  | "data_table_ids"
+  | "toolset_ids"
+  | "plugin_ids"
+  | "prompt_profile_ids"
+  | "middleware_ids";
+
+export interface MetaPlannerScope {
+  allowed_node_kinds: string[];
+  external_xpert_ids: string[];
+  knowledge_base_ids: string[];
+  data_table_ids: string[];
+  data_table_write_grants: DataTableWriteGrant[];
+  toolset_ids: string[];
+  plugin_ids: string[];
+  prompt_profile_ids: string[];
+  middleware_ids: string[];
+}
+
+export function metaPlannerCapabilityItemId(
+  item: { kind?: string; id?: string; table_id?: string },
+  group: MetaPlannerScopeListKey,
+): string {
+  return group === "allowed_node_kinds"
+    ? String(item.kind ?? "")
+    : String(item.id ?? item.table_id ?? "");
+}
+
+const DATA_TABLE_WRITE_NODE_KINDS = new Map<string, DataTableWriteOperation>([
+  ["data_table_insert", "insert"],
+  ["data_table_update", "update"],
+  ["data_table_delete", "delete"],
+]);
+
+const DATA_TABLE_WRITE_OPERATIONS = new Set<DataTableWriteOperation>([
+  "insert",
+  "update",
+  "delete",
+]);
+
 export interface AuthoringDiagnostic {
   code?: string;
   message: string;
@@ -53,6 +105,7 @@ export interface HeadlessAuthoringProposalState {
   allowed_source_agent_ids: string[];
   allowed_knowledge_base_ids: string[];
   allowed_data_table_ids: string[];
+  allowed_data_table_write_grants: DataTableWriteGrant[];
   compiler_managed_node_kinds: WorkflowNodeKind[];
   vision_attachment: VisionAttachmentState | null;
   compatibility: HeadlessAuthoringCompatibility;
@@ -113,6 +166,112 @@ function positiveInteger(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0
     ? value
     : 0;
+}
+
+function safeIdentifier(value: unknown, maximum: number) {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= maximum &&
+    !/[\u0000-\u001f\u007f-\u009f]/.test(value)
+  );
+}
+
+const DATA_TABLE_SYSTEM_FIELDS = new Set([
+  "record_id",
+  "created_at",
+  "updated_at",
+  "revision",
+]);
+
+export function isSafeDataTableBusinessField(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value) &&
+    !DATA_TABLE_SYSTEM_FIELDS.has(value)
+  );
+}
+
+export function dataTableWriteOperationForNodeKind(
+  value: string,
+): DataTableWriteOperation | null {
+  return DATA_TABLE_WRITE_NODE_KINDS.get(value) ?? null;
+}
+
+export function normalizeDataTableWriteGrants(
+  value: unknown,
+): DataTableWriteGrant[] {
+  if (!Array.isArray(value)) return [];
+  const seenTables = new Set<string>();
+  const grants: DataTableWriteGrant[] = [];
+  for (const item of value.slice(0, 20)) {
+    if (!isRecord(item) || !safeIdentifier(item.table_id, 200)) continue;
+    const tableId = item.table_id as string;
+    if (seenTables.has(tableId)) continue;
+    seenTables.add(tableId);
+    const operations = Array.isArray(item.operations)
+      ? item.operations.filter(
+          (operation): operation is DataTableWriteOperation =>
+            DATA_TABLE_WRITE_OPERATIONS.has(
+              operation as DataTableWriteOperation,
+            ),
+        )
+      : [];
+    const writableFields = Array.isArray(item.writable_fields)
+      ? item.writable_fields.filter(
+          (field): field is string => isSafeDataTableBusinessField(field),
+        )
+      : [];
+    const maxAffectedRows = item.max_affected_rows == null
+      ? 1
+      : typeof item.max_affected_rows === "number" &&
+          Number.isInteger(item.max_affected_rows) &&
+          item.max_affected_rows >= 1 &&
+          item.max_affected_rows <= 100
+        ? item.max_affected_rows
+        : null;
+    if (maxAffectedRows === null) continue;
+    grants.push({
+      table_id: tableId,
+      operations: [...new Set(operations)].slice(0, 3),
+      writable_fields: [...new Set(writableFields)].slice(0, 50),
+      max_affected_rows: maxAffectedRows,
+    });
+  }
+  return grants;
+}
+
+export function authorizedDataTableWriteOperations(
+  grants: DataTableWriteGrant[],
+): Set<DataTableWriteOperation> {
+  return new Set(grants.flatMap((grant) => grant.operations));
+}
+
+export function normalizeMetaPlannerScope(
+  value?: Partial<MetaPlannerScope> | null,
+): MetaPlannerScope {
+  const source = value ?? {};
+  const list = (key: MetaPlannerScopeListKey) =>
+    Array.isArray(source[key])
+      ? source[key]!.filter((item): item is string => typeof item === "string")
+      : [];
+  return {
+    // Vision and Agent Table writes require a fresh explicit authorization.
+    allowed_node_kinds: list("allowed_node_kinds").filter(
+      (kind) =>
+        kind !== "vision_understanding" &&
+        dataTableWriteOperationForNodeKind(kind) === null,
+    ),
+    external_xpert_ids: list("external_xpert_ids"),
+    knowledge_base_ids: list("knowledge_base_ids"),
+    // Read access is independent and also starts closed.
+    data_table_ids: [],
+    data_table_write_grants: [],
+    toolset_ids: list("toolset_ids"),
+    plugin_ids: list("plugin_ids"),
+    prompt_profile_ids: list("prompt_profile_ids"),
+    middleware_ids: list("middleware_ids"),
+  };
 }
 
 export function isSafeVisionModelId(value: unknown): value is string {
@@ -311,6 +470,9 @@ export function normalizeHeadlessProposalState(
     allowed_source_agent_ids: stringArray(authorizedScope.agent_ids),
     allowed_knowledge_base_ids: stringArray(authorizedScope.knowledge_base_ids),
     allowed_data_table_ids: stringArray(authorizedScope.data_table_ids),
+    allowed_data_table_write_grants: normalizeDataTableWriteGrants(
+      authorizedScope.data_table_write_grants,
+    ),
     compiler_managed_node_kinds: (
       stringArray(payload.compiler_managed_node_kinds).length
         ? stringArray(payload.compiler_managed_node_kinds)

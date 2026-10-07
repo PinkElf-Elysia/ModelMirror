@@ -37,6 +37,7 @@ from .resource_fixtures import (
     prepare_agent_table_fixtures,
 )
 from .vision_preflight import inspect_vision_node, validate_vision_dataset
+from .write_fixtures import WRITE_KINDS, has_controlled_writes, inspect_write_node, validate_write_dataset
 
 
 UNSAFE_MIDDLEWARE_IDS = {
@@ -286,8 +287,13 @@ class XpertEvaluationService:
             ([baseline_snapshot] if baseline_snapshot else []) + candidate_snapshots,
             selected, dataset_version=fixed_dataset, fixtures=self.store.vision_fixtures,
         ))
+        try:
+            write_isolation = validate_write_dataset(([baseline_snapshot] if baseline_snapshot else []) + candidate_snapshots, selected, dataset=fixed_dataset)
+        except ValueError as exc:
+            raise EvaluationStateError(str(exc)) from exc
         return {
             "valid": True,
+            "write_isolation": write_isolation,
             "baseline": self.public_target_payload(baseline_snapshot)
             if baseline_snapshot
             else None,
@@ -413,6 +419,8 @@ class XpertEvaluationService:
             raise EvaluationStateError("No evaluation cases were selected.")
         targets = ([baseline] if baseline else []) + list(candidates)
         frozen_targets = [copy.deepcopy(item) for item in targets]
+        if any(has_controlled_writes(target.get("workflow") or {}) for target in frozen_targets) or any(case.get("table_initializations") or case.get("effects") for case in selected):
+            raise EvaluationStateError("内部优化器本轮不支持数据表写入或隔离初始化，不会扩大 Evolution 权限。")
         if any(case.get("attachment") for case in selected) or any((target.get("resources") or {}).get("vision_models") for target in frozen_targets):
             raise EvaluationStateError("内部优化器本轮不支持附件或视觉目标，不会扩大 Evolution 权限。")
         resource_fixtures = prepare_agent_table_fixtures(
@@ -474,7 +482,11 @@ class XpertEvaluationService:
         )
         frozen_targets = [copy.deepcopy(item) for item in targets]
         warnings.extend(validate_vision_dataset(frozen_targets, cases, dataset_version=dataset, fixtures=self.store.vision_fixtures))
-        resource_fixtures = prepare_agent_table_fixtures(
+        try:
+            write_isolation = validate_write_dataset(frozen_targets, cases, dataset=dataset)
+        except ValueError as exc:
+            raise EvaluationStateError(str(exc)) from exc
+        resource_fixtures = [] if write_isolation else prepare_agent_table_fixtures(
             targets=frozen_targets,
             cases=cases,
             backend=self.agent_table_evaluation_backend,
@@ -497,6 +509,7 @@ class XpertEvaluationService:
             },
             warnings=list(dict.fromkeys(warnings)),
             resource_fixtures=resource_fixtures,
+            write_isolation=write_isolation,
         )
 
     def run_detail(self, run_id: str) -> dict[str, Any]:
@@ -617,6 +630,7 @@ class XpertEvaluationService:
             "external_xperts": [],
             "plugins": [],
             "vision_models": [],
+            "write_contracts": [],
         }
         table_nodes: list[Any] = []
         for node in workflow.nodes:
@@ -795,6 +809,11 @@ class XpertEvaluationService:
                             "node_kind": kind,
                         }
                     )
+            if kind in WRITE_KINDS:
+                try:
+                    resources["write_contracts"].append(inspect_write_node(node, backend=self.agent_table_evaluation_backend, nested=len(recursion_path) > 1))
+                except Exception:
+                    issues.append({"code": "evaluation_write_contract_invalid", "message": "写入评测必须使用显式授权、固定当前 Schema 的 V2 节点，且不允许嵌套写入。", "node_id": node.id})
             if kind == "external_xpert":
                 try:
                     target_id = str(data.get("xpertId") or "").strip()

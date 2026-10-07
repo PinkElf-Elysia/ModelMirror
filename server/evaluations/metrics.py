@@ -6,6 +6,7 @@ from statistics import mean
 from typing import Any, Awaitable, Callable
 
 from jsonschema import Draft202012Validator
+from .write_evidence import evaluate_write_effects
 
 
 JudgeCallback = Callable[[str, str, str, str], Awaitable[dict[str, Any]]]
@@ -22,12 +23,25 @@ async def evaluate_case_metrics(
     resource_evidence_required: bool = False,
     vision_reads: list[dict[str, Any]] | None = None,
     vision_evidence_required: bool = False,
+    write_effects: list[dict[str, Any]] | None = None,
+    write_contracts: list[dict[str, Any]] | None = None,
+    effect_evidence_required: bool = False,
+    terminal_recorded: bool = False,
     judge: JudgeCallback | None = None,
     judge_model_id: str | None = None,
 ) -> dict[str, Any]:
     expected = dict(case.get("expected") or {})
     weights = dict(case.get("weights") or {})
     metrics: list[dict[str, Any]] = []
+    effect_evidence = "missing" if effect_evidence_required else "not_applicable"
+    if case.get("effects"):
+        contract_keys = {"node_ref", "table_id", "operation", "schema_version", "contract_checksum", "schema_fields", "writable_fields"}
+        contracts = [{key: value for key, value in item.items() if key in contract_keys} for item in (write_contracts or [])]
+        effect_metric = evaluate_write_effects(case["effects"], write_effects or [], contracts, terminal_recorded=terminal_recorded)
+        effect_metric["kind"] = effect_metric.pop("name")
+        effect_metric["weight"] = float(weights.get("workflow_effect_match", 1.0))
+        metrics.append(effect_metric)
+        effect_evidence = "verified" if effect_metric["passed"] else "failed"
 
     expected_reads = [
         dict(item)
@@ -308,9 +322,12 @@ async def evaluate_case_metrics(
         if total_weight
         else 0.0
     )
+    if effect_evidence_required and effect_evidence != "verified":
+        total_score = 0.0
     return {
         "score": round(total_score, 6),
         "metrics": metrics,
+        "effect_evidence": effect_evidence,
         "metric_count": len(metrics),
         "resource_evidence": resource_evidence,
         "vision_evidence": vision_evidence,

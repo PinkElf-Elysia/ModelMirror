@@ -9,7 +9,7 @@ import uuid
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 try:
     from server.skills.package_validation import (
@@ -37,6 +37,8 @@ ProposalStatus = Literal[
     "cancelled",
     "conflict",
 ]
+
+META_PLANNER_ARTIFACT_KEY = "_meta_planner_generation_artifact"
 
 
 class AuthoringProposalError(Exception):
@@ -98,6 +100,27 @@ class AuthoringProposal:
     decision_reason: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
+    meta_planner_model_repairs: list[dict[str, Any]] = field(default_factory=list)
+    meta_planner_recipe_recovery: dict[str, Any] | None = None
+
+
+def requires_recipe_recovery(proposal: AuthoringProposal) -> bool:
+    if proposal.source_type != "meta_planner":
+        return False
+    artifact = proposal.payload.get(META_PLANNER_ARTIFACT_KEY)
+    if not isinstance(artifact, dict) or not any(
+        isinstance(item, dict) and item.get("recipe") is not None
+        for item in artifact.get("attempts", [])
+    ):
+        return False
+    receipt = proposal.meta_planner_recipe_recovery
+    revision = receipt.get("revision") if isinstance(receipt, dict) else None
+    return not (
+        isinstance(receipt, dict) and isinstance(revision, int) and not isinstance(revision, bool)
+        and 1 < revision <= proposal.revision
+        and isinstance(artifact.get("checksum"), str) and len(artifact["checksum"]) == 64
+        and receipt.get("artifact_checksum") == artifact["checksum"]
+    )
 
 
 class AuthoringProposalStore:
@@ -118,7 +141,9 @@ class AuthoringProposalStore:
         self._lock = threading.RLock()
         self._items: dict[str, AuthoringProposal] = {}
         self._quarantine: list[dict[str, Any]] = []
+        self._repair_errors: set[str] = set()
         self._load()
+        self._load_model_repairs()
 
     def create(
         self,
@@ -139,6 +164,7 @@ class AuthoringProposalStore:
         content_digest: str | None = None,
         actor_kind: str = "workflow_agent",
         actor_id: str | None = None,
+        meta_planner_artifact: dict[str, Any] | None = None,
     ) -> AuthoringProposal:
         if kind not in {
             "xpert_create",
@@ -170,6 +196,13 @@ class AuthoringProposalStore:
                 "Proposal source_type and source_id are required."
             )
         clean_payload = self._validate_payload(payload, kind=kind)
+        if META_PLANNER_ARTIFACT_KEY in clean_payload:
+            raise AuthoringProposalValidationError("失败产物只能由服务端生成流程保存。")
+        if meta_planner_artifact is not None:
+            if clean_source_type != "meta_planner" or kind not in {"xpert_create", "xpert_update"}:
+                raise AuthoringProposalValidationError("失败产物仅用于元智能体 Xpert 提案。")
+            clean_payload[META_PLANNER_ARTIFACT_KEY] = deepcopy(meta_planner_artifact)
+            clean_payload = self._validate_payload(clean_payload, kind=kind)
         payload_digest = self._payload_digest(clean_payload)
         inferred_content_digest = self._skill_content_digest(
             clean_payload, kind=kind
@@ -235,7 +268,11 @@ class AuthoringProposalStore:
                 updated_at=now,
             )
             self._items[proposal.proposal_id] = proposal
-            self._save_unlocked()
+            try:
+                self._save_unlocked()
+            except Exception:
+                self._items.pop(proposal.proposal_id, None)
+                raise
             return self._copy(proposal)
 
     def require(self, proposal_id: str) -> AuthoringProposal:
@@ -269,6 +306,82 @@ class AuthoringProposalStore:
                     "Proposal payload digest changed unexpectedly."
                 )
             return self._copy(item)
+
+    def get_meta_planner_model_repairs(self, proposal_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            item = self._require_unlocked(proposal_id)
+            if proposal_id in self._repair_errors:
+                raise AuthoringProposalConflictError("私有修复日志不可验证，已阻止继续调用；原提案仍可读取。")
+            return deepcopy(item.meta_planner_model_repairs)
+
+    def claim_meta_planner_model_repair(
+        self, proposal_id: str, *, revision: int, payload_digest: str,
+        expected_count: int, attempt: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """Reserve one explicit call without changing candidate/revision."""
+        with self._lock:
+            self.get_meta_planner_model_repairs(proposal_id)
+            item = self._require_unlocked(proposal_id)
+            for prior in item.meta_planner_model_repairs:
+                if prior["request_id"] == attempt["request_id"]:
+                    if prior["request_checksum"] != attempt["request_checksum"]:
+                        raise AuthoringProposalConflictError("同一次调用标识不能用于不同授权。")
+                    return deepcopy(prior), False
+                if prior.get("authorization_id") == attempt.get("authorization_id"):
+                    raise AuthoringProposalConflictError("这份单次授权已消耗，不能更换调用标识再次派发。")
+            self._require_pending_revision(item, revision)
+            if item.source_type != "meta_planner" or item.kind not in {"xpert_create", "xpert_update"}:
+                raise AuthoringProposalValidationError("仅元智能体失败提案允许定向修复。")
+            if item.payload_digest != payload_digest or len(item.meta_planner_model_repairs) != expected_count:
+                raise AuthoringProposalConflictError("提案或修复记录已变化，请重新预检并确认。")
+            if len(item.meta_planner_model_repairs) >= 20:
+                raise AuthoringProposalValidationError("此提案已达到 20 次显式修复上限。")
+            if any(row["status"] == "dispatching" for row in item.meta_planner_model_repairs):
+                raise AuthoringProposalConflictError("已有一次修复正在派发，不能并发调用。")
+            saved = deepcopy(attempt)
+            saved.update(status="dispatching", created_at=time.time(), completed_at=None)
+            saved["checksum"] = self._payload_digest(saved)
+            item.meta_planner_model_repairs.append(saved)
+            try:
+                self._save_model_repairs_unlocked(item)
+            except BaseException:
+                item.meta_planner_model_repairs.pop()
+                raise
+            return deepcopy(saved), True
+
+    def finish_meta_planner_model_repair(
+        self, proposal_id: str, *, request_id: str, request_checksum: str,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._lock:
+            self.get_meta_planner_model_repairs(proposal_id)
+            item = self._require_unlocked(proposal_id)
+            index = next((i for i, row in enumerate(item.meta_planner_model_repairs)
+                          if row["request_id"] == request_id), None)
+            if index is None:
+                raise AuthoringProposalConflictError("找不到已占用的修复调用。")
+            previous = item.meta_planner_model_repairs[index]
+            if previous["request_checksum"] != request_checksum:
+                raise AuthoringProposalConflictError("修复调用授权不一致。")
+            if previous["status"] != "dispatching":
+                return deepcopy(previous)
+            if result.get("status") not in {"suggested", "invalid", "failed", "uncertain", "stale"}:
+                raise AuthoringProposalValidationError("修复回执状态无效。")
+            saved = {**previous, **deepcopy(result), "completed_at": time.time()}
+            saved.pop("checksum", None)
+            saved["checksum"] = self._payload_digest(saved)
+            records = [*item.meta_planner_model_repairs]
+            records[index] = saved
+            encoded = json.dumps(records, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            if len(encoded) > 2 * 1024 * 1024:
+                raise AuthoringProposalValidationError("私有修复回执已超过存储上限，不能继续。")
+            item.meta_planner_model_repairs[index] = saved
+            try:
+                self._save_model_repairs_unlocked(item)
+            except BaseException:
+                item.meta_planner_model_repairs[index] = previous
+                raise
+            return deepcopy(saved)
 
     def list(
         self,
@@ -332,6 +445,7 @@ class AuthoringProposalStore:
         validation: dict[str, Any],
         content_digest: str | None = None,
         base_digest: str | None = None,
+        recovery_guard: Callable[[], None] | None = None,
     ) -> AuthoringProposal:
         """Apply a server-validated Graph Patch without invalidating its IR."""
 
@@ -343,6 +457,7 @@ class AuthoringProposalStore:
             prevalidated_validation=validation,
             content_digest=content_digest,
             base_digest=base_digest,
+            recovery_guard=recovery_guard,
         )
 
     def _update_pending(
@@ -357,10 +472,15 @@ class AuthoringProposalStore:
         prevalidated_validation: dict[str, Any] | None = None,
         content_digest: str | None = None,
         base_digest: str | None = None,
+        recovery_guard: Callable[[], None] | None = None,
     ) -> AuthoringProposal:
         with self._lock:
             current = self._require_unlocked(proposal_id)
             self._require_pending_revision(current, revision)
+            if preserve_meta_planner_ir and requires_recipe_recovery(current):
+                if recovery_guard is None:
+                    raise AuthoringProposalValidationError("生成描述恢复缺少提交前完整预览绑定复核。", code="recipe_recovery_required")
+                recovery_guard()
             item = self._copy(current)
             if preserve_meta_planner_ir:
                 if item.source_type != "meta_planner" or item.kind not in {
@@ -370,6 +490,8 @@ class AuthoringProposalStore:
                     raise AuthoringProposalValidationError(
                         "Headless authoring only accepts Meta Planner Xpert proposals."
                     )
+            if not preserve_meta_planner_ir and requires_recipe_recovery(item):
+                raise AuthoringProposalValidationError("生成描述尚未展开为有效候选，必须通过失败描述修复预览，不能整包修改占位图。", code="recipe_recovery_required")
             if title is not None:
                 clean_title = str(title).strip()
                 if not clean_title or len(clean_title) > 200:
@@ -387,6 +509,12 @@ class AuthoringProposalStore:
                 item.title = clean_title
             if payload is not None:
                 next_payload = self._validate_payload(payload, kind=item.kind)
+                retained_artifact = item.payload.get(META_PLANNER_ARTIFACT_KEY)
+                if META_PLANNER_ARTIFACT_KEY in next_payload and next_payload[META_PLANNER_ARTIFACT_KEY] != retained_artifact:
+                    raise AuthoringProposalValidationError("失败产物为只读证据，不能通过整包编辑替换。")
+                if retained_artifact is not None:
+                    next_payload[META_PLANNER_ARTIFACT_KEY] = deepcopy(retained_artifact)
+                    next_payload = self._validate_payload(next_payload, kind=item.kind)
                 if item.source_type == "meta_planner" and item.kind in {
                     "xpert_create",
                     "xpert_update",
@@ -431,6 +559,13 @@ class AuthoringProposalStore:
             if base_digest is not None:
                 item.base_digest = self._optional_digest(base_digest, "base_digest")
             item.error = None
+            if preserve_meta_planner_ir and requires_recipe_recovery(current):
+                if not (prevalidated_validation or {}).get("valid"):
+                    raise AuthoringProposalValidationError("生成描述修复未通过服务端完整验证。", code="recipe_recovery_required")
+                item.meta_planner_recipe_recovery = {
+                    "artifact_checksum": current.payload[META_PLANNER_ARTIFACT_KEY]["checksum"],
+                    "revision": current.revision + 1,
+                }
             item.revision += 1
             item.apply_key = f"apply_{uuid.uuid4().hex}"
             item.applied_apply_key = None
@@ -522,11 +657,15 @@ class AuthoringProposalStore:
         item: AuthoringProposal, *, include_payload: bool = False
     ) -> dict[str, Any]:
         data = asdict(item)
+        data.pop("meta_planner_model_repairs", None)
+        data.pop("meta_planner_recipe_recovery", None)
+        data["payload"].pop(META_PLANNER_ARTIFACT_KEY, None)
         if not include_payload:
-            encoded = json.dumps(item.payload, ensure_ascii=False, separators=(",", ":"))
+            encoded = json.dumps(data["payload"], ensure_ascii=False, separators=(",", ":"))
+            summary = sorted(data["payload"].keys())[:20]
             data.pop("payload", None)
             data["payload_bytes"] = len(encoded.encode("utf-8"))
-            data["payload_summary"] = sorted(item.payload.keys())[:20]
+            data["payload_summary"] = summary
         return data
 
     def _require_unlocked(self, proposal_id: str) -> AuthoringProposal:
@@ -811,23 +950,72 @@ class AuthoringProposalStore:
             "quarantined_at": time.time(),
         }
 
+    def _repair_path(self, proposal_id: str) -> Path:
+        name = hashlib.sha256(proposal_id.encode("utf-8")).hexdigest()
+        return self.storage_dir / "authoring_model_repairs" / f"{name}.json"
+
+    def _save_model_repairs_unlocked(self, item: AuthoringProposal) -> None:
+        self._write_atomic_json(self._repair_path(item.proposal_id), {
+            "version": 1, "proposal_id": item.proposal_id, "attempts": item.meta_planner_model_repairs,
+        }, max_bytes=2 * 1024 * 1024)
+
+    def _load_model_repairs(self) -> None:
+        for item in self._items.values():
+            path = self._repair_path(item.proposal_id)
+            try:
+                if not path.exists():
+                    continue
+                if path.stat().st_size > 2 * 1024 * 1024:
+                    raise ValueError("Repair journal too large.")
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict) or raw.get("version") != 1 or raw.get("proposal_id") != item.proposal_id:
+                    raise ValueError("Repair journal identity mismatch.")
+                rows = raw.get("attempts")
+                if not isinstance(rows, list) or len(rows) > 20:
+                    raise ValueError("Invalid repair journal.")
+                seen = set()
+                interrupted = False
+                for row in rows:
+                    if not isinstance(row, dict) or not isinstance(row.get("request_id"), str):
+                        raise ValueError("Invalid repair receipt.")
+                    if row.get("checksum") != self._payload_digest({k: v for k, v in row.items() if k != "checksum"}) or row["request_id"] in seen:
+                        raise ValueError("Repair receipt checksum mismatch.")
+                    if row.get("status") not in {"dispatching", "suggested", "invalid", "failed", "uncertain", "stale"}:
+                        raise ValueError("Invalid repair status.")
+                    seen.add(row["request_id"])
+                    if row["status"] == "dispatching":
+                        row.update(status="uncertain", completed_at=time.time(), reason_code="repair_interrupted")
+                        row["checksum"] = self._payload_digest({k: v for k, v in row.items() if k != "checksum"})
+                        interrupted = True
+                item.meta_planner_model_repairs = rows
+                if interrupted:
+                    self._save_model_repairs_unlocked(item)
+            except (OSError, TypeError, ValueError, AuthoringProposalValidationError):
+                self._repair_errors.add(item.proposal_id)
+
     def _save_unlocked(self) -> None:
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        temp_path = self.snapshot_path.with_name(
-            f"{self.snapshot_path.name}.{uuid.uuid4().hex}.tmp"
-        )
         payload = {
             "version": 2,
-            "items": [asdict(item) for item in self._items.values()],
+            "items": [{key: value for key, value in asdict(item).items()
+                       if key != "meta_planner_model_repairs" and not (key == "meta_planner_recipe_recovery" and value is None)}
+                      for item in self._items.values()],
             "quarantine": self._quarantine,
         }
+        self._write_atomic_json(self.snapshot_path, payload)
+
+    @staticmethod
+    def _write_atomic_json(path: Path, payload: dict[str, Any], *, max_bytes: int | None = None) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
         try:
             encoded = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+            if max_bytes is not None and len(encoded) > max_bytes:
+                raise AuthoringProposalValidationError("私有修复日志超过存储上限。")
             with temp_path.open("xb") as handle:
                 handle.write(encoded)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temp_path, self.snapshot_path)
+            os.replace(temp_path, path)
         finally:
             temp_path.unlink(missing_ok=True)
 

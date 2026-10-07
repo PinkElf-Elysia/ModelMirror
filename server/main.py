@@ -193,6 +193,7 @@ try:
         router as xpert_evaluations_router,
     )
     from server.evaluations.vision_runtime import prepare_vision_input, record_vision_dispatch, record_evaluation_vision_receipt, capture_evaluation_vision, vision_usage
+    from server.evaluations.write_fixtures import create_isolated_write_context
 except ModuleNotFoundError:
     from evaluations import (
         configure_xpert_evaluations,
@@ -203,6 +204,7 @@ except ModuleNotFoundError:
         router as xpert_evaluations_router,
     )
     from evaluations.vision_runtime import prepare_vision_input, record_vision_dispatch, record_evaluation_vision_receipt, capture_evaluation_vision, vision_usage
+    from evaluations.write_fixtures import create_isolated_write_context
 
 try:
     from server.benchmarks import (
@@ -615,6 +617,26 @@ except ModuleNotFoundError:
     from world.api import router as world_router
 
 try:
+    from server.meta_agent.generation_evidence import (
+        GenerationEvidence, generation_transport, observe_generation_request, observe_generation_response,
+    )
+except ModuleNotFoundError:
+    from meta_agent.generation_evidence import (
+        GenerationEvidence, generation_transport, observe_generation_request, observe_generation_response,
+    )
+
+try:
+    from server.meta_agent.completion_contract import (
+        PlannerCompletionError,
+        validate_planner_completion,
+    )
+except ModuleNotFoundError:
+    from meta_agent.completion_contract import (
+        PlannerCompletionError,
+        validate_planner_completion,
+    )
+
+try:
     from server.meta_agent import (
         MetaAgentGenerateRequest,
         MetaAgentGenerateResponse,
@@ -660,6 +682,10 @@ try:
         select_output_v2,
         select_multi_route,
         validate_terminate_error_config,
+    )
+    from server.workflow_native.controlled_writes import (
+        ControlledWriteRuntime, EvaluationWriteBackendContext, has_controlled_writes, validate_write_execution_context,
+        validate_native_write_sources,
     )
     from server.workflow_native.content_parser import (
         WorkflowContentParserError,
@@ -830,6 +856,10 @@ except ModuleNotFoundError:
         select_output_v2,
         select_multi_route,
         validate_terminate_error_config,
+    )
+    from workflow_native.controlled_writes import (
+        ControlledWriteRuntime, EvaluationWriteBackendContext, has_controlled_writes, validate_write_execution_context,
+        validate_native_write_sources,
     )
     from workflow_native.content_parser import (
         WorkflowContentParserError,
@@ -5429,6 +5459,8 @@ async def collect_chat_completion_text(
     actual_model_observer: Callable[[str], None] | None = None,
     usage_observer: Callable[[dict[str, int]], None] | None = None,
     completion_metadata_observer: Callable[[dict[str, str]], None] | None = None,
+    response_observer: Callable[[dict[str, Any]], None] | None = None,
+    request_guard: Callable[[dict[str, Any]], None] | None = None,
     response_format: dict[str, Any] | None = None,
     reasoning: dict[str, Any] | None = None,
     allow_json_reasoning_fallback: bool = False,
@@ -5481,24 +5513,35 @@ async def collect_chat_completion_text(
         extra=extra or None,
     )
 
+    if request_guard is not None:
+        request_guard(request_payload)
+    observe_generation_request(request_payload, "legacy")
+    transport_evidence = generation_transport(
+        client_kwargs_override or llm_client_kwargs(), enabled=response_sender is None,
+    )
     async with execution_operation("model_call"), httpx.AsyncClient(
-        **(client_kwargs_override or llm_client_kwargs())
+        **transport_evidence.client_kwargs
     ) as client:
-        response = (
-            await response_sender(client, request_payload)
-            if response_sender is not None
-            else await client.post(
-                url,
-                headers=llm_gateway_headers(key),
-                json=request_payload,
+        with transport_evidence.capture():
+            response = (
+                await response_sender(client, request_payload)
+                if response_sender is not None
+                else await client.post(
+                    url,
+                    headers=llm_gateway_headers(key),
+                    json=request_payload,
+                    **transport_evidence.request_kwargs,
+                )
             )
-        )
         if response.status_code >= 400:
             message, _ = parse_upstream_error(response.status_code, response.content)
             raise ChatCompletionUpstreamError(response.status_code, message)
         data = response.json()
         if not isinstance(data, dict):
             raise RuntimeError("模型返回了无法解析的响应。")
+        observe_generation_response(data)
+        if response_observer is not None:
+            response_observer(data)
         choices = data.get("choices")
         first_choice = choices[0] if isinstance(choices, list) and choices else {}
         first_choice = first_choice if isinstance(first_choice, dict) else {}
@@ -8020,6 +8063,80 @@ async def diff_meta_planner_authoring_proposal(
         _raise_headless_authoring_error(exc)
 
 
+def get_explicit_model_repair_service():
+    try:
+        from server.meta_agent.model_repair import ExplicitModelRepairService, ModelRepairCallError
+        from server.meta_agent.model_repair_transport import ModelRepairTransport
+    except ModuleNotFoundError:
+        from meta_agent.model_repair import ExplicitModelRepairService, ModelRepairCallError
+        from meta_agent.model_repair_transport import ModelRepairTransport
+
+    async def legacy_completion(model, system, prompt, max_tokens, receipt, guard, config):
+        def observed(payload):
+            receipt.update(provider_dispatched=True, response_received=True)
+            validate_planner_completion(payload, max_tokens=max_tokens,
+                                       observer=lambda item: receipt.update({key: item.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")}))
+            if payload.get("model") != model:
+                raise ModelRepairCallError(receipt, reason_code="repair_response_model_mismatch")
+
+        return await collect_chat_completion_text(
+            model, [ChatMessage(role="system", content=system), ChatMessage(role="user", content=prompt)],
+            temperature=0, max_tokens=max_tokens, response_format={"type": "json_object"},
+            gateway_url=config[0], gateway_key=config[1],
+            reasoning={"effort": "none", "exclude": True}, response_observer=observed,
+            request_guard=guard,
+            allow_json_reasoning_fallback=False,
+        )
+
+    transport = ModelRepairTransport(ManagedMetaAgentGateway.for_router(get_model_router_service()),
+                                    legacy_config=get_llm_gateway_config, legacy_completion=legacy_completion)
+    return ExplicitModelRepairService(get_headless_authoring_service(), route_projection=transport.route_projection,
+                                      completion=transport.complete)
+
+
+@app.post("/api/meta-agent/authoring/proposals/{proposal_id}/repair/preflight")
+async def preflight_meta_planner_model_repair(proposal_id: str, request: Request):
+    try:
+        try:
+            from server.meta_agent.model_repair import ModelRepairPreflightRequest
+        except ModuleNotFoundError:
+            from meta_agent.model_repair import ModelRepairPreflightRequest
+        parsed = _parse_headless_authoring_request(ModelRepairPreflightRequest, await _read_headless_authoring_json(request))
+        return get_explicit_model_repair_service().preflight(proposal_id, parsed)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.post("/api/meta-agent/authoring/proposals/{proposal_id}/repair/execute")
+async def execute_meta_planner_model_repair(proposal_id: str, request: Request):
+    try:
+        rate_limit_or_raise(client_ip(request))
+        try:
+            from server.meta_agent.model_repair import ModelRepairExecuteRequest
+        except ModuleNotFoundError:
+            from meta_agent.model_repair import ModelRepairExecuteRequest
+        parsed = _parse_headless_authoring_request(ModelRepairExecuteRequest, await _read_headless_authoring_json(request))
+        return await get_explicit_model_repair_service().execute(proposal_id, parsed)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.get("/api/meta-agent/authoring/proposals/{proposal_id}/repair/receipts")
+async def list_meta_planner_model_repairs(proposal_id: str):
+    try:
+        return get_explicit_model_repair_service().history(proposal_id)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
+@app.get("/api/meta-agent/authoring/proposals/{proposal_id}/repair/receipts/{request_id}")
+async def get_meta_planner_model_repair(proposal_id: str, request_id: str):
+    try:
+        return get_explicit_model_repair_service().result(proposal_id, request_id)
+    except HeadlessAuthoringError as exc:
+        _raise_headless_authoring_error(exc)
+
+
 @app.post("/api/meta-agent/authoring/proposals/{proposal_id}/patch/preview")
 async def preview_meta_planner_authoring_patch(
     proposal_id: str,
@@ -8027,6 +8144,13 @@ async def preview_meta_planner_authoring_patch(
 ):
     try:
         payload = await _read_headless_authoring_json(request)
+        if isinstance(payload, dict) and payload.get("mode") == "recovery":
+            try:
+                from server.meta_agent.failed_recovery import FailedDraftRecovery, RecoveryPreviewRequest
+            except ModuleNotFoundError:
+                from meta_agent.failed_recovery import FailedDraftRecovery, RecoveryPreviewRequest
+            parsed = _parse_headless_authoring_request(RecoveryPreviewRequest, payload)
+            return FailedDraftRecovery(get_headless_authoring_service()).preview(proposal_id, parsed)
         parsed = _parse_headless_authoring_request(GraphPatchEnvelopeV1, payload)
         return get_headless_authoring_service().preview(proposal_id, parsed)
     except HeadlessAuthoringError as exc:
@@ -8040,6 +8164,13 @@ async def apply_meta_planner_authoring_patch(
 ):
     try:
         payload = await _read_headless_authoring_json(request)
+        if isinstance(payload, dict) and payload.get("mode") == "recovery":
+            try:
+                from server.meta_agent.failed_recovery import FailedDraftRecovery, RecoveryApplyRequest
+            except ModuleNotFoundError:
+                from meta_agent.failed_recovery import FailedDraftRecovery, RecoveryApplyRequest
+            parsed = _parse_headless_authoring_request(RecoveryApplyRequest, payload)
+            return FailedDraftRecovery(get_headless_authoring_service()).apply(proposal_id, parsed)
         parsed = _parse_headless_authoring_request(GraphPatchApplyRequest, payload)
         return get_headless_authoring_service().apply(proposal_id, parsed)
     except HeadlessAuthoringError as exc:
@@ -9428,6 +9559,14 @@ async def generate_meta_planner_xpert_candidate(
             )
 
     call_sequence = 0
+    completion_receipts: list[dict[str, Any]] = []
+    generation_evidence = GenerationEvidence()
+
+    def completion_metadata() -> dict[str, Any]:
+        return {
+            "completion_receipts": completion_receipts,
+            **({"generation_evidence": generation_evidence.as_dict()} if generation_evidence.calls else {}),
+        }
 
     async def complete(
         model_id: str,
@@ -9437,8 +9576,12 @@ async def generate_meta_planner_xpert_candidate(
         max_tokens: int,
     ) -> str:
         nonlocal call_sequence
+        call_sequence += 1
+
+        def observe_completion(diagnostics: dict[str, Any]) -> None:
+            completion_receipts.append({"call_sequence": call_sequence, **diagnostics})
+
         if managed_run is not None:
-            call_sequence += 1
             return await managed_run.complete_json(
                 logical_call_key=f"{run.run_id}:meta-planner:{call_sequence}",
                 call_sequence=call_sequence,
@@ -9447,6 +9590,7 @@ async def generate_meta_planner_xpert_candidate(
                 user_prompt=user_prompt,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                completion_observer=observe_completion,
             )
         return await collect_chat_completion_text(
             model_id,
@@ -9459,6 +9603,9 @@ async def generate_meta_planner_xpert_candidate(
             response_format={"type": "json_object"},
             reasoning={"effort": "none", "exclude": True},
             allow_json_reasoning_fallback=True,
+            response_observer=lambda data: validate_planner_completion(
+                data, max_tokens=max_tokens, observer=observe_completion,
+            ),
         )
 
     try:
@@ -9469,6 +9616,7 @@ async def generate_meta_planner_xpert_candidate(
             authoring_service=authoring_service,
             preflight=preview_xpert_for_publish,
             completion=complete,
+            generation_evidence=generation_evidence,
         )
         response = await service.generate(
             payload,
@@ -9502,6 +9650,8 @@ async def generate_meta_planner_xpert_candidate(
                 "repair_used": response.repair_used,
                 "valid": bool(response.validation.get("valid")),
                 "snapshot_hash": response.capability_snapshot_hash,
+                "completion_receipts": completion_receipts,
+                "generation_evidence": generation_evidence.as_dict(),
             },
         )
         await run_registry.update_run(
@@ -9519,8 +9669,25 @@ async def generate_meta_planner_xpert_candidate(
             run.run_id,
             status="cancelled",
             error="Meta Agent request was cancelled.",
+            **({"metadata": completion_metadata()} if generation_evidence.calls else {}),
         )
         raise
+    except PlannerCompletionError as exc:
+        await run_registry.update_run(
+            run.run_id,
+            status="failed",
+            error=exc.public_message,
+            metadata=completion_metadata(),
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.public_message,
+                "code": exc.code,
+                "run_id": run.run_id,
+                **completion_metadata(),
+            },
+        )
     except ManagedMetaAgentRoutingError as exc:
         if managed_run is not None:
             failure_status = (
@@ -9532,7 +9699,8 @@ async def generate_meta_planner_xpert_candidate(
         await run_registry.update_run(
             run.run_id,
             status="failed",
-            error="Managed Provider route failed closed.",
+            error=exc.public_message,
+            **({"metadata": completion_metadata()} if completion_receipts or generation_evidence.calls else {}),
         )
         return JSONResponse(
             status_code=exc.status_code,
@@ -9540,6 +9708,7 @@ async def generate_meta_planner_xpert_candidate(
                 "error": exc.public_message,
                 "code": exc.code,
                 "run_id": run.run_id,
+                **completion_metadata(),
                 "provider_route_receipts": (
                     managed_run.receipt_summary().model_dump(mode="json")
                     if managed_run is not None
@@ -9558,9 +9727,13 @@ async def generate_meta_planner_xpert_candidate(
             error_message = str(exc)
             error_code = None
         await run_registry.update_run(
-            run.run_id, status="failed", error=error_message[:500]
+            run.run_id, status="failed", error=error_message[:500],
+            **({"metadata": completion_metadata()} if completion_receipts or generation_evidence.calls else {}),
         )
-        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        content: dict[str, Any] = {
+            "error": error_message, "run_id": run.run_id,
+            **completion_metadata(),
+        }
         if error_code:
             content["code"] = error_code
             content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
@@ -9575,11 +9748,18 @@ async def generate_meta_planner_xpert_candidate(
             )
             error_message = "Meta Agent 生成失败；Managed Provider 调用不会自动重放。"
         else:
-            error_message = str(exc)
+            if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+                error_message = "元智能体生成超时，未收到完整模型结果；上游完成及计费状态未知。未自动重试，请先核对调用回执。"
+            else:
+                error_message = str(exc).strip() or "元智能体生成失败，未自动重试；请根据运行编号检查日志。"
         await run_registry.update_run(
-            run.run_id, status="failed", error=error_message[:500]
+            run.run_id, status="failed", error=error_message[:500],
+            **({"metadata": completion_metadata()} if completion_receipts or generation_evidence.calls else {}),
         )
-        content: dict[str, Any] = {"error": error_message, "run_id": run.run_id}
+        content: dict[str, Any] = {
+            "error": error_message, "run_id": run.run_id,
+            **completion_metadata(),
+        }
         if managed_run is not None:
             content["code"] = "provider_workload_meta_agent_internal_error"
             content["provider_route_receipts"] = managed_run.receipt_summary().model_dump(
@@ -10399,9 +10579,16 @@ async def _run_workflow_response(
     runtime_execution_source_kind: str | None = None,
     runtime_trigger_event: dict[str, Any] | None = None,
     runtime_task_id: str | None = None,
+    evaluation_write_backend: EvaluationWriteBackendContext | None = None,
 ):
     if not workflow_execution_store.available:
         return execution_store_unavailable_response()
+    controlled_workflow = payload.workflow.model_dump()
+    controlled_writes = has_controlled_writes(controlled_workflow)
+    try:
+        validate_write_execution_context(controlled_workflow, run_type=runtime_run_type, metadata=runtime_metadata or {}, context=evaluation_write_backend)
+    except (ValueError, KeyError, TypeError) as exc:
+        return JSONResponse(status_code=422, content={"error": str(exc)[:500], "code": "CONTROLLED_WRITE_PREFLIGHT_FAILED"})
     explicit_creator_handoff_node_ids = _skill_creator_handoff_node_ids(
         payload.workflow
     )
@@ -10859,6 +11046,19 @@ async def _run_workflow_response(
         if workflow_node_kind(node) == "knowledge_write_proposal"
         and str(node.data.get("contentVariable") or "").strip()
     }
+    if controlled_writes:
+        knowledge_proposal_sensitive_variable_names.update(
+            str(node.data.get(field) or "")
+            for node in payload.workflow.nodes
+            for field in ("recordsVariable", "valuesVariable")
+            if node.data.get(field)
+        )
+        knowledge_proposal_sensitive_variable_names.update(
+            str(node.data.get("outputVariable") or "")
+            for node in payload.workflow.nodes
+            if workflow_node_kind(node) in {"data_table_query", "data_table_insert"}
+            and node.data.get("outputVariable")
+        )
     if trusted_xpert_validation_context:
         xpert_history_variable = str(
             run_metadata.get("xpert_history_variable") or ""
@@ -11160,7 +11360,9 @@ async def _run_workflow_response(
             task_state["agent_resume_state"]["resolved_approval"]
         )
     workflow_task_store[task_id] = task_state
-    if resume_execution is None:
+    if resume_execution is None and not (
+        evaluation_write_backend is not None and workflow_execution_store.get(task_id) is not None
+    ):
         workflow_execution_store.create(
             task_id=task_id,
             run_id=workflow_run.run_id,
@@ -11176,6 +11378,17 @@ async def _run_workflow_response(
             source_kind=trusted_source_kind,
             runtime_metadata=persisted_run_metadata,
         )
+
+    controlled_write_runtime = None
+    if controlled_writes or evaluation_write_backend is not None:
+        controlled_write_runtime = ControlledWriteRuntime(
+            task_id=task_id, workflow=controlled_workflow,
+            backend=evaluation_write_backend.backend if evaluation_write_backend is not None else agent_table_store,
+            execution_store=workflow_execution_store, isolated=evaluation_write_backend is not None,
+            receipt_callback=evaluation_write_backend.receipt_callback if evaluation_write_backend is not None else None,
+            dispatch_guard=evaluation_write_backend.dispatch_guard if evaluation_write_backend is not None else None,
+        )
+        task_state["controlled_write_runtime"] = controlled_write_runtime
 
     if model_gateway_missing and not input_block_policy_can_stop_before_model:
         workflow_task_store.pop(task_id, None)
@@ -18423,6 +18636,30 @@ async def _run_workflow_response(
                                 }
                             )
 
+                elif kind in {"data_table_insert", "data_table_update", "data_table_delete"} and node.data.get("contractVersion") == 2:
+                    if controlled_write_runtime is None:
+                        raise WorkflowTerminationError("CONTROLLED_WRITE_CONTEXT_MISSING", "受控写入上下文缺失，未执行写入。", node_id=node.id)
+                    started_at = time.perf_counter()
+                    try:
+                        write_result = controlled_write_runtime.execute(node.id, variables, resolve_filter=resolve_data_table_filter)
+                    except WorkflowTerminationError:
+                        raise
+                    except Exception as exc:
+                        code = "DATA_TABLE_REVISION_CONFLICT" if "revision" in str(exc).lower() else "CONTROLLED_WRITE_FAILED"
+                        raise WorkflowTerminationError(code, "受控写入未通过授权、版本、记录来源或事务校验；先前成功写入保留。", node_id=node.id) from None
+                    stored_output = write_result["output"]
+                    receipt = write_result["receipt"]
+                    output_variable = str(node.data["outputVariable"])
+                    variables[output_variable] = normalize_workflow_value(stored_output, path=f"$.{output_variable}")
+                    operation_label = {"insert": "新增", "update": "更新", "delete": "删除"}[receipt["operation"]]
+                    output = f"受控{operation_label}已完成，影响 {receipt['affected_count']} 行。"
+                    await run_registry.record_checkpoint(
+                        workflow_run.run_id, event_type=f"workflow.data_table.{receipt['operation']}", title="受控数据表写入",
+                        summary=f"影响 {receipt['affected_count']} 行；节点事务独立提交。",
+                        metadata={**receipt, "duration_ms": round((time.perf_counter() - started_at) * 1000, 2)},
+                    )
+                    yield sse_payload({"event": "node_delta", "node_id": node.id, "node_title": title, "node_type": kind, "output": output, "variable": output_variable})
+
                 elif kind in {
                     "data_table_query",
                     "data_table_insert",
@@ -18473,7 +18710,7 @@ async def _run_workflow_response(
                     affected_count = 0
                     if kind == "data_table_query":
                         evaluation_fixture: dict[str, Any] | None = None
-                        if runtime_run_type == "xpert_evaluation":
+                        if runtime_run_type == "xpert_evaluation" and controlled_write_runtime is None:
                             evaluation_context = dict(
                                 task_state.get("runtime_metadata") or {}
                             )
@@ -18551,7 +18788,9 @@ async def _run_workflow_response(
                         )
                         sort = node.data.get("sort")
                         try:
-                            if evaluation_fixture is not None:
+                            if controlled_write_runtime is not None:
+                                records, schema = controlled_write_runtime.query(node.id, filter_tree=filter_tree)
+                            elif evaluation_fixture is not None:
                                 if (
                                     str(evaluation_fixture.get("resource_kind") or "")
                                     != "data_table_query"
@@ -18701,7 +18940,15 @@ async def _run_workflow_response(
                             else:
                                 stored_output = records
                             output = f"Agent Table query returned {result_count} record(s)."
-                            if evaluation_fixture is not None:
+                            if controlled_write_runtime is not None and controlled_write_runtime.isolated:
+                                try:
+                                    from server.evaluations.resource_fixtures import isolated_query_evidence
+                                except ModuleNotFoundError:
+                                    from evaluations.resource_fixtures import isolated_query_evidence
+                                task_state.setdefault("evaluation_resource_reads", []).append(
+                                    isolated_query_evidence(node, variables=variables, backend=controlled_write_runtime.backend, records=records)
+                                )
+                            elif evaluation_fixture is not None:
                                 task_state.setdefault(
                                     "evaluation_resource_reads", []
                                 ).append(
@@ -18907,6 +19154,8 @@ async def _run_workflow_response(
                             expected_schema=expected_schema,
                             max_bytes=MAX_WORKFLOW_JSON_BYTES,
                         )
+                        if controlled_write_runtime is not None:
+                            controlled_write_runtime.capture_validated_value(node.id, stored_output)
                         variables[output_variable] = stored_output
                         output = workflow_value_to_text(stored_output)
                         yield sse_payload(
@@ -30818,6 +31067,11 @@ async def run_xpert_evaluation_target(
         "xpert_memory_context": "",
     }
     inputs.update(prepare_vision_input(get_xpert_evaluation_store(), target, case, config))
+    evaluation_write_backend = await asyncio.to_thread(
+        create_isolated_write_context, get_xpert_evaluation_store(),
+        run_id=str(config.get("evaluation_run_id") or ""), item_id=str(config.get("evaluation_item_id") or ""),
+        target=target, case=case,
+    ) if config.get("write_isolation") and config.get("evaluation_run_id") and config.get("evaluation_item_id") else None
     budget = dict(config.get("budget") or {})
     agent_config = dict(target.get("agent_config") or {})
     agent_config.update(
@@ -30863,6 +31117,8 @@ async def run_xpert_evaluation_target(
         runtime_source_id=str(target.get("target_id") or ""),
         runtime_metadata=runtime_metadata,
         runtime_parent_run_id=parent_run_id,
+        runtime_task_id=("xeval_write_" + hashlib.sha256(f"{evaluation_write_backend.run_id}:{evaluation_write_backend.item_id}".encode("utf-8")).hexdigest()) if evaluation_write_backend is not None else None,
+        evaluation_write_backend=evaluation_write_backend,
     )
     task_id = str(
         getattr(response, "headers", {}).get("X-ModelMirror-Runtime-Task-Id") or ""
@@ -30875,11 +31131,26 @@ async def run_xpert_evaluation_target(
         isinstance(expected_path, dict)
         and expected_path.get("terminal") == "error"
     )
+    execution_error = None
     try:
         final_event = await consume_workflow_stream(response)
-    except WorkflowStreamFailure:
+    except WorkflowStreamFailure as exc:
         control_flow = await evaluation_control_flow_summary(runtime_run_id)
-        if (
+        if evaluation_write_backend is not None:
+            write_state = workflow_task_store.get(task_id) or {}
+            writer = write_state.get("controlled_write_runtime")
+            effects = writer.effects if isinstance(writer, ControlledWriteRuntime) else []
+            conflicts = [item for item in case.get("effects", []) if item.get("status") == "conflict"]
+            expected_conflict = any(item.get("status") == "conflict" and item.get("node_ref") == expected["node_ref"] and item.get("error_code") == expected.get("error_code") == exc.code for item in effects for expected in conflicts)
+            expected_error_terminal = (
+                expects_error_terminal
+                and control_flow.get("supported")
+                and control_flow.get("terminal") == "error"
+                and expected_path.get("error_code") == control_flow.get("error_code") == exc.code
+            )
+            if not (expected_conflict or expected_error_terminal):
+                execution_error = {"code": str(exc.code or "CONTROLLED_WRITE_EVALUATION_FAILED"), "message": "隔离评测未完成；已提交的节点效果保留，未撤销先前写入。"}
+        elif (
             not expects_error_terminal
             or not control_flow.get("supported")
             or control_flow.get("terminal") != "error"
@@ -30896,6 +31167,7 @@ async def run_xpert_evaluation_target(
         control_flow = await evaluation_control_flow_summary(runtime_run_id)
     usage: dict[str, Any] = {}
     task_state = workflow_task_store.get(task_id)
+    write_runtime = task_state.get("controlled_write_runtime") if isinstance(task_state, dict) else None
     execution_budget = (
         task_state.get("execution_budget")
         if isinstance(task_state, dict)
@@ -30940,6 +31212,9 @@ async def run_xpert_evaluation_target(
         "tool_calls": await evaluation_tool_call_summary(runtime_run_id),
         "control_flow": control_flow,
         "vision_reads": vision_reads,
+        "write_effects": list(write_runtime.effects) if isinstance(write_runtime, ControlledWriteRuntime) else [],
+        "terminal_recorded": bool(control_flow.get("supported") and control_flow.get("terminal") in {"success", "error"}),
+        "execution_error": execution_error,
         "resource_reads": list(
             task_state.get("evaluation_resource_reads") or []
         )[:100]

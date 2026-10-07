@@ -9,7 +9,7 @@
 已经可以从实时 Registry 编译 `workflow_agent`、资源绑定、中间件和发布预检所需配置；
 旧生成器仍保留用于兼容经典工作流导入与既有 AgentTask/Handoff 操作。
 
-当前实现是 **Capability Snapshot V9 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
+当前实现是 **Capability Snapshot V10 + Graph IR V3 单写、Typed IR V2 双读**。后续升级已经锁定为
 “V3 十轮 + V4 轮次待定”，唯一方向文档是
 [META_PLANNER_V3_V4_ROADMAP.md](./META_PLANNER_V3_V4_ROADMAP.md)。V3 先补齐
 Graph IR、无头编排、节点 Adapter、效果语义和评测，再逐类开放真实节点；V4 只有在
@@ -134,6 +134,71 @@ EvoAgentX 的来源与已交付历史见
 2. 能力编译：从实时 Capability Snapshot 中选择真实节点、资源和中间件。
 3. 定向修复：本地确定性门禁失败时，最多调用模型修复一次。
 
+上述为初始生成预算，最多三次 completion，不变。CW10 D 另提供用户显式授权的失败图修复：
+先查看外发正文、精确模型和一次调用预算，再单独确认。最终返回的 Graph Patch 仅是建议，
+必须人工载入编辑区并重新预览、确认应用，不增加自动修复轮数，不批准提案或运行写节点。
+没有安全保留原图的失败不能使用此入口；未知派发不自动重放。详见
+[Headless 显式模型修复](./META_PLANNER_HEADLESS_AUTHORING.md#显式模型修复)。
+此功能当前离线验证，不代表真实模型成功率已提高；真实验收仍需独立授权。
+
+生成侧使用私有 Schema，不直接修改公共 TaskPlan/Graph IR：首次任务规划和任务修复
+共用 `GenerationTaskPlan`，仅接受 expert 任务及声明字段。辅助节点摘要从真实 Adapter
+推导；任务的文字输入输出契约不能创造记录身份、返回字段或变量。Query/Insert 返回完整
+记录，Update/Delete 只返回 matched/affected，再次修改需要新 Query 的 revision。
+
+CW10 批次 C 的首次生成使用私有 `GenerationRecipeV1`，降低为 GraphIntent V3；已解析描述的
+唯一自动修复使用 `recipe_edits_v1` 受限操作，不重新复制整图。
+模型只声明业务配置、来源端口和结构化顺序/分支/并行，变量、输出类型及控制边由服务端派生。
+旧完整 GraphIntent 不作为新模型输出接受，但旧候选读取及 Patch 重编译不变。
+详见 [简化生成描述](./META_PLANNER_GENERATION_RECIPE.md)。
+新失败产物安全配对保留 Recipe 与 Intent；显式模型修复在同一 Recipe 层处理，服务端生成有界
+Patch 并核对语义往返，再进入原 Preview/Apply。旧 Intent-only 产物继续使用兼容 Patch，不猜测
+原 Recipe。控制诊断区分已通过、失败与被前置问题阻断的证明，不用空错误列表冒充已验证。
+严格且安全保留但未展开的 Recipe 同样支持受限语义编辑及逐次授权模型建议；服务端绑定
+revision/checksum 后执行同一完整 Preview/Apply。资源/输入失配草稿仍只开放各自窄人工入口。
+修复未到达旧失败检查时报告 `not_rechecked`，不将缺失观测当作旧问题已经消失。
+生成及 Patch 修复共用 Adapter 配置定义和 NodeContract 端口事实。
+生成 Schema 按授权 kind 分支；Patch 为新增 kind 和已存在 ref 关联配置 Schema，共用
+`$defs` 避免重复正文。它们是模型输入契约，不等同于 Provider 约束解码，也不能替代
+配置自定义校验、跨节点类型/变量解析、资源授权及发布预检。模型违约仍失败关闭，不增加
+第四次调用，不自动补边、猜测变量或扩大权限；旧 TaskPlan/Proposal 读取不受私有投影影响。
+
+受控写值的模型契约按本次授权且可用的 Adapter 投影。`input` 业务值一律要求直接来自
+JSON Deserialize V2 的字段对象，不只是 Agent 生成的数据。该生产者不可用时，生成及
+修复 Schema 只提供显式 `literal`，并要求提供 `values`；目标不足以确定固定值时仍应
+失败，不自动切换模式、填写业务值或增加权限。旧配置的默认值与 Runtime 行为不变。
+
+前置诊断与最终解析共用来源身份校验；未知 ref/port、歧义端口、变量不匹配和非法写值
+生产者独立进入 `source_contract_issues`，不能因路径证明先失败而被遗漏。联合修复清单
+同时给出权威路由输入形状、路由失败码、冲突终点、已到达控制根与缺失值反例；不保存
+业务记录或 witness 值，也不推导修复连线。路径事实最多投影 64 条，省略量明确记录。
+先审查完整目标路径，再输出同一个原子 Patch；只改端口或仅减少错误数量不视为修复。
+这些离线契约及反例测试不代表真实模型生成成功率，真实验收仍须独立授权。
+
+生成诊断 V2 增加受限端口计数、绑定位置、声明类型与 checksum。动态谓词 ref、未知变量
+及完整 Schema 不进入该摘要；最多记录 64 条新增绑定明细并明确省略数。`declared_*`
+表示该次 GraphIntent 中的声明，不是执行证据；旧图可能由模型声明，批次 C 降低后的类型
+来自 Adapter/资源解析，不能误称模型自行填对了类型。`data_graph_checksum` 仅用于对照数据连线，
+不能代替 Graph IR/候选 checksum 或权限门禁。
+
+生成取证 V1 在同一次 completion 内配对实际请求的私有 Schema、Provider 公开 `content`、
+collector 结果及实际校验输入。只记录 Filter 形状、端口、声明类型、位置、白名单枚举和
+checksum；未知名称仅记录 hash，不保存 Prompt、业务字面值、完整 Schema 或隐藏推理。
+`schema_valid` 只说明该份 JSON 是否符合实际发送的私有 Schema，不表示授权或语义校验通过。
+`same_structure` 仅表示上述受限字段一致，不能说明完整正文或整个图合法；正文另有独立 hash。
+摘要限制为三次调用、32 个节点、64 条绑定和 64 KiB；截断、缺失、重复观察分别标为
+`incomplete`、`unavailable`、`ambiguous`，不伪造完整配对。记录内容无法用于完整响应重放。
+
+取证完全在内存中进行，不在收包路径写文件，不增加重试或 completion。观察或汇总失败只
+标记证据不可用，不覆盖原结果；预算账本和 Proposal Store 的失败语义不变。有候选时摘要
+写入既有 `meta_planner_report.generation_evidence`；候选创建前失败则仅经错误响应和内存
+RunRegistry 返回，重启不保证保留，付费验收必须在重启前导出安全响应。证据缺失时停止
+进一步付费诊断，不推断模型或平台为根因。
+
+表更新/删除的 `records` 静态声明类型从 NodeContract 投影到私有生成 Schema，保留契约
+允许的 object、nullable、对象数组及 union；同表真实来源、revision 和跨边类型关系仍由
+既有语义与 Runtime 门禁负责，不因私有 Schema 合格而跳过。
+
 面向用户和画布展示的候选名称、任务标题、节点标题、说明、提示词及安全错误文案
 统一使用简体中文。资源 ID、Planner ref、字段名、错误码等机器标识保持原值，避免翻译
 破坏 Schema、资源绑定或确定性 checksum。编译器管理的输入、输出节点也遵守同一展示
@@ -141,7 +206,7 @@ EvoAgentX 的来源与已交付历史见
 
 ### NodeContract V3 能力门禁
 
-Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V9
+Meta Planner 的节点事实统一来自 `NodeContractRegistry`。Capability Snapshot V10
 只暴露满足以下全部条件的节点：契约状态完整、Planner 显式启用、编译模式真实存在、
 Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI Registry 中出现
 节点不等于 Planner 可以生成该节点。
@@ -150,8 +215,9 @@ Adapter 版本一致，并且契约与 Adapter 的 compiler checksum 匹配。UI
 `json_serialize`、`json_deserialize`、`variable_aggregator`、`data_aggregate`、
 `dataset_compare` 五种无副作用类型化纯节点和 `condition`、`multi_route`、
 `data_merge`、`terminate_error` 四种受限控制流节点，以及 `knowledge_retrieval`、
-`data_table_query` 两种只读动态资源节点，以及显式附件 `vision_understanding` V2，共 19 类。
-NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V9，
+`data_table_query` 两种只读动态资源节点、显式附件 `vision_understanding` V2，以及
+`data_table_insert/update/delete` 三种显式授权的 V2 写节点，共 22 类。
+NodeContract V3 与 Planner IR 独立演进。Capability Snapshot 当前为 V10，
 `ir_version=3` 且声明 `supported_ir_versions=[2,3]`。旧 V2 Snapshot 保持可读，详见
 [NODE_CONTRACT_V3.md](./NODE_CONTRACT_V3.md)。
 
@@ -189,7 +255,7 @@ Apply。操作、接口、安全 receipt 和回退边界见
 类型化输入/输出变量、控制边、资源/中间件目标和唯一最终输出。任务和 Agent 不再
 强制一一对应：一个 Agent 可以覆盖多个任务，一个任务也可以由多个节点共同完成。
 
-Capability Snapshot V9 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
+Capability Snapshot V10 只暴露当前存在且与 NodeContract、Adapter checksum 校验一致的
 编译能力。`workflow_agent` 的 `task_binding=required`，每个计划任务仍必须由 Agent
 覆盖；五种纯节点的 `task_binding=forbidden`，只能作为 Agent 之间的确定性辅助步骤，
 不能承担任务或成为最终输出。`input/output` 由编译器管理，外部 Xpert、知识库、
@@ -229,7 +295,11 @@ Schema 中的字段、受限条件树、排序与 `limit=1..200`。表默认不�
 Binding 漂移、目标关闭文件输入或非唯一附件在外发前阻断。详见
 [显式附件视觉契约](./META_PLANNER_VISION.md)。
 
-`variable_assign`、`list_operation`、`object_transform`、Agent Table 写入、
+写节点默认关闭，必须逐表、操作、字段和影响上限授权，查询授权不隐含写权限。
+更新/删除只接受真实 Query/Insert 的同表记录及 revision；评测只写服务端私有初始化表，
+不回退业务表。事务、恢复、效果证据和限制见[受控写入契约](./META_PLANNER_CONTROLLED_WRITES.md)。
+
+`variable_assign`、`list_operation`、`object_transform`、
 循环、等待、HITL、Handoff、Trigger 和 `question_classifier` 仍无 Planner Adapter，
 不会进入授权快照。
 

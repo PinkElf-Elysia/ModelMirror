@@ -16,6 +16,7 @@ from server.meta_agent.graph_ir_v3 import (
     v2_to_graph_intent,
     workflow_semantic_checksum,
 )
+from server.tests.meta_planner_recipe_fixtures import from_intent
 from server.meta_agent.meta_planner_v2 import (
     MetaPlannerV2Service,
     compile_xpert_candidate,
@@ -86,12 +87,12 @@ def test_generic_meta_planner_keeps_hitl_scoped_to_expert_team():
     prompt = json.loads(
         MetaPlannerV2Service._plan_prompt(_request(), _snapshot())
     )
-    task_properties = prompt["required_schema"]["$defs"]["MetaPlannerTask"][
+    task_properties = prompt["required_schema"]["$defs"]["GenerationTask"][
         "properties"
     ]
-    assert "task_type" not in task_properties
-    assert "interaction_prompt" not in task_properties
-    assert "output_variable" not in task_properties
+    assert task_properties["task_type"]["const"] == "expert"
+    assert task_properties["interaction_prompt"]["const"] == ""
+    assert task_properties["output_variable"]["type"] == "null"
 
 
 def test_task_plan_rejects_unscoped_expert_bindings_before_blueprint():
@@ -198,10 +199,7 @@ def test_blueprint_and_repair_prompts_expose_typed_ir_agent_constraints():
             "never emit outputVariable" in rule
             for rule in graph_contract["rules"]
         )
-        assert (
-            prompt["capability_snapshot"]["graph_intent_contract"]
-            == graph_contract
-        )
+        assert "graph_intent_contract" not in prompt["capability_snapshot"]
         assert prompt["default_agent_model_id"] == request.default_agent_model_id
         example = GraphIntentV3.model_validate(prompt["canonical_minimal_example"])
         assert example.ir_version == 3
@@ -496,7 +494,7 @@ def test_capability_api_returns_stable_safe_contract():
     response = client.get("/api/meta-agent/capabilities")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "evoagentx-meta-planner-capabilities-v9"
+    assert payload["version"] == "evoagentx-meta-planner-capabilities-v10"
     assert payload["control_flow_contract_version"] == 2
     assert payload["authoring_protocol_version"] == 1
     assert payload["authoring_limits"]["max_operations"] == 64
@@ -519,6 +517,9 @@ def test_capability_snapshot_only_exposes_compilable_node_kinds():
         "data_aggregate",
         "data_merge",
         "data_table_query",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
         "dataset_compare",
         "input",
         "json_deserialize",
@@ -790,7 +791,7 @@ async def test_generation_persists_proposal_and_uses_at_most_one_repair(
     outputs = [
         _plan().model_dump_json(),
         _typed_blueprint().model_dump_json(),
-        graph_intent.model_dump_json(),
+        json.dumps(from_intent(graph_intent)),
     ]
     calls = []
 
@@ -859,7 +860,7 @@ async def test_invalid_task_plan_uses_the_single_shared_repair_pass(
     outputs = [
         json.dumps({"result": "Please clarify the request."}),
         _plan().model_dump_json(),
-        graph_intent.model_dump_json(),
+        json.dumps(from_intent(graph_intent)),
     ]
     calls: list[dict[str, object]] = []
 
@@ -942,7 +943,7 @@ async def test_task_plan_repair_never_allows_a_fourth_blueprint_call(
 
 
 @pytest.mark.asyncio
-async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
+async def test_parseable_recipe_repair_uses_bounded_semantic_edits_once(tmp_path: Path):
     proposal_store = AuthoringProposalStore(tmp_path / "runtime")
     xpert_store = XpertStore(tmp_path / "xperts")
     authoring = AuthoringService(
@@ -971,27 +972,15 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
         if len(calls) == 1:
             return _plan().model_dump_json()
         if len(calls) == 2:
-            return invalid.model_dump_json()
+            return json.dumps(from_intent(invalid))
         prompt = json.loads(user_prompt)
         assert "required_envelope" not in prompt
-        assert prompt["server_owned_fields"] == [
-            "protocol_version",
-            "proposal_revision",
-            "expected_graph_checksum",
-            "expected_candidate_checksum",
-        ]
+        assert "server_owned_fields" not in prompt and "base_intent" not in prompt
         assert set(prompt["required_schema"]["properties"]) == {"operations"}
-        return json.dumps(
-            {
-                "operations": [
-                    {
-                        "op": "set_final_output",
-                        "node_ref": graph_intent.final_output.sources[0].node_ref,
-                        "port": "result",
-                    }
-                ],
-            }
-        )
+        assert prompt["required_schema"]["properties"]["operations"]["maxItems"] == 16
+        assert prompt["invalid_generation"]["final_output"]["sources"][0]["port"] == "missing_output"
+        return json.dumps({"operations": [{"op": "set_final_output",
+            "final_output": from_intent(graph_intent)["final_output"]}]})
 
     service = MetaPlannerV2Service(
         authoring_service=authoring,
@@ -1005,12 +994,13 @@ async def test_parseable_v3_repair_uses_one_typed_graph_patch(tmp_path: Path):
     response = await service.generate(_request(), _snapshot())
 
     assert len(calls) == 3
-    assert "typed Graph Patch operations" in str(calls[-1]["system_prompt"])
+    from server.meta_agent.recipe_edits import RECIPE_EDIT_SYSTEM_PROMPT
+    assert calls[-1]["system_prompt"] == RECIPE_EDIT_SYSTEM_PROMPT
     assert calls[-1]["temperature"] == 0
     assert response.repair_used is True
     assert response.validation["valid"] is True
     proposal = proposal_store.require(response.proposal_id)
-    assert proposal.payload["meta_planner_report"]["repair_protocol"] == "graph_patch_v1"
+    assert proposal.payload["meta_planner_report"]["repair_protocol"] == "recipe_edits_v1"
 
 
 @pytest.mark.asyncio
@@ -1055,7 +1045,7 @@ async def test_failed_repair_persists_unapprovable_candidate_until_human_edit(
     assert proposal.validation["valid"] is False
     assert (
         proposal.payload["meta_planner_report"]["repair_protocol"]
-        == "graph_intent_v3"
+        == "generation_recipe_v1"
     )
     fallback_agent = next(
         node
@@ -1121,7 +1111,7 @@ async def test_update_revision_drift_uses_final_proposal_validation(
     authoring.validate = validate_after_revision_drift  # type: ignore[method-assign]
     graph_intent, _ = v2_to_graph_intent(_typed_blueprint())
     assert graph_intent is not None
-    outputs = [_plan().model_dump_json(), graph_intent.model_dump_json()]
+    outputs = [_plan().model_dump_json(), json.dumps(from_intent(graph_intent))]
 
     async def complete(model_id, system_prompt, user_prompt, temperature, max_tokens):
         return outputs.pop(0)

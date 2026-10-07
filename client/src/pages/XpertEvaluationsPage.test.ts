@@ -1,17 +1,26 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildEvaluationPreflightRequest,
+  evaluationOutputForReport,
+  normalizeEffectEvidenceStatus,
   normalizeEvaluationCasesForSave,
+  normalizePartialCompletion,
   normalizeResourceEvidence,
   normalizeVisionEvidence,
+  normalizeWriteEffectEvidence,
   resourceEvidenceSummaryLabel,
+  saveEvaluationCasesDraft,
 } from "./XpertEvaluationsPage";
 import {
   evaluationCaseUploadIdentity,
   parseVisionAnchorsJson,
   resolveEvaluationUploadCaseIndex,
 } from "../components/evaluations/EvaluationVisionCases";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("Xpert evaluation resource evidence", () => {
   it("uses the item-level resource_reads emitted by the backend", () => {
@@ -220,5 +229,156 @@ describe("Xpert evaluation visual fixtures", () => {
       { message: "重复" },
       { message: "重复" },
     ], evaluationCaseUploadIdentity({ message: "重复" }))).toBeNull();
+  });
+});
+
+describe("Xpert evaluation write fixtures and report evidence", () => {
+  it("存在未应用或无效写入 JSON 时阻断保存且不发请求", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(saveEvaluationCasesDraft({
+      datasetId: "dataset_1",
+      revision: 3,
+      casesText: JSON.stringify([{ case_id: "case_1", message: "更新订单" }]),
+      editorState: {
+        has_unapplied_changes: true,
+        has_invalid_changes: true,
+      },
+    })).rejects.toThrow("先修正并应用");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("保存时保留合法初始化和效果正文", () => {
+    const cases = normalizeEvaluationCasesForSave([{
+      case_id: "case_write",
+      message: "更新订单状态",
+      table_initializations: [{
+        table_id: "table-orders",
+        schema_version: 4,
+        source: "manual",
+        records: [{ ref: "order_a", data: { status: "pending" } }],
+      }],
+      effects: [{
+        node_ref: "write_order",
+        table_id: "table-orders",
+        operation: "update",
+        schema_version: 4,
+        contract_checksum: "a".repeat(64),
+        status: "applied",
+        affected_count: 1,
+        expected_before: { status: "pending" },
+        expected_after: { status: "done" },
+      }],
+    }]);
+
+    expect(cases[0].table_initializations).toEqual([{
+      table_id: "table-orders",
+      schema_version: 4,
+      source: "manual",
+      records: [{ ref: "order_a", data: { status: "pending" } }],
+    }]);
+    expect(cases[0].effects?.[0]).toMatchObject({
+      node_ref: "write_order",
+      expected_before: { status: "pending" },
+      expected_after: { status: "done" },
+    });
+  });
+
+  it("报告只投影安全写入回执字段，不显示记录或效果正文", () => {
+    const evidence = normalizeWriteEffectEvidence([{
+      node_ref: "write_order",
+      table_id: "table-orders",
+      operation: "update",
+      schema_version: 4,
+      contract_checksum: "a".repeat(64),
+      request_checksum: "b".repeat(64),
+      status: "applied",
+      affected_count: 1,
+      replayed: false,
+      error_code: null,
+      untouched_before_checksum: "c".repeat(64),
+      untouched_after_checksum: "c".repeat(64),
+      expected_before: { status: "private-before" },
+      expected_after: { status: "private-after" },
+      private_effect: { before_records: [{ secret: "must-not-render" }] },
+      output: { secret: "must-not-render" },
+      records: [{ secret: "must-not-render" }],
+    }]);
+
+    expect(evidence).toEqual([{
+      node_ref: "write_order",
+      table_id: "table-orders",
+      operation: "update",
+      schema_version: 4,
+      contract_checksum: "a".repeat(64),
+      request_checksum: "b".repeat(64),
+      status: "applied",
+      affected_count: 1,
+      replayed: false,
+    }]);
+    expect(JSON.stringify(evidence)).not.toContain("private");
+    expect(JSON.stringify(evidence)).not.toContain("records");
+    expect(JSON.stringify(evidence)).not.toContain("untouched");
+    expect(evaluationOutputForReport(
+      '{"records":[{"secret":"must-not-render"}]}',
+      "verified",
+      evidence,
+      null,
+    )).toBe("受控写入评测输出已隐藏；报告仅显示安全效果回执。");
+  });
+
+  it("畸形非空写标识仍隐藏正文，普通旧文本报告保持不变", () => {
+    const privateOutput = '{"records":[{"secret":"must-not-render"}]}';
+
+    expect(evaluationOutputForReport(
+      privateOutput,
+      null,
+      [{ private_effect: { before_records: [{ secret: "must-not-render" }] } }],
+      null,
+    )).toBe("受控写入评测输出已隐藏；报告仅显示安全效果回执。");
+    expect(evaluationOutputForReport(
+      privateOutput,
+      "recorded",
+      [],
+      null,
+    )).toBe("受控写入评测输出已隐藏；报告仅显示安全效果回执。");
+    expect(evaluationOutputForReport(
+      "普通文本结果",
+      "not_applicable",
+      [],
+      null,
+    )).toBe("普通文本结果");
+  });
+
+  it("严格归一化效果状态、checksum 与部分完成摘要", () => {
+    expect(normalizeEffectEvidenceStatus("verified")).toBe("verified");
+    expect(normalizeEffectEvidenceStatus("recorded")).toBeNull();
+    expect(normalizeWriteEffectEvidence([{
+      node_ref: "write_order",
+      table_id: "table-orders",
+      operation: "update",
+      schema_version: 4,
+      contract_checksum: "forged",
+      request_checksum: "b".repeat(64),
+      status: "applied",
+      affected_count: 1,
+      replayed: false,
+    }])).toEqual([]);
+    expect(normalizePartialCompletion({
+      committed_nodes: 2,
+      affected_rows: 3,
+      rolled_back: false,
+      records: [{ secret: "must-not-render" }],
+    })).toEqual({
+      committed_nodes: 2,
+      affected_rows: 3,
+      rolled_back: false,
+    });
+    expect(normalizePartialCompletion({
+      committed_nodes: 2,
+      affected_rows: 3,
+      rolled_back: true,
+    })).toBeNull();
   });
 });

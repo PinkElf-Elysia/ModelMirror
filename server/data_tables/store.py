@@ -35,6 +35,7 @@ MAX_FIELDS = 50
 MAX_RECORD_BYTES = 256 * 1024
 MAX_QUERY_LIMIT = 200
 MAX_MUTATION_ROWS = 100
+MAX_EVALUATION_INITIALIZATION_LOGICAL_BYTES = 16 * 1024 * 1024
 SYSTEM_FIELDS = {"record_id", "created_at", "updated_at", "revision"}
 FILTER_OPERATORS = {
     "eq",
@@ -65,6 +66,54 @@ class AgentTableValidationError(AgentTableError):
     pass
 
 
+class _ExpectedRecordRevisionConflict(AgentTableConflictError):
+    pass
+
+
+def _canonical_json(value: Any) -> str:
+    def validate(item: Any, path: str) -> None:
+        if item is None or isinstance(item, (str, bool, int)):
+            return
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                raise AgentTableValidationError(
+                    f"{path} must contain only finite JSON numbers."
+                )
+            return
+        if isinstance(item, list):
+            for index, child in enumerate(item):
+                validate(child, f"{path}[{index}]")
+            return
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise AgentTableValidationError(
+                        f"{path} must contain only string object keys."
+                    )
+                validate(child, f"{path}.{key}")
+            return
+        raise AgentTableValidationError(
+            f"{path} contains a non-JSON value of type {type(item).__name__}."
+        )
+
+    validate(value, "request")
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def controlled_write_request_checksum(request: dict[str, Any]) -> str:
+    """Return SHA-256 over the exact canonical JSON controlled-write request."""
+
+    if not isinstance(request, dict):
+        raise AgentTableValidationError("Controlled write request must be an object.")
+    return hashlib.sha256(_canonical_json(request).encode("utf-8")).hexdigest()
+
+
 class AgentTableBackend(Protocol):
     backend_name: str
 
@@ -85,6 +134,24 @@ class AgentTableBackend(Protocol):
     def update_records(self, table_id: str, **kwargs: Any) -> dict[str, int]: ...
 
     def delete_records(self, table_id: str, **kwargs: Any) -> dict[str, int]: ...
+
+    def execute_controlled_write(self, table_id: str, **kwargs: Any) -> dict[str, Any]: ...
+
+    def get_controlled_operation(
+        self, table_id: str, operation_id: str, **kwargs: Any
+    ) -> dict[str, Any] | None: ...
+
+    def initialize_evaluation_tables(
+        self,
+        tables: list[dict[str, Any]],
+        *,
+        initialization_checksum: str,
+        require_existing: bool = False,
+    ) -> dict[str, Any]: ...
+
+    def validate_record_for_schema(
+        self, table_id: str, **kwargs: Any
+    ) -> dict[str, Any]: ...
 
 
 class SQLiteAgentTableBackend:
@@ -446,6 +513,39 @@ class SQLiteAgentTableBackend:
         business_fields = {field.name for field in schema.fields}
         readable_fields = business_fields | SYSTEM_FIELDS
 
+        if kind in {"data_table_insert", "data_table_update", "data_table_delete"} and data.get("contractVersion") == 2:
+            try:
+                from server.workflow_native.node_contracts import validate_controlled_write_authority
+            except ModuleNotFoundError:
+                from workflow_native.node_contracts import validate_controlled_write_authority
+            grant = validate_controlled_write_authority(kind, data)
+            active = self.resolve_schema_version(table_id, version_policy="pinned", pinned_version=schema_version, write=True)
+            if grant.table_id != table_id or schema_version != data["pinnedSchemaVersion"] or active.checksum != data["pinnedSchemaChecksum"]:
+                raise AgentTableConflictError("受控写入的固定 Schema 已漂移。")
+            if set(grant.writable_fields) - business_fields:
+                raise AgentTableValidationError("写入授权包含固定 Schema 中不存在的字段。")
+            if kind != "data_table_delete" and data.get("valueSource") == "literal":
+                self._validate_record_data(data["literalValues"], schema.fields, partial=kind == "data_table_update")
+            if kind != "data_table_insert":
+                self._validate_controlled_filter(data.get("filter"))
+
+                def check_fixed_predicate(tree: dict[str, Any]) -> None:
+                    if "items" in tree:
+                        for child in tree["items"]:
+                            check_fixed_predicate(child)
+                    elif tree["operator"] == "is_null":
+                        self._compile_filter(tree, schema.fields, [], allow_empty=False)
+                    else:
+                        binding = tree.get("value")
+                        if not isinstance(binding, dict) or binding.get("source") not in {"literal", "variable"}:
+                            raise AgentTableValidationError("受控条件必须使用固定值或类型化变量绑定。")
+                        if binding["source"] == "literal":
+                            self._compile_filter({**tree, "value": binding.get("value")}, schema.fields, [], allow_empty=False)
+                        elif not isinstance(binding.get("variable"), str) or not binding["variable"]:
+                            raise AgentTableValidationError("受控条件变量不能为空。")
+
+                check_fixed_predicate(data["filter"])
+
         def require_field(field_name: object, *, readable: bool) -> None:
             name = str(field_name or "").strip()
             allowed = readable_fields if readable else business_fields
@@ -477,6 +577,24 @@ class SQLiteAgentTableBackend:
             require_field(value.get("field"), readable=True)
 
         check_filter(data.get("filter"))
+
+    def validate_record_for_schema(
+        self,
+        table_id: str,
+        *,
+        schema_version: int,
+        data: dict[str, Any],
+        partial: bool = False,
+    ) -> dict[str, Any]:
+        if not isinstance(partial, bool):
+            raise AgentTableValidationError("partial must be a boolean.")
+        with self._lock, self._connection() as connection:
+            schema = self._load_schema_version(
+                connection, table_id, schema_version
+            )
+            return self._validate_record_data(
+                data, schema.fields, partial=partial
+            )
 
     def query_records(
         self,
@@ -801,6 +919,599 @@ class SQLiteAgentTableBackend:
                 affected_count=len(rows),
             )
             return result
+
+    def get_controlled_operation(
+        self,
+        table_id: str,
+        operation_id: str,
+        *,
+        request_checksum: str,
+    ) -> dict[str, Any] | None:
+        if not isinstance(operation_id, str):
+            raise AgentTableValidationError(
+                "operation_id must contain 1 to 160 characters."
+            )
+        self._validate_operation_id(operation_id)
+        self._validate_request_checksum(request_checksum)
+        with self._lock, self._connection() as connection:
+            row = connection.execute(
+                """SELECT operation, request_hash, response_json
+                   FROM agent_table_operations
+                   WHERE table_id = ? AND operation_id = ?""",
+                (table_id, operation_id),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["request_hash"] != request_checksum:
+            raise AgentTableConflictError(
+                "The operation ID was already used with a different request."
+            )
+        if not str(row["operation"]).startswith("controlled."):
+            raise AgentTableConflictError(
+                "The operation ID was already used by a non-controlled write."
+            )
+        stored = json.loads(row["response_json"])
+        return {**stored, "replayed": True}
+
+    def initialize_evaluation_tables(
+        self,
+        tables: list[dict[str, Any]],
+        *,
+        initialization_checksum: str,
+        require_existing: bool = False,
+    ) -> dict[str, Any]:
+        """Initialize fixed evaluator tables in a new, otherwise empty backend."""
+
+        self._validate_request_checksum(initialization_checksum)
+        tables_checksum = hashlib.sha256(_canonical_json(tables).encode("utf-8")).hexdigest()
+        if not isinstance(require_existing, bool):
+            raise AgentTableValidationError("require_existing must be a boolean.")
+        marker_operation = "evaluation.initialize"
+        marker_operation_id = "__evaluation_initialization__"
+        with self._lock, self._connection(write=True) as connection:
+            markers = connection.execute(
+                """SELECT request_hash, response_json
+                   FROM agent_table_operations WHERE operation = ?""",
+                (marker_operation,),
+            ).fetchall()
+            if markers:
+                if len(markers) != 1:
+                    raise AgentTableConflictError(
+                        "Evaluator initialization ledger is inconsistent."
+                    )
+                marker = markers[0]
+                if marker["request_hash"] != initialization_checksum:
+                    raise AgentTableConflictError(
+                        "Evaluator backend was initialized with a different checksum."
+                    )
+                response = json.loads(marker["response_json"])
+                if response.get("initialization_checksum") != initialization_checksum:
+                    raise AgentTableConflictError(
+                        "Evaluator initialization ledger is inconsistent."
+                    )
+                if response.get("tables_checksum") != tables_checksum:
+                    raise AgentTableConflictError("恢复请求的初始化表内容已变化。")
+                return response
+
+            if require_existing:
+                raise AgentTableConflictError(
+                    "Evaluator recovery requires an existing initialization marker."
+                )
+
+            if self._has_business_state(connection):
+                raise AgentTableConflictError(
+                    "Evaluator initialization requires an empty business database."
+                )
+            if not isinstance(tables, list) or not tables:
+                raise AgentTableValidationError(
+                    "Evaluator initialization requires at least one table."
+                )
+
+            for raw_table in tables:
+                if not isinstance(raw_table, dict):
+                    raise AgentTableValidationError(
+                        "Evaluator table snapshots must be objects."
+                    )
+                records = raw_table.get("records")
+                if not isinstance(records, list):
+                    raise AgentTableValidationError(
+                        "Evaluator table records must be an array."
+                    )
+                if len(records) > MAX_QUERY_LIMIT:
+                    raise AgentTableValidationError(
+                        f"Each evaluator table supports at most {MAX_QUERY_LIMIT} records."
+                    )
+
+            mappings: dict[str, dict[str, str]] = {}
+            seen_table_ids: set[str] = set()
+            marker_table_id = ""
+            for raw_table in tables:
+                expected_keys = {
+                    "table_id",
+                    "name",
+                    "schema_version",
+                    "schema_checksum",
+                    "fields",
+                    "records",
+                }
+                if set(raw_table) != expected_keys:
+                    raise AgentTableValidationError(
+                        "Evaluator table snapshots must contain only table_id, name, "
+                        "schema_version, schema_checksum, fields, and records."
+                    )
+                table_id = raw_table["table_id"]
+                if (
+                    not isinstance(table_id, str)
+                    or not table_id
+                    or table_id != table_id.strip()
+                    or len(table_id) > 160
+                ):
+                    raise AgentTableValidationError(
+                        "Evaluator table_id must contain 1 to 160 trimmed characters."
+                    )
+                if table_id in seen_table_ids:
+                    raise AgentTableValidationError(
+                        f"Duplicate evaluator table_id: {table_id}."
+                    )
+                seen_table_ids.add(table_id)
+                if not marker_table_id:
+                    marker_table_id = table_id
+
+                schema_version = raw_table["schema_version"]
+                if (
+                    isinstance(schema_version, bool)
+                    or not isinstance(schema_version, int)
+                    or schema_version < 1
+                ):
+                    raise AgentTableValidationError(
+                        "Evaluator schema_version must be a positive integer."
+                    )
+                schema_checksum = raw_table["schema_checksum"]
+                self._validate_request_checksum(schema_checksum)
+                fields = self._normalize_evaluation_fields(raw_table["fields"])
+                fields_json = self._json(
+                    [field.model_dump() for field in fields]
+                )
+                actual_schema_checksum = hashlib.sha256(
+                    fields_json.encode("utf-8")
+                ).hexdigest()
+                if actual_schema_checksum != schema_checksum:
+                    raise AgentTableConflictError(
+                        f"Evaluator schema checksum does not match for {table_id}."
+                    )
+
+                name = self._required_text(raw_table["name"], "name", 160)
+                now = time.time()
+                table = AgentTableDefinition(
+                    table_id=table_id,
+                    name=name,
+                    status="published",
+                    draft_revision=1,
+                    active_schema_version=schema_version,
+                    fields=fields,
+                    created_at=now,
+                    updated_at=now,
+                )
+                connection.execute(
+                    """INSERT INTO agent_table_definitions
+                       (table_id, name, description, status, draft_revision,
+                        active_schema_version, fields_json, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self._table_parameters(table),
+                )
+                connection.execute(
+                    """INSERT INTO agent_table_schema_versions
+                       (table_id, version, draft_revision, fields_json, checksum,
+                        published_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        table_id,
+                        schema_version,
+                        1,
+                        fields_json,
+                        schema_checksum,
+                        now,
+                    ),
+                )
+
+                ref_mapping: dict[str, str] = {}
+                for raw_record in raw_table["records"]:
+                    if not isinstance(raw_record, dict) or set(raw_record) != {
+                        "ref",
+                        "data",
+                    }:
+                        raise AgentTableValidationError(
+                            "Evaluator records must contain only ref and data."
+                        )
+                    ref = raw_record["ref"]
+                    if (
+                        not isinstance(ref, str)
+                        or not ref
+                        or ref != ref.strip()
+                        or len(ref) > 160
+                    ):
+                        raise AgentTableValidationError(
+                            "Evaluator record refs must contain 1 to 160 trimmed characters."
+                        )
+                    if ref in ref_mapping:
+                        raise AgentTableValidationError(
+                            f"Duplicate evaluator record ref: {ref}."
+                        )
+                    data = self._validate_record_data(
+                        raw_record["data"], fields, partial=False
+                    )
+                    record_now = time.time()
+                    record = AgentTableRecord(
+                        record_id=f"record_{uuid.uuid4().hex}",
+                        table_id=table_id,
+                        schema_version=schema_version,
+                        data=data,
+                        revision=1,
+                        created_at=record_now,
+                        updated_at=record_now,
+                    )
+                    connection.execute(
+                        """INSERT INTO agent_table_records
+                           (table_id, record_id, schema_version, data_json, revision,
+                            created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        self._record_parameters(record),
+                    )
+                    ref_mapping[ref] = record.record_id
+                mappings[table_id] = ref_mapping
+
+            response = {
+                "initialization_checksum": initialization_checksum,
+                "tables_checksum": tables_checksum,
+                "tables": mappings,
+            }
+            self._save_operation(
+                connection,
+                marker_table_id,
+                marker_operation_id,
+                marker_operation,
+                initialization_checksum,
+                response,
+            )
+            logical_bytes = self._evaluation_initialization_logical_bytes(connection)
+            if logical_bytes > MAX_EVALUATION_INITIALIZATION_LOGICAL_BYTES:
+                raise AgentTableValidationError(
+                    "Evaluator initialization exceeds the 16 MiB logical JSON limit "
+                    f"({logical_bytes} > "
+                    f"{MAX_EVALUATION_INITIALIZATION_LOGICAL_BYTES})."
+                )
+            return response
+
+    def execute_controlled_write(
+        self,
+        table_id: str,
+        *,
+        operation: str,
+        schema_version: int,
+        schema_checksum: str,
+        data: dict[str, Any] | None,
+        filter_tree: dict[str, Any] | None,
+        expected_records: list[dict[str, Any]],
+        writable_fields: list[str],
+        max_affected_rows: int = 1,
+        operation_id: str,
+        request_checksum: str,
+        capture_effects: bool = False,
+        max_logical_bytes: int | None = None,
+    ) -> dict[str, Any]:
+        """Execute a bounded V2 write whose identity is the exact request body.
+
+        The checksum request uses exactly these keys: operation, table_id,
+        schema_version, schema_checksum, data, filter, expected_records,
+        writable_fields, and max_affected_rows. ``capture_effects`` and the
+        optional logical quota are evaluator controls and are not request data.
+        """
+
+        request = {
+            "operation": operation,
+            "table_id": table_id,
+            "schema_version": schema_version,
+            "schema_checksum": schema_checksum,
+            "data": data,
+            "filter": filter_tree,
+            "expected_records": expected_records,
+            "writable_fields": writable_fields,
+            "max_affected_rows": max_affected_rows,
+        }
+        computed_checksum = controlled_write_request_checksum(request)
+        self._validate_request_checksum(request_checksum)
+        if computed_checksum != request_checksum:
+            raise AgentTableConflictError(
+                "Controlled write request checksum does not match the exact request."
+            )
+        if not isinstance(operation_id, str):
+            raise AgentTableValidationError(
+                "operation_id must contain 1 to 160 characters."
+            )
+        self._validate_operation_id(operation_id)
+        if operation not in {"insert", "update", "delete"}:
+            raise AgentTableValidationError(
+                "Controlled write operation must be insert, update, or delete."
+            )
+        if isinstance(schema_version, bool) or not isinstance(schema_version, int):
+            raise AgentTableValidationError("schema_version must be a positive integer.")
+        if schema_version < 1:
+            raise AgentTableValidationError("schema_version must be a positive integer.")
+        if not isinstance(schema_checksum, str) or not schema_checksum:
+            raise AgentTableValidationError("schema_checksum is required.")
+        if (
+            isinstance(max_affected_rows, bool)
+            or not isinstance(max_affected_rows, int)
+            or not 1 <= max_affected_rows <= MAX_MUTATION_ROWS
+        ):
+            raise AgentTableValidationError(
+                f"max_affected_rows must be an integer from 1 to {MAX_MUTATION_ROWS}."
+            )
+        if max_logical_bytes is not None and (
+            isinstance(max_logical_bytes, bool)
+            or not isinstance(max_logical_bytes, int)
+            or max_logical_bytes < 1
+        ):
+            raise AgentTableValidationError(
+                "max_logical_bytes must be a positive integer when supplied."
+            )
+        normalized_expected = self._validate_expected_records(expected_records)
+        if type(capture_effects) is not bool:
+            raise AgentTableValidationError("capture_effects 必须是严格布尔值。")
+        if operation != "insert":
+            self._validate_controlled_filter(filter_tree)
+
+        with self._lock, self._connection(write=True) as connection:
+            replay = self._load_operation(
+                connection,
+                table_id,
+                operation_id,
+                f"controlled.{operation}",
+                request_checksum,
+            )
+            if replay is not None:
+                return {**replay, "replayed": True}
+
+            _, schema = self._writable_schema(connection, table_id)
+            if schema.version != schema_version:
+                raise AgentTableConflictError(
+                    "Controlled write schema version is not the active schema."
+                )
+            if schema.checksum != schema_checksum:
+                raise AgentTableConflictError(
+                    "Controlled write schema checksum does not match."
+                )
+            normalized_writable = self._validate_writable_fields(
+                writable_fields, schema.fields
+            )
+            writable = set(normalized_writable)
+            selected_fields = [field.name for field in schema.fields]
+            changed_fields: list[str] = []
+            before_records: list[dict[str, Any]] = []
+            after_records: list[dict[str, Any]] = []
+            affected_ids: set[str] = set()
+            untouched_before_checksum: str | None = None
+
+            if operation == "insert":
+                if filter_tree not in (None, {}) or normalized_expected:
+                    raise AgentTableValidationError(
+                        "Insert does not accept a filter or expected records."
+                    )
+                if not isinstance(data, dict):
+                    raise AgentTableValidationError("Insert data must be an object.")
+                self._require_writable_data(data, writable)
+                normalized = self._validate_record_data(
+                    data, schema.fields, partial=False
+                )
+                now = time.time()
+                record = AgentTableRecord(
+                    record_id=f"record_{uuid.uuid4().hex}",
+                    table_id=table_id,
+                    schema_version=schema.version,
+                    data=normalized,
+                    revision=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                affected_ids = {record.record_id}
+                if capture_effects:
+                    untouched_before_checksum = self._business_records_checksum(
+                        connection, table_id, affected_ids
+                    )
+                connection.execute(
+                    """INSERT INTO agent_table_records
+                       (table_id, record_id, schema_version, data_json, revision,
+                        created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self._record_parameters(record),
+                )
+                output: dict[str, Any] = self._flatten_record(record, selected_fields)
+                changed_fields = sorted(normalized)
+                after_records = [output]
+            else:
+                if operation == "update":
+                    if not isinstance(data, dict):
+                        raise AgentTableValidationError(
+                            "Update data must be an object."
+                        )
+                    if not data:
+                        raise AgentTableValidationError("Update data cannot be empty.")
+                    self._require_writable_data(data, writable)
+                    normalized_patch = self._validate_record_data(
+                        data, schema.fields, partial=True
+                    )
+                    changed_fields = sorted(normalized_patch)
+                else:
+                    if data not in (None, {}):
+                        raise AgentTableValidationError("Delete data must be empty.")
+                    if normalized_writable:
+                        raise AgentTableValidationError(
+                            "Delete writable_fields must be empty."
+                        )
+                    normalized_patch = {}
+
+                try:
+                    self._load_expected_rows(
+                        connection, table_id, normalized_expected
+                    )
+                except _ExpectedRecordRevisionConflict:
+                    if not capture_effects:
+                        raise
+                    error_code = "DATA_TABLE_REVISION_CONFLICT"
+                    current_checksum = self._business_records_checksum(
+                        connection, table_id, set()
+                    )
+                    conflict_receipt = {
+                        "operation_id": operation_id,
+                        "table_id": table_id,
+                        "operation": operation,
+                        "schema_version": schema.version,
+                        "schema_checksum": schema.checksum,
+                        "request_checksum": request_checksum,
+                        "affected_count": 0,
+                        "changed_fields": changed_fields,
+                        "error_code": error_code,
+                    }
+                    conflict_stored = {
+                        "output": {"matched": 0, "affected": 0},
+                        "receipt": conflict_receipt,
+                        "private_effect": {
+                            "before_records": [],
+                            "after_records": [],
+                            "untouched_before_checksum": current_checksum,
+                            "untouched_after_checksum": current_checksum,
+                        },
+                        "error_code": error_code,
+                    }
+                    self._save_operation(
+                        connection,
+                        table_id,
+                        operation_id,
+                        f"controlled.{operation}",
+                        request_checksum,
+                        conflict_stored,
+                    )
+                    if max_logical_bytes is not None:
+                        logical_bytes = self._logical_records_and_ledger_bytes(
+                            connection
+                        )
+                        if logical_bytes > max_logical_bytes:
+                            raise AgentTableValidationError(
+                                "Controlled write exceeds max_logical_bytes "
+                                f"({logical_bytes} > {max_logical_bytes})."
+                            )
+                    return {**conflict_stored, "replayed": False}
+                matched_rows = self._narrow_expected_rows(
+                    connection,
+                    table_id,
+                    schema.fields,
+                    filter_tree,
+                    [item["record_id"] for item in normalized_expected],
+                )
+                if len(matched_rows) > max_affected_rows:
+                    raise AgentTableValidationError(
+                        "Controlled write exceeds max_affected_rows."
+                    )
+                matched_records = [self._record_from_row(row) for row in matched_rows]
+                before_records = [
+                    self._flatten_record(record, selected_fields)
+                    for record in matched_records
+                ]
+                affected_ids = {record.record_id for record in matched_records}
+                if capture_effects:
+                    untouched_before_checksum = self._business_records_checksum(
+                        connection, table_id, affected_ids
+                    )
+
+                if operation == "update":
+                    updated_records: list[AgentTableRecord] = []
+                    for record in matched_records:
+                        merged = dict(record.data)
+                        merged.update(normalized_patch)
+                        updated_records.append(
+                            record.model_copy(
+                                update={
+                                    "data": self._validate_record_data(
+                                        merged, schema.fields, partial=False
+                                    ),
+                                    "schema_version": schema.version,
+                                    "revision": record.revision + 1,
+                                    "updated_at": time.time(),
+                                }
+                            )
+                        )
+                    for record in updated_records:
+                        connection.execute(
+                            """UPDATE agent_table_records
+                               SET schema_version = ?, data_json = ?, revision = ?,
+                                   updated_at = ?
+                               WHERE table_id = ? AND record_id = ?""",
+                            (
+                                record.schema_version,
+                                self._json(record.data),
+                                record.revision,
+                                record.updated_at,
+                                table_id,
+                                record.record_id,
+                            ),
+                        )
+                    after_records = [
+                        self._flatten_record(record, selected_fields)
+                        for record in updated_records
+                    ]
+                else:
+                    if affected_ids:
+                        connection.executemany(
+                            """DELETE FROM agent_table_records
+                               WHERE table_id = ? AND record_id = ?""",
+                            [(table_id, record_id) for record_id in sorted(affected_ids)],
+                        )
+                output = {
+                    "matched": len(matched_rows),
+                    "affected": len(matched_rows),
+                }
+
+            affected_count = 1 if operation == "insert" else int(output["affected"])
+            receipt = {
+                "operation_id": operation_id,
+                "table_id": table_id,
+                "operation": operation,
+                "schema_version": schema.version,
+                "schema_checksum": schema.checksum,
+                "request_checksum": request_checksum,
+                "affected_count": affected_count,
+                "changed_fields": changed_fields,
+            }
+            stored = {"output": output, "receipt": receipt}
+            if capture_effects:
+                stored["private_effect"] = {
+                    "before_records": before_records,
+                    "after_records": after_records,
+                    "untouched_before_checksum": untouched_before_checksum,
+                    "untouched_after_checksum": self._business_records_checksum(
+                        connection, table_id, affected_ids
+                    ),
+                }
+            self._save_operation(
+                connection,
+                table_id,
+                operation_id,
+                f"controlled.{operation}",
+                request_checksum,
+                stored,
+            )
+            self._write_audit(
+                connection,
+                table_id=table_id,
+                operation=f"controlled.{operation}",
+                schema_version=schema.version,
+                affected_count=affected_count,
+            )
+            if max_logical_bytes is not None:
+                logical_bytes = self._logical_records_and_ledger_bytes(connection)
+                if logical_bytes > max_logical_bytes:
+                    raise AgentTableValidationError(
+                        "Controlled write exceeds max_logical_bytes "
+                        f"({logical_bytes} > {max_logical_bytes})."
+                    )
+            return {**stored, "replayed": False}
 
     def list_records(
         self,
@@ -1218,6 +1929,324 @@ class SQLiteAgentTableBackend:
             [table_id, *parameters, MAX_MUTATION_ROWS + 1],
         ).fetchall()
 
+    @staticmethod
+    def _validate_controlled_filter(tree: Any) -> None:
+        count = 0
+
+        def visit(item: Any, depth: int) -> None:
+            nonlocal count
+            if depth > 3 or not isinstance(item, dict) or not item:
+                raise AgentTableValidationError("受控写入条件不能为空且深度不能超过 3。")
+            if "items" in item or "logic" in item:
+                if set(item) != {"logic", "items"} or item.get("logic") not in {"and", "or"} or not isinstance(item.get("items"), list) or not item["items"]:
+                    raise AgentTableValidationError("受控条件组必须包含 and/or 与非空条件数组。")
+                for child in item["items"]:
+                    visit(child, depth + 1)
+                return
+            count += 1
+            if count > 20 or set(item) - {"field", "operator", "value"} or not isinstance(item.get("field"), str) or item.get("operator") not in FILTER_OPERATORS:
+                raise AgentTableValidationError("受控条件包含非法字段、运算符或超过 20 个谓词。")
+            if item["operator"] != "is_null" and "value" not in item:
+                raise AgentTableValidationError("受控条件缺少比较值。")
+
+        visit(tree, 0)
+
+    @staticmethod
+    def _validate_expected_records(
+        expected_records: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not isinstance(expected_records, list) or len(expected_records) > MAX_QUERY_LIMIT:
+            raise AgentTableValidationError(
+                f"expected_records must contain between 0 and {MAX_QUERY_LIMIT} items."
+            )
+        normalized: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in expected_records:
+            if not isinstance(item, dict) or set(item) != {"record_id", "revision"}:
+                raise AgentTableValidationError(
+                    "Each expected record must contain only record_id and revision."
+                )
+            record_id = item["record_id"]
+            revision = item["revision"]
+            if (
+                not isinstance(record_id, str)
+                or not record_id
+                or record_id != record_id.strip()
+            ):
+                raise AgentTableValidationError(
+                    "Expected record_id must be a non-empty trimmed string."
+                )
+            if record_id in seen:
+                raise AgentTableValidationError(
+                    f"Duplicate expected record_id: {record_id}."
+                )
+            if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                raise AgentTableValidationError(
+                    "Expected record revision must be a positive integer."
+                )
+            normalized.append({"record_id": record_id, "revision": revision})
+            seen.add(record_id)
+        return normalized
+
+    @staticmethod
+    def _has_business_state(connection: sqlite3.Connection) -> bool:
+        for table_name in (
+            "agent_table_definitions",
+            "agent_table_schema_versions",
+            "agent_table_records",
+            "agent_table_operations",
+            "agent_table_audit",
+        ):
+            count = int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM {table_name}"
+                ).fetchone()[0]
+            )
+            if count:
+                return True
+        return False
+
+    def _normalize_evaluation_fields(
+        self, values: list[dict[str, Any]]
+    ) -> list[AgentTableField]:
+        if not isinstance(values, list) or not values:
+            raise AgentTableValidationError(
+                "Evaluator schemas require at least one field."
+            )
+        expected_keys = {
+            "field_id",
+            "name",
+            "label",
+            "description",
+            "data_type",
+            "required",
+            "has_default",
+            "default_value",
+        }
+        for raw_field in values:
+            if not isinstance(raw_field, dict) or set(raw_field) != expected_keys:
+                raise AgentTableValidationError(
+                    "Evaluator fields must be complete AgentTableField JSON objects."
+                )
+            if not isinstance(raw_field["field_id"], str) or not raw_field[
+                "field_id"
+            ].strip():
+                raise AgentTableValidationError(
+                    "Evaluator fields require a non-empty field_id."
+                )
+        return self._normalize_fields(values)
+
+    @staticmethod
+    def _validate_writable_fields(
+        writable_fields: list[str], schema_fields: list[AgentTableField]
+    ) -> list[str]:
+        if not isinstance(writable_fields, list) or len(writable_fields) > MAX_FIELDS:
+            raise AgentTableValidationError(
+                f"writable_fields must contain at most {MAX_FIELDS} field names."
+            )
+        allowed = {field.name for field in schema_fields}
+        normalized: list[str] = []
+        for value in writable_fields:
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise AgentTableValidationError(
+                    "writable_fields must contain non-empty trimmed strings."
+                )
+            if value not in allowed:
+                raise AgentTableValidationError(
+                    f"Unknown writable field: {value}."
+                )
+            if value in normalized:
+                raise AgentTableValidationError(
+                    f"Duplicate writable field: {value}."
+                )
+            normalized.append(value)
+        return normalized
+
+    @staticmethod
+    def _require_writable_data(data: dict[str, Any], writable: set[str]) -> None:
+        blocked = sorted(set(data) - writable)
+        if blocked:
+            raise AgentTableValidationError(
+                "Record fields are not writable: " + ", ".join(blocked)
+            )
+
+    def _load_expected_rows(
+        self,
+        connection: sqlite3.Connection,
+        table_id: str,
+        expected_records: list[dict[str, Any]],
+    ) -> list[sqlite3.Row]:
+        if not expected_records:
+            return []
+        record_ids = [item["record_id"] for item in expected_records]
+        placeholders = ", ".join("?" for _ in record_ids)
+        rows = connection.execute(
+            "SELECT * FROM agent_table_records WHERE table_id = ? "
+            f"AND record_id IN ({placeholders})",
+            [table_id, *record_ids],
+        ).fetchall()
+        by_id = {str(row["record_id"]): row for row in rows}
+        missing = [record_id for record_id in record_ids if record_id not in by_id]
+        if missing:
+            raise AgentTableConflictError(
+                "Expected Agent Table records are missing or deleted: "
+                + ", ".join(missing)
+            )
+        for expected in expected_records:
+            actual_revision = int(by_id[expected["record_id"]]["revision"])
+            if actual_revision != expected["revision"]:
+                raise _ExpectedRecordRevisionConflict(
+                    "Expected Agent Table record revision changed: "
+                    f"{expected['record_id']}."
+                )
+        return rows
+
+    def _narrow_expected_rows(
+        self,
+        connection: sqlite3.Connection,
+        table_id: str,
+        schema_fields: list[AgentTableField],
+        filter_tree: dict[str, Any] | None,
+        expected_ids: list[str],
+    ) -> list[sqlite3.Row]:
+        parameters: list[Any] = []
+        where = self._compile_filter(
+            filter_tree,
+            schema_fields,
+            parameters,
+            allow_empty=False,
+        )
+        if not expected_ids:
+            return []
+        placeholders = ", ".join("?" for _ in expected_ids)
+        return connection.execute(
+            "SELECT * FROM agent_table_records WHERE table_id = ? "
+            f"AND record_id IN ({placeholders}) AND ({where}) "
+            "ORDER BY record_id",
+            [table_id, *expected_ids, *parameters],
+        ).fetchall()
+
+    @staticmethod
+    def _business_records_checksum(
+        connection: sqlite3.Connection,
+        table_id: str,
+        excluded_record_ids: set[str],
+    ) -> str:
+        rows = connection.execute(
+            """SELECT record_id, data_json FROM agent_table_records
+               WHERE table_id = ? ORDER BY record_id""",
+            (table_id,),
+        ).fetchall()
+        records = [
+            {"record_id": row["record_id"], "data": json.loads(row["data_json"])}
+            for row in rows
+            if row["record_id"] not in excluded_record_ids
+        ]
+        return hashlib.sha256(
+            _canonical_json({"records": records}).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _logical_records_and_ledger_bytes(connection: sqlite3.Connection) -> int:
+        record_rows = connection.execute(
+            """SELECT table_id, record_id, schema_version, data_json, revision
+               FROM agent_table_records ORDER BY table_id, record_id"""
+        ).fetchall()
+        operation_rows = connection.execute(
+            """SELECT table_id, operation_id, operation, request_hash, response_json
+               FROM agent_table_operations ORDER BY table_id, operation_id"""
+        ).fetchall()
+        payload = {
+            "records": [
+                {
+                    "table_id": row["table_id"],
+                    "record_id": row["record_id"],
+                    "schema_version": row["schema_version"],
+                    "data": json.loads(row["data_json"]),
+                    "revision": row["revision"],
+                }
+                for row in record_rows
+            ],
+            "ledger": [
+                {
+                    "table_id": row["table_id"],
+                    "operation_id": row["operation_id"],
+                    "operation": row["operation"],
+                    "request_checksum": row["request_hash"],
+                    "response": json.loads(row["response_json"]),
+                }
+                for row in operation_rows
+            ],
+        }
+        return len(_canonical_json(payload).encode("utf-8"))
+
+    @staticmethod
+    def _evaluation_initialization_logical_bytes(
+        connection: sqlite3.Connection,
+    ) -> int:
+        definition_rows = connection.execute(
+            """SELECT table_id, name, description, status, draft_revision,
+                      active_schema_version, fields_json
+               FROM agent_table_definitions ORDER BY table_id"""
+        ).fetchall()
+        schema_rows = connection.execute(
+            """SELECT table_id, version, draft_revision, fields_json, checksum
+               FROM agent_table_schema_versions ORDER BY table_id, version"""
+        ).fetchall()
+        record_rows = connection.execute(
+            """SELECT table_id, record_id, schema_version, data_json, revision
+               FROM agent_table_records ORDER BY table_id, record_id"""
+        ).fetchall()
+        operation_rows = connection.execute(
+            """SELECT table_id, operation_id, operation, request_hash, response_json
+               FROM agent_table_operations ORDER BY table_id, operation_id"""
+        ).fetchall()
+        payload = {
+            "definitions": [
+                {
+                    "table_id": row["table_id"],
+                    "name": row["name"],
+                    "description": row["description"],
+                    "status": row["status"],
+                    "draft_revision": row["draft_revision"],
+                    "active_schema_version": row["active_schema_version"],
+                    "fields": json.loads(row["fields_json"]),
+                }
+                for row in definition_rows
+            ],
+            "schemas": [
+                {
+                    "table_id": row["table_id"],
+                    "version": row["version"],
+                    "draft_revision": row["draft_revision"],
+                    "fields": json.loads(row["fields_json"]),
+                    "checksum": row["checksum"],
+                }
+                for row in schema_rows
+            ],
+            "records": [
+                {
+                    "table_id": row["table_id"],
+                    "record_id": row["record_id"],
+                    "schema_version": row["schema_version"],
+                    "data": json.loads(row["data_json"]),
+                    "revision": row["revision"],
+                }
+                for row in record_rows
+            ],
+            "ledger": [
+                {
+                    "table_id": row["table_id"],
+                    "operation_id": row["operation_id"],
+                    "operation": row["operation"],
+                    "request_checksum": row["request_hash"],
+                    "response": json.loads(row["response_json"]),
+                }
+                for row in operation_rows
+            ],
+        }
+        return len(_canonical_json(payload).encode("utf-8"))
+
     def _compile_filter(
         self,
         tree: dict[str, Any] | None,
@@ -1611,6 +2640,15 @@ class SQLiteAgentTableBackend:
     def _validate_operation_id(operation_id: str) -> None:
         if not operation_id.strip() or len(operation_id) > 160:
             raise AgentTableValidationError("operation_id must contain 1 to 160 characters.")
+
+    @staticmethod
+    def _validate_request_checksum(request_checksum: str) -> None:
+        if not isinstance(request_checksum, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", request_checksum
+        ):
+            raise AgentTableValidationError(
+                "request_checksum must be a lowercase SHA-256 digest."
+            )
 
 
 class AgentTableStore:

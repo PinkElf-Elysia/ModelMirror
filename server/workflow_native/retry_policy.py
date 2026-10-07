@@ -186,7 +186,13 @@ def validate_retry_configuration(
         data.get("retryMode") not in {None, ""}
         or data.get("maxAttempts") not in {None, ""}
     )
-    if has_explicit_retry_config and not contract.retry.supported:
+    controlled_write_disabled_marker = (
+        node_kind in {"data_table_insert", "data_table_update", "data_table_delete"}
+        and data.get("contractVersion") == 2
+        and data.get("retryMode") == RETRY_MODE_NONE
+        and data.get("maxAttempts") in {None, ""}
+    )
+    if has_explicit_retry_config and not contract.retry.supported and not controlled_write_disabled_marker:
         raise WorkflowRetryPolicyError(
             "NODE_RETRY_UNSUPPORTED",
             "This node does not support durable retry.",

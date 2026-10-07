@@ -5,12 +5,14 @@ import json
 import re
 from collections import defaultdict, deque
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, get_args
 
 try:
     from server.workflow_native.node_contracts import (
         NODE_CONTRACT_VERSION,
         WorkflowValueSchema,
+        WorkflowValueType,
         canonical_checksum,
         workflow_node_contract_registry,
     )
@@ -18,6 +20,7 @@ except ModuleNotFoundError:
     from workflow_native.node_contracts import (
         NODE_CONTRACT_VERSION,
         WorkflowValueSchema,
+        WorkflowValueType,
         canonical_checksum,
         workflow_node_contract_registry,
     )
@@ -52,6 +55,130 @@ from .schemas import (
 
 GRAPH_IR_VERSION = 3
 SUPPORTED_GRAPH_IR_VERSIONS = (2, 3)
+
+
+def graph_source_identity_issue(
+    node_index: int, input_index: int, node_ref: str, binding: GraphIntentInputBindingV3,
+    source_variables: list[str], *, source_exists: bool,
+) -> dict[str, Any] | None:
+    """Check identity only; declared types and resource contents are never trusted."""
+    if not source_exists:
+        code, message = "DATA_UNKNOWN_SOURCE_REF", f"节点 {node_ref} 的输入来源不存在。"
+    elif not source_variables:
+        code, message = "DATA_UNKNOWN_SOURCE_PORT", f"Node {node_ref} input {binding.variable} has an unknown source port."
+    elif len(source_variables) != 1:
+        code, message = "DATA_AMBIGUOUS_SOURCE_PORT", f"节点 {node_ref} 的输入来源端口不唯一。"
+    elif source_variables[0] != binding.variable:
+        code, message = "DATA_SOURCE_VARIABLE_MISMATCH", f"Node {node_ref} input variable does not match its source output."
+    else:
+        return None
+    return {
+        "code": code, "message": message, "node_index": node_index, "input_index": input_index,
+        "node_ref": node_ref, "port": binding.port, "source_ref": binding.source_ref,
+        "source_port": binding.source_port,
+    }
+
+
+def graph_source_contract_issues(intent: GraphIntentV3) -> list[dict[str, Any]]:
+    from .vision_contract import ATTACHMENT_INPUT_PORT
+    from .write_contract import write_value_input_issue
+
+    outputs: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for name in ("user_input", "conversation_history"):
+        outputs[("input", name)].append(name)
+    if any(node.kind == "vision_understanding" for node in intent.nodes):
+        outputs[("input", ATTACHMENT_INPUT_PORT)].append(ATTACHMENT_INPUT_PORT)
+    for node in intent.nodes:
+        for output in node.outputs:
+            outputs[(node.ref, output.port)].append(output.variable)
+    refs = {"input", *(node.ref for node in intent.nodes)}
+    nodes = {node.ref: node for node in intent.nodes}
+    issues = []
+    for node_index, node in enumerate(intent.nodes):
+        for input_index, binding in enumerate(node.inputs):
+            issue = graph_source_identity_issue(node_index, input_index, node.ref, binding,
+                outputs.get((binding.source_ref, binding.source_port), []), source_exists=binding.source_ref in refs)
+            if issue:
+                issues.append(issue)
+            value_issue = write_value_input_issue(node, binding, nodes.get(binding.source_ref))
+            if value_issue:
+                issues.append({**value_issue, "node_index": node_index, "input_index": input_index})
+    return issues
+
+
+@dataclass(frozen=True)
+class GraphInputTypeIssue:
+    node_index: int
+    input_index: int
+    node_ref: str
+    binding: GraphIntentInputBindingV3
+    source_schema: WorkflowValueSchema
+    target_schema: WorkflowValueSchema
+
+    @property
+    def source_matches_declaration(self) -> bool:
+        return _schemas_compatible(self.source_schema, self.binding.value_schema)
+
+    @property
+    def message(self) -> str:
+        if not self.source_matches_declaration:
+            return f"Node {self.node_ref} input {self.binding.variable} has an incompatible type."
+        return f"Node {self.node_ref} input port {self.binding.port} rejects its value type."
+
+    @property
+    def summary(self) -> str:
+        reason = "声明类型不接受上游的真实类型" if not self.source_matches_declaration else "声明类型不符合目标端口契约"
+        return f"节点 {self.node_ref} 的输入 {self.binding.port}（第 {self.input_index + 1} 项）{reason}。"
+
+    def repair_detail(self) -> dict[str, Any]:
+        def shape(schema: WorkflowValueSchema) -> dict[str, Any]:
+            return {
+                "type": schema.type, "nullable": schema.nullable,
+                **({"items": shape(schema.items)} if schema.items else {}),
+                **({"any_of": [shape(item) for item in schema.any_of]} if schema.any_of else {}),
+            }
+
+        return {
+            "node_index": self.node_index, "input_index": self.input_index,
+            "node_ref": self.node_ref, "source_ref": self.binding.source_ref,
+            "source_port": self.binding.source_port, "target_port": self.binding.port,
+            "source_schema": shape(self.source_schema),
+            "declared_schema": shape(self.binding.value_schema),
+            "target_schema": shape(self.target_schema),
+            "source_matches_declaration": self.source_matches_declaration,
+            "source_assignable": _schemas_compatible(self.source_schema, self.target_schema),
+        }
+
+
+class GraphInputTypeError(ValueError):
+    def __init__(self, issues: list[GraphInputTypeIssue]) -> None:
+        self.issues = tuple(issues)
+        # Keep the first error text compatible for existing resolver callers.
+        super().__init__(self.issues[0].message)
+
+
+def graph_input_type_issue(
+    node_index: int, input_index: int, node_ref: str,
+    binding: GraphIntentInputBindingV3, source_schema: WorkflowValueSchema,
+    target_schema: WorkflowValueSchema, *, source_is_resource: bool = False,
+) -> GraphInputTypeIssue | None:
+    """Shared local type check; callers must first authorize both node facts."""
+    if (_schemas_compatible(source_schema, binding.value_schema)
+            and _schemas_compatible(
+                graph_input_value_schema(binding, source_schema, source_is_resource=source_is_resource),
+                target_schema,
+            )):
+        return None
+    return GraphInputTypeIssue(node_index, input_index, node_ref, binding, source_schema, target_schema)
+
+
+def graph_input_value_schema(
+    binding: GraphIntentInputBindingV3, source_schema: WorkflowValueSchema,
+    *, source_is_resource: bool,
+) -> WorkflowValueSchema:
+    # Resource declarations constrain the source; they never replace its trusted type.
+    # Non-resource inputs keep the existing declaration-based contract.
+    return source_schema if source_is_resource else binding.value_schema
 
 _TEMPLATE_PATTERN = re.compile(r"\{\{\s*(.*?)\s*\}\}", re.DOTALL)
 _SENSITIVE_CONFIG_KEY = re.compile(
@@ -311,15 +438,7 @@ def workflow_authoring_checksum(candidate: dict[str, Any]) -> str:
 
 
 def _value_schema(value_type: str) -> WorkflowValueSchema:
-    normalized = value_type if value_type in {
-        "any",
-        "null",
-        "string",
-        "number",
-        "boolean",
-        "object",
-        "array",
-    } else "any"
+    normalized = value_type if value_type in get_args(WorkflowValueType) else "any"
     return WorkflowValueSchema(type=normalized)
 
 
@@ -787,6 +906,9 @@ def resolve_node_resource_snapshot(
         or resource.get("active_schema_version")
         or 0
     )
+    from .write_contract import WRITE_KINDS
+    if node.kind in WRITE_KINDS and (resource.get("status") == "archived" or expected_version != int(resource.get("active_schema_version") or 0)):
+        raise ValueError("受控写入需要当前活动 Schema，归档或 Schema 漂移时禁止编译。")
     versions = list(resource.get("schema_versions") or [])
     version = next(
         (
@@ -864,8 +986,14 @@ def resolve_graph_intent(
     *,
     default_agent_model_id: str | None = None,
     vision_model_id: str | None = None,
+    data_table_write_grants: list[Any] | None = None,
 ) -> ResolvedGraphIRV3:
     from .vision_contract import ATTACHMENT_INPUT_PORT, VISION_ATTACHMENT_CONTRACT, resolve_planner_vision_model, vision_result_is_consumed
+    from .write_contract import DataTableWriteGrant, WRITE_KINDS, resolve_write_grant, validate_write_graph
+
+    write_grants = [DataTableWriteGrant.model_validate(item) for item in (data_table_write_grants or [])]
+    if len({grant.table_id for grant in write_grants}) != len(write_grants):
+        raise ValueError("同一数据表不能有重复写入授权。")
 
     vision_nodes = [node for node in intent.nodes if node.kind == "vision_understanding"]
     vision_binding = None
@@ -1069,6 +1197,9 @@ def resolve_graph_intent(
                     "json_deserialize",
                     "knowledge_retrieval",
                     "vision_understanding",
+                    "data_table_insert",
+                    "data_table_update",
+                    "data_table_delete",
                 }
                 else None
             ),
@@ -1076,6 +1207,8 @@ def resolve_graph_intent(
         )
         if node.kind == "vision_understanding":
             resolved = resolved.model_copy(update={"vision_model_snapshot": vision_binding})
+        if node.kind in WRITE_KINDS:
+            resolved = resolved.model_copy(update={"write_grant": resolve_write_grant(effective_node, write_grants)})
         contract_outputs = {
             port.name: port for port in resolved.ports if port.direction == "output"
         }
@@ -1157,14 +1290,15 @@ def resolve_graph_intent(
             )
         )
 
-    for node in intent.nodes:
+    input_type_issues: list[GraphInputTypeIssue] = []
+    for node_index, node in enumerate(intent.nodes):
         target_ports = {
             port.name: port
             for port in resolved_by_ref[node.ref].ports
             if port.direction == "input"
         }
         counts: dict[str, int] = defaultdict(int)
-        for binding in node.inputs:
+        for input_index, binding in enumerate(node.inputs):
             if binding.source_ref == "input" and binding.source_port == ATTACHMENT_INPUT_PORT and node.kind != "vision_understanding":
                 raise ValueError("附件资产标识不得作为普通文本或纯节点输入。")
             target_port = target_ports.get(binding.port)
@@ -1190,27 +1324,23 @@ def resolve_graph_intent(
                     f"Node {node.ref} input port {binding.port} exceeds cardinality."
                 )
             source = declared_outputs.get((binding.source_ref, binding.source_port))
-            if source is None:
-                raise ValueError(
-                    f"Node {node.ref} input {binding.variable} has an unknown source port."
-                )
+            identity_issue = graph_source_identity_issue(node_index, input_index, node.ref, binding,
+                [source[0]] if source else [], source_exists=binding.source_ref in resolved_by_ref)
+            if identity_issue:
+                raise ValueError(identity_issue["message"])
+            assert source is not None
             source_variable, source_schema = source
-            if source_variable != binding.variable:
-                raise ValueError(
-                    f"Node {node.ref} input variable does not match its source output."
-                )
             if binding.source_ref != "input" and binding.source_ref not in ancestors[node.ref]:
                 raise ValueError(
                     f"Node {node.ref} input {binding.variable} is not control-reachable."
                 )
-            if not _schemas_compatible(source_schema, binding.value_schema):
-                raise ValueError(
-                    f"Node {node.ref} input {binding.variable} has an incompatible type."
-                )
-            if not _schemas_compatible(binding.value_schema, target_port.value_schema):
-                raise ValueError(
-                    f"Node {node.ref} input port {binding.port} rejects its value type."
-                )
+            type_issue = graph_input_type_issue(
+                node_index, input_index, node.ref, binding, source_schema, target_port.value_schema,
+                source_is_resource=resolved_by_ref[binding.source_ref].resource_snapshot is not None,
+            )
+            if type_issue is not None:
+                input_type_issues.append(type_issue)
+                continue
             edges.append(
                 ResolvedGraphEdgeV3(
                     ref=_stable_ref(
@@ -1233,7 +1363,10 @@ def resolve_graph_intent(
                         port=binding.port,
                     ),
                     variable=binding.variable,
-                    value_schema=binding.value_schema,
+                    value_schema=graph_input_value_schema(
+                        binding, source_schema,
+                        source_is_resource=resolved_by_ref[binding.source_ref].resource_snapshot is not None,
+                    ),
                 )
             )
         missing_required = sorted(
@@ -1246,6 +1379,9 @@ def resolve_graph_intent(
                 f"Node {node.ref} is missing required input ports: "
                 + ", ".join(missing_required)
             )
+
+    if input_type_issues:
+        raise GraphInputTypeError(input_type_issues)
 
     resources = {
         "external_xpert": {item["id"]: item for item in snapshot.external_xperts},
@@ -1485,7 +1621,10 @@ def resolve_graph_intent(
 
     from .control_flow import analyze_control_flow
 
-    control_flow_report = analyze_control_flow(intent)
+    control_flow_report = analyze_control_flow(
+        intent, output_schemas={key: schema for key, (_variable, schema) in declared_outputs.items()},
+    )
+    validate_write_graph(intent, resolved_by_ref, declared_outputs, ancestors, control_flow_report["scenarios"], _schemas_compatible)
     graph = ResolvedGraphIRV3(
         name=intent.name,
         description=intent.description,
@@ -1512,6 +1651,10 @@ def annotate_candidate_with_graph_ir(
     workflow = candidate.get("draft", {}).get("workflow") or {}
     resolved_by_id = {node.node_id: node for node in graph_ir.nodes}
     intent_by_ref = {node.ref: node for node in intent.nodes}
+    resolved_inputs = {
+        (edge.target.node_ref, edge.target.port, edge.source.node_ref, edge.source.port, edge.variable): edge.value_schema
+        for edge in graph_ir.edges if edge.mode == "data"
+    }
     for node in workflow.get("nodes") or []:
         resolved = resolved_by_id.get(str(node.get("id") or ""))
         if resolved is None:
@@ -1528,8 +1671,16 @@ def annotate_candidate_with_graph_ir(
                 for port in resolved.ports
                 if port.direction == "output"
             }
-            data["plannerInputsV3"] = [
-                item.model_dump(mode="json") for item in source.inputs
+            normalized_inputs = [
+                item.model_copy(update={"value_schema": resolved_inputs[
+                    (source.ref, item.port, item.source_ref, item.source_port, item.variable)
+                ]}) for item in source.inputs
+            ]
+            data["plannerInputsV3"] = [item.model_dump(mode="json") for item in normalized_inputs]
+            data["plannerInputs"] = [
+                item.model_dump(mode="json") for item in _graph_intent_inputs_to_v2(
+                    source.model_copy(update={"inputs": normalized_inputs})
+                )
             ]
             data["plannerOutputsV3"] = [
                 item.model_copy(
@@ -1678,7 +1829,7 @@ def decompile_candidate_to_graph_intent_compat(
                 "observed_version_id": observed_version_id,
                 "snapshot_checksum": snapshot_checksum,
             }
-        elif restored.kind == "data_table_query":
+        elif restored.kind in {"data_table_query", "data_table_insert", "data_table_update", "data_table_delete"}:
             resource_id = str(raw_data.get("tableId") or "").strip()
             schema_checksum = str(
                 raw_data.get("pinnedSchemaChecksum") or ""

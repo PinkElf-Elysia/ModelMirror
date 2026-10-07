@@ -33,6 +33,7 @@ except ModuleNotFoundError:
     from xperts.validation import validate_xpert_definition
 
 from .authoring_store import (
+    requires_recipe_recovery,
     AuthoringProposal,
     AuthoringProposalConflictError,
     AuthoringProposalStore,
@@ -161,6 +162,7 @@ class AuthoringService:
         payload: dict[str, Any],
         expected_target_id: str | None = None,
         expected_target_revision: int | None = None,
+        before_commit: Callable[[], None] | None = None,
     ) -> AuthoringProposal:
         """Validate a detached candidate, then persist one atomic Proposal revision."""
 
@@ -174,6 +176,9 @@ class AuthoringService:
                 raise AuthoringProposalConflictError(
                     f"Proposal is already {current_proposal.status}."
                 )
+            recovering_recipe = requires_recipe_recovery(current_proposal)
+            if recovering_recipe and before_commit is None:
+                raise AuthoringProposalValidationError("生成描述恢复必须经过绑定预览的提交入口。", code="recipe_recovery_required")
             try:
                 target_guard = (
                     self.xpert_store.revision_guard(
@@ -185,7 +190,10 @@ class AuthoringService:
                 with target_guard:
                     detached = deepcopy(current_proposal)
                     detached.payload = deepcopy(payload)
-                    details = self._validate_payload(detached)
+                    details = (
+                        self._validate_payload(detached, headless_recovery=True)
+                        if requires_recipe_recovery(detached) else self._validate_payload(detached)
+                    )
                     creator_quality = details.get("creator_quality")
                     quality_ready = not isinstance(creator_quality, dict) or bool(
                         creator_quality.get("ready")
@@ -204,6 +212,8 @@ class AuthoringService:
                             "Headless authoring candidate did not pass final validation.",
                             issues=list(validation.get("issues") or [])[:20],
                         )
+                    if before_commit is not None and not recovering_recipe:
+                        before_commit()
                     return self.proposal_store.update_pending_from_headless_authoring(
                         proposal_id,
                         revision=revision,
@@ -211,6 +221,7 @@ class AuthoringService:
                         validation=validation,
                         content_digest=details.get("content_digest"),
                         base_digest=details.get("base_digest"),
+                        recovery_guard=before_commit if recovering_recipe else None,
                     )
             except XpertConflictError as exc:
                 raise AuthoringProposalConflictError(
@@ -385,8 +396,10 @@ class AuthoringService:
                 decision_reason=reason,
             )
 
-    def _validate_payload(self, proposal: AuthoringProposal) -> dict[str, Any]:
+    def _validate_payload(self, proposal: AuthoringProposal, *, headless_recovery: bool = False) -> dict[str, Any]:
         payload = proposal.payload
+        if not headless_recovery and requires_recipe_recovery(proposal):
+            raise AuthoringProposalValidationError("生成描述尚未通过修复预览，不能批准诊断占位候选。", code="recipe_recovery_required")
         if proposal.source_type == "meta_planner":
             report = payload.get("meta_planner_report")
             if isinstance(report, dict) and not report.get("human_modified"):

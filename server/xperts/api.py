@@ -804,7 +804,7 @@ def preview_xpert_for_publish(
     for node in candidate.draft.workflow.nodes:
         data = node.data if isinstance(node.data, dict) else {}
         kind = str(data.get("kind") or node.type or "")
-        policy = node_policy_service.decision(kind, "xpert")
+        policy = node_policy_service.decision(kind, "xpert", node_data=data)
         if not policy.allowed:
             feature_issues.append(
                 ValidationIssue(

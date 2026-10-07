@@ -26,13 +26,21 @@ import EvaluationVisionCases, {
   type EvaluationVisionCase,
   type EvaluationVisionExpectation,
 } from "../components/evaluations/EvaluationVisionCases";
+import EvaluationWriteCases, {
+  normalizeEvaluationWriteCaseForSave,
+  type EvaluationWriteEditorState,
+  type EvaluationTableInitialization,
+  type EvaluationWriteCase,
+  type EvaluationWriteEffectExpectation,
+  type EvaluationWriteOperation,
+} from "../components/evaluations/EvaluationWriteCases";
 import PageContainer from "../components/PageContainer";
 import { models } from "../data/models";
 import { listXpertVersions, listXperts } from "../utils/xpertApi";
 
 type TargetKind = "xpert_version" | "proposal";
 
-interface EvaluationCase extends EvaluationVisionCase {
+interface EvaluationCase extends EvaluationVisionCase, EvaluationWriteCase {
   case_id?: string;
   name?: string;
   message: string;
@@ -59,6 +67,8 @@ interface EvaluationCase extends EvaluationVisionCase {
   resource_reads?: EvaluationResourceReadExpectation[];
   attachment?: EvaluationAttachmentManifest | null;
   vision?: EvaluationVisionExpectation[];
+  table_initializations?: EvaluationTableInitialization[];
+  effects?: EvaluationWriteEffectExpectation[];
   weights?: Record<string, number>;
 }
 
@@ -184,6 +194,9 @@ interface EvaluationItem {
   resource_reads?: unknown;
   vision_evidence?: unknown;
   vision_reads?: unknown;
+  effect_evidence?: unknown;
+  write_effects?: unknown;
+  partial_completion?: unknown;
 }
 
 interface EvaluationRun {
@@ -260,6 +273,8 @@ const defaultCases: EvaluationCase[] = [
     expected: {
       contains: ["方案"],
     },
+    table_initializations: [],
+    effects: [],
   },
 ];
 
@@ -371,7 +386,7 @@ export function normalizeEvaluationCasesForSave(
   cases: EvaluationCase[],
 ): EvaluationCase[] {
   return cases.map((item) => {
-    const normalized = { ...item };
+    const normalized = normalizeEvaluationWriteCaseForSave({ ...item });
     if (item.attachment === null) {
       delete normalized.attachment;
     } else if (item.attachment !== undefined) {
@@ -383,6 +398,37 @@ export function normalizeEvaluationCasesForSave(
     }
     return normalized;
   });
+}
+
+const pendingWriteJsonMessage = "请先修正并应用逐例写入区域中的 JSON 修改。";
+
+function writeEditorStateBlocksSave(state: EvaluationWriteEditorState) {
+  return state.has_unapplied_changes || state.has_invalid_changes;
+}
+
+export async function saveEvaluationCasesDraft({
+  casesText,
+  datasetId,
+  editorState,
+  revision,
+}: {
+  casesText: string;
+  datasetId: string;
+  editorState: EvaluationWriteEditorState;
+  revision: number;
+}): Promise<DatasetDetail> {
+  if (writeEditorStateBlocksSave(editorState)) {
+    throw new Error(pendingWriteJsonMessage);
+  }
+  const parsed = JSON.parse(casesText) as EvaluationCase[];
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("用例 JSON 必须是非空数组。");
+  }
+  const normalized = normalizeEvaluationCasesForSave(parsed);
+  return requestJson<DatasetDetail>(
+    `/api/xpert-evaluations/datasets/${datasetId}/cases`,
+    jsonInit("POST", { revision, cases: normalized, replace: true }),
+  );
 }
 
 export function buildEvaluationPreflightRequest(payload: {
@@ -566,9 +612,159 @@ export function normalizeVisionEvidence(
   };
 }
 
+export type EffectEvidenceStatus =
+  | "verified"
+  | "failed"
+  | "missing"
+  | "not_applicable";
+
+export interface SafeWriteEffectEvidence {
+  node_ref: string;
+  table_id: string;
+  operation: EvaluationWriteOperation;
+  schema_version: number;
+  contract_checksum: string;
+  request_checksum: string;
+  status: "applied" | "noop" | "conflict";
+  affected_count: number;
+  replayed: boolean;
+  error_code?: string;
+}
+
+export interface SafePartialCompletion {
+  committed_nodes: number;
+  affected_rows: number;
+  rolled_back: false;
+}
+
+const writeTableIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const writeHashPattern = /^[a-f0-9]{64}$/;
+const writeErrorCodePattern = /^[A-Z][A-Z0-9_]{0,63}$/;
+
+export function normalizeEffectEvidenceStatus(
+  value: unknown,
+): EffectEvidenceStatus | null {
+  return ["verified", "failed", "missing", "not_applicable"].includes(
+    String(value),
+  )
+    ? value as EffectEvidenceStatus
+    : null;
+}
+
+export function normalizeWriteEffectEvidence(
+  value: unknown,
+): SafeWriteEffectEvidence[] {
+  if (!Array.isArray(value)) return [];
+  const normalized = value.slice(0, 100).flatMap((item): SafeWriteEffectEvidence[] => {
+    if (!isRecord(item)) return [];
+    const nodeRef = safeString(item.node_ref);
+    const tableId = safeString(item.table_id);
+    const operation = safeString(item.operation);
+    const schemaVersion = safePositiveInteger(item.schema_version);
+    const contractChecksum = safeString(item.contract_checksum);
+    const requestChecksum = safeString(item.request_checksum);
+    const status = safeString(item.status);
+    const affectedCount = safeNonNegativeInteger(item.affected_count);
+    const replayed = item.replayed;
+    const errorCode = safeString(item.error_code);
+    if (
+      !nodeRef
+      || !nodeRefPatternSafe(nodeRef)
+      || !tableId
+      || !writeTableIdPattern.test(tableId)
+      || !["insert", "update", "delete"].includes(operation ?? "")
+      || schemaVersion == null
+      || !contractChecksum
+      || !writeHashPattern.test(contractChecksum)
+      || !requestChecksum
+      || !writeHashPattern.test(requestChecksum)
+      || !["applied", "noop", "conflict"].includes(status ?? "")
+      || affectedCount == null
+      || affectedCount > 100
+      || typeof replayed !== "boolean"
+      || (status === "applied" ? affectedCount < 1 : affectedCount !== 0)
+      || (errorCode !== undefined && !writeErrorCodePattern.test(errorCode))
+      || (status === "conflict" && errorCode === undefined)
+    ) {
+      return [];
+    }
+    return [{
+      node_ref: nodeRef,
+      table_id: tableId,
+      operation: operation as EvaluationWriteOperation,
+      schema_version: schemaVersion,
+      contract_checksum: contractChecksum,
+      request_checksum: requestChecksum,
+      status: status as "applied" | "noop" | "conflict",
+      affected_count: affectedCount,
+      replayed,
+      ...(errorCode === undefined ? {} : { error_code: errorCode }),
+    }];
+  });
+  const refs = normalized.map((item) => item.node_ref);
+  return refs.length === new Set(refs).size ? normalized : [];
+}
+
+export function normalizePartialCompletion(
+  value: unknown,
+): SafePartialCompletion | null {
+  if (!isRecord(value) || value.rolled_back !== false) return null;
+  const committedNodes = safeNonNegativeInteger(value.committed_nodes);
+  const affectedRows = safeNonNegativeInteger(value.affected_rows);
+  if (
+    committedNodes == null
+    || committedNodes > 100
+    || affectedRows == null
+    || affectedRows > 10_000
+  ) {
+    return null;
+  }
+  return {
+    committed_nodes: committedNodes,
+    affected_rows: affectedRows,
+    rolled_back: false,
+  };
+}
+
+export function evaluationOutputForReport(
+  output: unknown,
+  effectEvidence: unknown,
+  writeEffects: unknown,
+  partialCompletion: unknown,
+) {
+  const status = normalizeEffectEvidenceStatus(effectEvidence);
+  const hasWriteEvidence = (
+    hasNonEmptyEvidenceMarker(effectEvidence)
+    && status !== "not_applicable"
+  ) || hasNonEmptyEvidenceMarker(writeEffects)
+    || hasNonEmptyEvidenceMarker(partialCompletion);
+  if (hasWriteEvidence) {
+    return "受控写入评测输出已隐藏；报告仅显示安全效果回执。";
+  }
+  return safeString(output) || "暂无最终输出。";
+}
+
+function hasNonEmptyEvidenceMarker(value: unknown) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (isRecord(value)) return Object.keys(value).length > 0;
+  return true;
+}
+
+function effectEvidenceStatusLabel(status: EffectEvidenceStatus) {
+  return {
+    verified: "已验证",
+    failed: "未通过",
+    missing: "缺少证据",
+    not_applicable: "不适用",
+  }[status];
+}
+
 export function evaluationMetricLabel(kind: string) {
   if (kind === "workflow_resource_match") return "资源读取匹配";
   if (kind === "workflow_vision_match") return "视觉证据匹配";
+  if (kind === "workflow_effect_match") return "写入效果匹配";
   return kind;
 }
 
@@ -605,6 +801,10 @@ export default function XpertEvaluationsPage() {
   const [datasetVersion, setDatasetVersion] = useState(0);
   const [newDatasetName, setNewDatasetName] = useState("");
   const [casesText, setCasesText] = useState(JSON.stringify(defaultCases, null, 2));
+  const [writeEditorState, setWriteEditorState] = useState<EvaluationWriteEditorState>({
+    has_unapplied_changes: false,
+    has_invalid_changes: false,
+  });
   const [modelPolicy, setModelPolicy] = useState<"snapshot" | "override">("snapshot");
   const [overrideModelId, setOverrideModelId] = useState(models[0]?.id ?? "");
   const [judgeModelId, setJudgeModelId] = useState(models[0]?.id ?? "");
@@ -640,7 +840,7 @@ export default function XpertEvaluationsPage() {
           ) {
             return false;
           }
-          return item.vision === undefined || (
+          const visionValid = item.vision === undefined || (
             Array.isArray(item.vision)
             && item.vision.every((expectation) =>
               isRecord(expectation)
@@ -650,6 +850,30 @@ export default function XpertEvaluationsPage() {
               && Array.isArray(expectation.content_anchors),
             )
           );
+          const initializationsValid = item.table_initializations === undefined || (
+            Array.isArray(item.table_initializations)
+            && item.table_initializations.every((initialization) =>
+              isRecord(initialization)
+              && typeof initialization.table_id === "string"
+              && typeof initialization.schema_version === "number"
+              && ["manual", "synthetic"].includes(String(initialization.source))
+              && Array.isArray(initialization.records),
+            )
+          );
+          const effectsValid = item.effects === undefined || (
+            Array.isArray(item.effects)
+            && item.effects.every((effect) =>
+              isRecord(effect)
+              && typeof effect.node_ref === "string"
+              && typeof effect.table_id === "string"
+              && ["insert", "update", "delete"].includes(String(effect.operation))
+              && ["applied", "noop", "conflict", "not_executed"].includes(String(effect.status))
+              && typeof effect.affected_count === "number"
+              && isRecord(effect.expected_before)
+              && isRecord(effect.expected_after),
+            )
+          );
+          return visionValid && initializationsValid && effectsValid;
         })
       ) {
         return null;
@@ -808,18 +1032,20 @@ export default function XpertEvaluationsPage() {
 
   async function saveCases() {
     if (!dataset) return;
+    if (writeEditorStateBlocksSave(writeEditorState)) {
+      setError(pendingWriteJsonMessage);
+      setNotice("");
+      return;
+    }
     setBusy("cases");
     setError("");
     try {
-      const parsed = JSON.parse(casesText) as EvaluationCase[];
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error("用例 JSON 必须是非空数组。");
-      }
-      const normalized = normalizeEvaluationCasesForSave(parsed);
-      const updated = await requestJson<DatasetDetail>(
-        `/api/xpert-evaluations/datasets/${dataset.dataset_id}/cases`,
-        jsonInit("POST", { revision: dataset.revision, cases: normalized, replace: true }),
-      );
+      const updated = await saveEvaluationCasesDraft({
+        casesText,
+        datasetId: dataset.dataset_id,
+        editorState: writeEditorState,
+        revision: dataset.revision,
+      });
       setDataset(updated);
       setDatasets((current) =>
         current.map((item) => item.dataset_id === updated.dataset_id ? updated : item),
@@ -1176,7 +1402,7 @@ export default function XpertEvaluationsPage() {
                   <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200" onClick={() => importRef.current?.click()} type="button">
                     <FileUp className="h-3.5 w-3.5" />JSON / CSV
                   </button>
-                  <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200" disabled={Boolean(busy)} onClick={() => void saveCases()} type="button">
+                  <button className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200" disabled={Boolean(busy) || writeEditorStateBlocksSave(writeEditorState)} onClick={() => void saveCases()} type="button">
                     <Save className="h-3.5 w-3.5" />保存草稿
                   </button>
                   {dataset.origin === "generated" ? (
@@ -1220,6 +1446,13 @@ export default function XpertEvaluationsPage() {
                   setError("");
                 }}
               />
+              <EvaluationWriteCases
+                cases={editableCases}
+                disabled={Boolean(busy)}
+                key={`writes:${dataset.dataset_id}`}
+                onChange={(nextCases) => setCasesText(JSON.stringify(nextCases, null, 2))}
+                onEditorStateChange={setWriteEditorState}
+              />
               <details className="rounded-md border border-white/10 bg-white/[0.025] p-3 text-xs text-slate-400">
                 <summary className="cursor-pointer font-semibold text-slate-200">资源读取断言（可选）</summary>
                 <p className="mt-2 leading-5">
@@ -1236,7 +1469,7 @@ export default function XpertEvaluationsPage() {
               <details className="rounded-md border border-white/10 bg-white/[0.02] p-3">
                 <summary className="cursor-pointer text-xs font-semibold text-slate-200">完整用例 JSON（高级）</summary>
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                  文本答案、历史消息、路径与资源断言继续在此编辑。附件只接受 asset_id；URL 或物理路径不会被读取。
+                  文本答案、历史消息、路径、资源断言和可信写入夹具可在此编辑。附件只接受 asset_id；写入初始化不得来自活表或业务记录导入。
                 </p>
                 <textarea aria-label="完整用例 JSON" className="mt-3 min-h-[380px] w-full resize-y rounded-md border border-white/10 bg-ink-950/70 p-4 font-mono text-xs leading-6 text-slate-200 outline-none focus:border-cyan-300/40" onChange={(event) => setCasesText(event.target.value)} spellCheck={false} value={casesText} />
               </details>
@@ -1434,7 +1667,14 @@ export default function XpertEvaluationsPage() {
                     <span className={`rounded border px-2 py-0.5 text-[11px] ${statusTone(selectedItem.status)}`}>{selectedItem.status}</span>
                   </div>
                   {selectedItem.error ? <p className="mt-3 rounded border border-rose-300/20 bg-rose-300/10 p-3 text-xs text-rose-100">{selectedItem.error}</p> : null}
-                  <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/20 p-3 text-xs leading-6 text-slate-200">{selectedItem.output || "暂无最终输出。"}</pre>
+                  <pre className="mt-4 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-black/20 p-3 text-xs leading-6 text-slate-200">
+                    {evaluationOutputForReport(
+                      selectedItem.output,
+                      selectedItem.effect_evidence,
+                      selectedItem.write_effects,
+                      selectedItem.partial_completion,
+                    )}
+                  </pre>
                   {selectedItem.control_flow ? (
                     <div className="mt-4 rounded-md border border-cyan-300/15 bg-cyan-300/[0.05] p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1590,6 +1830,73 @@ export default function XpertEvaluationsPage() {
                             </span>
                             <span>不确定派发 {usage.uncertain_dispatches ?? 0}</span>
                           </div>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                  {(() => {
+                    const status = normalizeEffectEvidenceStatus(
+                      selectedItem.effect_evidence,
+                    );
+                    const effects = normalizeWriteEffectEvidence(
+                      selectedItem.write_effects,
+                    );
+                    const partial = normalizePartialCompletion(
+                      selectedItem.partial_completion,
+                    );
+                    if (
+                      (!status || status === "not_applicable")
+                      && !effects.length
+                      && !partial
+                    ) return null;
+                    const displayedStatus = status ?? "missing";
+                    return (
+                      <div className="mt-4 rounded-md border border-amber-300/15 bg-amber-300/[0.05] p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-amber-100">写入效果证据</span>
+                          <span className="text-[11px] text-amber-100/70">
+                            {effectEvidenceStatusLabel(displayedStatus)}
+                          </span>
+                        </div>
+                        {partial ? (
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
+                            <span>已提交节点 {partial.committed_nodes}</span>
+                            <span>影响行数 {partial.affected_rows}</span>
+                            <span>未回滚</span>
+                          </div>
+                        ) : null}
+                        {effects.length ? (
+                          <div className="mt-3 divide-y divide-white/10 text-[11px] leading-5 text-slate-400">
+                            {effects.map((effect) => (
+                              <div className="py-2 first:pt-0 last:pb-0" key={effect.node_ref}>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <span className="font-mono font-semibold text-slate-200">
+                                    {effect.node_ref}
+                                  </span>
+                                  <span className="text-amber-100/80">
+                                    {effect.status} · {effect.affected_count} 行
+                                    {effect.replayed ? " · 重放" : ""}
+                                  </span>
+                                </div>
+                                <p className="mt-1 break-words">
+                                  {effect.table_id} · {effect.operation} · Schema v{effect.schema_version}
+                                </p>
+                                <p className="break-all font-mono text-[10px] text-slate-400">
+                                  契约 {effect.contract_checksum}
+                                </p>
+                                <p className="break-all font-mono text-[10px] text-slate-400">
+                                  请求 {effect.request_checksum}
+                                </p>
+                                {effect.error_code ? (
+                                  <p className="font-mono text-[10px] text-rose-200">{effect.error_code}</p>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : displayedStatus === "failed" || displayedStatus === "missing" ? (
+                          <p className="mt-2 text-[11px] leading-5 text-amber-100/80">
+                            当前报告没有可验证的节点级写入安全回执。
+                          </p>
                         ) : null}
                       </div>
                     );

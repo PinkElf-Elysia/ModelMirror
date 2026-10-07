@@ -52,7 +52,7 @@ def configure_xpert_evaluations(
     vision_binding_resolver: Any | None = None,
 ) -> XpertEvaluationExecutor:
     global _store, _service, _executor
-    _store = XpertEvaluationStore(storage_dir, vision_fixtures=EvaluationVisionFixtureService(file_asset_service) if file_asset_service is not None else None)
+    _store = XpertEvaluationStore(storage_dir, vision_fixtures=EvaluationVisionFixtureService(file_asset_service) if file_asset_service is not None else None, agent_table_backend=agent_table_evaluation_backend)
     _service = XpertEvaluationService(
         _store,
         xpert_store=xpert_store,
@@ -113,6 +113,7 @@ async def get_capabilities() -> dict[str, Any]:
             "workflow_path_match",
             "workflow_resource_match",
             "workflow_vision_match",
+            "workflow_effect_match",
             "rubric_judge",
         ],
         "dataset_limits": {"max_cases": 500, "max_cases_per_run": 100},
@@ -424,7 +425,7 @@ def _parse_import(filename: str, content: bytes) -> list[dict[str, Any]]:
 
 
 def _sanitize_run_detail(run: dict[str, Any]) -> dict[str, Any]:
-    payload = json.loads(json.dumps(run, ensure_ascii=False))
+    payload = XpertEvaluationStore.run_payload(run, include_detail=True)
     payload.pop("_resource_fixtures", None)
     payload.pop("_vision_fixtures", None)
     dataset = dict(payload.get("dataset") or {})
@@ -439,4 +440,23 @@ def _sanitize_run_detail(run: dict[str, Any]) -> dict[str, Any]:
         target.pop("agent_config", None)
     for item in payload.get("items") or []:
         item["output"] = str(item.get("output") or "")[:20_000]
+    if payload.get("write_isolation"):
+        private_keys = {"_write_fixtures", "_private", "private_effect", "private_write_journal", "table_initializations", "before_records", "after_records", "expected_before", "expected_after"}
+
+        def remove_private(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: remove_private(child) for key, child in value.items() if key not in private_keys}
+            if isinstance(value, list):
+                return [remove_private(child) for child in value]
+            return value
+
+        payload = remove_private(payload)
+        evidence_keys = {"node_ref", "operation", "table_id", "schema_version", "contract_checksum", "request_checksum", "untouched_before_checksum", "untouched_after_checksum", "affected_count", "status", "replayed", "error_code"}
+        receipt_keys = evidence_keys - {"untouched_before_checksum", "untouched_after_checksum"}
+        for item in payload.get("items") or []:
+            item["output"] = "业务内容仅用于内部评分；请查看隔离写入效果证据。"
+            for field, allowed in (("write_effects", evidence_keys), ("write_receipts", receipt_keys)):
+                entries = item.get(field) or []
+                entries = list(entries.values()) if isinstance(entries, dict) else entries
+                item[field] = [{key: value for key, value in entry.items() if key in allowed and (value is None or type(value) in {str, int, bool})} for entry in entries[:64] if isinstance(entry, dict)]
     return payload

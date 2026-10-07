@@ -661,6 +661,136 @@ class DataTableQueryPlannerConfig(BaseModel):
             raise ValueError("predicate refs must be unique")
         return self
 
+DATA_TABLE_WRITE_KINDS = frozenset({
+    "data_table_insert", "data_table_update", "data_table_delete",
+})
+DATA_TABLE_SYSTEM_FIELDS = frozenset({
+    "record_id", "created_at", "updated_at", "revision",
+})
+
+
+class DataTableWriteGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    table_id: str = Field(min_length=1, max_length=200)
+    operations: list[Literal["insert", "update", "delete"]] = Field(min_length=1, max_length=3)
+    writable_fields: list[str] = Field(default_factory=list, max_length=50)
+    max_affected_rows: int = Field(default=1, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_grant(self) -> "DataTableWriteGrant":
+        if not self.table_id.strip() or self.table_id != self.table_id.strip():
+            raise ValueError("数据表授权必须使用准确的资源 ID。")
+        if len(self.operations) != len(set(self.operations)):
+            raise ValueError("数据表写入操作授权不得重复。")
+        if len(self.writable_fields) != len(set(self.writable_fields)):
+            raise ValueError("可写字段不得重复。")
+        if any(
+            not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name)
+            or name in DATA_TABLE_SYSTEM_FIELDS
+            for name in self.writable_fields
+        ):
+            raise ValueError("可写字段必须为业务字段，不得包含系统字段。")
+        if set(self.operations) & {"insert", "update"} and not self.writable_fields:
+            raise ValueError("插入或更新授权必须显式选择可写字段。")
+        self.operations = sorted(self.operations)
+        self.writable_fields = sorted(self.writable_fields)
+        return self
+
+
+class DataTableInsertPlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    value_source: Literal["input", "literal"] = "input"
+    values: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def validate_values(self) -> "DataTableInsertPlannerConfig":
+        if self.value_source == "input" and self.values is not None:
+            raise ValueError("输入对象模式不得夹带固定写入值。")
+        if self.value_source == "literal" and self.values is None:
+            raise ValueError("固定对象模式必须提供业务值。")
+        if self.values is not None:
+            if len(self.values) > 50 or any(
+                not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", name)
+                or name in DATA_TABLE_SYSTEM_FIELDS
+                for name in self.values
+            ):
+                raise ValueError("写入对象包含未知形态字段或系统字段。")
+            try:
+                encoded = json.dumps(self.values, ensure_ascii=False, allow_nan=False).encode("utf-8")
+            except (ValueError, TypeError, UnicodeError):
+                raise ValueError("业务值必须为 JSON-safe 对象。") from None
+            if len(encoded) > 256 * 1024:
+                raise ValueError("业务值超过 256 KiB 上限。")
+        return self
+
+
+class DataTableUpdatePlannerConfig(DataTableInsertPlannerConfig):
+    filter: DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig
+    max_affected_rows: int = Field(default=1, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_update(self) -> "DataTableUpdatePlannerConfig":
+        DataTableQueryPlannerConfig(filter=self.filter)
+        if self.value_source == "literal" and not self.values:
+            raise ValueError("更新业务值不得为空。")
+        return self
+
+
+class DataTableDeletePlannerConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    filter: DataTableQueryFilterPlannerConfig | DataTableQueryPredicatePlannerConfig
+    max_affected_rows: int = Field(default=1, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def validate_delete(self) -> "DataTableDeletePlannerConfig":
+        DataTableQueryPlannerConfig(filter=self.filter)
+        return self
+
+
+def validate_controlled_write_authority(kind: str, data: dict[str, Any]) -> DataTableWriteGrant:
+    """Validate persisted V2 authority without reading records or granting an environment."""
+    if kind not in DATA_TABLE_WRITE_KINDS or type(data.get("contractVersion")) is not int or data["contractVersion"] != 2:
+        raise ValueError("受控写入必须使用 V2 节点契约。")
+    grant = DataTableWriteGrant.model_validate(data.get("writeGrant"))
+    operation = kind.removeprefix("data_table_")
+    if grant.table_id != data.get("tableId") or operation not in grant.operations:
+        raise ValueError("写入操作不在该表的显式授权范围内。")
+    version = data.get("pinnedSchemaVersion")
+    checksum = data.get("pinnedSchemaChecksum")
+    if data.get("versionPolicy") != "pinned" or type(version) is not int or version < 1 or not isinstance(checksum, str) or not re.fullmatch(r"[a-f0-9]{64}", checksum):
+        raise ValueError("受控写入必须固定有效的 Schema 版本与校验和。")
+    maximum = data.get("maxAffectedRows", 1)
+    if type(maximum) is not int or not 1 <= maximum <= grant.max_affected_rows or (operation == "insert" and maximum != 1):
+        raise ValueError("写入影响上限超过用户授权。")
+    if data.get("failureAction", "stop") != "stop" or data.get("retryMode", "none") != "none" or data.get("maxAttempts") not in {None, ""}:
+        raise ValueError("受控写入只允许失败停止，不允许自动重试。")
+    if any(key in data for key in ("expectedRecords", "operationId", "isolationContext", "evaluationMode", "valueBindings")):
+        raise ValueError("受控写入配置不能夹带记录身份、执行环境或旧式值绑定。")
+    if operation != "insert" and not str(data.get("recordsVariable") or "").strip():
+        raise ValueError("更新或删除必须绑定可信记录输入。")
+    if operation != "delete":
+        source = data.get("valueSource")
+        if source == "input":
+            if not str(data.get("valuesVariable") or "").strip() or data.get("literalValues") is not None:
+                raise ValueError("业务值输入必须为唯一的类型化对象变量。")
+        elif source == "literal":
+            parsed = DataTableInsertPlannerConfig(value_source="literal", values=data.get("literalValues"))
+            if set(parsed.values or {}) - set(grant.writable_fields):
+                raise ValueError("固定业务值包含未授权字段。")
+            if operation == "update" and not parsed.values:
+                raise ValueError("更新字段不能为空。")
+            if data.get("valuesVariable"):
+                raise ValueError("固定业务值不能同时绑定变量。")
+        else:
+            raise ValueError("业务值来源无效。")
+    if operation != "insert" and not isinstance(data.get("filter"), dict):
+        raise ValueError("更新或删除必须配置缩小目标范围的条件。")
+    return grant
+
+
 class ConditionPlannerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -852,6 +982,20 @@ class NodePolicyService:
                     code="evaluation_vision_v2_required",
                     message="附件评测仅允许视觉 V2 节点，旧节点不自动升级。",
                 )
+        if kind in DATA_TABLE_WRITE_KINDS and entrypoint not in {"app", "evolution"}:
+            data = node_data or {}
+            if data.get("contractVersion") == 2:
+                try:
+                    validate_controlled_write_authority(kind, data)
+                except (ValueError, TypeError) as exc:
+                    return NodePolicyDecision(allowed=False, conditional=False, code="controlled_write_contract_invalid", message=str(exc))
+                return NodePolicyDecision(
+                    allowed=True, conditional=True,
+                    code="evaluation_write_isolation_required" if entrypoint == "evaluation" else "controlled_write_preflight_required",
+                    message="受控写入需要可信记录、固定 Schema 和执行环境校验；评测仅允许服务端隔离实例。",
+                )
+            if entrypoint == "evaluation":
+                return NodePolicyDecision(allowed=False, conditional=False, code="evaluation_write_v2_required", message="写入评测仅允许受控 V2 节点，旧节点不自动升级。")
         return NodePolicyDecision(
             allowed=rule.state != "deny",
             conditional=rule.state == "conditional",
@@ -3651,7 +3795,7 @@ def _complete_contracts() -> dict[str, NodeContract]:
             "anyOf": [json_serialize_legacy_schema, json_serialize_v2_schema],
         },
         ports=(
-            NodePortContract(name="value", direction="input", value_schema=any_value),
+            NodePortContract(name="value", direction="input", value_schema=any_value, required=True),
             NodePortContract(name="json", direction="output", value_schema=string_value),
         ),
         execution=NodeExecutionPolicy(
@@ -3714,7 +3858,7 @@ def _complete_contracts() -> dict[str, NodeContract]:
             "$defs": workflow_value_schema_defs,
         },
         ports=(
-            NodePortContract(name="json", direction="input", value_schema=string_value),
+            NodePortContract(name="json", direction="input", value_schema=string_value, required=True),
             NodePortContract(name="value", direction="output", value_schema=any_value),
         ),
         execution=NodeExecutionPolicy(
@@ -4143,6 +4287,64 @@ def _complete_contracts() -> dict[str, NodeContract]:
                 else _planner(default_data=defaults)
             ),
         )
+
+    for kind in sorted(DATA_TABLE_WRITE_KINDS):
+        legacy = contracts[kind]
+        legacy_schema = dict(legacy.config_schema)
+        legacy_schema["not"] = {"properties": {"contractVersion": {"const": 2}}, "required": ["contractVersion"]}
+        write_properties = {
+            "contractVersion": {"const": 2},
+            "tableId": {"type": "string", "minLength": 1},
+            "versionPolicy": {"const": "pinned"},
+            "pinnedSchemaVersion": {"type": "integer", "minimum": 1},
+            "pinnedSchemaChecksum": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "writeGrant": DataTableWriteGrant.model_json_schema(),
+            "maxAffectedRows": {"type": "integer", "minimum": 1, "maximum": 100},
+            "failureAction": {"const": "stop"},
+            "retryMode": {"const": "none"},
+            "outputVariable": {"type": "string", "minLength": 1},
+        }
+        required = list(write_properties)
+        ports = []
+        if kind != "data_table_delete":
+            write_properties.update({
+                "valueSource": {"enum": ["input", "literal"]},
+                "valuesVariable": {"type": "string"},
+                "literalValues": {"type": ["object", "null"], "maxProperties": 50},
+            })
+            required.append("valueSource")
+            ports.append(NodePortContract(name="values", direction="input", value_schema=object_value))
+        if kind != "data_table_insert":
+            write_properties.update({
+                "recordsVariable": {"type": "string", "minLength": 1},
+                "filter": {"type": "object"},
+            })
+            required.extend(["recordsVariable", "filter"])
+            ports.extend([
+                NodePortContract(name="records", direction="input", required=True, value_schema=WorkflowValueSchema(any_of=(WorkflowValueSchema(type="object", nullable=True), array_object_value))),
+                NodePortContract(name="predicate", direction="input", cardinality="many", value_schema=any_value),
+            ])
+        ports.append(NodePortContract(name="result", direction="output", value_schema=object_value))
+        contracts[kind] = legacy.model_copy(update={
+            "config_schema": {"type": "object", "anyOf": [legacy_schema, _object_schema(write_properties, required=required)]},
+            "ports": tuple(ports),
+            "execution_variants": {2: NodeExecutionPolicy(side_effect="write", deterministic=True, idempotent=True, error_semantics="fail_closed", security_category="controlled_private_write")},
+            "planner": _planner(
+                enabled=True, support="full", compilation_mode="adapter", adapter_version=planner_adapter_version,
+                task_binding="forbidden", default_data=(
+                    {} if kind == "data_table_insert" else {
+                        "filter": {"kind": "predicate", "ref": "unselected", "field": "record_id", "operator": "is_null", "value_source": "none"},
+                        "max_affected_rows": 1,
+                    }
+                ),
+                constraints={"contract_version": 2, "resource_ref": "data_table", "explicit_write_grant": True, "trusted_records_only": True, "failure_action": "stop", "retry_mode": "none"},
+                ir_config_schema={
+                    "data_table_insert": DataTableInsertPlannerConfig,
+                    "data_table_update": DataTableUpdatePlannerConfig,
+                    "data_table_delete": DataTableDeletePlannerConfig,
+                }[kind].model_json_schema(),
+            ),
+        })
 
     vision_legacy_properties = {
         "assetIdVariable": {"type": "string"},

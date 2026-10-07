@@ -5,6 +5,8 @@ import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .write_evidence import EvaluationEffectExpectation
+from .write_fixtures import EvaluationTableInitialization
 
 
 MetricKind = Literal[
@@ -16,6 +18,7 @@ MetricKind = Literal[
     "workflow_path_match",
     "workflow_resource_match",
     "workflow_vision_match",
+    "workflow_effect_match",
     "rubric_judge",
 ]
 
@@ -290,6 +293,8 @@ class EvaluationCaseInput(BaseModel):
         default_factory=list,
         max_length=20,
     )
+    table_initializations: list[EvaluationTableInitialization] = Field(default_factory=list, max_length=20)
+    effects: list[EvaluationEffectExpectation] = Field(default_factory=list, max_length=64)
     weights: dict[MetricKind, float] = Field(default_factory=dict)
     targeting: EvaluationCaseTargeting | None = None
 
@@ -318,6 +323,14 @@ class EvaluationCaseInput(BaseModel):
         vision_refs = [item.node_ref for item in self.vision]
         if len(vision_refs) != len(set(vision_refs)):
             raise ValueError("视觉证据期望的 node_ref 必须唯一。")
+        if len({item.table_id for item in self.table_initializations}) != len(self.table_initializations):
+            raise ValueError("同一用例不能重复初始化同一数据表。")
+        if len({item.node_ref for item in self.effects}) != len(self.effects):
+            raise ValueError("同一写节点不能重复配置效果断言。")
+        if self.effects and self.weights.get("workflow_effect_match", 1) <= 0:
+            raise ValueError("写入评测的效果指标权重必须大于零。")
+        if any(item.status == "conflict" for item in self.effects) and any(self.expected.model_dump().values()):
+            raise ValueError("预期写入冲突的用例不能同时配置回答文本指标。")
         return self
 
 

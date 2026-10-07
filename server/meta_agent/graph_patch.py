@@ -20,6 +20,7 @@ except ModuleNotFoundError:
     )
 
 from .node_adapters import get_planner_node_adapter
+from .generation_diagnostics import GraphPatchProgress
 from .schemas import (
     GraphIntentControlEdgeV3,
     GraphIntentFinalOutputV3,
@@ -38,6 +39,12 @@ GRAPH_PATCH_PROTOCOL_VERSION = 1
 GRAPH_PATCH_MAX_OPERATIONS = 64
 GRAPH_PATCH_MAX_REQUEST_BYTES = 2 * 1024 * 1024
 GRAPH_PATCH_MAX_JSON_DEPTH = 32
+
+
+class GraphPatchLimitError(ValueError):
+    def __init__(self, operation_count: int):
+        self.operation_count = operation_count
+        super().__init__(f"当前修改需要 {operation_count} 项操作，超过单次 Patch 的 {GRAPH_PATCH_MAX_OPERATIONS} 项上限；请分批人工修复。")
 GRAPH_PATCH_REF_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
 GRAPH_PATCH_PORT_PATTERN = r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
 GRAPH_PATCH_VARIABLE_PATTERN = r"^[A-Za-z_][A-Za-z0-9_]{0,127}$"
@@ -96,7 +103,18 @@ class UpdateNodeOperation(GraphPatchModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2_000)
     task_ids: list[str] | None = Field(default=None, max_length=8)
-    config: dict[str, Any] | None = None
+    config: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "提供对象时完整替换 Adapter config，不做字段合并；须保留未修改的配置。"
+            "省略或 null 时保持原配置不变。"
+        ),
+        json_schema_extra={
+            "x-authoring-update": {
+                "mode": "replace", "when_absent": "unchanged", "when_null": "unchanged",
+            },
+        },
+    )
 
     @model_validator(mode="after")
     def require_change(self) -> "UpdateNodeOperation":
@@ -408,6 +426,7 @@ def apply_graph_patch(
     layout: dict[str, dict[str, float]] | None = None,
     allowed_node_kinds: set[str] | None = None,
     movable_refs: set[str] | None = None,
+    progress: GraphPatchProgress | None = None,
 ) -> GraphPatchResult:
     """Apply an ordered semantic patch without resolving runtime-owned facts."""
 
@@ -422,7 +441,10 @@ def apply_graph_patch(
     next_layout = deepcopy(layout or {})
     pending_removals: set[str] = set()
 
-    for operation in patch.operations:
+    for operation_index, operation in enumerate(patch.operations):
+        if progress is not None:
+            progress.phase = "operations"
+            progress.operation_index = operation_index
         if isinstance(operation, SetXpertMetadataOperation):
             updates: dict[str, Any] = {}
             for field_name in ("name", "description", "tags", "starters"):
@@ -515,8 +537,10 @@ def apply_graph_patch(
             updated_node = current.model_copy(update=updates)
             adapter = get_planner_node_adapter(current.kind)
             assert adapter is not None
-            adapter.validate_intent_node(updated_node)
+            # Later edge operations may complete this node; validate its shape at batch end.
             _replace_node(result, updated_node)
+            if progress is not None:
+                progress.record_node_change(operation.op, current, updated_node)
             continue
 
         if isinstance(operation, RemoveNodeOperation):
@@ -592,6 +616,8 @@ def apply_graph_patch(
                 }
             )
             _replace_node(result, updated)
+            if progress is not None:
+                progress.record_node_change(operation.op, target, updated)
             continue
 
         if isinstance(operation, DisconnectDataOperation):
@@ -609,7 +635,10 @@ def apply_graph_patch(
             ]
             if len(filtered) == len(target.inputs):
                 raise ValueError("Data edge does not exist.")
-            _replace_node(result, target.model_copy(update={"inputs": filtered}))
+            updated = target.model_copy(update={"inputs": filtered})
+            _replace_node(result, updated)
+            if progress is not None:
+                progress.record_node_change(operation.op, target, updated)
             continue
 
         if isinstance(operation, SetOutputVariableOperation):
@@ -815,6 +844,9 @@ def apply_graph_patch(
 
         raise ValueError("Unsupported Graph Patch operation.")
 
+    if progress is not None:
+        progress.phase = "validation"
+        progress.operation_index = None
     for ref in sorted(pending_removals):
         incidents: list[str] = []
         incidents.extend(
@@ -878,6 +910,8 @@ def apply_graph_patch(
     )
     validated._pinned_node_resources = dict(result._pinned_node_resources)
     validated._pinned_vision_model = deepcopy(result._pinned_vision_model)
+    if progress is not None:
+        progress.phase = "completed"
     return GraphPatchResult(
         intent=validated,
         layout=next_layout,
@@ -1119,10 +1153,7 @@ def diff_graph_intents(
             operations.append(MoveNodeOperation(ref=ref, x=point["x"], y=point["y"]))
 
     if len(operations) > GRAPH_PATCH_MAX_OPERATIONS:
-        raise ValueError(
-            f"Editor diff requires {len(operations)} operations; the limit is "
-            f"{GRAPH_PATCH_MAX_OPERATIONS}."
-        )
+        raise GraphPatchLimitError(len(operations))
     return GraphPatchEnvelopeV1(
         proposal_revision=proposal_revision,
         expected_graph_checksum=expected_graph_checksum,

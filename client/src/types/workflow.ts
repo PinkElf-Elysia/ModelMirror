@@ -343,6 +343,11 @@ export interface WorkflowNodeData extends Record<string, unknown> {
   limit?: number | string;
   returnMode?: "list" | "first" | "context" | "result";
   valueBindings?: Record<string, unknown>;
+  plannerWriteIntentV2?: {
+    resource_id: string;
+    config: Record<string, unknown>;
+    inputs: Array<{ port: string; source_ref: string; source_port: string }>;
+  };
   topK?: string;
   scoreThreshold?: string;
   top_k?: string;

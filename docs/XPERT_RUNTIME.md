@@ -280,7 +280,8 @@ creates a `xpert_evaluation` RunRegistry parent. Every run fixes its DatasetVers
 XpertVersion or Authoring Proposal revision, workflow checksum, resource versions, model
 policy, seed and budget before any sample executes.
 
-Evaluation mode is read-only and fail-closed. It blocks waiting, Handoff, Automation,
+评测默认只读且失败关闭；Controlled Writes V2 只在服务端私有初始化表中有条件执行。
+It blocks waiting, Handoff, Automation,
 interactive approval, persistent writes, Browser, Client Tools, Sandbox writes and unsafe
 Toolset/Plugin capabilities. Knowledge queries are pinned to the active index observed when
 the run is created. External Xperts recurse through the same preflight.
@@ -290,6 +291,18 @@ counters cover model calls, tool calls and actual or explicitly estimated tokens
 checkpoints store only truncated outputs, safe citations, counts, timing and error summaries.
 Evaluator never approves a Proposal, writes an Xpert draft or publishes a version. See
 `docs/EVOAGENTX_EVALUATOR.md`.
+
+### 受控 Agent Table V2
+
+正常私有 Workflow/Xpert 的三种 V2 写节点固定 Schema、逐表操作授权、业务字段与影响上限。
+更新/删除只消费实际 Query/Insert 收据及 revision；Agent 业务值经 JSON Deserialize V2 和
+事务字段校验。每节点事务独立，后续错误不会撤销先前成功写入；不新增重试、等待或补偿。
+私有执行日志在首次派发前冻结请求，恢复优先核对幂等账本，不能用新输入重做旧 operation。
+
+`xpert_evaluation` 保持真实运行身份，使用绑定 run/item/target/case/workflow 的私有 Backend。
+所有查询和写入共享本项隔离状态；旧版写节点不能借此回退业务 Store。公开 checkpoint 只保存
+表、Schema、操作、计数、checksum 和耗时，记录正文与初始化留在私有存储。
+公共 App、嵌套写入及 Optimizer 入口不获得此权限。详见 `docs/META_PLANNER_CONTROLLED_WRITES.md`。
 
 ## Prompt Evolution Runtime
 

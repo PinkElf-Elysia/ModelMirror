@@ -25,6 +25,8 @@ except ImportError:  # pragma: no cover - direct server package execution
         ProviderWorkloadPreparedCall,
     )
 
+from .completion_contract import PlannerCompletionError, validate_planner_completion
+from .generation_evidence import observe_generation_request, observe_generation_response
 from .schemas import ProviderRouteCallReceipt, ProviderRouteReceiptSummary
 
 
@@ -104,6 +106,8 @@ class ManagedMetaAgentRun:
         user_prompt: str,
         temperature: float,
         max_tokens: int,
+        completion_observer: Callable[[dict[str, Any]], None] | None = None,
+        request_guard: Callable[[dict[str, Any]], None] | None = None,
     ) -> str:
         prepared: ProviderWorkloadPreparedCall | None = None
         dispatched = False
@@ -145,6 +149,9 @@ class ManagedMetaAgentRun:
                         prepared.authorized_target,
                         request_payload,
                     )
+                    if request_guard is not None:
+                        request_guard(request_payload)
+                    observe_generation_request(request.content, "managed")
                     self.gateway.call_service.mark_dispatched(prepared)
                     dispatched = True
                     response = await self.gateway.call_service.transport.send_authorized_stream(
@@ -154,6 +161,10 @@ class ManagedMetaAgentRun:
                         payload = await self._read_response(response)
                     finally:
                         await response.aclose()
+            observe_generation_response(payload)
+            validate_planner_completion(
+                payload, max_tokens=max_tokens, observer=completion_observer
+            )
             text, actual_model, usage = self._completion_payload(
                 payload, requested_model=model_id
             )
@@ -197,6 +208,23 @@ class ManagedMetaAgentRun:
                 dispatched=dispatched,
             )
             raise
+        except PlannerCompletionError as exc:
+            self._complete_call_safely(
+                prepared,
+                status="failed",
+                result_class="provider_error",
+                error_code=exc.code,
+                usage=exc.diagnostics,
+            )
+            self._append_failure(
+                call_sequence,
+                model_id,
+                "failed",
+                exc.code,
+                dispatched=dispatched,
+                usage=exc.diagnostics,
+            )
+            raise ManagedMetaAgentRoutingError(exc.code, exc.public_message) from None
         except ManagedMetaAgentRoutingError as exc:
             self._complete_call_safely(
                 prepared,
@@ -421,6 +449,7 @@ class ManagedMetaAgentRun:
         error_code: str,
         *,
         dispatched: bool,
+        usage: dict[str, Any] | None = None,
     ) -> None:
         self.calls.append(
             ProviderRouteCallReceipt(
@@ -429,6 +458,9 @@ class ManagedMetaAgentRun:
                 dispatched=dispatched,
                 status=status,
                 error_code=error_code,
+                prompt_tokens=(usage or {}).get("prompt_tokens"),
+                completion_tokens=(usage or {}).get("completion_tokens"),
+                total_tokens=(usage or {}).get("total_tokens"),
             )
         )
 
@@ -439,6 +471,7 @@ class ManagedMetaAgentRun:
         status: str,
         result_class: str,
         error_code: str,
+        usage: dict[str, Any] | None = None,
     ) -> None:
         if prepared is None:
             return
@@ -448,6 +481,9 @@ class ManagedMetaAgentRun:
                 status=status,
                 result_class=result_class,
                 error_code=error_code,
+                prompt_tokens=(usage or {}).get("prompt_tokens"),
+                completion_tokens=(usage or {}).get("completion_tokens"),
+                total_tokens=(usage or {}).get("total_tokens"),
             )
         except RouterRepositoryError:
             return
