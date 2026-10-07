@@ -12,6 +12,7 @@ from server.meta_agent.graph_ir_v3 import (
     workflow_semantic_checksum,
 )
 from server.meta_agent.graph_patch import GraphPatchEnvelopeV1, apply_graph_patch
+from server.tests.meta_planner_legacy_replay import LegacyGraphReplayService
 from server.meta_agent.meta_planner_v2 import (
     MetaPlannerV2Service,
     _normalize_adapter_outputs_for_repair,
@@ -202,7 +203,7 @@ async def test_single_patch_repair_refreshes_dynamic_deserialize_schema(
             return invalid.model_dump_json()
         return json.dumps({"operations": []})
 
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=preflight,
         completion=complete,
@@ -256,7 +257,7 @@ async def test_semantic_adapter_failure_preserves_intent_for_patch_repair(
             return invalid.model_dump_json()
         return json.dumps({"operations": []})
 
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=preflight,
         completion=complete,

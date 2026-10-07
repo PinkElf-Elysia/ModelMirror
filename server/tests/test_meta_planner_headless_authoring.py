@@ -262,6 +262,7 @@ def _headless_fixture(
     graph = resolve_graph_intent(
         intent, snapshot, default_agent_model_id=request.default_agent_model_id,
         vision_model_id=request.vision_model_id,
+        data_table_write_grants=request.scope.data_table_write_grants,
     )
     candidate = compile_xpert_candidate(
         request=request,
@@ -357,7 +358,7 @@ def _headless_fixture(
 def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
     snapshot = _snapshot()
 
-    assert snapshot.version == "evoagentx-meta-planner-capabilities-v9"
+    assert snapshot.version == "evoagentx-meta-planner-capabilities-v10"
     assert snapshot.control_flow_contract_version == 2
     assert snapshot.authoring_protocol_version == 1
     assert snapshot.authoring_limits["max_operations"] == 64
@@ -371,6 +372,9 @@ def test_capability_snapshot_exposes_patch_protocol_and_pure_node_pack():
         "data_aggregate",
         "data_merge",
         "data_table_query",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
         "dataset_compare",
         "condition",
         "input",

@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .metrics import aggregate_evaluation_report, evaluate_case_metrics, sanitize_vision_reads
+from .write_evidence import safe_write_evidence
 from .resource_fixtures import sanitize_resource_reads
 from .store import XpertEvaluationStore
 
@@ -155,6 +156,7 @@ class XpertEvaluationExecutor:
                     target
                 )
                 vision_evidence_required = bool((target.get("resources") or {}).get("vision_models"))
+                write_contracts = list((target.get("resources") or {}).get("write_contracts") or [])
                 started = time.perf_counter()
                 try:
                     timeout = max(
@@ -171,6 +173,7 @@ class XpertEvaluationExecutor:
                                 "evaluation_target_id": item["target_id"],
                                 "evaluation_case_id": item["case_id"],
                                 "evaluation_item_id": item["item_id"],
+                                "write_isolation": bool(run.get("write_isolation")),
                             },
                             registry_run.run_id if registry_run else None,
                         )
@@ -195,12 +198,16 @@ class XpertEvaluationExecutor:
                         resource_evidence_required=resource_evidence_required,
                         vision_reads=vision_reads,
                         vision_evidence_required=vision_evidence_required,
+                        write_effects=list(result.get("write_effects") or []),
+                        write_contracts=write_contracts,
+                        effect_evidence_required=bool(write_contracts),
+                        terminal_recorded=bool(result.get("terminal_recorded")),
                         judge=self.judge_runner,
                         judge_model_id=run.get("config", {}).get("judge_model_id"),
                     )
                     payload = {
                         "status": "completed",
-                        "output": output,
+                        "output": "受控写入评测已完成，业务内容仅用于内部评分；请查看效果证据。" if run.get("write_isolation") else output,
                         "citations": dict(result.get("citations") or {}),
                         "tool_calls": [
                             str(item)
@@ -210,6 +217,7 @@ class XpertEvaluationExecutor:
                         "control_flow": dict(result.get("control_flow") or {}),
                         "resource_reads": resource_reads,
                         "vision_reads": vision_reads,
+                        "write_effects": safe_write_evidence(result.get("write_effects") or []),
                         "usage": dict(result.get("usage") or {}),
                         "latency_ms": round(
                             (time.perf_counter() - started) * 1000, 3
@@ -218,6 +226,10 @@ class XpertEvaluationExecutor:
                         "runtime_run_id": result.get("runtime_run_id"),
                         "error": None,
                     }
+                    if result.get("execution_error"):
+                        payload.update(status="failed", score=0.0, error=result["execution_error"]["message"], error_code=result["execution_error"]["code"])
+                        for metric in payload["metrics"]:
+                            metric.update(score=0.0, passed=False)
                 except Exception as exc:
                     expects_resource_evidence = bool(case.get("resource_reads"))
                     payload = {
@@ -227,6 +239,8 @@ class XpertEvaluationExecutor:
                         "control_flow": {},
                         "resource_reads": [],
                         "vision_reads": [],
+                        "write_effects": [],
+                        "effect_evidence": "failed" if case.get("effects") else ("missing" if write_contracts else "not_applicable"),
                         "vision_evidence": "failed" if case.get("vision") else ("missing" if vision_evidence_required else "not_applicable"),
                         "resource_evidence": (
                             "failed"
@@ -248,6 +262,10 @@ class XpertEvaluationExecutor:
                     }
                 recorded = await asyncio.to_thread(self.store.require_run, run["run_id"])
                 recorded_item = next(entry for entry in recorded["items"] if entry["item_id"] == item["item_id"])
+                write_receipts = list((recorded_item.get("write_receipts") or {}).values())
+                if write_receipts:
+                    payload["write_receipts"] = write_receipts
+                    payload["partial_completion"] = {"committed_nodes": sum(receipt.get("status") == "applied" for receipt in write_receipts), "affected_rows": sum(int(receipt.get("affected_count") or 0) for receipt in write_receipts), "rolled_back": False}
                 receipts = list((recorded_item.get("vision_receipts") or {}).values())
                 if receipts or recorded_item.get("vision_dispatches"):
                     usage = payload.setdefault("usage", {})

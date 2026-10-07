@@ -8,12 +8,20 @@ import { listXperts, toXpertDraftWorkflow } from "../../utils/xpertApi";
 import ProviderRouteReceiptSummary, {
   type ProviderRouteReceipt,
 } from "./ProviderRouteReceiptSummary";
+import DataTableWriteGrants, {
+  normalizeDataTableWriteCatalog,
+  validateDataTableWriteGrants,
+} from "./DataTableWriteGrants";
 import {
+  authorizedDataTableWriteOperations,
   authoringDiffSummary,
   authoringOperationSummary,
   buildMetadataPatch,
+  dataTableWriteOperationForNodeKind,
   headlessStateMode,
+  metaPlannerCapabilityItemId,
   isSafeVisionModelId,
+  normalizeMetaPlannerScope,
   normalizeGraphPatchEnvelope,
   normalizeGraphPatchPreview,
   normalizeHeadlessProposalState,
@@ -22,20 +30,15 @@ import {
   type GraphPatchEnvelopeV1,
   type GraphPatchPreview,
   type HeadlessAuthoringProposalState,
+  type MetaPlannerScope,
+  type MetaPlannerScopeListKey,
   type SafeResourceSnapshot,
   type VisionAttachmentState,
 } from "./metaAuthoring";
 import WorkflowEditor from "../workflow/WorkflowEditor";
+import FailedDraftRepair, { normalizeRecoveryState, type RecoveryState } from "./FailedDraftRepair";
 
-type ScopeKey =
-  | "allowed_node_kinds"
-  | "external_xpert_ids"
-  | "knowledge_base_ids"
-  | "data_table_ids"
-  | "toolset_ids"
-  | "plugin_ids"
-  | "prompt_profile_ids"
-  | "middleware_ids";
+export { normalizeMetaPlannerScope } from "./metaAuthoring";
 
 interface CapabilityItem {
   id?: string;
@@ -66,17 +69,6 @@ interface CapabilityItem {
     type?: string;
     required?: boolean;
   }>;
-}
-
-interface MetaPlannerScope extends Record<ScopeKey, string[]> {
-  allowed_node_kinds: string[];
-  external_xpert_ids: string[];
-  knowledge_base_ids: string[];
-  data_table_ids: string[];
-  toolset_ids: string[];
-  plugin_ids: string[];
-  prompt_profile_ids: string[];
-  middleware_ids: string[];
 }
 
 interface CapabilitySnapshot {
@@ -203,48 +195,13 @@ interface AuthoringProposal {
 type AuthoringAvailability =
   | { mode: "legacy"; reason: string }
   | { mode: "headless"; state: HeadlessAuthoringProposalState }
+  | { mode: "recovery"; state: RecoveryState; reason: string }
   | { mode: "unavailable"; reason: string };
 
 interface PendingAuthoringPreview {
   patch: GraphPatchEnvelopeV1;
   preview: GraphPatchPreview;
   source: "canvas" | "metadata";
-}
-
-const emptyScope = (): MetaPlannerScope => ({
-  allowed_node_kinds: [],
-  external_xpert_ids: [],
-  knowledge_base_ids: [],
-  data_table_ids: [],
-  toolset_ids: [],
-  plugin_ids: [],
-  prompt_profile_ids: [],
-  middleware_ids: [],
-});
-
-export function normalizeMetaPlannerScope(
-  value?: Partial<MetaPlannerScope> | null,
-): MetaPlannerScope {
-  const source = value ?? {};
-  const list = (key: ScopeKey) =>
-    Array.isArray(source[key])
-      ? source[key]!.filter((item): item is string => typeof item === "string")
-      : [];
-  return {
-    // Visual understanding always requires a fresh explicit user authorization.
-    allowed_node_kinds: list("allowed_node_kinds").filter(
-      (kind) => kind !== "vision_understanding",
-    ),
-    external_xpert_ids: list("external_xpert_ids"),
-    knowledge_base_ids: list("knowledge_base_ids"),
-    // Agent Table access always starts closed, even if an older or permissive
-    // capability payload accidentally supplies a default selection.
-    data_table_ids: [],
-    toolset_ids: list("toolset_ids"),
-    plugin_ids: list("plugin_ids"),
-    prompt_profile_ids: list("prompt_profile_ids"),
-    middleware_ids: list("middleware_ids"),
-  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -255,7 +212,10 @@ export function normalizeVisionModelOptions(
   snapshot: Pick<CapabilitySnapshot, "version" | "vision_models"> | null,
 ): VisionModelOption[] {
   if (
-    snapshot?.version !== "evoagentx-meta-planner-capabilities-v9" ||
+    !snapshot || ![
+      "evoagentx-meta-planner-capabilities-v9",
+      "evoagentx-meta-planner-capabilities-v10",
+    ].includes(snapshot.version) ||
     !Array.isArray(snapshot.vision_models)
   ) {
     return [];
@@ -330,11 +290,7 @@ function VisionAttachmentSummary({
   );
 }
 
-function capabilityItemId(item: CapabilityItem) {
-  return String(item.kind ?? item.id ?? item.table_id ?? "");
-}
-
-function capabilityItemDetail(item: CapabilityItem, group: ScopeKey) {
+function capabilityItemDetail(item: CapabilityItem, group: MetaPlannerScopeListKey) {
   if (group === "knowledge_base_ids") {
     const activeVersionId = item.active_version_id ?? item.metadata?.active_version_id;
     return activeVersionId
@@ -438,6 +394,13 @@ export function candidateGenerationOutcome(
   };
 }
 
+export function candidateOriginNotice(report: Record<string, unknown>) {
+  return report.candidate_origin === "server_synthesized_fallback" ||
+    report.graph_ir_status === "fallback_unapprovable"
+    ? "模型候选未通过验证。当前画布是服务端生成的诊断占位图，不代表模型成功生成，也不可批准。"
+    : "";
+}
+
 function candidateFromProposal(proposal: AuthoringProposal): CandidateXpert {
   const source =
     proposal.kind === "xpert_update"
@@ -472,10 +435,9 @@ function toWorkflowDefinition(candidate: CandidateXpert): WorkflowDefinition {
   };
 }
 
-function validationIssues(validation: Record<string, unknown>) {
+export function validationIssues(validation: Record<string, unknown>) {
   const stages = validation.stages;
-  if (!Array.isArray(stages)) return [] as ValidationIssue[];
-  return stages.flatMap((stage) => {
+  const grouped: ValidationIssue[] = (Array.isArray(stages) ? stages : []).flatMap((stage) => {
     if (typeof stage !== "object" || stage === null) return [];
     const stageName = String(
       (stage as { id?: unknown; stage?: unknown }).id ??
@@ -496,10 +458,17 @@ function validationIssues(validation: Record<string, unknown>) {
       return { message: String(issue), stage: stageName };
     });
   });
+  const topLevel = Array.isArray(validation.issues) ? validation.issues : [];
+  const seen = new Set(grouped.map(item => item.message));
+  for (const issue of topLevel) {
+    const item = typeof issue === "string" ? { message: issue } : isRecord(issue) ? { ...issue, message: String(issue.message || "校验失败") } : null;
+    if (item && !seen.has(item.message)) { grouped.push(item); seen.add(item.message); }
+  }
+  return grouped;
 }
 
 const capabilityGroups: Array<{
-  key: ScopeKey;
+  key: MetaPlannerScopeListKey;
   source: keyof CapabilitySnapshot;
   title: string;
   hint: string;
@@ -525,8 +494,8 @@ const capabilityGroups: Array<{
   {
     key: "data_table_ids",
     source: "data_tables",
-    title: "Agent Table",
-    hint: "默认关闭；授权后固定已发布 Schema",
+    title: "Agent Table 查询",
+    hint: "只读授权；不包含写入权限",
   },
   {
     key: "toolset_ids",
@@ -559,7 +528,9 @@ export default function MetaPlannerV2() {
   const plannerModels = useMemo(() => models, []);
   const [capabilities, setCapabilities] = useState<CapabilitySnapshot | null>(null);
   const [editableXperts, setEditableXperts] = useState<XpertSummary[]>([]);
-  const [scope, setScope] = useState<MetaPlannerScope>(emptyScope);
+  const [scope, setScope] = useState<MetaPlannerScope>(() =>
+    normalizeMetaPlannerScope(),
+  );
   const [goal, setGoal] = useState("");
   const [mode, setMode] = useState<"create" | "update">("create");
   const [targetXpertId, setTargetXpertId] = useState("");
@@ -602,6 +573,14 @@ export default function MetaPlannerV2() {
   const visionEnabled = scope.allowed_node_kinds.includes("vision_understanding");
   const selectedVisionModel = visionModels.find(
     (item) => item.id === visionModelId,
+  );
+  const dataTableWriteCatalog = useMemo(
+    () => normalizeDataTableWriteCatalog(capabilities?.data_tables),
+    [capabilities],
+  );
+  const authorizedWriteOperations = useMemo(
+    () => authorizedDataTableWriteOperations(scope.data_table_write_grants),
+    [scope.data_table_write_grants],
   );
 
   useEffect(() => {
@@ -693,6 +672,7 @@ export default function MetaPlannerV2() {
   }
 
   async function loadAuthoringState(restored: AuthoringProposal) {
+    setAuthoringAvailability({ mode: "unavailable", reason: "正在核对候选的编辑状态。" });
     const report = reportFromProposal(restored);
     const compatibility =
       typeof report.compatibility === "object" && report.compatibility !== null
@@ -712,6 +692,12 @@ export default function MetaPlannerV2() {
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(readError(payload, "无法加载无头编排状态。"));
+      }
+      const recovery = normalizeRecoveryState(payload);
+      if (recovery) {
+        if (recovery.proposal_id !== restored.proposal_id || (recovery.can_author && recovery.proposal_revision !== restored.revision)) throw new Error("候选版本已变化，请重新加载后修复。");
+        setAuthoringAvailability({ mode: "recovery", state: recovery, reason: "失败原图修复。当前候选不可运行或批准。" });
+        return;
       }
       const state = normalizeHeadlessProposalState(payload);
       if (!state) throw new Error("无头编排状态响应不完整。候选未降级保存。");
@@ -740,7 +726,7 @@ export default function MetaPlannerV2() {
     }
   }
 
-  function toggleScope(key: ScopeKey, value: string) {
+  function toggleScope(key: MetaPlannerScopeListKey, value: string) {
     if (key === "allowed_node_kinds" && value === "vision_understanding") {
       if (!visionEnabled && visionModels.length === 0) {
         setError("当前没有可用的已纳管视觉模型，无法授权视觉理解。");
@@ -748,12 +734,33 @@ export default function MetaPlannerV2() {
       }
       if (visionEnabled) setVisionModelId("");
     }
+    if (key === "allowed_node_kinds") {
+      const writeOperation = dataTableWriteOperationForNodeKind(value);
+      if (writeOperation && !authorizedWriteOperations.has(writeOperation)) {
+        setError("请先完成对应 Agent Table 的逐表写授权。");
+        return;
+      }
+    }
     setScope((current) => {
       const values = new Set(current[key]);
       if (values.has(value)) values.delete(value);
       else values.add(value);
       return { ...current, [key]: Array.from(values) };
     });
+  }
+
+  function updateDataTableWriteGrants(
+    grants: MetaPlannerScope["data_table_write_grants"],
+  ) {
+    const operations = authorizedDataTableWriteOperations(grants);
+    setScope((current) => ({
+      ...current,
+      data_table_write_grants: grants,
+      allowed_node_kinds: current.allowed_node_kinds.filter((kind) => {
+        const operation = dataTableWriteOperationForNodeKind(kind);
+        return operation === null || operations.has(operation);
+      }),
+    }));
   }
 
   async function generateCandidate() {
@@ -768,6 +775,25 @@ export default function MetaPlannerV2() {
     }
     if (visionEnabled && !selectedVisionModel) {
       setError("已授权视觉理解，请单独选择当前可用的已纳管视觉模型。");
+      return;
+    }
+    const writeGrantError = validateDataTableWriteGrants(
+      scope.data_table_write_grants,
+      dataTableWriteCatalog,
+    );
+    if (writeGrantError) {
+      setError(writeGrantError);
+      return;
+    }
+    const grantedOperations = authorizedDataTableWriteOperations(
+      scope.data_table_write_grants,
+    );
+    const ungrantedWriteKind = scope.allowed_node_kinds.find((kind) => {
+      const operation = dataTableWriteOperationForNodeKind(kind);
+      return operation !== null && !grantedOperations.has(operation);
+    });
+    if (ungrantedWriteKind) {
+      setError(`节点 ${ungrantedWriteKind} 缺少对应的逐表写授权。`);
       return;
     }
     setIsGenerating(true);
@@ -908,6 +934,13 @@ export default function MetaPlannerV2() {
 
   async function previewEditorDiff(definition: WorkflowDefinition) {
     if (!proposal) return;
+    const requestedDefinition = {
+      ...definition,
+      nodes: definition.nodes.map((node) => {
+        if (!dataTableWriteOperationForNodeKind(String(node.data.kind)) || node.data.plannerRef || !node.data.plannerWriteIntentV2) return node;
+        return { ...node, data: { kind: node.data.kind, title: node.data.title, description: node.data.description, outputVariable: node.data.outputVariable, plannerWriteIntentV2: node.data.plannerWriteIntentV2 } };
+      }),
+    };
     const response = await fetch(
       `/api/meta-agent/authoring/proposals/${proposal.proposal_id}/editor-diff`,
       {
@@ -915,7 +948,7 @@ export default function MetaPlannerV2() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           proposal_revision: proposal.revision,
-          definition,
+          definition: requestedDefinition,
         }),
       },
     );
@@ -1083,8 +1116,30 @@ export default function MetaPlannerV2() {
     }
   }
 
-  const issues = proposal ? validationIssues(proposal.validation) : [];
+  const repairMode = authoringAvailability.mode === "recovery";
   const workflow = candidate ? toWorkflowDefinition(candidate) : null;
+  const storedReport = proposal ? reportFromProposal(proposal) : {};
+  const fallbackNotice = candidateOriginNotice(storedReport);
+  const originNotice = fallbackNotice && repairMode
+    ? "保存的候选是不可执行的诊断占位图，其校验与静态场景不代表失败原图。"
+    : fallbackNotice;
+  const diagnosticGroups: Array<{ title: string; issues: Array<Pick<ValidationIssue, "message" | "stage">> }> = [];
+  if (authoringAvailability.mode === "recovery") {
+    diagnosticGroups.push({ title: "当前原图复核", issues: authoringAvailability.state.diagnostics });
+  }
+  if (proposal) diagnosticGroups.push({ title: "提案审批校验", issues: validationIssues(proposal.validation) });
+  if (repairMode || fallbackNotice) {
+    const historical = storedReport.validation;
+    if (isRecord(historical)) diagnosticGroups.push({
+      title: fallbackNotice && historical.diagnostic_subject !== "model_generation"
+        ? "历史混合诊断（来源未分离）" : "生成阶段诊断",
+      issues: validationIssues(historical),
+    });
+    if (fallbackNotice && isRecord(storedReport.placeholder_validation)) diagnosticGroups.push({
+      title: "诊断占位图校验（非模型产物）", issues: validationIssues(storedReport.placeholder_validation),
+    });
+  }
+  const validationBlocked = repairMode || Boolean(fallbackNotice) || proposal?.validation.valid !== true;
   const headlessVisionAttachment =
     authoringAvailability.mode === "headless"
       ? authoringAvailability.state.vision_attachment
@@ -1254,17 +1309,27 @@ export default function MetaPlannerV2() {
                         </div>
                         <div className="mt-2 space-y-1.5">
                           {items.map((item) => {
-                            const value = capabilityItemId(item);
+                            const value = metaPlannerCapabilityItemId(item, group.key);
                             const checked = scope[group.key].includes(value);
                             const detail = capabilityItemDetail(item, group.key);
                             const visionUnavailable =
                               group.key === "allowed_node_kinds" &&
                               value === "vision_understanding" &&
                               visionModels.length === 0;
+                            const writeOperation =
+                              group.key === "allowed_node_kinds"
+                                ? dataTableWriteOperationForNodeKind(value)
+                                : null;
+                            const writeKindUnavailable = Boolean(
+                              writeOperation &&
+                              !authorizedWriteOperations.has(writeOperation),
+                            );
+                            const unavailable =
+                              visionUnavailable || writeKindUnavailable;
                             return (
                               <label
                                 className={`flex items-start gap-2 rounded-md border border-white/5 bg-white/[0.025] px-2.5 py-2 ${
-                                  visionUnavailable
+                                  unavailable
                                     ? "cursor-not-allowed opacity-55"
                                     : "cursor-pointer"
                                 }`}
@@ -1274,7 +1339,7 @@ export default function MetaPlannerV2() {
                                   aria-label={`${group.title}：${item.title ?? item.name ?? value}`}
                                   checked={checked}
                                   className="mt-0.5 accent-cyan-300"
-                                  disabled={visionUnavailable}
+                                  disabled={unavailable}
                                   onChange={() => toggleScope(group.key, value)}
                                   type="checkbox"
                                 />
@@ -1293,7 +1358,11 @@ export default function MetaPlannerV2() {
                                       </span>
                                     ) : null}
                                   </span>
-                                  {detail ? (
+                                  {writeKindUnavailable ? (
+                                    <span className="mt-0.5 block text-[10px] leading-4 text-amber-200/75">
+                                      先完成包含 {writeOperation} 的逐表写授权。
+                                    </span>
+                                  ) : detail ? (
                                     <span className="mt-0.5 line-clamp-2 block text-[10px] leading-4 text-slate-500">
                                       {detail}
                                     </span>
@@ -1310,6 +1379,14 @@ export default function MetaPlannerV2() {
                     );
                   })
                 : null}
+              {capabilities ? (
+                <DataTableWriteGrants
+                  catalog={dataTableWriteCatalog}
+                  disabled={isGenerating}
+                  grants={scope.data_table_write_grants}
+                  onChange={updateDataTableWriteGrants}
+                />
+              ) : null}
               {capabilities ? (
                 <div className="border-t border-white/10 pt-3">
                   <div className="flex items-end justify-between gap-2">
@@ -1371,6 +1448,7 @@ export default function MetaPlannerV2() {
                           )
                         }
                         value={candidate.name}
+                        disabled={repairMode}
                       />
                     </label>
                     <label>
@@ -1391,6 +1469,7 @@ export default function MetaPlannerV2() {
                           )
                         }
                         value={candidate.tags.join(", ")}
+                        disabled={repairMode}
                       />
                     </label>
                   </div>
@@ -1404,11 +1483,13 @@ export default function MetaPlannerV2() {
                         )
                       }
                       value={candidate.description}
+                      disabled={repairMode}
                     />
                   </label>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-300/15"
+                      disabled={repairMode || proposal.validation.valid === false}
                       onClick={() =>
                         navigate(
                           `/agents/evaluations?target_kind=proposal&proposal_id=${proposal.proposal_id}`,
@@ -1420,6 +1501,7 @@ export default function MetaPlannerV2() {
                     </button>
                     <button
                       className="rounded-md border border-violet-300/30 bg-violet-300/10 px-3 py-2 text-xs font-semibold text-violet-100 hover:bg-violet-300/15"
+                      disabled={repairMode || proposal.validation.valid === false}
                       onClick={() =>
                         navigate(
                           `/agents/evaluations?proposal_id=${proposal.proposal_id}&proposal_revision=${proposal.revision}`,
@@ -1431,7 +1513,7 @@ export default function MetaPlannerV2() {
                     </button>
                     <button
                       className="rounded-md border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-white/5"
-                      disabled={isSaving}
+                      disabled={isSaving || repairMode}
                       onClick={() => void saveCandidate().catch(() => undefined)}
                       type="button"
                     >
@@ -1449,7 +1531,7 @@ export default function MetaPlannerV2() {
                     </button>
                     <button
                       className="rounded-md bg-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-950 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500"
-                      disabled={isSaving || Boolean(pendingAuthoringPreview)}
+                      disabled={isSaving || Boolean(pendingAuthoringPreview) || repairMode || proposal.validation.valid === false}
                       onClick={() => void proposalAction("approve")}
                       type="button"
                     >
@@ -1463,12 +1545,12 @@ export default function MetaPlannerV2() {
                     <p className="text-sm font-semibold text-white">计划与门禁</p>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        issues.some((item) => item.severity !== "warning")
+                        validationBlocked
                           ? "bg-rose-300/10 text-rose-100"
                           : "bg-emerald-300/10 text-emerald-100"
                       }`}
                     >
-                      {issues.length ? `${issues.length} issues` : "ready"}
+                      {repairMode || fallbackNotice ? "待修复" : validationBlocked ? "未通过" : "校验通过"}
                     </span>
                   </div>
                   <p className="mt-2 text-xs leading-5 text-slate-400">
@@ -1497,12 +1579,17 @@ export default function MetaPlannerV2() {
                       </div>
                     ))}
                   </div>
+                  {originNotice ? (
+                    <p role="alert" className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
+                      {originNotice}
+                    </p>
+                  ) : null}
                   {repairUsed ? (
                     <p className="mt-3 rounded-md border border-amber-300/20 bg-amber-300/10 px-2.5 py-2 text-xs text-amber-100">
                       已使用唯一一次模型修复机会。
                     </p>
                   ) : null}
-                  {controlFlowReport ? (
+                  {controlFlowReport && !repairMode && !fallbackNotice ? (
                     <div className="mt-3 rounded-md border border-cyan-300/15 bg-cyan-300/[0.05] p-2.5">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <span className="font-semibold text-cyan-100">控制流静态证据</span>
@@ -1523,7 +1610,7 @@ export default function MetaPlannerV2() {
                       </div>
                     </div>
                   ) : null}
-                  {resourceSnapshots.length ? (
+                  {resourceSnapshots.length && !repairMode && !fallbackNotice ? (
                     <div className="mt-3 rounded-md border border-emerald-300/15 bg-emerald-300/[0.05] p-2.5">
                       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                         <span className="font-semibold text-emerald-100">只读资源快照</span>
@@ -1550,16 +1637,19 @@ export default function MetaPlannerV2() {
                       </div>
                     </div>
                   ) : null}
-                  {issues.length ? (
-                    <div className="mt-3 max-h-32 space-y-1 overflow-y-auto text-[11px] text-rose-100">
-                      {issues.map((item, index) => (
-                        <p key={`${item.stage}-${index}`}>
-                          {item.stage ? `[${item.stage}] ` : ""}
-                          {item.message}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
+                  {diagnosticGroups.filter(group => group.issues.length > 0).map(group => (
+                    <section aria-label={group.title} key={group.title} className="mt-3 border-t border-white/10 pt-2 text-[11px] text-rose-100">
+                      <h3 className="font-semibold text-slate-200">{group.title}</h3>
+                      <div className="mt-1 max-h-32 space-y-1 overflow-y-auto break-words">
+                        {group.issues.map((item, index) => (
+                          <p key={`${item.stage}-${index}`}>
+                            {item.stage ? `[${item.stage}] ` : ""}
+                            {item.message}
+                          </p>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
                   {warnings.length ? (
                     <div className="mt-3 max-h-24 space-y-1 overflow-y-auto text-[11px] text-amber-100">
                       {warnings.map((item) => (
@@ -1613,8 +1703,14 @@ export default function MetaPlannerV2() {
                 </div>
               </div>
 
-              <div className="h-[820px] overflow-hidden rounded-lg border border-white/10 bg-slate-950">
-                {authoringAvailability.mode === "unavailable" ? (
+              <div className={`${repairMode ? "min-h-[520px]" : "h-[820px] overflow-hidden"} rounded-lg border border-white/10 bg-slate-950`}>
+                {authoringAvailability.mode === "recovery" ? (
+                  <FailedDraftRepair
+                    key={`${proposal.proposal_id}-${proposal.revision}`}
+                    state={authoringAvailability.state}
+                    onApplied={async () => { await loadProposal(proposal.proposal_id, false, false); setNotice("人工修复已通过门禁并写回待审批候选，尚未创建或发布智能体。"); }}
+                  />
+                ) : authoringAvailability.mode === "unavailable" ? (
                   <div className="flex h-full items-center justify-center p-8 text-center">
                     <div className="max-w-xl rounded-lg border border-rose-300/20 bg-rose-300/[0.06] p-5 text-sm leading-6 text-rose-100">
                       <p className="font-semibold">候选画布已锁定为只读</p>
@@ -1644,6 +1740,8 @@ export default function MetaPlannerV2() {
                             authoringAvailability.state.allowed_knowledge_base_ids,
                           allowedDataTableIds:
                             authoringAvailability.state.allowed_data_table_ids,
+                          allowedDataTableWriteGrants:
+                            authoringAvailability.state.allowed_data_table_write_grants,
                         }
                       : undefined
                   }

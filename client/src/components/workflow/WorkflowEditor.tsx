@@ -4471,6 +4471,7 @@ function NodeConfig({
       ].includes(data.kind) ? (
         <WorkflowTypedDataNodeConfig
           allowedTableIds={authoringPolicy?.allowedDataTableIds}
+          writeGrants={authoringPolicy?.allowedDataTableWriteGrants}
           contract={variableContract}
           data={data}
           declarations={declarations}
@@ -6764,6 +6765,7 @@ export interface WorkflowEditorAuthoringPolicy {
   allowedSourceAgentIds?: string[];
   allowedKnowledgeBaseIds?: string[];
   allowedDataTableIds?: string[];
+  allowedDataTableWriteGrants?: import("./WorkflowControlledWriteConfig").WorkflowWriteGrant[];
 }
 
 export const HEADLESS_WORKFLOW_AGENT_EDITABLE_FIELDS = [

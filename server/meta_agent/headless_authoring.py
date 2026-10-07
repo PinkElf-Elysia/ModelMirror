@@ -24,6 +24,7 @@ try:
         AuthoringProposalConflictError,
         AuthoringProposalNotFoundError,
         AuthoringProposalValidationError,
+        requires_recipe_recovery,
     )
     from server.xperts.models import XpertDefinition
 except ModuleNotFoundError:
@@ -40,6 +41,7 @@ except ModuleNotFoundError:
         AuthoringProposalConflictError,
         AuthoringProposalNotFoundError,
         AuthoringProposalValidationError,
+        requires_recipe_recovery,
     )
     from xperts.models import XpertDefinition
 
@@ -52,6 +54,8 @@ from .graph_ir_v3 import (
     workflow_authoring_checksum,
     workflow_semantic_checksum,
 )
+from .generation_recipe import GenerationRecipeV1
+from .failed_artifacts import recipe_source_format
 from .graph_patch import (
     GRAPH_PATCH_PROTOCOL_VERSION,
     GraphPatchApplyRequest,
@@ -63,7 +67,9 @@ from .graph_patch import (
 )
 from .control_flow import native_outcome_map
 from .meta_planner_v2 import MetaPlannerV2Service
-from .node_adapters import META_PLANNER_ADAPTER_KINDS, get_planner_node_adapter
+from .node_adapters import META_PLANNER_ADAPTER_KINDS, PlannerNodeCompileContext, get_planner_node_adapter
+from .write_contract import WRITE_KINDS, WriteEditorIntent
+from .write_delivery import CONTEXT_FIELD, source_task_input
 from .vision_contract import (
     ATTACHMENT_INPUT_PORT,
     VISION_ATTACHMENT_CONTRACT,
@@ -236,6 +242,13 @@ _AUTHORABLE_PURE_NODE_DATA_FIELDS: dict[str, frozenset[str]] = {
         }
     ),
 }
+for _write_kind in ("data_table_insert", "data_table_update", "data_table_delete"):
+    _AUTHORABLE_PURE_NODE_DATA_FIELDS[_write_kind] = frozenset({
+        "kind", "title", "description", "valueSource", "literalValues",
+        "filter", "maxAffectedRows", "outputVariable",
+        "plannerWriteIntentV2",
+    })
+
 _SENSITIVE_ERROR_VALUE = re.compile(
     r"(?i)(?:sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|"
     r"bearer\s+[A-Za-z0-9._-]{8,}|"
@@ -263,7 +276,8 @@ def _canonical_patch_receipts(value: Any) -> list[dict[str, Any]]:
     for item in list(value or [])[-HEADLESS_AUTHORING_MAX_RECEIPTS:]:
         if not isinstance(item, dict):
             continue
-        if item.get("protocol_version") != GRAPH_PATCH_PROTOCOL_VERSION:
+        protocol = item.get("protocol_version")
+        if protocol not in (GRAPH_PATCH_PROTOCOL_VERSION, "recipe_control_flow_v1", "recipe_resource_bindings_v1", "recipe_inputs_v1", "recipe_edits_v1"):
             continue
         operation_types = item.get("operation_types")
         if (
@@ -305,7 +319,10 @@ def _canonical_patch_receipts(value: Any) -> list[dict[str, Any]]:
             continue
         receipts.append(
             {
-                "protocol_version": GRAPH_PATCH_PROTOCOL_VERSION,
+                "protocol_version": protocol,
+                **({"before_checksum_kind": "recipe_v1"} if protocol in ("recipe_control_flow_v1", "recipe_edits_v1") else {}),
+                **({"before_checksum_kind": "recipe_resource_draft_v1"} if protocol == "recipe_resource_bindings_v1" else {}),
+                **({"before_checksum_kind": "recipe_input_draft_v1"} if protocol == "recipe_inputs_v1" else {}),
                 "operation_types": list(operation_types),
                 **{
                     field_name: item[field_name]
@@ -355,8 +372,8 @@ class _ProposalState:
     candidate: dict[str, Any]
     report: dict[str, Any]
     plan: MetaPlannerTaskPlan
-    intent: GraphIntentV3
-    graph_ir: ResolvedGraphIRV3
+    intent: GraphIntentV3 | GenerationRecipeV1
+    graph_ir: ResolvedGraphIRV3 | None
     snapshot: MetaPlannerCapabilitySnapshot
     scope: MetaPlannerScope
     request: MetaPlannerGenerateRequest
@@ -497,6 +514,12 @@ def _intersect_scope(
         "agent_ids": {str(item.get("id") or "") for item in snapshot.agents},
     }
     return MetaPlannerScope(
+        data_table_write_grants=[
+            grant for grant in stored_scope.data_table_write_grants
+            if any(item.get("id") == grant.table_id and item.get("status") != "archived"
+                   and set(grant.writable_fields).issubset({field["name"] for field in item.get("fields", [])})
+                   for item in snapshot.data_tables)
+        ],
         **{
             field_name: [
                 item
@@ -534,6 +557,7 @@ def _validate_intent_authorization(
     allowed_node_resources = {
         "knowledge_retrieval": set(scope.knowledge_base_ids),
         "data_table_query": set(scope.data_table_ids),
+        **{f"data_table_{operation}": {grant.table_id for grant in scope.data_table_write_grants if operation in grant.operations} for operation in ("insert", "update", "delete")},
     }
     violations: list[str] = []
     for node in intent.nodes:
@@ -595,6 +619,13 @@ class HeadlessAuthoringService:
         self.capability_snapshot_builder = capability_snapshot_builder
 
     def proposal_state(self, proposal_id: str) -> dict[str, Any]:
+        from .failed_recovery import FailedDraftRecovery, needs_recovery
+        try:
+            proposal = self.authoring_service.proposal_store.require(proposal_id)
+        except AuthoringProposalNotFoundError as exc:
+            raise HeadlessAuthoringError(str(exc), code="headless_proposal_not_found", status_code=404) from exc
+        if needs_recovery(proposal):
+            return FailedDraftRecovery(self).state_payload(proposal_id)
         state = self._state(proposal_id)
         return self._state_payload(state)
 
@@ -661,15 +692,22 @@ class HeadlessAuthoringService:
                 diagnostics=list(preview.get("diagnostics") or []),
             )
 
+        return self._apply_preview(state, request.patch, preview)
+
+    def _apply_preview(self, state: _ProposalState, patch: GraphPatchEnvelopeV1, preview: dict[str, Any], *, before_commit: Callable[[], None] | None = None) -> dict[str, Any]:
+        proposal_id = state.proposal.proposal_id
         report = deepcopy(state.report)
+        if state.ir_state == "failed_recoverable":
+            report["candidate_origin"] = "human_repaired"
         receipts = _canonical_patch_receipts(
             report.get("authoring_patch_receipts")
         )
         receipts.append(
             {
-                "protocol_version": GRAPH_PATCH_PROTOCOL_VERSION,
+                "protocol_version": patch.protocol_version,
+                **({"before_checksum_kind": recipe_source_format(state.intent)} if isinstance(state.intent, GenerationRecipeV1) else {}),
                 "operation_types": [
-                    operation.op for operation in request.patch.operations
+                    operation.op for operation in patch.operations
                 ],
                 "before_graph_checksum": state.graph_checksum,
                 "after_graph_checksum": preview["graph_checksum"],
@@ -725,10 +763,11 @@ class HeadlessAuthoringService:
         try:
             updated = self.authoring_service.apply_headless_authoring_payload(
                 proposal_id,
-                revision=request.patch.proposal_revision,
+                revision=patch.proposal_revision,
                 payload=next_payload,
                 expected_target_id=state.proposal.target_id,
                 expected_target_revision=state.proposal.base_revision,
+                before_commit=before_commit,
             )
         except AuthoringProposalConflictError as exc:
             raise HeadlessAuthoringConflictError(str(exc)) from exc
@@ -752,6 +791,12 @@ class HeadlessAuthoringService:
             raise HeadlessAuthoringError(
                 str(exc), code="headless_proposal_not_found", status_code=404
             ) from exc
+        from .failed_recovery import needs_recovery
+        if needs_recovery(proposal):
+            raise HeadlessAuthoringError(
+                "此提案必须从保留的失败原图进入人工修复，不能编辑占位候选。",
+                code="recovery_required",
+            )
         candidate = _candidate_from_proposal(proposal)
         report = _report_from_proposal(proposal)
         try:
@@ -860,6 +905,7 @@ class HeadlessAuthoringService:
             graph_ir = resolve_graph_intent(
                 intent, snapshot, default_agent_model_id=default_model,
                 vision_model_id=request.vision_model_id,
+                data_table_write_grants=scope.data_table_write_grants,
             )
         except Exception as exc:
             message = safe_headless_error_message(exc)
@@ -875,14 +921,27 @@ class HeadlessAuthoringService:
                 ],
             ) from exc
         if not target_conflict:
-            round_trip = self.planner_service.preview(
-                request,
-                snapshot,
-                plan=plan,
-                blueprint=intent,
-                target=target,
-                warnings=[],
-            ).candidate
+            try:
+                round_trip = self.planner_service.preview(
+                    request,
+                    snapshot,
+                    plan=plan,
+                    blueprint=intent,
+                    target=target,
+                    warnings=[],
+                ).candidate
+            except ValueError as exc:
+                raise HeadlessAuthoringError(
+                    "候选未通过固定计划与编译契约校验，暂不能进行类型化编辑。",
+                    code="headless_candidate_invalid",
+                    diagnostics=[
+                        {
+                            "code": "candidate_round_trip_invalid",
+                            "severity": "error",
+                            "message": safe_headless_error_message(exc),
+                        }
+                    ],
+                ) from exc
             _apply_layout(round_trip, _layout_from_candidate(candidate))
             current_workflow = candidate.get("draft", {}).get("workflow")
             round_trip_workflow = round_trip.get("draft", {}).get("workflow")
@@ -893,6 +952,15 @@ class HeadlessAuthoringService:
                 # current presentation identity so unrelated capability drift
                 # cannot turn a lossless candidate into a false mismatch.
                 round_trip_workflow["id"] = current_workflow.get("id")
+                # Compare old saved candidates without silently upgrading their
+                # Prompt. Only the compiler-added suffix is projected away here.
+                original_data = {node["id"]: node.get("data") or {}
+                                 for node in current_workflow.get("nodes") or []}
+                for node in round_trip_workflow.get("nodes") or []:
+                    data = node.get("data") or {}
+                    if CONTEXT_FIELD in data and CONTEXT_FIELD not in original_data.get(node["id"], {}):
+                        data["taskInput"] = source_task_input(data)
+                        data.pop(CONTEXT_FIELD)
             source_version = recovered_compatibility.source_version
             if candidate_authoring_checksum(
                 _round_trip_candidate_projection(
@@ -1581,6 +1649,7 @@ class HeadlessAuthoringService:
                 ancestors[ref].update(ancestors[parent])
 
         parsed_by_ref: dict[str, Any] = {}
+        write_edits: dict[str, WriteEditorIntent] = {}
         resource_refs_by_ref: dict[str, GraphIntentNodeResourceRefV3] = {}
         resource_snapshots_by_ref: dict[str, dict[str, Any]] = {}
         output_bindings_by_ref: dict[str, list[GraphIntentOutputBindingV3]] = {}
@@ -1613,19 +1682,26 @@ class HeadlessAuthoringService:
                     "visionModelBinding": binding,
                     "plannerVisionModelBindingChecksum": canonical_checksum(binding),
                 })
-            parsed = adapter.authoring_config_from_native(data)
+            if kind in WRITE_KINDS and "plannerWriteIntentV2" in data:
+                edit = WriteEditorIntent.model_validate(data["plannerWriteIntentV2"])
+                write_edits[ref] = edit
+                parsed = adapter.config_model.model_validate(adapter.validate_authoring_config(edit.config))
+            else:
+                parsed = adapter.authoring_config_from_native(data)
             resource_payload: dict[str, Any] | None = None
             if adapter.resource_kind is not None:
                 resource_field = {
                     "knowledge_base": "knowledgeBaseId",
                     "data_table": "tableId",
                 }[adapter.resource_kind]
-                resource_id = str(data.get(resource_field) or "").strip()
+                resource_id = write_edits[ref].resource_id if ref in write_edits else str(data.get(resource_field) or "").strip()
                 allowed_resource_ids = (
                     set(state.scope.knowledge_base_ids)
                     if adapter.resource_kind == "knowledge_base"
                     else set(state.scope.data_table_ids)
                 )
+                if kind in {"data_table_insert", "data_table_update", "data_table_delete"}:
+                    allowed_resource_ids = {grant.table_id for grant in state.scope.data_table_write_grants if kind.removeprefix("data_table_") in grant.operations}
                 if resource_id not in allowed_resource_ids:
                     raise ValueError(
                         f"Editor node {ref} references an unauthorized "
@@ -1704,7 +1780,14 @@ class HeadlessAuthoringService:
                     raise ValueError(f"Editor node {ref} cannot cover plan tasks.")
                 task_ids = []
             inputs: list[GraphIntentInputBindingV3] = []
-            for port, variable in adapter.editor_input_variables(data, parsed):
+            if ref in write_edits:
+                for binding in write_edits[ref].inputs:
+                    matches = [(variable, source_schema) for variable, producers in output_by_variable.items() for producer_ref, producer_port, source_schema in producers if (producer_ref, producer_port) == (binding.source_ref, binding.source_port)]
+                    if len(matches) != 1 or binding.source_ref not in ancestors.get(ref, set()):
+                        raise ValueError(f"写节点 {ref} 的语义输入没有唯一、控制可达的生产端口。")
+                    variable, source_schema = matches[0]
+                    inputs.append(GraphIntentInputBindingV3(port=binding.port, source_ref=binding.source_ref, source_port=binding.source_port, variable=variable, value_schema=source_schema))
+            for port, variable in ([] if ref in write_edits else adapter.editor_input_variables(data, parsed)):
                 if variable in {"user_input", "conversation_history", ATTACHMENT_INPUT_PORT}:
                     if variable == ATTACHMENT_INPUT_PORT and kind != "vision_understanding":
                         raise ValueError("附件槽位只能由视觉理解节点直接读取。")
@@ -1807,7 +1890,7 @@ class HeadlessAuthoringService:
                     data["observedActiveVersionId"] = resource_payload.get(
                         "observed_version_id"
                     )
-                elif kind == "data_table_query":
+                elif kind in {"data_table_query", "data_table_insert", "data_table_update", "data_table_delete"}:
                     data["tableId"] = resource_payload["resource_id"]
                     data["versionPolicy"] = "pinned"
                     data["pinnedSchemaVersion"] = resource_payload[
@@ -1816,6 +1899,15 @@ class HeadlessAuthoringService:
                     data["pinnedSchemaChecksum"] = resource_payload[
                         "schema_checksum"
                     ]
+                    if kind != "data_table_query":
+                        grant = next(grant for grant in state.scope.data_table_write_grants if grant.table_id == resource_payload["resource_id"] and kind.removeprefix("data_table_") in grant.operations)
+                        compiled_write = adapter.compile_node(intent_node, parsed, PlannerNodeCompileContext(
+                            node_id=node.id, position=node.position, default_agent_model_id=state.request.default_agent_model_id,
+                            output_variable=outputs[0].variable, acceptance_criteria="", has_runtime_resources=False,
+                            requires_runtime_mode=False, resource_snapshot=resource_payload, write_grant=grant.model_dump(mode="json"),
+                        ))
+                        data.update(compiled_write.data)
+                        data.pop("plannerWriteIntentV2", None)
             if kind == "data_merge":
                 data["plannerControlInputMapV1"] = {
                     item.port: item.source_ref for item in inputs

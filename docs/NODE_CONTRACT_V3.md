@@ -63,13 +63,13 @@ The first complete-contract group is:
 | Control-flow adapters | `condition`, `multi_route`, `data_merge`, `terminate_error` | enabled, `task_binding=forbidden` |
 | Read targets | `knowledge_retrieval`, `data_table_query` | enabled, `task_binding=forbidden`, node-owned resource |
 | 显式附件 | `vision_understanding` | V2，显式授权，`task_binding=forbidden` |
-| Write targets | `data_table_insert`, `data_table_update`, `data_table_delete` | unsupported |
+| 受控写入 | `data_table_insert`, `data_table_update`, `data_table_delete` | V2，显式操作授权，`task_binding=forbidden` |
 | Metadata and middleware | `annotation`, `runtime_middleware` | metadata or binding contract only |
 
 All other nodes have compatibility or explicitly unsupported contracts and
 remain executable through the existing classic validator and runner when their
-legacy validation permits it. Capability Snapshot V9 exposes nineteen kinds,
-including the two read-resource adapters and explicitly authorized Vision V2. Graph IR V3 is the write format; Typed
+legacy validation permits it. Capability Snapshot V10 共 22 类，增加三个显式授权的 V2 写入 Adapter。
+Graph IR V3 is the write format; Typed
 IR V2 is read-only compatibility input.
 
 Unversioned JSON nodes retain their historical inline-error/null behavior.
@@ -78,8 +78,7 @@ a 5 MiB boundary, and a trusted `WorkflowValueSchema` for Deserialize output.
 The other pure adapters keep their existing bounded Runtime contracts. Pure
 nodes cannot cover plan tasks or bind resources or middleware. Control-flow nodes
 also cannot cover plan tasks. Agent Table Query is Evaluator-conditional: its
-SchemaVersion and query contract are fixed and its results are captured into a private,
-bounded read-transaction fixture before model execution.
+SchemaVersion and query contract are fixed. 只读评测在模型执行前固化查询结果；受控写入评测中，查询改从本项私有 Backend 读取实际状态，不复用旧只读结果冒充写后查询。
 视觉评测只对 V2、固定 DatasetVersion 附件和有效 Managed Binding 有条件开放；旧视觉
 节点没有获得此权限。配置解析必须保留 V1 的运行兼容，不自动升级。
 
@@ -101,9 +100,9 @@ domain checks continue to run in their existing services.
 
 The V3 migration preserves the current policy boundary:
 
-- Evaluator rejects Handoff, Human Intervention, Agent Table writes, and legacy Vision.
-  Vision V2 additionally requires fixed attachments and a valid Managed Binding. Agent Table Query is allowed only when its fixed read fixture can
-  be prepared without Agent-derived predicates or live-table fallback.
+- Evaluator 继续拒绝 Handoff、Human Intervention、旧版 Agent Table 写入和旧版视觉。
+  V2 写入仅在固定手工/合成初始化、效果断言及服务端私有 Backend 下有条件开放；不能回退活表。
+  Vision V2 additionally requires fixed attachments and a valid Managed Binding. Agent Table Query 保留非 Agent 谓词限制，按只读夹具或服务端写入隔离契约执行；两者均禁止活表回退。
 - public App rejects External Xpert, Plugin, Human Intervention, every Agent
   Table node, and Vision Understanding.
 - Structure Evolution can currently add only adapter-backed
@@ -123,14 +122,17 @@ Planner claims. If the server response is absent, incomplete, or has a checksum
 shape other than V3, contract-dependent operations stay disabled while the
 classic palette may continue to render.
 
-Meta Planner Capability Snapshot version is V9 with `ir_version=3`,
-`supported_ir_versions=[2,3]`, and `control_flow_contract_version=2`. V9 projects the typed Headless Authoring
+Meta Planner Capability Snapshot version is V10 with `ir_version=3`,
+`supported_ir_versions=[2,3]`, and `control_flow_contract_version=2`. V10 projects the typed Headless Authoring
 operation schema, `task_binding`, versioned execution semantics, and per-kind
-authoring checksum for the nineteen enabled kinds. Its Agent Table catalog exposes
+authoring checksum for the 22 enabled kinds. Its Agent Table catalog exposes
 only field names, types, required flags and Schema checksums; records and defaults
 remain private.
 视觉目录只含安全模型信息和固定 Binding 摘要，默认不授权；可信单附件输入、完整结果
 端口和版本化错误策略见 [视觉契约](./META_PLANNER_VISION.md)。
+写入授权固定表、操作、业务字段和影响上限；首次写入要求固定 Schema 仍为活动版本。
+V2 的 `retryMode=none` 不表示支持重试。配置级许可、可信记录与效果边界见
+[受控写入契约](./META_PLANNER_CONTROLLED_WRITES.md)。
 Persisted V2 snapshots without contract metadata remain readable. Contract
 drift is a warning for an existing proposal; missing or invalid resources still
 block approval.

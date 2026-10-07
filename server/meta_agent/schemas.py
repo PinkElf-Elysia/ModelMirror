@@ -15,14 +15,18 @@ from pydantic import (
 try:
     from server.multimodal.vision_v2 import VisionModelBindingSnapshot
     from server.workflow_native.node_contracts import (
+        DataTableWriteGrant,
         WorkflowAgentPlannerConfig,
         WorkflowValueSchema,
+        WorkflowValueType,
     )
 except ModuleNotFoundError:
     from multimodal.vision_v2 import VisionModelBindingSnapshot
     from workflow_native.node_contracts import (
+        DataTableWriteGrant,
         WorkflowAgentPlannerConfig,
         WorkflowValueSchema,
+        WorkflowValueType,
     )
 
 
@@ -100,11 +104,20 @@ class MetaPlannerScope(BaseModel):
     external_xpert_ids: list[str] = Field(default_factory=list, max_length=20)
     knowledge_base_ids: list[str] = Field(default_factory=list, max_length=20)
     data_table_ids: list[str] = Field(default_factory=list, max_length=20)
+    data_table_write_grants: list[DataTableWriteGrant] = Field(default_factory=list, max_length=20)
     toolset_ids: list[str] = Field(default_factory=list, max_length=20)
     plugin_ids: list[str] = Field(default_factory=list, max_length=20)
     prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
     middleware_ids: list[str] = Field(default_factory=list, max_length=30)
     agent_ids: list[str] = Field(default_factory=list, max_length=512)
+
+    @model_validator(mode="after")
+    def validate_write_grants(self) -> "MetaPlannerScope":
+        ids = [grant.table_id for grant in self.data_table_write_grants]
+        if len(ids) != len(set(ids)):
+            raise ValueError("同一数据表只能声明一份操作授权。")
+        self.data_table_write_grants = sorted(self.data_table_write_grants, key=lambda grant: grant.table_id)
+        return self
 
 
 class MetaPlannerGenerateRequest(BaseModel):
@@ -216,15 +229,7 @@ class MetaPlannerBlueprint(BaseModel):
     prompt_profile_ids: list[str] = Field(default_factory=list, max_length=20)
 
 
-MetaPlannerValueType = Literal[
-    "any",
-    "null",
-    "string",
-    "number",
-    "boolean",
-    "object",
-    "array",
-]
+MetaPlannerValueType = WorkflowValueType
 
 
 class GraphIntentNodeResourceRefV3(BaseModel):
@@ -485,6 +490,7 @@ class ResolvedGraphNodeV3(BaseModel):
     resource_contracts: list[dict[str, Any]] = Field(default_factory=list)
     resource_snapshot: ResolvedNodeResourceSnapshotV3 | None = None
     vision_model_snapshot: VisionModelBindingSnapshot | None = None
+    write_grant: DataTableWriteGrant | None = None
 
 
 class ResolvedGraphEndpointV3(BaseModel):

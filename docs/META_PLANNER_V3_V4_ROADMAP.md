@@ -170,6 +170,13 @@ SchemaVersion，并在 Evaluator 中按目标、用例和节点生成私有事�
 
 写节点的发布与评测策略必须根据解析后的配置判定，不能只依赖 node kind。
 
+本轮实施锁定为 V2 写节点、Capability V10 共 22 类。更新/删除只消费同一工作流中真实
+Query/Insert 的同表记录与 revision，默认最多 1 行；模型不能扩大表、操作、字段和行数授权。
+每节点独立事务，恢复复用固定请求和幂等账本，不新增自动重试、跨节点回滚或补偿。
+Evaluator 仅接受手工/合成初始化，逐目标/用例/重复隔离，强制效果断言且禁止活表回退。
+契约见[META_PLANNER_CONTROLLED_WRITES.md](./META_PLANNER_CONTROLLED_WRITES.md)，
+验证状态见[任务卡](./tasks/META_PLANNER_CONTROLLED_WRITES_10.md)。第 8 轮未开始。
+
 ### Round 8：Long Running
 
 这是 V3 内唯一允许在审计后进一步拆分的高风险轮次。候选范围包括：

@@ -9,6 +9,7 @@ import pytest_asyncio
 from server import main as main_module
 from server.main import app
 from server.meta_agent.graph_ir_v3 import v2_to_graph_intent
+from server.tests.meta_planner_recipe_fixtures import from_intent
 from server.meta_agent.schemas import (
     MetaPlannerIRFinalOutput,
     MetaPlannerIRInputBinding,
@@ -39,11 +40,13 @@ class FakeManagedRun:
     def __init__(self, outputs: list[str]) -> None:
         self.outputs = list(outputs)
         self.calls: list[ProviderRouteCallReceipt] = []
+        self.requests: list[dict] = []
         self.status = "running"
         self.run_id = "workrun_meta_test"
         self.parent_run_reference = ""
 
     async def complete_json(self, **kwargs) -> str:
+        self.requests.append(kwargs)
         sequence = int(kwargs["call_sequence"])
         model_id = str(kwargs["model_id"])
         self.calls.append(
@@ -115,7 +118,7 @@ def _classic_plan_json() -> str:
     )
 
 
-def _planner_outputs() -> list[str]:
+def _planner_outputs(*, full_graph: bool = False) -> list[str]:
     plan = MetaPlannerTaskPlan(
         summary="Produce one bounded candidate.",
         tasks=[
@@ -160,7 +163,7 @@ def _planner_outputs() -> list[str]:
     return [
         plan.model_dump_json(),
         json.dumps({"name": "invalid"}),
-        blueprint.model_dump_json(),
+        blueprint.model_dump_json() if full_graph else json.dumps(from_intent(blueprint)),
     ]
 
 
@@ -273,6 +276,63 @@ async def test_xpert_candidate_endpoint_records_plan_blueprint_and_one_repair(
     assert payload["run_id"] == managed_run.parent_run_reference
     assert payload["repair_used"] is True
     assert payload["validation"]["valid"] is True
+    assert payload["provider_route_receipts"]["call_count"] == 3
+    assert [item.call_sequence for item in managed_run.calls] == [1, 2, 3]
+    for call in managed_run.requests[1:]:
+        prompt = json.loads(call["user_prompt"])
+        schema = prompt["required_schema"]
+        assert schema["properties"]["generation_protocol_version"]["const"] == 1
+        assert {"generation_protocol_version", "control_flow"} <= set(schema["required"])
+        assert schema["additionalProperties"] is False
+    assert "invalid_generation" in json.loads(managed_run.requests[2]["user_prompt"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forged_recipe_marker", [False, True])
+async def test_managed_repair_cannot_downgrade_generation_to_full_graph_intent(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    forged_recipe_marker: bool,
+) -> None:
+    outputs = _planner_outputs(full_graph=True)
+    if forged_recipe_marker:
+        full_graph = json.loads(outputs[-1])
+        full_graph["generation_protocol_version"] = 1
+        outputs[-1] = json.dumps(full_graph)
+    managed_run = FakeManagedRun(outputs)
+    _install_gateway(monkeypatch, FakeManagedGateway(managed_run))
+
+    async def forbidden_legacy(*_args, **_kwargs):
+        raise AssertionError("managed_required must not call the legacy gateway")
+
+    monkeypatch.setattr(main_module, "collect_chat_completion_text", forbidden_legacy)
+    response = await client.post(
+        "/api/meta-agent/generate-xpert-candidate",
+        json={
+            "goal": "验证定向修复不能用旧图格式绕过新的生成协议。",
+            "mode": "create",
+            "planner_model_id": MODEL_ID,
+            "default_agent_model_id": MODEL_ID,
+            "temperature": 0.2,
+            "max_agents": 3,
+            "scope": {},
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["repair_used"] is True
+    assert payload["validation"]["valid"] is False
+    errors = json.dumps(payload["validation"])
+    if forged_recipe_marker:
+        issue = next(
+            item for item in payload["validation"]["issues"]
+            if item["code"] == "meta_planner_repair_failed"
+        )
+        assert "control_edges: Extra inputs are not permitted" in issue["message"]
+        assert "nodes.0.outputs: Extra inputs are not permitted" in issue["message"]
+    else:
+        assert "GENERATION_PROTOCOL_REQUIRED" in errors
+    assert payload["provider_route_receipts"]["status"] == "failed"
     assert payload["provider_route_receipts"]["call_count"] == 3
     assert [item.call_sequence for item in managed_run.calls] == [1, 2, 3]
 

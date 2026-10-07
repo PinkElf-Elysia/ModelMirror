@@ -229,7 +229,7 @@ def test_data_table_node_validation_contract_and_variable_reachability() -> None
     assert "missing_data_table_filter" in {issue.code for issue in result.issues}
 
 
-def test_only_data_table_query_is_planner_enabled() -> None:
+def test_data_table_query_and_controlled_writes_have_planner_adapters() -> None:
     registry = WorkflowNodeRegistry()
     register_builtin_workflow_nodes(registry)
     items = {
@@ -248,7 +248,7 @@ def test_only_data_table_query_is_planner_enabled() -> None:
     assert all(item.enabled is True for item in items.values())
     assert items["data_table_query"].to_payload()["planner"]["enabled"] is True
     assert all(
-        items[kind].to_payload()["planner"]["enabled"] is False
+        items[kind].to_payload()["planner"]["enabled"] is True
         for kind in {
             "data_table_insert",
             "data_table_update",

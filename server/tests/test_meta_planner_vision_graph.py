@@ -71,13 +71,14 @@ def resolve(intent=None, snapshot=None):
     return resolve_graph_intent(intent or vision_intent(), snapshot or vision_snapshot(), default_agent_model_id="model/agent", vision_model_id="model/vision")
 
 
-def test_capability_has_exactly_19_nodes_and_vision_is_opt_in():
+def test_current_capability_keeps_vision_and_writes_opt_in():
     snapshot = vision_snapshot()
-    assert len(snapshot.nodes) == 19
+    assert len(snapshot.nodes) == 22
     assert "vision_understanding" not in snapshot.default_scope.allowed_node_kinds
-    assert {"data_table_insert", "iteration", "human", "question_classifier"}.isdisjoint({node["kind"] for node in snapshot.nodes})
+    assert {"data_table_insert", "data_table_update", "data_table_delete"}.isdisjoint(snapshot.default_scope.allowed_node_kinds)
+    assert {"iteration", "human", "question_classifier"}.isdisjoint({node["kind"] for node in snapshot.nodes})
     assert "must-not-leak" not in snapshot.model_dump_json()
-    assert snapshot.version.endswith("v9")
+    assert snapshot.version.endswith("v10")
 
 
 def test_vision_compile_decompile_compile_preserves_binding_and_slot():

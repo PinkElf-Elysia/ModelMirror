@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -42,7 +43,7 @@ class XpertEvaluationStore:
     MAX_RESOURCE_FIXTURES = 1_000
     MAX_RESOURCE_FIXTURE_BYTES = 16 * 1024 * 1024
 
-    def __init__(self, storage_dir: str | Path | None = None, *, vision_fixtures: Any | None = None) -> None:
+    def __init__(self, storage_dir: str | Path | None = None, *, vision_fixtures: Any | None = None, agent_table_backend: Any | None = None) -> None:
         root = Path(
             storage_dir
             or os.getenv("XPERT_EVALUATION_STORAGE_DIR", "").strip()
@@ -53,6 +54,7 @@ class XpertEvaluationStore:
         self.path = root / "xpert_evaluations.json"
         self._lock = threading.RLock()
         self.vision_fixtures = vision_fixtures
+        self.agent_table_backend = agent_table_backend
         self._data = self._load()
 
     def create_dataset(
@@ -342,6 +344,11 @@ class XpertEvaluationStore:
                     )
             version_number = len(item.get("versions") or []) + 1
             cases = copy.deepcopy(item["cases"])
+            from .write_fixtures import freeze_case_tables, checksum as write_fixture_checksum
+            try:
+                write_fixtures = freeze_case_tables(cases, self.agent_table_backend)
+            except ValueError as exc:
+                raise EvaluationStateError(str(exc)) from exc
             attachments = [case["attachment"] for case in cases if case.get("attachment")]
             if any(case.get("vision") and not case.get("attachment") for case in cases):
                 raise EvaluationStateError("包含视觉断言的用例必须先选择附件。")
@@ -366,6 +373,9 @@ class XpertEvaluationStore:
                 **self._metadata_payload(item),
                 "published_at": time.time(),
             }
+            if write_fixtures:
+                version["_write_fixtures"] = write_fixtures
+                version["table_fixture_checksum"] = write_fixture_checksum(write_fixtures)
             before = copy.deepcopy(item)
             try:
                 item.setdefault("versions", []).append(version)
@@ -377,14 +387,14 @@ class XpertEvaluationStore:
                 if attachments:
                     self.vision_fixtures.release_dataset_version(dataset_id, version_number)
                 raise
-            return copy.deepcopy(version)
+            return {key: copy.deepcopy(value) for key, value in version.items() if not key.startswith("_")}
 
     def list_dataset_versions(self, dataset_id: str) -> list[dict[str, Any]]:
         item = self.require_dataset(dataset_id)
         versions = list(item.get("versions") or [])
         versions.sort(key=lambda version: int(version.get("version") or 0), reverse=True)
         return [
-            {key: value for key, value in version.items() if key != "cases"}
+            {key: value for key, value in version.items() if key != "cases" and not key.startswith("_")}
             for version in versions
         ]
 
@@ -407,11 +417,16 @@ class XpertEvaluationStore:
         config: dict[str, Any],
         warnings: list[str],
         resource_fixtures: list[dict[str, Any]] | None = None,
+        write_isolation: bool = False,
     ) -> dict[str, Any]:
         if not 1 <= len(cases) <= self.MAX_RUN_CASES:
             raise EvaluationStateError("A run must contain between 1 and 100 cases.")
         now = time.time()
         targets = ([baseline] if baseline else []) + list(candidates)
+        from .write_fixtures import has_controlled_writes
+        needs_isolation = any(has_controlled_writes(target.get("workflow") or {}) for target in targets)
+        if type(write_isolation) is not bool or write_isolation != needs_isolation:
+            raise EvaluationStateError("写入目标必须由服务端配置隔离执行环境，不能降级或伪造隔离模式。")
         items: list[dict[str, Any]] = []
         repetitions = int((config.get("budget") or {}).get("repetitions") or 1)
         for target in targets:
@@ -436,6 +451,20 @@ class XpertEvaluationStore:
             cases=cases,
         )
         run_id = f"xeval_run_{uuid.uuid4().hex}"
+        write_fixtures = {}
+        if write_isolation:
+            authoritative = self.get_dataset_version(dataset_version["dataset_id"], dataset_version["version"])
+            if authoritative.get("checksum") != dataset_version.get("checksum") or authoritative.get("table_fixture_checksum") != dataset_version.get("table_fixture_checksum"):
+                raise EvaluationStateError("隔离夹具版本与发布快照不一致。")
+            version_cases = {case["case_id"]: case for case in authoritative["cases"]}
+            if any(case != version_cases.get(case["case_id"]) for case in cases):
+                raise EvaluationStateError("隔离用例与已发布版本不一致，不能替换初始化或效果断言。")
+            write_fixtures = {case["case_id"]: copy.deepcopy((authoritative.get("_write_fixtures") or {}).get(case["case_id"])) for case in cases}
+            from .write_fixtures import validate_write_dataset
+            try:
+                validate_write_dataset(targets, cases, dataset=authoritative)
+            except ValueError as exc:
+                raise EvaluationStateError(str(exc)) from exc
         attachment_cases = [case for case in cases if case.get("attachment")]
         vision_fixtures: dict[str, Any] = {}
         if attachment_cases:
@@ -463,6 +492,8 @@ class XpertEvaluationStore:
             "items": items,
             "_resource_fixtures": private_fixtures,
             "_vision_fixtures": vision_fixtures,
+            "_write_fixtures": write_fixtures,
+            "write_isolation": write_isolation,
             "vision_fixture_summary": {"case_count": len(vision_fixtures), "original_count": len({entry["sha256"] for entry in vision_fixtures.values()})},
             "resource_fixture_summary": {
                 "fixture_count": len(private_fixtures),
@@ -710,6 +741,84 @@ class XpertEvaluationStore:
                     "Persisted evaluation resource fixture failed integrity validation."
                 ) from exc
 
+    def mark_write_dispatch(self, run_id: str, item_id: str, node_ref: str, operation: str, request_checksum: str) -> None:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = self._item_unlocked(run, item_id)
+            if run.get("cancel_requested") or run.get("status") not in {"queued", "running"} or item.get("status") not in {"pending", "running"}:
+                raise EvaluationStateError("当前隔离评测已取消或结束，不能派发后续表操作。")
+            if (item.get("write_instance") or {}).get("status") != "ready":
+                raise EvaluationStateError("隔离表实例尚未就绪，不能派发操作。")
+            if operation not in {"query", "insert", "update", "delete"} or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", node_ref) or not re.fullmatch(r"[a-f0-9]{64}", request_checksum):
+                raise EvaluationStateError("表操作派发身份或契约校验和无效。")
+            dispatches = item.setdefault("write_dispatches", {})
+            prior = dispatches.get(node_ref)
+            identity = {"operation": operation, "request_checksum": request_checksum}
+            if prior is not None:
+                if any(prior.get(key) != value for key, value in identity.items()):
+                    raise EvaluationStateError("恢复的表操作与首次派发契约不一致。")
+                return
+            dispatches[node_ref] = {**identity, "dispatched_at": time.time()}
+            try:
+                self._save_unlocked()
+            except Exception:
+                dispatches.pop(node_ref, None)
+                raise
+
+    def reserve_write_instance(self, run_id: str, item_id: str, fixture_checksum: str) -> bool:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = next((item for item in run["items"] if item["item_id"] == item_id), None)
+            if item is None or run.get("cancel_requested"):
+                raise EvaluationStateError("隔离评测项不存在或已取消。")
+            prior = item.get("write_instance")
+            if prior is not None:
+                if prior.get("fixture_checksum") != fixture_checksum:
+                    raise EvaluationStateError("隔离实例初始化契约已变化。")
+                return prior.get("status") == "ready"
+            item["write_instance"] = {"fixture_checksum": fixture_checksum, "status": "initializing"}
+            try:
+                self._save_unlocked()
+            except Exception:
+                item.pop("write_instance", None)
+                raise
+            return False
+
+    def mark_write_instance_ready(self, run_id: str, item_id: str, fixture_checksum: str) -> None:
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = next(item for item in run["items"] if item["item_id"] == item_id)
+            if (item.get("write_instance") or {}).get("fixture_checksum") != fixture_checksum:
+                raise EvaluationStateError("隔离实例初始化记录缺失。")
+            prior = copy.deepcopy(item["write_instance"])
+            item["write_instance"]["status"] = "ready"
+            try:
+                self._save_unlocked()
+            except Exception:
+                item["write_instance"] = prior
+                raise
+
+    def record_write_receipt(self, run_id: str, item_id: str, receipt: dict[str, Any]) -> None:
+        allowed = {"node_ref", "table_id", "operation", "schema_version", "contract_checksum", "request_checksum", "affected_count", "status", "replayed", "error_code"}
+        if set(receipt) - allowed:
+            raise EvaluationStateError("写入回执只能保存安全摘要。")
+        with self._lock:
+            run = self._run_unlocked(run_id)
+            item = next(item for item in run["items"] if item["item_id"] == item_id)
+            receipts = item.setdefault("write_receipts", {})
+            prior = receipts.get(receipt["node_ref"])
+            if prior and any(prior.get(key) != receipt.get(key) for key in allowed - {"replayed"}):
+                raise EvaluationStateError("重复写入回执与首次提交不一致。")
+            receipts[receipt["node_ref"]] = copy.deepcopy(receipt)
+            try:
+                self._save_unlocked()
+            except Exception:
+                if prior is None:
+                    receipts.pop(receipt["node_ref"], None)
+                else:
+                    receipts[receipt["node_ref"]] = prior
+                raise
+
     @staticmethod
     def dataset_payload(item: dict[str, Any], *, include_cases: bool) -> dict[str, Any]:
         payload = copy.deepcopy(item)
@@ -730,6 +839,15 @@ class XpertEvaluationStore:
         payload = copy.deepcopy(item)
         payload.pop("_resource_fixtures", None)
         payload.pop("_vision_fixtures", None)
+        payload.pop("_write_fixtures", None)
+        payload.get("dataset", {}).pop("_write_fixtures", None)
+        for case in payload.get("dataset", {}).get("cases", []):
+            seeds = case.pop("table_initializations", [])
+            if seeds:
+                case["table_initialization_summary"] = [{"table_id": seed["table_id"], "schema_version": seed["schema_version"], "record_count": len(seed.get("records", []))} for seed in seeds]
+            for effect in case.get("effects", []):
+                effect.pop("expected_before", None)
+                effect.pop("expected_after", None)
         payload["item_count"] = len(payload.get("items") or [])
         payload["completed_item_count"] = sum(
             1
@@ -787,6 +905,11 @@ class XpertEvaluationStore:
             normalized["resource_reads"] = copy.deepcopy(case["resource_reads"])
         if isinstance(case.get("targeting"), dict):
             normalized["targeting"] = copy.deepcopy(case["targeting"])
+        if case.get("table_initializations") or case.get("effects"):
+            from .models import EvaluationCaseInput
+            validated = EvaluationCaseInput.model_validate(case)
+            normalized["table_initializations"] = [item.model_dump(mode="json") for item in validated.table_initializations]
+            normalized["effects"] = [item.model_dump(mode="json") for item in validated.effects]
         if case.get("attachment") is not None:
             from .models import EvaluationAttachmentReference
             normalized["attachment"] = EvaluationAttachmentReference.model_validate(case["attachment"]).model_dump(mode="json")

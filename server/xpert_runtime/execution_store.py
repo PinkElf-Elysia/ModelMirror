@@ -31,6 +31,8 @@ WorkflowExecutionSourceKind = Literal[
     "expert_team_agency",
 ]
 _MAX_RUN_ID_HISTORY = 64
+_MAX_PRIVATE_WRITE_ENTRIES = 1000
+_MAX_PRIVATE_WRITE_BYTES = 16 * 1024 * 1024
 _DUE_WAIT_KINDS = frozenset({"timer", "node_retry"})
 _WAIT_KINDS = frozenset({"approval", "agent_handoff", "client_tool", *_DUE_WAIT_KINDS})
 _IDEMPOTENT_ATTEMPT_EVENTS = frozenset(
@@ -109,6 +111,7 @@ class WorkflowExecution:
     source_kind: WorkflowExecutionSourceKind | None = None
     runtime_metadata: dict[str, Any] = field(default_factory=dict)
     continuation: dict[str, Any] = field(default_factory=dict)
+    private_write_journal: dict[str, Any] = field(default_factory=dict)
     wait_kind: str | None = None
     wait_id: str | None = None
     resume_at: float | None = None
@@ -273,6 +276,37 @@ class WorkflowExecutionStore:
         if item is None:
             raise WorkflowExecutionNotFoundError("Workflow execution not found.")
         return item
+
+    def read_private_write_entry(self, task_id: str, key: str) -> dict[str, Any] | None:
+        with self._lock:
+            return copy.deepcopy(self.require(task_id).private_write_journal.get(key))
+
+    def freeze_private_write_entry(self, task_id: str, key: str, value: dict[str, Any]) -> dict[str, Any]:
+        """Private request/provenance journal, intentionally absent from public checkpoints."""
+        with self._lock:
+            item = self.require(task_id)
+            try:
+                candidate = json.loads(self._serialize_private_write_journal(
+                    {**item.private_write_journal, key: value}
+                ))
+            except (TypeError, ValueError, OverflowError, RecursionError):
+                raise WorkflowExecutionConflictError(
+                    "受控写入私有执行日志格式无效或超过限制。"
+                ) from None
+            encoded = json.dumps(candidate[key], ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False)
+            prior = item.private_write_journal.get(key)
+            if prior is not None:
+                if json.dumps(prior, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False) != encoded:
+                    raise WorkflowExecutionConflictError("受控写入的固定请求或来源已发生变化。")
+                return copy.deepcopy(prior)
+            previous = item.private_write_journal
+            item.private_write_journal = candidate
+            try:
+                self._persist_unlocked()
+            except Exception:
+                item.private_write_journal = previous
+                raise
+            return copy.deepcopy(candidate[key])
 
     def find_by_run_id(self, run_id: str) -> WorkflowExecution | None:
         clean_run_id = str(run_id or "").strip()
@@ -1555,6 +1589,7 @@ class WorkflowExecutionStore:
         ):
             if not isinstance(value, dict):
                 raise TypeError("invalid execution object")
+        cls._serialize_private_write_journal(item.private_write_journal)
         if not isinstance(item.previous_run_ids, list) or any(
             not isinstance(value, str) for value in item.previous_run_ids
         ):
@@ -1590,6 +1625,22 @@ class WorkflowExecutionStore:
             or item.sequence < 0
         ):
             raise TypeError("invalid execution revision")
+
+    @staticmethod
+    def _serialize_private_write_journal(value: Any) -> str:
+        if not isinstance(value, dict) or any(
+            not isinstance(key, str) or not key.strip() or not isinstance(entry, dict)
+            for key, entry in value.items()
+        ):
+            raise TypeError("invalid private write journal")
+        if len(value) > _MAX_PRIVATE_WRITE_ENTRIES:
+            raise ValueError("private write journal is too large")
+        encoded = json.dumps(
+            value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+        if len(encoded.encode("utf-8")) > _MAX_PRIVATE_WRITE_BYTES:
+            raise ValueError("private write journal is too large")
+        return encoded
 
     @staticmethod
     def _required_text(value: Any) -> str:

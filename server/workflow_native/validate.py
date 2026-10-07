@@ -24,7 +24,8 @@ from .control_data import (
     validate_dataset_compare_config,
     validate_terminate_error_config,
 )
-from .node_contracts import WorkflowValueSchema, workflow_node_contract_registry
+from .node_contracts import WorkflowValueSchema, workflow_node_contract_registry, validate_controlled_write_authority
+from .controlled_writes import validate_native_write_sources
 from .retry_policy import (
     WorkflowRetryPolicyError,
     effective_can_wait,
@@ -625,6 +626,11 @@ def validate_workflow_graph(
 
     for node in workflow.nodes:
         issues.extend(validate_node_configuration(node, kinds_by_id[node.id]))
+
+    try:
+        validate_native_write_sources(workflow.model_dump())
+    except (ValueError, KeyError, TypeError) as exc:
+        issues.append(ValidationIssue(code="controlled_write_contract_invalid", message=str(exc)[:500]))
 
     external_entry_kinds = {
         "http_event_entry": "http",
@@ -2411,7 +2417,12 @@ def validate_node_configuration(
                         )
                         break
 
-        if kind in {"data_table_insert", "data_table_update"}:
+        if kind != "data_table_query" and data.get("contractVersion") == 2:
+            try:
+                validate_controlled_write_authority(kind, data)
+            except ValueError as exc:
+                issues.append(ValidationIssue(code="controlled_write_authority_invalid", message=str(exc)[:500], node_id=node.id))
+        elif kind in {"data_table_insert", "data_table_update"}:
             value_bindings = data.get("valueBindings")
             if not isinstance(value_bindings, dict) or not value_bindings:
                 issues.append(
@@ -5136,6 +5147,11 @@ def validate_variable_references(
                         )
 
     if kind in DATA_TABLE_NODE_KINDS:
+        if data.get("contractVersion") == 2:
+            for field in ("recordsVariable", "valuesVariable"):
+                variable = data.get(field)
+                if variable and variable not in available_variables:
+                    issues.append(ValidationIssue(code="controlled_write_source_unavailable", message="受控写入输入变量不可达。", node_id=node.id))
         for binding in iter_data_table_bindings(data):
             if str(binding.get("source") or "") != "variable":
                 continue

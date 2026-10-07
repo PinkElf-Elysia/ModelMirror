@@ -305,6 +305,20 @@ def sanitize_resource_reads(value: Any) -> list[dict[str, Any]]:
     return result
 
 
+def isolated_query_evidence(
+    node: Any, *, variables: dict[str, Any], backend: AgentTableEvaluationBackend,
+    records: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Use the existing query contract for a real isolated query receipt."""
+    request = _build_query_request({}, {}, node, variables, backend)
+    return {
+        "node_ref": request["node_ref"], "kind": "data_table_query",
+        "resource_id": request["table_id"], "schema_version": request["schema_version"],
+        "query_checksum": request["query_checksum"], "result_count": len(records),
+        "record_ids": _record_ids(records),
+    }
+
+
 def _build_query_request(
     target: dict[str, Any],
     case: dict[str, Any],

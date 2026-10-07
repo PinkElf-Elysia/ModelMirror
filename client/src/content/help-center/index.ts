@@ -109,7 +109,7 @@ export const workflowErrorRoutingBaseline = { commit: "48254740", date: "2026-09
 export const providerMultimodalR8cBaseline = { commit: "ae284fbb", date: "2026-08-31" };
 export const modelServingReviewBaseline = { commit: "07cbd6d1", date: "2026-09-03" };
 export const openRouterSpecializedReviewBaseline = { commit: "0de311ec", date: "2026-10-02" };
-export const metaPlannerControlFlowBaseline = { commit: "efa63af2", date: "2026-09-03" };
+export const metaPlannerControlFlowBaseline = { commit: "89b72c67", date: "2026-10-06" };
 export const metaPlannerVisionBaseline = { commit: "64880801", date: "2026-09-06" };
 
 export const helpContentTypeLabels: Record<HelpContentType, string> = {

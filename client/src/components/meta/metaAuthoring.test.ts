@@ -1,18 +1,54 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  authorizedDataTableWriteOperations,
   authoringDiffSummary,
   authoringOperationSummary,
   buildMetadataPatch,
   canUseTypedHeadlessAuthoring,
+  dataTableWriteOperationForNodeKind,
   headlessStateMode,
+  metaPlannerCapabilityItemId,
+  normalizeDataTableWriteGrants,
   normalizeGraphPatchEnvelope,
   normalizeGraphPatchPreview,
   normalizeHeadlessProposalState,
+  normalizeMetaPlannerScope,
   normalizeSafeResourceSnapshots,
 } from "./metaAuthoring";
 
 describe("Meta Planner headless authoring contracts", () => {
+  it("uses the middleware ID for both checked state and revocation", () => {
+    const item = { id: "content_policy", kind: "runtime_middleware.content_policy" };
+    const scope = normalizeMetaPlannerScope({ middleware_ids: ["content_policy"] });
+    const selectedId = metaPlannerCapabilityItemId(item, "middleware_ids");
+
+    expect(scope.middleware_ids.includes(selectedId)).toBe(true);
+    expect(scope.middleware_ids.filter((id) => id !== selectedId)).toEqual([]);
+    expect(selectedId).toBe("content_policy");
+  });
+
+  it("keeps node kinds separate from resource identities", () => {
+    expect(metaPlannerCapabilityItemId(
+      { id: "display-id", kind: "data_table_query" }, "allowed_node_kinds",
+    )).toBe("data_table_query");
+    expect(metaPlannerCapabilityItemId(
+      { id: "toolset-one", kind: "builtin" }, "toolset_ids",
+    )).toBe("toolset-one");
+    expect(metaPlannerCapabilityItemId(
+      { table_id: "table-one", kind: "sqlite" }, "data_table_ids",
+    )).toBe("table-one");
+  });
+
+  it("never treats a resource kind as an authorization ID", () => {
+    expect(metaPlannerCapabilityItemId(
+      { kind: "runtime_middleware.content_policy" }, "middleware_ids",
+    )).toBe("");
+    expect(metaPlannerCapabilityItemId(
+      { id: "workflow_agent" }, "allowed_node_kinds",
+    )).toBe("");
+  });
+
   it("normalizes a V3 proposal state without inventing resource authority", () => {
     const state = normalizeHeadlessProposalState({
       proposal_id: "proposal_v3",
@@ -36,7 +72,15 @@ describe("Meta Planner headless authoring contracts", () => {
       authorized_scope: {
         agent_ids: ["expert-reviewer"],
         knowledge_base_ids: ["kb-allowed"],
-        data_table_ids: ["table-allowed"],
+        data_table_ids: ["table-read"],
+        data_table_write_grants: [
+          {
+            table_id: "table-write",
+            operations: ["update"],
+            writable_fields: ["status"],
+            max_affected_rows: 3,
+          },
+        ],
       },
       compatibility: { source_version: 3, lossy: false },
     });
@@ -57,10 +101,106 @@ describe("Meta Planner headless authoring contracts", () => {
       ],
       allowed_source_agent_ids: ["expert-reviewer"],
       allowed_knowledge_base_ids: ["kb-allowed"],
-      allowed_data_table_ids: ["table-allowed"],
+      allowed_data_table_ids: ["table-read"],
+      allowed_data_table_write_grants: [
+        {
+          table_id: "table-write",
+          operations: ["update"],
+          writable_fields: ["status"],
+          max_affected_rows: 3,
+        },
+      ],
     });
     expect(state?.allowed_node_kinds).toContain("json_serialize");
     expect(state?.allowed_node_kinds).not.toContain("knowledge_retrieval");
+    expect(state?.allowed_data_table_ids).not.toContain("table-write");
+  });
+
+  it("starts all Agent Table writes closed and keeps read scope independent", () => {
+    const scope = normalizeMetaPlannerScope({
+      allowed_node_kinds: [
+        "workflow_agent",
+        "data_table_insert",
+        "data_table_update",
+        "data_table_delete",
+      ],
+      data_table_ids: ["table-read-default"],
+      data_table_write_grants: [
+        {
+          table_id: "table-write-default",
+          operations: ["delete"],
+          writable_fields: [],
+          max_affected_rows: 100,
+        },
+      ],
+    });
+
+    expect(scope.allowed_node_kinds).toEqual(["workflow_agent"]);
+    expect(scope.data_table_ids).toEqual([]);
+    expect(scope.data_table_write_grants).toEqual([]);
+  });
+
+  it("normalizes bounded grants without translating ids or widening limits", () => {
+    const grants = normalizeDataTableWriteGrants([
+      {
+        table_id: "table-orders",
+        operations: ["update", "update", "forged"],
+        writable_fields: [
+          "status",
+          "status",
+          "owner_id",
+          "record_id",
+          "created_at",
+          "updated_at",
+          "revision",
+          "客户名称",
+        ],
+        max_affected_rows: 7,
+        records: [{ private: true }],
+      },
+      {
+        table_id: "table-delete",
+        operations: ["delete"],
+        writable_fields: [],
+      },
+    ]);
+
+    expect(grants).toEqual([
+      {
+        table_id: "table-orders",
+        operations: ["update"],
+        writable_fields: ["status", "owner_id"],
+        max_affected_rows: 7,
+      },
+      {
+        table_id: "table-delete",
+        operations: ["delete"],
+        writable_fields: [],
+        max_affected_rows: 1,
+      },
+    ]);
+    expect(JSON.stringify(grants)).not.toContain("private");
+    expect(authorizedDataTableWriteOperations(grants)).toEqual(
+      new Set(["update", "delete"]),
+    );
+    expect(dataTableWriteOperationForNodeKind("data_table_update")).toBe(
+      "update",
+    );
+    expect(dataTableWriteOperationForNodeKind("data_table_query")).toBeNull();
+  });
+
+  it("limits write grants to 20 tables", () => {
+    const grants = normalizeDataTableWriteGrants(
+      Array.from({ length: 21 }, (_, index) => ({
+        table_id: `table-${index + 1}`,
+        operations: ["delete"],
+        writable_fields: [],
+        max_affected_rows: 1,
+      })),
+    );
+
+    expect(grants).toHaveLength(20);
+    expect(grants[19]?.table_id).toBe("table-20");
   });
 
   it("allows a lossless V2 proposal to upgrade through typed apply", () => {

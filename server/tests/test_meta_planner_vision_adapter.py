@@ -137,11 +137,11 @@ def _annotate_v3(native) -> None:
     )
 
 
-def test_contract_exposes_nineteenth_adapter_without_resource_binding() -> None:
+def test_contract_exposes_vision_adapter_without_resource_binding() -> None:
     contract = workflow_node_contract_registry.require("vision_understanding")
     metadata = planner_capability_metadata("vision_understanding")
 
-    assert len(META_PLANNER_COMPILABLE_NODE_KINDS) == 19
+    assert len(META_PLANNER_COMPILABLE_NODE_KINDS) == 22
     assert metadata is not None
     assert metadata["support"] == "full"
     assert contract.planner.enabled is True

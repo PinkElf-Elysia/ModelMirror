@@ -20,6 +20,7 @@ from server.meta_agent.graph_patch import (
     SetOutputVariableOperation,
     apply_graph_patch,
 )
+from server.tests.meta_planner_legacy_replay import LegacyGraphReplayService
 from server.meta_agent.meta_planner_v2 import (
     MetaPlannerV2Service,
     compile_xpert_candidate,
@@ -318,9 +319,10 @@ def test_capability_snapshot_opens_exactly_two_reads_and_hides_table_data() -> N
     snapshot = _snapshot()
     kinds = {item["kind"] for item in snapshot.nodes}
 
-    assert len(kinds) == 19
+    assert len(kinds) == 22
     assert {"knowledge_retrieval", "data_table_query"} <= kinds
     assert snapshot.default_scope.data_table_ids == []
+    assert snapshot.default_scope.data_table_write_grants == []
     assert snapshot.default_scope.knowledge_base_ids == ["kb-docs"]
     serialized = snapshot.model_dump_json()
     assert "secret-default" not in serialized
@@ -346,7 +348,10 @@ def test_planner_prompt_exposes_read_error_as_control_outcome_only() -> None:
         "executable_node_contracts"
     ]["data_table_query"]
 
-    assert contract["control_outcomes"] == ["success", "error"]
+    assert contract["control_contract"]["variants"] == [
+        {"config_value": "stop", "outcomes": ["success"], "connections": "fanout"},
+        {"config_value": "error_output", "outcomes": ["success", "error"], "connections": "exactly_once"},
+    ]
     assert [
         port["name"]
         for port in contract["ports"]
@@ -598,7 +603,7 @@ def test_table_dynamic_predicate_type_is_checked_against_fixed_schema() -> None:
     issues = validate_blueprint_authorization(
         _request(_snapshot()), _plan(), intent, _snapshot()
     )
-    assert any("input type does not match its fixed SchemaVersion" in issue for issue in issues)
+    assert any("TABLE_PREDICATE_INPUT_TYPE_MISMATCH" in issue for issue in issues)
 
 
 def test_set_node_resource_is_distinct_from_agent_resource_binding() -> None:
@@ -833,7 +838,7 @@ async def test_patch_repair_restores_missing_table_result_output(
         )
         return json.dumps({"operations": []})
 
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=lambda candidate: (
             validate_xpert_definition(candidate),
@@ -925,7 +930,7 @@ async def test_patch_repair_removes_control_only_table_error_output(
             }
         )
 
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=lambda candidate: (
             validate_xpert_definition(candidate),
@@ -1069,7 +1074,7 @@ async def test_patch_repair_routes_typed_table_result_through_json(
         )
 
     snapshot = _snapshot()
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=lambda candidate: (
             validate_xpert_definition(candidate),
@@ -1217,7 +1222,7 @@ async def test_patch_repair_realizes_named_table_read_instead_of_prompt_claim(
             }
         )
 
-    response = await MetaPlannerV2Service(
+    response = await LegacyGraphReplayService(
         authoring_service=authoring,
         preflight=lambda candidate: (
             validate_xpert_definition(candidate),

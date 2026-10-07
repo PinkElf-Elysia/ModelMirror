@@ -6,6 +6,7 @@ import time
 import uuid
 from collections import Counter, defaultdict, deque
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -19,6 +20,7 @@ try:
         WorkflowPosition,
     )
     from server.workflow_native.node_contracts import (
+        WorkflowValueSchema,
         canonical_checksum,
         workflow_node_contract_registry,
     )
@@ -35,6 +37,7 @@ except ModuleNotFoundError:
         WorkflowPosition,
     )
     from workflow_native.node_contracts import (
+        WorkflowValueSchema,
         canonical_checksum,
         workflow_node_contract_registry,
     )
@@ -44,13 +47,36 @@ except ModuleNotFoundError:
     from xperts.models import XpertDefinition, XpertDraft
 
 from .capabilities import assert_scope_is_authorized
+from .failed_artifacts import FailedGenerationCapture, failed_artifact_summary, parse_recipe_resource_draft
+from .generation_recipe import (
+    GenerationRecipeV1, lower_generation_recipe, parse_generation_recipe,
+    recipe_node_contracts, recipe_schema, validate_recipe_generation_contract,
+)
+from .recipe_edits import RECIPE_EDIT_PROTOCOL, RECIPE_EDIT_SYSTEM_PROMPT, apply_recipe_edits, recipe_edit_contract, recipe_edit_schema
+from .generation_diagnostics import GenerationDiagnostics, GraphPatchProgress, MAX_DIAGNOSTIC_ISSUES, schema_issue_projection
+from .generation_evidence import GenerationEvidence, GenerationEvidenceCall
+from .generation_contract import (
+    config_schema_ref,
+    generation_task_plan_schema,
+    graph_generation_schema,
+    parse_generation_task_plan,
+    patch_generation_schema,
+)
 from .control_flow import (
     ControlFlowAnalysisError,
     analyze_control_flow,
+    control_contract_issues,
+    model_control_contract,
     native_outcome_map,
+    semantic_outcomes,
 )
 from .graph_ir_v3 import (
     GRAPH_IR_VERSION,
+    GraphInputTypeError,
+    GraphInputTypeIssue,
+    graph_input_type_issue,
+    graph_source_contract_issues,
+    _schemas_compatible,
     annotate_candidate_with_graph_ir,
     graph_authoring_checksum,
     graph_intent_to_v2,
@@ -78,15 +104,20 @@ from .node_adapters import (
     META_PLANNER_COMPILABLE_NODE_KINDS,
     META_PLANNER_IR_VERSION,
     PlannerNodeCompileContext,
+    PlannerWriteInputContractError,
+    PlannerResourceContractError,
     get_planner_node_adapter,
 )
 from .planner import extract_json_object_text
+from .repair_context import project_patch_repair_context
 from .schemas import (
     MetaPlannerAgentBlueprint,
     MetaPlannerBlueprint,
     MetaPlannerCapabilitySnapshot,
     MetaPlannerGenerateRequest,
     MetaPlannerGenerateResponse,
+    GraphIntentControlEdgeV3,
+    GraphIntentNodeResourceRefV3,
     GraphIntentV3,
     MetaPlannerIRControlEdge,
     MetaPlannerIRFinalOutput,
@@ -102,6 +133,8 @@ from .schemas import (
     MetaPlannerTypedBlueprintV2,
     MetaPlannerWorkflowAgentConfig,
 )
+from .write_contract import WRITE_KINDS
+from .write_delivery import build_write_request_contexts
 
 
 CompletionCallback = Callable[[str, str, str, float, int], Awaitable[str]]
@@ -112,6 +145,11 @@ from .vision_contract import (
     validate_vision_generation_authorization,
 )
 PreflightCallback = Callable[[XpertDefinition], Any]
+_TASK_TERMINAL_COUNT = 1
+_REPAIR_PREPARATION_FAILED_MESSAGE = (
+    "自动修复准备失败，未派发修复模型；当前候选不可批准。"
+    "可恢复内容以失败产物留存状态为准，请查看诊断并进行人工修复。"
+)
 
 
 TASK_PLAN_SYSTEM_PROMPT = """\
@@ -137,6 +175,7 @@ Write every human-visible field in Simplified Chinese while preserving machine
 identifiers and registered resource or schema field names exactly.
 Make the smallest changes required by the structured validation issues and obey the
 supplied task-planning contract. This consumes the generation's only repair pass.
+先依据 task_graph_diagnostics 核对终端职责及真实依赖；诊断字段不是输出字段。
 """
 
 
@@ -157,10 +196,13 @@ Every node input must identify its source node and source port. Use the workflow
 task port for each task input; that port accepts multiple typed variables.
 Respect the supplied typed_ir_constraints, including its workflow-agent node limit.
 Never invent credentials, tools, resource IDs, node kinds, versions, or private content.
-Agent Table reads belong to data_table_query.resource_ref and knowledge reads belong
-to knowledge_retrieval.resource_ref. Never represent either as a toolset_resource or
-an Agent-bound resource. Only a read node configured with failure_action=error_output
-may emit the error outcome; workflow_agent emits success only.
+知识检索和全部 Agent Table 查询/写节点只在 resource_ref 中填写 resource_id；
+不得夹带 kind/target_ref，不得将它们放入顶层 resources 或伪装成 toolset_resource。
+resources 仅用于向 workflow_agent 绑定已授权的四类绑定资源，未授权时必须为空。
+控制边严格使用 source_ref/outcome_ref/target_ref，不得使用 from/to 或原生 Handle。
+参考 graph_intent_contract.edge_and_resource_forms 的字段片段，但不要把示例当作任务。
+Only a read node configured with failure_action=error_output may emit the error
+outcome; workflow_agent emits success only.
 """
 
 
@@ -173,7 +215,10 @@ capabilities outside the supplied authorized snapshot. This is the only repair p
 Return the complete blueprint and obey every supplied typed_ir_constraint.
 All repaired human-visible metadata, titles, descriptions, prompts, starters, and
 user-facing messages must be in Simplified Chinese; machine identifiers stay exact.
-For node-owned reads, keep the resource ID in resource_ref, never resources or config.
+知识检索和全部 Agent Table 查询/写节点使用 resource_ref={"resource_id": 已授权ID}，
+其中不得添加 kind/target_ref；不要把这些节点资源写入 resources 或 config。
+控制边只能使用 source_ref/outcome_ref/target_ref，不能使用 from/to 或原生 Handle。
+与首次生成共用 graph_intent_contract 及其中的字段片段，不得放宽 required_schema。
 Only the read node may own its error outcome; workflow_agent emits success only.
 """
 
@@ -185,13 +230,16 @@ Use only the listed semantic refs, named ports, Adapter config, and authorized I
 Return exactly one operations array. The server owns the Patch envelope, proposal
 revision, graph checksum, and candidate checksum; never emit those fields. Do not
 emit native node IDs, Handles, resource versions, schemas, policies, status, error,
-or explanation fields. Make the smallest ordered patch that addresses the validation
-issues. If no safe operation is possible, return {"operations": []}. This is the
+or explanation fields. 最小修复指最小语义改动，不是最少操作数；同一原子 Patch 必须
+覆盖全部独立错误，最终配置、显式数据边和控制先后必须一致。
+If no safe operation is possible, return {"operations": []}. This is the
 only repair pass.
 Any human-visible string changed by the patch must be in Simplified Chinese; machine
 identifiers, registered resource names, and schema field names stay exact.
 The virtual refs input and output may be referenced where allowed but can never be
 added, updated, removed, or moved as nodes.
+input_role_contract 标记的字段都是只读依据，不是输出模板。仅按
+patch_command_contract 和 required_schema 构造 operations；不得复制节点状态摘要。
 """
 
 
@@ -204,6 +252,20 @@ class PlannerGraphPatchRepairPayloadV1(BaseModel):
         default_factory=list,
         max_length=GRAPH_PATCH_MAX_OPERATIONS,
     )
+
+
+RECIPE_SYSTEM_PROMPT = """你是模镜元智能体的工作流生成器。仅返回一个符合 required_schema 的 JSON 对象。
+使用 generation_protocol_version=1、ir_version=3。模型决定业务节点、任务归属、数据来源、业务条件、
+结构化顺序/分支/并行及最终来源；变量名、重复端口类型、原生边、Handle 和资源版本由服务端派生。
+不得输出 outputs、control_edges、variable、value_schema 或原生配置。json_deserialize 的
+config.expected_schema 是运行时必须验证的业务契约，仍须准确声明，不能用 any 伪装具体类型。
+Agent 模板只用 {{source_ref.source_port}} 引用来源，不是属性路径表达式。
+逐节点遵守 node_contracts 的 input_mode：只有 workflow_agent 可用 inputs=null 从模板派生输入。
+显式 inputs 数组必须完整声明来源；没有数据绑定时使用 []，但不能省略必需端口。
+必须忠实保留目标中的空值、失败、成功及不写入分支，不得通过串行化或删除条件回避错误。
+所有面向人的标题、说明、Prompt 和错误文案用简体中文；ID、ref、字段名和错误码保持原值。
+input/output/资源节点由编译器管理。只用当前授权，不填凭据、私有记录或隐藏推理。
+"""
 
 
 DISPLAY_LANGUAGE_CONTRACT = {
@@ -245,8 +307,12 @@ def _safe_exception_message(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         issues = []
         for item in exc.errors(include_input=False, include_url=False)[:20]:
-            location = ".".join(str(value) for value in item.get("loc") or [])
-            message = str(item.get("msg") or "Invalid value.")
+            projection = schema_issue_projection(item)
+            location = ".".join(str(value) for value in (
+                projection["location"] if projection["message"] else item.get("loc") or []
+            ))
+            message = (f"{projection['code']}: {projection['message']}" if projection["message"]
+                       else str(item.get("msg") or "Invalid value."))
             issues.append(f"{location}: {message}" if location else message)
         return "; ".join(issues)[:2_000]
     if isinstance(exc, json.JSONDecodeError):
@@ -339,17 +405,14 @@ def _task_planning_contract(
             continue
         adapter = get_planner_node_adapter(kind)
         assert adapter is not None
-        contracts = dict(item.get("contracts") or {})
-
         def port_summary(port: Any) -> dict[str, Any]:
-            payload = dict(port) if isinstance(port, dict) else {}
-            value_schema = dict(payload.get("value_schema") or {})
             return {
-                "name": str(payload.get("name") or ""),
-                "type": str(value_schema.get("type") or "any"),
-                "cardinality": str(payload.get("cardinality") or "one"),
+                "name": port.name,
+                "type": port.value_schema.type,
+                "cardinality": port.cardinality,
             }
 
+        binding_contract = adapter.model_binding_contract()
         auxiliary_node_contracts.append(
             {
                 "kind": kind,
@@ -358,21 +421,48 @@ def _task_planning_contract(
                 "task_binding": "forbidden",
                 "inputs": [
                     port_summary(port)
-                    for port in list(contracts.get("inputs") or [])
-                ],
+                    for port in adapter.intent_port_contracts("input")
+                ] if binding_contract is None else [],
                 "outputs": [
                     port_summary(port)
-                    for port in list(contracts.get("outputs") or [])
-                    if str((port or {}).get("name") or "")
-                    not in adapter.control_only_output_ports
+                    for port in adapter.intent_port_contracts("output")
                 ],
+                **({"output_evidence": {
+                    key: binding_contract["output_binding_contract"][key]
+                    for key in ("shape", "delivery_rules")
+                }}
+                   if binding_contract is not None else {}),
+                "config_deferred_to_graph_compilation": True,
             }
         )
     auxiliary_node_contracts.sort(key=lambda item: item["kind"])
     auxiliary_node_kinds = [item["kind"] for item in auxiliary_node_contracts]
+    task_fields = generation_task_plan_schema()["$defs"]["GenerationTask"]["properties"]
     return {
         "expert_task_binding": "required",
         "max_workflow_agent_nodes": request.max_agents,
+        "task_field_shapes": {
+            name: {"type": task_fields[name]["type"], "example": example}
+            for name, example in (
+                ("input_contract", ["待分析的证据"]),
+                ("output_contract", "中文判断结论"),
+            )
+        },
+        "task_graph_contract": {
+            "terminal_task_count": _TASK_TERMINAL_COUNT,
+            "terminal_definition": "没有其他任务依赖它的最终 Agent 交付职责；不是工作流的物理终点或分支数量。",
+            "rules": [
+                "任务依赖必须是无环图，并恰好保留 terminal_task_count 个终端任务。",
+                "同一交付职责的互斥实现共享同一个 task_id；在已授权控制流内，后续编译可由多个分支 Agent 共同覆盖该任务。",
+                "保留真正独立职责及其真实依赖；不得为了通过门禁强行合并独立职责，也不能伪造互斥分支之间的先后关系。",
+                "禁止为凑唯一终端追加无人实际承担的虚假汇总任务；不要返回任务不变、仍有多个终端的修复结果。",
+                "确定性路由、读写和错误终止属于辅助节点，不成为任务；错误路径无需虚构 Agent 交付任务。",
+            ],
+            "examples": [
+                "审核通过和拒绝是同一结论职责的互斥情形：保留一个形成审核结论任务，后续由两个分支 Agent 实现；不能让通过依赖拒绝。",
+                "证据提取后进行风险研判是两个实际先后职责：保留提取到研判的依赖，以研判为终端；不要合并这类独立职责。",
+            ],
+        },
         "auxiliary_node_kinds": auxiliary_node_kinds,
         "auxiliary_node_contracts": auxiliary_node_contracts,
         "expert_task_test": {
@@ -404,6 +494,9 @@ def _task_planning_contract(
             "Apply expert_task_test to every proposed task and omit the task unless the required answer is yes.",
             "Use auxiliary_node_contracts purpose and ports to recognize deterministic steps before emitting tasks.",
             "Keep distinct expert responsibilities separate, but do not split a single responsibility merely to name its deterministic data transforms.",
+            "任务的 input_contract/output_contract 只描述判断职责，不能创造辅助节点的返回字段、变量或可信身份。交付证据范围以 output_evidence 为准，完整端口 Schema 留到图编译阶段。",
+            "Agent 仅输出文本结论，不负责提取或转交用于写入的 record_id/revision；更新和删除的可信 records 必须由编译器直接连接同表 Query/Insert 的整个 result。",
+            "Update/Delete 的结果只有 matched/affected，不含新 revision 或记录对象；更新后再次操作必须重新 Query。按 output_evidence.delivery_rules 规划证据，请求值、执行回执和查询时点状态不同，任务不能要求 Agent 从计数中猜出未接入的字段。",
         ],
     }
 
@@ -692,32 +785,50 @@ def _normalize_repair_duplicate_data_edges(
     return normalized, sorted(set(removed))
 
 
+def _write_input_contract_issues(blueprint: GraphIntentV3) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    for node in sorted(blueprint.nodes, key=lambda item: item.ref):
+        adapter = get_planner_node_adapter(node.kind)
+        if adapter is None:
+            continue
+        try:
+            adapter.validate_intent_node(node)
+        except PlannerWriteInputContractError as exc:
+            diagnostics.append(exc.input_diagnostic)
+        except ValueError:
+            # Other configuration errors remain owned by the normal validation path.
+            continue
+    return diagnostics[:20]
+
+
+def _generation_attempt(
+    stage: str,
+    issues: list[str],
+    blueprint: GraphIntentV3 | None,
+    *,
+    input_contract_issues: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if input_contract_issues is None:
+        input_contract_issues = (
+            _write_input_contract_issues(blueprint) if issues and blueprint else []
+        )
+    return {
+        "stage": stage,
+        "valid": not issues,
+        "issue_count": len(issues),
+        "input_contract_issues": input_contract_issues[:20],
+    }
+
+
 def _graph_patch_repair_contract(
     request: MetaPlannerGenerateRequest,
     blueprint: GraphIntentV3,
     issues: list[str],
+    *, snapshot: MetaPlannerCapabilitySnapshot | None = None,
+    input_type_issues: tuple[GraphInputTypeIssue, ...] = (),
+    control_dependency_issues: tuple[dict[str, Any], ...] = (),
+    control_path_issues: tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
-    existing_nodes = sorted(
-        (
-            {
-                "ref": node.ref,
-                "kind": node.kind,
-                "task_ids": list(node.task_ids),
-                "input_sources": sorted(
-                    {
-                        f"{binding.source_ref}.{binding.source_port}"
-                        for binding in node.inputs
-                    }
-                ),
-                "output_ports": sorted(output.port for output in node.outputs),
-                "required_output_ports": list(
-                    _REPAIR_REQUIRED_OUTPUT_PORTS.get(node.kind, ())
-                ),
-            }
-            for node in blueprint.nodes
-        ),
-        key=lambda item: item["ref"],
-    )
     workflow_agent_count = sum(
         node.kind == "workflow_agent" for node in blueprint.nodes
     )
@@ -775,76 +886,52 @@ def _graph_patch_repair_contract(
             "set_output_variable before any connect_data that reads it. "
             f"Use a stable variable such as {node_ref}_{port}."
         )
-    for issue in issues:
-        rejected = re.search(
-            r"Node ([a-z][a-z0-9_-]{0,63}) input port "
-            r"([A-Za-z_][A-Za-z0-9_-]{0,63}) rejects its value type",
-            issue,
-        )
-        incompatible = re.search(
-            r"Node ([a-z][a-z0-9_-]{0,63}) input "
-            r"([A-Za-z_][A-Za-z0-9_]{0,127}) has an incompatible type",
-            issue,
-        )
-        if rejected is not None:
-            target_ref, target_port = rejected.groups()
-            target = nodes_by_ref.get(target_ref)
-            bindings = [
-                binding
-                for binding in (target.inputs if target is not None else [])
-                if binding.port == target_port
-            ]
-        elif incompatible is not None:
-            target_ref, variable = incompatible.groups()
-            target = nodes_by_ref.get(target_ref)
-            bindings = [
-                binding
-                for binding in (target.inputs if target is not None else [])
-                if binding.variable == variable
-            ]
-            target_port = bindings[0].port if len(bindings) == 1 else ""
-        else:
+    data_contract_issues = [item.repair_detail() for item in input_type_issues[:GRAPH_PATCH_MAX_OPERATIONS]]
+    source_contract_issues = graph_source_contract_issues(blueprint)
+    for detail in data_contract_issues:
+        target = nodes_by_ref.get(detail["node_ref"])
+        if (target is None or target.kind != "workflow_agent"
+                or detail["target_port"] != "task" or detail["source_assignable"]):
             continue
-        if (
-            target is None
-            or target.kind != "workflow_agent"
-            or target_port != "task"
-            or len(bindings) != 1
-        ):
-            continue
-        binding = bindings[0]
         edge = (
-            f"{binding.source_ref}.{binding.source_port}->"
-            f"{target_ref}.{binding.port}"
+            f"{detail['source_ref']}.{detail['source_port']}->"
+            f"{detail['node_ref']}.{detail['target_port']}"
         )
         if "json_serialize" in request.scope.allowed_node_kinds:
             issue_playbook.append(
-                f"For typed data edge {edge}, keep workflow_agent.task as a "
-                "string boundary: disconnect that data edge, add one "
-                "json_serialize node with empty task_ids and format=compact, "
-                "connect the typed source to its value port and its json port "
-                "to the Agent task port, update the Agent task_input/role_prompt "
-                "templates to reference the serializer output variable instead "
-                "of the removed typed variable, and route the success control "
-                "path through the serializer. Preserve any separate error outcome."
+                f"连线 {edge} 的真实上游类型不符合 workflow_agent.task 字符串契约。"
+                "只断开这条数据边，显式添加 task_ids 为空、format=compact 的 json_serialize，"
+                "将原来源接入 value，再将 json 接入 Agent.task；同步模板变量和 success 控制路径。"
+                "保留其他合法输入与独立 error 出口，不得伪造 Schema 或删除业务步骤。"
             )
         else:
             issue_playbook.append(
-                f"Typed data edge {edge} cannot target workflow_agent.task and "
-                "json_serialize is not authorized; do not fake the source or "
-                "binding Schema. Leave the candidate invalid if no authorized "
-                "string-producing path exists."
+                f"连线 {edge} 不能进入 workflow_agent.task，且 json_serialize 未获授权。"
+                "不得伪造来源或 Schema；没有已授权的字符串输出路径时，保持候选无效。"
             )
     return {
+        "config_edit_sequence": [
+            "先从 base_graph_intent 形成每个待修改节点的完整最终 config，保留未修改的字段；update_node.config 不是增量合并。",
+            "再按最终 config 和 Adapter input_binding_contract 计算输入：保留合法连线，显式解除不再需要或不合法的连线，并补齐缺失输入。",
+            "最后核对整批 Patch 的配置、输入、控制出口及最终来源；允许中间步骤暂不完整，但整批结束必须一致且没有悬空依赖。",
+        ],
         "compiler_managed_refs": ["input", "output"],
-        "existing_node_refs": [item["ref"] for item in existing_nodes],
-        "existing_nodes": existing_nodes,
-        "existing_data_edges": sorted(
-            f"{binding.source_ref}.{binding.source_port}->"
-            f"{node.ref}.{binding.port}"
-            for node in blueprint.nodes
-            for binding in node.inputs
-        ),
+        "existing_node_refs": sorted(node.ref for node in blueprint.nodes),
+        "resolved_resource_inputs": _resolved_resource_repair_inputs(request, blueprint, snapshot) if snapshot else [],
+        "input_contract_issues": _write_input_contract_issues(blueprint),
+        "data_contract_issues": data_contract_issues,
+        "source_contract_issues": source_contract_issues[:GRAPH_PATCH_MAX_OPERATIONS],
+        "omitted_source_contract_issue_count": max(0, len(source_contract_issues) - GRAPH_PATCH_MAX_OPERATIONS),
+        "omitted_data_contract_issue_count": max(0, len(input_type_issues) - len(data_contract_issues)),
+        "control_contract_issues": control_contract_issues(blueprint),
+        "control_dependency_issues": sorted(
+            control_dependency_issues,
+            key=lambda item: (item["node_ref"], item["input_index"], item["code"]),
+        )[:GRAPH_PATCH_MAX_OPERATIONS],
+        "omitted_control_dependency_issue_count": max(0, len(control_dependency_issues) - GRAPH_PATCH_MAX_OPERATIONS),
+        "control_path_issues": list(control_path_issues[:GRAPH_PATCH_MAX_OPERATIONS]),
+        "omitted_control_path_issue_count": max(0, len(control_path_issues) - GRAPH_PATCH_MAX_OPERATIONS),
+        "existing_control_edges": [edge.model_dump(mode="json") for edge in blueprint.control_edges],
         "max_workflow_agent_nodes": request.max_agents,
         "current_workflow_agent_nodes": workflow_agent_count,
         "allow_add_workflow_agent": workflow_agent_count < request.max_agents,
@@ -855,6 +942,11 @@ def _graph_patch_repair_contract(
         ),
         "issue_playbook": issue_playbook,
         "rules": [
+            "本对象只用于诊断和约束，不是 Patch 操作模板；既有节点只从 base_graph_intent 读取，操作字段只以 patch_command_contract 和 required_schema 为准。",
+            "resolved_resource_inputs 来自固定资源 Schema。predicate_inputs 只约束对应字段的比较值，不能接收整个 records；records 与 values 的来源规则保持不变。没有合法标量来源时，不得伪造 ID、收窄 Schema、擅自换为字面值或扩大筛选条件。",
+            "control_contract_issues 由控制流校验器按当前配置计算。missing_outcomes 必须显式连接；duplicate_outcomes 和 unexpected_edge_indices 必须显式解除对应边，索引从 0 开始，指向 existing_control_edges。不得通过关闭错误出口规避缺边，也不得猜测目标或自动接边。普通 success 允许 fanout；多出口每个恰好一条，最终来源和 terminate_error 均不得有出边。",
+            "input_contract_issues 由 Adapter 按 base_graph_intent 的 config 计算，不是冻结修复后的端口要求。按 config_edit_sequence 核对最终 expected_ports，每个恰好绑定一次；连线增删必须显式操作，禁止猜测记录来源或扩大写入授权。",
+            "data_contract_issues 复用 Graph IR 权威类型校验，input_index 指向对应节点的具体输入。source_assignable=false 必须显式改变数据路径；不能只将声明改成 string。仅派生类型声明不一致时，服务端仍在 Patch 后归一化，不要重复连接既有边。遗漏诊断不表示其余输入通过。",
             "The refs input and output are compiler-managed virtual refs: never add, update, remove, or move them.",
             "input may only be referenced as an existing source_ref; output is created from set_final_output.",
             "add_node must use a new ref outside compiler_managed_refs and existing_node_refs.",
@@ -862,19 +954,69 @@ def _graph_patch_repair_contract(
             "Pure nodes use empty task_ids; workflow_agent nodes cover all fixed plan tasks.",
             "Do not add a workflow_agent when allow_add_workflow_agent is false.",
             "Every added node must declare all required_output_ports in "
-            "add_node.output_variables before connect_data reads them.",
-            "Do not emit connect_data for an edge already listed in "
-            "existing_data_edges unless the patch disconnects that exact edge first.",
+            "add_node.output_variables before connect_data reads them; derive the ports from graph_intent_contract.node_roles.executable_node_contracts.",
+            "已有数据边以 base_graph_intent.nodes[].inputs 为准；除非先显式断开同一条边，不得再次 connect_data。",
             "Adapter-derived output Schemas are recomputed by the server after this repair; never inject or patch output Schemas directly.",
         ],
     }
+
+
+def _resolved_resource_repair_inputs(
+    request: MetaPlannerGenerateRequest, blueprint: GraphIntentV3,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> list[dict[str, Any]]:
+    from .write_contract import WRITE_KINDS, resolve_write_grant_scope
+
+    result = []
+    for node in blueprint.nodes:
+        adapter = get_planner_node_adapter(node.kind)
+        if (node.kind not in request.scope.allowed_node_kinds or adapter is None
+                or adapter.resource_kind != "data_table" or node.resource_ref is None):
+            continue
+        if node.kind in WRITE_KINDS:
+            try:
+                resolve_write_grant_scope(node, request.scope.data_table_write_grants)
+            except ValueError:
+                continue
+        elif node.resource_ref.resource_id not in request.scope.data_table_ids:
+            continue
+        entry: dict[str, Any] = {"node_ref": node.ref}
+        try:
+            parsed = adapter.config_model.model_validate(node.config)
+            resource = resolve_node_resource_snapshot(node, snapshot, pinned=blueprint._pinned_node_resources.get((node.ref, node.resource_ref.resource_id)))
+            schemas = adapter.resolved_predicate_input_schemas(parsed, resource.model_dump(mode="json"))
+            entry.update(
+                required_input_ports=sorted(adapter.configured_input_ports(parsed)),
+                predicate_inputs={port: schema.model_dump(mode="json") for port, schema in sorted(schemas.items())},
+            )
+        except ValueError as exc:
+            entry["code"] = exc.code if isinstance(exc, PlannerResourceContractError) else "RESOURCE_INPUT_CONTRACT_UNAVAILABLE"
+        result.append(entry)
+    return result
+
+
+def _patch_command_contract(schema: dict[str, Any]) -> dict[str, Any]:
+    mapping = schema["properties"]["operations"]["items"]["discriminator"]["mapping"]
+    commands = {}
+    for name, ref in sorted(mapping.items()):
+        definition = schema["$defs"][ref.rsplit("/", 1)[-1]]
+        required = set(definition.get("required", [])) | {"op"}
+        commands[name] = {
+            "required": sorted(required),
+            "optional": sorted(set(definition["properties"]) - required),
+        }
+        config_update = definition["properties"].get("config", {}).get("x-authoring-update")
+        if config_update is not None:
+            commands[name]["config_update"] = deepcopy(config_update)
+    return {"response_root_field": "operations", "operation_fields": commands,
+            "rules": ["每个操作只填写该类型列出的字段，不能复制只读节点摘要。", "修改既有节点使用 update_node；add_node 必须提供新的 ref、kind 和中文 title。"]}
 
 
 def _normalize_adapter_outputs_for_repair(
     intent: GraphIntentV3,
     snapshot: MetaPlannerCapabilitySnapshot,
 ) -> tuple[GraphIntentV3, list[str]]:
-    """Refresh Adapter-owned outputs and their derived data-edge schemas."""
+    """Keep pure-node repair compatibility; resource inputs use the shared resolver."""
 
     normalized_refs: set[str] = set()
     authoritative_outputs: dict[
@@ -910,10 +1052,11 @@ def _normalize_adapter_outputs_for_repair(
                 parsed,
                 resource_payload,
             )
-            authoritative_outputs[(node.ref, output.port)] = (
-                output.variable,
-                authoritative,
-            )
+            if adapter.resource_kind is None:
+                authoritative_outputs[(node.ref, output.port)] = (
+                    output.variable,
+                    authoritative,
+                )
             if canonical_checksum(
                 output.value_schema.model_dump(mode="json")
             ) != canonical_checksum(authoritative.model_dump(mode="json")):
@@ -948,16 +1091,39 @@ def _normalize_adapter_outputs_for_repair(
     )
 
 
+def _graph_intent_edge_resource_forms(
+    request: MetaPlannerGenerateRequest,
+    snapshot: MetaPlannerCapabilitySnapshot,
+) -> dict[str, Any]:
+    from .resource_generation_contract import resource_generation_contract
+
+    resources = resource_generation_contract(request, snapshot)
+    return {
+        "examples_are_fragments": True,
+        "control_edges": [GraphIntentControlEdgeV3(
+            source_ref="upstream", outcome_ref="success", target_ref="downstream",
+        ).model_dump(mode="json")],
+        "node_resources": [{"kind": item["kind"], "resource_ref": item["resource_ref"]}
+                           for item in resources["node_owned_resources"]],
+        "agent_resources": [item["binding"] for item in resources["agent_bound_resources"]],
+        "rules": [
+            *resources["rules"],
+            "这是字段形状示例，不是完整工作流；upstream/downstream/xpert_agent 必须替换为实际节点 ref，不能据此新增任务或节点。",
+            "nodes[].resource_ref 只包含 resource_id；资源类型由节点 Adapter 决定，禁止添加 kind/target_ref。",
+            "顶层 resources 仅接受已授权的 Agent 绑定资源；Agent Table 不属于绑定资源。没有授权绑定时使用空数组。",
+            "control_edges 必须按 source_ref/outcome_ref/target_ref 声明显式先后；不能使用 from/to、原生 Handle 或把数据来源代替控制边。",
+            "示例仅显示每种节点的一个授权 ID；其他选择仍须遵守 authorized_scope，查询与各写操作授权互不隐含。",
+        ],
+    }
+
+
 def _graph_intent_prompt_contract(
     request: MetaPlannerGenerateRequest,
     snapshot: MetaPlannerCapabilitySnapshot,
 ) -> dict[str, Any]:
     allowed_kinds = set(request.scope.allowed_node_kinds)
-    executable_kinds = sorted(
-        kind
-        for kind in allowed_kinds
-        if get_planner_node_adapter(kind) is not None
-    )
+    from .generation_contract import generation_node_kinds
+    executable_kinds = sorted(generation_node_kinds(request, snapshot))
     compiler_managed_kinds = sorted(
         allowed_kinds & set(META_PLANNER_COMPILER_MANAGED_KINDS)
     )
@@ -988,15 +1154,26 @@ def _graph_intent_prompt_contract(
                     in adapter.control_only_output_ports
                 )
             ],
-            "control_outcomes": (
-                ["success", "error"]
-                if adapter.control_only_output_ports
-                else ["success"]
-            ),
         }
+        node_contracts[kind]["control_contract"] = model_control_contract(
+            kind, node_contracts[kind]["config_schema"],
+        )
+        # The concrete schema lives once in required_schema.$defs for every model path.
+        node_contracts[kind]["config_schema"] = config_schema_ref(kind)
+        binding_contract = adapter.model_binding_contract(available_kinds=set(executable_kinds))
+        if binding_contract is not None:
+            # Preserve port contracts losslessly; config-specific shapes sit beside them.
+            node_contracts[kind]["ports"] = [
+                {**port, "value_schema": WorkflowValueSchema.model_validate(
+                    port["value_schema"],
+                ).model_dump(mode="json", exclude_defaults=True)}
+                for port in node_contracts[kind]["ports"] if port["direction"] == "output"
+            ]
+            node_contracts[kind].update(binding_contract)
 
     return {
         "required_ir_version": GRAPH_IR_VERSION,
+        "edge_and_resource_forms": _graph_intent_edge_resource_forms(request, snapshot),
         "node_roles": {
             "executable_node_kinds": executable_kinds,
             "compiler_managed_node_kinds": compiler_managed_kinds,
@@ -1004,7 +1181,7 @@ def _graph_intent_prompt_contract(
             "executable_node_contracts": node_contracts,
         },
         "workflow_agent": {
-            "config_schema": MetaPlannerWorkflowAgentConfig.model_json_schema(),
+            "config_schema": config_schema_ref("workflow_agent"),
             "config_field_names": list(MetaPlannerWorkflowAgentConfig.model_fields),
             "input_port": {
                 "name": "task",
@@ -1019,20 +1196,11 @@ def _graph_intent_prompt_contract(
                 "cardinality": "one",
             },
         },
-        "authorized": {
-            "middleware_ids": list(request.scope.middleware_ids),
-            "prompt_profile_ids": list(request.scope.prompt_profile_ids),
-            "external_xpert_ids": list(request.scope.external_xpert_ids),
-            "knowledge_base_ids": list(request.scope.knowledge_base_ids),
-            "data_table_ids": list(request.scope.data_table_ids),
-            "toolset_ids": list(request.scope.toolset_ids),
-            "plugin_ids": list(request.scope.plugin_ids),
-        },
         "rules": [
             "Set ir_version to 3; never return a V2 blueprint.",
             "nodes may contain only executable_node_kinds.",
             "Never put compiler_managed_node_kinds or resource_binding_kinds in nodes.",
-            "Represent Agent-bound resources only in resources and target a workflow_agent ref; node-owned read resources use resource_ref only.",
+            "Represent Agent-bound resources only in resources and target a workflow_agent ref; node-owned read/write resources use resource_ref only.",
             "Use snake_case workflow_agent config fields exactly as config_field_names; never emit outputVariable, taskInput, rolePrompt, or agent_id in config.",
             "Every workflow_agent declares exactly one string output on port result with a unique variable.",
             "Every workflow_agent has one or more task_ids; nodes whose task_binding is forbidden have an empty task_ids list.",
@@ -1040,13 +1208,13 @@ def _graph_intent_prompt_contract(
             "Pure node config, named ports, and output Schema must exactly match executable_node_contracts.",
             "workflow_agent task inputs are string boundaries. Route object, array, number, boolean, or null values through an authorized string-producing node; use one compact json_serialize for JSON-safe typed resource results.",
             "Never relabel a dynamic Adapter output as string to bypass type checking; the server restores its authoritative Schema.",
+            "动态资源的字段类型以服务端 Schema 为准，不需要重抄完整字段 Schema。条件访问字段前须证明对象存在、字段存在且比较类型正确；is_null 只保护同一来源、同一字段的后继路径，不能保护另一次查询。无法证明或超过有界场景上限时保持失败，不猜测。",
             "Every root workflow_agent binds user_input from source_ref input and source_port user_input to input port task.",
-            "Every dependency input binds the exact ancestor result variable from source_port result to input port task.",
+            "每个输入的 variable 必须与 source_ref/source_port 指向的上游输出变量完全相同，不是下游别名；例如 json_serialize 的 source_port 是 json，而非 result。",
             "Every {{variable}} used in role_prompt or task_input has a matching explicit input binding.",
             "Control edges use source_ref, semantic outcome_ref, and target_ref; never emit native Handles or route IDs.",
-            "Ordinary nodes use success; condition uses matched/unmatched; multi_route uses case_1 through case_8 plus default.",
-            "knowledge_retrieval and data_table_query use resource_ref.resource_id; never place native resource IDs, versions, Schemas, Handles, or checksums in config.",
-            "When a read node uses failure_action=error_output, connect both success and error outcomes exactly once; otherwise it only uses success.",
+            "control_contract 按 config_field 的值或列表长度选择 variants；字段省略时使用 default_value。只连接所选分支的 outcomes：exactly_once 表示每个出口恰好一条边，fanout 允许多个 success 后继，none 禁止出边。最终来源不得连接出边。",
+            "knowledge_retrieval and every data_table query/write node use resource_ref.resource_id; never place native resource IDs, versions, Schemas, Handles, or checksums in config.",
             "The error outcome is control flow only; never declare it in node outputs or connect it as data.",
             "Every declared router outcome must have exactly one edge, and control edges must form an acyclic graph.",
             "A route scenario must reach exactly one final workflow_agent source or one terminate_error node.",
@@ -1055,6 +1223,11 @@ def _graph_intent_prompt_contract(
             "data_merge may join two distinct fanout branches that are both guaranteed to arrive; never use it to merge optional values from mutually exclusive branches.",
             "terminate_error has no outputs or outgoing control edges and accepts only a fixed safe error_code and message.",
             "Resources and middleware may target workflow_agent nodes only, never pure nodes.",
+            "受控表写节点只能使用 data_table_write_grants 中逐表、逐操作明确授权的资源；查询与写入授权互不隐含。",
+            "更新、删除的 records 端口必须直连同表 Query 或 Insert 的 result；不能使用文本、Agent 输出或 JSON 伪造记录身份。",
+            "写值模式以 value_source_contract.allowed 为准；input 的所有业务数据均须经指定生产者的 V2 对象 Schema 验证，不能用序列化字符串代替。未授权该生产者时必须显式选择 literal，且目标必须足以确定固定业务值，否则保持失败。",
+            "写节点只接受语义配置；不得填写 tableId、变量名、版本、Handle、writeGrant 或执行策略。",
+            "同路径上的同表读写必须显式按控制边排序；每个写节点独立提交，后续失败不会回滚先前写入。",
             "middleware may contain only authorized middleware_ids; when that list is empty, middleware must be empty.",
         ],
         "snapshot_node_kinds": sorted(snapshot_kinds & allowed_kinds),
@@ -1082,7 +1255,6 @@ def _planner_prompt_snapshot(
     return {
         "version": snapshot.version,
         "snapshot_hash": snapshot.snapshot_hash,
-        "graph_intent_contract": _graph_intent_prompt_contract(request, snapshot),
         "resources": {
             "external_xperts": authorized(
                 snapshot.external_xperts, request.scope.external_xpert_ids
@@ -1091,7 +1263,7 @@ def _planner_prompt_snapshot(
                 snapshot.knowledge_bases, request.scope.knowledge_base_ids
             ),
             "data_tables": authorized(
-                snapshot.data_tables, request.scope.data_table_ids
+                snapshot.data_tables, [*request.scope.data_table_ids, *(grant.table_id for grant in request.scope.data_table_write_grants)]
             ),
             "toolsets": authorized(snapshot.toolsets, request.scope.toolset_ids),
             "plugins": authorized(snapshot.plugins, request.scope.plugin_ids),
@@ -1379,6 +1551,66 @@ def _canonical_graph_intent_example(
     }
 
 
+def _analyze_task_dependencies(
+    plan: MetaPlannerTaskPlan,
+) -> tuple[list[str], dict[str, Any]]:
+    """Share DAG decisions between validation and bounded repair guidance."""
+    issues: list[str] = []
+    codes: set[str] = set()
+    task_ids = [task.task_id for task in plan.tasks]
+    known = set(task_ids)
+    graph: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
+    indegree = {task_id: 0 for task_id in task_ids}
+    for task in plan.tasks:
+        for dependency in task.depends_on:
+            if dependency not in known:
+                issues.append(
+                    f"Task {task.task_id} references unknown dependency {dependency}."
+                )
+                codes.add("TASK_DEPENDENCY_UNKNOWN")
+                continue
+            if dependency == task.task_id:
+                issues.append(f"Task {task.task_id} cannot depend on itself.")
+                codes.add("TASK_DEPENDENCY_SELF")
+                continue
+            graph[dependency].append(task.task_id)
+            indegree[task.task_id] += 1
+    queue = deque(sorted(key for key, value in indegree.items() if value == 0))
+    visited = 0
+    while queue:
+        current = queue.popleft()
+        visited += 1
+        for target in sorted(graph[current]):
+            indegree[target] -= 1
+            if indegree[target] == 0:
+                queue.append(target)
+    if visited != len(task_ids):
+        issues.append("Task dependencies must form an acyclic graph.")
+        codes.add("TASK_DEPENDENCY_GRAPH_INVALID")
+    sinks = sorted(task_id for task_id in task_ids if not graph[task_id])
+    if len(sinks) != _TASK_TERMINAL_COUNT:
+        issues.append(
+            "Task plan must have exactly one terminal task; "
+            f"found {len(sinks)}."
+        )
+        codes.add("TASK_TERMINAL_COUNT_INVALID")
+    return issues, {
+        "status": "available",
+        "task_count": len(task_ids),
+        "terminal_task_count": len(sinks),
+        "terminal_task_ids": sinks,
+        "issue_codes": sorted(codes),
+        "dependencies": [
+            {"task_id": task.task_id,
+             "depends_on": sorted(dependency for dependency in task.depends_on if dependency in known)}
+            for task in sorted(plan.tasks, key=lambda item: item.task_id)
+        ],
+        "omitted_unknown_dependency_count": sum(
+            dependency not in known for task in plan.tasks for dependency in task.depends_on
+        ),
+    }
+
+
 def validate_task_plan(
     plan: MetaPlannerTaskPlan,
     *,
@@ -1397,7 +1629,6 @@ def validate_task_plan(
     task_ids = [task.task_id for task in plan.tasks]
     if len(task_ids) != len(set(task_ids)):
         issues.append("Task IDs must be unique.")
-    known = set(task_ids)
     assigned_agent_ids = {
         task.agent_id for task in plan.tasks if task.agent_id is not None
     }
@@ -1413,37 +1644,8 @@ def validate_task_plan(
                     f"Task {task.task_id} binds unauthorized expert "
                     f"{task.agent_id}."
                 )
-    graph: dict[str, list[str]] = {task_id: [] for task_id in task_ids}
-    indegree = {task_id: 0 for task_id in task_ids}
-    for task in plan.tasks:
-        for dependency in task.depends_on:
-            if dependency not in known:
-                issues.append(
-                    f"Task {task.task_id} references unknown dependency {dependency}."
-                )
-                continue
-            if dependency == task.task_id:
-                issues.append(f"Task {task.task_id} cannot depend on itself.")
-                continue
-            graph[dependency].append(task.task_id)
-            indegree[task.task_id] += 1
-    queue = deque(sorted(key for key, value in indegree.items() if value == 0))
-    visited = 0
-    while queue:
-        current = queue.popleft()
-        visited += 1
-        for target in sorted(graph[current]):
-            indegree[target] -= 1
-            if indegree[target] == 0:
-                queue.append(target)
-    if visited != len(task_ids):
-        issues.append("Task dependencies must form an acyclic graph.")
-    sinks = sorted(task_id for task_id in task_ids if not graph[task_id])
-    if len(sinks) != 1:
-        issues.append(
-            "Task plan must have exactly one terminal task; "
-            f"found {len(sinks)}."
-        )
+    dependency_issues, _ = _analyze_task_dependencies(plan)
+    issues.extend(dependency_issues)
     return issues
 
 
@@ -1767,15 +1969,25 @@ def validate_blueprint_authorization(
     plan: MetaPlannerTaskPlan,
     blueprint: MetaPlannerBlueprint | MetaPlannerTypedBlueprintV2 | GraphIntentV3,
     snapshot: MetaPlannerCapabilitySnapshot,
+    *,
+    diagnostics: GenerationDiagnostics | None = None,
+    input_type_issues: list[GraphInputTypeIssue] | None = None,
+    control_dependency_issues: list[dict[str, Any]] | None = None,
+    control_path_issues: list[dict[str, Any]] | None = None,
 ) -> list[str]:
     issues = validate_task_plan(
         plan,
         max_agents=request.max_agents,
         authorized_agent_ids=set(request.scope.agent_ids),
     )
+    if diagnostics is not None:
+        diagnostics.messages(issues, category="task_plan")
+    global_issue_start = len(issues)
     try:
         typed = _typed_blueprint(plan, blueprint)
     except (KeyError, ValueError, ValidationError) as exc:
+        if diagnostics is not None:
+            diagnostics.exception(exc, category="compatibility")
         return issues + [_safe_exception_message(exc)]
 
     plan_ids = {task.task_id for task in plan.tasks}
@@ -1815,6 +2027,14 @@ def validate_blueprint_authorization(
                 snapshot,
             )
         )
+    if diagnostics is not None:
+        diagnostics.messages(issues[global_issue_start:], category="authorization")
+    if isinstance(blueprint, GraphIntentV3):
+        for item in graph_source_contract_issues(blueprint):
+            issues.append(item["message"])
+            if diagnostics is not None:
+                diagnostics.messages([item["message"]], category="type_ports", code=item["code"],
+                    location=["nodes", item["node_index"], "inputs", item["input_index"]])
     node_resource_scope = {
         "knowledge_base": set(request.scope.knowledge_base_ids),
         "data_table": set(request.scope.data_table_ids),
@@ -1827,7 +2047,13 @@ def validate_blueprint_authorization(
             str(item.get("id") or "") for item in snapshot.data_tables
         },
     }
-    for node in typed.nodes:
+    authoritative_outputs = {
+        ("input", "user_input"): WorkflowValueSchema(type="string"),
+        ("input", "conversation_history"): WorkflowValueSchema(type="array", items=WorkflowValueSchema(type="object")),
+    }
+    authorized_type_nodes: set[str] = set()
+    for node_index, node in enumerate(typed.nodes):
+        node_issue_start = len(issues)
         if node.kind not in request.scope.allowed_node_kinds:
             issues.append(f"Node kind {node.kind} is not authorized.")
         if node.kind not in META_PLANNER_COMPILABLE_NODE_KINDS:
@@ -1837,19 +2063,29 @@ def validate_blueprint_authorization(
             issues.append(
                 f"Node kind {node.kind} cannot appear as an executable IR node."
             )
+            if diagnostics is not None:
+                diagnostics.messages(issues[node_issue_start:], category="authorization", node_index=node_index)
             continue
+        if diagnostics is not None:
+            diagnostics.messages(issues[node_issue_start:], category="authorization", node_index=node_index)
         try:
             parsed = adapter.validate_config(node)
             if isinstance(blueprint, GraphIntentV3):
                 adapter.validate_intent_node(graph_nodes_by_ref[node.ref])
         except (ValidationError, ValueError) as exc:
+            parsed = None
+            if diagnostics is not None:
+                diagnostics.exception(exc, category="node_config", node_index=node_index)
             issues.append(
                 f"Node {node.ref} config is invalid: {_safe_exception_message(exc)}"
             )
-            continue
+        # Resource identity and scope remain checkable when config or ports are invalid.
+        resource_issue_start = len(issues)
+        detailed_resource_issues: set[int] = set()
         contract = workflow_node_contract_registry.require(node.kind)
         expected_resource_kind = adapter.resource_kind
         node_resource = node.resource_ref
+        resource_snapshot = None
         if expected_resource_kind is None and node_resource is not None:
             issues.append(f"Node {node.ref} cannot carry a node resource reference.")
         elif expected_resource_kind is not None:
@@ -1859,14 +2095,25 @@ def validate_blueprint_authorization(
                 )
             else:
                 resource_id = node_resource.resource_id
-                if resource_id not in node_resource_scope[expected_resource_kind]:
+                from .write_contract import WRITE_KINDS, resolve_write_grant, resolve_write_grant_scope
+                if node.kind in WRITE_KINDS:
+                    try:
+                        if parsed is None:
+                            resolve_write_grant_scope(node, request.scope.data_table_write_grants)
+                        else:
+                            resolve_write_grant(node, request.scope.data_table_write_grants)
+                    except ValueError as exc:
+                        issues.append(str(exc))
+                elif resource_id not in node_resource_scope[expected_resource_kind]:
                     issues.append(
                         f"Node resource {resource_id} is not authorized for "
                         f"{expected_resource_kind}."
                     )
                 if resource_id not in node_resource_available[expected_resource_kind]:
                     issues.append(f"Node resource {resource_id} is no longer available.")
-                if isinstance(blueprint, GraphIntentV3):
+                # Denied or missing resources must not disclose their trusted Schema.
+                if (len(issues) == resource_issue_start and parsed is not None
+                        and isinstance(blueprint, GraphIntentV3)):
                     try:
                         resource_snapshot = resolve_node_resource_snapshot(
                             graph_nodes_by_ref[node.ref],
@@ -1885,10 +2132,21 @@ def validate_blueprint_authorization(
                             ),
                         )
                     except ValueError as exc:
+                        if diagnostics is not None and isinstance(exc, PlannerResourceContractError):
+                            diagnostics.exception(exc, category="resource_contract", node_index=node_index)
+                            detailed_resource_issues.add(len(issues))
                         issues.append(
                             f"Node {node.ref} resource is invalid: "
                             f"{_safe_exception_message(exc)}"
                         )
+        if diagnostics is not None:
+            diagnostics.messages(
+                [issues[index] for index in range(resource_issue_start, len(issues)) if index not in detailed_resource_issues],
+                category="resource_contract", node_index=node_index,
+            )
+        if parsed is None:
+            continue
+        port_issue_start = len(issues)
         task_binding = contract.planner.task_binding
         if task_binding == "required" and not node.task_ids:
             issues.append(f"Node {node.ref} must cover at least one plan task.")
@@ -1940,8 +2198,18 @@ def validate_blueprint_authorization(
                 f"Node {node.ref} references unknown tasks: "
                 + ", ".join(unknown_tasks)
             )
+        if diagnostics is not None:
+            diagnostics.messages(issues[port_issue_start:], category="type_ports", node_index=node_index)
+        if isinstance(blueprint, GraphIntentV3) and len(issues) == node_issue_start:
+            authorized_type_nodes.add(node.ref)
+            resource_payload = resource_snapshot.model_dump(mode="json") if resource_snapshot else None
+            for output in graph_nodes_by_ref[node.ref].outputs:
+                authoritative_outputs[(node.ref, output.port)] = adapter.authoritative_output_schema(
+                    output.port, parsed, resource_payload,
+                )
         if task_binding != "required":
             continue
+        agent_issue_start = len(issues)
         config = MetaPlannerWorkflowAgentConfig.model_validate(
             parsed.model_dump(mode="json")
         )
@@ -1969,10 +2237,29 @@ def validate_blueprint_authorization(
             issues.append(f"Expert {source_agent_id} is not authorized.")
         if source_agent_id and source_agent_id not in known_agents:
             issues.append(f"Expert {source_agent_id} is no longer available.")
+        if diagnostics is not None:
+            diagnostics.messages(issues[agent_issue_start:], category="authorization", node_index=node_index)
+        if len(issues) != node_issue_start:
+            authorized_type_nodes.discard(node.ref)
+    if isinstance(blueprint, GraphIntentV3):
+        # Derived types cannot inherit trust from a denied or invalid producer.
+        while True:
+            invalid = {node.ref for node in blueprint.nodes if node.ref in authorized_type_nodes
+                       and any(binding.source_ref != "input" and binding.source_ref not in authorized_type_nodes
+                               for binding in node.inputs)}
+            if not invalid:
+                break
+            authorized_type_nodes.difference_update(invalid)
+        authoritative_outputs = {key: schema for key, schema in authoritative_outputs.items()
+                                 if key[0] == "input" or key[0] in authorized_type_nodes}
+    coverage_issue_start = len(issues)
     for task_id in sorted(plan_ids):
         if not task_nodes[task_id]:
             issues.append(f"Planned task {task_id} is not covered by any IR node.")
+    if diagnostics is not None:
+        diagnostics.messages(issues[coverage_issue_start:], category="task_plan")
 
+    control_issue_start = len(issues)
     edge_keys: set[tuple[str, ...]] = set()
     known_refs = set(node_refs)
     control_edges = (
@@ -1980,7 +2267,7 @@ def validate_blueprint_authorization(
         if isinstance(blueprint, GraphIntentV3)
         else typed.control_edges
     )
-    for edge in control_edges:
+    for edge_index, edge in enumerate(control_edges):
         key = (
             (edge.source_ref, edge.outcome_ref, edge.target_ref)
             if isinstance(blueprint, GraphIntentV3)
@@ -1991,21 +2278,39 @@ def validate_blueprint_authorization(
                 f"Control edge {edge.source_ref}->{edge.target_ref} references "
                 "an unknown node."
             )
+            if diagnostics is not None:
+                diagnostics.messages([issues[-1]], category="control_flow", code="CONTROL_UNKNOWN_NODE", location=["control_edges", edge_index])
         if edge.source_ref == edge.target_ref:
             issues.append(f"Control edge {edge.source_ref} cannot target itself.")
+            if diagnostics is not None:
+                diagnostics.messages([issues[-1]], category="control_flow", code="CONTROL_SELF_EDGE", location=["control_edges", edge_index])
         if key in edge_keys:
             issues.append(
                 f"Control edge {edge.source_ref}->{edge.target_ref} is duplicated."
             )
+            if diagnostics is not None:
+                diagnostics.messages([issues[-1]], category="control_flow", code="CONTROL_DUPLICATE_EDGE", location=["control_edges", edge_index])
         edge_keys.add(key)
     children, parents, order, sinks = _typed_graph(typed)
     if len(order) != len(typed.nodes):
         issues.append("Typed IR control edges must form an acyclic graph.")
+        if diagnostics is not None:
+            diagnostics.messages([issues[-1]], category="control_flow", code="CONTROL_CYCLE")
     if isinstance(blueprint, GraphIntentV3):
+        if diagnostics is not None:
+            diagnostics.bind_authoritative_types(blueprint, authoritative_outputs)
         try:
-            analyze_control_flow(blueprint)
+            control_report = analyze_control_flow(blueprint, output_schemas=authoritative_outputs)
+            if diagnostics is not None:
+                diagnostics.bind_control_proof(control_report["proof_checks"])
         except ControlFlowAnalysisError as exc:
             issues.extend(exc.issues)
+            if diagnostics is not None:
+                diagnostics.bind_control_proof(exc.proof_checks, [*exc.path_issues, *exc.dependency_issues])
+            if control_dependency_issues is not None:
+                control_dependency_issues.extend(exc.dependency_issues)
+            if control_path_issues is not None:
+                control_path_issues.extend(exc.path_issues)
         graph_nodes = {node.ref: node for node in blueprint.nodes}
         for source in blueprint.final_output.sources:
             final_node = graph_nodes.get(source.node_ref)
@@ -2036,6 +2341,29 @@ def validate_blueprint_authorization(
         }:
             issues.append("Typed IR final_output variable is not produced by its node.")
 
+    if diagnostics is not None:
+        diagnostics.messages(issues[control_issue_start:], category="control_flow")
+    data_issue_start = len(issues)
+    if isinstance(blueprint, GraphIntentV3) and input_type_issues is not None:
+        for node_index, node in enumerate(blueprint.nodes):
+            if node.ref not in authorized_type_nodes or node.ref not in order:
+                continue
+            ports = [port for port in workflow_node_contract_registry.require(node.kind).ports if port.direction == "input"]
+            for input_index, binding in enumerate(node.inputs):
+                source_schema = authoritative_outputs.get((binding.source_ref, binding.source_port))
+                port = next((port for port in ports if binding.port == port.name), None)
+                if port is None:
+                    port = next((port for port in ports if binding.port.startswith(f"{port.name}_")), None)
+                if source_schema is None or port is None:
+                    continue  # Missing or denied facts do not authorize a guessed Schema.
+                source_node = graph_nodes_by_ref.get(binding.source_ref)
+                source_adapter = get_planner_node_adapter(source_node.kind) if source_node else None
+                item = graph_input_type_issue(
+                    node_index, input_index, node.ref, binding, source_schema, port.value_schema,
+                    source_is_resource=source_adapter is not None and source_adapter.resource_kind is not None,
+                )
+                if item is not None:
+                    input_type_issues.append(item)
     ancestors: dict[str, set[str]] = {ref: set() for ref in node_refs}
     for ref in order:
         for parent in parents[ref]:
@@ -2053,14 +2381,16 @@ def validate_blueprint_authorization(
     external_variables = {"user_input", "conversation_history"}
     if any(node.kind == "vision_understanding" for node in typed.nodes):
         external_variables.add(ATTACHMENT_INPUT_PORT)
-    for node in typed.nodes:
-        for input_binding in node.inputs:
+    for node_index, node in enumerate(typed.nodes):
+        for input_index, input_binding in enumerate(node.inputs):
             producer = producer_by_variable.get(input_binding.variable)
             if not producer and input_binding.variable not in external_variables:
                 issues.append(
                     f"Node {node.ref} consumes unknown variable "
                     f"{input_binding.variable}."
                 )
+                if diagnostics is not None:
+                    diagnostics.messages([issues[-1]], category="type_ports", code="DATA_UNKNOWN_VARIABLE", location=["nodes", node_index, "inputs", input_index])
             elif producer:
                 producer_ref, producer_type = producer
                 if producer_ref not in ancestors[node.ref]:
@@ -2068,17 +2398,38 @@ def validate_blueprint_authorization(
                         f"Variable {input_binding.variable} is not reachable at "
                         f"node {node.ref}."
                     )
+                    if diagnostics is not None:
+                        diagnostics.messages([issues[-1]], category="type_ports", code="DATA_UNREACHABLE", location=["nodes", node_index, "inputs", input_index])
+                    if control_dependency_issues is not None and node.ref in graph_nodes_by_ref:
+                        binding = graph_nodes_by_ref[node.ref].inputs[input_index]
+                        if binding.source_ref == producer_ref:
+                            control_dependency_issues.append({
+                                "code": "DATA_NOT_CONTROL_ANCESTOR",
+                                "node_ref": node.ref, "input_index": input_index, "port": binding.port,
+                                "source_ref": producer_ref, "source_port": binding.source_port,
+                                "reason": "source_not_control_ancestor",
+                            })
+                # V3 keeps nullable/union schemas in the resolver, not this V2 projection.
                 if (
-                    input_binding.value_type != "any"
+                    not isinstance(blueprint, GraphIntentV3)
+                    and input_binding.value_type != "any"
                     and producer_type != "any"
-                    and input_binding.value_type != producer_type
+                    and not _schemas_compatible(
+                        WorkflowValueSchema(type=producer_type),
+                        WorkflowValueSchema(type=input_binding.value_type),
+                    )
                 ):
                     issues.append(
                         f"Variable {input_binding.variable} type {producer_type} "
                         f"does not match {node.ref} input type "
                         f"{input_binding.value_type}."
                     )
+                    if diagnostics is not None:
+                        diagnostics.messages([issues[-1]], category="type_ports", code="DATA_TYPE_MISMATCH", location=["nodes", node_index, "inputs", input_index])
 
+    if diagnostics is not None:
+        diagnostics.messages(issues[data_issue_start:], category="type_ports")
+    dependency_issue_start = len(issues)
     for task in plan.tasks:
         for dependency in task.depends_on:
             dependency_refs = {node.ref for node in task_nodes[dependency]}
@@ -2095,6 +2446,9 @@ def validate_blueprint_authorization(
                     "represented by the control graph."
                 )
 
+    if diagnostics is not None:
+        diagnostics.messages(issues[dependency_issue_start:], category="control_flow")
+    binding_issue_start = len(issues)
     scoped = {
         "external_xpert": set(request.scope.external_xpert_ids),
         "knowledge_base": set(request.scope.knowledge_base_ids),
@@ -2178,6 +2532,8 @@ def validate_blueprint_authorization(
             issues.append(f"Prompt Profile {profile_id} is not authorized.")
         if profile_id not in available_prompts:
             issues.append(f"Prompt Profile {profile_id} is no longer available.")
+    if diagnostics is not None:
+        diagnostics.messages(issues[binding_issue_start:], category="resource_contract")
     return list(dict.fromkeys(issues))
 
 
@@ -2547,11 +2903,13 @@ def compile_xpert_candidate(
         snapshot,
         default_agent_model_id=request.default_agent_model_id,
         vision_model_id=request.vision_model_id,
+        data_table_write_grants=request.scope.data_table_write_grants,
     )
     typed = _typed_blueprint(plan, intent)
     task_by_id = {task.task_id: task for task in plan.tasks}
     node_by_ref = {node.ref: node for node in typed.nodes}
     intent_node_by_ref = {node.ref: node for node in intent.nodes}
+    write_request_contexts = build_write_request_contexts(intent_node_by_ref)
     resource_lookup = _resource_lookup(snapshot)
     middleware_lookup = _middleware_lookup(snapshot)
     _, parents, order, _sinks = _typed_graph(typed)
@@ -2648,6 +3006,8 @@ def compile_xpert_candidate(
                     acceptance_criteria=acceptance,
                     has_runtime_resources=bool(resources_by_ref[ref]),
                     requires_runtime_mode=requires_runtime_mode,
+                    write_request_context=write_request_contexts.get(ref, ""),
+                    write_grant=(resolved_nodes_by_ref[ref].write_grant.model_dump(mode="json") if resolved_nodes_by_ref[ref].write_grant is not None else None),
                     vision_model_snapshot=(
                         resolved_nodes_by_ref[ref].vision_model_snapshot.model_dump(mode="json")
                         if resolved_nodes_by_ref[ref].vision_model_snapshot is not None else None
@@ -3032,12 +3392,14 @@ def _authoritative_validation_report(
         *list(validation.get("stages") or []),
         {
             "id": "authoring_proposal",
+            "diagnostic_subject": "authoring_proposal",
             "valid": authoring_valid,
             "issues": authoring_issues,
         },
     ]
     return {
         **validation,
+        "diagnostic_subject": "generation_and_authoring",
         "valid": validation.get("valid") is True and authoring_valid,
         "stages": stages,
         "issues": [
@@ -3056,10 +3418,12 @@ class MetaPlannerV2Service:
         authoring_service: AuthoringService,
         preflight: PreflightCallback,
         completion: CompletionCallback | None = None,
+        generation_evidence: GenerationEvidence | None = None,
     ) -> None:
         self.authoring_service = authoring_service
         self.preflight = preflight
         self.completion = completion
+        self.generation_evidence = generation_evidence
 
     async def generate(
         self,
@@ -3093,9 +3457,29 @@ class MetaPlannerV2Service:
         repair_used = False
         repair_protocol = "none"
         warnings: list[str] = []
+        generation_diagnostics: list[dict[str, Any]] = []
+        evidence = self.generation_evidence or GenerationEvidence()
+        completion_count = 0
+        candidate_origin = "model_generated"
+        placeholder_validation: dict[str, Any] | None = None
+        failed_capture = FailedGenerationCapture()
+
+        async def complete(stage: str, model_id: str, system: str, prompt: str, temperature: float, max_tokens: int) -> str:
+            nonlocal completion_count
+            if completion_count >= 3:
+                raise ValueError("PLANNER_CALL_BUDGET_EXHAUSTED: 已达到三次模型调用上限。")
+            completion_count += 1
+            with evidence.capture(stage, prompt) as call:
+                raw = await self.completion(model_id, system, prompt, temperature, max_tokens)
+                call.text("collector", raw)
+                return raw
+
+        plan_diagnostics = GenerationDiagnostics("task_plan")
+        plan_diagnostics.enter("task_plan")
 
         plan_prompt = self._plan_prompt(request, snapshot)
-        raw_plan = await self.completion(
+        raw_plan = await complete(
+            "task_plan",
             request.planner_model_id,
             TASK_PLAN_SYSTEM_PROMPT,
             plan_prompt,
@@ -3104,18 +3488,24 @@ class MetaPlannerV2Service:
         )
         plan: MetaPlannerTaskPlan | None = None
         try:
-            plan = MetaPlannerTaskPlan.model_validate(_json_payload(raw_plan))
+            plan_payload = _json_payload(raw_plan)
+            evidence.last_call.validator(plan_payload)
+            plan = parse_generation_task_plan(plan_payload)
             plan_issues = validate_task_plan(
                 plan,
                 max_agents=request.max_agents,
                 authorized_agent_ids=set(request.scope.agent_ids),
             )
+            plan_diagnostics.messages(plan_issues)
         except Exception as exc:
+            plan_diagnostics.exception(exc)
             plan_issues = [_safe_exception_message(exc)]
+        generation_diagnostics.append(plan_diagnostics.as_dict())
         if plan_issues:
             repair_used = True
             repair_protocol = "task_plan_v1"
-            repaired_raw_plan = await self.completion(
+            repaired_raw_plan = await complete(
+                "task_plan_v1",
                 request.planner_model_id,
                 TASK_PLAN_REPAIR_SYSTEM_PROMPT,
                 self._plan_repair_prompt(
@@ -3127,17 +3517,22 @@ class MetaPlannerV2Service:
                 0,
                 4_096,
             )
+            repaired_plan_diagnostics = GenerationDiagnostics("task_plan_v1")
+            repaired_plan_diagnostics.enter("task_plan")
             try:
-                plan = MetaPlannerTaskPlan.model_validate(
-                    _json_payload(repaired_raw_plan)
-                )
+                repaired_plan_payload = _json_payload(repaired_raw_plan)
+                evidence.last_call.validator(repaired_plan_payload)
+                plan = parse_generation_task_plan(repaired_plan_payload)
                 repaired_plan_issues = validate_task_plan(
                     plan,
                     max_agents=request.max_agents,
                     authorized_agent_ids=set(request.scope.agent_ids),
                 )
+                repaired_plan_diagnostics.messages(repaired_plan_issues)
             except Exception as exc:
+                repaired_plan_diagnostics.exception(exc)
                 repaired_plan_issues = [_safe_exception_message(exc)]
+            generation_diagnostics.append(repaired_plan_diagnostics.as_dict())
             if repaired_plan_issues:
                 raise ValueError(
                     "Task-plan repair failed: " + "; ".join(repaired_plan_issues)
@@ -3148,13 +3543,15 @@ class MetaPlannerV2Service:
             )
         assert plan is not None
 
-        raw_blueprint = await self.completion(
+        raw_blueprint = await complete(
+            "capability_compile",
             request.planner_model_id,
-            BLUEPRINT_SYSTEM_PROMPT,
-            self._blueprint_prompt(request, plan, snapshot, target),
+            RECIPE_SYSTEM_PROMPT,
+            self._recipe_prompt(request, plan, snapshot, target),
             request.temperature,
             8_192,
         )
+        compile_diagnostics = GenerationDiagnostics("capability_compile")
         (
             blueprint,
             candidate,
@@ -3168,38 +3565,89 @@ class MetaPlannerV2Service:
             raw_blueprint=raw_blueprint,
             snapshot=snapshot,
             target=target,
+            diagnostics=compile_diagnostics,
+            evidence_call=evidence.last_call,
+            require_recipe=True,
         )
+        generation_diagnostics.append(compile_diagnostics.as_dict())
+        failed_capture.record(blueprint, compile_diagnostics)
+        generation_attempts = [
+            _generation_attempt("capability_compile", issues, blueprint)
+        ]
+        repair_prompt: str | None = None
+        repair_preparation: dict[str, Any] | None = None
         if issues and not repair_used:
+            prepared_protocol = (
+                RECIPE_EDIT_PROTOCOL if compile_diagnostics.parsed_recipe is not None
+                else "graph_patch_v1" if blueprint is not None
+                else "generation_recipe_v1"
+            )
+            try:
+                if prepared_protocol == "graph_patch_v1":
+                    repair_prompt = self._patch_repair_prompt(request, plan, snapshot, blueprint, issues)
+                elif prepared_protocol == RECIPE_EDIT_PROTOCOL:
+                    repair_prompt = self._recipe_edit_prompt(
+                        request, plan, snapshot, target, recipe=compile_diagnostics.parsed_recipe,
+                        issues=issues, recipe_diagnostics=compile_diagnostics.as_dict(),
+                    )
+                else:
+                    repair_prompt = self._recipe_repair_prompt(
+                        request, plan, snapshot, target,
+                        recipe=compile_diagnostics.parsed_recipe,
+                        invalid_blueprint=raw_blueprint, issues=issues,
+                        recipe_diagnostics=compile_diagnostics.as_dict(),
+                    )
+                if not isinstance(repair_prompt, str) or not repair_prompt:
+                    raise TypeError("修复提示必须是非空字符串。")
+            except Exception as exc:
+                # No completion has started: retain the original attempt, not a fabricated repair.
+                repair_prompt = None
+                repair_preparation = {
+                    "status": "failed", "protocol": prepared_protocol,
+                    "completion_started": False, "reason_code": "REPAIR_PREPARATION_FAILED",
+                }
+                preparation_diagnostics = GenerationDiagnostics("repair_preparation")
+                preparation_diagnostics.enter("repair_preparation")
+                preparation_diagnostics.messages([str(exc)], code="REPAIR_PREPARATION_FAILED")
+                generation_diagnostics.append(preparation_diagnostics.as_dict())
+                issues = [*issues, _REPAIR_PREPARATION_FAILED_MESSAGE]
+                warnings.append(_REPAIR_PREPARATION_FAILED_MESSAGE)
+        if issues and not repair_used and repair_prompt is not None:
             repair_used = True
-            if blueprint is not None:
+            repair_base_intent = blueprint.model_copy(deep=True) if blueprint is not None else None
+            repair_input_contract_issues: list[dict[str, Any]] | None = None
+            if blueprint is not None and compile_diagnostics.parsed_recipe is None:
                 repair_protocol = "graph_patch_v1"
+                repair_diagnostics = GenerationDiagnostics(repair_protocol)
+                repair_diagnostics.enter("patch_parse")
+                repair_diagnostics.bind_graph(blueprint)
+                patch_progress = GraphPatchProgress()
+                original_patch: GraphPatchEnvelopeV1 | None = None
+                repair_patch: GraphPatchEnvelopeV1 | None = None
                 base_graph_checksum = canonical_checksum(
                     blueprint.model_dump(mode="json")
                 )
                 base_candidate_checksum = canonical_checksum(candidate or {})
-                repaired_raw = await self.completion(
+                repaired_raw = await complete(
+                    "graph_patch_v1",
                     request.planner_model_id,
                     PATCH_REPAIR_SYSTEM_PROMPT,
-                    self._patch_repair_prompt(
-                        request,
-                        plan,
-                        snapshot,
-                        blueprint,
-                        issues,
-                    ),
+                    repair_prompt,
                     0,
                     8_192,
                 )
                 try:
-                    repair_payload = PlannerGraphPatchRepairPayloadV1.model_validate(
-                        _json_payload(repaired_raw)
-                    )
+                    patch_payload = _json_payload(repaired_raw)
+                    evidence.last_call.validator(patch_payload)
+                    repair_payload = PlannerGraphPatchRepairPayloadV1.model_validate(patch_payload)
                     repair_patch = GraphPatchEnvelopeV1(
                         proposal_revision=1,
                         expected_graph_checksum=base_graph_checksum,
                         expected_candidate_checksum=base_candidate_checksum,
                         operations=repair_payload.operations,
                     )
+                    original_patch = repair_patch.model_copy(deep=True)
+                    repair_diagnostics.enter("patch_normalization")
                     repair_blueprint, repair_patch, removed_control_outputs = (
                         _normalize_repair_control_only_outputs(
                             blueprint,
@@ -3239,12 +3687,15 @@ class MetaPlannerV2Service:
                             + ", ".join(duplicate_data_edges)
                             + "."
                         )
+                    repair_diagnostics.enter("patch_apply")
                     patched = apply_graph_patch(
                         repair_blueprint,
                         repair_patch,
                         plan_task_ids={task.task_id for task in plan.tasks},
                         allowed_node_kinds=set(request.scope.allowed_node_kinds),
+                        progress=patch_progress,
                     )
+                    repair_diagnostics.enter("output_normalization")
                     normalized_intent, normalized_refs = (
                         _normalize_adapter_outputs_for_repair(
                             patched.intent,
@@ -3263,6 +3714,7 @@ class MetaPlannerV2Service:
                         normalized_intent.model_dump(mode="json"),
                         ensure_ascii=False,
                     )
+                    repair_diagnostics.recompile_executed = True
                     (
                         blueprint,
                         candidate,
@@ -3276,28 +3728,72 @@ class MetaPlannerV2Service:
                         raw_blueprint=repaired_raw,
                         snapshot=snapshot,
                         target=target,
+                        diagnostics=repair_diagnostics,
                     )
                 except Exception as exc:
+                    repair_diagnostics.exception(exc)
                     message = _safe_exception_message(exc)
                     candidate = {}
                     graph_ir = None
                     issues = [message]
                     validation = {"valid": False, "issues": [message]}
+                    repair_input_contract_issues = (
+                        [exc.input_diagnostic]
+                        if isinstance(exc, PlannerWriteInputContractError)
+                        else []
+                    )
+                if original_patch is not None and repair_patch is not None:
+                    repair_diagnostics.patch_receipt(
+                        original_patch, repair_patch, patch_progress,
+                        repair_blueprint if patch_progress.phase != "not_started" else blueprint,
+                        failed=repair_diagnostics.failed_phase == "patch_apply",
+                    )
+            elif compile_diagnostics.parsed_recipe is not None:
+                repair_protocol = RECIPE_EDIT_PROTOCOL
+                repair_diagnostics = GenerationDiagnostics(repair_protocol)
+                repair_diagnostics.parsed_recipe = compile_diagnostics.parsed_recipe
+                repaired_raw = await complete(
+                    repair_protocol, request.planner_model_id, RECIPE_EDIT_SYSTEM_PROMPT,
+                    repair_prompt, 0, 8_192,
+                )
+                try:
+                    repair_diagnostics.enter("patch_parse")
+                    edit_payload = _json_payload(repaired_raw)
+                    evidence.last_call.validator(edit_payload)
+                    repair_diagnostics.enter("patch_apply")
+                    merged_recipe = apply_recipe_edits(
+                        compile_diagnostics.parsed_recipe, edit_payload, request, snapshot,
+                    )
+                    repair_diagnostics.recompile_executed = True
+                    (
+                        blueprint, candidate, validation, issues, graph_ir, compatibility,
+                    ) = self._compile_and_validate(
+                        request=request, plan=plan,
+                        raw_blueprint=json.dumps(merged_recipe.model_dump(mode="json"), ensure_ascii=False),
+                        snapshot=snapshot, target=target, diagnostics=repair_diagnostics, require_recipe=True,
+                    )
+                except Exception as exc:
+                    repair_diagnostics.exception(exc)
+                    message = _safe_exception_message(exc)
+                    candidate, graph_ir = {}, None
+                    issues = [message]
+                    validation = {"valid": False, "issues": [message]}
+                if repair_diagnostics.compare_recipe_repair(compile_diagnostics) and issues:
+                    message = "修复未改变仍被阻断的控制结构；不会再次自动调用模型。"
+                    issues.append(message)
+                    repair_diagnostics.messages([message], category="recipe_lowering", code="RECIPE_CONTROL_FLOW_UNCHANGED")
             else:
-                repair_protocol = "graph_intent_v3"
-                repaired_raw = await self.completion(
+                repair_protocol = "generation_recipe_v1"
+                repair_diagnostics = GenerationDiagnostics(repair_protocol)
+                repaired_raw = await complete(
+                    repair_protocol,
                     request.planner_model_id,
-                    REPAIR_SYSTEM_PROMPT,
-                    self._repair_prompt(
-                        request,
-                        plan,
-                        snapshot,
-                        raw_blueprint,
-                        issues,
-                    ),
+                    RECIPE_SYSTEM_PROMPT,
+                    repair_prompt,
                     0,
                     8_192,
                 )
+                repair_diagnostics.recompile_executed = True
                 (
                     blueprint,
                     candidate,
@@ -3311,34 +3807,68 @@ class MetaPlannerV2Service:
                     raw_blueprint=repaired_raw,
                     snapshot=snapshot,
                     target=target,
+                    diagnostics=repair_diagnostics,
+                    evidence_call=evidence.last_call,
+                    require_recipe=True,
                 )
+                if (issues and compile_diagnostics.parsed_recipe is not None and repair_diagnostics.parsed_recipe is not None
+                    and canonical_checksum(compile_diagnostics.parsed_recipe.model_dump(mode="json"))
+                    == canonical_checksum(repair_diagnostics.parsed_recipe.model_dump(mode="json"))):
+                    message = "唯一修复未改变生成描述，原阻断仍然存在；不会再次自动调用模型。"
+                    issues.append(message)
+                    repair_diagnostics.messages([message], category="recipe_lowering", code="RECIPE_REPAIR_UNCHANGED")
+                if repair_diagnostics.compare_recipe_repair(compile_diagnostics) and issues:
+                    message = "唯一修复未改变仍被阻断的控制结构；修改说明或其他配置不代表该问题已解决，不会再次自动调用模型。"
+                    issues.append(message)
+                    repair_diagnostics.messages([message], category="recipe_lowering", code="RECIPE_CONTROL_FLOW_UNCHANGED")
+            generation_diagnostics.append(repair_diagnostics.as_dict())
+            repair_input = repair_protocol in {"graph_patch_v1", RECIPE_EDIT_PROTOCOL} and not repair_diagnostics.recompile_executed
+            failed_capture.record(
+                repair_base_intent if repair_input else blueprint,
+                repair_diagnostics,
+                repair_input=repair_input,
+            )
+            generation_attempts.append(
+                _generation_attempt(
+                    repair_protocol, issues, blueprint,
+                    input_contract_issues=repair_input_contract_issues,
+                )
+            )
         if issues:
             if repair_protocol == "task_plan_v1":
                 warnings.append(
                     "The single repair pass was consumed by task-plan repair; "
                     "the invalid capability compilation was not retried."
                 )
-            warnings.append(
-                "The single repair pass did not produce an approvable candidate."
-            )
+            if repair_used:
+                warnings.append(
+                    "The single repair pass did not produce an approvable candidate."
+                )
             if not candidate:
+                candidate_origin = "server_synthesized_fallback"
                 candidate, graph_ir, compatibility = self._fallback_candidate(
                     request=request,
                     plan=plan,
                     snapshot=snapshot,
                     target=target,
                 )
-                validation = _validation_report(
-                    candidate,
-                    target=target,
-                    preflight=self.preflight,
-                )
+                placeholder_validation = {
+                    **_validation_report(candidate, target=target, preflight=self.preflight),
+                    "diagnostic_subject": "server_synthesized_fallback",
+                    "candidate_checksum": workflow_semantic_checksum(candidate),
+                }
+                # The deliberately non-executable placeholder is not a model result.
+                validation = {"valid": False, "stages": [], "issues": []}
             repair_stage = {
                 "id": "planner_repair",
+                "diagnostic_subject": "model_generation",
                 "valid": False,
                 "issues": [
                     {
-                        "code": "meta_planner_repair_failed",
+                        "code": (
+                            "REPAIR_PREPARATION_FAILED" if repair_preparation is not None and issue == _REPAIR_PREPARATION_FAILED_MESSAGE
+                            else "meta_planner_repair_failed" if repair_used else "meta_planner_validation_failed"
+                        ),
                         "message": issue[:500],
                         "severity": "error",
                     }
@@ -3356,6 +3886,21 @@ class MetaPlannerV2Service:
                 *list(validation.get("issues") or []),
             ]
 
+        validation = {
+            **validation,
+            "diagnostic_subject": "model_generation" if placeholder_validation is not None else "model_candidate",
+        }
+
+        try:
+            generated_payload = _json_payload(raw_blueprint)
+        except (ValueError, TypeError):
+            generated_payload = {}
+        generation_input_format = (
+            "recipe_v1" if generated_payload.get("generation_protocol_version") == 1
+            else "graph_intent_v3_rejected" if generated_payload.get("ir_version") == 3
+            else "unrecognized"
+        )
+
         report = {
             "planner_version": "evoagentx-meta-planner-graph-ir-v3",
             "typed_ir_version": GRAPH_IR_VERSION,
@@ -3369,7 +3914,13 @@ class MetaPlannerV2Service:
             "authoring_graph_checksum": (
                 graph_authoring_checksum(graph_ir) if graph_ir is not None else ""
             ),
-            "graph_ir_status": "current" if graph_ir is not None else "unavailable",
+            "graph_ir_status": ("fallback_unapprovable" if candidate_origin == "server_synthesized_fallback"
+                                else "current" if graph_ir is not None else "unavailable"),
+            "candidate_origin": candidate_origin,
+            "generation_input_format": generation_input_format,
+            "validation_scope": "pre_authoring_proposal",
+            "authoritative_validation_source": "proposal.validation",
+            "validation_candidate_checksum": "" if placeholder_validation is not None else workflow_semantic_checksum(candidate),
             "compiled_workflow_checksum": workflow_semantic_checksum(candidate),
             "authoring_candidate_checksum": workflow_authoring_checksum(candidate),
             "compatibility": compatibility.model_dump(mode="json"),
@@ -3383,17 +3934,26 @@ class MetaPlannerV2Service:
             },
             "authorized_scope": request.scope.model_dump(mode="json"),
             "generation_config": {
+                "generation_protocol_version": 1,
                 "planner_model_id": request.planner_model_id,
                 "default_agent_model_id": request.default_agent_model_id,
                 "vision_model_id": request.vision_model_id,
                 "max_agents": request.max_agents,
             },
             "validation": validation,
+            **({"placeholder_validation": placeholder_validation} if placeholder_validation is not None else {}),
             "repair_used": repair_used,
             "repair_protocol": repair_protocol,
+            **({"repair_preparation": repair_preparation} if repair_preparation is not None else {}),
+            "generation_attempts": generation_attempts,
+            "generation_diagnostics": generation_diagnostics,
+            "generation_evidence": evidence.as_dict(),
             "warnings": warnings,
             "human_modified": False,
         }
+        failure_artifact = failed_capture.build(report) if issues else None
+        if failure_artifact is not None:
+            report["failure_artifact"] = failed_artifact_summary(failure_artifact)
         if request.mode == "create":
             payload = {**candidate, "meta_planner_report": report}
             proposal = self.authoring_service.proposal_store.create(
@@ -3403,6 +3963,7 @@ class MetaPlannerV2Service:
                 source_type="meta_planner",
                 source_id=f"meta_planner:{uuid.uuid4().hex}",
                 source_run_id=source_run_id,
+                meta_planner_artifact=failure_artifact,
             )
         else:
             assert target is not None
@@ -3420,6 +3981,7 @@ class MetaPlannerV2Service:
                 source_run_id=source_run_id,
                 target_id=target.id,
                 base_revision=target.draft_revision,
+                meta_planner_artifact=failure_artifact,
             )
         proposal = self.authoring_service.validate(
             proposal.proposal_id,
@@ -3483,6 +4045,7 @@ class MetaPlannerV2Service:
             snapshot,
             default_agent_model_id=request.default_agent_model_id,
             vision_model_id=request.vision_model_id,
+            data_table_write_grants=request.scope.data_table_write_grants,
         )
         candidate = compile_xpert_candidate(
             request=request,
@@ -3542,6 +4105,7 @@ class MetaPlannerV2Service:
             snapshot,
             default_agent_model_id=request.default_agent_model_id,
             vision_model_id=request.vision_model_id,
+            data_table_write_grants=request.scope.data_table_write_grants,
         )
         candidate = compile_xpert_candidate(
             request=request,
@@ -3566,6 +4130,9 @@ class MetaPlannerV2Service:
         raw_blueprint: str,
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
+        diagnostics: GenerationDiagnostics | None = None,
+        evidence_call: GenerationEvidenceCall | None = None,
+        require_recipe: bool = False,
     ) -> tuple[
         GraphIntentV3 | None,
         dict[str, Any],
@@ -3579,13 +4146,42 @@ class MetaPlannerV2Service:
         # when a later semantic gate rejects it.
         blueprint: GraphIntentV3 | None = None
         try:
+            if diagnostics is not None:
+                diagnostics.enter("intent_parse")
             payload = _json_payload(raw_blueprint)
-            if payload.get("ir_version") == 2:
+            # Validate the whole strict Recipe so a missing protocol marker does
+            # not hide independent field errors from the single repair attempt.
+            if require_recipe or "generation_protocol_version" in payload:
+                if evidence_call is not None:
+                    evidence_call.validator(payload)
+                recipe = None
+                try:
+                    recipe = parse_generation_recipe(payload)
+                    validate_recipe_generation_contract(payload, request, snapshot)
+                except ValidationError:
+                    if diagnostics is not None:
+                        from .resource_generation_contract import generation_resource_ids
+                        diagnostics.recipe_draft = recipe if recipe is not None else parse_recipe_resource_draft(
+                            payload, allowed_resource_ids=generation_resource_ids(request, snapshot),
+                        )
+                        if diagnostics.recipe_draft is None:
+                            from .failed_artifacts import parse_recipe_input_draft
+                            diagnostics.recipe_draft = parse_recipe_input_draft(
+                                payload, allowed_resource_ids=generation_resource_ids(request, snapshot),
+                            )
+                    raise
+                if diagnostics is not None:
+                    diagnostics.parsed_recipe = recipe
+                    diagnostics.enter("recipe_lowering")
+                blueprint = lower_generation_recipe(recipe, request, snapshot, diagnostics=diagnostics)
+            elif payload.get("ir_version") == 2:
                 issue = (
                     "Legacy V2 IR is read-only compatibility input and is not "
                     "valid for a new V3 generation. Return GraphIntentV3 with "
                     "ir_version=3."
                 )
+                if diagnostics is not None:
+                    diagnostics.messages([issue], category="compatibility")
                 return (
                     None,
                     {},
@@ -3599,10 +4195,21 @@ class MetaPlannerV2Service:
                 )
             else:
                 blueprint = GraphIntentV3.model_validate(payload)
+            if evidence_call is not None and "generation_protocol_version" not in payload:
+                evidence_call.validator(blueprint.model_dump(mode="json"))
+            if diagnostics is not None:
+                diagnostics.bind_graph(blueprint)
+                diagnostics.enter("authorization")
+            independent_types: list[GraphInputTypeIssue] = []
             issues = validate_blueprint_authorization(
-                request, plan, blueprint, snapshot
+                request, plan, blueprint, snapshot, diagnostics=diagnostics, input_type_issues=independent_types,
             )
             if issues:
+                for item in independent_types:
+                    issues.append(item.summary)
+                    if diagnostics is not None:
+                        diagnostics.messages([item.summary], category="type_ports", code="DATA_TYPE_MISMATCH",
+                            location=["nodes", item.node_index, "inputs", item.input_index])
                 return (
                     blueprint,
                     {},
@@ -3611,12 +4218,17 @@ class MetaPlannerV2Service:
                     None,
                     compatibility,
                 )
+            if diagnostics is not None:
+                diagnostics.enter("resolve")
             graph_ir = resolve_graph_intent(
                 blueprint,
                 snapshot,
                 default_agent_model_id=request.default_agent_model_id,
                 vision_model_id=request.vision_model_id,
+                data_table_write_grants=request.scope.data_table_write_grants,
             )
+            if diagnostics is not None:
+                diagnostics.enter("compile")
             candidate = compile_xpert_candidate(
                 request=request,
                 plan=plan,
@@ -3624,6 +4236,8 @@ class MetaPlannerV2Service:
                 snapshot=snapshot,
                 target=target,
             )
+            if diagnostics is not None:
+                diagnostics.enter("publish_preflight")
             validation = _validation_report(
                 candidate,
                 target=target,
@@ -3633,6 +4247,8 @@ class MetaPlannerV2Service:
                 str(issue.get("message") or issue)
                 for issue in validation.get("issues", [])
             ]
+            if diagnostics is not None:
+                diagnostics.messages(errors)
             return (
                 blueprint,
                 candidate,
@@ -3641,7 +4257,16 @@ class MetaPlannerV2Service:
                 graph_ir,
                 compatibility,
             )
+        except GraphInputTypeError as exc:
+            messages = [item.summary for item in exc.issues]
+            if diagnostics is not None:
+                for item in exc.issues:
+                    diagnostics.messages([item.summary], category="type_ports", code="DATA_TYPE_MISMATCH",
+                        location=["nodes", item.node_index, "inputs", item.input_index])
+            return blueprint, {}, {"valid": False, "issues": messages}, messages, None, compatibility
         except Exception as exc:
+            if diagnostics is not None:
+                diagnostics.exception(exc)
             message = _safe_exception_message(exc)
             return (
                 blueprint,
@@ -3653,29 +4278,208 @@ class MetaPlannerV2Service:
             )
 
     @staticmethod
+    def _generation_context(
+        request: MetaPlannerGenerateRequest,
+        plan: MetaPlannerTaskPlan,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        target: XpertDefinition | None,
+    ) -> dict[str, Any]:
+        return {
+            "goal": request.goal,
+            "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
+            "task_plan": plan.model_dump(mode="json"),
+            "default_agent_model_id": request.default_agent_model_id,
+            "authorized_scope": request.scope.model_dump(mode="json"),
+            "capability_snapshot": _planner_prompt_snapshot(request, snapshot),
+            "target_xpert": None if target is None else {
+                "id": target.id, "name": target.name, "description": target.description,
+                "draft_revision": target.draft_revision,
+                "workflow": target.draft.workflow.model_dump(mode="json"),
+            },
+        }
+
+    @staticmethod
+    def _recipe_repair_prompt(
+        request: MetaPlannerGenerateRequest,
+        plan: MetaPlannerTaskPlan,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        target: XpertDefinition | None,
+        *, recipe: GenerationRecipeV1 | None,
+        invalid_blueprint: str | None = None,
+        issues: list[str] | None = None,
+        recipe_diagnostics: dict[str, Any] | None = None,
+    ) -> str:
+        """Keep semantic repair in the generation language; no mechanical graph copy."""
+        from .recipe_preflight import compact_recipe_diagnostics, recipe_repair_checklist, recipe_repair_feedback
+
+        payload = json.loads(MetaPlannerV2Service._recipe_prompt(request, plan, snapshot, target))
+        details = recipe_diagnostics or {}
+        input_origins, dependencies, paths, local = {}, [], [], {}
+        feedback = {"input_types_status": "blocked", "input_type_issue_count": None,
+                    "control_dependency_issue_count": None,
+                    "path_proof_status": "blocked", "blocked_by": "recipe_parse"}
+        if recipe is not None:
+            payload["invalid_generation"] = recipe.model_dump(mode="json")
+            observer = GenerationDiagnostics("generation_recipe_v1")
+            observer.enter("intent_parse")
+            paths, types = [], []
+            observer.enter("recipe_lowering")
+            try:
+                graph = lower_generation_recipe(recipe, request, snapshot, diagnostics=observer, input_origins=input_origins)
+            except ValueError as exc:
+                observer.exception(exc)
+                graph = None
+            else:
+                observer.bind_graph(graph)
+                observer.enter("authorization")
+                validate_blueprint_authorization(request, plan, graph, snapshot, diagnostics=observer,
+                    control_path_issues=paths, control_dependency_issues=dependencies, input_type_issues=types)
+            details = observer.as_dict()
+            local = details.pop("recipe_preflight", {})
+            local_ready = local.get("status") == "completed"
+            proofs = details.get("control_proof_checks", [])
+            feedback = {
+                **{key: value for key, value in local.items() if key not in {"known_source_dependencies", "occurrence_dependencies"}},
+                **({"known_source_dependency_status": local["known_source_dependencies"]["status"],
+                    "known_source_dependency_issue_count": local["known_source_dependencies"].get("issue_count")}
+                   if "known_source_dependencies" in local else {}),
+                **({"occurrence_dependency_status": local["occurrence_dependencies"]["status"],
+                    "occurrence_dependency_issue_count": local["occurrence_dependencies"].get("issue_count")}
+                   if "occurrence_dependencies" in local else {}),
+                "control_path_issues": paths,
+                "control_dependency_issue_count": len(dependencies) if any(
+                    item["id"] == "data_availability" and item["status"] in {"failed", "passed"} for item in proofs) else None,
+                "control_dependency_diagnostics": "repair_focus",
+                "input_types_status": local.get("input_types_status", "blocked"),
+                "input_type_issues": local.get("input_type_issues", []),
+                "input_type_issue_count": local.get("input_type_issue_count") if local_ready else None,
+                "omitted_input_type_issue_count": local.get("omitted_input_type_issue_count") if local_ready else None,
+                "path_proof_status": "blocked" if graph is None or not proofs else
+                    "failed" if any(item["status"] == "failed" for item in proofs) else
+                    "passed" if all(item["status"] == "passed" for item in proofs) else "blocked",
+            }
+        else:
+            payload["invalid_generation"] = (invalid_blueprint or "")[:30_000]
+        focus = {**recipe_repair_feedback(recipe, input_origins, dependencies, paths, local, details),
+                 "path_proof_status": feedback["path_proof_status"]}
+        payload.update(
+            repair_focus=focus,
+            validation_issues=(issues or [])[:30], lowering_diagnostics=compact_recipe_diagnostics(details), semantic_feedback=feedback,
+            repair_rule="本次只返回完整 GenerationRecipeV1，不输出 Graph Patch 或原生工作流。优先按 repair_focus 的原始节点及字段修复；编译器辅助 ref 不属于可编辑 Recipe。保留目标、任务、业务条件和授权；服务端负责变量、端口类型、连边及编译。不会自动重试。",
+            repair_checklist=recipe_repair_checklist(),
+        )
+        priority = ("repair_rule", "repair_focus", "validation_issues", "lowering_diagnostics", "semantic_feedback",
+                    "repair_checklist", "goal", "task_plan", "invalid_generation")
+        ordered = {key: payload[key] for key in priority}
+        ordered.update({key: value for key, value in payload.items() if key not in ordered})
+        return json.dumps(ordered, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _recipe_edit_prompt(
+        request: MetaPlannerGenerateRequest, plan: MetaPlannerTaskPlan,
+        snapshot: MetaPlannerCapabilitySnapshot, target: XpertDefinition | None,
+        *, recipe: GenerationRecipeV1, issues: list[str] | None = None,
+        recipe_diagnostics: dict[str, Any] | None = None,
+    ) -> str:
+        # A legacy-readable draft is not necessarily eligible for bounded edits.
+        validate_recipe_generation_contract(recipe.model_dump(mode="json"), request, snapshot)
+        # Reuse source-aware diagnostics; project only the fixed graph's edit surface.
+        context = json.loads(MetaPlannerV2Service._recipe_repair_prompt(
+            request, plan, snapshot, target, recipe=recipe, issues=issues,
+            recipe_diagnostics=recipe_diagnostics,
+        ))
+        kinds = {node.kind for node in recipe.nodes}
+        table_ids = {node.resource_ref.resource_id for node in recipe.nodes
+                     if node.resource_ref is not None
+                     and (adapter := get_planner_node_adapter(node.kind)) is not None
+                     and adapter.resource_kind == "data_table"}
+        # Only the existing safe Schema vocabulary is needed to repair field/type mistakes.
+        table_schemas = [{"id": table["id"], "schema_versions": [
+            {"version": version.get("version"), "checksum": version.get("checksum"),
+             "fields": [{key: field.get(key) for key in ("name", "data_type", "required")}
+                        for field in version.get("fields", [])]}
+            for version in table.get("schema_versions", [])
+        ]} for table in context["capability_snapshot"]["resources"]["data_tables"] if table.get("id") in table_ids]
+        edit_contract = recipe_edit_contract(recipe, request, snapshot)
+        payload = {"repair_protocol": RECIPE_EDIT_PROTOCOL, "edit_contract": edit_contract}
+        payload.update({key: context[key] for key in (
+            "repair_focus", "validation_issues", "lowering_diagnostics", "semantic_feedback",
+            "goal", "task_plan", "invalid_generation", "task_constraints", "authorized_scope",
+        )})
+        payload.update(
+            repair_protocol=RECIPE_EDIT_PROTOCOL,
+            edit_contract=edit_contract,
+            repair_checklist=[*context["repair_checklist"],
+                "节点类型不能修改，也不能通过新 ref 替换节点；所有编辑必须遵守 edit_contract 的原节点范围与新增节点要求。"],
+            required_schema=recipe_edit_schema(recipe, request, snapshot),
+            node_contracts={kind: value for kind, value in context["node_contracts"].items() if kind in kinds},
+            fixed_table_schemas=table_schemas,
+            cloneable_agent_refs=edit_contract["cloneable_agent_refs"],
+            rules=[
+                "只返回 operations；update_node 只能使用 edit_contract.update_node_refs 中的原节点，不能修改同批克隆节点。仅替换显式字段，省略字段由服务端保留。config 提交该节点完整 Adapter 配置，inputs=null 仅用于 Agent 模板派生。",
+                "clone_agent 必须一次写完整 task_input；需要不同角色指令时同时提供 role_prompt，省略则继承原角色。不能先克隆再 update_node；新 ref 只能在后续控制流、来源引用和最终来源中使用。",
+                "clone_agent 是新增而非替换：原 Agent 与新 ref 都必须在 control_flow 中恰好出现一次，不能克隆后遗弃原 Agent。是否需要分支修复以 repair_focus 的证据为准。",
+                "replace_control_flow 仅替换结构化控制树，不能省略原节点或修改其业务含义；set_final_output 仅修改最终来源。",
+                "保持原业务条件、写操作和影响上限。先处理 repair_focus，再检查全部分支的数据可用性和终点，不根据标题猜谓词。",
+                "最多 16 个修改操作、64 KiB；不能新增资源读写、删除原节点或变更任务/资源/模型身份。所有原有编译门禁仍执行，空修改不算修复成功。",
+            ],
+        )
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
+    def _recipe_prompt(
+        request: MetaPlannerGenerateRequest,
+        plan: MetaPlannerTaskPlan,
+        snapshot: MetaPlannerCapabilitySnapshot,
+        target: XpertDefinition | None,
+    ) -> str:
+        from .resource_generation_contract import resource_generation_contract
+
+        payload = MetaPlannerV2Service._generation_context(request, plan, snapshot, target)
+        constraints = _typed_ir_prompt_constraints(request, plan)
+        payload.update(
+            generation_protocol_version=1,
+            required_schema=recipe_schema(request, snapshot),
+            node_contracts=recipe_node_contracts(request, snapshot),
+            resource_contract=resource_generation_contract(request, snapshot),
+            task_constraints={key: constraints[key] for key in (
+                "max_workflow_agent_nodes", "required_task_ids", "task_dependencies",
+                "task_agent_bindings", "authorized_agent_ids",
+            )},
+            rules=[
+                "nodes 只列已授权执行节点；纯节点、控制与资源节点不能承担计划任务。任务由 Agent 覆盖，最终 sources 只能是 Agent result。",
+                "非 Agent 的 inputs 只写 port/source_ref/source_port；输入顺序有语义，Aggregator 的 output_fields 与 values 输入按顺序一一对应。输出端口和变量由编译器生成。",
+                "Agent 推荐 inputs=null，只在 role_prompt/task_input 中用 {{input.user_input}} 或 {{来源ref.端口}} 声明来源。编译器去重引用，字符串直连，其他值经已授权的 JSON Serialize V2 转为紧凑 JSON。不要为此重复填写 inputs 或手工加序列化节点。旧数组形式仍要求来源全部显式绑定且 task 只接字符串。",
+                "模板端口必须存在于来源类型的 node_contracts.outputs；outputs=[] 的节点只有控制意义，不提供 result。matched/unmatched 等是控制 outcome，config 字段也不是可引用数据；不要构造属性路径或编译器内部 ref。",
+                "control_flow 是顺序列表；每个执行节点恰好出现一次。普通项为 {type:node,node_ref:ref}；不根据 inputs 自动猜控制顺序。",
+                "共享后续节点只写在分支结构外一次，不要在多个 branches.steps 中重复引用同一 ref。分支独有结果只能由该分支的 Agent 消费；需要不同输入时使用不同终点 Agent ref，不要把不存在的值接入公共 Agent。",
+                "condition 的 branches 必须完整声明 matched/unmatched；multi_route 完整声明 case_n/default；启用 error_output 的只读节点完整声明 success/error。分支归属必须写入路由节点自己的 branches，不放在其后 parallel 中。",
+                "每条 branches 项为 {outcome_ref,steps}，steps 内继续使用相同语法。空 steps 只表示绕过到当前分支之后的公共步骤，不代表省略终点。",
+                "并行项为 {type:parallel,paths:[步骤列表,步骤列表]}。显式并行不能替代互斥分支；后续数据合流仍须通过全部场景保证存在的验证。",
+                "terminate_error 没有后续步骤。最终来源必须在每个场景恰好到达一个，或到达错误终点。公共节点不能读取某分支独有结果。",
+                "业务条件、空值保护、更新前置来源必须明确表达。除显式选用的文本适配外，编译器不会补条件、重排节点或添加业务修复步骤。模板引用不会自动建立控制先后或补全分支。任务依赖必须体现在结构化顺序中。",
+                "is_null 没有比较操作数，应省略 value；填写 true/false 不会反转判空。multi_route 比较整个输入，不能用规则标签选择对象字段；字段比较使用 condition.field。",
+                "Query/Insert 的真实整条 result 才能接入 Update/Delete records；filter 仅缩小记录，不能构造 record_id/revision。写 values 输入只能来自 JSON Deserialize V2 验证结果。",
+                "表查询/写入的 inputs 由 config 决定：动态谓词 ref 对应 predicate_ref；literal 谓词不接输入。Update/Delete 必须保留 records 和非空业务 filter。",
+                "最多 24 节点、40 条编译控制边（均包含编译器文本适配）、8 层结构嵌套；现有最多 8 路由、256 场景门禁不变。不允许循环、等待或新能力。",
+            ],
+        )
+        payload["control_flow_example"] = {
+            "fragments_only": True,
+            "choice": {"type": "node", "node_ref": "decision", "branches": [
+                {"outcome_ref": "matched", "steps": [{"type": "node", "node_ref": "on_true"}]},
+                {"outcome_ref": "unmatched", "steps": [{"type": "node", "node_ref": "on_false"}]},
+            ]},
+            "note": "仅示意 Condition 的显式互斥结构；ref 替换为实际声明节点，业务谓词和各分支动作由目标决定。其他路由使用 node_contracts 中对应的 outcomes。",
+        }
+        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    @staticmethod
     def _plan_prompt(
         request: MetaPlannerGenerateRequest,
         snapshot: MetaPlannerCapabilitySnapshot,
     ) -> str:
-        required_schema = MetaPlannerTaskPlan.model_json_schema()
-        task_schema = (
-            required_schema.get("$defs", {}).get("MetaPlannerTask", {})
-            if isinstance(required_schema.get("$defs"), dict)
-            else {}
-        )
-
-        properties = task_schema.get("properties")
-        if isinstance(properties, dict):
-            for field_name in ("task_type", "interaction_prompt", "output_variable"):
-                properties.pop(field_name, None)
-        required = task_schema.get("required")
-        if isinstance(required, list):
-            task_schema["required"] = [
-                field_name
-                for field_name in required
-                if field_name
-                not in {"task_type", "interaction_prompt", "output_variable"}
-            ]
+        required_schema = generation_task_plan_schema()
         return json.dumps(
             {
                 "goal": request.goal,
@@ -3705,19 +4509,27 @@ class MetaPlannerV2Service:
         raw_plan: str,
         issues: list[str],
     ) -> str:
+        try:
+            parsed = parse_generation_task_plan(_json_payload(raw_plan))
+            _, graph_diagnostics = _analyze_task_dependencies(parsed)
+        except (ValueError, TypeError):
+            graph_diagnostics = {
+                "status": "unavailable", "issue_codes": ["TASK_PLAN_PARSE_INVALID"],
+            }
         return json.dumps(
             {
                 "goal": request.goal,
                 "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
-                "invalid_task_plan": raw_plan[:30_000],
                 "validation_issues": issues[:20],
-                "max_tasks": 8,
-                "max_workflow_agents": request.max_agents,
-                "authorized_agent_ids": list(request.scope.agent_ids),
+                "task_graph_diagnostics": graph_diagnostics,
                 "task_planning_contract": _task_planning_contract(
                     request, snapshot
                 ),
-                "required_schema": MetaPlannerTaskPlan.model_json_schema(),
+                "invalid_task_plan": raw_plan[:30_000],
+                "max_tasks": 8,
+                "max_workflow_agents": request.max_agents,
+                "authorized_agent_ids": list(request.scope.agent_ids),
+                "required_schema": generation_task_plan_schema(),
                 "rules": [
                     "Return the task plan object directly; do not wrap it in plan or result.",
                     "Use exactly the top-level fields summary, assumptions, and tasks.",
@@ -3736,32 +4548,15 @@ class MetaPlannerV2Service:
         snapshot: MetaPlannerCapabilitySnapshot,
         target: XpertDefinition | None,
     ) -> str:
-        prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
-        target_summary = None
-        if target is not None:
-            target_summary = {
-                "id": target.id,
-                "name": target.name,
-                "description": target.description,
-                "draft_revision": target.draft_revision,
-                "workflow": target.draft.workflow.model_dump(mode="json"),
-            }
+        # Retained for full-Intent compatibility fixtures, not the default generator.
         return json.dumps(
             {
-                "goal": request.goal,
-                "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
-                "task_plan": plan.model_dump(mode="json"),
-                "default_agent_model_id": request.default_agent_model_id,
-                "authorized_scope": request.scope.model_dump(mode="json"),
-                "capability_snapshot": prompt_snapshot,
-                "graph_intent_contract": prompt_snapshot[
-                    "graph_intent_contract"
-                ],
+                **MetaPlannerV2Service._generation_context(request, plan, snapshot, target),
+                "graph_intent_contract": _graph_intent_prompt_contract(request, snapshot),
                 "read_resource_authoring_guide": _read_resource_authoring_guide(
                     request, snapshot, plan
                 ),
-                "target_xpert": target_summary,
-                "required_schema": GraphIntentV3.model_json_schema(),
+                "required_schema": graph_generation_schema(request, snapshot),
                 "canonical_minimal_example": _canonical_graph_intent_example(
                     request, plan
                 ),
@@ -3777,7 +4572,7 @@ class MetaPlannerV2Service:
                     "Resource and middleware bindings target workflow_agent node refs.",
                     "Reference dependency outputs in task_input using {{variable}}.",
                     "Do not include credentials, hidden reasoning, or raw private data.",
-                    "canonical_minimal_example applies only when required_reads is empty; otherwise add every required read node and its typed bridge before adapting the Agent. Never change the result to V2.",
+                    "canonical_minimal_example 仅说明单 Agent 字段形状，不能替代实际任务。必须保留目标要求的查询、写入及其他步骤，补齐真实数据来源和控制边；不能改为 V2。",
                 ],
             },
             ensure_ascii=False,
@@ -3792,7 +4587,6 @@ class MetaPlannerV2Service:
         issues: list[str],
     ) -> str:
         prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
-        resources = prompt_snapshot["resources"]
         return json.dumps(
             {
                 "goal": request.goal,
@@ -3800,21 +4594,14 @@ class MetaPlannerV2Service:
                 "task_plan": plan.model_dump(mode="json"),
                 "default_agent_model_id": request.default_agent_model_id,
                 "authorized_scope": request.scope.model_dump(mode="json"),
-                "capability_snapshot_hash": snapshot.snapshot_hash,
                 "capability_snapshot": prompt_snapshot,
-                "graph_intent_contract": prompt_snapshot[
-                    "graph_intent_contract"
-                ],
+                "graph_intent_contract": _graph_intent_prompt_contract(request, snapshot),
                 "read_resource_authoring_guide": _read_resource_authoring_guide(
                     request, snapshot, plan
                 ),
-                "available_resources": {
-                    **resources,
-                    "middleware": prompt_snapshot["middleware"],
-                },
                 "invalid_blueprint": raw_blueprint[:30_000],
                 "validation_issues": issues[:30],
-                "required_schema": GraphIntentV3.model_json_schema(),
+                "required_schema": graph_generation_schema(request, snapshot),
                 "canonical_minimal_example": _canonical_graph_intent_example(
                     request, plan
                 ),
@@ -3831,28 +4618,50 @@ class MetaPlannerV2Service:
         blueprint: GraphIntentV3,
         issues: list[str],
     ) -> str:
+        input_type_issues: list[GraphInputTypeIssue] = []
+        control_dependency_issues: list[dict[str, Any]] = []
+        control_path_issues: list[dict[str, Any]] = []
+        diagnostics = GenerationDiagnostics("capability_compile")
+        diagnostics.enter("intent_parse")
+        diagnostics.bind_graph(blueprint)
+        diagnostics.enter("authorization")
+        # Independent local facts remain actionable even when control reachability
+        # fails. The shared checker only receives authorized Adapter/Store facts.
+        validate_blueprint_authorization(request, plan, blueprint, snapshot,
+            input_type_issues=input_type_issues, diagnostics=diagnostics,
+            control_dependency_issues=control_dependency_issues, control_path_issues=control_path_issues)
         prompt_snapshot = _planner_prompt_snapshot(request, snapshot)
+        patch_schema = PlannerGraphPatchRepairPayloadV1.model_json_schema()
         return json.dumps(
-            {
+            project_patch_repair_context({
+                "input_role_contract": {
+                    "read_only_fields": ["goal", "task_plan", "authorized_scope", "capability_snapshot",
+                                         "graph_intent_contract", "read_resource_authoring_guide", "base_graph_intent",
+                                         "validation_issues", "validation_frontier", "repair_contract"],
+                    "response_root_fields": ["operations"],
+                    "rules": ["只读契约描述修复后图必须满足的条件，不是要求重发整图；回复只能是 operations 对象。"],
+                },
+                "patch_command_contract": _patch_command_contract(patch_schema),
+                "validation_issues": issues[:30],
+                "validation_frontier": diagnostics.as_dict(),
+                "repair_contract": _graph_patch_repair_contract(
+                    request, blueprint, issues, snapshot=snapshot,
+                    input_type_issues=tuple(input_type_issues),
+                    control_dependency_issues=tuple(control_dependency_issues),
+                    control_path_issues=tuple(control_path_issues),
+                ),
                 "goal": request.goal,
                 "display_language_contract": DISPLAY_LANGUAGE_CONTRACT,
                 "task_plan": plan.model_dump(mode="json"),
                 "authorized_scope": request.scope.model_dump(mode="json"),
-                "capability_snapshot_hash": snapshot.snapshot_hash,
                 "capability_snapshot": prompt_snapshot,
+                "graph_intent_contract": _graph_intent_prompt_contract(request, snapshot),
                 "read_resource_authoring_guide": _read_resource_authoring_guide(
                     request, snapshot, plan
                 ),
                 "base_graph_intent": blueprint.model_dump(mode="json"),
-                "validation_issues": issues[:30],
-                "required_schema": (
-                    PlannerGraphPatchRepairPayloadV1.model_json_schema()
-                ),
-                "typed_ir_constraints": _typed_ir_prompt_constraints(
-                    request, plan
-                ),
-                "repair_contract": _graph_patch_repair_contract(
-                    request, blueprint, issues
+                "required_schema": patch_generation_schema(
+                    patch_schema, request, snapshot, blueprint,
                 ),
                 "server_owned_fields": [
                     "protocol_version",
@@ -3869,8 +4678,9 @@ class MetaPlannerV2Service:
                     "If no safe patch is possible, return an empty operations array instead of an error or explanation field.",
                     "This is the only repair pass.",
                 ],
-            },
+            }),
             ensure_ascii=False,
+            separators=(",", ":"),
         )
 
     @staticmethod

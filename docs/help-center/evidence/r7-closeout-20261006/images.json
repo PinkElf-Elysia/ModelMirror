@@ -1,0 +1,52 @@
+{
+  "received_date": "2026-10-06",
+  "base_commit": "89b72c676ded01be7b5684052640967e9882c8ef",
+  "overlay_inputs_sha256": "3c721d2b70314d963de96686c1fa130c8c99d6c353ee2fd39f47e6c43c872ebb",
+  "transform": "Pillow 11.3.0; RGB; width 1000; proportional height rounded; LANCZOS; PNG optimize=True compress_level=9; no crop or synthesis",
+  "images": [
+    {
+      "source_filename": "codex-clipboard-801f29bd-caa7-4f85-a84f-2576e956992c.png",
+      "original": "repair-diagnostic-original.png",
+      "original_sha256": "790231b3579ed62c091aab1c4483e858aeff5bb143fd8a7c0078bfc34ddee546",
+      "original_bytes": 125452,
+      "original_dimensions": [1405, 1189],
+      "public": "client/public/help-center/89b72c67/r7-repair-diagnostic.png",
+      "public_sha256": "d27bc025519c547ed064256142b98ea479d9caaa5523b46749cd9915ae6bbbf3",
+      "public_bytes": 213711,
+      "public_dimensions": [1000, 846]
+    },
+    {
+      "source_filename": "codex-clipboard-423dad57-f51e-412e-bf2e-45170615c648.png",
+      "original": "repair-preview-original.png",
+      "original_sha256": "a070afa5ae3a84fe8c7aa02f1dee2d814eeeb8002337635881d0d683267c8b73",
+      "original_bytes": 127771,
+      "original_dimensions": [1408, 1129],
+      "public": "client/public/help-center/89b72c67/r7-repair-preview.png",
+      "public_sha256": "508deedd2cc041e756de15e9e289335521c778eb03c6edbc2b15058f718d0c2a",
+      "public_bytes": 163564,
+      "public_dimensions": [1000, 802]
+    },
+    {
+      "source_filename": "codex-clipboard-fef675a2-3aec-43c7-983f-d11800765008.png",
+      "original": "delete-effect-original.png",
+      "original_sha256": "704b85560c476cd8894c1afa794a6bc3b6481030fa437d76ea7840f48b679858",
+      "original_bytes": 252730,
+      "original_dimensions": [1933, 1057],
+      "public": "client/public/help-center/89b72c67/r7-delete-effect.png",
+      "public_sha256": "f2450608b97112a62a38688f10d4a06e8d1ac244ea2439f1e512898430898703",
+      "public_bytes": 214118,
+      "public_dimensions": [1000, 547]
+    },
+    {
+      "source_filename": "codex-clipboard-14e4fd2a-31d2-4af2-89ba-d870ce8ef682.png",
+      "original": "insert-effect-original.png",
+      "original_sha256": "e11d9cdf71f7c136752568c5385c40528f587c5d3cbbb80f7b91b6ab7fcecb5a",
+      "original_bytes": 222889,
+      "original_dimensions": [1932, 948],
+      "public": "client/public/help-center/89b72c67/r7-insert-effect.png",
+      "public_sha256": "0c4f7a711a3e0b2036fb12de15323623faf058aceece257f84c6f132553aeb72",
+      "public_bytes": 185706,
+      "public_dimensions": [1000, 491]
+    }
+  ]
+}

@@ -436,7 +436,7 @@ def build_capability_snapshot(
     core_node_kinds = set(META_PLANNER_COMPILABLE_NODE_KINDS)
     available_node_kinds = {item["kind"] for item in nodes}
     default_scope = MetaPlannerScope(
-        allowed_node_kinds=sorted((core_node_kinds & available_node_kinds) - {"vision_understanding"}),
+        allowed_node_kinds=sorted((core_node_kinds & available_node_kinds) - {"vision_understanding", "data_table_insert", "data_table_update", "data_table_delete"}),
         external_xpert_ids=[item["id"] for item in xperts],
         knowledge_base_ids=[item["id"] for item in kbs],
         data_table_ids=[],
@@ -447,7 +447,7 @@ def build_capability_snapshot(
         agent_ids=[item["id"] for item in expert_summaries],
     )
     payload = {
-        "version": "evoagentx-meta-planner-capabilities-v9",
+        "version": "evoagentx-meta-planner-capabilities-v10",
         "ir_version": 3,
         "supported_ir_versions": [2, 3],
         "control_flow_contract_version": 2,
@@ -509,3 +509,13 @@ def assert_scope_is_authorized(
                 f"Meta Planner scope contains unavailable {field_name}: "
                 + ", ".join(unknown)
             )
+    tables = {item["id"]: item for item in snapshot.data_tables}
+    for grant in scope.data_table_write_grants:
+        table = tables.get(grant.table_id)
+        if table is None or table.get("status") == "archived":
+            raise ValueError("写入授权引用了不可用或已归档的数据表。")
+        fields = {str(item["name"]) for item in table.get("fields", [])}
+        if set(grant.writable_fields) - fields:
+            raise ValueError("写入授权包含当前 Schema 中不存在的业务字段。")
+        if not table.get("schema_checksum") or not table.get("active_schema_version"):
+            raise ValueError("写入授权需要有效的已发布 Schema。")

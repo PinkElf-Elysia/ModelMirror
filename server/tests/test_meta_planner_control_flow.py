@@ -10,11 +10,14 @@ from server.evaluations.metrics import evaluate_case_metrics
 from server.evaluations.models import EvaluationCaseInput
 from server.meta_agent.control_flow import (
     ControlFlowAnalysisError,
+    _condition_witnesses,
+    _input_witnesses,
     analyze_control_flow,
 )
 from server.meta_agent.graph_ir_v3 import (
     decompile_candidate_to_graph_intent,
     resolve_graph_intent,
+    resolve_node_resource_snapshot,
     workflow_semantic_checksum,
 )
 from server.meta_agent.graph_patch import GraphPatchEnvelopeV1, apply_graph_patch
@@ -22,6 +25,7 @@ from server.meta_agent.meta_planner_v2 import (
     compile_xpert_candidate,
     validate_blueprint_authorization,
 )
+from server.meta_agent.node_adapters import get_planner_node_adapter
 from server.meta_agent.schemas import (
     GraphIntentControlEdgeV3,
     GraphIntentFinalOutputSourceV3,
@@ -32,8 +36,14 @@ from server.meta_agent.schemas import (
     GraphIntentV3,
 )
 from server.tests.test_meta_planner_v2 import _plan, _request, _snapshot
+from server.tests.test_meta_planner_read_resources import (
+    _plan as _read_plan,
+    _request as _read_request,
+    _snapshot as _read_snapshot,
+)
 from server.workflow_native.control_data import (
     WorkflowControlDataError,
+    evaluate_typed_condition,
     select_output_v2,
 )
 from server.workflow_native.node_contracts import (
@@ -457,6 +467,184 @@ def test_field_witnesses_preserve_required_object_properties(nullable: bool) -> 
             resolve_graph_intent(intent, _snapshot(), default_agent_model_id="model/agent")
 
 
+REQUIRED_OBJECT = WorkflowValueSchema(
+    type="object", properties={"score": WorkflowValueSchema(type="integer")},
+    required=("score",),
+)
+
+
+@pytest.mark.parametrize("schema, nonnull", [
+    (REQUIRED_OBJECT.model_copy(update={"nullable": True}), {"score": 42}),
+    (WorkflowValueSchema(
+        type="object", nullable=True,
+        properties={
+            "result": REQUIRED_OBJECT,
+            "items": WorkflowValueSchema(type="array", items=REQUIRED_OBJECT),
+        }, required=("result", "items"),
+    ), {"result": {"score": 42}, "items": []}),
+    (WorkflowValueSchema(
+        type="object", any_of=(WorkflowValueSchema(type="null"), REQUIRED_OBJECT),
+    ), {"score": 42}),
+    (WorkflowValueSchema(
+        type="object", nullable=True,
+        any_of=(REQUIRED_OBJECT, WorkflowValueSchema(
+            type="object", properties={"status": STRING}, required=("status",),
+        )),
+    ), {"status": "ready"}),
+])
+def test_root_object_null_witnesses_match_runtime(schema, nonnull) -> None:
+    graph = _branch_intent()
+    router = graph.nodes[0]
+    router.config = {"field": "", "operator": "is_null", "value_type": "json"}
+    _bind_parsed_router_input(graph, schema)
+    nodes = {node.ref: node for node in graph.nodes}
+    actual = set()
+    for value in (None, nonnull):
+        schema.assert_value(value)
+        matched = evaluate_typed_condition(
+            value, field="", operator="is_null", value_type="json", expected=None,
+        )
+        actual.add("matched" if matched else "unmatched")
+
+    assert set(_condition_witnesses(router, nodes)) == actual == {"matched", "unmatched"}
+    witnesses = _input_witnesses(router, nodes, [router.config])
+    assert any(isinstance(value, dict) for value in witnesses)
+    assert witnesses == _input_witnesses(router, nodes, [router.config])
+    for value in witnesses:
+        schema.assert_value(value)
+    resolved = resolve_graph_intent(graph, _snapshot(), default_agent_model_id="model/agent")
+    assert resolved.control_flow_report["scenario_count"] == 2
+
+
+@pytest.mark.parametrize("source_schema, consumer_schema, outcomes", [
+    (REQUIRED_OBJECT, WorkflowValueSchema(), ("unmatched",)),
+    (REQUIRED_OBJECT.model_copy(update={"nullable": True}), REQUIRED_OBJECT, ("unmatched",)),
+    (REQUIRED_OBJECT, WorkflowValueSchema(
+        type="object", properties={"score": STRING}, required=("score",),
+    ), ()),
+])
+def test_root_witnesses_must_satisfy_both_schemas(source_schema, consumer_schema, outcomes) -> None:
+    graph = _branch_intent()
+    router = graph.nodes[0]
+    router.config = {"operator": "is_null"}
+    _bind_parsed_router_input(graph, source_schema)
+    router.inputs[0].value_schema = consumer_schema
+    nodes = {node.ref: node for node in graph.nodes}
+
+    assert _condition_witnesses(router, nodes) == outcomes
+    for value in _input_witnesses(router, nodes, [router.config]):
+        source_schema.assert_value(value)
+        consumer_schema.assert_value(value)
+
+
+def test_invalid_root_object_seed_cannot_prove_a_branch(monkeypatch) -> None:
+    graph = _branch_intent()
+    router = graph.nodes[0]
+    router.config = {"operator": "is_null"}
+    _bind_parsed_router_input(graph, REQUIRED_OBJECT.model_copy(update={"nullable": True}))
+    monkeypatch.setattr("server.meta_agent.control_flow._schema_seed", lambda _: {"score": "invalid"})
+
+    with pytest.raises(ControlFlowAnalysisError, match="unproven outcomes: unmatched"):
+        analyze_control_flow(graph)
+
+
+def test_required_object_multi_route_has_a_real_default_witness() -> None:
+    graph = _route_error_intent()
+    graph.nodes[0].config = {"routes": [
+        {"label": "空值", "operator": "is_null"},
+        {"label": "指定对象", "operator": "equals", "value_type": "json", "value": {"score": 42}},
+    ]}
+    _bind_parsed_router_input(graph, REQUIRED_OBJECT.model_copy(update={"nullable": True}))
+
+    report = resolve_graph_intent(graph, _snapshot(), default_agent_model_id="model/agent").control_flow_report
+    assert report["scenario_count"] == 3
+
+
+def _query_null_branch():
+    snapshot = _read_snapshot()
+    query = GraphIntentNodeV3(
+        ref="query", kind="data_table_query", title="查询合成记录",
+        resource_ref={"resource_id": "table-orders"}, config={"return_mode": "first"},
+        outputs=[GraphIntentOutputBindingV3(
+            port="result", variable="query_result", value_schema=WorkflowValueSchema(),
+        )],
+    )
+    adapter = get_planner_node_adapter(query.kind)
+    resource = resolve_node_resource_snapshot(query, snapshot)
+    schema = adapter.authoritative_output_schema(
+        "result", adapter.validate_intent_node(query), resource.model_dump(mode="json"),
+    )
+    query.outputs = [GraphIntentOutputBindingV3(port="result", variable="query_result", value_schema=schema)]
+    router = GraphIntentNodeV3(
+        ref="check_found", kind="condition", title="检查空结果",
+        inputs=[_input("value", "query_result", "query", schema=schema)],
+        config={"field": "", "operator": "is_null"},
+    )
+    encode = GraphIntentNodeV3(
+        ref="encode", kind="json_serialize", title="序列化查询结果",
+        inputs=[_input("value", "query_result", "query", schema=schema)],
+        outputs=[GraphIntentOutputBindingV3(port="json", variable="encoded", value_schema=STRING)],
+        config={"format": "compact"},
+    )
+    graph = GraphIntentV3(
+        name="合成查询结果分支",
+        nodes=[query, router, encode,
+               _agent("answer", variable="answer_result", source_ref="encode", source_port="json", input_variable="encoded"),
+               GraphIntentNodeV3(ref="stop", kind="terminate_error", title="记录不存在",
+                                config={"error_code": "NOT_FOUND", "message": "未找到记录。"})],
+        control_edges=[
+            GraphIntentControlEdgeV3(source_ref="query", target_ref="check_found"),
+            GraphIntentControlEdgeV3(source_ref="check_found", outcome_ref="matched", target_ref="stop"),
+            GraphIntentControlEdgeV3(source_ref="check_found", outcome_ref="unmatched", target_ref="encode"),
+            GraphIntentControlEdgeV3(source_ref="encode", target_ref="answer"),
+        ],
+        final_output={"sources": [{"node_ref": "answer"}]},
+    )
+    return graph, snapshot
+
+
+def test_query_required_system_fields_null_branch_roundtrip() -> None:
+    graph, snapshot = _query_null_branch()
+    schema = graph.nodes[0].outputs[0].value_schema
+    assert {"record_id", "revision", "created_at", "updated_at", "sku"} <= set(schema.required)
+    request, plan = _read_request(snapshot), _read_plan()
+    assert validate_blueprint_authorization(request, plan, graph, snapshot) == []
+    candidate = compile_xpert_candidate(request=request, plan=plan, blueprint=graph, snapshot=snapshot, target=None)
+    recovered = decompile_candidate_to_graph_intent(candidate)
+    rebuilt = compile_xpert_candidate(request=request, plan=plan, blueprint=recovered, snapshot=snapshot, target=None)
+    assert workflow_semantic_checksum(candidate) == workflow_semantic_checksum(rebuilt)
+    assert resolve_graph_intent(graph, snapshot).control_flow_report["scenario_count"] == 2
+
+
+@pytest.mark.parametrize("repair", [False, True])
+def test_nullable_witness_fix_does_not_repair_missing_control_edges(repair) -> None:
+    graph, snapshot = _query_null_branch()
+    graph.control_edges[2].target_ref = "answer"
+    before = graph.model_dump(mode="json")
+    request, plan = _read_request(snapshot), _read_plan()
+    issues = validate_blueprint_authorization(request, plan, graph, snapshot)
+    assert "Variable query_result is not reachable at node encode." in issues
+    patch = GraphPatchEnvelopeV1.model_validate({
+        "protocol_version": 1, "proposal_revision": 1,
+        "expected_graph_checksum": "a" * 64, "expected_candidate_checksum": "b" * 64,
+        "operations": [
+            {"op": "disconnect_control", "source_ref": "check_found", "outcome_ref": "unmatched", "target_ref": "answer"},
+            {"op": "connect_control", "source_ref": "check_found", "outcome_ref": "unmatched", "target_ref": "encode"},
+        ] if repair else [],
+    })
+    result = apply_graph_patch(graph, patch, plan_task_ids={"answer"},
+                               allowed_node_kinds=set(request.scope.allowed_node_kinds))
+    assert graph.model_dump(mode="json") == before
+    after_issues = validate_blueprint_authorization(request, plan, result.intent, snapshot)
+    if repair:
+        assert after_issues == []
+        compile_xpert_candidate(request=request, plan=plan, blueprint=result.intent, snapshot=snapshot, target=None)
+    else:
+        assert "Variable query_result is not reachable at node encode." in after_issues
+        with pytest.raises(ValueError):
+            compile_xpert_candidate(request=request, plan=plan, blueprint=result.intent, snapshot=snapshot, target=None)
+
+
 def test_data_merge_requires_two_guaranteed_fanout_branches() -> None:
     source = _agent("source", variable="source_rows")
     source.outputs[0].value_schema = ROWS
@@ -527,17 +715,24 @@ def test_data_merge_requires_two_guaranteed_fanout_branches() -> None:
         analyze_control_flow(broken)
 
 
-def test_symbolic_scenario_limit_is_enforced_before_evaluation() -> None:
+@pytest.mark.parametrize("independent_sources", [False, True])
+def test_symbolic_scenario_limit_is_enforced_before_evaluation(independent_sources) -> None:
     nodes: list[GraphIntentNodeV3] = []
     edges: list[GraphIntentControlEdgeV3] = []
     for index in range(6):
         ref = f"router_{index}"
+        binding = _input("value", "user_input", "input", "user_input")
+        if independent_sources:
+            producer = _agent(f"source_{index}", variable=f"source_value_{index}")
+            nodes.append(producer)
+            binding = _input("value", f"source_value_{index}", producer.ref)
+            edges.append(GraphIntentControlEdgeV3(source_ref=producer.ref, target_ref=ref))
         nodes.append(
             GraphIntentNodeV3(
                 ref=ref,
                 kind="multi_route",
                 title=f"Router {index}",
-                inputs=[_input("value", "user_input", "input", "user_input")],
+                inputs=[binding],
                 config={
                     "routes": [
                         {
@@ -578,8 +773,11 @@ def test_symbolic_scenario_limit_is_enforced_before_evaluation() -> None:
         ),
     )
 
-    with pytest.raises(ControlFlowAnalysisError, match="729 scenarios"):
-        analyze_control_flow(intent)
+    if independent_sources:
+        with pytest.raises(ControlFlowAnalysisError, match="exceed 256 scenarios"):
+            analyze_control_flow(intent)
+    else:
+        assert analyze_control_flow(intent)["scenario_count"] == 13
 
 
 def test_patch_uses_semantic_outcomes_and_rejects_native_handle_injection() -> None:

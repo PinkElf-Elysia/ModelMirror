@@ -14,6 +14,7 @@ WORKDIR /app
 
 COPY --from=build /app/dist ./dist
 COPY server-headers.mjs .
+COPY server-meta-planner-proxy.mjs .
 COPY server.mjs .
 
 EXPOSE 80

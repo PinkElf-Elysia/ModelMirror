@@ -353,8 +353,8 @@ npm.cmd run build
 
 - 所有 `NativeNodeKind` 必须在 `NodeContractRegistry` 中唯一登记；未知或缺失契约必须 fail-closed。
 - `contract_status=complete` 不等于 Planner、Evaluator、Evolution 或 App 可用。入口许可必须由契约显式声明。
-- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围严格为 19 类，不得借由画布节点存在性继续扩张。
-- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V9 声明
+- Capability Snapshot 只允许完整契约、真实 Adapter、Adapter 版本和 compiler checksum 一致的节点；当前范围严格为 22 类，不得借由画布节点存在性继续扩张。
+- NodeContract 版本与 Planner IR 版本独立。Capability Snapshot V10 声明
   `ir_version=3`、`supported_ir_versions=[2,3]` 与 `control_flow_contract_version=2`。
 - `checksum` 覆盖完整契约，`compiler_checksum` 仅覆盖编译关键事实；标题、图标和分类不得使 Adapter 失效。
 - 前端 fallback 只能保存展示信息，不得伪造 Planner 状态、端口、安全策略或 checksum。
@@ -380,7 +380,7 @@ npm.cmd run build
 - Headless Apply 只更新 pending Proposal 一次；不得创建 Xpert 草稿、版本或运行。安全 receipt 不得保存 Prompt 正文、资源内容、工具输出或凭据。
 - Meta Planner Proposal 创建时的授权范围不得被后续整包 PATCH 扩大；Headless 请求必须遵守正文大小和 JSON 深度上限，持久化失败不得在内存中留下已递增 revision。
 - 有损 V2 转换继续走兼容读取、校验和审批路径，禁止 Headless Apply。旧整包 Proposal PATCH 必须将 Graph IR 标记为 stale。
-- 当前节点范围严格为 19 类：原七类、五种纯节点、四种受限控制流、两种只读资源和显式附件视觉 V2；写入、循环、等待或交互节点继续禁用。
+- 当前节点范围严格为 22 类：原七类、五种纯节点、四种受限控制流、两种只读资源、显式附件视觉 V2 和三种受控 Agent Table 写入 V2；写权限默认关闭，循环、等待或交互节点继续禁用。
 
 ### 8.1.4 Meta Planner 控制流护栏
 
@@ -402,8 +402,7 @@ npm.cmd run build
 - Dataset 草稿必须使用 revision，Evaluation Run 只能引用不可变 DatasetVersion。
 - 基线和候选必须在创建 run 时固定 XpertVersion 或 Authoring Proposal revision、
   workflow checksum、资源版本、模型策略、seed 和预算。
-- 评测只能使用 classic runner 的内部只读 capture；不得通过 HTTP 回环或复制第二套
-  Workflow Runtime。
+- 评测复用 classic runner 的内部 capture；普通目标继续只读，V2 Agent Table 写入只允许服务端固定的私有隔离 Backend，不得通过 HTTP 回环、活表回退或复制第二套 Workflow Runtime。
 - 安全预检必须 fail-closed 拒绝等待、Handoff、Automation、HITL、Memory/Todo/
   Knowledge/Data X/Authoring 写入、Browser、Client Tools、Sandbox 写入和不安全 Plugin。
 - Toolset 仅允许固定版本中 `read_only=true` 且 `sensitive=false` 的工具。External
@@ -762,7 +761,10 @@ Office 自动化是高风险客户端副作用路径。修改 `server/xpert_runt
 - Classic Workflow 可在运行时解析 `latest`，Xpert 发布必须固定具体 SchemaVersion。字段或类型漂移必须 fail-closed，禁止回退到其他版本。
 - 工作流写节点使用由 `task_id + node_id` 派生的稳定 operation ID；HITL、断点恢复或请求重放不得重复写入。
 - 经典画布配置侧栏必须能选择已发布数据表和 SchemaVersion，并配置字段、条件树、排序、返回模式及类型化 literal/variable 绑定；不得退化为只有名称/说明或要求人工编辑 Workflow JSON。画布顶栏和节点侧栏均应保留 `/data-tables` 管理入口。
-- 当前公共 App 和 Evaluator 禁用全部 Agent Table 节点。Registry 必须保持 `planner_enabled=false`，直到独立的 Planner 数据编排闭环完成。
+- 公共 App 继续禁用全部 Agent Table 节点。Planner 查询与 V2 写入必须分别获得授权；写授权固定表、操作、可写字段及最大影响行数，默认关闭，更新/删除默认 1 行、显式授权最多 100 行。
+- V2 更新/删除只能消费同一运行中同表 Query/Insert 的直接可信记录收据与 revision；Agent 文本不能构造身份。首次写入必须匹配活动 Schema，已提交操作恢复先核对固定请求和账本，不自动重试或跨节点补偿。
+- 只读 Evaluator 固定查询夹具；V2 写入 Evaluator 仅允许手工/合成初始化、逐项目私有 Backend 和效果断言，写后查询必须读取隔离真实状态。旧写节点、嵌套写入、Agent 依赖查询及 Optimizer 写入继续拒绝。
+- 取消后阻止后续派发，已提交节点保留安全收据；私有初始化、记录和账本正文不得进入普通报告、checkpoint 或审计。授权与隔离环境不得由客户端声明绕过。
 - 修改 Agent Table 或工作流数据库节点必须运行 `server/tests/test_agent_tables.py`、`server/tests/test_workflow_data_table_nodes.py`、后端语法、前端生产构建和重启恢复验收。
 
 ## 22. Workflow 资源绑定与 EvoAgentX 复用规则

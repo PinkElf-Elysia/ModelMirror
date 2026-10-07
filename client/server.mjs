@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { collectProxyResponseHeaders } from "./server-headers.mjs";
+import { isMetaPlannerGenerationRequest, proxyMetaPlannerGeneration } from "./server-meta-planner-proxy.mjs";
 
 const port = Number(process.env.PORT || 80);
 const apiTarget = process.env.API_TARGET || "http://server:8000";
@@ -73,6 +74,10 @@ function copyProxyHeaders(headers) {
 
 async function proxyApi(req, res, upstream = apiTarget) {
   const target = new URL(req.url || "/", upstream);
+  if (isMetaPlannerGenerationRequest(req)) {
+    await proxyMetaPlannerGeneration(req, res, target, copyProxyHeaders(req.headers));
+    return;
+  }
   const response = await fetch(target, {
     method: req.method,
     headers: copyProxyHeaders(req.headers),

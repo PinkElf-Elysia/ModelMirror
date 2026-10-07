@@ -164,7 +164,7 @@ async def test_managed_meta_agent_records_each_json_call_without_content(
             200,
             json={
                 "model": MODEL_ID,
-                "choices": [{"message": {"content": '{"result":"ok"}'}}],
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"result":"ok"}'}}],
                 "usage": {
                     "prompt_tokens": 11,
                     "completion_tokens": 4,
@@ -280,7 +280,7 @@ async def test_managed_meta_agent_model_mismatch_fails_after_one_post(
             200,
             json={
                 "model": "provider/other-model",
-                "choices": [{"message": {"content": '{"result":"wrong"}'}}],
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"result":"wrong"}'}}],
             },
         )
 
@@ -331,7 +331,7 @@ async def test_managed_meta_agent_duplicate_logical_call_is_not_replayed(
             200,
             json={
                 "model": MODEL_ID,
-                "choices": [{"message": {"content": '{"result":"ok"}'}}],
+                "choices": [{"finish_reason": "stop", "message": {"content": '{"result":"ok"}'}}],
             },
         )
 
@@ -386,7 +386,7 @@ async def test_managed_meta_agent_invalid_json_fails_without_second_post(
             200,
             json={
                 "model": MODEL_ID,
-                "choices": [{"message": {"content": "not-json"}}],
+                "choices": [{"finish_reason": "stop", "message": {"content": "not-json"}}],
             },
         )
 

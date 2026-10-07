@@ -16,6 +16,7 @@ import {
   type WorkflowVariableDeclaration,
 } from "../../types/workflow";
 import WorkflowVariableField from "./WorkflowVariableField";
+import WorkflowControlledWriteConfig, { type WorkflowWriteGrant } from "./WorkflowControlledWriteConfig";
 import WorkflowFailureRoutingConfig, {
   type WorkflowRetryAvailability,
 } from "./WorkflowFailureRoutingConfig";
@@ -669,6 +670,7 @@ export default function WorkflowTypedDataNodeConfig({
   onOpenVariableCenter,
   retryAvailability,
   allowedTableIds,
+  writeGrants,
 }: {
   data: WorkflowNodeData;
   node: WorkflowNode;
@@ -680,6 +682,7 @@ export default function WorkflowTypedDataNodeConfig({
   onOpenVariableCenter?: () => void;
   retryAvailability?: WorkflowRetryAvailability;
   allowedTableIds?: string[];
+  writeGrants?: WorkflowWriteGrant[];
 }) {
   const isDataTable = dataTableKinds.has(data.kind);
   const [tables, setTables] = useState<AgentTableDefinition[]>([]);
@@ -858,6 +861,18 @@ export default function WorkflowTypedDataNodeConfig({
   }
 
   if (!isDataTable) return null;
+  if (data.kind !== "data_table_query" && writeGrants !== undefined) {
+    return <WorkflowControlledWriteConfig data={data} nodes={nodes} grants={writeGrants} onChange={onChange} />;
+  }
+  if (data.kind !== "data_table_query" && data.contractVersion === 2) {
+    return <Section title="受控写入 V2">
+      <div className="space-y-2 text-xs text-slate-300">
+        <p>表：<code>{data.tableId}</code> · 固定 Schema v{data.pinnedSchemaVersion}</p>
+        <p>单节点原子提交；失败停止，后续失败不撤销先前写入。</p>
+        <p>该节点的授权、记录来源和业务值配置须通过元智能体候选的类型化预览修改，不能使用旧版字段绑定。</p>
+      </div>
+    </Section>;
+  }
 
   const businessFields = selectedSchema?.fields ?? [];
   const readableFields = [...businessFields, ...systemFields];

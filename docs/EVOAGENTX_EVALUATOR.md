@@ -4,8 +4,8 @@
 
 ## 1. 定位
 
-`EVOAGENTX-EVALUATOR-02` 为 Meta Planner V2 和后续 Evolution 提供只读、
-可恢复的评测闭环：
+Evaluator 为 Meta Planner 和后续 Evolution 提供可恢复的固定快照评测。
+默认只读；Controlled Writes V2 仅增加服务端私有初始化表内的受控写入，不修改业务表：
 
 ```text
 DatasetVersion
@@ -46,6 +46,7 @@ Evaluator 只评价固定快照。它不会批准 Authoring Proposal、修改 Xp
 - 必需/禁止的语义控制流 outcome，以及预期成功或安全错误终点。
 - LLM Judge rubric。
 - 指标权重。
+- 手工或合成的表初始化记录与逐节点 `effects` 断言；不提供业务表复制入口。
 
 数据可通过管理页面人工编辑、JSON/CSV 导入，或从用户显式选择的 Xpert 会话
 导入。会话导入不复制附件、记忆、物理路径或内部 Runtime 上下文。
@@ -108,7 +109,7 @@ reasoning 正文。可恢复的空内容、契约缺失和截断解析错误复�
 Proposal 在运行后发生变化时，旧报告标记为 `stale`，但运行快照和已完成结果
 保持不变。
 
-## 4. 只读安全预检
+## 4. 安全预检
 
 评测执行复用 classic workflow runner，不通过 HTTP 回环。进入 runner 前必须通过
 fail-closed 预检：
@@ -120,7 +121,10 @@ fail-closed 预检：
 - External Xpert 必须固定版本，并递归通过同一预检。
 - Knowledge 查询固定到运行创建时的活动索引版本。
 - Agent Table Query 仅在谓词可由运行输入、常量或确定性纯节点推导时允许；结果必须
-  在运行创建时固化，重试和重启不得回退读取活表。
+  在只读评测创建时固化。隔离写入评测的 Query 改从本项私有 Backend 真实读取写后状态，
+  两条路径均不允许活表回退。
+- V2 Insert/Update/Delete 只在固定初始化和强制效果断言下允许。每目标、用例、重复序号
+  独立 Backend；旧写节点、混合旧契约、嵌套写入与 Optimizer 写入仍拒绝。
 - 夹具捕获与真实运行共用同一套会话裁剪和 Prompt Profile `{{args}}` 渲染；持久化记录
   具有规范化内容 checksum，恢复时校验失败即关闭。私有夹具会从创建、取消、列表和
   详情响应中统一剥离。
@@ -244,11 +248,24 @@ Xpert Studio 的已发布版本提供“版本回归评测”入口。工作台�
 
 ## 9. 安全边界
 
-- 不执行真实副作用、附件、持久写入或交互审批。
+- 不执行业务副作用或交互审批。视觉仅使用固定版本附件与 Managed Binding；数据表写入
+  仅在固定手工/合成初始化的私有 Backend 内执行，不对业务表产生修改。
 - 不返回完整 prompt、工具原始输出、密钥、物理路径或 Runtime Store。
 - 不把外部 Provider 可变响应描述为完全确定性结果。
 - 不允许报告自动改变 Proposal 或 Xpert 状态。
 - 不允许 Evaluator 成为线上流量入口。
+
+### 9.1 隔离写入与效果证据
+
+`table_initializations` 发布时固定 SchemaVersion、规范化业务值、局部 ref 和 checksum。
+每表最多 200 行，冻结夹具总量不超过 16 MiB；每个隔离实例的逻辑记录加账本也不超过
+16 MiB。实例恢复复用原数据和幂等账本，缺失或损坏时失败关闭，不重新复制业务数据。
+
+`workflow_effect_match` 比较真实节点收据、逐节点前后状态及非目标记录 checksum。
+`applied/noop/conflict/not_executed` 分别验证，不用最终回答代替写入效果；系统时间和随机
+记录 ID 不参与业务值比较。意外错误计零，并显示已经提交的节点，不宣称跨节点回滚。
+普通报告只展示安全回执与部分完成摘要，隐藏初始化、前后记录和可能携带业务值的最终文本。
+完整限制见[受控写入契约](./META_PLANNER_CONTROLLED_WRITES.md)。
 
 ## 10. 回归
 
