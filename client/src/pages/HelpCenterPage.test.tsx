@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResourceNav from "../components/ResourceNav";
 import {
   helpArticles,
-  helpCenterCloseoutBaseline,
   helpModules,
   helpSections,
   remoteMcpReviewBaseline,
@@ -200,9 +199,12 @@ describe("unified help reading shell", () => {
     renderHelp("/help/start-with-a-model");
     const article = document.querySelector("article.help-article")!;
     within(article as HTMLElement).getAllByRole("img").forEach((image) => expect(image).toHaveAccessibleName());
-    expect(article.querySelectorAll("figure")).toHaveLength(2);
+    expect(article.querySelectorAll("figure")).toHaveLength(1);
+    expect(within(article as HTMLElement).getByRole("img", {
+      name: "Qwen3.8 Max (0902) 聊天页展开添加内容菜单：图片可用，视觉 OCR 显示未启用，发送按钮禁用",
+    })).toHaveAttribute("src", "/help-center/e3ac4555/qwen38-0902-add-image-menu.png");
     expect(article.querySelectorAll("p figure")).toHaveLength(0);
-    expect(article.querySelectorAll("figure figcaption")).toHaveLength(2);
+    expect(article.querySelectorAll("figure figcaption")).toHaveLength(1);
   });
 
   it("keeps an unknown path inside the help center", () => {
@@ -213,7 +215,7 @@ describe("unified help reading shell", () => {
 
   it("does not repeat a generic staleness disclaimer on every article", () => {
     renderHelp("/help/start-with-a-model");
-    expect(screen.getByText(helpCenterCloseoutBaseline.date)).toBeInTheDocument();
+    expect(screen.getByText("2026-10-07")).toBeInTheDocument();
     expect(screen.queryByText(/产品更新后部分按钮名称、入口或价格可能变化/)).not.toBeInTheDocument();
   });
 

@@ -70,7 +70,7 @@
     "client/src/data/mcpCatalogExpansionV2.generated.ts": "d16e9217eb2a4bd6dd92204b59ba0d389e96a76757db482776963fc8027b7396",
     "client/src/data/mcpCatalogExpansionV3.generated.ts": "6cf4b20eb61c78b0542140db05dc20987bb5f4698c3bbbd9a04781c62ac0a45b",
     "client/src/data/mcpProjects.ts": "920346c5baf6d101bc697840fe0ba57710e7c83dd832ebd00eee0ac68470536b",
-    "client/src/data/models.ts": "f84387f98b8ae35197864a2e362e51dd91f3c5e62bdbcca26943be9dabd8db68",
+    "client/src/data/models.ts": "457c6ca7b24d2494f345fe81f7dd68c3623055c51834d90e5a599c49ea50152c",
     "client/src/data/officialSkillInstallSources.generated.ts": "36f79b3c822933321d22064fc71a04292ad0929fc10db96ebc1859089607906c",
     "client/src/data/openrouterBatch.ts": "6e3722e8b12bb7637817a43e245ef259d83cfa0a6a4aa9065dc372821c9b8ff1",
     "client/src/data/skillSourceVerification.generated.ts": "5f7c862757e3482745ae59f1c1daca1d37c21e9941b7c4e25d6adb8852726e7b",
@@ -264,11 +264,11 @@
     "server/coding_worker/opencode_provider.py": "d460ed475c709df1a8e7804d0d6a456a015d2bb20cbd1ba66ee8a14ca1b2d56c",
     "server/coding_worker/parity_sidecar.py": "54e4cf9b7510840b6335e80b7fdba30c8e61ef3aeedfc385069c404ffac1e8ef",
     "server/coding_worker/tool_broker.py": "cb038c893f8b98c37db838a241e320feb954c5a3e5ceccfb05a46f97f16ae9a8",
-    "server/file_assets/analysis.py": "e18dc1222c1621cb060d3701213db11854816c026bd9e89a029ac1727bb58cde",
+    "server/file_assets/analysis.py": "86edaaa0fdd24ed3499e377a76ed8a8d9bcc318d8edb1c133f6b2917f8ae16cd",
     "server/file_assets/chat_output.py": "74a81a6dc8d0460cc667e7b4d92cacef18d6b8974ba932ed9f9c5dab88ac39c2",
     "server/file_assets/document_parser.py": "98b18349098c608a827cdd373bc2edd6e641549bf35a62cfbc3095e12dca29e2",
     "server/file_assets/validation.py": "23acbc74450a66cd197b6bbec6aeba24418e82eb15546016ed69ddd0422c2ea6",
-    "server/main.py": "5ec59359339da795081d418eaca552bc591b601f6930355f391f5c3e865c3bcd",
+    "server/main.py": "3473769e9623750c6133484c36c28a30ea66f32b41e388264ad878070e8e39f6",
     "server/mcp/browser_proxy.py": "b7e3fcc1f12f37c1e9fe77dd12bacf2b0c8246dea25e67774d7d17b109cda290",
     "server/mcp/database_proxy.py": "813737bea5b49d0a6d1237005e49782ef0ef1ff6e4dbe90cfce59b951702f0bf",
     "server/mcp/file_proxy.py": "f4f849c2fd77500f95f3e2289b66ffb0220e133304ca30a85f244b7d113f9b48",
@@ -1634,8 +1634,8 @@
         "server/file_assets/analysis.py"
       ],
       "owner": "ModelMirror maintainers / file_once_vision",
-      "reason": "B1 safety then D1; this inventory does not grant activation or acceptance",
-      "decision": "B1 safety then D1"
+      "reason": "B1 uses per-POST Egress authorization and one pinned send; D1 qualification and receipts remain pending",
+      "decision": "B1 safe transport only; D1 full control plane pending"
     },
     {
       "id": "file_provider_ocr",
@@ -1659,7 +1659,7 @@
         "server/file_assets/analysis.py"
       ],
       "owner": "ModelMirror maintainers / file_provider_ocr",
-      "reason": "D1 independent OCR contract; this inventory does not grant activation or acceptance",
+      "reason": "B1 uses per-POST Egress authorization and one pinned send; D1 independent OCR qualification remains pending",
       "decision": "D1 independent OCR contract"
     },
     {
@@ -2616,7 +2616,7 @@
     {"id":"client/src/data/mcpCatalogExpansionV2.generated.ts::<module>::script_network:d16e9217eb2a4bd6dd92204b59ba0d389e96a76757db482776963fc8027b7396:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
     {"id":"client/src/data/mcpCatalogExpansionV3.generated.ts::<module>::script_network:6cf4b20eb61c78b0542140db05dc20987bb5f4698c3bbbd9a04781c62ac0a45b:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
     {"id":"client/src/data/mcpProjects.ts::<module>::script_network:920346c5baf6d101bc697840fe0ba57710e7c83dd832ebd00eee0ac68470536b:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
-    {"id":"client/src/data/models.ts::<module>::script_network:f84387f98b8ae35197864a2e362e51dd91f3c5e62bdbcca26943be9dabd8db68:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
+    {"id":"client/src/data/models.ts::<module>::script_network:457c6ca7b24d2494f345fe81f7dd68c3623055c51834d90e5a599c49ea50152c:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side catalog metadata; reviewed PR #404 constants and model entries during R9B1 baseline integration. No new Provider dispatch or network target."},
     {"id":"client/src/data/officialSkillInstallSources.generated.ts::<module>::script_network:36f79b3c822933321d22064fc71a04292ad0929fc10db96ebc1859089607906c:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
     {"id":"client/src/data/openrouterBatch.ts::<module>::script_network:6e3722e8b12bb7637817a43e245ef259d83cfa0a6a4aa9065dc372821c9b8ff1:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
     {"id":"client/src/data/skillSourceVerification.generated.ts::<module>::script_network:5f7c862757e3482745ae59f1c1daca1d37c21e9941b7c4e25d6adb8852726e7b:1","kind":"non_model_http","entries":["browser_backend_api"],"owner":"ModelMirror maintainers","reason":"Browser-side API/resource caller; Provider dispatch remains server-side. Exact module changes require review."},
@@ -2966,8 +2966,8 @@
     {"id":"server/file_assets/analysis.py::_send_pdf_analysis_worker_error::network_candidate:sender.send:f2ca649bde0f5df766ea0dbd49a3844992113ae09f69307fba3c0fbce68f059e:1","kind":"non_model_http","entries":["ordinary_http"],"owner":"ModelMirror maintainers","reason":"Local subprocess IPC send, not Provider network dispatch."},
     {"id":"server/file_assets/analysis.py::FileAnalysisExecutor._execute_vision::delegate:self._requester:b1a1967b5cf1ef511a2485a85a0536573fbcf7009bd5f0665d1370f2adf19398:1","kind":"model_delegate","entries":["file_once_vision"],"owner":"ModelMirror maintainers","reason":"One-shot Vision requester; B1 egress hardening then D1 qualification."},
     {"id":"server/file_assets/analysis.py::FileAnalysisExecutor._execute_ocr::delegate:self._requester:dbf506679e82e8c3d99695139bed63e7fc8013f7a82dce6130b5234b2a3548a6:1","kind":"model_delegate","entries":["file_provider_ocr"],"owner":"ModelMirror maintainers","reason":"Provider OCR requester with independent annotations contract."},
-    {"id":"server/file_assets/analysis.py::_http_request::network_candidate:httpx.AsyncClient:2fbdd0b60ba19260d3fd7582e0881a642c90fcda4183267ac764e7731e43fd5e:1","kind":"transport","entries":["file_once_vision","file_provider_ocr"],"owner":"ModelMirror maintainers","reason":"Network import/client construction only; retained to detect new transport mechanisms."},
-    {"id":"server/file_assets/analysis.py::_http_request::network_candidate:client.post:68cf03b9b9b4237fe1764e27371f64600a83d20d4d5f4aca3a2cb997668f26a6:1","kind":"model_dispatch","entries":["file_once_vision","file_provider_ocr"],"owner":"ModelMirror maintainers","reason":"Actual shared file-analysis HTTP POST; resolving a saved connection is not managed dispatch."},
+    {"id":"server/file_assets/analysis.py::_http_request::network_candidate:httpx.AsyncClient:cd86475376e783c329e6ac7aff309c60c5ea971732368d2448268ad37e87b7db:1","kind":"transport","entries":["file_once_vision","file_provider_ocr"],"owner":"ModelMirror maintainers","reason":"Shared ProviderChatTransport client settings; bounded file-analysis timeout, no environment proxy or retries."},
+    {"id":"server/file_assets/analysis.py::_http_request::delegate:ProviderChatTransport.send_authorized_stream:bb0bb3e722d1d5d133e839ba3e79307d603b324b6aba283fb5db93eb007b6297:1","kind":"model_delegate","entries":["file_once_vision","file_provider_ocr"],"owner":"ModelMirror maintainers","reason":"B1 authorizes each POST with Egress and delegates one pinned IP send; no address rotation or redirects. D1 qualification remains pending."},
     {"id":"server/file_assets/chat_output.py::<module>::network_import:import:31e586300a4870cd0def16b0b4c4ca2ef9d61af0aeb60a10ef8fee7bb8dda6b3:1","kind":"transport","entries":["ordinary_http"],"owner":"ModelMirror maintainers","reason":"Network import/client construction only; retained to detect new transport mechanisms."},
     {"id":"server/file_assets/chat_output.py::run_chat_output_turn::network_candidate:httpx.AsyncClient:cd86475376e783c329e6ac7aff309c60c5ea971732368d2448268ad37e87b7db:1","kind":"transport","entries":["ordinary_http"],"owner":"ModelMirror maintainers","reason":"Network import/client construction only; retained to detect new transport mechanisms."},
     {"id":"server/file_assets/chat_output.py::_stream_once::network_candidate:client.send:b0033e228c73209b936fd11d971889408f86be06fbf9eadd1ca287de545caa0b:1","kind":"non_model_http","entries":["ordinary_http"],"owner":"ModelMirror maintainers","reason":"Non-Provider network/IPC/state-access candidate; not counted as a model dispatch."},

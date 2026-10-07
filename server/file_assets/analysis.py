@@ -24,10 +24,14 @@ from .contracts import FileAnalysisMode, file_analysis_mode_canary_verified
 try:
     from server.model_router.api import get_model_router_service
     from server.model_router.engine import NativeRouterEngine
+    from server.model_router.egress import ProviderEgressPolicy
+    from server.model_router.provider_chat import ProviderChatTransport
     from server.omniroute.catalog import normalize_model
 except ModuleNotFoundError:  # pragma: no cover - direct server package execution
     from model_router.api import get_model_router_service
     from model_router.engine import NativeRouterEngine
+    from model_router.egress import ProviderEgressPolicy
+    from model_router.provider_chat import ProviderChatTransport
     from omniroute.catalog import normalize_model
 
 
@@ -1326,31 +1330,47 @@ async def _http_request(
     url: str, api_key: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
     try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(150.0, connect=10.0),
-            follow_redirects=False,
-        ) as client:
-            response = await client.post(
-                url,
-                headers={
+        # Re-authorize the actual POST, not just the earlier catalog probe.
+        # Do not use Egress.request: its multi-address connection fallback is
+        # appropriate for discovery GETs, not this potentially billed request.
+        authorized = await ProviderEgressPolicy().authorize(url)
+        client_kwargs = ProviderChatTransport.client_kwargs()
+        client_kwargs["timeout"] = httpx.Timeout(150.0, connect=10.0)
+        async with httpx.AsyncClient(**client_kwargs) as client:
+            request = client.build_request(
+                "POST",
+                authorized.pinned_urls[0],
+                headers=authorized.request_headers({
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
-                },
+                }),
+                extensions=authorized.extensions,
                 json=payload,
             )
-            value = _validated_provider_response(response, payload=payload)
-    except httpx.TimeoutException as exc:
+            response = await ProviderChatTransport.send_authorized_stream(client, request)
+            try:
+                if response.is_redirect:
+                    raise FileAnalysisError(
+                        502,
+                        "analysis_provider_failed",
+                        "The selected analysis provider did not complete the request.",
+                    )
+                await response.aread()
+                value = _validated_provider_response(response, payload=payload)
+            finally:
+                await response.aclose()
+    except httpx.TimeoutException:
         raise FileAnalysisError(
             504,
             "analysis_provider_timeout",
             "The selected analysis provider timed out.",
-        ) from exc
-    except (httpx.HTTPError, ValueError) as exc:
+        ) from None
+    except (httpx.HTTPError, ValueError):
         raise FileAnalysisError(
             502,
             "analysis_provider_failed",
             "The selected analysis provider did not complete the request.",
-        ) from exc
+        ) from None
     if not isinstance(value, dict):
         raise FileAnalysisError(
             502,

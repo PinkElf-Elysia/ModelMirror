@@ -14,7 +14,12 @@ from .generation_recipe import (
     REF, _bounded_payload, parse_generation_recipe,
 )
 from .node_adapters import get_planner_node_adapter
-from ..workflow_native.node_contracts import canonical_checksum
+try:
+    from server.workflow_native.node_contracts import canonical_checksum
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    from workflow_native.node_contracts import canonical_checksum
 
 
 RECIPE_EDIT_PROTOCOL = "recipe_edits_v1"

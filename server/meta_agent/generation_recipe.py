@@ -26,7 +26,12 @@ from .schemas import (
     GraphIntentNodeResourceRefV3, GraphIntentNodeV3,
     GraphIntentV3, MetaPlannerIRMiddlewareBinding, MetaPlannerIRResourceBinding,
 )
-from ..workflow_native.node_contracts import WorkflowValueSchema, canonical_checksum
+try:
+    from server.workflow_native.node_contracts import WorkflowValueSchema, canonical_checksum
+except ModuleNotFoundError as exc:
+    if exc.name != "server":
+        raise
+    from workflow_native.node_contracts import WorkflowValueSchema, canonical_checksum
 
 
 GENERATION_PROTOCOL_VERSION = 1
