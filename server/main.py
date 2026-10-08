@@ -3375,6 +3375,7 @@ class OpenRouterDecisionRequest(BaseModel):
         "togethercomputer/tev1-4b-experimental",
         "inception/mercury-decide:free",
         "upstage/solar-decide",
+        "upstage/solar-decide-flash",
         "respan/span-01",
         "respan/span-01-lite",
         "respan/span-01-lite:free",
@@ -3384,6 +3385,7 @@ class OpenRouterDecisionRequest(BaseModel):
         "~typesafe/jev-latest",
         "openai/gpt-6-luna-decisions",
         "perplexity/pplx-decider-v1-27b",
+        "perplexity/pplx-decider-v1.1-27b",
         "cloudflare/clef-flash",
         "cloudflare/clef",
     ]

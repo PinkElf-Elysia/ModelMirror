@@ -188,18 +188,20 @@ function isUtcClock(value) {
   );
 }
 
-function timePricingOverrides(pricing) {
+export function timePricingOverrides(pricing) {
   if (!Array.isArray(pricing?.overrides)) return [];
   return pricing.overrides
     .filter(
       (override) =>
         override &&
-        isUtcClock(override.utc_start) &&
-        isUtcClock(override.utc_end),
+        ((isUtcClock(override.utc_start) && isUtcClock(override.utc_end)) ||
+          (Array.isArray(override.utc_days) && override.utc_days.length > 0 &&
+            override.utc_start === undefined && override.utc_end === undefined)),
     )
     .map((override) => ({
-      utc_start: Number(override.utc_start),
-      utc_end: Number(override.utc_end),
+      utc_start: Number(override.utc_start ?? 0),
+      utc_end: Number(override.utc_end ?? 0),
+      ...(Array.isArray(override.utc_days) ? { utc_days: override.utc_days } : {}),
       input: pricePerMillion(override.prompt),
       output: pricePerMillion(override.completion),
     }));

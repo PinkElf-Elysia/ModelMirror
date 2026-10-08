@@ -1,4 +1,13 @@
 export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
+  ...["elevenlabs/scribe-v2", "elevenlabs/scribe-v2-medical"].map((id) => [
+    id,
+    Object.freeze({
+      unit: "audio_hour", pricingBasis: "media",
+      sourcePricingField: "prompt", normalizedPricingField: "input",
+      normalizedPriceDivisor: 1_000_000, normalizedPriceMultiplier: 3_600,
+      sourcePriceMultiplier: 3_600,
+    }),
+  ]),
   [
     "bytedance-seed/seed-audio-1-0",
     Object.freeze({

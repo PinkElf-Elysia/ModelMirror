@@ -34,7 +34,23 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-02-deepgram-flux"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-08-elevenlabs"
+ELEVENLABS_SPEECH_MODEL_IDS = frozenset(
+    f"elevenlabs/{name}" for name in (
+        "eleven-flash-v2", "eleven-turbo-v2.5", "eleven-multilingual-v2",
+        "eleven-turbo-v2", "eleven-flash-v2.5", "eleven-v3-conversational",
+        "eleven-v3", "eleven-v4-turbo", "eleven-v4",
+    )
+)
+ELEVENLABS_SPEED_MODEL_IDS = frozenset({
+    "elevenlabs/eleven-multilingual-v2", "elevenlabs/eleven-flash-v2",
+    "elevenlabs/eleven-flash-v2.5",
+})
+ELEVENLABS_VOICES = (
+    "george", "sarah", "adam", "alice", "bella", "bill", "brian",
+    "callum", "charlie", "chris", "daniel", "eric", "harry", "jessica",
+    "laura", "liam", "lily", "matilda", "river", "roger", "will",
+)
 SEED_AUDIO_MODEL_ID = "bytedance-seed/seed-audio-1-0"
 SEED_AUDIO_PROMPT_VOICE = "__prompt__"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
@@ -238,6 +254,7 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        *ELEVENLABS_SPEECH_MODEL_IDS,
         SEED_AUDIO_MODEL_ID,
         GEMINI_38_FLASH_TTS_MODEL_ID,
         GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
@@ -252,6 +269,7 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    **{model_id: ELEVENLABS_VOICES for model_id in ELEVENLABS_SPEECH_MODEL_IDS},
     SEED_AUDIO_MODEL_ID: (SEED_AUDIO_PROMPT_VOICE,),
     GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
@@ -384,7 +402,8 @@ def speech_request_payload(
     # sentinel and lets the natural-language prompt drive voice and tone.
     if model_id != SEED_AUDIO_MODEL_ID:
         payload["voice"] = voice
-        payload["speed"] = speed
+        if model_id not in ELEVENLABS_SPEECH_MODEL_IDS or model_id in ELEVENLABS_SPEED_MODEL_IDS:
+            payload["speed"] = speed
     return payload
 
 
@@ -853,6 +872,18 @@ class SpeechService:
                 status_code=422,
             )
         clean_speed = self._speed(speed)
+        if clean_model in ELEVENLABS_SPEECH_MODEL_IDS:
+            allowed = (
+                0.7 <= clean_speed <= 1.2
+                if clean_model in ELEVENLABS_SPEED_MODEL_IDS
+                else clean_speed == 1.0
+            )
+            if not allowed:
+                raise MultimodalServiceError(
+                    "invalid_speech_speed",
+                    "此 ElevenLabs 模型仅支持默认语速，或支持 0.7–1.2 倍语速。",
+                    status_code=422,
+                )
         if managed:
             return await self._synthesize_managed(
                 gateway,
