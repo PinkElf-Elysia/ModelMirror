@@ -86,7 +86,15 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
   const abortRef = useRef<AbortController | null>(null);
   const isGenerating = status === "generating";
   const usesPromptDrivenVoice = voice === SEED_AUDIO_PROMPT_VOICE;
-  const characterCount = text.length;
+  const characterCount = Array.from(text).length;
+  const isElevenLabs = model.id.startsWith("elevenlabs/");
+  const elevenLabsSpeedControl = [
+    "elevenlabs/eleven-multilingual-v2",
+    "elevenlabs/eleven-flash-v2",
+    "elevenlabs/eleven-flash-v2.5",
+  ].includes(model.id);
+  const fixedSpeed = isElevenLabs && !elevenLabsSpeedControl;
+  useEffect(() => { setSpeed(1); }, [model.id]);
   const canGenerate =
     text.trim().length > 0 &&
     characterCount <= MAX_TEXT_CHARS &&
@@ -437,11 +445,11 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   <input
                     className="mt-3 w-full accent-cyan-300"
                     disabled={
-                      isGenerating || controlBlocked || usesPromptDrivenVoice
+                      isGenerating || controlBlocked || usesPromptDrivenVoice || fixedSpeed
                     }
                     id="speech-speed"
-                    max="2"
-                    min="0.5"
+                    max={isElevenLabs ? "1.2" : "2"}
+                    min={isElevenLabs ? "0.7" : "0.5"}
                     onChange={(event) => {
                       setSpeed(Number(event.target.value));
                       clearResult();
@@ -451,8 +459,8 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                     value={speed}
                   />
                   <div className="mt-1 flex justify-between text-xs text-slate-500">
-                    <span>{usesPromptDrivenVoice ? "由提示词控制" : "较慢 0.5×"}</span>
-                    <span>{usesPromptDrivenVoice ? "不发送语速参数" : "较快 2.0×"}</span>
+                    <span>{usesPromptDrivenVoice ? "由提示词控制" : fixedSpeed ? "仅支持默认语速" : isElevenLabs ? "较慢 0.7×" : "较慢 0.5×"}</span>
+                    <span>{usesPromptDrivenVoice || fixedSpeed ? "不发送语速参数" : isElevenLabs ? "较快 1.2×" : "较快 2.0×"}</span>
                   </div>
                 </div>
               </div>
@@ -574,6 +582,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   <dd className="mt-1 leading-6 text-slate-200">
                     约 ${model.media_pricing.usd.toFixed(2)} / 百万字符
                     （最终以 Provider 结算为准）
+                    {characterCount > 0 && <span className="block">本次预估 ${(characterCount * model.media_pricing.usd / 1_000_000).toFixed(6)}</span>}
                   </dd>
                 </div>
               ) : null}

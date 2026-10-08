@@ -3,12 +3,23 @@ import test from "node:test";
 import {
   assertRequiredAudioHourPricingOverlays,
   preserveLocalOverlay,
+  timePricingOverrides,
 } from "./update-openrouter-models.mjs";
 
 const upstreamModel = {
   id: "microsoft/mai-transcribe-2",
   pricing: { input: 100_000, output: 0 },
 };
+
+test("preserves all-day weekend and weekday-only time prices", () => {
+  assert.deepEqual(timePricingOverrides({ overrides: [
+    { utc_days: ["sat", "sun"], prompt: "0.00000066", completion: "0.00000198" },
+    { utc_days: ["mon"], utc_start: 1, utc_end: 4, prompt: "0.00000132", completion: "0.00000396" },
+  ] }), [
+    { utc_start: 0, utc_end: 0, utc_days: ["sat", "sun"], input: 0.66, output: 1.9800000000000002 },
+    { utc_start: 1, utc_end: 4, utc_days: ["mon"], input: 1.32, output: 3.9600000000000004 },
+  ]);
+});
 
 const currentModel = {
   ...upstreamModel,

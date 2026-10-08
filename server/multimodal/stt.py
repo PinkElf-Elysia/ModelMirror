@@ -43,7 +43,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-09-25-transcribe-pro-gemini35"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-10-08-elevenlabs"
 
 
 @dataclass(frozen=True)
@@ -77,6 +77,8 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
 MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     model_id: _STANDARD_TRANSCRIPTION_PROFILE
     for model_id in (
+        "elevenlabs/scribe-v2",
+        "elevenlabs/scribe-v2-medical",
         "fish-audio/transcribe-1-pro",
         "google/gemini-3.5-transcribe",
         "microsoft/mai-transcribe-2",

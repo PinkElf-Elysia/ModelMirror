@@ -108,6 +108,17 @@ function stubTranscriptionRequest(status: number, payload: unknown) {
 }
 
 describe("Managed audio parameter contract", () => {
+  it("shows ElevenLabs codepoint cost and disables unsupported speed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
+      feature_enabled: true, status: "managed_required", available: true,
+      reason_code: "provider_workload_available", certified_voice: "george", certified_response_format: "mp3",
+    })));
+    renderWithRouter(<SpeechWorkspace model={{ ...model, id: "elevenlabs/eleven-v4", media_pricing: { unit: "character_million", usd: 40 } } as Model} />);
+    await waitFor(() => expect(screen.getByLabelText("声线")).toHaveValue("george"));
+    fireEvent.change(screen.getByLabelText("需要朗读的文字"), { target: { value: "你好😀" } });
+    expect(screen.getByText("本次预估 $0.000120")).toBeVisible();
+    expect(screen.getByRole("slider")).toBeDisabled();
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

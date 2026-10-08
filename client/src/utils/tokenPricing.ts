@@ -42,13 +42,16 @@ export function formatUtcClock(value: number) {
 }
 
 export function formatUtcPricingWindow(
-  window: Pick<TimeWindowPricingOverride, "utc_start" | "utc_end">,
+  window: Pick<TimeWindowPricingOverride, "utc_start" | "utc_end" | "utc_days">,
 ) {
   const start = formatUtcClock(window.utc_start);
   const end = formatUtcClock(window.utc_end);
-  return window.utc_end <= window.utc_start
+  const days: Record<string, string> = { monday: "周一", tuesday: "周二", wednesday: "周三", thursday: "周四", friday: "周五", saturday: "周六", sunday: "周日" };
+  const prefix = window.utc_days?.length ? `${window.utc_days.map((day) => days[day] ?? day).join("、")} ` : "";
+  if (window.utc_start === window.utc_end) return `${prefix}全天`;
+  return prefix + (window.utc_end <= window.utc_start
     ? `${start}–次日 ${end}`
-    : `${start}–${end}`;
+    : `${start}–${end}`);
 }
 
 export function pricingWindowForUtcTime(
@@ -56,11 +59,12 @@ export function pricingWindowForUtcTime(
   at = new Date(),
 ) {
   const clock = at.getUTCHours() * 100 + at.getUTCMinutes();
+  const day = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][at.getUTCDay()];
   return (
     model.pricing_time_windows.find((window) =>
-      window.utc_end <= window.utc_start
+      (!window.utc_days || window.utc_days.includes(day)) && (window.utc_end <= window.utc_start
         ? clock >= window.utc_start || clock < window.utc_end
-        : clock >= window.utc_start && clock < window.utc_end,
+        : clock >= window.utc_start && clock < window.utc_end),
     ) ?? null
   );
 }

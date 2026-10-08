@@ -11,6 +11,14 @@ import {
 } from "./tokenPricing";
 
 describe("tokenPricingForPrompt", () => {
+  it("keeps weekend all-day pricing distinct from weekday clock windows", () => {
+    const model = models.find((item) => item.id === "deepseek/deepseek-v4-pro-0813")!;
+    const weekend = pricingWindowForUtcTime(model, new Date("2026-10-10T02:00:00Z"));
+    const weekday = pricingWindowForUtcTime(model, new Date("2026-10-08T02:00:00Z"));
+    expect(weekend?.pricing.input).toBeCloseTo(0.66);
+    expect(weekday?.pricing.input).toBeCloseTo(1.32);
+    expect(formatUtcPricingWindow(weekend!)).toBe("周六、周日 全天");
+  });
   it("selects Seed 2.0 Code long-context pricing at 128K", () => {
     const model = models.find(
       (candidate) => candidate.id === "bytedance-seed/seed-2.0-code",

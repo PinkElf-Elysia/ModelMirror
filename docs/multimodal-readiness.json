@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-07",
+  "reviewed_at": "2026-10-08",
   "catalog": {
-    "snapshot_total": 680,
-    "serving_variant_total": 77,
+    "snapshot_total": 694,
+    "serving_variant_total": 78,
     "serving_variants_by_type": {
-      "batch": 77
+      "batch": 78
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 574,
-    "uncertain": 94,
-    "expired": 12,
-    "onsite_openrouter": 668,
-    "adaptation_denominator": 668,
+    "live": 585,
+    "uncertain": 95,
+    "expired": 14,
+    "onsite_openrouter": 680,
+    "adaptation_denominator": 680,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -53,6 +53,110 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "elevenlabs/scribe-v2",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "JSON 音频转写与按时长费用已适配；未执行真实调用，不表示医疗合规或诊断能力。"
+    },
+    {
+      "model_id": "elevenlabs/scribe-v2-medical",
+      "operation": "transcribe",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "JSON 音频转写与按时长费用已适配；未执行真实调用，不表示医疗合规或诊断能力。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-flash-v2",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-turbo-v2.5",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-multilingual-v2",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-turbo-v2",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-flash-v2.5",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-v3-conversational",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-v3",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-v4-turbo",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "elevenlabs/eleven-v4",
+      "operation": "synthesize_speech",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "MP3、预设音色、语速约束及字符费用已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "perplexity/pplx-decider-v1.1-27b",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "专用 Decisions 文本状态与 50 问题上限已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "upstage/solar-decide-flash",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "专用 Decisions 文本状态与 50 问题上限已适配；未执行真实调用。"
+    },
     {
       "model_id": "x-ai/grok-imagine-video-1.5-lite",
       "operation": "generate_video",
