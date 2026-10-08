@@ -333,16 +333,16 @@
   ],
   "lockedFiles": {
     "scripts/trust_review.py": {
-      "sizeBytes": 54155,
-      "sha256": "3b06e0e611c4c254af9a82047d155f6bd8ae9ac3ce86ae29711e82262863586e"
+      "sizeBytes": 54992,
+      "sha256": "bbe4f86cdafcf48d4cbbc28a8be5c0d264ddd24084c63308dd3ef69e099e294f"
     },
     "tests/control/test_trust_review.py": {
-      "sizeBytes": 35366,
-      "sha256": "c9785a3d13e049a9508775648911170dded2b3f969a922d929e3fe24608e3277"
+      "sizeBytes": 37769,
+      "sha256": "40d07fa410be4ba58e8db87bb846f8e321aea3f7a990f9f431278b8545711bf6"
     },
     "TRUST_PROMOTION.md": {
-      "sizeBytes": 9158,
-      "sha256": "38a28a2d45c05b66cbfc4bc9d1e3050b8ecd1b542b7b03f07d78098e1e04c9bb"
+      "sizeBytes": 11090,
+      "sha256": "5f764198e792a6e592457f98d885c169568673ab1da056ab3680aab0c4f389d7"
     },
     "control/requirements.lock": {
       "sizeBytes": 185467,

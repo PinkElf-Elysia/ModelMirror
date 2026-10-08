@@ -124,6 +124,30 @@ target 事件不执行候选测试/构建、不下载其 artifacts。
 成功路径仅是单元测试，不是对当前未提交候选的晋升。没有真实 GitHub run
 时只报告“本地验证”，不可报告“CI 已通过”。
 
+## 主仓库 CI 分类修复（R9B2 独立治理批）
+
+- 基线：`70a016405857951e9273a2b61a6ff40dc517323e`。用户已明确授权
+  “另案最小修复”，不扩大 AI Research 权限；本案与 B2 存储实现隔离。
+- 根因：主仓库普通维护触发本工作流后，被错误套用科研功能批的全部路径
+  白名单。`e3ac4555` → `70a01640` 的干净基线同样报告
+  `functional candidate changed a protected path`，不是科研产品验收失败。
+- 新增 `parent_core` 只用于原白名单之外的纯主仓库改动：整个科研模块、
+  source-lock、boundary、审阅器、其测试、本文和工作流必须保持不变；
+  `.dockerignore`、专用 `ai_research_bridge.py` 及对应测试不能走这条路由。
+  混合科研与越界主仓库改动仍拒绝。既有白名单内 functional 和两条 trust
+  路由保持原门禁，不更改 allowedParentFiles、历史哈希或上游来源。
+- parent_core 在普通 CI 中仍执行 `test_ai_research_bridge.py` 和
+  `test_provider_chat_stable_service.py`；主仓库 Quality 门禁仍独立执行。
+  不启动科研 Full/Compose，明确标记 `full=not_applicable_parent_core`、
+  `qualification=not_run`，不能产出 trust source-proof 或晋升回执。
+- `pull_request_target` 仍只运行 base 审阅器、读取固定 candidate Git blobs；
+  不执行候选代码。不得依据 PR 标题、标签、环境变量或调用方自报分类。
+- 本修复改变治理五文件，旧 base 审阅器必须继续拒绝本案自我晋升。
+  本地合成测试不是 base-owned CI 成功。提交、人工治理审阅、合并均仍需
+  单独授权；合并后新基线才可审阅 B2，未合并前 B2 的门禁仍未解除。
+- 无科研用户功能变化、无 P2R 启用、无付费调用或部署，不改变 V0 路线。
+  回滚为单独批准的治理五文件 revert，保留全部旧失败和验收证据。
+
 ## 后续停止点与回退
 
 维护者另行批准首次治理安装及后续排序/诊断 T 晋升后，才从最新 main 刷新

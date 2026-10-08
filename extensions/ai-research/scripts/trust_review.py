@@ -65,6 +65,13 @@ IMMUTABLE_REVIEW_PATHS = (
     REVIEWER_TEST_PATH,
     PROMOTION_DOC_PATH,
 )
+# These parent-owned paths change the optional module's specific integration,
+# rather than a shared platform implementation. They never use core-only routing.
+RESEARCH_PARENT_PATHS = frozenset({
+    ".dockerignore",
+    "server/model_router/ai_research_bridge.py",
+    "server/tests/test_ai_research_bridge.py",
+})
 
 PATH_ORDER_POINTERS = frozenset(
     {
@@ -736,7 +743,13 @@ def audit(
         protected = set(base_lock["coreBaseline"]["trackedFiles"])
         protected.update(MODULE_PREFIX + name for name in base_locked)
         if outside or changed_set & protected:
-            raise ReviewFailure("functional candidate changed a protected path")
+            if (any(path.startswith(MODULE_PREFIX) for path in changed_set)
+                    or changed_set & RESEARCH_PARENT_PATHS):
+                raise ReviewFailure("functional candidate changed a protected path")
+            # The module, locks and immutable governance blobs are unchanged.
+            # This is parent CI regression coverage, never module qualification
+            # or permission for a module candidate to modify protected core files.
+            kind = "parent_core"
     else:
         raise ReviewFailure("unknown or mixed trust candidate scope")
 
@@ -751,6 +764,7 @@ def audit(
         "full": (
             "required_for_functional"
             if kind == "functional"
+            else "not_applicable_parent_core" if kind == "parent_core"
             else "not_applicable_trust_only"
         ),
         "baseCommit": base_commit,
@@ -903,8 +917,8 @@ def _source_proof_payload(
     scope: dict[str, Any],
     source_dist: Path,
 ) -> dict[str, Any]:
-    if scope["kind"] == "functional":
-        raise ReviewFailure("functional candidates do not use trust source proof")
+    if scope["kind"] not in {"path_order", "diagnostics"}:
+        raise ReviewFailure("only trust candidates use trust source proof")
     proof = client_proof(source_dist)
     base_reference = _reference_from_commit(repo, scope["baseCommit"])
     candidate_reference = _reference_from_commit(repo, scope["candidateCommit"])
@@ -1139,7 +1153,7 @@ def record_tests(
     if platform != running_platform:
         raise ReviewFailure("test record platform does not match the running host")
     scope = audit(repo, base, candidate, reviewer_file=reviewer_file)
-    if scope["kind"] == "functional":
+    if scope["kind"] not in {"path_order", "diagnostics"}:
         raise ReviewFailure("functional candidates do not use trust test records")
     raw, _summary = _read_junit(junit, platform, scope["kind"])
     metadata = {

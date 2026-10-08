@@ -89,7 +89,7 @@ jobs:
   verify:
     name: Boundary, literature contracts, images, and fixture smoke
     needs: classify
-    if: github.event_name != 'pull_request_target' && needs.classify.outputs.kind == 'functional'
+    if: github.event_name != 'pull_request_target' && (needs.classify.outputs.kind == 'functional' || needs.classify.outputs.kind == 'parent_core')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -100,6 +100,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Resolve comparison base and enforce trusted scope
+        if: needs.classify.outputs.kind == 'functional'
         id: comparison-base
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -242,6 +243,7 @@ jobs:
           PY
           echo "comparison_base=$comparison_base" >> "$GITHUB_OUTPUT"
       - name: Set up Docker 29.7.2 with containerd image store
+        if: needs.classify.outputs.kind == 'functional'
         uses: docker/setup-docker-action@77e84dbf09b47d1e29270283c22f16145aa85ca1 # v5
         with:
           version: v29.7.2
@@ -260,10 +262,11 @@ jobs:
       - name: Verify restricted model bridge
         run: python -m pytest server/tests/test_ai_research_bridge.py server/tests/test_provider_chat_stable_service.py -q
       - name: Verify V0.1 development candidate
+        if: needs.classify.outputs.kind == 'functional'
         working-directory: extensions/ai-research
         run: bash scripts/verify.sh "${{ steps.comparison-base.outputs.comparison_base }}" full external-pull
       - name: Preserve module logs on failure
-        if: failure()
+        if: failure() && needs.classify.outputs.kind == 'functional'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ai-research-v0-1-diagnostics
@@ -271,7 +274,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Stop optional module without deleting evidence volumes
-        if: always()
+        if: always() && needs.classify.outputs.kind == 'functional'
         working-directory: extensions/ai-research
         run: docker compose -f compose.yml --profile literature down
 
