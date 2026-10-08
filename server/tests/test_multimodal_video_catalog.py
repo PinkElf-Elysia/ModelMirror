@@ -79,7 +79,7 @@ def test_verified_video_registry_contains_august_27_wan_prime_contract() -> None
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

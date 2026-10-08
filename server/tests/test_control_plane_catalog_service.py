@@ -10,7 +10,7 @@ from server.model_router.service import ModelRouterService
 
 
 def _service(tmp_path, **catalogs) -> ControlPlaneCatalogService:
-    router = ModelRouterService(SQLiteRouterRepository(tmp_path))
+    router = ModelRouterService(SQLiteRouterRepository.open(tmp_path))
     return ControlPlaneCatalogService(router, **catalogs)
 
 

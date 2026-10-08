@@ -19,6 +19,7 @@ from .repository import (
     SQLiteRouterRepository,
     utc_now,
 )
+from .storage_lifecycle import ProviderStorageError, StorageLease, assert_database_identity
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,27 @@ def migrate_credentials(
     source_key: str | bytes | None = None,
     target_key: str | bytes | None = None,
     fail_after: int | None = None,
+) -> CredentialMigrationResult:
+    lease = StorageLease(Path(storage_dir))
+    try:
+        # Existing pre-B2 databases may not have a lease file yet. Only an
+        # explicitly requested migration may create it, never dry-run.
+        if not (lease.directory / "router.sqlite3").is_file():
+            raise CredentialMigrationError("Router database not found.")
+        lease.acquire(create=True)
+        assert_database_identity(lease.directory / "router.sqlite3")
+        return _migrate_credentials_owned(
+            lease.directory, source_key=source_key, target_key=target_key,
+            fail_after=fail_after,
+        )
+    except ProviderStorageError as exc:
+        raise CredentialMigrationError(str(exc)) from None
+    finally:
+        lease.close()
+
+
+def _migrate_credentials_owned(
+    storage_dir: Path, *, source_key=None, target_key=None, fail_after=None,
 ) -> CredentialMigrationResult:
     directory = Path(storage_dir)
     database_path = directory / "router.sqlite3"

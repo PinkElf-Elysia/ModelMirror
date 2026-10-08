@@ -116,6 +116,27 @@ def get_model_router_service() -> ModelRouterService:
     return _service
 
 
+def start_provider_storage() -> None:
+    """Fail startup before background work if storage cannot be owned."""
+    service = get_model_router_service()
+    start = getattr(service.repository, "start_if_new", None)
+    if start is not None:
+        start()
+
+
+async def stop_provider_storage() -> None:
+    """Called only after runtime producers have stopped successfully."""
+    global _service, _native_engine, _catalog_coordinator
+    with _service_lock:
+        if _service is not None:
+            close = getattr(_service.repository, "close", None)
+            if close is not None:
+                close()
+        _service = None
+        _native_engine = None
+        _catalog_coordinator = None
+
+
 def start_provider_batch_recovery() -> None:
     """Start one background GET-only recovery pass for persisted Batch jobs."""
 

@@ -24,7 +24,7 @@ from server.multimodal.video_catalog import (
 
 
 def _router(tmp_path: Path) -> ModelRouterService:
-    return ModelRouterService(SQLiteRouterRepository(tmp_path))
+    return ModelRouterService(SQLiteRouterRepository.open(tmp_path))
 
 
 def test_peek_catalog_never_populates_an_empty_cache(tmp_path: Path) -> None:

@@ -177,7 +177,7 @@ async def configured_service(
         )
 
     transport = httpx.MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

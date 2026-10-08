@@ -26,7 +26,7 @@ def _service(
     SQLiteRouterRepository,
 ]:
     monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     router_service = ModelRouterService(repository)
     control = ProviderChatControlService(router_service)
     control.update_policy(

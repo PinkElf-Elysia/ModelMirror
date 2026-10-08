@@ -72,7 +72,7 @@ def _service(
     tmp_path: Path,
     transport: httpx.AsyncBaseTransport,
 ) -> tuple[ModelRouterService, object]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -3081,7 +3081,8 @@ async def test_managed_video_generation_restart_resumes_get_only(
     stored = service.repository.get_video_job("local", created.job_id)
     assert stored is not None
 
-    reopened = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    reopened = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted_call = reopened.get_workload_call(
         "local", str(stored["workload_call_id"])
     )
@@ -3160,7 +3161,8 @@ async def test_managed_video_generation_restart_recovers_dispatched_without_id(
         post_dispatched=True,
     )
 
-    reopened = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    reopened = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted_service = ModelRouterService(
         reopened,
         egress_policy=ProviderEgressPolicy(

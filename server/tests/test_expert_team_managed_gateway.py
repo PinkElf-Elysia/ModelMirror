@@ -48,7 +48,7 @@ def _gateway(
     shapes: list[str],
     handler,
 ) -> ManagedExpertTeamGateway:
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -294,7 +294,7 @@ def test_feature_off_keeps_legacy_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("MODEL_CONTROL_EXPERT_TEAM_PLANNER_ENABLED", raising=False)
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     gateway = ManagedExpertTeamGateway.for_router(
         ModelRouterService(repository)
     )

@@ -376,7 +376,7 @@ def _service(
     *,
     resolver_addresses: list[str] | None = None,
 ) -> tuple[ModelRouterService, object]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1033,7 +1033,8 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
                 "WHERE tenant_id = ? AND id = ?",
                 (json.dumps(checks), "local", result.certification_id),
             )
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted_service = ModelRouterService(
         restarted_repository,
         client_factory=lambda: httpx.AsyncClient(transport=transport),
@@ -1069,7 +1070,7 @@ async def test_r8d_certification_is_shape_specific_single_post_and_qualifies_bin
     assert old_summary.checks.safe_terminal_verified is (
         shape == "audio_generation_stream"
     )
-    preserved = service.repository.get_workload_certification(
+    preserved = restarted_repository.get_workload_certification(
         "local", str(result.certification_id)
     )
     assert preserved is not None and preserved["status"] == "passed"
@@ -4995,7 +4996,8 @@ async def test_r8d_managed_audio_job_recovers_crash_after_receipt_completion(
     with pytest.raises(KeyboardInterrupt):
         await jobs.run(launch.task)
 
-    restarted_repository = SQLiteRouterRepository(
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(
         tmp_path, master_key=b"x" * 32
     )
     restarted_service = ModelRouterService(
@@ -5503,7 +5505,8 @@ async def test_r8d_audio_job_restart_closes_dispatch_gap_without_replay(
             cost_kind="unavailable",
         )
 
-    restarted_repository = SQLiteRouterRepository(
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(
         tmp_path, master_key=b"x" * 32
     )
     restarted_service = ModelRouterService(

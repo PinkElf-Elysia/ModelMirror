@@ -33,7 +33,7 @@ def _service(
         requests.append(request)
         return handler(request)
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

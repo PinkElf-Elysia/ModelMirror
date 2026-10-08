@@ -50,7 +50,7 @@ def connection_payload(**updates: object) -> RouterConnectionCreate:
 def test_schema_and_credentials_are_tenant_scoped_and_persistent(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     created = repository.create_connection("local", connection_payload())
 
     assert all(repository.count_schema_tenant_columns().values())
@@ -64,7 +64,8 @@ def test_schema_and_credentials_are_tenant_scoped_and_persistent(
     persisted = repository.database_path.read_bytes()
     assert b"sk-test-secret-value" not in persisted
 
-    restarted = SQLiteRouterRepository(tmp_path)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path)
     restored = restarted.get_connection("local", created.id)
     assert restored.id == created.id
     assert restarted.resolve_api_key("local", created.id) == "sk-test-secret-value"
@@ -132,7 +133,7 @@ def test_connection_scopes_default_by_provider_and_migrate_v7(
             ),
         )
 
-    migrated = SQLiteRouterRepository(
+    migrated = SQLiteRouterRepository.open(
         legacy_dir,
         master_key=migration_key,
     )
@@ -153,7 +154,7 @@ def test_connection_scopes_default_by_provider_and_migrate_v7(
 
 
 def test_disable_restore_and_policy_persist_without_delete(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     created = repository.create_connection("local", connection_payload())
 
     disabled = repository.update_connection(
@@ -179,13 +180,14 @@ def test_disable_restore_and_policy_persist_without_delete(tmp_path: Path) -> No
         ),
     )
     assert saved.tenant_id == "local"
-    assert SQLiteRouterRepository(tmp_path).get_policy("local") == saved
+    repository.close()
+    assert SQLiteRouterRepository.open(tmp_path).get_policy("local") == saved
 
 
 def test_candidate_breaker_and_lkgp_are_tenant_model_scoped(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     for _ in range(3):
         stats = repository.record_candidate_outcome(
             "local",
@@ -231,7 +233,7 @@ def test_diagnostics_are_tenant_scoped_and_native_default_is_gated(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MODEL_ROUTER_ALLOW_NATIVE_OVERRIDE", raising=False)
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     repository.record_routing_decision(
         "local",
         session_id_hash="local-session",
@@ -307,7 +309,7 @@ def test_diagnostics_are_tenant_scoped_and_native_default_is_gated(
         for decision in diagnostics["recent_decisions"]
     )
 
-    empty_service = ModelRouterService(SQLiteRouterRepository(tmp_path / "empty"))
+    empty_service = ModelRouterService(SQLiteRouterRepository.open(tmp_path / "empty"))
     with pytest.raises(RouterServiceError) as no_connection:
         empty_service.save_policy(
             RouterPolicy(
@@ -368,7 +370,7 @@ def test_diagnostics_are_tenant_scoped_and_native_default_is_gated(
 
 
 def test_gate_approval_is_version_bound_and_revocable(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     approval = repository.save_native_gate_approval(
         "local",
         algorithm_version=ALGORITHM_VERSION,
@@ -405,7 +407,7 @@ async def test_connection_probe_returns_safe_actionable_results(
         )
 
     service = ModelRouterService(
-        SQLiteRouterRepository(tmp_path),
+        SQLiteRouterRepository.open(tmp_path),
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(success)),
         egress_policy=public_egress_policy(),
     )
@@ -420,7 +422,7 @@ async def test_connection_probe_returns_safe_actionable_results(
         return Response(401, text="upstream secret diagnostics must not leak")
 
     service = ModelRouterService(
-        SQLiteRouterRepository(tmp_path / "unauthorized"),
+        SQLiteRouterRepository.open(tmp_path / "unauthorized"),
         client_factory=lambda: httpx.AsyncClient(
             transport=MockTransport(unauthorized)
         ),
@@ -440,7 +442,7 @@ async def test_connection_api_is_redacted_and_records_health(
     def success(_: Request) -> Response:
         return Response(200, json={"data": [{"id": "model-a"}]})
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     service = ModelRouterService(
         repository,
         client_factory=lambda: httpx.AsyncClient(transport=MockTransport(success)),
@@ -578,7 +580,7 @@ async def test_native_catalog_uses_30_second_cache_and_stale_if_error(
             )
         return Response(503, text="internal upstream details")
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection("local", connection_payload())
     direct_openai = repository.create_connection(
         "local",

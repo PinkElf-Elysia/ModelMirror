@@ -123,7 +123,7 @@ def _service(
     block_primary: bool = False,
     capabilities: tuple[str, ...] = ("chat_text",),
 ) -> tuple[ModelRouterService, SQLiteRouterRepository, str, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     def resolve(host: str, _port: int):
         if block_primary and host.startswith("newapi"):

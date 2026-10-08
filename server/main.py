@@ -31755,6 +31755,14 @@ async def _start_workflow_execution_services() -> bool:
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     global runtime_services_started
+    # Storage ownership must precede every background recovery/dispatch loop.
+    try:
+        from server.model_router.api import start_provider_storage
+    except ModuleNotFoundError as exc:
+        if exc.name != "server":
+            raise
+        from model_router.api import start_provider_storage
+    start_provider_storage()
     # Cleanup must still run if storage becomes unavailable after startup.
     # Mark before starting services so partial startup can also be cleaned up.
     runtime_services_started = True
@@ -31820,6 +31828,13 @@ async def shutdown_mcp_sessions() -> None:
     )
     try:
         await _stop_runtime_service_steps(steps)
+        try:
+            from server.model_router.api import stop_provider_storage
+        except ModuleNotFoundError as exc:
+            if exc.name != "server":
+                raise
+            from model_router.api import stop_provider_storage
+        await stop_provider_storage()
     finally:
         runtime_services_started = False
 

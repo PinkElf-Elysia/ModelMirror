@@ -41,7 +41,7 @@ VIDEO = b"\x00\x00\x00\x18ftypmp42safe-video"
 def router_service(
     storage: Path, *, tenant_id: str = "local"
 ) -> ModelRouterService:
-    repository = SQLiteRouterRepository(storage)
+    repository = SQLiteRouterRepository.open(storage)
     connection = repository.create_connection(
         tenant_id,
         RouterConnectionCreate(
@@ -951,8 +951,9 @@ async def test_refresh_survives_service_restart_and_maps_statuses(
     )
     assert len(first_adapter.submit_calls) == 1
 
+    first_service.router_service.repository.close()
     restarted_router = ModelRouterService(
-        SQLiteRouterRepository(tmp_path)
+        SQLiteRouterRepository.open(tmp_path)
     )
     restarted_adapter = FakeAdapter()
     restarted_adapter.poll_responses = [
@@ -1322,7 +1323,7 @@ async def test_api_lists_streams_and_removes_only_local_record(
 def test_repository_enforces_video_job_tenant_isolation(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     row, created = repository.create_video_job_if_absent(
         "tenant-a",
         job_id="local_a",
@@ -1408,7 +1409,7 @@ def test_repository_migrates_existing_video_jobs_without_data_loss(
             """
         )
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     row = repository.get_video_job("local", "local_existing")
     assert row is not None
     assert row["has_first_frame"] == 1

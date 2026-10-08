@@ -24,7 +24,7 @@ def _reset_auth() -> None:
 
 def _app(tmp_path: Path) -> FastAPI:
     configure_model_router(
-        ModelRouterService(SQLiteRouterRepository(tmp_path, master_key=b"x" * 32))
+        ModelRouterService(SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32))
     )
     app = FastAPI()
     app.include_router(router)

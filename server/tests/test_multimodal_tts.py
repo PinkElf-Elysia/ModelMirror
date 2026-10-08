@@ -367,7 +367,7 @@ def test_minimax_profiles_only_allow_curated_system_voices() -> None:
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     service = ModelRouterService(repository)
     connection = repository.create_connection(
         "local",
@@ -391,7 +391,7 @@ def openrouter_service(tmp_path: Path) -> ModelRouterService:
 
 
 def openai_audio_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     service = ModelRouterService(repository)
     connection = repository.create_connection(
         "local",

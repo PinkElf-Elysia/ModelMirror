@@ -73,7 +73,7 @@ def realtime_router_service(
     tenant_id: str = "local",
     base_url: str = "https://api.openai.com/v1",
 ) -> tuple[ModelRouterService, SQLiteRouterRepository, str]:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         tenant_id,
         RouterConnectionCreate(
@@ -129,7 +129,7 @@ def managed_realtime_stack(
     *,
     session_seconds: int = 600,
 ) -> tuple[RealtimeVoiceService, SQLiteRouterRepository, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -379,7 +379,7 @@ async def test_realtime_rejects_unverified_contract_values_safely(
     expected_code: str,
 ) -> None:
     monkeypatch.setenv("MULTIMODAL_REALTIME_VOICE_ENABLED", "true")
-    router_service = ModelRouterService(SQLiteRouterRepository(tmp_path))
+    router_service = ModelRouterService(SQLiteRouterRepository.open(tmp_path))
     service = RealtimeVoiceService(router_service)
 
     with pytest.raises(MultimodalServiceError) as captured:

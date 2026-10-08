@@ -80,7 +80,7 @@ def test_v13_to_current_is_additive_and_creates_catalog_tables(tmp_path: Path) -
     with sqlite3.connect(database_path) as connection:
         connection.execute("PRAGMA user_version = 13")
 
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -99,21 +99,22 @@ def test_v13_to_current_is_additive_and_creates_catalog_tables(tmp_path: Path) -
 
 
 def test_refresh_claim_is_atomic_and_restart_marks_it_uncertain(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     _claim(repository, connection_id, "refresh-1")
 
     with pytest.raises(RouterRepositoryError, match="refresh_in_progress"):
         _claim(repository, connection_id, "refresh-2")
 
-    restarted = SQLiteRouterRepository(tmp_path)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path)
     rows = restarted.list_catalog_refreshes("local", connection_id=connection_id)
     assert rows[0]["status"] == "uncertain"
     assert rows[0]["error_code"] == "server_restarted"
 
 
 def test_complete_refresh_retires_only_after_complete_snapshot(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     _claim(repository, connection_id, "refresh-1")
     _complete(repository, connection_id, "refresh-1", ["model-a", "model-b"])
@@ -149,7 +150,7 @@ def test_complete_refresh_retires_only_after_complete_snapshot(tmp_path: Path) -
 
 
 def test_complete_refresh_rolls_back_inventory_and_health_together(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     _claim(repository, connection_id, "refresh-1")
     _complete(repository, connection_id, "refresh-1", ["model-a"])
@@ -178,7 +179,7 @@ def test_complete_refresh_rolls_back_inventory_and_health_together(tmp_path: Pat
 def test_failed_refresh_preserves_rows_as_stale_and_is_tenant_scoped(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     _claim(repository, connection_id, "refresh-1")
     _complete(repository, connection_id, "refresh-1", ["model-a"])
@@ -201,7 +202,7 @@ def test_failed_refresh_preserves_rows_as_stale_and_is_tenant_scoped(
 
 
 def test_catalog_schema_contains_no_payload_or_secret_columns(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     with sqlite3.connect(repository.database_path) as connection:
         columns = {
             row[1]
@@ -223,7 +224,7 @@ def test_catalog_schema_contains_no_payload_or_secret_columns(tmp_path: Path) ->
 
 
 def test_provider_configuration_edit_invalidates_old_connection_health(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     repository.save_test_result(
         "local",
@@ -245,7 +246,7 @@ def test_provider_configuration_edit_invalidates_old_connection_health(tmp_path:
 
 
 def test_configuration_edit_with_enabled_field_clears_old_evidence(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     repository.save_test_result(
         "local",

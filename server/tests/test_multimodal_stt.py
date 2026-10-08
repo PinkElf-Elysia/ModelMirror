@@ -156,7 +156,7 @@ def test_transcription_accepts_common_verified_audio_formats(
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     service = ModelRouterService(repository)
     connection = repository.create_connection(
         "local",

@@ -5,6 +5,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from .repository import DEFAULT_TENANT_ID, SQLiteRouterRepository
+from .storage_lifecycle import ProviderStorageError
 
 
 def _arguments() -> argparse.Namespace:
@@ -57,16 +58,16 @@ def main() -> int:
     before = (
         datetime.now(UTC) - timedelta(days=values.older_than_days)
     ).isoformat()
-    repository = SQLiteRouterRepository(
-        values.storage_dir,
-        recover_chat_control_on_startup=False,
-    )
-    result = cleanup_receipts(
-        repository,
-        values.tenant_id,
-        before=before,
-        apply=values.apply,
-    )
+    try:
+        with SQLiteRouterRepository.open_maintenance(
+            values.storage_dir, readonly=not values.apply,
+        ) as repository:
+            result = cleanup_receipts(
+                repository, values.tenant_id, before=before, apply=values.apply,
+            )
+    except ProviderStorageError as exc:
+        print(json.dumps({"status": "blocked", "error_code": str(exc)}))
+        return 1
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
 

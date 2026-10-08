@@ -84,7 +84,7 @@ def configure_audio_test_services(
 ) -> tuple[ModelRouterService, ChatAttachmentStore]:
     monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_STREAMING_AUDIO_ENABLED", "false")
-    repository = SQLiteRouterRepository(tmp_path / "router")
+    repository = SQLiteRouterRepository.open(tmp_path / "router")
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

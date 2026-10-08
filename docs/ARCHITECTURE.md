@@ -142,6 +142,14 @@ sequenceDiagram
 
 ### Model Provider Control Plane
 
+R9B2 将 Router 存储生命周期与业务查询分开：Repository 构造只建立内存配置；显式
+`open/start` 先取得目录级 OS 写锁，再进行迁移、凭据核验和一次启动恢复。服务持有
+唯一 Repository，进程内并发复用它；第二个写入者及与活动 Server 竞争的维护命令均拒绝。
+后台生产者停止、SQLite 连接关闭后才释放锁。异常退出由 OS 释放所有权，不删除锁文件接管。
+离线只读维护持有同一排他检查锁，使用只读 SQLite 连接，不初始化、不迁移、不恢复、不解析
+密钥；存在未检查点 WAL 或待恢复 journal 时拒绝读取，不把不完整状态当成 dry-run 结果。
+该保护只覆盖遵守生命周期的 Router 写入者，不允许旧 Server 或外部 SQLite 工具并行写库。
+
 Provider Control Plane 是单租户 `local` 的管理与证据层，不是新的统一数据面。
 SQLite v14 保存租户隔离的 Provider Inventory、逐 operation Offering 与脱敏刷新证据；
 Provider 凭据仍使用既有加密存储。显式目录刷新只发送只读模型目录 GET：基础目录之外，

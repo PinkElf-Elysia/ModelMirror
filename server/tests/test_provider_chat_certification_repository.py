@@ -68,7 +68,7 @@ def test_v11_to_current_schema_is_additive_and_preserves_connection(
             """
         )
 
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -81,7 +81,7 @@ def test_v11_to_current_schema_is_additive_and_preserves_connection(
 
 
 def test_idempotency_and_single_running_claim_are_atomic(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
 
     first, created = _claim(repository, connection_id)
@@ -102,11 +102,12 @@ def test_idempotency_and_single_running_claim_are_atomic(tmp_path: Path) -> None
 
 
 def test_restart_marks_running_uncertain_without_replay(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     _claim(repository, connection_id)
 
-    restarted = SQLiteRouterRepository(tmp_path)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path)
     records = restarted.list_chat_certifications("local")
 
     assert records[0]["status"] == "uncertain"
@@ -116,7 +117,7 @@ def test_restart_marks_running_uncertain_without_replay(tmp_path: Path) -> None:
 def test_config_fingerprint_ignores_name_health_and_enabled_but_tracks_contract(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     original = repository.connection_config_fingerprint("local", connection_id)
 
@@ -136,7 +137,7 @@ def test_config_fingerprint_ignores_name_health_and_enabled_but_tracks_contract(
 
 
 def test_certification_rows_are_tenant_scoped_and_contain_no_payload(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = _connection(repository)
     row, _ = _claim(repository, connection_id)
     completed = repository.complete_chat_certification(

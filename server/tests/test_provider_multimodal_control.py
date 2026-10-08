@@ -31,13 +31,11 @@ def dispatch(repository: SQLiteRouterRepository) -> None:
     )
 
 
-def test_multimodal_dispatch_claim_is_one_shot_across_repository_instances(
+def test_multimodal_dispatch_claim_is_one_shot_across_writer_threads(
     tmp_path: Path,
 ) -> None:
-    repositories = [
-        SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
-        for _ in range(2)
-    ]
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    repositories = [repository, repository]
     claim_session(repositories[0])
 
     def attempt(repository: SQLiteRouterRepository) -> str:
@@ -54,7 +52,7 @@ def test_multimodal_dispatch_claim_is_one_shot_across_repository_instances(
 
 
 def test_multimodal_dispatch_claim_rejects_sequential_repeat(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     claim_session(repository)
     dispatch(repository)
 
@@ -66,7 +64,7 @@ def test_multimodal_dispatch_claim_rejects_sequential_repeat(tmp_path: Path) -> 
 
 
 def test_known_async_operation_survives_restart_for_polling_only(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     claim_session(repository)
     dispatch(repository)
     repository.update_multimodal_certification_session(
@@ -74,7 +72,8 @@ def test_known_async_operation_survives_restart_for_polling_only(tmp_path: Path)
         provider_dispatch_state="confirmed", post_dispatched=True,
         upstream_operation_id="upstream-job-1",
     )
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     session = restarted.get_multimodal_certification_session(
         "local", session_id="session-1"
     )
@@ -96,7 +95,7 @@ def test_known_async_operation_survives_restart_for_polling_only(tmp_path: Path)
 
 
 def test_multimodal_session_cannot_succeed_without_dispatch(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     claim_session(repository)
     with pytest.raises(RouterRepositoryError):
         repository.update_multimodal_certification_session(
@@ -107,7 +106,7 @@ def test_multimodal_session_cannot_succeed_without_dispatch(tmp_path: Path) -> N
 
 
 def test_restart_marks_dispatched_multimodal_call_uncertain(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local", run_id="run-1", entry_id="chat_image",
         policy_fingerprint="test-policy-fingerprint",
@@ -126,7 +125,8 @@ def test_restart_marks_dispatched_multimodal_call_uncertain(tmp_path: Path) -> N
             "provider_dispatch_state = 'dispatched' "
             "WHERE tenant_id = 'local' AND id = 'call-1'"
         )
-    SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     with sqlite3.connect(repository.database_path) as connection:
         row = connection.execute(
             "SELECT status, provider_dispatch_state FROM provider_workload_calls "

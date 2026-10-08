@@ -36,7 +36,7 @@ MPEG_BYTES = b"\x00\x00\x01\xba" + b"\x00" * 32
 
 
 def router_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
