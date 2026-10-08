@@ -328,6 +328,42 @@ def test_path_order_accepts_equal_size_code_changes_without_requiring_size_leaf_
 
 
 @requires_git
+def test_parent_core_changes_are_regression_only_not_module_qualification(tmp_path: Path) -> None:
+    fixture = make_repo(tmp_path)
+    (fixture.repo / "client/package.json").write_bytes(b'{"private":true,"description":"core"}\n')
+    candidate = commit(fixture.repo, "independent parent maintenance")
+    result = trust_review.audit(fixture.repo, fixture.base, candidate, reviewer_file=SCRIPT)
+    assert result["kind"] == "parent_core"
+    assert result["full"] == "not_applicable_parent_core"
+    assert result["qualification"] == "not_run"
+    assert result["promotion"] == "manual_required"
+    assert result["changedLockPointers"] == []
+    with pytest.raises(trust_review.ReviewFailure):
+        trust_review.source_proof(
+            fixture.repo, fixture.base, candidate, fixture.source_dist,
+            tmp_path / "must-not-qualify.json", reviewer_file=SCRIPT,
+        )
+
+
+@requires_git
+@pytest.mark.parametrize("relative", (
+    "extensions/ai-research/control/feature.py",
+    "server/model_router/ai_research_bridge.py",
+    "server/tests/test_ai_research_bridge.py",
+    ".dockerignore",
+))
+def test_parent_core_cannot_launder_module_or_bridge_changes(tmp_path: Path, relative: str) -> None:
+    fixture = make_repo(tmp_path)
+    (fixture.repo / "client/package.json").write_bytes(b'{"private":true,"description":"core"}\n')
+    path = fixture.repo / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"candidate module change\n")
+    candidate = commit(fixture.repo, "mixed module and core changes")
+    with pytest.raises(trust_review.ReviewFailure):
+        trust_review.audit(fixture.repo, fixture.base, candidate, reviewer_file=SCRIPT)
+
+
+@requires_git
 def test_missing_base_reviewer_requires_bootstrap_without_head_fallback(tmp_path: Path) -> None:
     fixture = make_repo(tmp_path)
     module = fixture.repo / MODULE
@@ -969,7 +1005,15 @@ def test_workflow_keeps_candidate_execution_out_of_pull_request_target() -> None
 
     assert "github.event_name != 'pull_request_target'" in ordinary_job
     assert "needs.classify.outputs.kind == 'functional'" in ordinary_job
+    assert "needs.classify.outputs.kind == 'parent_core'" in ordinary_job
     assert "bash scripts/verify.sh" in ordinary_job
+    assert "- name: Verify V0.1 development candidate\n        if: needs.classify.outputs.kind == 'functional'" in ordinary_job
+    assert "- name: Resolve comparison base and enforce trusted scope\n        if: needs.classify.outputs.kind == 'functional'" in ordinary_job
+    bridge_step = ordinary_job.split("- name: Verify restricted model bridge", 1)[1].split("- name:", 1)[0]
+    assert "if:" not in bridge_step
+    assert "test_ai_research_bridge.py" in bridge_step
+    assert "test_provider_chat_stable_service.py" in bridge_step
+    assert "if: always() && needs.classify.outputs.kind == 'functional'" in ordinary_job
     assert "github.event_name != 'pull_request_target'" in observation_job
     assert "not promotion" in observation_job
     assert "record-tests" in observation_job
