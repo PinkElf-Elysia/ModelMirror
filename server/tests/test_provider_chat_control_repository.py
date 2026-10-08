@@ -60,7 +60,7 @@ def test_v14_to_current_schema_is_additive_and_defaults_existing_certification_t
             """
         )
 
-    SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -80,7 +80,7 @@ def test_v14_to_current_schema_is_additive_and_defaults_existing_certification_t
 def test_policy_replace_is_atomic_revisioned_and_tenant_scoped(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     saved = repository.replace_chat_control_policy(
         "local",
         expected_revision=0,
@@ -130,7 +130,7 @@ def test_policy_replace_is_atomic_revisioned_and_tenant_scoped(
 def test_running_receipts_become_uncertain_and_cleanup_is_dry_run_by_default(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_chat_control_run(
         "local",
         run_id="run-1",
@@ -149,7 +149,8 @@ def test_running_receipts_become_uncertain_and_cleanup_is_dry_run_by_default(
         provider_kind="newapi",
     )
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     receipts = restarted.list_chat_control_receipts("local")
     assert receipts["runs"][0]["status"] == "uncertain"
     assert receipts["attempts"][0]["status"] == "uncertain"
@@ -184,7 +185,7 @@ def test_running_receipts_become_uncertain_and_cleanup_is_dry_run_by_default(
 def test_receipts_are_cursor_paginated_without_cross_tenant_access(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     for run_id in ("run-a", "run-b", "run-c"):
         repository.claim_chat_control_run(
             "local",
@@ -217,7 +218,7 @@ def test_receipts_are_cursor_paginated_without_cross_tenant_access(
 def test_gate_epoch_is_reused_then_invalidated_with_approvals(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     first = repository.sync_chat_control_gate_epoch(
         "local",
         epoch_id="epoch-1",
@@ -254,7 +255,7 @@ def test_gate_epoch_is_reused_then_invalidated_with_approvals(
 def test_r5d_open_gate_epoch_is_normalized_without_losing_evidence(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute(
             """
@@ -283,7 +284,7 @@ def test_r5d_open_gate_epoch_is_normalized_without_losing_evidence(
 def test_receipt_schema_has_no_prompt_message_or_response_body_columns(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     with sqlite3.connect(repository.database_path) as connection:
         columns = {
             row[1]
@@ -388,7 +389,7 @@ def _seed_gate_requests(
 def test_r5e_gate_aggregates_only_primary_real_text_and_activates_atomically(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.replace_chat_control_policy(
         "local",
         expected_revision=0,
@@ -471,7 +472,7 @@ def test_r5e_gate_aggregates_only_primary_real_text_and_activates_atomically(
 def test_hard_failure_degrades_epoch_revokes_approval_and_requires_new_policy(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.sync_chat_control_gate_epoch(
         "local",
         epoch_id="epoch-hard",
@@ -542,7 +543,7 @@ def test_hard_failure_degrades_epoch_revokes_approval_and_requires_new_policy(
 def test_gate_summary_sees_hard_attempt_before_parent_run_finishes(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.sync_chat_control_gate_epoch(
         "local",
         epoch_id="epoch-race",

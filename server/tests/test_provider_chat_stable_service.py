@@ -118,7 +118,7 @@ def _service(
     newapi_ip: str = "10.0.0.8",
 ):
     monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     service = ModelRouterService(
         repository,
         egress_policy=ProviderEgressPolicy(
@@ -988,7 +988,8 @@ async def test_scoped_dispatch_completion_rolls_back_attempt_when_run_write_fail
         "provider_chat_completion_reconciliation_pending"
     )
 
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     retained = restarted_repository.list_chat_control_receipts("local")["runs"]
     assert next(run for run in retained if run["id"] == result.dispatch.run_id)["status"] == "running"
     restarted = ProviderChatStableService(
@@ -1013,7 +1014,7 @@ async def test_scoped_dispatch_completion_rolls_back_attempt_when_run_write_fail
     with sqlite3.connect(repository.database_path) as database:
         database.execute("DROP TRIGGER abort_chat_run_completion")
     await restarted.begin_scoped_certified(SCOPED_MODEL_ID)
-    completed = repository.list_chat_control_receipts("local")
+    completed = restarted_repository.list_chat_control_receipts("local")
     attempt = next(
         item
         for item in completed["attempts"]
@@ -1087,7 +1088,8 @@ async def test_default_dispatched_run_remains_uncertain_after_restart(
     assert result.dispatch is not None
     service.mark_dispatched(result.dispatch)
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     receipts = restarted.list_chat_control_receipts("local")
     attempt = next(
         item for item in receipts["attempts"]
@@ -1142,7 +1144,7 @@ async def test_scoped_undispatched_failure_cleans_up_without_outbox(
 def test_cleanup_preserves_hard_failure_receipts_before_cutoff(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     for run_id, hard_failure, attempt_hard_failure in (
         ("ordinary-run", False, False),
         ("hard-failure-run", True, True),
@@ -1301,7 +1303,7 @@ async def test_completion_reconcile_is_idempotent_after_commit_before_unlink(
 
 @pytest.mark.asyncio
 async def test_maintenance_cleanup_does_not_recover_an_active_scoped_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
     service, repository, newapi_id, backup_id = _service(tmp_path, monkeypatch)
     _qualify_scoped_model(repository, newapi_id)
@@ -1322,7 +1324,8 @@ async def test_maintenance_cleanup_does_not_recover_an_active_scoped_dispatch(
             "1",
         ],
     )
-    assert cleanup_receipts_main() == 0
+    assert cleanup_receipts_main() == 1
+    assert json.loads(capsys.readouterr().out)["error_code"] == "provider_storage_writer_busy"
     active = repository.list_chat_control_receipts("local")
     assert next(
         item for item in active["attempts"]
@@ -1364,16 +1367,8 @@ async def test_concurrent_reconcilers_do_not_report_a_completed_unlink_as_pendin
         reason_codes=[],
     )
     outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
-    first = SQLiteRouterRepository(
-        tmp_path,
-        master_key=b"x" * 32,
-        recover_chat_control_on_startup=False,
-    )
-    second = SQLiteRouterRepository(
-        tmp_path,
-        master_key=b"x" * 32,
-        recover_chat_control_on_startup=False,
-    )
+    # Concurrent reconcilers share the single process-owned writer.
+    first = second = repository
     unlink_barrier = threading.Barrier(2)
     original_unlink = Path.unlink
 
@@ -1547,8 +1542,9 @@ async def test_mismatched_master_key_fails_before_startup_reconciliation(
     outbox_path = next(repository.chat_completion_outbox_dir.glob("*.json"))
     outbox_bytes = outbox_path.read_bytes()
 
+    repository.close()
     with pytest.raises(RouterCredentialUnavailable):
-        SQLiteRouterRepository(tmp_path, master_key=b"y" * 32)
+        SQLiteRouterRepository.open(tmp_path, master_key=b"y" * 32)
 
     with sqlite3.connect(repository.database_path) as database:
         attempt_status = database.execute(
@@ -1564,7 +1560,7 @@ async def test_mismatched_master_key_fails_before_startup_reconciliation(
     assert outbox_path.is_file()
     assert outbox_path.read_bytes() == outbox_bytes
 
-    recovered = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    recovered = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     receipts = recovered.list_chat_control_receipts("local")
     assert next(
         attempt
@@ -1632,7 +1628,8 @@ async def test_unsafe_completion_outbox_fails_closed_after_restart(
     with sqlite3.connect(repository.database_path) as database:
         database.execute("DROP TRIGGER abort_chat_run_completion")
 
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted = ProviderChatStableService(
         ModelRouterService(
             restarted_repository,
@@ -1710,7 +1707,8 @@ async def test_restart_rejects_orphaned_dispatched_hard_failure_attempt(
     assert pending_attempt["dispatched"] == 0
     assert pending_attempt["status"] == "failed"
 
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted = ProviderChatStableService(
         ModelRouterService(
             restarted_repository,

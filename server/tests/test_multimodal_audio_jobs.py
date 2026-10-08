@@ -266,7 +266,7 @@ def test_complete_mp3_enforces_shared_media_size_bounds(
 def router_service(
     storage: Path, *, tenant_id: str = "local"
 ) -> ModelRouterService:
-    repository = SQLiteRouterRepository(storage)
+    repository = SQLiteRouterRepository.open(storage)
     connection = repository.create_connection(
         tenant_id,
         RouterConnectionCreate(
@@ -1586,7 +1586,12 @@ async def test_expiry_and_tenant_isolation(
     )
     assert local.get(launch.job.job_id).status == "expired"
 
-    other, _ = job_service(tmp_path / "shared", tenant_id="other")
+    other_router = ModelRouterService(local.router_service.repository, tenant_id="other")
+    other = AudioJobService(
+        other_router, StubAudioCatalog(other_router),
+        adapter=FakeAudioAdapter(),
+        output_dir=tmp_path / "shared" / "audio-output-other",
+    )
     with pytest.raises(MultimodalServiceError) as captured:
         other.get(launch.job.job_id)
     assert captured.value.code == "audio_job_not_found"

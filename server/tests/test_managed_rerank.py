@@ -101,7 +101,7 @@ async def _stack(
         return Response(200, json=body)
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"r" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"r" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

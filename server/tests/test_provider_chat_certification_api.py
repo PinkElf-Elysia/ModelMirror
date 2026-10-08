@@ -70,7 +70,7 @@ def _app(tmp_path: Path) -> tuple[FastAPI, str]:
             json={"data": [{"id": f"provider/model-{index}"} for index in range(501)]},
         )
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

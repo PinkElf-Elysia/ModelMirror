@@ -17,7 +17,7 @@ from server.model_router.service import ModelRouterService
 
 
 def _repository(tmp_path: Path) -> tuple[SQLiteRouterRepository, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -109,7 +109,8 @@ def test_v12_to_v13_is_additive_and_preserves_round2_rows(tmp_path: Path) -> Non
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute("PRAGMA user_version = 12")
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(restarted.database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
@@ -200,7 +201,8 @@ def test_restart_marks_running_uncertain_without_replay(tmp_path: Path) -> None:
         baseline_overlap=False,
     )
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     row = restarted.list_chat_canary_runs("local")[0]
 
     assert row["status"] == "uncertain"

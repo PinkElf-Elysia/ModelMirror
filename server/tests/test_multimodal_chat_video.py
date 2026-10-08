@@ -72,7 +72,7 @@ def configure_video_chat_services(
     monkeypatch.setenv("MULTIMODAL_VIDEO_ANALYSIS_ENABLED", "true")
     monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _ip: None)
 
-    repository = SQLiteRouterRepository(tmp_path / "router")
+    repository = SQLiteRouterRepository.open(tmp_path / "router")
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

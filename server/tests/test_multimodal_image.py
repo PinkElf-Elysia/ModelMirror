@@ -29,7 +29,7 @@ def png_reference(edge: int) -> bytes:
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

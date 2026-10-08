@@ -45,7 +45,7 @@ def _profile(execution_shape: str) -> tuple[dict[str, object], str]:
 
 
 def _qualified_router(tmp_path: Path) -> tuple[ModelRouterService, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -885,7 +885,8 @@ async def test_deployment_restart_blocks_completed_call_before_node_end(
     assert interrupted.status == "running"
     assert len(requests) == 1
 
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted_service = ModelRouterService(
         restarted_repository,
         egress_policy=ProviderEgressPolicy(

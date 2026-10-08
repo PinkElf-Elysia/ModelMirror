@@ -35,7 +35,7 @@ PROVIDER_SECRET = "managed-meta-provider-secret"
 async def _qualified_router(
     tmp_path: Path,
 ) -> tuple[ModelRouterService, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

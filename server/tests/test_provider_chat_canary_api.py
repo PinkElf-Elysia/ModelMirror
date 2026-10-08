@@ -26,7 +26,7 @@ def _reset_auth() -> None:
 
 
 def _app(tmp_path: Path) -> tuple[FastAPI, SQLiteRouterRepository, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

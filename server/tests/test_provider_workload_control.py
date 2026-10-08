@@ -195,7 +195,7 @@ def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
         )
         connection.execute("PRAGMA user_version = 17")
 
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
@@ -285,7 +285,7 @@ def test_r8_feature_flags_default_off_in_deployment_surfaces() -> None:
 def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     row, created = repository.claim_multimodal_certification_session(
         "local",
         session_id="mmcert-session-1",
@@ -362,7 +362,8 @@ def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
         "provider_multimodal_dispatch_cannot_regress"
     )
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     recovered = restarted.get_multimodal_certification_session(
         "local", certification_id="mmcert-1"
     )
@@ -423,7 +424,7 @@ async def test_future_multimodal_certification_fails_before_catalog_or_paid_post
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -492,7 +493,7 @@ async def test_r8d_public_status_exposes_only_safe_generation_parameters_and_no_
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -654,7 +655,7 @@ async def test_operation_endpoints_are_explicit_and_transport_is_single_ip() -> 
 def test_provider_batch_job_is_tenant_scoped_idempotent_and_restart_safe(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -714,7 +715,8 @@ def test_provider_batch_job_is_tenant_scoped_idempotent_and_restart_safe(
         job_id="mmbatch_uncertain",
         **{**base, "idempotency_key_hash": "idem-two"},
     )
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     assert restarted.get_provider_batch_job("local", "mmbatch_one")["status"] == (
         "in_progress"
     )
@@ -727,7 +729,7 @@ def test_provider_batch_job_is_tenant_scoped_idempotent_and_restart_safe(
 
 
 def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     saved = repository.replace_workload_policy(
         "local",
         entry_id="meta_agent",
@@ -894,7 +896,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
 def test_workload_receipt_state_machine_rejects_impossible_success(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local",
         run_id="run-impossible",
@@ -962,7 +964,7 @@ def test_workload_receipt_state_machine_rejects_impossible_success(
 def test_complete_workload_call_and_run_roll_back_together_when_run_update_fails(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local",
         run_id="run-atomic-failure",
@@ -1030,7 +1032,7 @@ def test_complete_workload_call_and_run_roll_back_together_when_run_update_fails
 def test_delivery_pending_workload_call_is_serializable_in_receipts(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local",
         run_id="run-delivery-pending",
@@ -1075,7 +1077,7 @@ def test_delivery_pending_workload_call_is_serializable_in_receipts(
 def test_running_workload_evidence_becomes_uncertain_and_cleanup_is_dry_run(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local",
         run_id="run-one",
@@ -1095,7 +1097,8 @@ def test_running_workload_evidence_becomes_uncertain_and_cleanup_is_dry_run(
         logical_call_key_hash="logical-one",
         call_sequence=1,
     )
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     receipts = restarted.list_workload_receipts("local")
     assert receipts["runs"][0]["status"] == "uncertain"
     assert receipts["calls"][0]["status"] == "uncertain"
@@ -1143,7 +1146,7 @@ def test_running_workload_evidence_becomes_uncertain_and_cleanup_is_dry_run(
 def test_bounded_receipt_cleanup_includes_workload_and_stays_dry_run(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.claim_workload_run(
         "local",
         run_id="run-cleanup",
@@ -1180,7 +1183,7 @@ async def test_workload_certification_requires_billed_ack_and_idempotency_key(
     tmp_path: Path,
 ) -> None:
     service = ProviderWorkloadCertificationService(
-        ModelRouterService(SQLiteRouterRepository(tmp_path, master_key=b"x" * 32))
+        ModelRouterService(SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32))
     )
     with pytest.raises(RouterServiceError) as acknowledgement:
         await service.run(
@@ -1244,7 +1247,7 @@ async def test_unary_certification_uses_one_pinned_post_and_stores_no_content(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1316,7 +1319,7 @@ async def test_failed_workload_certification_is_not_reported_as_runnable(
         return Response(200, json={"model": "provider/model", "choices": []})
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1381,7 +1384,7 @@ async def test_workload_certification_rejects_oversized_unary_response(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1470,7 +1473,7 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1610,7 +1613,7 @@ async def test_rerank_certification_keeps_dedicated_and_llm_json_modes_explicit(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1748,7 +1751,7 @@ async def test_embedding_and_rerank_reject_invalid_contract_evidence(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     embedding_connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1848,7 +1851,7 @@ async def test_batch_certification_posts_once_then_polls_without_storing_results
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1932,7 +1935,7 @@ async def test_batch_certification_tolerates_initial_poll_visibility_delay(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1991,7 +1994,7 @@ async def test_batch_certification_bounds_initial_not_found_polling(
         return Response(404, json={"error": {"message": "not visible yet"}})
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2074,7 +2077,7 @@ async def test_batch_poll_recovers_after_restart_without_second_post(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2117,7 +2120,8 @@ async def test_batch_poll_recovers_after_restart_without_second_post(
     assert first.status == "uncertain"
     assert first.error_code == "provider_batch_poll_uncertain"
 
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted_service = service_for(restarted)
     assert await restarted_service.resume_pending_batch_certifications() == 1
     resumed = next(
@@ -2145,7 +2149,7 @@ async def test_batch_submission_uncertainty_never_reposts_same_idempotency_key(
         raise httpx.ReadTimeout("submission outcome unknown", request=request)
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2199,7 +2203,7 @@ def test_r7_local_fallback_policy_is_explicit_and_entry_scoped(
     tmp_path: Path,
 ) -> None:
     control = ProviderWorkloadControlService(
-        ModelRouterService(SQLiteRouterRepository(tmp_path, master_key=b"x" * 32))
+        ModelRouterService(SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32))
     )
     policy = control.update_policy(
         "rag_query_generate",
@@ -2251,7 +2255,7 @@ async def test_json_certification_qualifies_exact_binding_and_new_evidence_stale
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2367,7 +2371,7 @@ async def test_workload_dispatch_rechecks_policy_after_credential_drift(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2497,7 +2501,7 @@ async def test_native_fusion_certification_is_openrouter_only_and_one_post(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2569,7 +2573,7 @@ async def test_workload_certification_rejects_oversized_sse_event(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -2613,7 +2617,7 @@ async def test_workload_certification_rejects_oversized_sse_event(
 
 def _app(tmp_path: Path) -> FastAPI:
     configure_model_router(
-        ModelRouterService(SQLiteRouterRepository(tmp_path, master_key=b"x" * 32))
+        ModelRouterService(SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32))
     )
     app = FastAPI()
     app.include_router(router)
@@ -2824,7 +2828,7 @@ async def test_multimodal_refresh_api_is_explicit_poll_only_and_redacted(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

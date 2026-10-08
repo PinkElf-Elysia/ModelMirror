@@ -25,7 +25,7 @@ from server.multimodal.stt import MultimodalServiceError
 
 
 def openrouter_service(tmp_path: Path) -> ModelRouterService:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -555,7 +555,7 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
 ) -> None:
     monkeypatch.setenv("MULTIMODAL_CHAT_AUDIO_ENABLED", "true")
     monkeypatch.setenv("MULTIMODAL_REALTIME_VOICE_ENABLED", "true")
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     openrouter = repository.create_connection(
         "local",
         RouterConnectionCreate(

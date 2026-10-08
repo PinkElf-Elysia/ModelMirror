@@ -128,7 +128,7 @@ def router_service(
     kind: str = "openrouter",
     scopes: list[str] | None = None,
 ) -> tuple[ModelRouterService, object]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -458,7 +458,8 @@ async def test_api_chat_image_managed_path_is_exact_and_never_falls_back(
     assert "describe" not in json.dumps(stored)
     assert "OK" not in json.dumps(stored)
 
-    restarted_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     restarted = restarted_repository.list_workload_receipts("local")
     assert len(restarted["calls"]) == 1
     assert restarted["calls"][0]["status"] != "uncertain"

@@ -496,7 +496,7 @@ async def test_auto_sidecar_records_one_boundary_attempt_without_internal_claims
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original_service = get_model_router_service()
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     repository.save_policy(
         "local", RouterPolicy(tenant_id="local", engine="sidecar")
     )

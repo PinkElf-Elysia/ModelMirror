@@ -155,11 +155,11 @@ class _ManagedPreflightProbe:
         }
 
 
-def test_r8c_certification_and_session_claim_are_cross_repository_atomic(
+def test_r8c_certification_and_session_claim_are_cross_thread_atomic(
     tmp_path: Path,
 ) -> None:
-    first = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
-    second = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    first = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    second = first
     connections = [
         first.create_connection(
             "local",
@@ -294,7 +294,7 @@ def _mark_repository_audio_certification_confirmed(
 def test_r8c_certification_pair_finalizer_rolls_back_both_records(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -360,7 +360,7 @@ def test_r8c_restart_normalizes_split_certification_pair_without_refresh(
     tmp_path: Path,
     session_status: str,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -391,7 +391,8 @@ def test_r8c_restart_normalizes_split_certification_pair_without_refresh(
             completed=True,
         )
 
-    recovered = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    recovered = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     certification = recovered.get_workload_certification(
         "local", "cert-restart-split"
     )
@@ -421,7 +422,7 @@ def test_r8c_busy_session_store_creates_no_orphan_certification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -474,7 +475,7 @@ def test_r8c_busy_connection_open_maps_stable_error_before_creation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -532,7 +533,7 @@ def _service(
     *,
     kind: str,
 ) -> tuple[ModelRouterService, object]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -1732,7 +1733,7 @@ async def test_openrouter_audio_refresh_claim_allows_only_one_concurrent_get(
             transport=transport, follow_redirects=False, trust_env=False
         ),
     )
-    second_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    second_repository = service.repository
     second_router_service = ModelRouterService(
         second_repository,
         client_factory=lambda: httpx.AsyncClient(
@@ -1844,7 +1845,8 @@ async def test_openrouter_audio_refresh_recovers_claim_after_server_restart(
         expected_protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION,
     )
 
-    recovered_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    recovered_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     recovered_certification = recovered_repository.get_workload_certification(
         "local", str(pending.certification_id)
     )
@@ -1934,7 +1936,8 @@ async def test_openrouter_audio_pending_evidence_survives_crash_before_finalizer
 
     assert [item.method for item in requests].count("POST") == 1
     assert [item.url.path for item in requests].count("/v1/generation") == 0
-    recovered_repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    recovered_repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     certification = recovered_repository.list_workload_certifications(
         "local", connection_id=connection.id
     )[0]
@@ -2030,7 +2033,8 @@ async def test_r8c_direct_certification_crash_before_atomic_finalizer_is_not_rep
     assert session is not None and session["status"] == "running"
     assert session["provider_dispatch_state"] == "confirmed"
 
-    recovered = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    service.repository.close()
+    recovered = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     recovered_certification = recovered.get_workload_certification(
         "local", str(certification["id"])
     )
@@ -2955,7 +2959,7 @@ def test_r8c_flat_container_import_layout() -> None:
         assert ProviderWorkloadCertificationService._r8c_speech_parameters(
             "microsoft/mai-voice-2", openai_compatible=False
         )[0]
-        repository = SQLiteRouterRepository(tempfile.mkdtemp(), master_key=b"x" * 32)
+        repository = SQLiteRouterRepository.open(tempfile.mkdtemp(), master_key=b"x" * 32)
         service = ModelRouterService(repository)
 
         async def check_runtime_imports():
@@ -3357,7 +3361,8 @@ async def test_r8c_certification_dispatched_failure_persists_uncertain_session(
     assert sessions[0]["provider_dispatch_state"] == "uncertain"
     assert bool(sessions[0]["post_dispatched"]) is True
 
-    restarted_repository = SQLiteRouterRepository(
+    service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(
         tmp_path, master_key=b"x" * 32
     )
     restarted_service = ModelRouterService(
@@ -3792,7 +3797,7 @@ async def test_r8c_dedicated_managed_provider_only_model_reaches_preflight(
     operation: str,
 ) -> None:
     service = ModelRouterService(
-        SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+        SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     )
     gateway = _ManagedPreflightProbe("managed_required")
     provider_only_model = "provider/private-audio-model-v1"
@@ -3845,7 +3850,7 @@ async def test_r8c_legacy_provider_only_model_keeps_static_allowlist(
     operation: str,
 ) -> None:
     service = ModelRouterService(
-        SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+        SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     )
     gateway = _ManagedPreflightProbe("legacy")
     provider_only_model = "provider/private-audio-model-v1"

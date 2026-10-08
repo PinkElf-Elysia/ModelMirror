@@ -149,7 +149,7 @@ def _managed_stack(
     *,
     query_fallback: str = "none",
 ) -> tuple[RagService, SQLiteRouterRepository]:
-    repository = SQLiteRouterRepository(
+    repository = SQLiteRouterRepository.open(
         tmp_path / "router",
         master_key=b"r" * 32,
     )

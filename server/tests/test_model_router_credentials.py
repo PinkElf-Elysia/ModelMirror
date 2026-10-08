@@ -54,12 +54,13 @@ def test_canonical_master_key_precedes_legacy_and_local_file(
     monkeypatch.setenv(LEGACY_MASTER_KEY_ENV, "legacy-key-material")
     (tmp_path / "credential-master.key").write_text("local-key-material")
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection_id = create_connection(repository)
 
     assert repository.resolve_api_key("local", connection_id) == "secret-value"
+    repository.close()
     assert (
-        SQLiteRouterRepository(tmp_path, master_key="canonical-key-material")
+        SQLiteRouterRepository.open(tmp_path, master_key="canonical-key-material")
         .resolve_api_key("local", connection_id)
         == "secret-value"
     )
@@ -71,15 +72,16 @@ def test_legacy_and_local_key_fallbacks_remain_compatible(
 ) -> None:
     clear_master_key_environment(monkeypatch)
     monkeypatch.setenv(LEGACY_MASTER_KEY_ENV, "legacy-key-material")
-    legacy = SQLiteRouterRepository(tmp_path / "legacy")
+    legacy = SQLiteRouterRepository.open(tmp_path / "legacy")
     legacy_id = create_connection(legacy, "legacy-secret")
     assert legacy.resolve_api_key("local", legacy_id) == "legacy-secret"
 
     monkeypatch.delenv(LEGACY_MASTER_KEY_ENV)
-    local = SQLiteRouterRepository(tmp_path / "local")
+    local = SQLiteRouterRepository.open(tmp_path / "local")
     local_id = create_connection(local, "local-secret")
     assert (tmp_path / "local" / "credential-master.key").is_file()
-    assert SQLiteRouterRepository(tmp_path / "local").resolve_api_key(
+    local.close()
+    assert SQLiteRouterRepository.open(tmp_path / "local").resolve_api_key(
         "local", local_id
     ) == "local-secret"
 
@@ -95,15 +97,16 @@ def test_require_external_never_falls_back_to_legacy_or_local_file(
     (tmp_path / "credential-master.key").write_text("local-key-material")
 
     with pytest.raises(RouterCredentialUnavailable):
-        SQLiteRouterRepository(tmp_path)
+        SQLiteRouterRepository.open(tmp_path)
 
 
 def test_master_key_fingerprint_rejects_mismatched_key(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key="old-key")
+    repository = SQLiteRouterRepository.open(tmp_path, master_key="old-key")
     create_connection(repository)
 
+    repository.close()
     with pytest.raises(RouterCredentialUnavailable):
-        SQLiteRouterRepository(tmp_path, master_key="different-key")
+        SQLiteRouterRepository.open(tmp_path, master_key="different-key")
 
 
 def test_atomic_credential_migration_preserves_backup_and_secrets(
@@ -111,12 +114,13 @@ def test_atomic_credential_migration_preserves_backup_and_secrets(
 ) -> None:
     source_key = "old-key-material"
     target_key = "new-key-material"
-    old_repository = SQLiteRouterRepository(tmp_path, master_key=source_key)
+    old_repository = SQLiteRouterRepository.open(tmp_path, master_key=source_key)
     ids = [
         create_connection(old_repository, "first-secret"),
         create_connection(old_repository, "second-secret"),
     ]
 
+    old_repository.close()
     result = migrate_credentials(
         tmp_path,
         source_key=source_key,
@@ -125,7 +129,7 @@ def test_atomic_credential_migration_preserves_backup_and_secrets(
 
     assert result.migrated_credentials == 2
     assert Path(result.backup_path).is_file()
-    migrated = SQLiteRouterRepository(tmp_path, master_key=target_key)
+    migrated = SQLiteRouterRepository.open(tmp_path, master_key=target_key)
     assert [migrated.resolve_api_key("local", item) for item in ids] == [
         "first-secret",
         "second-secret",
@@ -147,9 +151,10 @@ def test_atomic_credential_migration_preserves_backup_and_secrets(
 def test_migration_preflight_and_interruption_leave_original_database_readable(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key="old-key")
+    repository = SQLiteRouterRepository.open(tmp_path, master_key="old-key")
     connection_id = create_connection(repository)
 
+    repository.close()
     with pytest.raises(CredentialMigrationError):
         migrate_credentials(
             tmp_path,
@@ -164,7 +169,7 @@ def test_migration_preflight_and_interruption_leave_original_database_readable(
             fail_after=1,
         )
 
-    restored = SQLiteRouterRepository(tmp_path, master_key="old-key")
+    restored = SQLiteRouterRepository.open(tmp_path, master_key="old-key")
     assert restored.resolve_api_key("local", connection_id) == "secret-value"
 
 
@@ -172,8 +177,10 @@ def test_migration_fails_closed_when_provider_data_changes_during_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key="old-key")
+    repository = SQLiteRouterRepository.open(tmp_path, master_key="old-key")
     first_id = create_connection(repository, "first-secret")
+    database_path = repository.database_path
+    repository.close()
     preflight_started = threading.Event()
     original_decrypt = Fernet.decrypt
 
@@ -204,20 +211,30 @@ def test_migration_fails_closed_when_provider_data_changes_during_preflight(
     worker = threading.Thread(target=run_migration)
     worker.start()
     assert preflight_started.wait(timeout=5)
-    second_id = create_connection(repository, "second-secret")
+    # A legacy/non-cooperating SQLite writer still must not defeat the existing
+    # data_version guard. Normal repositories now refuse this second owner.
+    second_id = "external-writer"
+    ciphertext = Fernet(SQLiteRouterRepository._normalize_key("old-key")).encrypt(b"second-secret").decode("ascii")
+    with sqlite3.connect(database_path) as external:
+        external.execute("""INSERT INTO router_connections
+            SELECT ?, tenant_id, name, kind, base_url, masked_key, ?,
+                   scopes_json, enabled, health, model_count, last_checked_at,
+                   last_error_code, last_error_hint, created_at, updated_at
+            FROM router_connections WHERE id = ?""", (second_id, ciphertext, first_id))
+    external.close()
     worker.join(timeout=10)
 
     assert not worker.is_alive()
     assert len(migration_errors) == 1
     assert isinstance(migration_errors[0], CredentialMigrationError)
     assert "changed during credential migration" in str(migration_errors[0])
-    restored = SQLiteRouterRepository(tmp_path, master_key="old-key")
+    restored = SQLiteRouterRepository.open(tmp_path, master_key="old-key")
     assert restored.resolve_api_key("local", first_id) == "first-secret"
     assert restored.resolve_api_key("local", second_id) == "second-secret"
 
 
 def test_empty_database_migration_records_target_fingerprint(tmp_path: Path) -> None:
-    SQLiteRouterRepository(tmp_path, master_key="old-key")
+    SQLiteRouterRepository.open(tmp_path, master_key="old-key")
 
     result = migrate_credentials(
         tmp_path,
@@ -227,7 +244,7 @@ def test_empty_database_migration_records_target_fingerprint(tmp_path: Path) -> 
 
     assert result.migrated_credentials == 0
     assert Path(result.backup_path).is_file()
-    assert SQLiteRouterRepository(tmp_path, master_key="new-key").list_connections(
+    assert SQLiteRouterRepository.open(tmp_path, master_key="new-key").list_connections(
         "local"
     ) == []
 
@@ -236,7 +253,7 @@ def test_tenant_environment_is_local_only_and_conflicts_fail_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path, master_key="test-key")
+    repository = SQLiteRouterRepository.open(tmp_path, master_key="test-key")
     monkeypatch.setenv("MODELMIRROR_DEFAULT_TENANT_ID", "local")
     monkeypatch.setenv("MODEL_ROUTER_TENANT_ID", "local")
     assert ModelRouterService(repository).tenant_id == "local"

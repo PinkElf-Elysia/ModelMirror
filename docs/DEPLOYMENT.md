@@ -190,8 +190,27 @@ Direct Chat 可以读取已连接 MCP Catalog 中明确标记为只读、无需�
 `FILE_ASSET_STORE_MODE` 为 `shadow` 或 `native`；存储仍为 `legacy` 时能力接口失败关闭，
 不得仅因 Managed 资格通过而向前端宣称可用。
 
-超过 90 天的运行与尝试记录可先
-dry-run 检查：
+#### Router 单写者与离线维护（R9B2）
+
+一个规范化 `MODEL_ROUTER_STORAGE_DIR` 只允许一个 Server 写入者。启动必须先取得
+`.provider-writer.lock` 的操作系统锁，再进行 Schema 检查、迁移和一次重启恢复；第二个
+实例报 `provider_storage_writer_busy` 并拒绝启动，不退回 legacy。锁文件不是 PID 文件，
+**不得删除它来强行启动**；正常关闭或进程退出后，操作系统释放锁。停机必须先停止后台
+生产者并关闭 SQLite 连接，之后才能交接所有权；停机失败时保留锁直至进程退出。
+
+使用支持进程锁的本机持久化文件系统，不把这套机制当作多实例或分布式存储支持。
+数据库本身必须是独立的普通文件，不能通过符号链接或硬链接跨目录共享；否则运行及
+凭据维护报 `provider_storage_database_unsafe`，防止两个目录锁指向同一数据库。
+不要删除链接或数据库来绕过检查，应停机核对部署路径并保留一致性备份。
+旧版本 Server 和任意 SQLite 管理工具不会遵守新进程锁：升级、回退及维护前必须显式
+停止它们；不得并行运行旧、新代码或直接绕过维护入口写库。保留数据、凭据及完成事实
+outbox。Schema 升级使用 SQLite Backup API 创建独立备份，本批仍为 v18，不回填网络数据。
+
+清理是离线维护：先停止唯一 Server，再对**已有且已完成本版本初始化**的目录执行默认
+dry-run。dry-run 不解析主密钥、不迁移、不恢复运行状态、不创建目录/文件、不清空 outbox；
+活跃写入者、缺失锁文件/数据库、不兼容 Schema 或待恢复 WAL/journal 都会明确拒绝。
+遇到待恢复日志应先正常启动并安全停止唯一 Server，不能删除日志或用忽略 WAL 的副本代替。
+超过 90 天的运行与尝试记录可先检查：
 
 ```bash
 python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_router
@@ -199,6 +218,9 @@ python -m server.model_router.cleanup_chat_receipts --storage-dir /app/model_rou
 ```
 
 第二条命令会实际删除过期 Receipt，执行前必须复核目标存储目录并保留数据库备份。
+`--apply` 与凭据迁移也必须取得相同写锁；清理不会隐式迁移或执行启动恢复，但保留原有
+显式 apply 对 Chat 完成事实 outbox 的核对，未能核对时拒绝删除。不要将 dry-run 的候选数
+当成已经删除。维护完成并关闭连接后才能重新启动 Server。
 代码回退时保留 v15 表；旧版本可忽略这些加法表。
 
 R6A 升级到 SQLite v16 前同样需要停止 Server 写入并创建一致性备份。v16 只增加

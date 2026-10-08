@@ -103,7 +103,7 @@ def _certify(
 
 
 def _service(tmp_path: Path) -> tuple[ProviderChatControlService, SQLiteRouterRepository]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     return ProviderChatControlService(ModelRouterService(repository)), repository
 
 

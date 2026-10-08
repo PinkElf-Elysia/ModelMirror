@@ -32,7 +32,7 @@ def _service(
         requests.append(request)
         return handler(request)
 
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -633,7 +633,7 @@ async def test_disabled_connection_fails_before_network(tmp_path: Path) -> None:
 def test_normalization_does_not_infer_capabilities_or_implicit_pricing(
     tmp_path: Path,
 ) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -664,7 +664,7 @@ def test_normalization_does_not_infer_capabilities_or_implicit_pricing(
 
 
 def test_explicit_price_requires_currency_and_unit(tmp_path: Path) -> None:
-    repository = SQLiteRouterRepository(tmp_path)
+    repository = SQLiteRouterRepository.open(tmp_path)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

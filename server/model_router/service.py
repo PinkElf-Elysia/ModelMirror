@@ -45,7 +45,9 @@ class ModelRouterService:
         egress_policy: ProviderEgressPolicy | None = None,
     ) -> None:
         self.tenant_id = self._resolve_tenant_id(tenant_id)
-        self.repository = repository or SQLiteRouterRepository()
+        self.repository = repository or SQLiteRouterRepository.open()
+        if isinstance(self.repository, SQLiteRouterRepository):
+            self.repository.start_if_new()
         self._client_factory = client_factory or (
             lambda: httpx.AsyncClient(
                 timeout=httpx.Timeout(12.0, connect=5.0),

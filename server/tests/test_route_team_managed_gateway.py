@@ -65,7 +65,7 @@ def _gateway(
     entry_id: str,
     handler,
 ) -> tuple[ManagedRouteTeamGateway, SQLiteRouterRepository]:
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -337,7 +337,7 @@ def test_disabled_entry_keeps_legacy_without_control_plane_activation(
 ) -> None:
     monkeypatch.delenv("MODEL_CONTROL_ROUTE_AGENT_ENABLED", raising=False)
     monkeypatch.delenv("MODEL_CONTROL_TEAM_CHAT_ENABLED", raising=False)
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     gateway = ManagedRouteTeamGateway.for_router(ModelRouterService(repository))
 
     assert gateway.routing_mode("route_agent") == "legacy"

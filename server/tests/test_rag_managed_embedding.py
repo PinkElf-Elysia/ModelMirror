@@ -211,7 +211,7 @@ async def _managed_embedding_stack(
         )
 
     transport = MockTransport(handler)
-    repository = SQLiteRouterRepository(
+    repository = SQLiteRouterRepository.open(
         tmp_path / "router",
         master_key=b"r" * 32,
     )
@@ -814,7 +814,8 @@ async def test_uncertain_managed_embedding_job_fails_restart_and_same_job_retry(
     )
     gateway.call_service.mark_dispatched(prepared)
 
-    restarted_repository = SQLiteRouterRepository(
+    gateway.call_service.repository.close()
+    restarted_repository = SQLiteRouterRepository.open(
         tmp_path / "router",
         master_key=b"r" * 32,
     )

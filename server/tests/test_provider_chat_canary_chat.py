@@ -33,7 +33,7 @@ async def client():
 
 
 def _service(tmp_path: Path) -> tuple[ModelRouterService, str]:
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

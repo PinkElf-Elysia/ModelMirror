@@ -62,7 +62,7 @@ def _gateway(
     handler,
     include_judge_binding: bool = True,
 ) -> tuple[ManagedFusionGateway, SQLiteRouterRepository]:
-    repository = SQLiteRouterRepository(tmp_path / "router", master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(

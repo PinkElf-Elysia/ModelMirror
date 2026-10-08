@@ -49,7 +49,7 @@ async def _configured_gateway(
     SQLiteRouterRepository,
 ]:
     monkeypatch.setenv("MODEL_CONTROL_OPENROUTER_BATCH_ENABLED", "true")
-    repository = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     connection = repository.create_connection(
         "local",
         RouterConnectionCreate(
@@ -419,7 +419,8 @@ async def test_restart_recovery_only_polls_runtime_batch(
         tmp_path, monkeypatch, handler
     )
     await gateway.submit(_submission(), idempotency_key="restart-runtime")
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
     router_service = ModelRouterService(
         restarted,
         client_factory=_client_factory(handler),

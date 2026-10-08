@@ -11,10 +11,13 @@ import threading
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 from pathlib import Path
 from typing import NoReturn, Protocol
 
 from cryptography.fernet import Fernet, InvalidToken
+
+from .storage_lifecycle import ProviderStorageError, StorageLease, assert_database_identity
 
 from .chat_gate import (
     REQUIRED_PROVIDER_CHAT_DRILLS,
@@ -45,7 +48,7 @@ MASTER_KEY_VERSION_METADATA_KEY = "credential_master_key_version"
 logger = logging.getLogger("modelmirror.model_router")
 
 
-class RouterRepositoryError(Exception):
+class RouterRepositoryError(ProviderStorageError):
     """Base error for the native model-router repository."""
 
 
@@ -87,6 +90,37 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+class _ClosingConnection(sqlite3.Connection):
+    _on_close = None
+
+    def close(self):
+        super().close()
+        callback, self._on_close = self._on_close, None
+        if callback is not None:
+            callback()
+
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
+def _writer_operation(method):
+    """Keep file-backed work owned across its separate SQLite transactions."""
+    @wraps(method)
+    def owned(self, *args, **kwargs):
+        with self._lock:
+            self._require_writer()
+            self._active_operations += 1
+        try:
+            return method(self, *args, **kwargs)
+        finally:
+            with self._lock:
+                self._active_operations -= 1
+    return owned
+
+
 class SQLiteRouterRepository:
     """Tenant-scoped SQLite persistence with encrypted provider credentials."""
 
@@ -102,33 +136,154 @@ class SQLiteRouterRepository:
             storage_dir
             or os.getenv("MODEL_ROUTER_STORAGE_DIR", "").strip()
             or package_dir / "storage"
-        )
+        ).resolve()
         self.database_path = self.storage_dir / "router.sqlite3"
         self.master_key_path = self.storage_dir / "credential-master.key"
         self.chat_completion_outbox_dir = (
             self.storage_dir / "chat-completion-outbox"
         )
         self._lock = threading.RLock()
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self._master_key = self._resolve_master_key(master_key)
-        self._fernet = Fernet(self._master_key)
+        self._supplied_master_key = master_key
+        self._recover_chat_on_startup = recover_chat_control_on_startup
+        self._lease = StorageLease(self.storage_dir)
+        self._mode = "new"
+        self._recovered = False
+        self._active_connections = 0
+        self._active_operations = 0
+        self._master_key = None
+        self._fernet = None
+
+    @classmethod
+    def open(cls, storage_dir=None, **kwargs):
+        """Explicit runtime startup; construction alone never touches storage."""
+        repository = cls(storage_dir, **kwargs)
+        repository.start()
+        return repository
+
+    def start_if_new(self) -> None:
+        """Explicit service ownership of an injected, inert configuration."""
+        with self._lock:
+            if self._mode == "new":
+                self.start()
+            else:
+                self._require_writer()
+
+    def start(self) -> None:
+        with self._lock:
+            if self._mode != "new":
+                raise RouterRepositoryError("provider_storage_already_started")
+            self._lease.acquire(create=True)
+            self._mode = "writer"
+            try:
+                self.migrate_schema()
+                self._master_key = self._resolve_master_key(self._supplied_master_key)
+                self._fernet = Fernet(self._master_key)
+                self._verify_or_record_master_key()
+                if self.chat_completion_outbox_dir.is_symlink():
+                    raise RouterRepositoryError("provider_chat_completion_outbox_path_unsafe")
+                self.chat_completion_outbox_dir.mkdir(parents=True, exist_ok=True)
+                self.recover_after_restart()
+            except BaseException:
+                self.close()
+                raise
+
+    @classmethod
+    def open_maintenance(cls, storage_dir, *, readonly: bool = True):
+        """Offline inspection/cleanup: no keys, migration, recovery or mkdir."""
+        repository = cls(storage_dir)
+        try:
+            repository._lease.acquire(create=False)
+            repository._mode = "readonly" if readonly else "writer"
+            if not repository.database_path.is_file():
+                raise RouterRepositoryError("provider_storage_database_missing")
+            if readonly:
+                # immutable skips SQLite sidecar writes, so only use it under
+                # the exclusive lease and when no uncheckpointed WAL exists.
+                wal = Path(str(repository.database_path) + "-wal")
+                if wal.exists() and wal.stat().st_size:
+                    raise RouterRepositoryError("provider_storage_wal_recovery_required")
+                journal = Path(str(repository.database_path) + "-journal")
+                if journal.exists() and journal.stat().st_size:
+                    raise RouterRepositoryError("provider_storage_journal_recovery_required")
+            with repository._connect() as connection:
+                if connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+                    raise RouterRepositoryError("provider_storage_schema_upgrade_required")
+            return repository
+        except BaseException:
+            repository.close()
+            raise
+
+    def _require_writer(self) -> None:
+        self._lease.assert_owned()
+        if self._mode != "writer":
+            raise RouterRepositoryError("provider_storage_readonly")
+
+    def migrate_schema(self) -> None:
+        self._require_writer()
+        if self.database_path.is_file():
+            with self._connect() as connection:
+                version = connection.execute("PRAGMA user_version").fetchone()[0]
+                if version > SCHEMA_VERSION:
+                    raise RouterRepositoryError("provider_storage_schema_newer")
+                if version < SCHEMA_VERSION:
+                    backup_path = self.storage_dir / f"router.sqlite3.backup-{uuid.uuid4().hex}"
+                    with sqlite3.connect(backup_path, factory=_ClosingConnection) as backup:
+                        connection.backup(backup)
         self._initialize()
-        self._verify_or_record_master_key()
-        if self.chat_completion_outbox_dir.is_symlink():
-            raise RouterRepositoryError(
-                "provider_chat_completion_outbox_path_unsafe"
-            )
-        self.chat_completion_outbox_dir.mkdir(parents=True, exist_ok=True)
-        if recover_chat_control_on_startup:
+
+    def recover_after_restart(self) -> None:
+        self._require_writer()
+        if self._recovered:
+            raise RouterRepositoryError("provider_storage_recovery_already_completed")
+        self._recover_provider_operations_after_restart()
+        if self._recover_chat_on_startup:
             self._reconcile_startup_chat_control_completions()
             self._recover_unresolved_chat_control_after_restart()
+        self._recovered = True
+
+    def close(self) -> None:
+        with self._lock:
+            if self._active_connections:
+                raise RouterRepositoryError("provider_storage_connections_active")
+            if self._active_operations:
+                raise RouterRepositoryError("provider_storage_operations_active")
+            self._mode = "closed"
+            self._master_key = self._fernet = self._supplied_master_key = None
+            self._lease.close()
+
+    def __enter__(self):
+        self._lease.assert_owned()
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=15)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
-        return connection
+        with self._lock:
+            self._lease.assert_owned()
+            if self._mode not in {"writer", "readonly"}:
+                raise RouterRepositoryError("provider_storage_not_started")
+            assert_database_identity(self.database_path)
+            readonly = self._mode == "readonly"
+            target = (self.database_path.as_uri() + "?mode=ro&immutable=1") if readonly else str(self.database_path)
+            connection = sqlite3.connect(target, timeout=15, uri=readonly, factory=_ClosingConnection)
+            try:
+                connection.row_factory = sqlite3.Row
+                connection.execute("PRAGMA foreign_keys = ON")
+                if readonly:
+                    connection.execute("PRAGMA query_only = ON")
+                else:
+                    connection.execute("PRAGMA journal_mode = WAL")
+            except BaseException:
+                connection.close()
+                raise
+            self._active_connections += 1
+            connection._on_close = self._connection_closed
+            return connection
+
+    def _connection_closed(self) -> None:
+        with self._lock:
+            self._active_connections -= 1
 
     def _connect_for_atomic_claim(self, busy_error_code: str) -> sqlite3.Connection:
         try:
@@ -139,6 +294,7 @@ class SQLiteRouterRepository:
             raise
 
     def _initialize(self) -> None:
+        self._require_writer()
         schema = """
         CREATE TABLE IF NOT EXISTS router_metadata (
             key TEXT PRIMARY KEY,
@@ -1184,6 +1340,11 @@ class SQLiteRouterRepository:
                             f"ALTER TABLE {table_name} "
                             f"ADD COLUMN {column} {definition}"
                         )
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def _recover_provider_operations_after_restart(self) -> None:
+        self._require_writer()
+        with self._lock, self._connect() as connection:
             now = utc_now()
             connection.execute(
                 """
@@ -1282,7 +1443,6 @@ class SQLiteRouterRepository:
                 """,
                 (now, now),
             )
-            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _reconcile_startup_chat_control_completions(self) -> None:
         """Apply durable terminal facts before restart recovery marks orphans."""
@@ -3718,6 +3878,7 @@ class SQLiteRouterRepository:
             if key not in {"stagedAt", "payloadSha256"}
         }
 
+    @_writer_operation
     def stage_chat_control_completion(
         self,
         tenant_id: str,
@@ -3739,6 +3900,7 @@ class SQLiteRouterRepository:
     ) -> dict[str, object]:
         """Durably stage content-free scoped workload completion facts."""
 
+        self._require_writer()
         clean_tenant = self._tenant_id(tenant_id)
         if status not in {"succeeded", "failed", "cancelled"}:
             raise RouterRepositoryError(
@@ -3837,6 +3999,7 @@ class SQLiteRouterRepository:
                     pass
         return payload
 
+    @_writer_operation
     def reconcile_chat_control_completions(
         self,
         tenant_id: str,
@@ -3845,6 +4008,7 @@ class SQLiteRouterRepository:
     ) -> dict[str, int]:
         """Apply staged completions; retain any envelope that cannot commit."""
 
+        self._require_writer()
         clean_tenant = self._tenant_id(tenant_id)
         paths = (
             [self._chat_completion_outbox_path(clean_tenant, attempt_id)]
@@ -4481,7 +4645,7 @@ class SQLiteRouterRepository:
                         "provider_chat_completion_reconciliation_pending"
                     )
             with self._connect() as connection:
-                connection.execute("BEGIN IMMEDIATE")
+                connection.execute("BEGIN IMMEDIATE" if apply else "BEGIN")
                 run_count = int(
                     connection.execute(
                         """

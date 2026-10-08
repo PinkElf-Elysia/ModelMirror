@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from server.model_router.provider_catalog import normalize_provider_catalog
 from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.service import ModelRouterService
+from server.model_router.chat_stable import ProviderChatStableService
 from server.tests.test_provider_chat_stable_service import _service, _qualify_scoped_model, SCOPED_MODEL_ID
 
 @pytest.mark.asyncio
@@ -17,7 +19,11 @@ async def test_rpg_dispatch_has_own_scope_exact_certificate_and_durable_completi
     service.mark_dispatched(dispatch)
     repository.stage_chat_control_completion("local", dispatch.attempt_id,
         expected_run_id=dispatch.run_id, status="succeeded", result_class="success", actual_model=SCOPED_MODEL_ID)
-    restarted = SQLiteRouterRepository(tmp_path, master_key=b"x" * 32)
+    repository.close()
+    restarted = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    service = ProviderChatStableService(ModelRouterService(
+        restarted, egress_policy=service.router_service.egress_policy,
+    ))
     run = next(r for r in restarted.list_chat_control_receipts("local")["runs"] if r["id"] == dispatch.run_id)
     assert run["gateway"] == "rpg_scoped"
     assert run["status"] == "succeeded"
