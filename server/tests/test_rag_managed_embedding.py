@@ -1017,3 +1017,7 @@ async def test_runtime_embedding_identity_drift_fails_candidate_without_retry(
     assert runtime_state["runtime_post_count"] == 1
     with pytest.raises(PipelineVersionNotFoundError):
         service.get_pipeline_version(job["candidate_version_id"])
+    if expected_code == "provider_embedding_model_mismatch":
+        policy = ProviderWorkloadControlService(_router_service).get_policy("rag_embedding")
+        assert policy.effective_status == "degraded_required"
+        assert runtime_state["runtime_post_count"] == 1

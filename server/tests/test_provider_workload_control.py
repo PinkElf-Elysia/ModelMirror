@@ -198,7 +198,7 @@ def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
 
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         tables = {
             row[0]
             for row in connection.execute(
@@ -268,7 +268,7 @@ def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
                 for row in connection.execute(f"PRAGMA table_info({table_name})")
             }
             assert {"workload_run_id", "workload_call_id", "adapter_contract", "provider_dispatch_state", "post_dispatched"} <= job_columns
-    assert SCHEMA_VERSION == 18
+    assert SCHEMA_VERSION == 19
     assert len(repository.get_workload_policy_bundle("local")["policies"]) == 1
     assert repository.get_workload_policy_bundle("other")["policies"] == []
 
@@ -778,6 +778,20 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         "provider_workload_connection_missing"
     )
     assert missing_connection.bindings[0].provider_kind is None
+
+    synthetic_connection = repository.create_connection("local", RouterConnectionCreate(
+        name="Synthetic receipt fixture", kind="openai_compatible",
+        base_url="https://fixture.example/v1", api_key="synthetic-test-only", scopes=["chat"],
+    ))
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute("UPDATE router_connections SET id='conn-one' WHERE tenant_id='local' AND id=?", (synthetic_connection.id,))
+    repository.claim_workload_certification(
+        "local", certification_id="cert-one", connection_id="conn-one",
+        connection_fingerprint="connection-one", contract_version=PROVIDER_WORKLOAD_CONTRACT_VERSION,
+        execution_shape="chat_json_object", requested_model="provider/model",
+        profile={}, profile_fingerprint="profile-one", idempotency_key_hash="cert-key",
+    )
+    repository.complete_workload_certification("local", "cert-one", status="passed", checks={}, warning_codes=[])
 
     repository.activate_workload_policy(
         "local",
@@ -1446,6 +1460,10 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
     expected_warning: str | None,
 ) -> None:
     requests: list[Request] = []
+    # Distinctive finite sentinels cannot collide with timestamp fragments such
+    # as 10:31:50.142699. Check every component, not a three-byte substring.
+    vectors = [[0.1234567890123, 0.2345678901234, 0.3456789012345],
+               [0.4567890123456, 0.5678901234567, 0.6789012345678]]
 
     def handler(request: Request) -> Response:
         requests.append(request)
@@ -1465,8 +1483,8 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
             json={
                 "model": actual_model,
                 "data": [
-                    {"index": 0, "embedding": [0.1, 0.2, 0.3]},
-                    {"index": 1, "embedding": [0.4, 0.5, 0.6]},
+                    {"index": 0, "embedding": vectors[0]},
+                    {"index": 1, "embedding": vectors[1]},
                 ],
                 "usage": {"prompt_tokens": 4, "total_tokens": 4},
             },
@@ -1527,7 +1545,11 @@ async def test_embedding_certification_validates_exact_finite_vector_space(
     )
     assert sum(request.method == "POST" for request in requests) == 1
     serialized = repository.database_path.read_bytes()
-    assert b"0.1" not in serialized
+    for vector in vectors:
+        for component in vector:
+            assert str(component).encode() not in serialized
+    assert b"ModelMirror embedding certification one." not in serialized
+    assert b"ModelMirror embedding certification two." not in serialized
     assert b"embedding-cert-secret" not in serialized
 
 
@@ -2228,7 +2250,7 @@ def test_r7_local_fallback_policy_is_explicit_and_entry_scoped(
 
 
 @pytest.mark.asyncio
-async def test_json_certification_qualifies_exact_binding_and_new_evidence_stales_it(
+async def test_json_certification_renewal_preserves_binding_and_expiry_still_blocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2317,22 +2339,24 @@ async def test_json_certification_qualifies_exact_binding_and_new_evidence_stale
         acknowledge_fail_closed=True,
     )
     assert control.get_policy("meta_agent").approval_valid is True
+    activated_revision = control.get_policy("meta_agent").revision
 
     second = await certification.run(
         connection.id, request, idempotency_key="json-second"
     )
     assert second.status == "passed"
     drifted = control.get_policy("meta_agent")
-    assert drifted.bindings[0].valid is False
-    assert drifted.approval_valid is False
-    assert drifted.bindings[0].reason_code == (
-        "provider_workload_newer_certification_requires_policy_update"
-    )
+    assert drifted.bindings[0].valid is True
+    assert drifted.approval_valid is True
+    assert drifted.bindings[0].certification_id == second.certification_id
+    assert drifted.policy_fingerprint == saved.policy_fingerprint
+    assert drifted.revision == activated_revision
     with sqlite3.connect(repository.database_path) as database:
         database.execute(
-            "UPDATE provider_workload_certifications SET completed_at = ? WHERE id = ?",
-            ("2020-01-01T00:00:00+00:00", second.certification_id),
+            "UPDATE provider_qualification_events SET completed_at = ?, expires_at = ? WHERE tenant_id='local' AND source='provider_workload' AND certification_id = ?",
+            ("2020-01-01T00:00:00+00:00", "2020-01-02T00:00:00+00:00", second.certification_id),
         )
+        database.execute("UPDATE provider_qualification_intervals SET valid_from='2020-01-01T00:00:00+00:00' WHERE tenant_id='local'")
     monkeypatch.setenv(
         "MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS", "300"
     )

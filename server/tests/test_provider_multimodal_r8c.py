@@ -1485,9 +1485,10 @@ async def test_openrouter_audio_refresh_rejects_expired_post_evidence_before_get
     )
     with sqlite3.connect(service.repository.database_path) as database:
         database.execute(
-            "UPDATE provider_workload_certifications "
-            "SET completed_at = '2020-01-01T00:00:00+00:00' "
-            "WHERE tenant_id = 'local' AND id = ?",
+            "UPDATE provider_qualification_observations "
+            "SET observed_at = '2020-01-01T00:00:00+00:00' "
+            "WHERE tenant_id = 'local' AND source = 'provider_workload' "
+            "AND certification_id = ? AND sequence = 1",
             (str(pending.certification_id),),
         )
 

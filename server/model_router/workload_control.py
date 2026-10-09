@@ -11,6 +11,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Awaitable, Callable, Mapping
 
 import httpx
@@ -18,6 +19,7 @@ import httpx
 from . import chat_audio_input_fixture as chat_input_fixture
 from . import r8e_video_fixture as video_fixture
 from .chat_control import ProviderChatControlService
+from .qualifications import qualification_admin_summary
 from .egress import AuthorizedProviderTarget, ProviderEgressError
 from .provider_catalog import ProviderCatalogService
 from .provider_chat import ProviderChatTarget, ProviderChatTransport
@@ -1674,9 +1676,9 @@ class ProviderWorkloadCertificationService:
                 "R8D 音频资格必须由运行流内模型证据确认，不能通过异步元数据升级。",
                 status_code=409,
             )
-        time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
-            certification
-        )
+        time_reason = self.repository.certification_refresh_time_status(
+            self.router_service.tenant_id, "provider_workload", str(certification["id"])
+        )[0]
         if time_reason is not None:
             raise RouterServiceError(
                 time_reason.replace("provider_chat_", "provider_workload_", 1),
@@ -5239,9 +5241,9 @@ class ProviderWorkloadCertificationService:
             status = "stale"
             blocked_reason = "provider_multimodal_protocol_stale"
         elif status == "passed":
-            time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
-                row
-            )
+            time_reason = self.repository.certification_time_status(
+                self.router_service.tenant_id, "provider_workload", str(row["id"])
+            )[0]
             if time_reason is not None:
                 status = "stale"
                 blocked_reason = time_reason.replace(
@@ -5366,9 +5368,9 @@ class ProviderWorkloadCertificationService:
                     session.get("provider_dispatch_state") or ""
                 ) or None
                 refresh_time_reason = (
-                    ProviderChatControlService._certification_time_status(  # noqa: SLF001
-                        row
-                    )
+                    self.repository.certification_refresh_time_status(
+                        self.router_service.tenant_id, "provider_workload", str(row["id"])
+                    )[0]
                     if str(row["status"]) == "uncertain"
                     else None
                 )
@@ -5429,6 +5431,11 @@ class ProviderWorkloadCertificationService:
             )
         return ProviderWorkloadCertificationSummary(
             certification_id=str(row["id"]),
+            qualification=qualification_admin_summary(
+                self.repository.get_certification_qualification(
+                    self.router_service.tenant_id, "provider_workload", str(row["id"])
+                ), now=datetime.now(UTC),
+            ),
             connection_id=connection.id,
             connection_name=connection.name,
             provider_kind=connection.kind,
@@ -5961,7 +5968,8 @@ class ProviderWorkloadControlService:
         for row in bindings:
             if not isinstance(row, dict):
                 continue
-            valid, reason, connection = self._binding_validity(row)
+            valid, reason, connection, current = self._binding_validity(row)
+            current_certification_id = str(current["certification_id"] if valid and current else row["certification_id"])
             binding_summaries.append(
                 ProviderWorkloadBindingSummary(
                     execution_shape=str(row["execution_shape"]),  # type: ignore[arg-type]
@@ -5973,7 +5981,7 @@ class ProviderWorkloadControlService:
                     provider_kind=(
                         connection.kind if connection is not None else None
                     ),
-                    certification_id=str(row["certification_id"]),
+                    certification_id=current_certification_id,
                     certification_source=str(row["certification_source"]),  # type: ignore[arg-type]
                     connection_fingerprint=str(row["connection_fingerprint"]),
                     qualification_fingerprint=str(row["qualification_fingerprint"]),
@@ -6080,7 +6088,9 @@ class ProviderWorkloadControlService:
                     **qualification,
                     "execution_shape": execution_shape,
                     "certification_source": "provider_chat",
-                    "qualification_fingerprint": _fingerprint(qualification),
+                    "qualification_fingerprint": _fingerprint({
+                        key: value for key, value in qualification.items() if key != "certification_id"
+                    }),
                 },
                 "qualified",
             )
@@ -6164,6 +6174,9 @@ class ProviderWorkloadControlService:
             rerank_access_mode=rerank_access_mode,
             adapter_contract=adapter_contract,
         )
+        certification = self.repository.get_admission_certification(
+            self.router_service.tenant_id, "provider_workload", certification
+        )
         if certification is None:
             return None, "provider_workload_certification_required"
         if str(certification["status"]) != "passed":
@@ -6229,9 +6242,11 @@ class ProviderWorkloadControlService:
             )
             if evidence_reason is not None:
                 return None, evidence_reason
-        time_reason = ProviderChatControlService._certification_time_status(  # noqa: SLF001
-            certification
-        )
+        time_reason = self.repository.certification_time_status(
+            self.router_service.tenant_id,
+            "provider_workload",
+            str(certification["id"]),
+        )[0]
         if time_reason is not None:
             return None, time_reason.replace("provider_chat_", "provider_workload_", 1)
         expected_actual_model = model_id
@@ -6277,6 +6292,11 @@ class ProviderWorkloadControlService:
             )
             if not matches:
                 return None, "provider_workload_certification_model_mismatch"
+        validity = self.repository.get_certification_qualification(
+            self.router_service.tenant_id, "provider_workload", str(certification["id"])
+        )
+        if validity is None:
+            return None, "provider_workload_certification_expiry_unknown"
         qualification = {
             "execution_shape": execution_shape,
             "connection_id": connection_id,
@@ -6286,6 +6306,8 @@ class ProviderWorkloadControlService:
             "connection_fingerprint": fingerprint,
             "contract_version": PROVIDER_WORKLOAD_CONTRACT_VERSION,
             "profile_fingerprint": str(certification["profile_fingerprint"]),
+            "qualification_series_id": validity["series_id"],
+            "qualification_interval_id": validity["interval_id"],
             "rerank_access_mode": rerank_access_mode,
             "adapter_contract": adapter_contract,
             "protocol_version": (
@@ -6294,18 +6316,20 @@ class ProviderWorkloadControlService:
                 else None
             ),
         }
-        qualification["qualification_fingerprint"] = _fingerprint(qualification)
+        qualification["qualification_fingerprint"] = _fingerprint({
+            key: value for key, value in qualification.items() if key != "certification_id"
+        })
         return qualification, "qualified"
 
     def _binding_validity(
         self, row: dict[str, object]
-    ) -> tuple[bool, str, RouterConnection | None]:
+    ) -> tuple[bool, str, RouterConnection | None, dict[str, object] | None]:
         try:
             connection = self.repository.get_connection(
                 self.router_service.tenant_id, str(row["connection_id"])
             )
         except RouterRepositoryError:
-            return False, "provider_workload_connection_missing", None
+            return False, "provider_workload_connection_missing", None, None
         current, reason = self._current_qualification(
             connection_id=str(row["connection_id"]),
             model_id=str(row["model_id"]),
@@ -6322,30 +6346,33 @@ class ProviderWorkloadControlService:
             ),
         )
         if current is None:
-            return False, reason, connection
+            return False, reason, connection, None
         if str(current["certification_source"]) != str(
             row["certification_source"]
         ):
-            return False, "provider_workload_qualification_changed", connection
-        if str(current["certification_id"]) != str(row["certification_id"]):
-            return False, "provider_workload_newer_certification_requires_policy_update", connection
+            return False, "provider_workload_qualification_changed", connection, current
+        if not self.repository.certifications_share_qualification_interval(
+            self.router_service.tenant_id, str(row["certification_source"]),
+            str(row["certification_id"]), str(current["certification_id"]),
+        ):
+            return False, "provider_workload_newer_certification_requires_policy_update", connection, current
         if str(current["connection_fingerprint"]) != str(
             row["connection_fingerprint"]
         ):
-            return False, "provider_workload_connection_fingerprint_changed", connection
+            return False, "provider_workload_connection_fingerprint_changed", connection, current
         if str(current["qualification_fingerprint"]) != str(
             row["qualification_fingerprint"]
         ):
-            return False, "provider_workload_qualification_changed", connection
+            return False, "provider_workload_qualification_changed", connection, current
         if str(current.get("adapter_contract") or "") != str(
             row.get("adapter_contract") or ""
         ):
-            return False, "provider_multimodal_adapter_changed", connection
+            return False, "provider_multimodal_adapter_changed", connection, current
         if str(current.get("protocol_version") or "") != str(
             row.get("protocol_version") or ""
         ):
-            return False, "provider_multimodal_protocol_changed", connection
-        return True, "qualified", connection
+            return False, "provider_multimodal_protocol_changed", connection, current
+        return True, "qualified", connection, current
 
     @staticmethod
     def _policy_fingerprint(

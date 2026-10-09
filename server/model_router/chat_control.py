@@ -5,7 +5,7 @@ import json
 import os
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from .chat_gate import (
     MIN_PROVIDER_CHAT_GATE_DAYS,
@@ -15,12 +15,6 @@ from .chat_gate import (
     REQUIRED_PROVIDER_CHAT_DRILLS,
     evaluate_provider_chat_gate,
     validate_provider_chat_drills,
-)
-from .chat_canary import (
-    DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
-    MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
-    MIN_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
-    PROVIDER_CHAT_CERTIFICATION_MAX_AGE_ENV,
 )
 from .provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
 from .repository import RouterCredentialUnavailable, RouterRepositoryError
@@ -734,7 +728,10 @@ class ProviderChatControlService:
             )
             valid = (
                 current is not None
-                and current["certification_id"] == row["certification_id"]
+                and self.repository.certifications_share_qualification_interval(
+                    self.router_service.tenant_id, "provider_chat",
+                    str(row["certification_id"]), str(current["certification_id"]),
+                )
                 and current["connection_fingerprint"]
                 == row["connection_fingerprint"]
             )
@@ -744,9 +741,11 @@ class ProviderChatControlService:
                 connection_name=connection.name,
                 provider_kind=connection.kind,
                 model_id=model_id,
-                certification_id=str(row["certification_id"]),
+                certification_id=str(current["certification_id"] if valid else row["certification_id"]),
                 valid=valid,
-                reason_code="qualified" if valid else reason,
+                reason_code="qualified" if valid else (
+                    "provider_chat_qualification_interval_changed" if current is not None else reason
+                ),
             )
         except RouterRepositoryError:
             raise RouterServiceError(
@@ -817,6 +816,9 @@ class ProviderChatControlService:
         )
         if certification is None:
             return None, "provider_chat_capability_certification_required"
+        certification = self.repository.get_admission_certification(
+            self.router_service.tenant_id, "provider_chat", certification
+        )
         if str(certification["status"]) != "passed":
             return None, "provider_chat_capability_certification_not_passed"
         if str(certification["connection_fingerprint"]) != fingerprint:
@@ -848,6 +850,11 @@ class ProviderChatControlService:
             return None, "provider_chat_certification_model_identity_required"
         if actual_model is not None and str(actual_model) != model_id:
             return None, "provider_chat_certification_model_mismatch"
+        validity = self.repository.get_certification_qualification(
+            self.router_service.tenant_id, "provider_chat", str(certification["id"])
+        )
+        if validity is None:
+            return None, "provider_chat_certification_expiry_unknown"
         return (
             {
                 "capability": capability,
@@ -856,6 +863,8 @@ class ProviderChatControlService:
                 "certification_id": str(certification["id"]),
                 "connection_fingerprint": fingerprint,
                 "contract_version": PROVIDER_CHAT_CONTRACT_VERSION,
+                "qualification_series_id": validity["series_id"],
+                "qualification_interval_id": validity["interval_id"],
             },
             "qualified",
         )
@@ -935,38 +944,13 @@ class ProviderChatControlService:
             ),
         )
 
-    @staticmethod
     def _certification_time_status(
+        self,
         certification: dict[str, object],
     ) -> str | None:
-        raw = os.getenv(PROVIDER_CHAT_CERTIFICATION_MAX_AGE_ENV, "").strip()
-        if raw:
-            try:
-                max_age_seconds = int(raw)
-            except ValueError:
-                return "provider_chat_certification_ttl_invalid"
-            if not (
-                MIN_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
-                <= max_age_seconds
-                <= MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
-            ):
-                return "provider_chat_certification_ttl_invalid"
-        else:
-            max_age_seconds = DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS
-        completed_at_text = str(certification.get("completed_at") or "").strip()
-        try:
-            completed_at = datetime.fromisoformat(
-                completed_at_text.replace("Z", "+00:00")
-            )
-        except ValueError:
-            return "provider_chat_certification_time_invalid"
-        if completed_at.tzinfo is None:
-            return "provider_chat_certification_time_invalid"
-        if datetime.now(UTC) >= completed_at.astimezone(UTC) + timedelta(
-            seconds=max_age_seconds
-        ):
-            return "provider_chat_certification_expired"
-        return None
+        return self.repository.certification_time_status(
+            self.router_service.tenant_id, "provider_chat", str(certification["id"])
+        )[0]
 
     @staticmethod
     def _fingerprint(
@@ -983,7 +967,10 @@ class ProviderChatControlService:
             "auto_enabled": bool(auto_enabled),
             "stable_models": stable_models,
             "routes": routes,
-            "qualifications": qualifications,
+            "qualifications": [
+                {key: value for key, value in qualification.items() if key != "certification_id"}
+                for qualification in qualifications
+            ],
         }
         return hashlib.sha256(
             json.dumps(

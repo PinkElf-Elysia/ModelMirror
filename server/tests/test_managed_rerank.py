@@ -438,6 +438,36 @@ async def test_managed_rerank_rejects_untrusted_results_without_retry(
     assert len(runtime_posts) == 1
     assert raised.value.receipt["status"] == "failed"
     assert raised.value.receipt["calls"][0]["dispatched"] is True
+    if expected_code == "provider_rerank_model_mismatch":
+        assert gateway.routing_mode("rag_rerank") == "degraded_required"
+        with pytest.raises(ManagedRerankError):
+            gateway.qualification("rag_rerank")
+        assert len(requests) == certification_request_count + 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,expected_mode", [
+    (401, "degraded_required"), (403, "degraded_required"),
+    (429, "managed_required"), (422, "managed_required"),
+])
+async def test_rerank_http_failure_controls_qualification_without_second_post(
+    tmp_path, monkeypatch, status, expected_mode,
+):
+    gateway, repository, requests = await _stack(tmp_path, monkeypatch, runtime_status=status)
+    before = len(requests)
+    qualification = gateway.qualification("rag_rerank")
+    run = gateway.start_run("rag_rerank", parent_run_reference="synthetic:http-failure")
+    try:
+        with pytest.raises(ManagedRerankError):
+            await run.rerank("synthetic query", ["synthetic document"],
+                model_id=qualification.model_id, top_n=1,
+                logical_call_key="http-failure", call_sequence=1, timeout_seconds=3)
+        assert len(requests) == before + 1
+        assert requests[-1].method == "POST"
+        assert gateway.routing_mode("rag_rerank") == expected_mode
+        assert len(requests) == before + 1  # status projection is strictly local
+    finally:
+        repository.close()
 
 
 @pytest.mark.asyncio

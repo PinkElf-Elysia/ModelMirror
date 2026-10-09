@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from .qualifications import qualification_admin_summary
+
 import asyncio
 import hashlib
 import json
@@ -343,7 +347,15 @@ class ProviderChatCertificationService:
             blocked_reason = "provider_chat_certification_already_running"
         checks = json.loads(str(row["checks_json"] or "{}"))
         warnings = json.loads(str(row["warnings_json"] or "[]"))
+        qualification = qualification_admin_summary(
+            self.repository.get_certification_qualification(
+                self.router_service.tenant_id, "provider_chat", str(row["id"])
+            ), now=datetime.now(UTC),
+        )
+        if status == "passed" and not qualification["valid"]:
+            status = "stale"
         return ProviderChatCertificationSummary(
+            qualification=qualification,
             certification_id=str(row["id"]),
             connection_id=connection.id,
             connection_name=connection.name,

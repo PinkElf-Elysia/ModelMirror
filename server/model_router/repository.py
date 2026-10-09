@@ -18,6 +18,21 @@ from typing import NoReturn, Protocol
 from cryptography.fernet import Fernet, InvalidToken
 
 from .storage_lifecycle import ProviderStorageError, StorageLease, assert_database_identity
+from .qualification_storage import create_qualification_schema
+from .qualification_events import (
+    begin_qualification_event,
+    complete_qualification_event,
+    invalidate_connection_intervals,
+    invalidate_certification_intervals,
+    invalidate_chat_attempt_intervals,
+    read_qualification_event,
+    read_qualification_state,
+    share_open_qualification_interval,
+    admission_certification,
+    dispatch_qualification_current,
+    workload_qualification_hard_failure,
+)
+from .qualifications import qualification_refresh_time_status, qualification_time_status
 
 from .chat_gate import (
     REQUIRED_PROVIDER_CHAT_DRILLS,
@@ -36,7 +51,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -236,6 +251,18 @@ class SQLiteRouterRepository:
         if self._recovered:
             raise RouterRepositoryError("provider_storage_recovery_already_completed")
         self._recover_provider_operations_after_restart()
+        with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for source, table in (
+                ("provider_chat", "provider_chat_certifications"),
+                ("provider_workload", "provider_workload_certifications"),
+            ):
+                rows = connection.execute(f"""SELECT e.tenant_id, e.certification_id
+                    FROM provider_qualification_events e JOIN {table} c
+                        ON c.tenant_id=e.tenant_id AND c.id=e.certification_id
+                    WHERE e.source=? AND e.status='running' AND c.status='uncertain'""", (source,)).fetchall()
+                for row in rows:
+                    self._complete_qualification(connection, row["tenant_id"], source, row["certification_id"])
         if self._recover_chat_on_startup:
             self._reconcile_startup_chat_control_completions()
             self._recover_unresolved_chat_control_after_restart()
@@ -250,6 +277,48 @@ class SQLiteRouterRepository:
             self._mode = "closed"
             self._master_key = self._fernet = self._supplied_master_key = None
             self._lease.close()
+
+    def _begin_qualification(self, connection, tenant_id, source, certification_id):
+        try:
+            return begin_qualification_event(
+                connection, tenant_id=tenant_id, source=source, certification_id=certification_id,
+                configured_ttl=os.getenv("MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS"),
+            )
+        except ValueError as exc:
+            raise RouterRepositoryError(str(exc)) from None
+
+    def _complete_qualification(self, connection, tenant_id, source, certification_id):
+        try:
+            return complete_qualification_event(
+                connection, tenant_id=tenant_id, source=source,
+                certification_id=certification_id, continuity_blocked=False,
+            )
+        except ValueError as exc:
+            raise RouterRepositoryError(str(exc)) from None
+
+    def get_certification_qualification(self, tenant_id, source, certification_id):
+        with self._lock, self._connect() as connection:
+            return read_qualification_state(connection, self._tenant_id(tenant_id), source, certification_id)
+
+    def certification_time_status(self, tenant_id, source, certification_id):
+        return qualification_time_status(
+            self.get_certification_qualification(tenant_id, source, certification_id),
+            now=datetime.now(UTC),
+        )
+
+    def certification_refresh_time_status(self, tenant_id, source, certification_id):
+        return qualification_refresh_time_status(
+            self.get_certification_qualification(tenant_id, source, certification_id),
+            now=datetime.now(UTC),
+        )
+
+    def certifications_share_qualification_interval(self, tenant_id, source, saved_id, current_id):
+        with self._lock, self._connect() as connection:
+            return share_open_qualification_interval(connection, self._tenant_id(tenant_id), source, saved_id, current_id)
+
+    def get_admission_certification(self, tenant_id, source, latest):
+        with self._lock, self._connect() as connection:
+            return admission_certification(connection, self._tenant_id(tenant_id), source, latest)
 
     def __enter__(self):
         self._lease.assert_owned()
@@ -1340,6 +1409,7 @@ class SQLiteRouterRepository:
                             f"ALTER TABLE {table_name} "
                             f"ADD COLUMN {column} {definition}"
                         )
+            create_qualification_schema(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _recover_provider_operations_after_restart(self) -> None:
@@ -1649,6 +1719,11 @@ class SQLiteRouterRepository:
             if cursor.rowcount != 1:
                 raise RouterConnectionNotFound(
                     "Model service connection was not found."
+                )
+            if configuration_changed or (payload.enabled is not None and payload.enabled != current.enabled):
+                invalidate_connection_intervals(
+                    connection, tenant_id=self._tenant_id(tenant_id), connection_id=connection_id,
+                    observed_at=utc_now(), reason_code="provider_qualification_connection_changed",
                 )
         return self.get_connection(tenant_id, connection_id)
 
@@ -2357,6 +2432,7 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_chat_certification_already_running"
                 ) from exc
+            self._begin_qualification(connection, clean_tenant, "provider_chat", certification_id)
             row = connection.execute(
                 """
                 SELECT * FROM provider_chat_certifications
@@ -2415,6 +2491,7 @@ class SQLiteRouterRepository:
             )
             if cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_chat_certification_not_running")
+            self._complete_qualification(connection, clean_tenant, "provider_chat", certification_id)
             row = connection.execute(
                 """
                 SELECT * FROM provider_chat_certifications
@@ -3057,6 +3134,7 @@ class SQLiteRouterRepository:
             """,
             (tenant_id, connection_id, model_id, capability),
         ).fetchone()
+        certification = admission_certification(connection, tenant_id, "provider_chat", certification)
         if (
             certification is None
             or str(certification["id"]) != certification_id
@@ -3073,10 +3151,13 @@ class SQLiteRouterRepository:
         completed_at = self._parse_chat_dispatch_timestamp(
             certification["completed_at"]
         )
-        expirations.append(
-            completed_at
-            + timedelta(seconds=certification_max_age_seconds)
+        time_reason, expires_at = qualification_time_status(
+            read_qualification_state(connection, tenant_id, "provider_chat", certification_id),
+            now=datetime.now(UTC),
         )
+        if time_reason is not None or expires_at is None:
+            self._chat_dispatch_drift()
+        expirations.append(self._parse_chat_dispatch_timestamp(expires_at))
         hard_failure = connection.execute(
             """
             SELECT COALESCE(
@@ -3133,7 +3214,10 @@ class SQLiteRouterRepository:
             ).fetchone()
             if (
                 qualification is None
-                or str(qualification["certification_id"]) != certification_id
+                or not share_open_qualification_interval(
+                    connection, tenant_id, "provider_chat",
+                    str(qualification["certification_id"]), certification_id,
+                )
                 or str(qualification["contract_version"]) != contract_version
                 or str(qualification["connection_fingerprint"])
                 != self._current_dispatch_connection_fingerprint(
@@ -3243,7 +3327,17 @@ class SQLiteRouterRepository:
             capability = str(qualification["capability"])
             connection_id = str(qualification["connection_id"])
             model_id = str(qualification["model_id"])
-            certification_id = str(qualification["certification_id"])
+            latest = connection.execute(
+                "SELECT * FROM provider_chat_certifications WHERE tenant_id=? AND connection_id=? "
+                "AND capability=? AND requested_model=? ORDER BY created_at DESC, id DESC LIMIT 1",
+                (tenant_id, connection_id, capability, model_id),
+            ).fetchone()
+            latest = admission_certification(connection, tenant_id, "provider_chat", latest)
+            if latest is None or not share_open_qualification_interval(
+                connection, tenant_id, "provider_chat", str(qualification["certification_id"]), str(latest["id"])
+            ):
+                self._chat_dispatch_drift()
+            certification_id = str(latest["id"])
             fingerprint = self._validate_current_dispatch_certification(
                 connection,
                 tenant_id=tenant_id,
@@ -3564,6 +3658,11 @@ class SQLiteRouterRepository:
                 "SELECT * FROM provider_chat_attempts WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, attempt_id),
             ).fetchone()
+            if result_class == "hard_failure" and row["dispatched"]:
+                invalidate_chat_attempt_intervals(
+                    connection, tenant_id=clean_tenant,
+                    attempt_id=attempt_id, observed_at=now,
+                )
         return dict(row)
 
     def complete_chat_control_dispatch(
@@ -3710,6 +3809,11 @@ class SQLiteRouterRepository:
             if run_cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_chat_run_not_running")
 
+            if observed_hard_failure:
+                invalidate_chat_attempt_intervals(
+                    connection, tenant_id=clean_tenant,
+                    attempt_id=attempt_id, observed_at=now,
+                )
             if observed_hard_failure and run["epoch_id"]:
                 failure_code = next(
                     (
@@ -4117,6 +4221,16 @@ class SQLiteRouterRepository:
                 "SELECT * FROM provider_chat_runs WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, run_id),
             ).fetchone()
+            if bool(hard_failure) or result_class == "hard_failure":
+                for attempt in connection.execute(
+                    "SELECT id FROM provider_chat_attempts "
+                    "WHERE tenant_id = ? AND run_id = ? AND dispatched = 1",
+                    (clean_tenant, run_id),
+                ).fetchall():
+                    invalidate_chat_attempt_intervals(
+                        connection, tenant_id=clean_tenant,
+                        attempt_id=attempt["id"], observed_at=now,
+                    )
             if bool(hard_failure) and row is not None and row["epoch_id"]:
                 failure_code = next(
                     (
@@ -4379,6 +4493,24 @@ class SQLiteRouterRepository:
             str(row["requested_model"]): int(row["success_count"])
             for row in model_rows
         }
+        # Accepted historical rows stay in their original epochs. Both status
+        # and required activation use this same deduplicated evidence path.
+        from .qualification_history_import import inherited_gate_rows
+        from .qualification_history_proof import HistoricalProofError
+        try:
+            inherited = inherited_gate_rows(connection, tenant_id, epoch_id)
+        except HistoricalProofError as exc:
+            raise RouterRepositoryError(str(exc)) from None
+        combined = dict(aggregate)
+        for run in inherited:
+            combined["request_count"] = int(combined["request_count"] or 0) + 1
+            if run["status"] == "succeeded" and run["result_class"] == "success":
+                combined["success_count"] = int(combined["success_count"] or 0) + 1
+                model_successes[run["requested_model"]] = model_successes.get(run["requested_model"], 0) + 1
+            timestamps = [value for value in (combined["first_created_at"], combined["last_created_at"], run["created_at"]) if value]
+            combined["first_created_at"] = min(timestamps, key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")))
+            combined["last_created_at"] = max(timestamps, key=lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")))
+        aggregate = combined
         observed_days = 0.0
         if (
             aggregate is not None
@@ -4651,6 +4783,12 @@ class SQLiteRouterRepository:
                         """
                         SELECT COUNT(*) FROM provider_chat_runs
                         WHERE tenant_id = ? AND status != 'running'
+                            AND NOT EXISTS (
+                                SELECT 1 FROM provider_qualification_epoch_mappings AS inherited
+                                WHERE inherited.tenant_id = provider_chat_runs.tenant_id
+                                  AND inherited.source_epoch_id = provider_chat_runs.epoch_id
+                                  AND inherited.status = 'accepted'
+                            )
                             AND hard_failure = 0
                             AND NOT EXISTS (
                                 SELECT 1 FROM provider_chat_attempts AS failed_attempt
@@ -4670,6 +4808,12 @@ class SQLiteRouterRepository:
                         WHERE tenant_id = ? AND run_id IN (
                             SELECT id FROM provider_chat_runs
                             WHERE tenant_id = ? AND status != 'running'
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM provider_qualification_epoch_mappings AS inherited
+                                    WHERE inherited.tenant_id = provider_chat_runs.tenant_id
+                                      AND inherited.source_epoch_id = provider_chat_runs.epoch_id
+                                      AND inherited.status = 'accepted'
+                                )
                                 AND hard_failure = 0
                                 AND NOT EXISTS (
                                     SELECT 1 FROM provider_chat_attempts AS failed_attempt
@@ -4690,6 +4834,12 @@ class SQLiteRouterRepository:
                         WHERE tenant_id = ? AND run_id IN (
                             SELECT id FROM provider_chat_runs
                             WHERE tenant_id = ? AND status != 'running'
+                                AND NOT EXISTS (
+                                    SELECT 1 FROM provider_qualification_epoch_mappings AS inherited
+                                    WHERE inherited.tenant_id = provider_chat_runs.tenant_id
+                                      AND inherited.source_epoch_id = provider_chat_runs.epoch_id
+                                      AND inherited.status = 'accepted'
+                                )
                                 AND hard_failure = 0
                                 AND NOT EXISTS (
                                     SELECT 1 FROM provider_chat_attempts AS failed_attempt
@@ -4706,6 +4856,12 @@ class SQLiteRouterRepository:
                         """
                         DELETE FROM provider_chat_runs
                         WHERE tenant_id = ? AND status != 'running'
+                            AND NOT EXISTS (
+                                SELECT 1 FROM provider_qualification_epoch_mappings AS inherited
+                                WHERE inherited.tenant_id = provider_chat_runs.tenant_id
+                                  AND inherited.source_epoch_id = provider_chat_runs.epoch_id
+                                  AND inherited.status = 'accepted'
+                            )
                             AND hard_failure = 0
                             AND NOT EXISTS (
                                 SELECT 1 FROM provider_chat_attempts AS failed_attempt
@@ -5124,6 +5280,7 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_workload_certification_already_running"
                 ) from exc
+            self._begin_qualification(connection, clean_tenant, "provider_workload", certification_id)
             if multimodal_session_id is not None:
                 try:
                     connection.execute(
@@ -5320,6 +5477,7 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_workload_certification_not_running"
                 )
+            self._complete_qualification(connection, clean_tenant, "provider_workload", certification_id)
             row = connection.execute(
                 """
                 SELECT * FROM provider_workload_certifications
@@ -5493,6 +5651,7 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_certification_pair_not_finalized"
                 )
+            self._complete_qualification(connection, clean_tenant, "provider_workload", certification_id)
             completed_certification = connection.execute(
                 """
                 SELECT * FROM provider_workload_certifications
@@ -5857,6 +6016,7 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_pending_evidence_not_recorded"
                 )
+            self._complete_qualification(connection, clean_tenant, "provider_workload", str(certification["id"]))
             recorded_certification = connection.execute(
                 """
                 SELECT * FROM provider_workload_certifications
@@ -6193,6 +6353,7 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant, certification_id),
             ).fetchone()
+            self._complete_qualification(connection, clean_tenant, "provider_workload", certification_id)
         return dict(completed_certification), dict(completed_session)
 
     def update_multimodal_certification_session(
@@ -6821,6 +6982,25 @@ class SQLiteRouterRepository:
                     raise RouterRepositoryError(
                         "provider_workload_dispatch_preconditions_changed"
                     )
+            certification_source = "provider_chat" if execution_shape in {"chat_text", "chat_tools"} else "provider_workload"
+            binding = connection.execute(
+                "SELECT rerank_access_mode FROM provider_workload_bindings "
+                "WHERE tenant_id=? AND entry_id=? AND execution_shape=? AND model_id=? AND connection_id=?",
+                (clean_tenant, entry_id, execution_shape, requested_model, connection_id),
+            ).fetchone()
+            if binding is None or not dispatch_qualification_current(
+                connection, tenant_id=clean_tenant, source=certification_source,
+                certification_id=certification_id, connection_id=connection_id,
+                model_id=requested_model, execution_shape=execution_shape,
+                adapter_contract=adapter_contract, rerank_access_mode=binding["rerank_access_mode"],
+            ):
+                raise RouterRepositoryError("provider_workload_dispatch_preconditions_changed")
+            validity_reason, _ = qualification_time_status(
+                read_qualification_state(connection, clean_tenant, certification_source, certification_id),
+                now=datetime.now(UTC),
+            )
+            if validity_reason is not None:
+                raise RouterRepositoryError("provider_workload_dispatch_preconditions_changed")
             cursor = connection.execute(
                 """
                 UPDATE provider_workload_calls
@@ -6853,7 +7033,20 @@ class SQLiteRouterRepository:
                             AND binding.execution_shape = provider_workload_calls.execution_shape
                             AND binding.model_id = provider_workload_calls.requested_model
                             AND binding.connection_id = provider_workload_calls.connection_id
-                            AND binding.certification_id = provider_workload_calls.certification_id
+                            AND EXISTS (
+                                SELECT 1 FROM provider_qualification_events saved
+                                JOIN provider_qualification_events current
+                                    ON current.tenant_id = saved.tenant_id AND current.source = saved.source
+                                    AND current.series_id = saved.series_id AND current.interval_id = saved.interval_id
+                                JOIN provider_qualification_intervals interval
+                                    ON interval.tenant_id = current.tenant_id AND interval.id = current.interval_id
+                                WHERE saved.tenant_id = binding.tenant_id
+                                    AND saved.source = binding.certification_source
+                                    AND saved.certification_id = binding.certification_id
+                                    AND current.certification_id = provider_workload_calls.certification_id
+                                    AND saved.status = 'passed' AND current.status = 'passed'
+                                    AND interval.closed_at IS NULL
+                            )
                             AND binding.connection_fingerprint = provider_workload_calls.connection_fingerprint
                     )
                 """,
@@ -6922,7 +7115,8 @@ class SQLiteRouterRepository:
         with self._lock, self._connect() as connection:
             current = connection.execute(
                 """
-                SELECT status, dispatched, run_id FROM provider_workload_calls
+                SELECT status, dispatched, run_id, execution_shape, certification_id
+                FROM provider_workload_calls
                 WHERE tenant_id = ? AND id = ?
                 """,
                 (clean_tenant, call_id),
@@ -6976,6 +7170,18 @@ class SQLiteRouterRepository:
             )
             if cursor.rowcount != 1:
                 raise RouterRepositoryError("provider_workload_call_not_running")
+            if workload_qualification_hard_failure(
+                dispatched=current["dispatched"], status=status,
+                result_class=result_class, error_code=error_code,
+            ):
+                source = (
+                    "provider_chat" if current["execution_shape"] in {"chat_text", "chat_tools"}
+                    else "provider_workload"
+                )
+                invalidate_certification_intervals(
+                    connection, tenant_id=clean_tenant, source=source,
+                    certification_id=current["certification_id"], observed_at=now,
+                )
             if complete_run_id is not None:
                 if str(current["run_id"]) != complete_run_id:
                     raise RouterRepositoryError(
@@ -7388,11 +7594,25 @@ class SQLiteRouterRepository:
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            run = connection.execute(
+                "SELECT * FROM provider_chat_canary_runs WHERE tenant_id=? AND id=?",
+                (clean_tenant, run_id),
+            ).fetchone()
+            if run is None or run["status"] != "running" or run["dispatched"]:
+                raise RouterRepositoryError("provider_chat_canary_run_not_running")
+            if not dispatch_qualification_current(
+                connection, tenant_id=clean_tenant, source="provider_chat",
+                certification_id=run["certification_id"], connection_id=run["connection_id"],
+                model_id=run["requested_model"], execution_shape="chat_text",
+                adapter_contract=None, rerank_access_mode=None,
+            ):
+                raise RouterRepositoryError("provider_chat_canary_dispatch_preconditions_changed")
             cursor = connection.execute(
                 """
                 UPDATE provider_chat_canary_runs
                 SET dispatched = 1, updated_at = ?
-                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                WHERE tenant_id = ? AND id = ? AND status = 'running' AND dispatched = 0
                 """,
                 (utc_now(), clean_tenant, run_id),
             )
@@ -7464,6 +7684,11 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant, run_id),
             ).fetchone()
+            if result_class == "hard_failure" and row["dispatched"]:
+                invalidate_certification_intervals(
+                    connection, tenant_id=clean_tenant, source="provider_chat",
+                    certification_id=row["certification_id"], observed_at=now,
+                )
         return dict(row)
 
     def list_chat_canary_runs(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import pytest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from server.model_router.chat_canary import (
     ProviderChatCanaryStreamEvidence,
 )
 from server.model_router.provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
-from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository
+from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository, RouterRepositoryError
 from server.model_router.schemas import RouterConnectionCreate, RouterConnectionUpdate
 from server.model_router.service import ModelRouterService
 
@@ -101,6 +102,51 @@ def _complete_canary_run(
         e2e_ms=200.0,
         total_tokens=4,
     )
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_canary_dispatch_rechecks_saved_expiry_and_is_one_shot(tmp_path, expired):
+    repository, connection_id = _repository(tmp_path)
+    certification = _pass_certification(repository, connection_id)
+    repository.claim_chat_canary_run("local", run_id="dispatch-race", connection_id=connection_id,
+        connection_fingerprint=repository.connection_config_fingerprint("local", connection_id),
+        certification_id=str(certification["id"]), contract_version=PROVIDER_CHAT_CANARY_CONTRACT_VERSION,
+        requested_model="provider/model", session_id_hash="synthetic", baseline_overlap=False)
+    if expired:
+        now = datetime.now(UTC)
+        with sqlite3.connect(repository.database_path) as db:
+            db.execute("UPDATE provider_qualification_events SET completed_at=?,expires_at=?",
+                ((now - timedelta(seconds=301)).isoformat(), (now - timedelta(seconds=1)).isoformat()))
+            db.execute("UPDATE provider_qualification_intervals SET valid_from=?",
+                ((now - timedelta(days=1)).isoformat(),))
+        with pytest.raises(RouterRepositoryError, match="provider_chat_canary_dispatch_preconditions_changed"):
+            repository.mark_chat_canary_dispatched("local", "dispatch-race")
+    else:
+        repository.mark_chat_canary_dispatched("local", "dispatch-race")
+        with pytest.raises(RouterRepositoryError, match="provider_chat_canary_run_not_running"):
+            repository.mark_chat_canary_dispatched("local", "dispatch-race")
+    assert repository.list_chat_canary_runs("local")[0]["dispatched"] == int(not expired)
+
+
+def test_pending_renewal_retains_valid_canary_but_failure_closes_it(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED", "true")
+    repository, connection_id = _repository(tmp_path)
+    first = _pass_certification(repository, connection_id)
+    service = ProviderChatCanaryService(ModelRouterService(repository))
+    service.update_policy(connection_id, enabled=True)
+    repository.claim_chat_certification("local", certification_id="renewal",
+        connection_id=connection_id, connection_fingerprint=first["connection_fingerprint"],
+        requested_model="provider/model", contract_version=PROVIDER_CHAT_CONTRACT_VERSION,
+        idempotency_key_hash="renewal-key")
+    eligible = service.eligibility("provider/model")
+    assert eligible.available
+    assert eligible.certification["id"] == first["id"]
+    admin = service.admin_status()
+    assert admin.connections[0].models[0].available
+    repository.complete_chat_certification("local", "renewal", status="failed", checks={}, warning_codes=[])
+    assert not service.eligibility("provider/model").available
+    assert not service.admin_status().connections[0].models[0].available
+    repository.close()
 
 
 def test_v12_to_v13_is_additive_and_preserves_round2_rows(tmp_path: Path) -> None:
@@ -312,7 +358,7 @@ def test_client_cancel_is_recorded_without_pausing_the_model(
     assert public.reason_code == "available"
 
 
-def test_expired_or_invalid_certification_ttl_fails_closed(
+def test_expired_saved_qualification_is_not_reinterpreted_by_current_ttl(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("MODEL_MIRROR_PROVIDER_CHAT_CANARY_ENABLED", "true")
@@ -324,10 +370,11 @@ def test_expired_or_invalid_certification_ttl_fails_closed(
     expired_at = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
     with sqlite3.connect(repository.database_path) as connection:
         connection.execute(
-            "UPDATE provider_chat_certifications "
-            "SET completed_at = ?, updated_at = ? WHERE tenant_id = ? AND id = ?",
-            (expired_at, expired_at, "local", certification["id"]),
+            "UPDATE provider_qualification_events "
+            "SET completed_at = ?, expires_at = ? WHERE tenant_id = ? AND certification_id = ?",
+            (expired_at, (datetime.now(UTC) - timedelta(hours=1)).isoformat(), "local", certification["id"]),
         )
+        connection.execute("UPDATE provider_qualification_intervals SET valid_from=? WHERE tenant_id='local'", (expired_at,))
     repository.save_chat_canary_policy(
         "local", connection_id=connection_id, enabled=True
     )
@@ -342,7 +389,7 @@ def test_expired_or_invalid_certification_ttl_fails_closed(
     )
     invalid = service.public_status("provider/model")
     assert invalid.available is False
-    assert invalid.reason_code == "certification_ttl_invalid"
+    assert invalid.reason_code == "certification_expired"
 
 
 def test_admin_evidence_marks_old_fingerprint_stale_and_aggregates_current_window(

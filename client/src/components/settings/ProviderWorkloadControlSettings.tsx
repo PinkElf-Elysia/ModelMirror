@@ -8,6 +8,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import RealtimeCertificationPanel from "./RealtimeCertificationPanel";
+import { ProviderQualificationStatus, type ProviderQualificationSummary } from "./ProviderQualificationStatus";
 
 type EntryId =
   | "agent_shadow"
@@ -98,6 +99,7 @@ interface ConnectionSummary {
 }
 
 interface CertificationSummary {
+  qualification?: ProviderQualificationSummary | null;
   certification_id?: string | null;
   connection_id: string;
   connection_name: string;
@@ -945,6 +947,7 @@ export default function ProviderWorkloadControlSettings({
               {certifications.length ? certifications.map((item) => <div className="rounded-lg border border-white/10 bg-white/[0.025] p-3" key={item.certification_id ?? `${item.connection_id}-${item.execution_shape}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-sm font-semibold text-white">{item.connection_name} · {SHAPE_LABELS[item.execution_shape]}</p><span className={`rounded-full border px-2.5 py-1 text-xs ${item.status === "passed" ? "border-emerald-300/25 text-emerald-200" : item.status === "failed" ? "border-rose-300/25 text-rose-100" : "border-amber-300/25 text-amber-100"}`}>{item.status}</span></div>
                 <p className="mt-2 break-all font-mono text-xs text-slate-300">{item.requested_model ?? "尚未运行"}</p>
+                <ProviderQualificationStatus qualification={item.qualification} />
                 <p className="mt-1 text-xs text-slate-400">{item.error_code ?? (item.total_tokens != null ? `${item.total_tokens} tokens` : "不保存合成输入或模型正文")}</p>
                 {item.rerank_access_mode ? <p className="mt-1 text-xs text-slate-500">访问方式：{item.rerank_access_mode}</p> : null}
                 {item.vector_dimension != null ? <p className="mt-1 text-xs text-slate-500">向量维度：{item.vector_dimension}</p> : null}
