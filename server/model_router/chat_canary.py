@@ -34,7 +34,7 @@ PROVIDER_CHAT_CERTIFICATION_MAX_AGE_ENV = (
 )
 PROVIDER_CHAT_CANARY_CONTRACT_VERSION = "modelmirror-provider-chat-canary-v1"
 PROVIDER_CHAT_CANARY_CONSENT_REVISION = "provider-chat-canary-consent-v1"
-DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS = 24 * 60 * 60
+DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 MIN_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS = 5 * 60
 MAX_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
 
@@ -217,6 +217,11 @@ class ProviderChatCanaryService:
         self.router_service = router_service
         self.repository = router_service.repository
 
+    def _admission_certification(self, certification):
+        return self.repository.get_admission_certification(
+            self.router_service.tenant_id, "provider_chat", certification
+        )
+
     @staticmethod
     def enabled() -> bool:
         value = os.getenv(PROVIDER_CHAT_CANARY_ENABLED_ENV, "false")
@@ -259,6 +264,7 @@ class ProviderChatCanaryService:
         rows_by_connection: dict[str, list[dict[str, object]]] = {}
         latest_certifications: dict[tuple[str, str], dict[str, object]] = {}
         for row in certifications:
+            row = self._admission_certification(row)
             connection_id = str(row["connection_id"])
             model_id = str(row["requested_model"])
             rows_by_connection.setdefault(connection_id, []).append(row)
@@ -343,7 +349,7 @@ class ProviderChatCanaryService:
             current_fingerprint = self._fingerprint(connection.id)
             current_certifications = [
                 row
-                for row in certifications
+                for row in map(self._admission_certification, certifications)
                 if (
                     row["status"] == "passed"
                     and row["connection_fingerprint"] == current_fingerprint
@@ -396,6 +402,7 @@ class ProviderChatCanaryService:
             connection.id,
             self._model_id(model_id),
         )
+        certification = self._admission_certification(certification)
         if certification is None:
             return ProviderChatCanaryEligibility(
                 False,
@@ -428,7 +435,10 @@ class ProviderChatCanaryService:
                 connection_fingerprint=fingerprint,
             )
         certification_time_reason, _ = self._certification_time_status(certification)
-        if certification_time_reason is not None:
+        pause_reason = self._pause_reason(connection.id, model_id, certification)
+        if certification_time_reason is not None and not (
+            certification_time_reason == "certification_invalidated" and pause_reason is not None
+        ):
             return ProviderChatCanaryEligibility(
                 False,
                 certification_time_reason,
@@ -436,7 +446,6 @@ class ProviderChatCanaryService:
                 certification=certification,
                 connection_fingerprint=fingerprint,
             )
-        pause_reason = self._pause_reason(connection.id, model_id, certification)
         overlap = self._baseline_overlap(connection.base_url, default_gateway_url)
         if pause_reason is not None:
             return ProviderChatCanaryEligibility(
@@ -493,6 +502,7 @@ class ProviderChatCanaryService:
             connection.id,
             self._model_id(model_id),
         )
+        certification = self._admission_certification(certification)
         return ProviderChatCanaryEligibility(
             False,
             reason_code,
@@ -723,13 +733,15 @@ class ProviderChatCanaryService:
         if certification["status"] != "passed":
             return ProviderChatCanaryEligibility(False, "certification_not_passed")
         certification_time_reason, _ = self._certification_time_status(certification)
-        if certification_time_reason is not None:
-            return ProviderChatCanaryEligibility(False, certification_time_reason)
         pause_reason = self._pause_reason(
             connection.id,
             str(certification["requested_model"]),
             certification,
         )
+        if certification_time_reason is not None and not (
+            certification_time_reason == "certification_invalidated" and pause_reason is not None
+        ):
+            return ProviderChatCanaryEligibility(False, certification_time_reason)
         overlap = self._baseline_overlap(connection.base_url, default_gateway_url)
         return ProviderChatCanaryEligibility(
             pause_reason is None,
@@ -822,18 +834,10 @@ class ProviderChatCanaryService:
     def _certification_time_status(
         self, certification: dict[str, object]
     ) -> tuple[str | None, str | None]:
-        max_age_seconds, configuration_error = (
-            self._certification_max_age_seconds()
+        reason, expires_at = self.repository.certification_time_status(
+            self.router_service.tenant_id, "provider_chat", str(certification["id"])
         )
-        if configuration_error is not None or max_age_seconds is None:
-            return configuration_error or "certification_ttl_invalid", None
-        completed_at = self._parse_utc_datetime(certification.get("completed_at"))
-        if completed_at is None:
-            return "certification_time_invalid", None
-        expires_at = completed_at + timedelta(seconds=max_age_seconds)
-        if datetime.now(UTC) >= expires_at:
-            return "certification_expired", expires_at.isoformat()
-        return None, expires_at.isoformat()
+        return (reason.removeprefix("provider_chat_") if reason else None), expires_at
 
     def _run_currency(
         self,

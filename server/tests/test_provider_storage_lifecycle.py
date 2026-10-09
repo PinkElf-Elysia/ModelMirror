@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository
 from server.model_router.storage_lifecycle import ProviderStorageError
 
 
@@ -336,7 +336,7 @@ def test_schema_migration_backs_up_without_recovering_records(tmp_path, monkeypa
     with SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32) as owner:
         assert observed == ["running"]
         with owner._connect() as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 18
+            assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
             assert db.execute("SELECT status FROM provider_catalog_refreshes").fetchone()[0] == "uncertain"
     backups = list(tmp_path.glob("router.sqlite3.backup-*"))
     assert len(backups) == 1

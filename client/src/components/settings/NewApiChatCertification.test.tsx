@@ -17,6 +17,21 @@ describe("NewApiChatCertification", () => {
     vi.unstubAllGlobals();
   });
 
+  it("shows unknown historical expiry without sending a paid call", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => String(input).includes("/canaries/chat")
+      ? response({ connections: [], runs: [], aggregates: [] })
+      : response({ enabled: true, contract_version: "modelmirror-provider-chat-v1", certifications: [{
+        connection_id: "conn-1", capability: "chat_text", status: "stale", can_run: true,
+        warning_codes: [], qualification: { valid: false, reason_code: "provider_chat_certification_expiry_unknown" },
+      }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NewApiChatCertification connectionEnabled connectionId="conn-1" connectionKind="newapi" csrfToken="csrf-1" />);
+    expect(await screen.findByText(/历史到期时间未知/)).toBeInTheDocument();
+    expect(screen.getByText("认证当前不可用于调用")).toBeInTheDocument();
+    expect(screen.queryByText("连接配置已变化，结果已过期")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.every((call) => call.length === 1)).toBe(true);
+  });
+
   it("requires refresh, model selection, and billed-call confirmation before one POST", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

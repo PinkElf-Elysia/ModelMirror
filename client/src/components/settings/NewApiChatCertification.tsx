@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BadgeCheck, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
+import { ProviderQualificationStatus, type ProviderQualificationSummary } from "./ProviderQualificationStatus";
 
 type CertificationStatus =
   | "not_run"
@@ -11,6 +12,7 @@ type CertificationStatus =
 type ChatCapability = "chat_text" | "chat_tools" | "chat_file_output";
 
 interface CertificationSummary {
+  qualification?: ProviderQualificationSummary | null;
   certification_id?: string | null;
   connection_id: string;
   capability: ChatCapability;
@@ -117,7 +119,7 @@ const STATUS_LABELS: Record<CertificationStatus, string> = {
   passed: "当前能力已通过",
   failed: "认证失败",
   uncertain: "结果不确定，未自动重放",
-  stale: "连接配置已变化，结果已过期",
+  stale: "认证当前不可用于调用",
 };
 
 const BLOCKED_LABELS: Record<string, string> = {
@@ -360,6 +362,7 @@ export default function NewApiChatCertification({
         </span>
       </div>
 
+      <ProviderQualificationStatus qualification={summary?.qualification} />
       <label className="mt-3 block text-[11px] text-slate-400">
         认证能力
         <select

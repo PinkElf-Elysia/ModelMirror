@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import UTC, datetime, timedelta
 import sqlite3
 
 import pytest
@@ -124,6 +125,74 @@ def test_default_policy_is_legacy_and_r5b_public_status_never_blocks(
     assert public.available is False
     assert public.would_block is False
     assert public.reason_code == "provider_chat_control_feature_disabled"
+
+
+def test_on_time_renewal_keeps_policy_epoch_and_returns_current_certification(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    service, repository = _service(tmp_path)
+    connection_id = _connection(repository, name="newAPI", kind="newapi")
+    now = datetime.now(UTC)
+    monkeypatch.setattr("server.model_router.repository.utc_now", lambda: (now - timedelta(days=1)).isoformat())
+    first = _certify(repository, connection_id, "chat_text")
+    saved = service.update_policy(ProviderChatControlPolicyUpdate(
+        expected_revision=0, mode="newapi_preferred", stable_model_ids=[MODEL_ID],
+        routes=[ProviderChatControlRouteUpdate(capability="chat_text", connection_ids=[connection_id])],
+    ))
+    epoch = repository.get_open_chat_control_gate_epoch("local", saved.policy_fingerprint)
+    monkeypatch.setattr("server.model_router.repository.utc_now", lambda: now.isoformat())
+    repository.claim_chat_certification("local", certification_id="renewed",
+        connection_id=connection_id, connection_fingerprint=repository.connection_config_fingerprint("local", connection_id),
+        contract_version="modelmirror-provider-chat-v1", requested_model=MODEL_ID,
+        idempotency_key_hash="renewal")
+    while_renewing = service.get_policy()
+    assert while_renewing.qualifications[0].valid is True
+    assert while_renewing.qualifications[0].certification_id == first
+    assert repository.get_open_chat_control_gate_epoch("local", saved.policy_fingerprint)["id"] == epoch["id"]
+    repository.complete_chat_certification("local", "renewed", status="passed", checks={}, warning_codes=[], actual_model=MODEL_ID)
+    current = service.get_policy()
+    assert current.qualifications[0].valid is True
+    assert current.qualifications[0].certification_id == "renewed"
+    assert current.policy_fingerprint == saved.policy_fingerprint
+    assert current.revision == saved.revision
+    assert repository.get_open_chat_control_gate_epoch("local", saved.policy_fingerprint)["id"] == epoch["id"]
+    assert repository.certifications_share_qualification_interval("local", "provider_chat", first, "renewed")
+
+
+def test_unknown_historical_expiry_does_not_inherit_qualification(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    service, repository = _service(tmp_path)
+    connection_id = _connection(repository, name="newAPI", kind="newapi")
+    _certify(repository, connection_id, "chat_text")
+    # Model a v18 record without fabricating lifetime proof from current env.
+    with sqlite3.connect(repository.database_path) as database:
+        database.execute("DELETE FROM provider_qualification_observations")
+        database.execute("DELETE FROM provider_qualification_events")
+    monkeypatch.setenv("MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS", "2592000")
+    current, reason = service.current_qualification(connection_id=connection_id, model_id=MODEL_ID, capability="chat_text")
+    assert current is None
+    assert reason == "provider_chat_certification_expiry_unknown"
+
+
+def test_failed_renewal_then_pass_cannot_restore_old_approval_interval(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "true")
+    service, repository = _service(tmp_path)
+    connection_id = _connection(repository, name="newAPI", kind="newapi")
+    first = _certify(repository, connection_id, "chat_text")
+    saved = service.update_policy(ProviderChatControlPolicyUpdate(
+        expected_revision=0, mode="newapi_preferred", stable_model_ids=[MODEL_ID],
+        routes=[ProviderChatControlRouteUpdate(capability="chat_text", connection_ids=[connection_id])],
+    ))
+    for identifier, status in (("failed-renewal", "failed"), ("fresh-pass", "passed")):
+        repository.claim_chat_certification("local", certification_id=identifier, connection_id=connection_id,
+            connection_fingerprint=repository.connection_config_fingerprint("local", connection_id),
+            contract_version="modelmirror-provider-chat-v1", requested_model=MODEL_ID, idempotency_key_hash=identifier)
+        repository.complete_chat_certification("local", identifier, status=status, checks={}, warning_codes=[], actual_model=MODEL_ID)
+    assert not repository.certifications_share_qualification_interval("local", "provider_chat", first, "fresh-pass")
+    current = service.get_policy()
+    assert current.qualifications[0].valid is False
+    assert current.qualifications[0].reason_code == "provider_chat_qualification_interval_changed"
+    assert current.configured_mode == "newapi_preferred"
+    assert repository.get_open_chat_control_gate_epoch("local", saved.policy_fingerprint) is None
 
 
 def test_atomic_policy_accepts_qualified_newapi_primary_and_managed_fallback(
@@ -276,12 +345,15 @@ def test_expired_certification_invalidates_current_gate_epoch(
         ).fetchone()[0] == 1
         connection.execute(
             """
-            UPDATE provider_chat_certifications
-            SET completed_at = '2020-01-01T00:00:00+00:00'
-            WHERE tenant_id = 'local' AND connection_id = ?
+            UPDATE provider_qualification_events
+            SET completed_at = '2020-01-01T00:00:00+00:00', expires_at = '2020-01-02T00:00:00+00:00'
+            WHERE tenant_id = 'local' AND certification_id IN (
+                SELECT id FROM provider_chat_certifications WHERE tenant_id = 'local' AND connection_id = ?
+            )
             """,
             (newapi_id,),
         )
+        connection.execute("UPDATE provider_qualification_intervals SET valid_from='2020-01-01T00:00:00+00:00' WHERE tenant_id='local'")
 
     stale = service.get_policy()
     assert stale.qualifications[0].valid is False

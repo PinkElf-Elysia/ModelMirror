@@ -62,6 +62,7 @@ describe("help center content catalog", () => {
       "modules-and-terms",
       "understand-rag-content-contract",
       "recover-unavailable-feature",
+      "review-provider-qualification",
       "review-remote-mcp-auth",
       "review-specialized-models",
       "check-availability-cost-data",
@@ -75,7 +76,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
     expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("a29da8a5");
@@ -126,6 +127,24 @@ describe("help center content catalog", () => {
     helpArticles.forEach((article) => {
       expect(indexedPaths, article.slug).toContain(`/help/${article.slug}`);
     });
+  });
+
+  it("keeps qualification examples on their own verified baseline and read-only path", () => {
+    const article = helpArticles.find((item) => item.slug === "review-provider-qualification");
+    expect(article?.verifiedCommit).toBe("114461d3");
+    expect(article?.verifiedDate).toBe("2026-10-08");
+    expect(article?.content).toContain("合成数据");
+    expect(article?.content).toContain("不要把未知当成已过期");
+    expect(article?.content).toContain("健康检查不续期");
+    expect(article?.content).toContain("不点击“运行能力认证”");
+    expect(article?.content).toContain("认证不自动启用路由");
+    for (const state of ["unknown", "expired", "renewed"]) {
+      expect(article?.content).toContain(`/help-center/114461d3/provider-qualification-${state}.png`);
+    }
+    const recovery = helpArticles.find((item) => item.slug === "recover-unavailable-feature");
+    expect(recovery?.content).toContain("/help/review-provider-qualification");
+    expect(recovery?.content).not.toContain("/help-center/114461d3/");
+    expect(searchHelpContent("资格提示").some((item) => item.id === article?.slug)).toBe(true);
   });
 
   it("separates attachment preparation from real vision acceptance", () => {

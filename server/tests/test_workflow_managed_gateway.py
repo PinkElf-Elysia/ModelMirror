@@ -759,6 +759,35 @@ async def test_stream_failure_is_one_post_and_never_replayed(
     assert failure.value.code == expected_code
     assert len(requests) == 1
     assert run.receipt_summary()["call_count"] == 1
+    control = ProviderWorkloadControlService(service)
+    policy = control.get_policy("workflow_interactive_llm")
+    assert policy.effective_status == "degraded_required"
+    with pytest.raises(ManagedWorkflowRoutingError) as degraded:
+        gateway.start_node_run(
+            source_kind="workflow_classic",
+            execution_reference=f"failure-{expected_code}",
+            node_id="llm-node",
+        )
+    assert degraded.value.code == "provider_workload_policy_not_active"
+    # Synthetic recertification and explicit approval must not clear the old
+    # logical-call tombstone. No certification Transport is invoked here.
+    connection_id = policy.bindings[0].connection_id
+    repository = service.repository
+    repository.claim_chat_certification("local", certification_id="renewed-after-hard-failure",
+        connection_id=connection_id,
+        connection_fingerprint=repository.connection_config_fingerprint("local", connection_id),
+        contract_version=PROVIDER_CHAT_CONTRACT_VERSION, requested_model=MODEL_ID,
+        idempotency_key_hash="renewed-after-hard-failure")
+    repository.complete_chat_certification("local", "renewed-after-hard-failure", status="passed",
+        checks={"catalog_contains_model": True, "http_2xx": True, "content_observed": True,
+                "response_complete": True, "terminal_observed": True},
+        warning_codes=[], actual_model=MODEL_ID)
+    saved = control.update_policy("workflow_interactive_llm", ProviderWorkloadPolicyUpdate(
+        expected_revision=policy.revision,
+        bindings=[ProviderWorkloadBindingUpdate(execution_shape=item.execution_shape,
+            model_id=item.model_id, connection_id=item.connection_id) for item in policy.bindings]))
+    control.activate("workflow_interactive_llm", ProviderWorkloadActivationRequest(
+        expected_revision=saved.revision, no_open_p0_p1=True, acknowledge_fail_closed=True))
     with pytest.raises(ManagedWorkflowRoutingError) as replay:
         gateway.start_node_run(
             source_kind="workflow_classic",

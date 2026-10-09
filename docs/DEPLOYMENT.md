@@ -190,6 +190,68 @@ Direct Chat 可以读取已连接 MCP Catalog 中明确标记为只读、无需�
 `FILE_ASSET_STORE_MODE` 为 `shadow` 或 `native`；存储仍为 `legacy` 时能力接口失败关闭，
 不得仅因 Managed 资格通过而向前端宣称可用。
 
+#### 保存期限与资格续期（R9B3，离线及合成验收）
+
+R9B3 将 Router SQLite 加法升级到 v19。新认证在开始时冻结
+`MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS`：未配置默认为
+2592000 秒（30 天），显式较短配置继续生效，合法范围为 300–2592000 秒。
+更改当前环境不能延长已保存期限；旧认证没有原期限证明时标记
+`certification_expiry_unknown`，保留原记录但不据此放行 Managed 调用。
+
+同一连接指纹、精确模型、形态、Adapter、Profile 和契约，在到期前续期成功
+可保持原连续区间。资格空档、配置漂移和硬失败不能通过一次成功续期抹去；
+新资格不自动激活策略，不改变 R5 的 500 次/14 天等门禁。健康或目录 GET
+不续期；付费认证仍须逐次批准。
+
+历史纪元检查命令默认只读，使用已停止写入且没有待处理 WAL 的目录：
+
+```powershell
+python -B -m server.model_router.qualification_history --storage-dir <离线Router目录> --epoch-id <历史纪元ID>
+```
+
+不提供历史证明时只生成拒绝报告；`--apply --expected-plan-fingerprint <dry-run摘要>`
+在独立授权后创建一致性备份并追加拒绝映射，不改旧认证、样本或策略。
+正向继承必须额外提供人工审核的 v2 manifest、原始一致性快照，以及能证明原 TTL 和
+完整配置连续性的部署/审计资料。当前环境、单次成功认证、文件哈希或人工声明本身
+不能代替原始资料。操作人员必须先核对资料真实性、完整性、凭据代际及配置未漂移，
+再独立批准 manifest SHA-256。没有可信资料时保持拒绝，不得补造文件。
+
+```powershell
+python -B -m server.model_router.qualification_history --storage-dir <离线Router目录> --epoch-id <源纪元ID> --proof-manifest <已审核manifest.json> --reviewed-manifest-sha256 <批准的SHA256> --source-snapshot <原始备份.sqlite3> --deployment-artifact <资料SHA256>=<明确本地路径> --acknowledge-provenance-review
+```
+
+manifest 契约为 `modelmirror-qualification-history-proof-v2`，只包含：
+`source_snapshot_sha256`、`source_epoch_id`、`target_epoch_id`、`observed_until`、
+`lifetimes` 和 `configuration_continuity`。每条 lifetime 保存认证 ID、原 TTL、资料摘要和
+原配置生效起止时间；continuity 保存规范化配置摘要、完整历史资料摘要、生效起止时间
+及 `complete_history_reviewed=true`。后者需要真正的连续性资料，不是允许操作者绕过核验的开关。
+所有路径由命令行明确提供，JSON 不接受文件路径、凭据或额外字段。v1 资料仍可被解析，
+但不能单独用于正向继承。
+
+默认 dry-run 的 `status=accepted, applied=false` 只是可审阅提案，不是已经迁移或达到
+required 门禁。再次获得迁移授权后，使用相同参数附加
+`--apply --expected-plan-fingerprint <本次dry-run摘要>`；备份后在同一事务内重新核验并写入
+纪元与逐样本映射。原 TTL 仅用于证明历史，不回填或延长旧认证；目标必须已有当前有效资格。
+源策略、全部有序路由、模型允许列表、认证关联及配置身份必须可证明一致；未分类失败、
+硬失败、过期空档、结果不确定或资料不完整时拒绝整份提案，不能只筛成功样本。
+
+瞬时失败继续计入统计分母；同一原样本不得重复继承到其他目标。门禁状态与
+`activate-required` 共用统计路径，仍要求 500 次、14 天、99%、逐模型样本及独立人工批准。
+接受映射所引用的完整源纪元 Receipt 暂时排除于通用过期清理，避免删除失败样本或原证据；
+这不延长普通未引用 Receipt 的保留期。后续释放引用须另行制定可审计保留规则，不手动删表。
+源证据或目标资格漂移时拒绝继续统计继承样本，不自动放行、回退或重新认证。
+该通道已通过最终后端快照全量及六张资格表的兼容旧 Server 生命周期回滚检查，
+均使用隔离环境和合成数据，证据见 `docs/task-cards/provider-control-r9-b3.md`。
+没有执行真实历史导入，不得当作生产迁移已验收。
+活动写入者、未知 Schema 或审阅后证据变化均拒绝执行；不得对运行中的生产目录尝试 apply。
+
+原 B2 二进制会拒绝 v19，并非可直接恢复服务的回滚方案。已验证的最小兼容
+源码方案只允许固定 B2 源码读取已知 v19 结构，要求显式停用相关策略、关闭开关并处理
+未决任务；不删除新表、不降 Schema、不覆盖新运行事实。已完成合成库的完整旧 Server
+生命周期检查及独立资格展示预览；最新独立合成预览包含离线历史导入模块，
+但未执行真实资料导入，旧预览仍保留原版本。
+本节不是生产升级或回滚授权，实际历史导入仍需可信资料、dry-run 和单独批准。
+
 #### Router 单写者与离线维护（R9B2）
 
 一个规范化 `MODEL_ROUTER_STORAGE_DIR` 只允许一个 Server 写入者。启动必须先取得

@@ -545,7 +545,17 @@ class ProviderChatCertificationChecks(BaseModel):
     terminal_observed: bool = False
 
 
+class ProviderQualificationSummary(BaseModel):
+    series_id: str | None = None
+    interval_id: str | None = None
+    expires_at: str | None = None
+    renewal_reason: str | None = None
+    valid: bool = False
+    reason_code: str
+
+
 class ProviderChatCertificationSummary(BaseModel):
+    qualification: ProviderQualificationSummary | None = None
     certification_id: str | None = None
     connection_id: str
     connection_name: str
@@ -981,6 +991,7 @@ class ProviderWorkloadCertificationChecks(BaseModel):
 
 
 class ProviderWorkloadCertificationSummary(BaseModel):
+    qualification: ProviderQualificationSummary | None = None
     certification_id: str | None = None
     connection_id: str
     connection_name: str
