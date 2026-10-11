@@ -1,0 +1,55 @@
+{
+  "scope": "God story + memory generalization",
+  "status": "blocked-before-memory-update",
+  "localResult": {
+    "card": "god",
+    "sessionId": "91f6a0c1-24a0-4473-9f88-3b9a090a0d0a",
+    "requestId": "454be8f18910a2eed2fa9498df9fad32f0567e47dbe1b8efa2ec524293edf8f5",
+    "at": "2026-10-11T08:45:25.059Z",
+    "transport": "modelmirror-rpg-s2s-v1",
+    "status": "failed_or_unknown",
+    "purpose": "story",
+    "requestHash": "54ed2d60e8a96fc198b26272543d149b3b0d495f69a12a8e1d92fea98076a41d",
+    "controlRequestHash": "591276efa36d13e16c157a2bc447449d87ddbc138001e47f69657caa53a25e92",
+    "selectionId": "296896ac5e719b70190b242f1a662c59b232e2f9e3e482bda2388dbab2868359",
+    "selectionRevision": "e8ed35152c32045ae7f2b492a257bc26bd3422433d1103945f7fbc4e98e5a539",
+    "requestedModel": "google/gemini-3.8-flash",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "retries": 0,
+    "rawHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "sseHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "httpStatus": 409,
+    "receipt": null,
+    "error": "CONTROL_RECEIPT_INVALID",
+    "manual": "pending"
+  },
+  "budget": {
+    "limit": 4,
+    "used": 3,
+    "reserved": 0,
+    "remaining": 1,
+    "enabled": true
+  },
+  "controlDiagnosis": {
+    "claim": "claimed-no-replay",
+    "claimMatchedBy": "controlRequestHash",
+    "runId": "chatrun_21adcfbbb9fd459994e3d3500dc35bdf",
+    "attemptId": "chatattempt_7ad25b00c5c54aa59e75bda113e2f908",
+    "status": "failed",
+    "resultClass": "preflight_failure",
+    "error": "provider_address_blocked",
+    "dispatched": false,
+    "correlation": "unique model/gateway/time-window record; no direct RPG requestId foreign key",
+    "runningBridgeSha256": "1610a13f56493947e6c46ff08793c27e75c4876c949d06d792eb8f1cb74ed65f"
+  },
+  "memoryUpdates": 0,
+  "newCompletedStoryTurns": 0,
+  "branchCheck": "not-run-empty-session",
+  "recallCheck": "not-run",
+  "autoRetry": false,
+  "manualQuality": "no-new-output-to-review"
+}

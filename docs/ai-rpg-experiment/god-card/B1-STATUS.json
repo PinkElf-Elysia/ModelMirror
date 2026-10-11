@@ -1,0 +1,29 @@
+{
+  "cardId": "god",
+  "phase": "B1-ui-candidate-awaiting-user",
+  "worktree": "C:/tmp/modelmirror-rpg-god-card",
+  "branch": "codex/rpg-god-card",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "unit-tested; host-not-connected",
+  "ui": "replica-implemented; browser-desktop-mobile-checked; human-pending",
+  "plugins": "earth-coupling-identified; cross-card-not-validated",
+  "offline": {
+    "passed": 9,
+    "failed": 0
+  },
+  "real": {
+    "authorized": 0,
+    "dispatched": 0
+  },
+  "screenshots": "7 actual browser JPEGs archived; no PNG claim",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false
+  },
+  "nextBatch": "B2-host-and-plugin-integration-after-user-acceptance",
+  "report": "B1-UI-ACCEPTANCE.md",
+  "preview": "http://127.0.0.1:18505/"
+}

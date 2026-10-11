@@ -14,6 +14,30 @@ TOKEN = "synthetic-rpg-service-token-for-tests-only"
 HEADERS = {"Authorization": "Bearer " + TOKEN}
 
 
+@pytest.mark.parametrize("setup", ["google/gemini-3.8-flash"], indirect=True)
+def test_god_long_profile_is_bound_and_default_unchanged(setup):
+    client, _, _, meta, captured, _ = setup
+    base = client.get('/api/rpg/v1/models', headers=HEADERS).json()['models'][0]
+    path = '/api/rpg/v1/models?profile=god-long-v1'
+    long = client.get(path, headers=HEADERS).json()['models'][0]
+    assert base['parameters']['max_tokens'] == 16384
+    assert long['parameters'] == {**bridge.PARAMETERS, 'max_tokens': 32768}
+    assert long['available'] and long['selectionId'] != base['selectionId']
+    assert long['selectionRevision'] != base['selectionRevision']
+    value = payload(client)
+    value.update(selectionId=long['selectionId'], selectionRevision=long['selectionRevision'], parameters=long['parameters'])
+    assert client.post('/api/rpg/v1/chat/completions', headers=HEADERS, json=value).status_code == 422
+    result = client.post('/api/rpg/v1/chat/completions?profile=god-long-v1', headers=HEADERS, json=value)
+    assert result.status_code == 200, result.text
+    assert captured[0]['max_tokens'] == 32768 and captured[0]['messages'] == value['messages']
+    assert result.json()['receipt']['parameters'] == long['parameters']
+    meta['max_output_tokens'] = 16384
+    assert client.get(path, headers=HEADERS).json()['models'][0]['available'] is False
+    assert client.get('/api/rpg/v1/models', headers=HEADERS).json()['models'][0]['available'] is True
+    assert client.get('/api/rpg/v1/models?profile=arbitrary', headers=HEADERS).status_code == 422
+    assert len(captured) == 1
+
+
 def stream(model=SCOPED_MODEL_ID, raw=" 原文\n\t保留 **格式** ", finish="stop", done=True):
     event = {"choices": [{"delta": {"content": raw}, "finish_reason": finish}]}
     if model is not None:
@@ -22,7 +46,11 @@ def stream(model=SCOPED_MODEL_ID, raw=" 原文\n\t保留 **格式** ", finish="s
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
+def setup(tmp_path, monkeypatch, request):
+    model_id = getattr(request, "param", SCOPED_MODEL_ID)
+    if model_id != SCOPED_MODEL_ID:
+        from server.tests import test_provider_chat_stable_service as fixtures
+        monkeypatch.setattr(fixtures, "SCOPED_MODEL_ID", model_id)
     stable, repo, primary, _ = _service(tmp_path, monkeypatch, newapi_ip="8.8.8.8")
     _qualify_scoped_model(repo, primary)
     monkeypatch.setenv("RPG_S2S_ENABLED", "true")
@@ -32,10 +60,10 @@ def setup(tmp_path, monkeypatch):
                 "supported_parameters": ["temperature", "top_p", "max_tokens"]}
     def listing(*args, **kwargs):
         rows = original(*args, **kwargs)
-        return [{**r, "metadata_json": json.dumps(metadata)} for r in rows if r["model_id"] == SCOPED_MODEL_ID]
+        return [{**r, "metadata_json": json.dumps(metadata)} for r in rows if r["model_id"] == model_id]
     monkeypatch.setattr(repo, "list_catalog_models", listing)
     captured = []
-    response = {"status": 200, "content": stream(), "type": "text/event-stream"}
+    response = {"status": 200, "content": stream(model=model_id), "type": "text/event-stream"}
     def upstream(request):
         captured.append(json.loads(request.content))
         return httpx.Response(response["status"], content=response["content"], headers={"content-type": response["type"]})
@@ -118,6 +146,25 @@ def test_preflight_rejects_without_dispatch(setup, monkeypatch, change):
     if change == "qualification": monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "false")
     response = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value)
     assert response.status_code in (409, 422), response.text
+    assert captured == []
+
+
+@pytest.mark.parametrize("reason", ["rpg_fallback_limit_exhausted", "provider_address_blocked"])
+def test_preflight_failure_has_bound_undispatched_receipt(setup, monkeypatch, reason):
+    from types import SimpleNamespace
+    client, stable, _, _, captured, _ = setup
+    value = payload(client)
+    async def rejected(*args, **kwargs):
+        return SimpleNamespace(dispatch=None, error_code=reason)
+    monkeypatch.setattr(stable, "begin_rpg_certified", rejected)
+    response = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value)
+    assert response.status_code == 409
+    receipt = response.json()["receipt"]
+    assert receipt["status"] == "failed" and receipt["dispatched"] is False
+    assert receipt["requestHash"] == bridge.digest(value)
+    assert receipt["sessionId"] == value["sessionId"] and receipt["requestId"] == value["requestId"]
+    assert receipt["selectionRevision"] == value["selectionRevision"]
+    assert receipt["error"] == (reason if reason == "rpg_fallback_limit_exhausted" else "rpg_route_unavailable")
     assert captured == []
 
 
@@ -214,7 +261,7 @@ def test_luna_exception_is_exact_and_does_not_change_other_models():
 
 def test_selected_effective_parameters_reach_wire_and_receipt(setup, monkeypatch):
     client, stable, repo, meta, captured, response = setup
-    monkeypatch.setattr(bridge, "parameters_for", lambda model: {"max_tokens": 16384})
+    monkeypatch.setattr(bridge, "parameters_for", lambda model, profile="default": {"max_tokens": 16384})
     meta["supported_parameters"] = ["max_tokens"]
     value = payload(client)
     assert client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value).status_code == 422

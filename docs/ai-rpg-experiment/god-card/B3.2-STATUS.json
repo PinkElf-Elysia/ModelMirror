@@ -1,0 +1,46 @@
+{
+  "cardId": "god",
+  "phase": "B3.2-adapter-candidate-awaiting-user",
+  "worktree": "C:/tmp/modelmirror-rpg-god-card",
+  "branch": "codex/rpg-god-card",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "God M1/M2/M3 composition and receipt reconstruction verified with loopback fixtures; production plugin host pending",
+  "ui": "B1 accepted by user; chat UI pending B3",
+  "plugins": {
+    "branch-save": "offline-cross-card-passed; requires-explicit-reviewed-1.1.0-install-and-session-grant",
+    "model-selector": "not-compatible",
+    "history-window": "not-compatible",
+    "rolling-summary": "not-compatible",
+    "memory-palace": "not-compatible"
+  },
+  "offline": {
+    "tests": 306,
+    "passed": 305,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided"
+  },
+  "real": {
+    "authorized": 0,
+    "dispatched": 0
+  },
+  "screenshots": "7 actual browser JPEGs archived; no PNG claim",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false
+  },
+  "nextBatch": "B3.3-card-model-state-and-plugin-task-host",
+  "report": "B3.2-ADAPTER-ACCEPTANCE.md",
+  "preview": "http://127.0.0.1:18505/",
+  "apiPreview": "http://127.0.0.1:18507/rpg-app/god/api/status",
+  "manual": {
+    "B1": "accepted by user this turn",
+    "B2": "accepted by user",
+    "real": "not-run",
+    "B3.1": "accepted by user",
+    "B3.2": "pending"
+  }
+}

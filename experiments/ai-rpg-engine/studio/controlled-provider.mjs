@@ -1,4 +1,4 @@
-import {parametersFor,sameParameters} from './model-parameters.mjs';
+import {parametersFor as earthParametersFor,sameParameters as earthSameParameters} from './model-parameters.mjs';
 import {mkdir, readdir, readFile, open} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -31,22 +31,30 @@ async function boundedJSON(response) {
 
 // This adapter is server-only. B3 supplies a persisted, authorized session selection.
 // Sharing the existing card directory keeps old and controlled transports on one budget.
-export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch, reserveSlot=null}) {
+export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch, reserveSlot=null, cardId='earth', modelPolicy=null, catalogModels=null, parameterProfile=null}) {
+  if(parameterProfile!==null&&(parameterProfile!=='god-long-v1'||cardId!=='god'))throw fail('CONTROL_PARAMETER_PROFILE_INVALID');
+  if(cardId!=='earth'&&!modelPolicy)throw fail('CONTROL_MODEL_POLICY_REQUIRED');
+  if(modelPolicy&&(modelPolicy.cardId!==cardId||typeof modelPolicy.parametersFor!=='function'||typeof modelPolicy.sameParameters!=='function'))throw fail('CONTROL_MODEL_POLICY_INVALID');
+  const parametersFor=modelPolicy?.parametersFor||earthParametersFor,sameParameters=modelPolicy?.sameParameters||earthSameParameters;
+  if(!['earth','god'].includes(cardId)) throw fail('CONTROL_CARD_INCOMPATIBLE');
   if(!Number.isInteger(limit)||limit<0||limit>100) throw fail('INVALID_BUDGET');
   let endpoint;
   if(baseURL) {
     endpoint=new URL(baseURL);
     if(endpoint.protocol!=='http:'||!['127.0.0.1','localhost','[::1]','server'].includes(endpoint.hostname)||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||endpoint.pathname!=='/') throw fail('INVALID_CONTROL_ENDPOINT');
   }
+  if(catalogModels!==null&&(!Array.isArray(catalogModels)||!catalogModels.length||catalogModels.some(m=>typeof m!=='string'||!m)))throw fail('CONTROL_CATALOG_SCOPE_INVALID');
+  const allowedModels=catalogModels?new Set(catalogModels):null;
   const active=!!(enabled&&endpoint&&typeof serviceToken==='string'&&serviceToken.length>=32);
-  const folder=join(directory,'earth'); await mkdir(folder,{recursive:true});
+  const folder=join(directory,cardId); await mkdir(folder,{recursive:true});
   async function status() {
     const used=(await readdir(folder)).filter(name=>/^slot-\d+$/.test(name)).length;
-    return {enabled:active,used,limit,remaining:Math.max(0,limit-used),parameters:{...parameters}};
+    return {enabled:active,used,limit,remaining:Math.max(0,limit-used),parameters:modelPolicy?null:{...parameters}};
   }
   async function request(path, body, signal) {
     if(!active) throw fail('CONTROL_DISABLED');
-    return fetcher(new URL('/api/rpg/v1/'+path,endpoint), {
+    const url=new URL('/api/rpg/v1/'+path,endpoint);if(parameterProfile)url.searchParams.set('profile',parameterProfile);
+    return fetcher(url, {
       method:body===undefined?'GET':'POST',redirect:'error',
       headers:{Authorization:'Bearer '+serviceToken,...(body===undefined?{}:{'Content-Type':'application/json'})},
       ...(body===undefined?{}:{body}),signal:signal?AbortSignal.any([signal,AbortSignal.timeout(245000)]):AbortSignal.timeout(245000)
@@ -57,7 +65,7 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     if(!response.ok) throw fail('CONTROL_CATALOG_UNAVAILABLE');
     const value=await boundedJSON(response);
     if(!Array.isArray(value.models)||value.models.length>10000) throw fail('CONTROL_CATALOG_INVALID');
-    return value.models.map(m=>{
+    return value.models.filter(m=>!allowedModels||allowedModels.has(m.model)).map(m=>{
       if(!identity(m.selectionId)||!identity(m.selectionRevision)||typeof m.model!=='string'||typeof m.name!=='string'||typeof m.available!=='boolean'||!sameParameters(m.model,m.parameters)) throw fail('CONTROL_CATALOG_INVALID');
       const item={selectionId:m.selectionId,selectionRevision:m.selectionRevision,model:m.model,name:m.name,available:m.available};
       if(m.pricing&&m.pricing.source==='provider_catalog') item.pricing=Object.fromEntries(['currency','unit','input_price','output_price','observed_at','source','billing_authoritative'].filter(k=>k in m.pricing).map(k=>[k,m.pricing[k]]));
@@ -65,9 +73,10 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     });
   }
   async function generate(card,{messages,params,signal,sessionId,requestId,selection,lease,purpose,beforeDispatch}) {
-    if(card!=='earth') throw fail('CONTROL_CARD_INCOMPATIBLE');
+    if(card!==cardId) throw fail('CONTROL_CARD_INCOMPATIBLE');
     if(!active) throw fail('CONTROL_DISABLED');
     if(!identity(sessionId)||!identity(requestId)||!identity(selection?.selectionId)||!identity(selection?.selectionRevision)||typeof selection?.model!=='string') throw fail('CONTROL_SELECTION_REQUIRED');
+    if(allowedModels&&!allowedModels.has(selection.model))throw fail('CONTROL_MODEL_OUT_OF_SCOPE');
     if(params && !sameParameters(selection.model,params)) throw fail('CONTROL_PARAMETERS_MISMATCH');
     if(!Array.isArray(messages)||messages.length<2||messages.length%2||messages.some((m,i)=>!m||Object.keys(m).sort().join(',')!=='content,role'||m.role!==(i===0?'system':i%2?'user':'assistant')||typeof m.content!=='string')) throw fail('INVALID_MESSAGES');
     const payload={sessionId,requestId,selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,messages,parameters:parametersFor(selection.model)};
@@ -122,7 +131,7 @@ export async function createControlledProvider({directory, baseURL, serviceToken
       const result=JSON.parse(bytes.toString('utf8'));
       if(result.sessionId!==sessionId||result.requestId!==requestId) continue;
       const r=result.receipt;
-      matches.push({ref:'earth/'+name+'/result.json',sha256:sha(bytes),record:{sessionId,requestId,
+      matches.push({ref:cardId+'/'+name+'/result.json',sha256:sha(bytes),record:{sessionId,requestId,
         status:result.status,requestedModel:result.requestedModel,actualModel:r?.actualModel??result.actualModel??null,
         parameters:result.parameters,rawHash:result.rawHash,requestHash:result.requestHash,
         gateway:r?.gateway??null,runId:r?.runId??null,attemptId:r?.attemptId??null,
@@ -136,9 +145,23 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     const slot=found.ref.split('/')[1],raw=await readFile(join(folder,slot,'response.txt'),'utf8'),sse=await readFile(join(folder,slot,'response.sse'),'utf8');
     const result=JSON.parse(await readFile(join(folder,slot,'result.json'),'utf8'));
     if(sha(raw)!==result.rawHash||sha(sse)!==result.sseHash)throw fail('CONTROL_RECEIPT_INVALID');
-    let finishReason=null;
-    for(const block of sse.split(/\r?\n\r?\n/)){const data=block.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');if(data&&data!=='[DONE]'){try{const value=JSON.parse(data);for(const c of value.choices||[])if(c.finish_reason)finishReason=c.finish_reason;}catch{throw fail('CONTROL_RECEIPT_INVALID');}}}
-    return {raw,finishReason,evidence:found,failureKnown:result.receipt?.dispatched===true&&(result.receipt.status==='failed'||result.receipt.status==='complete'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&!raw.trim())};
+    let finishReason=null,done=0,streamValid=true,streamRaw='';
+    for(const block of sse.split(/\r?\n\r?\n/)){
+      const data=block.split(/\r?\n/).filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');
+      if(!data)continue;if(done)streamValid=false;if(data==='[DONE]'){done++;continue;}
+      try{const value=JSON.parse(data);if(value.error||value.model&&value.model!==result.requestedModel||(value.choices||[]).length>1)streamValid=false;
+        for(const c of value.choices||[]){if(c.finish_reason)finishReason=c.finish_reason;const content=c.delta?.content;if(content!=null&&typeof content!=='string')streamValid=false;else streamRaw+=content||'';}
+      }catch{throw fail('CONTROL_RECEIPT_INVALID');}
+    }
+    const r=result.receipt;
+    const terminal=r?.dispatched===true&&r.status==='failed_or_unknown'&&r.error==='rpg_incomplete_output'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&
+      r.gateway==='rpg_scoped'&&r.requestHash===result.controlRequestHash&&r.rawHash===result.rawHash&&r.sseHash===result.sseHash&&r.requestedModel===result.requestedModel&&r.actualModel===result.requestedModel&&r.selectionId===result.selectionId&&r.selectionRevision===result.selectionRevision&&sameParameters(result.requestedModel,r.parameters)&&r.retries===0&&
+      done===1&&streamValid&&streamRaw===raw&&sse.endsWith('\n\n')&&['content_filter','length'].includes(finishReason);
+    const rejected=r?.dispatched===false&&r.status==='failed'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&result.httpStatus===409&&
+      ['rpg_fallback_limit_exhausted','rpg_route_unavailable','rpg_selection_changed'].includes(r.error)&&raw===''&&sse===''&&
+      r.gateway==='rpg_scoped'&&r.requestHash===result.controlRequestHash&&r.rawHash===result.rawHash&&r.sseHash===result.sseHash&&r.requestedModel===result.requestedModel&&r.actualModel===null&&r.selectionId===result.selectionId&&r.selectionRevision===result.selectionRevision&&sameParameters(result.requestedModel,r.parameters)&&r.retries===0;
+    const failureCode=rejected?(r.error==='rpg_fallback_limit_exhausted'?'CONTROL_BUDGET_EXHAUSTED':'CONTROL_PREFLIGHT_REJECTED'):terminal?(finishReason==='content_filter'?'PROVIDER_CONTENT_FILTERED':'PROVIDER_OUTPUT_TRUNCATED'):null;
+    return {raw,finishReason,evidence:found,failureCode,failureKnown:!!rejected||!!terminal||r?.dispatched===true&&(r.status==='failed'||r.status==='complete'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&!raw.trim())};
   }
   return {catalog,generate,status,evidence,recoveredOutput};
 }

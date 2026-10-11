@@ -2,7 +2,7 @@ import {useEffect,useState} from 'react';
 import {ChatView} from './chat';
 import {api} from './session-client';
 export {api} from './session-client';
-import {Modal} from './main';
+import {Modal} from './modal';
 type Params={temperature:number;top_p:number;top_k:number;presence_penalty:number;frequency_penalty:number;max_tokens:number;context:number;thinking_budget:number};
 export function ParameterDialog({params,save,close}:{params:Params;save:(p:Params)=>void;close:()=>void}){
  const [p,setP]=useState(params);

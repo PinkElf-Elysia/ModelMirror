@@ -1,0 +1,41 @@
+{
+  "batch": "R3-preflight",
+  "date": "2026-10-11T08:26:38.4446921Z",
+  "r2Manual": "accepted",
+  "providerNewDispatches": 0,
+  "budget": {
+    "remaining": 2,
+    "reserved": 0,
+    "used": 2,
+    "limit": 4
+  },
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "top_p": 0.8,
+    "max_tokens": 16384,
+    "temperature": 0.7
+  },
+  "sourceSession": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+  "sourceCompletedTurns": 1,
+  "firstAttempt": {
+    "id": "88782d39-3041-4dca-b993-b7b0d5accfa4",
+    "finishReason": "content_filter",
+    "receipt": "B4-FIRST-RECEIPT.json",
+    "hostState": "pending in live projection; unknown in persisted state",
+    "nativeFinishReason": "PROHIBITED_CONTENT",
+    "completedTurns": 0,
+    "replayed": false
+  },
+  "runtimeChanged": [
+    "god-card/lib/http.mjs",
+    "studio/server.mjs"
+  ],
+  "authorPromptUnmodified": true,
+  "gate": "Need separate non-explicit test configuration; no dispatch under existing explicit sexual-generation instructions",
+  "actions": [
+    "read-only host/session/receipt check",
+    "record R2 human acceptance"
+  ],
+  "oldEntrypointsPreserved": true,
+  "publication": false
+}

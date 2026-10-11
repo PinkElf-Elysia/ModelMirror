@@ -1,0 +1,28 @@
+{
+  "cardId": "god",
+  "phase": "B0-freeze-and-observation-complete",
+  "worktree": "C:/tmp/modelmirror-rpg-god-card",
+  "branch": "codex/rpg-god-card",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "unit-tested; host-not-connected",
+  "ui": "original-observed; replica-not-implemented",
+  "plugins": "earth-coupling-identified; cross-card-not-validated",
+  "offline": {
+    "passed": 4,
+    "failed": 0
+  },
+  "real": {
+    "authorized": 0,
+    "dispatched": 0
+  },
+  "screenshots": "inline-only; no PNG archive",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false
+  },
+  "nextBatch": "B1-author-UI-replica",
+  "report": "B0-FREEZE-AND-OBSERVATION.md"
+}

@@ -13,19 +13,19 @@ const record=v=>v&&typeof v==='object'&&!Array.isArray(v);
 export const sealMemoryTasks=v=>{const {hash:ignored,...body}=structuredClone(v);return {...body,hash:sha(canonical(body))};};
 export const initialMemoryTasks=()=>sealMemoryTasks({policy:TASK_POLICY,config:{model:null,revision:0},settings:{},pendingSettings:null,operations:{},blocked:null});
 export const memoryTaskBlock=s=>!!s.memoryTasks?.pendingSettings||Object.values(s.memoryTasks?.operations||{}).some(o=>['pending','unknown'].includes(o.status));
-export function requireMemoryTasks(s){
+export function requireMemoryTasks(s,validateModel=validChoice){
  const q=s.memoryTasks;
- if(!exact(q,['policy','config','settings','pendingSettings','operations','blocked','hash'])||q.policy!==TASK_POLICY||q.hash!==sealMemoryTasks(q).hash||!exact(q.config,['model','revision'])||!revision(q.config.revision)||q.config.model!==null&&(!validChoice(q.config.model)||q.config.model.kind!=='controlled')||!record(q.settings)||!record(q.operations))throw fail('MEMORY_TASK_STATE_INVALID');
+ if(!exact(q,['policy','config','settings','pendingSettings','operations','blocked','hash'])||q.policy!==TASK_POLICY||q.hash!==sealMemoryTasks(q).hash||!exact(q.config,['model','revision'])||!revision(q.config.revision)||q.config.model!==null&&(!validateModel(q.config.model)||q.config.model.kind!=='controlled')||!record(q.settings)||!record(q.operations))throw fail('MEMORY_TASK_STATE_INVALID');
  for(const [id,o] of Object.entries(q.settings))if(!operationId(id)||o.input?.operationId!==id||o.inputHash!==sha(canonical(o.input))||!['pending','complete','not-applied'].includes(o.status))throw fail('MEMORY_TASK_STATE_INVALID');
  if(q.pendingSettings!==null&&q.settings[q.pendingSettings]?.status!=='pending')throw fail('MEMORY_TASK_STATE_INVALID');
  for(const [id,o] of Object.entries(q.operations)){
   if(!operationId(id)||o.input?.operationId!==id||o.inputHash!==sha(canonical(o.input))||!['send','update'].includes(o.kind)||!['pending','unknown','complete','failed','cancelled','revoked'].includes(o.status)||!Array.isArray(o.tasks)||!Array.isArray(o.plan)||o.plan.length>6||new Set(o.plan.map(t=>t.stageId)).size!==o.plan.length)throw fail('MEMORY_TASK_STATE_INVALID');
-  const ids=new Set();for(const t of o.tasks){if(t.sessionId!==s.id||ids.has(t.stageId)||!o.plan.some(p=>p.stageId===t.stageId&&p.purpose===t.purpose)||!hash(t.requestId)||!validChoice(t.selection)||t.messagesHash!==sha(canonical(t.messages))||t.sourceHash!==sha(canonical(t.source))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(t.status))throw fail('MEMORY_TASK_STATE_INVALID');ids.add(t.stageId);}
+  const ids=new Set();for(const t of o.tasks){if(t.sessionId!==s.id||ids.has(t.stageId)||!o.plan.some(p=>p.stageId===t.stageId&&p.purpose===t.purpose)||!hash(t.requestId)||!validateModel(t.selection)||t.messagesHash!==sha(canonical(t.messages))||t.sourceHash!==sha(canonical(t.source))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(t.status))throw fail('MEMORY_TASK_STATE_INVALID');ids.add(t.stageId);}
  }
  if(q.blocked!==null&&!Object.hasOwn(q.operations,q.blocked))throw fail('MEMORY_TASK_STATE_INVALID');return q;
 }
-export function memoryContextPolicy(s,a){
- const base=effectiveContextPolicy(s,a.summary,a.history),m=requireMemoryState(s),q=requireMemoryTasks(s);
+export function memoryContextPolicy(s,a,validateModel=validChoice){
+ const base=effectiveContextPolicy(s,a.summary,a.history,validateModel),m=requireMemoryState(s),q=requireMemoryTasks(s,validateModel);
  const value={baseRevision:base.revision,memoryRevision:m.revision,configRevision:q.config.revision,memoryAuthorization:a.memory.revision,policy:TASK_POLICY};
  return {...base,baseRevision:base.revision,memoryEnabled:a.memory.enabled,revision:sha(canonical(value))};
 }
@@ -36,9 +36,9 @@ export function memorySource(s){
  const turns=s.turns.slice(m.processedThrough).map((_,i)=>{const number=from+i;return {number,user:s.history[(number-1)*2].content,assistant:s.history[(number-1)*2+1].content};});
  return {from,through,memoryRevision:m.revision,entries,turns};
 }
-export function memoryPlan(s,a,kind='send'){
+export function memoryPlan(s,a,kind='send',validateModel=validChoice){
  const plan=[],add=(stageId,purpose)=>plan.push({stageId,purpose});
- if(a.summary.enabled&&summaryUpdateSource(s).needsUpdate){add('summary-before','summary');add('compression-before','compression');}
+ if(a.summary.enabled&&summaryUpdateSource(s,validateModel).needsUpdate){add('summary-before','summary');add('compression-before','compression');}
  if(kind==='send')add('story','story');
  if(kind==='send'&&a.summary.enabled&&s.rollingSummary.config.timing==='after'&&s.turns.length>=1){add('summary-after','summary');add('compression-after','compression');}
  if(a.memory.enabled&&(kind==='send'||s.memoryPalace.processedThrough<s.turns.length))add('memory-after','memory');

@@ -1,12 +1,13 @@
 import {useEffect,useRef,useState} from 'react';
-import {Modal} from './main';
+import {cardStoragePrefix} from './session-client';
+import {Modal} from './modal';
 import {ModelPicker} from './model-picker';
 import type {ModelItem} from './model-picker';
 import {api,ApiError} from './session-client';
 import type {Session,ModelChoice} from './session-client';
 import './rolling-summary.css';
 export type SummaryStatus={compatible:boolean;enabled:boolean;busy:boolean;sessionRevision:number;summaryRevision:number;pendingOperationId:string|null;config:{timing:'before'|'after';model:ModelChoice|null};activeVersionId:string|null;versions:{id:string;kind:string;coveredThrough:number;effectiveText:string;raw:string|null;compression?:{raw:string;rawHash:string}}[];updatePlan?:{kind:"summary"|"compression";maxCalls:number}|null;compressionAttempts?:{operationId:string;status:string;raw:string;compressedRaw:string|null}[];effectivePolicy:{revision:string;mode:string;needsUpdate:boolean;memoryEnabled?:boolean};taskState:{blocked:string|null;operations:Record<string,{status:string;kind:string;purpose?:'summary'|'compression'|'story'|'memory'|null;overflow?:boolean}>}};
-const key=(id:string)=>'earth-summary-operation:'+id;
+const key=(id:string)=>cardStoragePrefix()+'-summary-operation:'+id;
 export function summaryActivity(status:SummaryStatus,pending=false){
  if(status.busy){const task=Object.values(status.taskState.operations).find(o=>['pending','unknown'].includes(o.status));return task?.purpose==='compression'?'正在压缩摘要':task?.purpose==='summary'?'正在更新摘要':task?.purpose==='memory'?'正在整理记忆':task?.purpose==='story'?'正在生成剧情':'会话操作进行中';}
  const task=Object.values(status.taskState.operations).find(o=>['pending','unknown'].includes(o.status)),blocked=status.taskState.blocked?status.taskState.operations[status.taskState.blocked]:null;
@@ -26,7 +27,7 @@ export function useRollingSummary(s:Session|null,accept:(s:Session)=>void){
  }
  async function recover(operationId?:string){if(lock.current||storageBroken)return;lock.current=true;setWorking(true);setError('');try{const h=await refresh();if(!h)throw Error();const id=operationId||pending?.operationId||h.pendingOperationId||Object.entries(h.taskState.operations).find(([,o])=>['pending','unknown'].includes(o.status))?.[0];if(!id){setError('没有待恢复的操作。');return;}const result=await api('sessions/'+current.current!.id+'/rolling-summary/recover',{operationId:id,expectedSessionRevision:h.sessionRevision,expectedSummaryRevision:h.summaryRevision});handler.current(result.session);if(['pending','unknown'].includes(result.operation.status))setError('结果仍未确认，请保留记录；不会换 ID 重发。');else{persist(null);setError(result.operation.status==='complete'?'已核对保存结果，没有重新派发。':'已核对为未完成，原有效摘要保留。');}await refresh();}catch{setError('恢复未完成，请稍后用原操作核对。');}finally{lock.current=false;setWorking(false);}}
  const unconfirmed=!!pending||!!status?.pendingOperationId||!!status&&Object.values(status.taskState.operations).some(o=>['pending','unknown'].includes(o.status));
- const blocked=!!s?.rollingSummary&&(storageBroken||working||!status?.compatible||unconfirmed||status.busy||status.enabled&&(!status.config.model||!!status.taskState.blocked));
+ const blocked=!!s?.rollingSummary&&(storageBroken||working||!status?.compatible||status.sessionRevision!==s.revision||unconfirmed||status.busy||status.enabled&&(!status.config.model||!!status.taskState.blocked));
  return {status,error:error||statusError,working,pending,unconfirmed,blocked,refresh,perform,recover};
 }
 export function RollingSummaryDialog({status,sessionId,busy,pending,error,save,update,recover,close}:{status:SummaryStatus;sessionId:string;busy:boolean;pending:boolean;error:string;save:(v:Record<string,unknown>)=>Promise<boolean>;update:()=>void;recover:()=>void;close:()=>void}){

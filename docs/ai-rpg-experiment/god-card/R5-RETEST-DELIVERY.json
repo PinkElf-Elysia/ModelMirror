@@ -1,0 +1,35 @@
+{
+  "note": "Retest snapshot; extends R5 without overwriting historical delivery hashes. No commit, push, PR or shared deploy. Rollback: revert only godDocumentNavigation helper, its preview invocation and test; preserve authorization and all sessions/receipts.",
+  "files": [
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/ui.mjs",
+      "sha256": "4763614b857f28843cf146d46ef005fd836d0af9f0633744ee467b091da00450",
+      "bytes": 2386
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/ui-assets.test.mjs",
+      "sha256": "0f135cbe27b24e2d217597cba39f4e8079f969a728edddf03764b654b3dfaeea",
+      "bytes": 3439
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/real-preview.mjs",
+      "sha256": "fb85d7841a45122e700940e856de4828437d4c3b399bf9d699275378ed154c58",
+      "bytes": 7394
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "sha256": "92ea0531da2926c493fb46b7dcdf66d5f59c502eadb507a2be8eba9fd3bf3409",
+      "bytes": 21481
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RETEST.json",
+      "sha256": "b693e64f4d4960b34558c85d9d5291f6afd518b4b09a37201186bb5475fc4471",
+      "bytes": 2277
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RETEST-RESULT.jpg",
+      "sha256": "60a4c57195c0db32d505c55c85616074b5bb3129ef28579bf944ac264a5136dc",
+      "bytes": 65127
+    }
+  ]
+}

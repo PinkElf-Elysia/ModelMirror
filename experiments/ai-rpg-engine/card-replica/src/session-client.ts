@@ -9,10 +9,12 @@ export const validHistoryOperation=(x:HistoryOperation)=>!!x&&typeof x.operation
 export type ClientState={draft:string;request:RequestRecord|null;branch:BranchRecord|null;selection?:SelectionRecord|null;historySetting?:HistoryOperation|null};
 export type Session={id:string;name:string;characterText:string;revision:number;mode:string;parentId?:string;branchTurn?:number;memoryPalace?:{supported:boolean};rollingSummary?:{supported:boolean};historyWindow?:{config:HistoryConfig;configRevision:number;pendingOperationId:string|null};runtime?:{compatible:boolean;code:string|null};modelSelection?:{revision:number;current:ModelChoice};turns:{model?:{actualModel:string|null;requestedModel:string};requestId:string;input:string;raw:string;html:string;at:string}[];requests:Record<string,{status:string;error?:string}>};
 export class ApiError extends Error{constructor(message:string,public status:number){super(message);}}
-export async function api(path:string,body?:unknown){const response=await fetch((location.pathname.startsWith('/rpg-app/earth/')?'/rpg-app/earth/api/':'/api/')+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new ApiError(data.error||'本地请求未完成',response.status);return data;}
+export const cardStoragePrefix=()=>typeof location!=='undefined'&&location.pathname.startsWith('/rpg-app/god/')?'god':'earth';
+export const inStudioCard=()=>/^\/rpg-app\/(earth|god)\//.test(location.pathname);
+export async function api(path:string,body?:unknown){const response=await fetch((inStudioCard()?'/rpg-app/'+cardStoragePrefix()+'/api/':'/api/')+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new ApiError(data.error||'本地请求未完成',response.status);return data;}
 export async function catalogApi(){const r=await fetch('/rpg-app/api/plugins');if(!r.ok)throw Error('插件目录暂不可用，聊天仍可使用。');return r.json();}
 export const emptyClientState=():ClientState=>({draft:'',request:null,branch:null});
-const key=(id:string)=>'earth-chat-v1:'+id;
+const key=(id:string)=>cardStoragePrefix()+'-chat-v1:'+id;
 export function readClientState(id:string,storage:Pick<Storage,'getItem'>=localStorage):ClientState{
  const raw=storage.getItem(key(id));if(!raw)return emptyClientState();const x=JSON.parse(raw);
  if(x?.historySetting!=null&&!validHistoryOperation(x.historySetting))throw Error('历史窗口设置记录无法读取，请保留浏览器数据。');

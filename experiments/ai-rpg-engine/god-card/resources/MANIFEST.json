@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "cardId": "god",
+  "authority": "Author-provided and human-reviewed; no semantic edits",
+  "extraction": "OOXML body order; paragraph LF, explicit break LF, tab TAB; no trimming or normalization",
+  "source": {
+    "name": "上帝卡片提示词.docx",
+    "bytes": 34106,
+    "sha256": "aef510caf2cdb47df97922d54e2fc991584e6c453cb280d1b55df03176e006fe"
+  },
+  "system": {
+    "sha256": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+    "unicodeCharacters": 17754,
+    "paragraphs": 585,
+    "emptyParagraphs": 52,
+    "textRuns": 537,
+    "orderedTextRunsVerified": true
+  },
+  "prefix": null,
+  "suffix": null,
+  "worldbook": null
+}

@@ -2,7 +2,7 @@ import React from 'react';
 import {render,screen,fireEvent,waitFor,within} from '@testing-library/react';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',()=>React);
-vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/main',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
 import {HistoryWindowDialog} from '../../../experiments/ai-rpg-engine/card-replica/src/history-window';
 import {ChatView} from '../../../experiments/ai-rpg-engine/card-replica/src/chat';
 import {readClientState,emptyClientState,sendBlocked} from '../../../experiments/ai-rpg-engine/card-replica/src/session-client';

@@ -1,0 +1,14 @@
+{
+  "batch": "R3-preflight",
+  "priorDelivery": "R2-DELIVERY.json remains the historical R2 freeze; STATUS subsequently records user acceptance",
+  "files": [
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "sha256": "950755bb14ddc5d4a5f9f817e9701753ec94280e8d0119812903998c5e044f6a"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-PREFLIGHT.json",
+      "sha256": "679c715f2cd28d6f8dabe727ac838782233e9bc0a057a305f201eebe4e3193f4"
+    }
+  ]
+}

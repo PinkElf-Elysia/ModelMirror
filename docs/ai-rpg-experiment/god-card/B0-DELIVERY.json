@@ -1,0 +1,42 @@
+{
+  "baseline": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "batch": "B0",
+  "files": [
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B0-FREEZE-AND-OBSERVATION.md",
+      "bytes": 7582,
+      "sha256": "c3ce0b03f9933bf47fbcc03e6fe3eebb7df4bfad5522a952fe196725fce71ff2"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "bytes": 782,
+      "sha256": "6493d42b0d598e3a7c6169f476324a380415f2b8b217a4e13fa23e31f28fadab"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/assembly.mjs",
+      "bytes": 1664,
+      "sha256": "15bec1b4af086c46b089760f712da4fb5019b8bb41ae96c6b84edbcc093beaca"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/MANIFEST.json",
+      "bytes": 676,
+      "sha256": "212062ac4dc1cab77a358b1d1085b03c532580f65bdd4700ab4a0becfcff6526"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/prompts.json",
+      "bytes": 37019,
+      "sha256": "e4cbde57e42a14b6276013ba053c13ffae16bcf1b35ab0a4f2c2df5fe576f2af"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/assembly.test.mjs",
+      "bytes": 2054,
+      "sha256": "d7b7eac43a19b19f05cf6e83ca0e41f7ff0fff7cf7e0d163e2406bb37fbf7cb7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/freeze.py",
+      "bytes": 3629,
+      "sha256": "c89071078f7e0a2c4c8c8b322077e3e241cd6fe7545e26e7a709f1e3d7b97cbc"
+    }
+  ],
+  "selfExcluded": true
+}

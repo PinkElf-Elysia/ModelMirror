@@ -3,6 +3,7 @@ import useRpgRollingSummary from "./articles/use-rpg-rolling-summary.md?raw";
 import setRpgHistoryWindow from "./articles/set-rpg-history-window.md?raw";
 import chooseRpgModel from "./articles/choose-rpg-model.md?raw";
 import branchRpgStory from "./articles/branch-rpg-story.md?raw";
+import playGodCard from "./articles/play-god-card.md?raw";
 import playRpgCards from "./articles/play-rpg-cards.md?raw";
 import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
@@ -126,6 +127,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 export const helpArticles: HelpArticle[] = [
   { slug: "review-decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "区分专用决策和异步批处理，核对费用与数据边界。", category: "按目标找指南", contentType: "how-to", audience: "需要决策或离线文本处理的用户", estimatedMinutes: 5, keywords: ["Clef", "Microsoft", "Drex", "Mercury", "Sol", "Batch", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "e5a808a6", verifiedDate: "2026-10-11", content: reviewDecisionsSolBatch, nextSlug: "check-availability-cost-data" },
   { slug: "review-elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用、入口和安全边界。", category: "按目标找指南", contentType: "how-to", audience: "需要语音、转写或离线批处理的用户", estimatedMinutes: 5, keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策", "费用"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "70a01640", verifiedDate: "2026-10-08", content: reviewElevenlabsBatch, nextSlug: "check-availability-cost-data" },
+  { slug: "play-god-card", title: "游玩神临凡尘与使用插件", summary: "填写天书、核对调用额度、恢复故事并使用可选插件。", category: "按目标找指南", contentType: "how-to", audience: "神临凡尘新版本会话的验收玩家", estimatedMinutes: 5, keywords: ["RPG", "神临凡尘", "上帝", "天书", "离线", "插件"], relatedRoutes: ["/rpg", "/rpg/god", "/rpg/plugins"], verifiedCommit: "7eaaa305", verifiedDate: "2026-10-11", content: playGodCard, nextSlug: "play-rpg-cards" },
   { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: playRpgCards, nextSlug: "branch-rpg-story" },
   { slug: "branch-rpg-story", title: "从故事中创建另一条路线", summary: "安装分支存档，从正文创建新对话并保留原路线。", category: "按目标找指南", contentType: "how-to", audience: "已完成地球 OL 对话的玩家", estimatedMinutes: 5, keywords: ["RPG", "分支", "存档", "插件市场", "安装", "授权", "卸载", "草稿"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: branchRpgStory, nextSlug: "check-availability-cost-data" },
   { slug: "choose-rpg-model", title: "为下一条 RPG 消息选择模型", summary: "安装并启用模型选择，在同一故事中切换模型。", category: "按目标找指南", contentType: "how-to", audience: "地球 OL 玩家", estimatedMinutes: 4, keywords: ["RPG", "模型选择", "切换", "插件", "品牌", "搜索", "停用"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "1864ed84", verifiedDate: "2026-09-19", content: chooseRpgModel, nextSlug: "branch-rpg-story" },
@@ -585,6 +587,7 @@ export const helpSections: HelpSection[] = [
     items: [
       { id: "overview", title: "整体结构与常用词", summary: "先看各入口怎样配合，再选择具体模块。", to: "/help/modules-and-terms", keywords: ["整体结构", "模块", "术语", "入口"] },
       { id: "rag-content-contract", title: "看懂 RAG 分块与历史只读限制", summary: "区分估算 Token、诊断候选与已激活版本回滚。", to: "/help/understand-rag-content-contract", keywords: ["RAG", "估算 Token", "内容合同", "历史只读", "回滚"] },
+      { id: "god-guide", title: "游玩神临凡尘与使用插件", summary: "填写天书并核对共享插件流程。", to: "/help/play-god-card", keywords: ["RPG", "神临凡尘", "天书", "离线"] },
       { id: "rpg-guide", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择角色卡并恢复保存的模型原文。", to: "/help/play-rpg-cards", keywords: ["RPG", "角色卡", "历史"] },
       { id: "rpg-branch-guide", title: "从故事中创建另一条路线", summary: "安装、授权分支存档并切换保留的对话。", to: "/help/branch-rpg-story", keywords: ["RPG", "分支", "插件市场", "存档"] },
       { id: "rpg-model-guide", title: "为下一条 RPG 消息选择模型", summary: "安装、启用模型选择，保留故事并切换下一轮模型。", to: "/help/choose-rpg-model", keywords: ["RPG", "模型选择", "切换", "插件"] },

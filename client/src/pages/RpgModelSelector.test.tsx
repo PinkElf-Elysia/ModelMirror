@@ -3,7 +3,7 @@ import {render,screen,fireEvent,waitFor,within} from '@testing-library/react';
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 // The independent card keeps its own dependencies; tests use one React renderer.
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',()=>React);
-vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/main',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
 import {ModelPicker,priceText} from '../../../experiments/ai-rpg-engine/card-replica/src/model-picker';
 import {ChatView} from '../../../experiments/ai-rpg-engine/card-replica/src/chat';
 import {readClientState,writeClientState,emptyClientState,sendBlocked} from '../../../experiments/ai-rpg-engine/card-replica/src/session-client';

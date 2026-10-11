@@ -1,0 +1,73 @@
+{
+  "cardId": "god",
+  "kind": "real-provider-first-attempt",
+  "at": "2026-10-11T01:38:38.388767+00:00",
+  "sessionId": "88782d39-3041-4dca-b993-b7b0d5accfa4",
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "budget": {
+    "authorized": 4,
+    "used": 1,
+    "remaining": 3,
+    "certificationCalls": 0,
+    "retries": 0
+  },
+  "authorSystemHash": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+  "characterTextHash": "0279f2d6a17c0542e73bc0d0817097ef02165783db31f4a9c77612280b549ec7",
+  "requestMessagesHash": "3a8d7f7b696c86558b193ec275885bbf7c6c1f9e1fb8d38fa3ac954d7bfa3fbd",
+  "actualRequestMatchedFrozen": true,
+  "roles": [
+    "system",
+    "user"
+  ],
+  "referenceAssistantIncluded": false,
+  "rawUnicodeCharacters": 4256,
+  "rawHash": "3907b58214716c23ff1628764dd70a5eafbd91d8240afde03c416c989361c5d1",
+  "sseHash": "cd8c299d297ec427e084b3ceb3b5af6b9174bebd122b430a891f4ca5f5c1bdec",
+  "receipt": {
+    "gateway": "rpg_scoped",
+    "runId": "chatrun_69026200e43043f7b17e3bf904f32f7e",
+    "attemptId": "chatattempt_a2d703f1b30846e692c456b30c232d06",
+    "requestedModel": "google/gemini-3.8-flash",
+    "actualModel": "google/gemini-3.8-flash",
+    "selectionId": "296896ac5e719b70190b242f1a662c59b232e2f9e3e482bda2388dbab2868359",
+    "selectionRevision": "e8ed35152c32045ae7f2b492a257bc26bd3422433d1103945f7fbc4e98e5a539",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "httpStatus": 200,
+    "dispatched": true,
+    "usage": null,
+    "error": "rpg_incomplete_output",
+    "retries": 0,
+    "requestHash": "9362b804eb2679bc22e3e8287c1f063932ce1c075cd461cbef36dbcf525222f4",
+    "rawHash": "3907b58214716c23ff1628764dd70a5eafbd91d8240afde03c416c989361c5d1",
+    "sseHash": "cd8c299d297ec427e084b3ceb3b5af6b9174bebd122b430a891f4ca5f5c1bdec",
+    "status": "failed_or_unknown"
+  },
+  "terminalEvents": [
+    {
+      "finish_reason": "content_filter",
+      "native_finish_reason": "PROHIBITED_CONTENT",
+      "provider": "Google AI Studio"
+    },
+    {
+      "finish_reason": "content_filter",
+      "native_finish_reason": "PROHIBITED_CONTENT",
+      "provider": "Google AI Studio"
+    }
+  ],
+  "done": true,
+  "completedTurns": 0,
+  "technicalOutcome": "provider-content-filter; partial output only; host conservatively keeps unknown operation",
+  "quality": "not-accepted; incomplete response prevents full comparison",
+  "manual": "pending; no success inferred",
+  "evidenceDirectory": "experiments/ai-rpg-engine/.rpg04-work/god-card/b4-real/data/god/real-dispatches/god/slot-1",
+  "sharedDeployment": false
+}

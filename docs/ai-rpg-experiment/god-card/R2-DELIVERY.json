@@ -1,0 +1,126 @@
+{
+  "phase": "R2",
+  "frozenAt": "2026-10-11T08:14:57.122Z",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "branch": "codex/rpg-god-card",
+  "scope": "current R2 candidate; no publication; R1 historical hashes retained",
+  "algorithm": "SHA256 file bytes; this file excluded",
+  "files": [
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/lib/card-presentation.mjs",
+      "bytes": 12470,
+      "sha256": "0f9c1738f7caca2e1cf9ef8470b5b45adb29959fef8023c38274d4c4be20e953"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/card-presentation.css",
+      "bytes": 24488,
+      "sha256": "e4b686e58748b828e8254606a9cc5cc22aa9b6f5a5c17882d6a0d3d1498298c4"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/chat.tsx",
+      "bytes": 28986,
+      "sha256": "77d461f10c25ddff9704bc1669dcacddcca51fb0f38fc5c8f9600b0e0804da8e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/tests/card-presentation.test.mjs",
+      "bytes": 10772,
+      "sha256": "b746e48f6f8a51cbafa9a6bcaeb76d3f42a7138d966755ecd23d2212700cae8b"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-v1.webp",
+      "bytes": 67546,
+      "sha256": "d76ff72d86bcb4dd73e104fffd838630a7e20ab87876931d5dc66cdee78c7b8f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-alt-v1.jpg",
+      "bytes": 125057,
+      "sha256": "bae8e3a381d94322fdb810f2e653aeaae21a680a3c99bf97bb7990482e9163e5"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/http.mjs",
+      "bytes": 6770,
+      "sha256": "e52563d61bcd18da4ca3ec87fb612159c7ab169c70d3a858e8a83a4ba9084e88"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/ui.mjs",
+      "bytes": 1620,
+      "sha256": "67b0ba119bf75d2a72f27852d9aa900c60d47cb4c61e2451c895fa20e8347ce5"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/ui-http.test.mjs",
+      "bytes": 4291,
+      "sha256": "8adb4681a66ca3ceaec3dd60042005f7c602dec73bed742f06c1d5e81239de94"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/presentation-preview.mjs",
+      "bytes": 5216,
+      "sha256": "70c66a030d829ebb2a6c41d2197bfa013fc728e22d8156789d7ff16f4cbb36e7"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/README.md",
+      "bytes": 4555,
+      "sha256": "ac74b120ab776d42b6540a2dbb8a2598b16b64dac50373772e1f6878539413d9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/prompts.json",
+      "bytes": 37019,
+      "sha256": "e4cbde57e42a14b6276013ba053c13ffae16bcf1b35ab0a4f2c2df5fe576f2af"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/server.mjs",
+      "bytes": 16206,
+      "sha256": "1656f544f954a3cca97b66c784ce9b7a549a85030406fa99f7eeccc8c41a9998"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "bytes": 4826,
+      "sha256": "8860711f057dd5f1f6052e3bc9bfe8089906d9c171fbf5b9776b92f69945e5b6"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-PRESENTATION.md",
+      "bytes": 8376,
+      "sha256": "7ef3b78625b5d1aeda98937ca4fe3f13988ac98e2527796d8fab130014daebd3"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-REPLAY-EVIDENCE.json",
+      "bytes": 1753,
+      "sha256": "aac1165654bf514a87688e0676a5410bc42087ca70e1f3abac52d58455b3e0e7"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-GOD-DESKTOP.jpg",
+      "bytes": 74950,
+      "sha256": "f4b5d9e37f511b337dac57928f037e756940455d4c53180e4431440f2b7e59a3"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-GOD-MOBILE.jpg",
+      "bytes": 49227,
+      "sha256": "6b19359fa5311110d17fafb28fcfd50916c1f1b89aa3adf224675d8c5e73afc7"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-EARTH-DESKTOP.jpg",
+      "bytes": 51209,
+      "sha256": "5302472c05f8d3cd9e387a4cdb9b52c3eda597f9b990090b3a7064d26fef852b"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-EARTH-MOBILE.jpg",
+      "bytes": 43852,
+      "sha256": "1db09fef5c40fa6cee49b700407a83b4b8821084a5a93efc1816323bde75287d"
+    }
+  ],
+  "builds": {
+    "dist": {
+      "directory": "experiments/ai-rpg-engine/.rpg04-work/god-card/r2/dist",
+      "files": 13,
+      "inventory": "experiments/ai-rpg-engine/.rpg04-work/god-card/r2/dist-inventory.json",
+      "inventorySha256": "ae8258826f3e966ebba9660c7212d0acb8cd121146329354b4585045e1684e02",
+      "note": "isolated build; original dist untouched; card outDir retains prior iteration hashed assets"
+    },
+    "client-dist": {
+      "directory": "experiments/ai-rpg-engine/.rpg04-work/god-card/r2/client-dist",
+      "files": 67,
+      "inventory": "experiments/ai-rpg-engine/.rpg04-work/god-card/r2/client-dist-inventory.json",
+      "inventorySha256": "70d8b2660ed5d67b5244c53493f73f62f0f22d0c78ee5a5d38ec019066782734",
+      "note": "isolated build; original dist untouched; card outDir retains prior iteration hashed assets"
+    }
+  }
+}

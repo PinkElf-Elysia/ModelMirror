@@ -1,10 +1,10 @@
 import {canonical,sha,fail,MEMORY_PALACE_ID} from '../plugins/catalog.mjs';
 import {validSettings} from '../plugins/memory-palace.mjs';
 import {exact,revision,operationId} from './history-state.mjs';
-import {controlledChoice,validChoice} from './model-runtime.mjs';
+import {controlledChoice as defaultControlledChoice,validChoice as defaultValidChoice} from './model-runtime.mjs';
 import {requireMemoryState,sealMemory} from './memory-state.mjs';
-import {requireMemoryTasks,sealMemoryTasks,memoryTaskBlock,memoryContextPolicy,memoryPlan,memorySource,MEMORY_INSTRUCTION,publishMemoryResult} from './memory-task-state.mjs';
-import {SUMMARY_INSTRUCTION,summaryUpdateSource,modelSummaryVersion,withSummaryVersion} from './summary-state.mjs';
+import * as defaultMemoryState from './memory-task-state.mjs';
+import * as defaultSummaryState from './summary-state.mjs';
 import {overflow,compressionMessages,compressionEvidence,COMPRESSION_MAX} from './summary-compression.mjs';
 import {reservationId} from './memory-budget.mjs';
 const wireHash=t=>sha(JSON.stringify({sessionId:t.sessionId,requestId:t.requestId,selectionId:t.selection.selectionId,selectionRevision:t.selection.selectionRevision,messages:t.messages,parameters:t.selection.parameters}));
@@ -13,7 +13,10 @@ const identity=(id,key,stageId)=>sha(canonical({id,key,stageId}));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 // No caller-supplied callbacks/configuration cross HTTP. The M3 host connects these
 // trusted boundaries; B3 supplies production story assembly, publication and snapshots.
-export function createMemoryTasks({store,plugins,transport,buildStory=null,commitStory=null,settleStory=null,legacySend=null}){
+export function createMemoryTasks({store,plugins,transport,buildStory=null,commitStory=null,settleStory=null,legacySend=null,cardState=null}){
+ const {requireMemoryTasks,sealMemoryTasks,memoryTaskBlock,memoryContextPolicy,memoryPlan,memorySource,MEMORY_INSTRUCTION,publishMemoryResult}=cardState?.memory||defaultMemoryState;
+ const {SUMMARY_INSTRUCTION,summaryUpdateSource,modelSummaryVersion,withSummaryVersion}=cardState?.summary||defaultSummaryState;
+ const {controlledChoice,validChoice}=cardState?.models||{controlledChoice:defaultControlledChoice,validChoice:defaultValidChoice};
  const active=new Map();
  const authorizations=async id=>({memory:await plugins.memoryAuthorization(id),summary:await plugins.summaryAuthorization(id),history:await plugins.historyAuthorization(id)});
  const save=async s=>{s.memoryTasks.hash=sealMemoryTasks(s.memoryTasks).hash;await store.write(s);};
@@ -32,7 +35,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
  async function finish(s,op,task,result,cancelled=()=>op.cancelRequested){
   task.output=structuredClone(result);if(result?.cancelledKnown){task.status='cancelled';throw fail('CANCELLED');}const receipt=result?.evidence?.record;
   if(!receipt||receipt.status!=='complete'){
-   task.status=result?.dispatched===false||result?.failureKnown?'failed':'unknown';throw fail(task.status==='unknown'?'MEMORY_TASK_RESULT_UNKNOWN':'MEMORY_TASK_FAILED');
+   task.status=result?.dispatched===false||result?.failureKnown?'failed':'unknown';throw fail(task.status==='unknown'?'MEMORY_TASK_RESULT_UNKNOWN':result?.failureCode||'MEMORY_TASK_FAILED');
   }
   if(receipt.sessionId!==s.id||receipt.requestId!==task.requestId||receipt.requestedModel!==task.selection.model||canonical(receipt.parameters)!==canonical(task.selection.parameters)||typeof result.raw!=='string'||receipt.rawHash!==sha(result.raw)||receipt.requestHash!==wireHash(task)){
    task.status='unknown';throw fail('MEMORY_TASK_RECEIPT_INVALID');
@@ -163,7 +166,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
     const s=await read(id),q=s.memoryTasks,op=Object.hasOwn(q.operations,key)?q.operations[key]:null;if(!op)return {status:'not-found'};if(!pending(op))return structuredClone(op);
     for(const task of op.tasks){if(!pending(task))continue;
      let result;try{result=await transport.recover(task);}catch{task.status='unknown';continue;}
-     try{await finish(s,op,task,result);}catch(e){if(e.preserveDisk)throw fail('MEMORY_PUBLICATION_UNCERTAIN');task.output=structuredClone(result);if(pending(task))task.status=e.code==='MEMORY_AUTHORIZATION_CHANGED'?'revoked':e.code==='MEMORY_TASK_RECEIPT_INVALID'?'unknown':result?.dispatched===false||result?.failureKnown||result?.evidence?.record?.status==='complete'?'failed':'unknown';}
+     try{await finish(s,op,task,result);}catch(e){if(e.preserveDisk)throw fail('MEMORY_PUBLICATION_UNCERTAIN');task.output=structuredClone(result);op.error=e.code||'MEMORY_TASK_RESULT_UNKNOWN';if(pending(task))task.status=e.code==='MEMORY_AUTHORIZATION_CHANGED'?'revoked':e.code==='MEMORY_TASK_RECEIPT_INVALID'?'unknown':result?.dispatched===false||result?.failureKnown||result?.evidence?.record?.status==='complete'?'failed':'unknown';}
     }
     await release(op);
     const done=op.plan.every(p=>op.skipped.includes(p.stageId)||op.tasks.some(t=>t.stageId===p.stageId&&t.status==='complete'));

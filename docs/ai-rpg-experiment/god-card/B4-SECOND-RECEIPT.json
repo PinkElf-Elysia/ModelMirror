@@ -1,0 +1,58 @@
+{
+  "kind": "explicit-user-retest",
+  "at": "2026-10-11T06:02:05.624918+00:00",
+  "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+  "budget": {
+    "authorized": 4,
+    "used": 2,
+    "remaining": 2,
+    "certificationCalls": 0,
+    "automaticRetries": 0,
+    "userRequestedRetests": 1
+  },
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "sameMessagesAsFirst": true,
+  "sameRuntimeAsFirst": true,
+  "referenceAssistantIncluded": false,
+  "rawUnicodeCharactersIncludingHtml": 9533,
+  "rawHash": "9c55360dfe10f72e7562e125084382a9aa2e3d87a6eccb2244ff45c00e96ddc0",
+  "sseHash": "573c53767f350d803cbdc06e9376fd1dfecab35db37ce22fabd9be61860a3296",
+  "receipt": {
+    "gateway": "rpg_scoped",
+    "runId": "chatrun_6b53a1d61d7d4db99a602a19813a5015",
+    "attemptId": "chatattempt_6c16fa6db62846edb6c80a7905ba9943",
+    "requestedModel": "google/gemini-3.8-flash",
+    "actualModel": "google/gemini-3.8-flash",
+    "selectionId": "296896ac5e719b70190b242f1a662c59b232e2f9e3e482bda2388dbab2868359",
+    "selectionRevision": "e8ed35152c32045ae7f2b492a257bc26bd3422433d1103945f7fbc4e98e5a539",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 16384
+    },
+    "httpStatus": 200,
+    "dispatched": true,
+    "usage": {
+      "prompt_tokens": 10404,
+      "completion_tokens": 5641,
+      "total_tokens": 16045
+    },
+    "error": null,
+    "retries": 0,
+    "requestHash": "16305a2c0a4ce61a771858c9fd860b1b3368bcd68ffa4c7e60bd5aefd74d6b8d",
+    "rawHash": "9c55360dfe10f72e7562e125084382a9aa2e3d87a6eccb2244ff45c00e96ddc0",
+    "sseHash": "573c53767f350d803cbdc06e9376fd1dfecab35db37ce22fabd9be61860a3296",
+    "status": "complete"
+  },
+  "finishReason": "stop",
+  "nativeFinishReason": "STOP",
+  "completedTurns": 1,
+  "manualQuality": "pending",
+  "firstFailurePreserved": true,
+  "ui": "History restored; one completed turn; function details expanded. Macro/micro flip and live animation fidelity remain incomplete under shared safe renderer."
+}

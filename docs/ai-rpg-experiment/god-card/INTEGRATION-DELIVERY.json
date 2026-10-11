@@ -1,0 +1,1392 @@
+{
+  "at": "2026-10-11T14:44:14.723468+00:00",
+  "base": "7eaaa305cface49ca3eedba6f47a7315f641e584",
+  "branch": "codex/rpg-god-integration",
+  "selfExcluded": true,
+  "source": [
+    {
+      "path": "client/public/help-center/7eaaa305/god-branch-desktop.png",
+      "sha256": "49a4c970ea882101acaa6d6f282e0f99520e192abbf2b6fd5fb3f3836640587e",
+      "bytes": 59659
+    },
+    {
+      "path": "client/public/help-center/7eaaa305/god-window-desktop.png",
+      "sha256": "1285b54dc5d9e27bcdb177ac6eda9bc34fabac095907d90483a6d132dd3354ec",
+      "bytes": 77539
+    },
+    {
+      "path": "client/src/content/help-center/articles/play-god-card.md",
+      "sha256": "7d35fe4b4c416e3a6315f3510a027d0c8776f84a68dbb5a5f850d40a5c5304fc",
+      "bytes": 5556
+    },
+    {
+      "path": "client/src/content/help-center/helpContent.test.ts",
+      "sha256": "d47f93c6315728ef688bacbbcf73560d10d1190ac85868cdf8f24cb739503262",
+      "bytes": 25009
+    },
+    {
+      "path": "client/src/content/help-center/index.ts",
+      "sha256": "a7e3d13cd38a3f940685702971dedbdc7baa0948b4f7a8b73dd8b0b235c11d89",
+      "bytes": 68478
+    },
+    {
+      "path": "client/src/pages/RpgGod.test.tsx",
+      "sha256": "8ca0ca39f868852e375cef1a38dba4d9c5c94d3ca4f879a7a92fb78d86b3f4e8",
+      "bytes": 12107
+    },
+    {
+      "path": "client/src/pages/RpgHistoryWindow.test.tsx",
+      "sha256": "77e0d2c4b258d2e0acdd2afdd397c68e3b6fe83a849eb8b13599674b33919d0d",
+      "bytes": 8415
+    },
+    {
+      "path": "client/src/pages/RpgMemoryPalace.test.tsx",
+      "sha256": "054259f23f8ee5a3fa2eec8df5994e76e8a8fa68314186f026dec5cf7959e6bb",
+      "bytes": 10398
+    },
+    {
+      "path": "client/src/pages/RpgModelSelector.test.tsx",
+      "sha256": "05912d61799a9a5e4141a4ce5b8eae5b1f91d963ab7e7f10f0e222cf1bf25e46",
+      "bytes": 11229
+    },
+    {
+      "path": "client/src/pages/RpgPage.tsx",
+      "sha256": "58d19141e021b9fd1367097124141617b696bed5c50cd9e28fbaa3ccd485b86f",
+      "bytes": 4261
+    },
+    {
+      "path": "client/src/pages/RpgPluginsPage.test.tsx",
+      "sha256": "f56028d9da9ddaaa76a201b25d6630800f5ffb8f46423c50563eb709024fd761",
+      "bytes": 5986
+    },
+    {
+      "path": "client/src/pages/RpgPluginsPage.tsx",
+      "sha256": "51f7f8be17dedcd1ea4e88f47851ec66efd07b4e51050983b0037150d26593bb",
+      "bytes": 10006
+    },
+    {
+      "path": "client/src/pages/RpgRollingSummary.test.tsx",
+      "sha256": "45cb06d0c131232da96aeebef1e376d8591ee5ccf7d441d16bc9c5445bbab867",
+      "bytes": 12424
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B0-DELIVERY.json",
+      "sha256": "1e22a9795bca6085e161d4389988a0064112ab499eeb5ea7cccfbd6f68d52e73",
+      "bytes": 1440
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B0-FREEZE-AND-OBSERVATION.md",
+      "sha256": "c3ce0b03f9933bf47fbcc03e6fe3eebb7df4bfad5522a952fe196725fce71ff2",
+      "bytes": 7582
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B0-STATUS.json",
+      "sha256": "6493d42b0d598e3a7c6169f476324a380415f2b8b217a4e13fa23e31f28fadab",
+      "bytes": 782
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B1-DELIVERY.json",
+      "sha256": "93d91f3ac4a3b81e9d5ade9b52759e4494b01455228900679c6ab19f48709f64",
+      "bytes": 5183
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B1-STATUS.json",
+      "sha256": "f3e9d36ef56a0b3e1335a6ca5cc214b41aa707cd8a69a84830e2805c294f891a",
+      "bytes": 911
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B1-UI-ACCEPTANCE.md",
+      "sha256": "d61683f4179315748125000cdf02eae6120035a530d26b6ce939fd1ae2c4627b",
+      "bytes": 6186
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B2-DELIVERY.json",
+      "sha256": "3c74c8af6e89852b49465409da5f55c67c9e0d32fe52f1c9e58fc6c2f7f2dd2c",
+      "bytes": 9501
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B2-HOST-ACCEPTANCE.md",
+      "sha256": "09c8afc83787c60e651ee182bee90fea0fece9f3ac23be7f4853870f4c33eb94",
+      "bytes": 6456
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B2-STATUS.json",
+      "sha256": "f60581f7846a5b35fb21fa101c817d76ae202fa62335d576aac4c4ce9a8eab70",
+      "bytes": 1182
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B2-TASK.md",
+      "sha256": "4f4e6f594d9ac3826e5337817f7dd2b79ebf48a4937f42eb125a42e20b977f0c",
+      "bytes": 2408
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3-TASK.md",
+      "sha256": "4c7699c11efe92829e115825dca76494292e433c94e07b13e9c46482ce58a1ea",
+      "bytes": 681
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.1-BRANCH-ACCEPTANCE.md",
+      "sha256": "129c8e850b64a3932eab84308640472fa72387f6dd489edd48c5c34dfbc865aa",
+      "bytes": 5420
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.1-DELIVERY.json",
+      "sha256": "3b0eb37c1e2bab60fbc4174d78f36a73e806386350f1732528aa9f33f33e9f74",
+      "bytes": 8090
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.1-STATUS.json",
+      "sha256": "a06bc316795eb48d6905057c9a65f047a888cf17cd989466fe67ce444204482f",
+      "bytes": 1439
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.2-ADAPTER-ACCEPTANCE.md",
+      "sha256": "9e5d6fb133282403c2bd0d64ff6cdaf11bf3b8f6cd68d123f823e8239ba3abf7",
+      "bytes": 5306
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.2-DELIVERY.json",
+      "sha256": "fe2b4755eac5473d0be4237578256ad7412acd2d5543578aea6474f22e62b2e9",
+      "bytes": 10383
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.2-STATUS.json",
+      "sha256": "072720d965b7beba85a89e2ae0920cd2974e4ac1205c2991a7f6c6f473ed5aaa",
+      "bytes": 1530
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.2-TASK.md",
+      "sha256": "8d81d62aefa84f1ee117a2c1e48180ba85c06481caf5e620c3f359f66c8404fe",
+      "bytes": 1411
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.3-DELIVERY.json",
+      "sha256": "4ce8956b6c254109c2aafc935c07678880b1fb67e834d0aeb62860f53020d01a",
+      "bytes": 13317
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.3-STATUS.json",
+      "sha256": "68f52b74abfe955e8bf64f4697c39f75471619f095146b9413b74a4fd889c447",
+      "bytes": 1609
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.3-TASK-ACCEPTANCE.md",
+      "sha256": "7ef56537ee2c584b4c4d7c5f70e7980e32e92e551d0120845ed65be02dc6c5f9",
+      "bytes": 6797
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.3-TASK.md",
+      "sha256": "a671aa1c4288cce2536941d8fd6fb17b79805748696f994d489aa76b699cfb9b",
+      "bytes": 1414
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.4-DELIVERY.json",
+      "sha256": "e9e61a48c4132f1dcfe2a8c354dce52f77f8c08c9a6c78ee98725aba900fd620",
+      "bytes": 16415
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.4-HTTP-ACCEPTANCE.md",
+      "sha256": "f79bb4643f9f7186a4ae765ef8ebb72bcc348bc115b68131a463e38d041f294f",
+      "bytes": 7327
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.4-STATUS.json",
+      "sha256": "5876e3f3a7faa6c93400c1275160e33cad2f4b562fedc92c89799a637e56dc72",
+      "bytes": 2128
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.4-TASK.md",
+      "sha256": "a1281bfef999469a55adf54d0d80f832e2bd08475899b65ef7ccdbc1d2f91788",
+      "bytes": 1070
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.5-DELIVERY.json",
+      "sha256": "80da18faec8d9649a589b93b20f02aa5d711e0b155b7d04421087a6c47547f8c",
+      "bytes": 52795
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.5-TASK.md",
+      "sha256": "963d537d0d1544b2dc029ab5dc1b7ddbddde071cb0ec012bf614626343320b93",
+      "bytes": 1407
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.5-UI-ACCEPTANCE.md",
+      "sha256": "2f73a6be45743a22a6d4f7b5d44c447f753fa196f942048712c9693fc25339c0",
+      "bytes": 7091
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B3.5-WIRE-SUMMARY.json",
+      "sha256": "4cdeb631ce43029bf2ae81d3ca5edb47fab8f6c59672da16aa18f74d2d65d2af",
+      "bytes": 7796
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-ACCEPTANCE.md",
+      "sha256": "29f927461dd6c3b69c776d85c40a40ce18d74dbae54db98cc381d22b1448cd25",
+      "bytes": 3790
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-DELIVERY.json",
+      "sha256": "da30425b8fa4b87de3e6208a1f3cc97c8431a619fd5cd303d79110820cbff5a6",
+      "bytes": 41712
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-FIRST-FILTERED.jpg",
+      "sha256": "5300aa5a04597d97ff8fa127c832da889e72f2fd66c9c79b56bc1866203eec87",
+      "bytes": 41035
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-FIRST-RECEIPT.json",
+      "sha256": "d12270359beb1e96b4d6c6dad162aaf1369813c0e5739eb9bbdcf49b5dc74844",
+      "bytes": 2756
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-ROLE.json",
+      "sha256": "cccdf5b5fbd434674f559800261946b3fedb068761c59bea9e0ce6efe1fd00af",
+      "bytes": 1180
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-SECOND-COMPLETE.jpg",
+      "sha256": "88b9372adc560176412f83056f9f5563bbd55f66074dddc2f8049e1fc7129775",
+      "bytes": 36227
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-SECOND-RECEIPT.json",
+      "sha256": "2677ee8cb9ab607504b8819adfc87c0a4b94e0f67dbe87fa78bd75d8a3b609a2",
+      "bytes": 2120
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4-TASK.md",
+      "sha256": "3fc010d6166c7170baf21821a946d295fabebb3920e4a23020342384653dc509",
+      "bytes": 1436
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/B4.1-DELIVERY.json",
+      "sha256": "001d4fbda4e60da325cdbe55a50ef3a581fd72e5cd6a3b3fa86b0ac0249f2ab4",
+      "bytes": 45089
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/CLOSEOUT-DELIVERY.json",
+      "sha256": "103df86ea0d96c9e691c96a3b35b962ba0c87c2dffa494b6a21e5ef5a0cfb0a3",
+      "bytes": 60628
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/CLOSEOUT-VERIFICATION.json",
+      "sha256": "3600a4e329383d6e67e2319363e68fa7fd979f7ae47744b569060f90d9a9cb08",
+      "bytes": 3944
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/INTEGRATION-BRANCH.jpg",
+      "sha256": "b67dcc0d7b2ebdd9872ad6a2ee065f0f1ee9064b5ac855f1d630fa76db91ca0a",
+      "bytes": 27942
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/INTEGRATION-HELP.jpg",
+      "sha256": "6425a844bf23cbdb3505ea14dc0be1f4fe0f89ecd8c55675d98946f34a45dab4",
+      "bytes": 54483
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/INTEGRATION-REPLAY.md",
+      "sha256": "4a590de50596849b60e72b44f3221b53a93951dc93c6c8a178f4f864d380fe15",
+      "bytes": 3663
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/INTEGRATION-VERIFICATION.json",
+      "sha256": "4d46239e906aa39d85fbb48c6be7994b20a32e143c65650c0b211a877488fd72",
+      "bytes": 7452
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/INTEGRATION-WINDOW.jpg",
+      "sha256": "1f1c0d6542a45ee32abb3fe12b735fa1d00ac1a3219eef882c4e68fd45f147bb",
+      "bytes": 34990
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/PR-CLOSEOUT.md",
+      "sha256": "599c8afee06cf548ef5b29df0bf8cc3c3881e2bd18883dc1da5323b57cf127ad",
+      "bytes": 5354
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R1-PRESENTATION.md",
+      "sha256": "12b7ad4c3f6b7294c814c84bfcb83ebe238581e54e82540fd5d77603b5b1b864",
+      "bytes": 7799
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-DELIVERY.json",
+      "sha256": "f315d34b6791ee53c2e1882f7c589a7e2944696238a5aa3c32cb89d27c8c7051",
+      "bytes": 4986
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-EARTH-DESKTOP.jpg",
+      "sha256": "5302472c05f8d3cd9e387a4cdb9b52c3eda597f9b990090b3a7064d26fef852b",
+      "bytes": 51209
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-EARTH-MOBILE.jpg",
+      "sha256": "1db09fef5c40fa6cee49b700407a83b4b8821084a5a93efc1816323bde75287d",
+      "bytes": 43852
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-GOD-DESKTOP.jpg",
+      "sha256": "f4b5d9e37f511b337dac57928f037e756940455d4c53180e4431440f2b7e59a3",
+      "bytes": 74950
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-GOD-MOBILE.jpg",
+      "sha256": "6b19359fa5311110d17fafb28fcfd50916c1f1b89aa3adf224675d8c5e73afc7",
+      "bytes": 49227
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-PRESENTATION.md",
+      "sha256": "7ef3b78625b5d1aeda98937ca4fe3f13988ac98e2527796d8fab130014daebd3",
+      "bytes": 8376
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R2-REPLAY-EVIDENCE.json",
+      "sha256": "aac1165654bf514a87688e0676a5410bc42087ca70e1f3abac52d58455b3e0e7",
+      "bytes": 1753
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-CONTROL-REPAIR.md",
+      "sha256": "079a39464bf8cfef1e54e8f73805541a8a0507cd9aa26c65f473f1121392134f",
+      "bytes": 4317
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-LENGTH-32768.md",
+      "sha256": "2c29c20c9a1073bed60db7d6cee291e03d7c4537eef1c0c120ce8b97389a993c",
+      "bytes": 3597
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-LENGTH-DELIVERY.json",
+      "sha256": "099d76726c1a05016f8bd941fcb5d90b4daedcc3796d186d16d445c714fe453d",
+      "bytes": 3785
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-PLUGIN-REAL.md",
+      "sha256": "b15335dc9e9fc0973e335f5632e905371dcfa6be74e6b048c1db0fa6641ea891",
+      "bytes": 3740
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-PREFLIGHT-DELIVERY.json",
+      "sha256": "da2fabe67b12b47e0351643e0e97aed97c685c6b42a7f221c898c451f5362e68",
+      "bytes": 498
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-PREFLIGHT.json",
+      "sha256": "679c715f2cd28d6f8dabe727ac838782233e9bc0a057a305f201eebe4e3193f4",
+      "bytes": 1192
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-QUOTA-REPAIR.md",
+      "sha256": "71905bea535a33dcf6f7372f5c3ba0644c1e9acfac30b2c747ad8aeae389c76d",
+      "bytes": 5307
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-RESULT.json",
+      "sha256": "23147aac925c71bdd1b6005e8b44dbb1e7484dd9beda8db66c12264b43b44f63",
+      "bytes": 2128
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R3-TERMINAL-REPAIR.md",
+      "sha256": "fc3544b269a6bd1482b084f9665dcff99b962c77f3322f2510746ca1d412db70",
+      "bytes": 3975
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-BUDGET-DISPLAY-FIX.md",
+      "sha256": "8c875acdf39593ab3ae8528f1d38bc71bb091c2fe364b3b33dd0409ab2bd88ec",
+      "bytes": 3202
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-CONTINUATION-AUTHORIZATION.md",
+      "sha256": "9c0cce7a95ab2e43407b60755dd27f0599fa46ba0fc5b6fdc8039d8e3f01198e",
+      "bytes": 1528
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-DELIVERY.json",
+      "sha256": "b034817d63939a1ebf67f14cbd3cb65324af947233bb02fcc065632ec0c14723",
+      "bytes": 2405
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-OUTPUT-SUFFIX.md",
+      "sha256": "e8db63b3aef369244aced3f5348ca67680e4bdd96daaabc1ee93b72668311403",
+      "bytes": 3911
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-TERMINAL-DELIVERY.json",
+      "sha256": "82a118f71715f8da00c0e34429ae03b05c7fa594de7c4196de8dbec2bef4dc45",
+      "bytes": 836
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-TERMINAL-WAIVER.md",
+      "sha256": "4a1838e1e46a3d9683df524921adb7896b93f59e70ce0922507e51fb4edf675d",
+      "bytes": 2708
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-ASSETS.json",
+      "sha256": "e02b93748556f91ada0ced744e344fa9ea74b409b8118ccc53c60e24b8e0acbf",
+      "bytes": 4664
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-DELIVERY.json",
+      "sha256": "d3188ef37ccc17cfb7703fd79a8fa82e82e213e589091ac880bca360284eee0f",
+      "bytes": 13012
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-GOD-DESKTOP.jpg",
+      "sha256": "88617eccb2e2e6fb9bba980f86a5e72bbf4667bebc186c39c058aa1dd71c358d",
+      "bytes": 85572
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RENDER-REPAIR.md",
+      "sha256": "4997534fb1b64893cc60ccb1cd9171e83bd06d21f7e67be1ad3ad7520a8b79d6",
+      "bytes": 3466
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RETEST-DELIVERY.json",
+      "sha256": "169699969cbc84fd58f4587d105f855e31134cc7db9b8723787842a1c4f3a38f",
+      "bytes": 1431
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RETEST-RESULT.jpg",
+      "sha256": "60a4c57195c0db32d505c55c85616074b5bb3129ef28579bf944ac264a5136dc",
+      "bytes": 65127
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-RETEST.json",
+      "sha256": "b693e64f4d4960b34558c85d9d5291f6afd518b4b09a37201186bb5475fc4471",
+      "bytes": 2277
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R5-VERIFICATION.json",
+      "sha256": "f500012f2650d628fcfd72293ce9728d531cc3482423b3fbe0157596b8df2357",
+      "bytes": 4322
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "sha256": "8b05a8c097e414d90c2766aec9d9564d220299926ca5bebfb2e5fccc97d39fe0",
+      "bytes": 26441
+    },
+    {
+      "path": "docs/help-center/evidence/god-card-b35/README.md",
+      "sha256": "425a9f4dda595d3b236bfb4233205f3fd0b2f414d70b8c936245838d30d55e47",
+      "bytes": 672
+    },
+    {
+      "path": "docs/help-center/evidence/god-card-b35/god-branches.jpg",
+      "sha256": "dd5286fd5cc711d6b9096eb8d9645479f8267a66ceeed899ca2fbf278b24d32d",
+      "bytes": 30161
+    },
+    {
+      "path": "docs/help-center/evidence/god-card-b35/god-chat-mobile.jpg",
+      "sha256": "dbde9d1157d36baa0ee6ac36901088a64ad7bbce4a7f24699772a1d72cd7b72f",
+      "bytes": 25926
+    },
+    {
+      "path": "docs/help-center/evidence/god-card-b35/god-window-desktop-historical.png",
+      "sha256": "143450c4a4fbe75ebb3e0e236a2ed27cffa90f7249e6c482729845c227967472",
+      "bytes": 78478
+    },
+    {
+      "path": "docs/help-center/evidence/god-card-b35/god-window-desktop.jpg",
+      "sha256": "eb915fd9cae2d3163cfb8c19c9e7fda9e852f3f2814036ded6f64519f2ce06c0",
+      "bytes": 35150
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/god.html",
+      "sha256": "c49f3f07da9875682d3e80f45471f8f841329a3a47ab68344434a34d0a31abbb",
+      "bytes": 280
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/lib/card-presentation.mjs",
+      "sha256": "638d442adff4b322dcab491ebb0bfc6f7838cd9361653456a6b5e64503b9b9db",
+      "bytes": 16097
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-1fc2661a-a9c2-4330-8a34-51959bda5c00.jpg",
+      "sha256": "785e28609a987720311cce25cb68da1e7f3e3db453117932b920651c9411c21e",
+      "bytes": 92167
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-280a79e9-0e26-46ad-3f71-028cfa9b5c00.jpg",
+      "sha256": "f36d98bf9f29b8d62d24a4aeb0df23b3e79028319a8a8545ec75a795859e1ca3",
+      "bytes": 103830
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-287eba7e-830e-4ba3-032a-f55393131900.jpg",
+      "sha256": "44afdc2bc149c85f8929ef0c4909bc84733dddad5283d51f806343c8ffbd608e",
+      "bytes": 142491
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-2f3c5ff4-ee3e-4ea8-03b9-27ff5cb00d00.jpg",
+      "sha256": "fc6b1ea522b03d655d26990dad53dd83485b5bb18cd68c179b98a7be1187606c",
+      "bytes": 137403
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-4256c515-785f-420f-d777-683cf95bb900.jpg",
+      "sha256": "ac47c818ef06968d46bc460f624e6838f292251a9648731320fc5795212f2b81",
+      "bytes": 149495
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-5824e5aa-ea5d-4396-32d9-8e3db9095700.jpg",
+      "sha256": "56b8caa384e38b08853a8963bcc312113c28aec95c826f10feaaa6f3d6f676bf",
+      "bytes": 150697
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-5939d0f0-163b-4c27-2a7a-b05419797900.jpg",
+      "sha256": "8d603a4999f3673063904487622fb7c1d123aaed1b7989bc01eba0737b98c4a3",
+      "bytes": 148827
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-61e70fb9-9a81-4274-56dc-9753b573e000.jpg",
+      "sha256": "0410892d543bf0fbfd72fec8cf937c62f1d7a18ac3e830d6028e7b0f028d1d23",
+      "bytes": 88471
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-6e822f82-cf5c-448b-b976-046800a7b100.jpg",
+      "sha256": "889b7ae24bf3f1fe13ccd76b8d4dbbea2149e2f5075957185fe05e861c63a345",
+      "bytes": 121246
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-8f21b0cc-67e2-42ab-95bc-e78dd37fdf00.jpg",
+      "sha256": "cea714c3e7bdea9e9718219f34924424d42f38c373f3de3d269e4a7ba3608a9d",
+      "bytes": 92939
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-98cbbf81-7e73-484d-a713-1b04c0917b00.jpg",
+      "sha256": "f9fe8f6cbfef5659211f48c543b34741dbe18b07d96cb654d83bcf54a0fb47f8",
+      "bytes": 129235
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-9c431025-e8ca-471e-8edf-d82eb7a83400.jpg",
+      "sha256": "1cc83453edab2f84c8ce0b7935911115bee1e69b4ca2ec89c76244b913ca9037",
+      "bytes": 208298
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-ab5abbc7-a2ec-45f3-1efe-486b2efe1300.jpg",
+      "sha256": "f31b61b48f90366e93104700b8afaa265af19cbd09f0c9ca0f7fcf06ca35a54d",
+      "bytes": 111427
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-alt-v1.jpg",
+      "sha256": "bae8e3a381d94322fdb810f2e653aeaae21a680a3c99bf97bb7990482e9163e5",
+      "bytes": 125057
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-c2157402-2346-4fc8-0808-6ab5a1809b00.jpg",
+      "sha256": "80a2068ad73f86f6dd6ceb6f68b74e8dd0694ffdd2541f32eb11b4de11997d9f",
+      "bytes": 136212
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-c9a9a34f-9965-4314-146c-7a48fb5c5100.jpg",
+      "sha256": "f6ef92c2db7793c8105e8da01de88610d447c8059f091fcad5c482ae54410645",
+      "bytes": 156061
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/public/assets/god-commentary-v1.webp",
+      "sha256": "d76ff72d86bcb4dd73e104fffd838630a7e20ab87876931d5dc66cdee78c7b8f",
+      "bytes": 67546
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/card-presentation.css",
+      "sha256": "e4b686e58748b828e8254606a9cc5cc22aa9b6f5a5c17882d6a0d3d1498298c4",
+      "bytes": 24488
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/chat.tsx",
+      "sha256": "5f174a423dab52c6f25689e5d42a2d35d52fb7789ecc3f61f2300a01b78a8b0b",
+      "bytes": 29985
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/god-main.tsx",
+      "sha256": "6d671318746912ad9110cd5a363677235609d4cef69b7cd3ab9f5ec5e12a5c03",
+      "bytes": 3787
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/god.css",
+      "sha256": "f839a636f5d44917151632f76a597c74cc9fd3d353de3a07275b862ee934ac26",
+      "bytes": 795
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/history-window.tsx",
+      "sha256": "33acb6f61cf8692019b91de59d7a75ba6a4767defb01f1e27fd3f06549bdccae",
+      "bytes": 2459
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/memory-palace.tsx",
+      "sha256": "2f495be4b742f8462b1ed3bfad263089d9053e9550bd650e584ff8ca64b8c552",
+      "bytes": 16879
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/modal.tsx",
+      "sha256": "be0caa38ef897dd4dea8cfc55bceb99d60b5b2ab10e69804cf7a1e9205b00f28",
+      "bytes": 571
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/platform.tsx",
+      "sha256": "f07eae93d14477cb58e78e628e210da9977eb06c234fa8c32110e4862a6a10ba",
+      "bytes": 7969
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/rolling-summary.tsx",
+      "sha256": "10a8178ddf235f6c4fb3ba93948f4a51facd730a2789c3380b3ad00fa3cd1931",
+      "bytes": 13102
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/src/session-client.ts",
+      "sha256": "586c8ea5923d85d439e35d1d993a127ef697c7a4f832170d3e0db84dc8275019",
+      "bytes": 5853
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/tests/card-presentation.test.mjs",
+      "sha256": "6c8e8a8ec304591cf96f9924ba8f2584ac7dae5ee38a615c45e4923dfa56dd44",
+      "bytes": 12745
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/vite.config.mjs",
+      "sha256": "cf3effc79faf5d6af79a27438816f01d0f3b6921dfd61368774e494b351aa651",
+      "bytes": 270
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/README.md",
+      "sha256": "24e814e22ed8b93336238f4a7508a76f525ba166342842f6d4d6868a50ea8896",
+      "bytes": 9940
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/adapter.mjs",
+      "sha256": "e5ef0339be873c0f3fd4e1d33ce20d6d1bd2fbc8ec2be0d91764c59a8dac1aa1",
+      "bytes": 2757
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/assembly.mjs",
+      "sha256": "15bec1b4af086c46b089760f712da4fb5019b8bb41ae96c6b84edbcc093beaca",
+      "bytes": 1664
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/http.mjs",
+      "sha256": "e52563d61bcd18da4ca3ec87fb612159c7ab169c70d3a858e8a83a4ba9084e88",
+      "bytes": 6770
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/output-suffix.mjs",
+      "sha256": "eee8e3015c311fc3133e0bd63e319b2d0aa3420a5c7a1e040709a046635a9911",
+      "bytes": 1144
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/plugin-host.mjs",
+      "sha256": "ab9d5bf5c60024768b2be7accf153edd6297b7f973ce50c8d03824e400795a8f",
+      "bytes": 2326
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/plugin-runtime.mjs",
+      "sha256": "0d14a583c815cab4458f1d2c7e6b07bbd9907842f643ca47703b7e121f059f24",
+      "bytes": 3141
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/plugins.mjs",
+      "sha256": "3dc12455a72952d9d3a634d198a33dcdf6aa91660b150fbabaab2b87daf6bbee",
+      "bytes": 2117
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/real-host.mjs",
+      "sha256": "e49a9aab8705e308f9b57ba98baa2364580dad6968df2f7ec5043e164a6e641f",
+      "bytes": 1181
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/real-profile.mjs",
+      "sha256": "f0e7f38962c387707c2854a68f488ab19da18d6116e27e7c7ee66e89120bf776",
+      "bytes": 3275
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/setup.mjs",
+      "sha256": "9f6d5f755ece8738a265f8441ab4aa10e2545988d9820015a25f02431e218d00",
+      "bytes": 6425
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/lib/ui.mjs",
+      "sha256": "4763614b857f28843cf146d46ef005fd836d0af9f0633744ee467b091da00450",
+      "bytes": 2386
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/preview.mjs",
+      "sha256": "afd8ed6251307f07edc282370cb5cd12a9a1442a3ae053db4aac7cc323101c7e",
+      "bytes": 1670
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/public/app.mjs",
+      "sha256": "ae3c7a0c32a5497dc77202c6694b2e0959a6eebaa57b1facead3e8b6ba7c1237",
+      "bytes": 14654
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/public/index.html",
+      "sha256": "870ff7238f058c18d892f5cefff695b79464ed5376184e138aafe2dd3e3045af",
+      "bytes": 2243
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/public/styles.css",
+      "sha256": "6e6bfa6b7f2269b1750a2a84d7431599125046540acfef5fe6ac00409688e874",
+      "bytes": 11842
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/MANIFEST.json",
+      "sha256": "212062ac4dc1cab77a358b1d1085b03c532580f65bdd4700ab4a0becfcff6526",
+      "bytes": 676
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/branch-save.manifest.json",
+      "sha256": "6ddcaa49ceeb0d96e9eafbb05f4c148c461ea6fab9d086faef823c890d48030c",
+      "bytes": 859
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/history-window.manifest.json",
+      "sha256": "c4f9ec018cea3e3a5d6a7b1cefa7c3263e7c7e020c64e4b5a1388cab27c12d20",
+      "bytes": 895
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/memory-palace.manifest.json",
+      "sha256": "5f074b909f3207ed879142436ec374a23df3036fd17a52edd9d10aa3da017705",
+      "bytes": 1070
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/model-selector.manifest.json",
+      "sha256": "69ecfdfb3d022593e09060abb74d945946f0e3ece6c26ec24dc75f3822769ca8",
+      "bytes": 876
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/output-suffix.json",
+      "sha256": "ef20d1269dd6972919b0e4c2c8a15362d261ddccae250aaa6dccce08453f31b3",
+      "bytes": 2199
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/prompts.json",
+      "sha256": "e4cbde57e42a14b6276013ba053c13ffae16bcf1b35ab0a4f2c2df5fe576f2af",
+      "bytes": 37019
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/resources/rolling-summary.manifest.json",
+      "sha256": "8bd98507153c37c64832826b512ca0807aaed87b98334577143090bde162906c",
+      "bytes": 1038
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/assembly.test.mjs",
+      "sha256": "d7b7eac43a19b19f05cf6e83ca0e41f7ff0fff7cf7e0d163e2406bb37fbf7cb7",
+      "bytes": 2054
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/branches.test.mjs",
+      "sha256": "ee727777ca8228af7c852e48fbf56988807c94e00058872885d1272670b2b415",
+      "bytes": 11787
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/context.test.mjs",
+      "sha256": "b0df5f1c56d83631632759bcddcb23e5acbf49b736316cdd1fe41563356d59b2",
+      "bytes": 12125
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/http.test.mjs",
+      "sha256": "e4d29581aaec71843c26ad28994ba88115170ab712ebe2e5b7490c51a1089c17",
+      "bytes": 7027
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/model-policy.test.mjs",
+      "sha256": "6d468b960f8f812e5b24c46e9471831d9c13b3c2f25bcbd9caed15fea20cb3ef",
+      "bytes": 3260
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/plugins-http.test.mjs",
+      "sha256": "54769012054b1970954c3a415c6a43b79832056eb9079948b83dd12e82030a8e",
+      "bytes": 11941
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/real-host.test.mjs",
+      "sha256": "3762be97f904128befe47228a7120b0dad05a0e235552c8f2cefb1668a1bc18d",
+      "bytes": 5822
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/setup.test.mjs",
+      "sha256": "777a4b4b5d82e1c6fb97efa7fb635145e100dfdf9f0bef2129de0562761d22b3",
+      "bytes": 2894
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/state.test.mjs",
+      "sha256": "c5e051392c2a43c3935f35020209de11f0cbfcc715396279a23b1f3e0689c6ca",
+      "bytes": 6307
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/store.test.mjs",
+      "sha256": "692556cbd046fdac9474ae60c87904464c9323d5742b255084b499c78fa8371e",
+      "bytes": 4877
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/tasks.test.mjs",
+      "sha256": "462d2c07c5e1fbff9dbc81c6fc3db3d23efbe1e7c2178e31269f7ac9d716c752",
+      "bytes": 13577
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/ui-assets.test.mjs",
+      "sha256": "0f135cbe27b24e2d217597cba39f4e8079f969a728edddf03764b654b3dfaeea",
+      "bytes": 3439
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tests/ui-http.test.mjs",
+      "sha256": "8adb4681a66ca3ceaec3dd60042005f7c602dec73bed742f06c1d5e81239de94",
+      "bytes": 4291
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/freeze-output.py",
+      "sha256": "0d2db43b37cd9c1ef1b458c8ab987535a2819b1a687d21ea4e659f1cc1996f90",
+      "bytes": 1265
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/freeze.py",
+      "sha256": "c89071078f7e0a2c4c8c8b322077e3e241cd6fe7545e26e7a709f1e3d7b97cbc",
+      "bytes": 3629
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/integration-preview.mjs",
+      "sha256": "c83b4e265948ffbc2656fab295a3043c279c0680b0108f8285056299f4ed5560",
+      "bytes": 2304
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/presentation-preview.mjs",
+      "sha256": "70c66a030d829ebb2a6c41d2197bfa013fc728e22d8156789d7ff16f4cbb36e7",
+      "bytes": 5216
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/real-first.mjs",
+      "sha256": "1a5fc2d1d17d8a80a4a15b50d64f9d7f96de95d3cbd62e5ee5ba2accce8156c2",
+      "bytes": 4012
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/real-preview.mjs",
+      "sha256": "fb85d7841a45122e700940e856de4828437d4c3b399bf9d699275378ed154c58",
+      "bytes": 7394
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/start-real.mjs",
+      "sha256": "0f3a2a74eabc32a3d95ebdadfa7bd522bd6e15ce261c8e5af4d7e3e897c957ce",
+      "bytes": 2172
+    },
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/ui-preview.mjs",
+      "sha256": "fba749abe8a6edcddd7a9ccfe66abefe73c9e7c54d337f038a25affa765678ee",
+      "bytes": 2295
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/budget-exemption.test.mjs",
+      "sha256": "c6ac8b84b08ee296c1b7571515e9bde43113569db8a15151262bb43ae12d8860",
+      "bytes": 2535
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/card-context.mjs",
+      "sha256": "f2ab0d2e6a992287f0aea9b45d18b59c5212a39b3cf6850a236f24741a486c31",
+      "bytes": 1967
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/card-model-policy.mjs",
+      "sha256": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+      "bytes": 2508
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/card-session-store.mjs",
+      "sha256": "0e97151e1bae1b66c088a104ca89d73616e0accd818936ff4f1356a1dc00818d",
+      "bytes": 3266
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/card-state.mjs",
+      "sha256": "a1d2a308f9760448b264ff43f44ef81c93818485b6e2289a59699084388e7063",
+      "bytes": 1635
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/controlled-provider.mjs",
+      "sha256": "c6b736116d5ed709acab61a298f54fc9315575c99d2f188d2e79719433cdce11",
+      "bytes": 14213
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/controlled-provider.test.mjs",
+      "sha256": "84498db76f7d873d0b8a0dba10eb33f023d4e834d201ef7196c12c4e4e000721",
+      "bytes": 14805
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/history-assembly.mjs",
+      "sha256": "7e3334c7a0d905bfd46720fedab44374603b8f3563fc49abe92a21c2a0b79829",
+      "bytes": 1495
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-assembly.mjs",
+      "sha256": "e32cb564f08efbd2c2ee2ad03c2c677dd7d45a12942c17a15c5d7f1065599cf1",
+      "bytes": 7279
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-branch-archive.mjs",
+      "sha256": "ae5d6b9bc047940d47aa795b01df5ad597d58026827e2f15d81f29762623ff4a",
+      "bytes": 2590
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-budget.mjs",
+      "sha256": "041d341dfb1b1478dfbb2c40e87bcc849f6d348df7b55f6a689610fadfb2c2dc",
+      "bytes": 8437
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-http.mjs",
+      "sha256": "8611921c2718194bb7ac465cefb0f1715a738f7339255231ab137f39ab7f5e39",
+      "bytes": 6975
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-session-store.mjs",
+      "sha256": "2cd578a9d8723e6fe548f1dd00dc8d30f9ce8ad79a03a32ed612e6d1715be7e6",
+      "bytes": 19680
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-task-provider.mjs",
+      "sha256": "c5ca230da3496ec2ea40c27047720bac9da0d2c49c9271980d17ec305dbe0799",
+      "bytes": 2751
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-task-state.mjs",
+      "sha256": "c08c01dbd27f4910254b4ef09365bfc8375c9e3f42f41952825a6752e2c7323f",
+      "bytes": 9319
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-tasks.mjs",
+      "sha256": "d4dce0328da26d0f3a72ad3b64ec670b2f3d036ba72996cd15df99d7bc57126e",
+      "bytes": 19780
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/memory-tasks.test.mjs",
+      "sha256": "279308200138ab5a0ff15e9c93c73974c0578793962cfeca74b839ab8128b521",
+      "bytes": 31960
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/model-runtime.mjs",
+      "sha256": "f9c48f349527caa42952fe452996214fa333db09ab90e2b2ff01e90a043338ba",
+      "bytes": 4218
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/server.mjs",
+      "sha256": "1656f544f954a3cca97b66c784ce9b7a549a85030406fa99f7eeccc8c41a9998",
+      "bytes": 16206
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/summary-assembly.mjs",
+      "sha256": "f0c27b172271e230b818ced5bf61d4e5ba5d829a2b19c954106a25d12c1749a0",
+      "bytes": 4830
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/summary-session-store.mjs",
+      "sha256": "b2780c0a5e57a9e0585adfa838f0f77a14f34347d7f9d97d4c4fc40c1ac3687c",
+      "bytes": 15841
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/summary-state.mjs",
+      "sha256": "3198f0eed48f774f0ae349d2f29013818983f249b7accada2a469b0444cef8f4",
+      "bytes": 9901
+    },
+    {
+      "path": "experiments/ai-rpg-engine/studio/summary-tasks.mjs",
+      "sha256": "6d2c4138360e553fce62fd22adf1fcc62d68fc12f2ce1255254433ff2a6e01bb",
+      "bytes": 14895
+    },
+    {
+      "path": "server/model_router/rpg_bridge.py",
+      "sha256": "7db59e7e3f1c14c230741b3349a8a7c554017df6947185a5e198ac9c9d4ef818",
+      "bytes": 17862
+    },
+    {
+      "path": "server/tests/test_rpg_bridge.py",
+      "sha256": "08ff3506661c93a5fa6cc1912455610e8f77f4fae908f8cf681d11ff8d906fb9",
+      "bytes": 16121
+    }
+  ],
+  "buildArtifacts": [
+    {
+      "path": "client/dist/assets/CodingPage-Cvs5tL9D.js",
+      "sha256": "61bcd8be0eee472f79f3645028aea5d0142c2c09288208d86a72f53c17ca8992"
+    },
+    {
+      "path": "client/dist/assets/file-archive-CQ9amueM.js",
+      "sha256": "119a7d73362f9e08981ac0a55dfe2baf4213b9f27bdb8a4f7e267586e67eb0d8"
+    },
+    {
+      "path": "client/dist/assets/file-x-corner-Cr1IE-yy.js",
+      "sha256": "78d300f601e1d776470b14fa56e9f532d7790d78f800efb179fa9cbc670666d3"
+    },
+    {
+      "path": "client/dist/assets/index-CeISsdwf.css",
+      "sha256": "e024546ed5a3574378a5be70d52d38b6e7a0fbe07353d80931bd7e332e1e6740"
+    },
+    {
+      "path": "client/dist/assets/index-QBSuZAv5.js",
+      "sha256": "e5450884e1cf5f3ce412d189a35558585fffe036b93d6ef553f89c734f8a9cd6"
+    },
+    {
+      "path": "client/dist/assets/MainApplication-BdpCwptR.js",
+      "sha256": "e9decc939792f62fca4b3148a9a9b1ff677f7fa4638033de1dbf740882949572"
+    },
+    {
+      "path": "client/dist/assets/MainApplication-DO8_G8cZ.css",
+      "sha256": "9fb8fcb281ca243adb9ef78aaee40dff46cb1f3cf6c5a9294fedb5bc38586a38"
+    },
+    {
+      "path": "client/dist/assets/matrix-oasis-final-1600-C1Cvs15Q.webp",
+      "sha256": "5b7636b8f9f5e2cd996b395d0ed74c58e8689da9a727e9fb9a31487a2142f456"
+    },
+    {
+      "path": "client/dist/assets/matrix-oasis-final-900-CYeccXR-.webp",
+      "sha256": "adf113fea9a9d721f4aaf329a3853dfe3dc21561268d37d9cb813635f6232b75"
+    },
+    {
+      "path": "client/dist/assets/matrix-oasis-gateway-1600-Bq_U2VTU.webp",
+      "sha256": "7ff4641cf57b7cc2681fcd57447f51e6bbfd8227997123a2769731c8215a4a63"
+    },
+    {
+      "path": "client/dist/assets/matrix-oasis-gateway-900-CJpjQ5NM.webp",
+      "sha256": "1af7a7caca908f0490a29a396633b380d8b01ab3f3882eb1200825a26ce45bde"
+    },
+    {
+      "path": "client/dist/assets/matrix-oasis-teaser-640-DSAH-zEA.webp",
+      "sha256": "e64ad5cf9f10fb78e7518692f953524c3f0dd416afebeb27fa5ec2787fb0c99d"
+    },
+    {
+      "path": "client/dist/assets/SkillCreatorIndexPage-CdHEb8-N.js",
+      "sha256": "42ea4fbac07c6a219fd78f1e9e1cb84d4bb2e862d403f20e01fa14c04a0afc6c"
+    },
+    {
+      "path": "client/dist/assets/SkillCreatorStudioPage-BgIuEu8G.js",
+      "sha256": "aac13cd12d1eb67236cc64d30696522674ad539d0d1b5cf001f913e0d36668a6"
+    },
+    {
+      "path": "client/dist/assets/SkillLifecyclePanel-C1Toocni.js",
+      "sha256": "c721c85d1bd65a85228580537328443dedbdea47f416a310ea8c1d06adc3d36f"
+    },
+    {
+      "path": "client/dist/assets/skillLocalImportApi-Wplm0oZ7.js",
+      "sha256": "c3ee559edfa0a2fbb928bb72251fb465c5f66018041838d0c41e2161dd5032d6"
+    },
+    {
+      "path": "client/dist/assets/SkillLocalImportDetailPage-6qfILCj_.js",
+      "sha256": "4b089dfdacea42e71f2de9aaa9d37fdfe7d4bfe969edfd13b2a484934701fbaa"
+    },
+    {
+      "path": "client/dist/assets/SkillLocalImportIndexPage-SIJaa3vx.js",
+      "sha256": "416e71d18d686b8640b4d745ccbe5ac39192c02415fd58a054a77d25c66d667d"
+    },
+    {
+      "path": "client/dist/assets/SkillLocalImportSummaryPanel-DI2BOKqF.js",
+      "sha256": "a1d96813bf6b0974ef6f58726de4ed3d9ff7f0a582e70011e1e3e6b8da6d8a56"
+    },
+    {
+      "path": "client/dist/assets/skillNeedMembers.generated-DKCjfzYh.js",
+      "sha256": "1359fa8a36f37dd87af0b9f5020ff1d79374eb3d159afebe92d059abd3cf69df"
+    },
+    {
+      "path": "client/dist/assets/SkillRerankGovernancePage-C4WyFzh3.js",
+      "sha256": "1693138e4cd51a59a21920a042a3a476ab9db28a931e7490f8a8bf9c744bcfa5"
+    },
+    {
+      "path": "client/dist/assets/skillSetMembers.generated-u4j-EYpZ.js",
+      "sha256": "6708df1a84f163bd08440e11122df645732e5591cee5399706fc0aa2e2f595bb"
+    },
+    {
+      "path": "client/dist/assets/t2cn-F4TDI9Zx.js",
+      "sha256": "bfea9f644578d51f8e8b8023811f0ba082b2f270f965e5bc967e8b8f39ac3f69"
+    },
+    {
+      "path": "client/dist/assets/WorkflowFormPage-9EZ_VWMe.js",
+      "sha256": "9fc183fe6a83561bdcfbe882f74481f9ae9bdeb5286773907c9c7f30ed643933"
+    },
+    {
+      "path": "client/dist/assets/WorldGenerationPanel-WCIf5X1A.js",
+      "sha256": "8d6b11b1958823660a437f1eadddd86960a1df6634932fac74605bcadc3df181"
+    },
+    {
+      "path": "client/dist/brand/anthropic-symbol-slate.svg",
+      "sha256": "e6173267879c063a0e2c31a527bf3ac9d3e7ac0106054e71d211e722a687781a"
+    },
+    {
+      "path": "client/dist/brand/openai-blossom.svg",
+      "sha256": "0c5f0369c2c08aaa4095de69d628ee5bb5366e1d919116410e2e564403861e2c"
+    },
+    {
+      "path": "client/dist/help-center/07cbd6d1/gemini38-batch-settings.png",
+      "sha256": "93a080aa49ed61f46c180f70e811c64008ea6f53470ae6114636ceb470ceb0da"
+    },
+    {
+      "path": "client/dist/help-center/07cbd6d1/muse13-contributor-notice.png",
+      "sha256": "31489d9c14d3fca9bacb9d4706656b0f8afbdc34f4f84e05720cd8faf78f9999"
+    },
+    {
+      "path": "client/dist/help-center/0de311ec/openrouter-image-model.png",
+      "sha256": "a2ce7ccf389d079919fb51a7f4a5df620f288f4c4aec48c22b2083febaed09e0"
+    },
+    {
+      "path": "client/dist/help-center/0de311ec/openrouter-specialized-models.png",
+      "sha256": "f54cb561bdc749b04a94beff1b160680a674b7fade7bfc78bcbc74a3e1464e72"
+    },
+    {
+      "path": "client/dist/help-center/114461d3/provider-qualification-expired.png",
+      "sha256": "0f1e3870c776088a9a63dae8df788ca092a1dbe9b117e8f584d34699f5e4191d"
+    },
+    {
+      "path": "client/dist/help-center/114461d3/provider-qualification-renewed.png",
+      "sha256": "0785cd7c8d102f05d818d3b74377813f56bfb18cdbc6e32ea350753d4daca172"
+    },
+    {
+      "path": "client/dist/help-center/114461d3/provider-qualification-unknown.png",
+      "sha256": "2e696a463ab84b5e09172b2c5fd6bca1ebdbe89ca7914b39ffcfe15b80d8c368"
+    },
+    {
+      "path": "client/dist/help-center/1864ed84/rpg-model-selector-mobile.png",
+      "sha256": "3612f4d912e911fe280d8e2530380af59294088381780ca48b5a6ea982009519"
+    },
+    {
+      "path": "client/dist/help-center/1864ed84/rpg-model-selector.png",
+      "sha256": "929647af34388709c92c4973dfc0d55b72d4804d38093e6ac2c6cef34b5a0677"
+    },
+    {
+      "path": "client/dist/help-center/48254740/workflow-restricted-retry-config.png",
+      "sha256": "5cf8b3ac483f1e89580b95023dcafb0b01ab7e3a03b0bfe9def7ff40ec8e8523"
+    },
+    {
+      "path": "client/dist/help-center/56fe2e2d/rpg-summary-overflow-desktop.png",
+      "sha256": "f814eb2b2718a5a1e552df8607d3b2c6b47542d2884608dc180b09771df948ed"
+    },
+    {
+      "path": "client/dist/help-center/56fe2e2d/rpg-summary-overflow-mobile.png",
+      "sha256": "0d4ba3f9a098b867204ccae31a5171ce182f17ee97c145729f5604c6a366a522"
+    },
+    {
+      "path": "client/dist/help-center/61b6eea8/rpg-history-window-settings.png",
+      "sha256": "4c83c8c5f11392ef91ed06edb97620519e6bfdc1dffdea9fd6a49e3bbbb20ef0"
+    },
+    {
+      "path": "client/dist/help-center/64880801/evaluation-vision-anchors.png",
+      "sha256": "3455e30f5aff071a1e99d4a7c3f1f93c90632bbfb14a96ca055075a6214636d6"
+    },
+    {
+      "path": "client/dist/help-center/64880801/evaluation-vision-assertions.png",
+      "sha256": "f088595e491a59ba74ce5b67b33e05b6049a841803bc67ce4e460059c194f24a"
+    },
+    {
+      "path": "client/dist/help-center/70a01640/elevenlabs-speech.png",
+      "sha256": "cdf44668e3784d908f747d26617cc4e2f970a17e9c8ce7eb2a7b2949f299a5c8"
+    },
+    {
+      "path": "client/dist/help-center/70a01640/haiku-batch.png",
+      "sha256": "68a542b94aa37a7af2a6424d6ac607455579a8baa8eff15f4e8ec48932bb5bce"
+    },
+    {
+      "path": "client/dist/help-center/7eaaa305/god-branch-desktop.png",
+      "sha256": "49a4c970ea882101acaa6d6f282e0f99520e192abbf2b6fd5fb3f3836640587e"
+    },
+    {
+      "path": "client/dist/help-center/7eaaa305/god-window-desktop.png",
+      "sha256": "1285b54dc5d9e27bcdb177ac6eda9bc34fabac095907d90483a6d132dd3354ec"
+    },
+    {
+      "path": "client/dist/help-center/821067a7/rss-inspect-atom.png",
+      "sha256": "93e205bb6640b043a558474aa211ee68c83f77bad3ba196b4e82ece62d789b45"
+    },
+    {
+      "path": "client/dist/help-center/821067a7/rss-real-model-result.png",
+      "sha256": "d1a2fa6b5267374136c2170e14247e2c7bdc569956c76a03d15788e7c0982cb5"
+    },
+    {
+      "path": "client/dist/help-center/86fdb953/rpg-memory-editor-mobile.png",
+      "sha256": "cf55cd923d3a5c3d4510232e310aafe415503061c0f4ec0020eafccf8ed06874"
+    },
+    {
+      "path": "client/dist/help-center/86fdb953/rpg-memory-palace.png",
+      "sha256": "cdacfa8c4be7985d3343e8ff226c53642f63e7cf1da5f225eec6fc581fe7a5b7"
+    },
+    {
+      "path": "client/dist/help-center/89b72c67/r7-delete-effect.png",
+      "sha256": "f2450608b97112a62a38688f10d4a06e8d1ac244ea2439f1e512898430898703"
+    },
+    {
+      "path": "client/dist/help-center/89b72c67/r7-insert-effect.png",
+      "sha256": "0c4f7a711a3e0b2036fb12de15323623faf058aceece257f84c6f132553aeb72"
+    },
+    {
+      "path": "client/dist/help-center/89b72c67/r7-repair-diagnostic.png",
+      "sha256": "d27bc025519c547ed064256142b98ea479d9caaa5523b46749cd9915ae6bbbf3"
+    },
+    {
+      "path": "client/dist/help-center/89b72c67/r7-repair-preview.png",
+      "sha256": "508deedd2cc041e756de15e9e289335521c778eb03c6edbc2b15058f718d0c2a"
+    },
+    {
+      "path": "client/dist/help-center/a29da8a5/rpg-create-branch.png",
+      "sha256": "77359dcabd2f059dd9ee655caac4b7979b36c3dbcd9037e043c8c183a353e137"
+    },
+    {
+      "path": "client/dist/help-center/a29da8a5/rpg-entry.png",
+      "sha256": "072a09c7ffd20b1c4e1a461cd1772004574f926ce63b2fffb14a3186bc69764b"
+    },
+    {
+      "path": "client/dist/help-center/ae284fbb/provider-audio-certification-evidence.png",
+      "sha256": "33e2e3b2f765a6e796cffb0f8b3a6236615df3bcec50732b3d938243064d96cc"
+    },
+    {
+      "path": "client/dist/help-center/b5e0e85e/agent-create-form.png",
+      "sha256": "7e3ea9bae4ff58f086bfe19eb41bbfc7d4f380129ebeb450ef50747e9adfd129"
+    },
+    {
+      "path": "client/dist/help-center/b5e0e85e/agent-preflight-ready.png",
+      "sha256": "2f12ada5fccd8e739a419c0fd2a490e677160ae162ca5a6a541fb66d8e11bb09"
+    },
+    {
+      "path": "client/dist/help-center/b5e0e85e/workflow-default-template.png",
+      "sha256": "de8f429cf33ae58ae6f35d6f1bd743ffdaead15ee276ed2893302d0e50975f34"
+    },
+    {
+      "path": "client/dist/help-center/b5e0e85e/workflow-draft-saved.png",
+      "sha256": "0b5beb69aa1ae32c4e06b7d8d508d543d21913677eae3510dfc1538731aeedcb"
+    },
+    {
+      "path": "client/dist/help-center/bf486f25/creator-run-experience-prefilled.png",
+      "sha256": "80ea8b90adb25045bed25196cfe32ce6c806b6804bba23062669740e2b8a6dcf"
+    },
+    {
+      "path": "client/dist/help-center/e3ac4555/qwen38-0902-add-image-menu.png",
+      "sha256": "d013737cbd9e8ec4b2f6135c6a02ec36371ab083fc9bac41dc2f7c55383a7184"
+    },
+    {
+      "path": "client/dist/help-center/e5a808a6/clef-decision.png",
+      "sha256": "a791ceda27da36867b2be3923ebde7e1c63b658a1b4843c41317d992b472ed0f"
+    },
+    {
+      "path": "client/dist/help-center/e5a808a6/provider-catalog-admission.png",
+      "sha256": "b901d4e3751b893ba86dde2dc43a12a20bc4b9d4ff567e264085d6eaa0566d5f"
+    },
+    {
+      "path": "client/dist/help-center/e5a808a6/sol-batch.png",
+      "sha256": "6f1a17ae14ed90fd0759cdb46c9da267c96a8c05e20e4b1208b41f0a473d9227"
+    },
+    {
+      "path": "client/dist/help-center/f67f4013/rag-diagnostic-candidate.png",
+      "sha256": "d29809830d6bbdbf0fa0a1117c368973790d45439341c215cad3f62ca5a3e986"
+    },
+    {
+      "path": "client/dist/help-center/f67f4013/rag-estimated-token-budget.png",
+      "sha256": "141c120b6bc834da5f018164e0ec245c4daadb76629e9aab18d0a6c4eed4f5f5"
+    },
+    {
+      "path": "client/dist/help-center/f67f4013/rag-parser-degraded.png",
+      "sha256": "7a8d0c9ae08dbe409daa54d7d05089d697978a1265adcb068dc78b8d8877d14b"
+    },
+    {
+      "path": "client/dist/index.html",
+      "sha256": "9712398f7f01b6ad2dcbb1f1e887d6c41005c7b7e51169274e836b5333023a0f"
+    },
+    {
+      "path": "client/dist/logo.png",
+      "sha256": "19118be563a30d792e4fa7ba35d8c864793078040741a1737c6e3b787b470b35"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/earth-CMFIZ5ch.js",
+      "sha256": "5e31bbe9456ab9af89bb1367cb48e6f6cea8d1949a60b9bb10436972c1cae7ac"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-Atn-VjG6.js",
+      "sha256": "1cf1be093db596ed850e4c656b20976d39c11d41023e2d7358678a676552fb55"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-1fc2661a-a9c2-4330-8a34-51959bda5c00.jpg",
+      "sha256": "785e28609a987720311cce25cb68da1e7f3e3db453117932b920651c9411c21e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-280a79e9-0e26-46ad-3f71-028cfa9b5c00.jpg",
+      "sha256": "f36d98bf9f29b8d62d24a4aeb0df23b3e79028319a8a8545ec75a795859e1ca3"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-287eba7e-830e-4ba3-032a-f55393131900.jpg",
+      "sha256": "44afdc2bc149c85f8929ef0c4909bc84733dddad5283d51f806343c8ffbd608e"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-2f3c5ff4-ee3e-4ea8-03b9-27ff5cb00d00.jpg",
+      "sha256": "fc6b1ea522b03d655d26990dad53dd83485b5bb18cd68c179b98a7be1187606c"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-4256c515-785f-420f-d777-683cf95bb900.jpg",
+      "sha256": "ac47c818ef06968d46bc460f624e6838f292251a9648731320fc5795212f2b81"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-5824e5aa-ea5d-4396-32d9-8e3db9095700.jpg",
+      "sha256": "56b8caa384e38b08853a8963bcc312113c28aec95c826f10feaaa6f3d6f676bf"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-5939d0f0-163b-4c27-2a7a-b05419797900.jpg",
+      "sha256": "8d603a4999f3673063904487622fb7c1d123aaed1b7989bc01eba0737b98c4a3"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-61e70fb9-9a81-4274-56dc-9753b573e000.jpg",
+      "sha256": "0410892d543bf0fbfd72fec8cf937c62f1d7a18ac3e830d6028e7b0f028d1d23"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-6e822f82-cf5c-448b-b976-046800a7b100.jpg",
+      "sha256": "889b7ae24bf3f1fe13ccd76b8d4dbbea2149e2f5075957185fe05e861c63a345"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-8f21b0cc-67e2-42ab-95bc-e78dd37fdf00.jpg",
+      "sha256": "cea714c3e7bdea9e9718219f34924424d42f38c373f3de3d269e4a7ba3608a9d"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-98cbbf81-7e73-484d-a713-1b04c0917b00.jpg",
+      "sha256": "f9fe8f6cbfef5659211f48c543b34741dbe18b07d96cb654d83bcf54a0fb47f8"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-9c431025-e8ca-471e-8edf-d82eb7a83400.jpg",
+      "sha256": "1cc83453edab2f84c8ce0b7935911115bee1e69b4ca2ec89c76244b913ca9037"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-ab5abbc7-a2ec-45f3-1efe-486b2efe1300.jpg",
+      "sha256": "f31b61b48f90366e93104700b8afaa265af19cbd09f0c9ca0f7fcf06ca35a54d"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-alt-v1.jpg",
+      "sha256": "bae8e3a381d94322fdb810f2e653aeaae21a680a3c99bf97bb7990482e9163e5"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-c2157402-2346-4fc8-0808-6ab5a1809b00.jpg",
+      "sha256": "80a2068ad73f86f6dd6ceb6f68b74e8dd0694ffdd2541f32eb11b4de11997d9f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-c9a9a34f-9965-4314-146c-7a48fb5c5100.jpg",
+      "sha256": "f6ef92c2db7793c8105e8da01de88610d447c8059f091fcad5c482ae54410645"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-commentary-v1.webp",
+      "sha256": "d76ff72d86bcb4dd73e104fffd838630a7e20ab87876931d5dc66cdee78c7b8f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/god-J9tpN1go.css",
+      "sha256": "ee5312d9786d1b4c720fcd5528329b580944a29f87315c80c46fcbbd3d6c00a9"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/styles-CgyPl_in.js",
+      "sha256": "c1de7914e8e720ce3296c09f3de690db0d7119f0482b2a02907a454ce2687f14"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/assets/styles-Dcxhjmm2.css",
+      "sha256": "05148fa56ec2ae13f83ee364e813550ec19eb1616ddc5ed496bbcaafc12736af"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/god.html",
+      "sha256": "d100096e8e3e8489c20862c57ce4a07ca4eb4d968194d15288de78bf3f5b730f"
+    },
+    {
+      "path": "experiments/ai-rpg-engine/card-replica/dist/index.html",
+      "sha256": "a509fda57196e6e704ce8beb4f9ab9d48d4d1c455da00e8738791ad69305a64f"
+    }
+  ],
+  "scan": {
+    "forbiddenPaths": [],
+    "commonCredentialPatternFiles": [],
+    "scope": "candidate text only; not exhaustive security audit"
+  },
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "authorized": true,
+    "snapshotMeaning": "Final pre-commit file snapshot; authorization covers Commit/Push/PR only."
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "cardId": "god",
+  "phase": "B2-host-candidate-awaiting-user",
+  "worktree": "C:/tmp/modelmirror-rpg-god-card",
+  "branch": "codex/rpg-god-card",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "same-host HTTP synthetic control verified; real disabled",
+  "ui": "B1 accepted by user; chat UI pending B3",
+  "plugins": "shared lifecycle identifies god; compatibility remains denied pending B3",
+  "offline": {
+    "tests": 293,
+    "passed": 292,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided"
+  },
+  "real": {
+    "authorized": 0,
+    "dispatched": 0
+  },
+  "screenshots": "7 actual browser JPEGs archived; no PNG claim",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false
+  },
+  "nextBatch": "B3-cross-card-plugins-and-chat-UI",
+  "report": "B2-HOST-ACCEPTANCE.md",
+  "preview": "http://127.0.0.1:18505/",
+  "apiPreview": "http://127.0.0.1:18507/rpg-app/god/api/status",
+  "manual": {
+    "B1": "accepted by user this turn",
+    "B2": "pending",
+    "real": "not-run"
+  }
+}

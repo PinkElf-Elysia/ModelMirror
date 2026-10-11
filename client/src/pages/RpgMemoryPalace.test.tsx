@@ -2,11 +2,24 @@ import React from 'react';
 import {render,screen,fireEvent,waitFor,act} from '@testing-library/react';
 import {it,expect,vi,afterEach,beforeEach} from 'vitest';
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',async()=>await import('react'));
-vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/main',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title} onKeyDown={e=>{if(e.key==='Escape')close();}}><button onClick={close}>关闭浮层</button>{children}</div>}));
-import {MemoryPalaceDialog,useMemoryPalace} from '../../../experiments/ai-rpg-engine/card-replica/src/memory-palace';
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title} onKeyDown={e=>{if(e.key==='Escape')close();}}><button onClick={close}>关闭浮层</button>{children}</div>}));
+import {MemoryPalaceDialog,useMemoryPalace,memoryFailureNotice} from '../../../experiments/ai-rpg-engine/card-replica/src/memory-palace';
 import type {MemoryStatus} from '../../../experiments/ai-rpg-engine/card-replica/src/memory-palace';
 const initial:MemoryStatus={compatible:true,enabled:true,busy:false,sessionRevision:3,memoryRevision:2,config:{model:null},entries:[],processedThrough:0,totalTurns:0,pendingOperationId:null,blocked:null,operations:{},originalOutputs:[],effectivePolicy:{revision:'a'.repeat(64)},maxCalls:2,updateMaxCalls:0,lastRecall:null};
 const defaults={sessionId:'s',busy:false,pending:false,error:'',perform:vi.fn(async()=>true),recover:vi.fn(),close:vi.fn()};
+it('control rejection distinguishes no dispatch from unknown or filtered generation',()=>{
+ expect(memoryFailureNotice('CONTROL_BUDGET_EXHAUSTED')).toContain('控制面调用额度已用尽');
+ expect(memoryFailureNotice('CONTROL_BUDGET_EXHAUSTED')).toContain('未发送给模型');
+ expect(memoryFailureNotice('CONTROL_PREFLIGHT_REJECTED')).toContain('派发前拒绝');
+ expect(memoryFailureNotice('CONTROL_PREFLIGHT_REJECTED')).not.toContain('等待');
+});
+it('known filtered failure restores as ended, never as still waiting and never sends',async()=>{
+ const posts:string[]=[],session:any={id:'filtered',revision:3,memoryPalace:{supported:true}};
+ vi.stubGlobal('fetch',vi.fn(async(url:string,o?:RequestInit)=>{if(o?.body){posts.push(url);return {ok:true,json:async()=>({session,operation:{status:'failed',error:'PROVIDER_CONTENT_FILTERED'}})};}return {ok:true,json:async()=>({...initial,operations:{original:{status:'unknown'}}})};}));
+ function Harness(){const h=useMemoryPalace(session,()=>{});return <><button onClick={()=>h.recover('original')}>核对</button><p>{h.error}</p></>;}
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'核对'}));await screen.findByText(/模型因内容过滤结束了本次请求/);
+ expect(screen.queryByText(/仍需等待/)).not.toBeInTheDocument();expect(posts).toHaveLength(1);expect(posts[0]).toMatch(/recover$/);
+});
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();window.history.replaceState({},'', '/rpg-app/earth/');});afterEach(()=>vi.unstubAllGlobals());
 function fill(){fireEvent.change(screen.getByRole('textbox',{name:'名称'}),{target:{value:'手记'}});fireEvent.change(screen.getByRole('textbox',{name:'关键词'}),{target:{value:'阿宁，Library'}});fireEvent.change(screen.getByRole('textbox',{name:'内容'}),{target:{value:'阿宁约好在图书馆见面；尚未赴约。'}});}
 it('manual creation validates roles, duplicate keywords and Unicode limit; saves original base revision without dispatch',async()=>{const perform=vi.fn(async()=>true);render(<MemoryPalaceDialog {...defaults} perform={perform} status={initial}/>);fireEvent.click(screen.getByRole('button',{name:'＋ 新增'}));fill();fireEvent.change(screen.getByRole('textbox',{name:'内容'}),{target:{value:'😀'.repeat(2001)}});expect(screen.getByRole('button',{name:'保存'})).toBeDisabled();fill();fireEvent.click(screen.getByRole('checkbox',{name:'用户'}));fireEvent.click(screen.getByRole('checkbox',{name:'AI'}));expect(screen.getByRole('button',{name:'保存'})).toBeDisabled();fireEvent.click(screen.getByRole('checkbox',{name:'用户'}));fireEvent.change(screen.getByRole('textbox',{name:'关键词'}),{target:{value:'Library,library'}});expect(screen.getByRole('button',{name:'保存'})).toBeDisabled();fill();fireEvent.click(screen.getByRole('button',{name:'保存'}));await waitFor(()=>expect(perform).toHaveBeenCalledOnce());expect(perform.mock.calls[0]).toEqual(['edit',{expectedSessionRevision:3,expectedMemoryRevision:2,change:{action:'create',value:{name:'手记',keywords:['阿宁','Library'],match:'any',roles:['user'],content:'阿宁约好在图书馆见面；尚未赴约。',enabled:true}}}]);});
