@@ -58,12 +58,16 @@ class ProviderChatControlService:
         return value.strip().casefold() not in {"", "0", "false", "no", "off"}
 
     def get_policy(self) -> ProviderChatControlPolicyResponse:
+        response = self.peek_policy()
+        self._sync_gate_epoch(response)
+        return response
+
+    def peek_policy(self) -> ProviderChatControlPolicyResponse:
+        """Project saved policy/qualification facts without advancing an epoch."""
         bundle = self._repository_method("get_chat_control_policy_bundle")(
             self.router_service.tenant_id
         )
-        response = self._policy_response(bundle)
-        self._sync_gate_epoch(response)
-        return response
+        return self._policy_response(bundle)
 
     def update_policy(
         self, payload: ProviderChatControlPolicyUpdate
@@ -211,7 +215,12 @@ class ProviderChatControlService:
         return response
 
     def gate(self) -> ProviderChatControlGateResponse:
-        policy = self.get_policy()
+        return self._gate_response(self.get_policy())
+
+    def _gate_response(
+        self, policy: ProviderChatControlPolicyResponse
+    ) -> ProviderChatControlGateResponse:
+        """Read the gate for the same admission snapshot; never synchronize it."""
         blockers: list[str] = []
         if not policy.feature_enabled:
             blockers.append("provider_chat_control_feature_disabled")
@@ -229,7 +238,10 @@ class ProviderChatControlService:
         )
         if not text_routes:
             blockers.append("provider_chat_control_text_route_required")
-        if any(not item.valid for item in policy.qualifications):
+        qualifications_complete = self._gate_qualifications_complete(policy)
+        if any(not item.valid for item in policy.qualifications) or (
+            policy.stable_model_ids and text_routes and not qualifications_complete
+        ):
             blockers.append("provider_chat_control_qualification_stale")
         epoch = self._repository_method("get_open_chat_control_gate_epoch")(
             self.router_service.tenant_id,
@@ -295,7 +307,7 @@ class ProviderChatControlService:
                 else {}
             )
             and evidence_complete
-            and all(item.valid for item in policy.qualifications)
+            and qualifications_complete
         )
         automatic_ready = bool(
             epoch is not None
@@ -307,7 +319,7 @@ class ProviderChatControlService:
             }
             and policy.stable_model_ids
             and text_routes
-            and all(item.valid for item in policy.qualifications)
+            and qualifications_complete
         )
         activation_available = bool(
             automatic_ready
@@ -469,13 +481,87 @@ class ProviderChatControlService:
     def required_runtime_allowed(
         self, policy: ProviderChatControlPolicyResponse | None = None
     ) -> tuple[bool, str | None]:
-        current = policy or self.get_policy()
+        current = policy or self.peek_policy()
         if current.effective_mode != "newapi_required_default":
             return True, None
-        gate = self.gate()
+        gate = self._gate_response(current)
         if gate.required_active:
             return True, None
         return False, "provider_chat_required_gate_degraded"
+
+    def route_admission(
+        self,
+        policy: ProviderChatControlPolicyResponse,
+        model_id: str,
+        *,
+        scoped_certified: bool = False,
+    ) -> tuple[bool, str | None]:
+        """Shared interception/gate decision; network and dispatch remain separate."""
+        if not policy.feature_enabled:
+            return False, "provider_chat_control_feature_disabled"
+        if policy.effective_mode == "legacy":
+            return False, "provider_chat_control_legacy_mode"
+        if not scoped_certified and model_id not in policy.stable_model_ids:
+            return False, "provider_chat_model_not_stable"
+        allowed, reason = self.required_runtime_allowed(policy)
+        return True, (
+            None if allowed else reason or "provider_chat_required_gate_degraded"
+        )
+
+    @staticmethod
+    def route_candidates(
+        policy: ProviderChatControlPolicyResponse,
+        capability: ProviderChatCapability,
+    ) -> list[str]:
+        route = next(
+            (item for item in policy.routes if item.capability == capability), None
+        )
+        candidates = list(route.connection_ids if route else [])
+        return (
+            candidates[:1]
+            if policy.effective_mode == "newapi_required_default"
+            else candidates
+        )
+
+    @staticmethod
+    def route_qualification(
+        policy: ProviderChatControlPolicyResponse,
+        *,
+        connection_id: str,
+        model_id: str,
+        capability: ProviderChatCapability,
+    ) -> tuple[str | None, str]:
+        qualification = next(
+            (item for item in policy.qualifications
+             if item.connection_id == connection_id and item.model_id == model_id
+             and item.capability == capability),
+            None,
+        )
+        if qualification is not None and qualification.valid:
+            return str(qualification.certification_id), "qualified"
+        return None, (
+            qualification.reason_code if qualification is not None
+            else "provider_chat_qualification_missing"
+        )
+
+    def managed_readiness(
+        self,
+        policy: ProviderChatControlPolicyResponse,
+        model_id: str,
+        capability: ProviderChatCapability,
+    ) -> tuple[bool, bool, str]:
+        intercepted, reason = self.route_admission(policy, model_id)
+        if not intercepted or reason is not None:
+            return False, intercepted, reason or "provider_chat_no_qualified_route"
+        reason = "provider_chat_no_qualified_route"
+        for connection_id in self.route_candidates(policy, capability):
+            certification_id, reason = self.route_qualification(
+                policy, connection_id=connection_id,
+                model_id=model_id, capability=capability,
+            )
+            if certification_id is not None:
+                return True, False, "qualified"
+        return False, True, reason
 
     def public_status(
         self, model_id: str, capability: ProviderChatCapability
@@ -485,61 +571,17 @@ class ProviderChatControlService:
             raise RouterServiceError(
                 "invalid_model_id", "model_id 必须是有效模型 ID。", status_code=422
             )
-        bundle = self._repository_method("get_chat_control_policy_bundle")(
-            self.router_service.tenant_id
+        policy = self.peek_policy()
+        available, would_block, reason = self.managed_readiness(
+            policy, clean_model, capability
         )
-        policy_row = bundle.get("policy")
-        configured_mode = (
-            str(policy_row["mode"])
-            if isinstance(policy_row, dict)
-            else "legacy"
-        )
-        enabled = self.feature_enabled()
-        if not enabled:
-            reason = "provider_chat_control_feature_disabled"
-            available = False
-            would_block = False
-        elif configured_mode == "legacy":
-            reason = "provider_chat_control_legacy_mode"
-            available = False
-            would_block = False
-        else:
-            policy = self._policy_response(bundle)
-            if clean_model not in policy.stable_model_ids:
-                reason = "provider_chat_model_not_stable"
-                available = False
-                would_block = False
-            else:
-                text_route = next(
-                    (
-                        route
-                        for route in policy.routes
-                        if route.capability == capability
-                    ),
-                    None,
-                )
-                route_ids = text_route.connection_ids if text_route else []
-                valid_ids = {
-                    item.connection_id
-                    for item in policy.qualifications
-                    if item.capability == capability
-                    and item.model_id == clean_model
-                    and item.valid
-                }
-                available = any(item in valid_ids for item in route_ids)
-                would_block = not available
-                reason = (
-                    "qualified"
-                    if available
-                    else "provider_chat_no_qualified_route"
-                )
         return ProviderChatControlPublicStatus(
             contract_version=PROVIDER_CHAT_ROUTING_CONTRACT_VERSION,
-            feature_enabled=enabled,
+            feature_enabled=policy.feature_enabled,
             data_plane_integrated=True,
             model_id=clean_model,
             capability=capability,
-            effective_mode=configured_mode if enabled else "legacy",
+            effective_mode=policy.effective_mode,
             available=available,
             would_block=would_block,
             reason_code=reason,
@@ -908,35 +950,40 @@ class ProviderChatControlService:
                 status_code=409,
             ) from exc
 
-    def _sync_gate_epoch(self, policy: ProviderChatControlPolicyResponse) -> None:
-        expected_qualifications = len(policy.stable_model_ids) * sum(
-            len(route.connection_ids) for route in policy.routes
-        )
-        text_routes = next(
-            (
-                route.connection_ids
-                for route in policy.routes
-                if route.capability == "chat_text"
-            ),
-            [],
-        )
-        qualified = bool(
-            policy.feature_enabled
-            and policy.configured_mode in {
-                "newapi_preferred",
-                "newapi_required_default",
-            }
-            and policy.stable_model_ids
-            and text_routes
-            and expected_qualifications > 0
-            and len(policy.qualifications) == expected_qualifications
+    @staticmethod
+    def _gate_qualifications_complete(policy: ProviderChatControlPolicyResponse) -> bool:
+        expected = {
+            (model_id, route.capability, connection_id)
+            for model_id in policy.stable_model_ids
+            for route in policy.routes
+            for connection_id in route.connection_ids
+        }
+        observed = {
+            (item.model_id, item.capability, item.connection_id)
+            for item in policy.qualifications
+        }
+        return bool(
+            expected and observed == expected
+            and len(policy.qualifications) == len(expected)
             and all(item.valid for item in policy.qualifications)
         )
+
+    def _sync_gate_epoch(self, policy: ProviderChatControlPolicyResponse) -> None:
         self._repository_method("sync_chat_control_gate_epoch")(
             self.router_service.tenant_id,
             epoch_id=f"chatgate_{uuid.uuid4().hex}",
             policy_fingerprint=policy.policy_fingerprint,
-            qualified=qualified,
+            qualified=bool(
+                policy.feature_enabled
+                and policy.configured_mode in {
+                    "newapi_preferred", "newapi_required_default"
+                }
+                and any(
+                    route.connection_ids for route in policy.routes
+                    if route.capability == "chat_text"
+                )
+                and self._gate_qualifications_complete(policy)
+            ),
             invalidation_code=(
                 "provider_chat_policy_or_qualification_changed"
                 if policy.revision

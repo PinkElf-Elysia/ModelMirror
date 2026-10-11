@@ -103,51 +103,28 @@ class ProviderChatStableService:
 
         if not self.control.feature_enabled():
             return False, "provider_chat_control_feature_disabled"
-        policy = self.control.get_policy()
+        policy = self.control.peek_policy()
         clean_model = str(model_id or "").strip()
-        if (
-            policy.effective_mode == "legacy"
-            or (not scoped_certified and clean_model not in policy.stable_model_ids)
-        ):
-            return False, "provider_chat_no_qualified_route"
-        runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
-        if not runtime_allowed:
-            return False, runtime_error or "provider_chat_required_gate_degraded"
-        route = next(
-            (item for item in policy.routes if item.capability == capability),
-            None,
-        )
-        route_ids = list(route.connection_ids if route else [])
-        if policy.effective_mode == "newapi_required_default":
-            route_ids = route_ids[:1]
-        if scoped_certified:
-            failures: list[str] = []
-            for connection_id in route_ids:
-                bindings, reason = self._scoped_bindings_for_connection(
-                    policy,
-                    model_id=clean_model,
-                    connection_id=connection_id,
-                    required_capabilities=(required_capabilities or (capability,)),
-                )
-                if bindings is not None:
-                    return True, None
-                failures.append(reason)
-            return False, (
-                failures[-1] if failures else "provider_chat_no_qualified_route"
+        if not scoped_certified:
+            available, _, reason = self.control.managed_readiness(
+                policy, clean_model, capability
             )
-        qualifications = self._policy_qualifications(
-            policy, model_id=clean_model, capability=capability
+            return available, None if available else reason
+        intercepted, error = self.control.route_admission(
+            policy, clean_model, scoped_certified=True
         )
+        if not intercepted or error is not None:
+            return False, error
+        route_ids = self.control.route_candidates(policy, capability)
         failures: list[str] = []
         for connection_id in route_ids:
-            certification_id, reason = self._qualification_for_route(
-                qualifications,
-                connection_id=connection_id,
+            bindings, reason = self._scoped_bindings_for_connection(
+                policy,
                 model_id=clean_model,
-                capability=capability,
-                scoped_certified=scoped_certified,
+                connection_id=connection_id,
+                required_capabilities=(required_capabilities or (capability,)),
             )
-            if certification_id is not None:
+            if bindings is not None:
                 return True, None
             failures.append(reason)
         return False, failures[-1] if failures else "provider_chat_no_qualified_route"
@@ -204,10 +181,10 @@ class ProviderChatStableService:
         gateway = scoped_gateway if scoped_certified else "default"
         if gateway not in {"default", "ai_research_scoped", "rpg_scoped"}:
             raise ValueError("provider_chat_scope_invalid")
-        if (
-            policy.effective_mode == "legacy"
-            or (not scoped_certified and clean_model not in policy.stable_model_ids)
-        ):
+        intercepted, admission_error = self.control.route_admission(
+            policy, clean_model, scoped_certified=scoped_certified,
+        )
+        if not intercepted:
             return ProviderChatStablePreflight(intercepted=False)
         if scoped_certified:
             try:
@@ -226,9 +203,8 @@ class ProviderChatStableService:
                     "上一次科研模型调用的终态仍待持久化，请稍后重试。",
                     status_code=503,
                 )
-        runtime_allowed, runtime_error = self.control.required_runtime_allowed(policy)
-        if not runtime_allowed:
-            error_code = runtime_error or "provider_chat_required_gate_degraded"
+        if admission_error is not None:
+            error_code = admission_error
             run_id = f"chatrun_{uuid.uuid4().hex}"
             self._repository_method("claim_chat_control_run")(
                 self.router_service.tenant_id,
@@ -259,11 +235,7 @@ class ProviderChatStableService:
                 ),
             )
 
-        route = next(
-            (item for item in policy.routes if item.capability == capability),
-            None,
-        )
-        route_ids = list(route.connection_ids if route else [])
+        route_ids = self.control.route_candidates(policy, capability)
         epoch = self._repository_method("get_open_chat_control_gate_epoch")(
             self.router_service.tenant_id,
             policy.policy_fingerprint,
@@ -282,16 +254,8 @@ class ProviderChatStableService:
             primary_newapi=True,
         )
 
-        qualification_by_connection = self._policy_qualifications(
-            policy, model_id=clean_model, capability=capability
-        )
         failures: list[str] = []
-        candidate_route_ids = (
-            route_ids[:1]
-            if policy.effective_mode == "newapi_required_default"
-            else route_ids
-        )
-        for position, connection_id in enumerate(candidate_route_ids):
+        for position, connection_id in enumerate(route_ids):
             (
                 connection,
                 api_key,
@@ -326,12 +290,11 @@ class ProviderChatStableService:
                 else:
                     certification_id = None
             else:
-                certification_id, reason = self._qualification_for_route(
-                    qualification_by_connection,
+                certification_id, reason = self.control.route_qualification(
+                    policy,
                     connection_id=connection_id,
                     model_id=clean_model,
                     capability=capability,
-                    scoped_certified=False,
                 )
             if certification_id is None:
                 self._complete_preflight_attempt(attempt_id, reason)
@@ -540,13 +503,7 @@ class ProviderChatStableService:
             ProviderChatCapability, ProviderChatCertificationBinding
         ] = {}
         for capability in required_capabilities:
-            route = next(
-                (item for item in policy.routes if item.capability == capability),
-                None,
-            )
-            route_ids = list(route.connection_ids if route else [])
-            if policy.effective_mode == "newapi_required_default":
-                route_ids = route_ids[:1]
+            route_ids = self.control.route_candidates(policy, capability)
             if connection_id not in route_ids:
                 return None, "provider_chat_no_qualified_route"
             qualification, reason = self.control.current_qualification(
@@ -563,49 +520,6 @@ class ProviderChatStableService:
                 certification_id=str(qualification["certification_id"]),
             )
         return bindings, "qualified"
-
-    @staticmethod
-    def _policy_qualifications(
-        policy,
-        *,
-        model_id: str,
-        capability: ProviderChatCapability,
-    ) -> dict[str, object]:
-        return {
-            item.connection_id: item
-            for item in policy.qualifications
-            if item.capability == capability and item.model_id == model_id
-        }
-
-    def _qualification_for_route(
-        self,
-        policy_qualifications: dict[str, object],
-        *,
-        connection_id: str,
-        model_id: str,
-        capability: ProviderChatCapability,
-        scoped_certified: bool,
-    ) -> tuple[str | None, str]:
-        if scoped_certified:
-            current, reason = self.control.current_qualification(
-                connection_id=connection_id,
-                model_id=model_id,
-                capability=capability,
-                require_exact_model=True,
-            )
-            return (
-                str(current["certification_id"]) if current is not None else None,
-                reason,
-            )
-        qualification = policy_qualifications.get(connection_id)
-        if qualification is not None and qualification.valid:
-            return str(qualification.certification_id), "qualified"
-        return (
-            None,
-            qualification.reason_code
-            if qualification is not None
-            else "provider_chat_qualification_missing",
-        )
 
     @staticmethod
     def _certification_max_age_seconds() -> int:

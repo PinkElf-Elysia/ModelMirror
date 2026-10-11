@@ -64,6 +64,7 @@ describe("help center content catalog", () => {
       "understand-rag-content-contract",
       "recover-unavailable-feature",
       "review-provider-qualification",
+      "check-managed-catalog",
       "review-remote-mcp-auth",
       "review-specialized-models",
       "check-availability-cost-data",
@@ -77,7 +78,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["review-decisions-sol-batch", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
@@ -147,6 +148,18 @@ describe("help center content catalog", () => {
     expect(recovery?.content).toContain("/help/review-provider-qualification");
     expect(recovery?.content).not.toContain("/help-center/114461d3/");
     expect(searchHelpContent("资格提示").some((item) => item.id === article?.slug)).toBe(true);
+  });
+
+  it("keeps managed catalog evidence separate from older qualification screenshots", () => {
+    const article = helpArticles.find((item) => item.slug === "check-managed-catalog");
+    expect(article?.verifiedCommit).toBe("e5a808a6");
+    expect(article?.verifiedDate).toBe("2026-10-09");
+    expect(article?.content).toContain("/help-center/e5a808a6/provider-catalog-admission.png");
+    expect(article?.content).toContain("合成数据");
+    expect(article?.content).toContain("不发送模型请求");
+    expect(article?.content).toContain("另一个入口可用不能代替本入口的检查");
+    expect(article?.content).toContain("contract_verified");
+    expect(article?.content).not.toContain("/help-center/114461d3/");
   });
 
   it("separates attachment preparation from real vision acceptance", () => {

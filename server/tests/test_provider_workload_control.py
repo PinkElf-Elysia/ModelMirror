@@ -2824,7 +2824,8 @@ async def test_workload_admin_api_is_session_and_csrf_protected_and_public_redac
         assert public.status_code == 200
         assert public.headers["cache-control"] == "no-store"
         assert public.json()["available"] is False
-        assert public.json()["blocks_before_dispatch"] is True
+        assert public.json()["status"] == "legacy"
+        assert public.json()["blocks_before_dispatch"] is False
         assert "tenant" not in public.text
         assert "connection_id" not in public.text
         assert "base_url" not in public.text

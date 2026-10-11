@@ -356,7 +356,7 @@ async def test_scoped_certified_model_uses_current_certificate_without_stable_me
 
     assert service.readiness(SCOPED_MODEL_ID, "chat_text") == (
         False,
-        "provider_chat_no_qualified_route",
+        "provider_chat_model_not_stable",
     )
     assert service.readiness_scoped_certified(SCOPED_MODEL_ID, "chat_text") == (
         True,

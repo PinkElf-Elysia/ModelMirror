@@ -5713,6 +5713,42 @@ class ProviderWorkloadControlService:
             policies=policies,
         )
 
+    @staticmethod
+    def admission_policy_reason(
+        policy: ProviderWorkloadPolicyResponse,
+    ) -> str | None:
+        """Persisted admission only; callers still authorize Egress at dispatch."""
+        if not policy.feature_enabled:
+            return "provider_workload_feature_disabled"
+        if not policy.data_plane_integrated:
+            return "provider_workload_data_plane_not_integrated"
+        if policy.effective_status != "managed_required":
+            return "provider_workload_policy_not_active"
+        return None
+
+    @classmethod
+    def admission_binding(
+        cls,
+        policy: ProviderWorkloadPolicyResponse,
+        model_id: str,
+        execution_shape: ProviderWorkloadExecutionShape,
+    ) -> tuple[ProviderWorkloadBindingSummary | None, str]:
+        reason = cls.admission_policy_reason(policy)
+        if reason is not None:
+            return None, reason
+        if execution_shape not in ENTRY_ALLOWED_SHAPES[policy.entry_id]:
+            return None, "provider_workload_execution_shape_not_allowed"
+        binding = next(
+            (item for item in policy.bindings
+             if item.model_id == model_id and item.execution_shape == execution_shape),
+            None,
+        )
+        if binding is None:
+            return None, "provider_workload_binding_missing"
+        if not binding.valid:
+            return None, binding.reason_code
+        return binding, "provider_workload_available"
+
     def public_status(
         self,
         entry_id: ProviderWorkloadEntryId,
@@ -5730,26 +5766,10 @@ class ProviderWorkloadControlService:
             ),
             None,
         )
-        reason = "provider_workload_available"
-        available = True
-        if execution_shape not in ENTRY_ALLOWED_SHAPES[entry_id]:
-            reason = "provider_workload_execution_shape_not_allowed"
-            available = False
-        elif not policy.feature_enabled:
-            reason = "provider_workload_feature_disabled"
-            available = False
-        elif not policy.data_plane_integrated:
-            reason = "provider_workload_data_plane_not_integrated"
-            available = False
-        elif policy.effective_status != "managed_required":
-            reason = "provider_workload_policy_not_active"
-            available = False
-        elif binding is None:
-            reason = "provider_workload_binding_missing"
-            available = False
-        elif not binding.valid:
-            reason = binding.reason_code
-            available = False
+        admitted, reason = self.admission_binding(
+            policy, clean_model, execution_shape
+        )
+        available = admitted is not None
         profile: dict[str, object] = {}
         if binding is not None and execution_shape in (
             R8C_EXECUTION_SHAPES | R8D_EXECUTION_SHAPES
@@ -5773,9 +5793,14 @@ class ProviderWorkloadControlService:
             execution_shape=execution_shape,
             model_id=clean_model,
             feature_enabled=policy.feature_enabled,
-            status=policy.effective_status,
+            status=policy.effective_status if policy.feature_enabled else "legacy",
             available=available,
-            blocks_before_dispatch=not available,
+            # Unavailable Managed admission is not a ban on an untouched legacy
+            # path. Match gateway interception, including an explicit flag-off.
+            blocks_before_dispatch=(
+                policy.feature_enabled and policy.configured_status != "legacy"
+                and not available
+            ),
             reason_code=reason,
             certified_input_formats=[
                 str(item)
@@ -6579,19 +6604,12 @@ class ProviderWorkloadCallService:
                 "Workload 策略已变化，本次运行在 Provider 派发前失败关闭。",
                 status_code=409,
             )
-        binding = next(
-            (
-                item
-                for item in policy.bindings
-                if item.execution_shape == execution_shape
-                and item.model_id == model_id
-                and item.valid
-            ),
-            None,
+        binding, admission_reason = self.control.admission_binding(
+            policy, model_id, execution_shape
         )
         if binding is None:
             raise RouterServiceError(
-                "provider_workload_binding_missing",
+                admission_reason,
                 "当前入口没有该精确模型与执行形态的合格 Binding。",
                 status_code=409,
             )
@@ -6829,9 +6847,10 @@ class ProviderWorkloadCallService:
 
     @staticmethod
     def _ensure_active(policy: ProviderWorkloadPolicyResponse) -> None:
-        if policy.effective_status != "managed_required":
+        reason = ProviderWorkloadControlService.admission_policy_reason(policy)
+        if reason is not None:
             raise RouterServiceError(
-                "provider_workload_policy_not_active",
+                reason,
                 "该入口未处于合格的 managed_required 状态。",
                 status_code=409,
             )
