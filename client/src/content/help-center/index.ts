@@ -16,6 +16,7 @@ import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md
 import reviewProviderQualification from "./articles/review-provider-qualification.md?raw";
 import reviewSpecializedModels from "./articles/review-specialized-models.md?raw";
 import reviewElevenlabsBatch from "./articles/review-elevenlabs-batch.md?raw";
+import reviewDecisionsSolBatch from "./articles/review-decisions-sol-batch.md?raw";
 import reviewMetaPlannerBranches from "./articles/review-meta-planner-branches.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
@@ -122,6 +123,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "review-decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "区分专用决策和异步批处理，核对费用与数据边界。", category: "按目标找指南", contentType: "how-to", audience: "需要决策或离线文本处理的用户", estimatedMinutes: 5, keywords: ["Clef", "Microsoft", "Drex", "Mercury", "Sol", "Batch", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "e5a808a6", verifiedDate: "2026-10-11", content: reviewDecisionsSolBatch, nextSlug: "check-availability-cost-data" },
   { slug: "review-elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用、入口和安全边界。", category: "按目标找指南", contentType: "how-to", audience: "需要语音、转写或离线批处理的用户", estimatedMinutes: 5, keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策", "费用"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "70a01640", verifiedDate: "2026-10-08", content: reviewElevenlabsBatch, nextSlug: "check-availability-cost-data" },
   { slug: "play-rpg-cards", title: "从 Studio 进入 RPG 并恢复故事", summary: "选择地球 OL 或行间，创建角色并查看保存的模型原文。", category: "按目标找指南", contentType: "how-to", audience: "希望用角色卡体验故事的用户", estimatedMinutes: 5, keywords: ["RPG", "地球 OL", "行间", "角色", "历史", "Gemini"], relatedRoutes: ["/studio", "/rpg", "/rpg/earth", "/rpg/rpg05"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: playRpgCards, nextSlug: "branch-rpg-story" },
   { slug: "branch-rpg-story", title: "从故事中创建另一条路线", summary: "安装分支存档，从正文创建新对话并保留原路线。", category: "按目标找指南", contentType: "how-to", audience: "已完成地球 OL 对话的玩家", estimatedMinutes: 5, keywords: ["RPG", "分支", "存档", "插件市场", "安装", "授权", "卸载", "草稿"], relatedRoutes: ["/rpg", "/rpg/plugins", "/rpg/earth"], verifiedCommit: "a29da8a5", verifiedDate: "2026-09-19", content: branchRpgStory, nextSlug: "check-availability-cost-data" },
@@ -598,6 +600,7 @@ export const helpSections: HelpSection[] = [
       { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
       { id: "specialized-models", title: "核对新增对话、路由与专用模型", summary: "查看本轮模型的入口、可用状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Ling 3.1", "Switchyard", "Flux TTS", "Seedream", "MAI Voice", "语音", "费用"] },
       { id: "elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用和未配置边界。", to: "/help/review-elevenlabs-batch", keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策"] },
+      { id: "decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "查看文字状态、决策费用和批处理数据边界。", to: "/help/review-decisions-sol-batch", keywords: ["Clef", "Microsoft", "Drex", "Sol", "Batch", "决策"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
       { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },

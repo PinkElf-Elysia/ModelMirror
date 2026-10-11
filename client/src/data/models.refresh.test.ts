@@ -211,11 +211,11 @@ describe("OpenRouter model refresh", () => {
   });
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(694);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(585);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(95);
-    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(14);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(680);
+    expect(counted).toHaveLength(700);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(579);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(96);
+    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(25);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(675);
   });
 
   it("keeps October 7 decisions and media off the ordinary text-only route", () => {
@@ -648,11 +648,11 @@ describe("OpenRouter model refresh", () => {
       context_length: 1_048_576,
       input_modalities: ["text"],
     });
-    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.input).toBeCloseTo(0.15);
-    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(3.4);
+    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.input).toBeCloseTo(0.21912);
+    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(0.65736);
     expect(byId.get("~deepseek/deepseek-flash-latest")).toMatchObject({
       context_length: 1_048_576,
-      pricing: { input: 0.0337, output: 0.6 },
+      pricing: { input: 0.0348, output: 0.1392 },
       input_modalities: ["text", "image"],
       operations: ["analyze_image", "chat"],
     });
@@ -711,7 +711,7 @@ describe("OpenRouter model refresh", () => {
       supported_parameters: expect.arrayContaining([
         "reasoning",
         "include_reasoning",
-        "structured_outputs",
+        "temperature",
         "tools",
         "tool_choice",
       ]),
@@ -986,7 +986,7 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "roleplay", "marketing", "marketing/seo", "technology",
-        "science", "translation", "legal", "finance", "health", "trivia", "academia",
+        "science", "translation", "legal", "finance", "health", "trivia",
       ]);
   });
 
@@ -1054,7 +1054,7 @@ describe("OpenRouter model refresh", () => {
       expect(models.filter((model) => model.id === modelId)).toHaveLength(1);
       expect(byId.get(modelId)).toMatchObject({
         catalog_counted: true,
-        catalog_status: "live",
+        catalog_status: modelId === "inclusionai/ling-3.0-flash-sante:free" ? "uncertain" : "live",
         active: true,
       });
     }
@@ -1270,15 +1270,15 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Wafer"],
+        providers: ["Near AI"],
       },
     });
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.input,
-    ).toBeCloseTo(0.425);
+    ).toBeCloseTo(0.04);
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.output,
-    ).toBeCloseTo(2.55);
+    ).toBeCloseTo(2.3);
   });
 
   it("adds the three August 20 snapshots below the first six rows", () => {
@@ -1317,7 +1317,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: { input: 0.049, output: 3.39 },
+      pricing: { input: 0.07, output: 4.8 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1328,7 +1328,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: { input: 0.036, output: 12 },
+      pricing: { input: 0.07, output: 4.8 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1977,11 +1977,11 @@ describe("OpenRouter model refresh", () => {
       active: true,
       primary_operation: "chat",
       interaction_status: "ready",
-      pricing: { input: 0.032, output: 1.286153 },
+      pricing: { input: 0.04, output: 0.5 },
       openrouter_market: {
         series: "Router",
         author: "z-ai",
-        providers: ["OpenInference"],
+        providers: ["Relace"],
         discounted: false,
         zero_data_retention: true,
       },
@@ -2194,7 +2194,7 @@ describe("OpenRouter model refresh", () => {
     ).toMatchObject({
       series: "DeepSeek",
       author: "deepseek",
-      providers: ["OpenInference"],
+      providers: ["Relace"],
       categories: expect.arrayContaining(["translation"]),
     });
     expect(
@@ -2282,37 +2282,37 @@ describe("OpenRouter model refresh", () => {
       ]),
     );
 
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.0137);
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(1.28);
-    expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.03);
-    expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(10);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.018);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(0.64);
+    expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.06);
+    expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(7);
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
       input: 0.6712,
       output: 3.35,
     });
     expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 1.32,
-      output: 3.9600000000000004,
+      input: 0.66,
+      output: 1.9800000000000002,
     });
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
-      providers: ["Relace"],
-      discounted: false,
-      zero_data_retention: true,
+      providers: ["Baidu"],
+      discounted: true,
+      zero_data_retention: false,
     });
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.95526);
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(1.91052);
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.2088);
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(0.4176);
     expect(byId.get("tencent/hy3")?.pricing).toEqual({
       input: 0.13199999999999998,
       output: 0.5279999999999999,
     });
     expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({
-      input: 0.3,
-      output: 2,
+      input: 0.32,
+      output: 3.1999999999999997,
     });
     expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.0128,
+      input: 0.03,
       output: 1.28,
     });
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
@@ -2321,7 +2321,7 @@ describe("OpenRouter model refresh", () => {
     });
     expect(byId.get("deepseek/deepseek-v3.2")?.pricing).toEqual({
       input: 0.25899999999999995,
-      output: 0.42,
+      output: 0.7999999999999999,
     });
     expect(byId.get("mistralai/voxtral-small-24b-2507")?.context_length).toBe(
       32_768,
@@ -2350,24 +2350,24 @@ describe("OpenRouter model refresh", () => {
       byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
     ).toEqual([]);
     expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({
-      input: 0.15,
-      output: 1,
+      input: 0.08,
+      output: 0.75,
     });
     expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({
-      input: 0.44999999999999996,
-      output: 3,
+      input: 0.55,
+      output: 3.5,
     });
     expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({
-      input: 0.43,
-      output: 1.75,
+      input: 0.5,
+      output: 2,
     });
     expect(byId.get("meta/muse-glimmer-30b")?.pricing).toEqual({
       input: 0.3,
       output: 1.2,
     });
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 0.5700000000000001,
-      output: 13,
+      input: 0.75,
+      output: 14.9,
     });
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
       input: 0.25,
@@ -2378,12 +2378,12 @@ describe("OpenRouter model refresh", () => {
       output: 1,
     });
     expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({
-      input: 0.2574,
-      output: 1.0287,
+      input: 0.32,
+      output: 0.8899999999999999,
     });
     expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({
-      input: 0.09999999999999999,
-      output: 0.32,
+      input: 0.22,
+      output: 0.5,
     });
     expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({
       input: 0.35,
@@ -2489,7 +2489,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(95);
+    expect(uncertain).toHaveLength(96);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -2557,7 +2557,7 @@ describe("OpenRouter model refresh", () => {
       );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(78);
+    expect(batchVariants).toHaveLength(80);
     expect(batchCatalogIds).toContain("openai/gpt-oss-120b:batch");
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
@@ -2704,7 +2704,18 @@ describe("OpenRouter model refresh", () => {
       "openai/gpt-5.3-chat",
       "poolside/laguna-m.1",
       "poolside/laguna-m.1:free",
-      "qwen/qwen3-next-80b-a3b-instruct",
+      "qwen/qwen-plus-2025-07-28",
+      "qwen/qwen3-235b-a22b",
+      "qwen/qwen3-30b-a3b-thinking-2507",
+      "qwen/qwen3-8b",
+      "qwen/qwen3-asr-flash-2026-02-10",
+      "qwen/qwen3-coder-plus",
+      "qwen/qwen3-max",
+      "qwen/qwen3-max-thinking",
+      "qwen/qwen3-vl-235b-a22b-thinking",
+      "qwen/qwen3-vl-32b-instruct",
+      "qwen/qwen3-vl-8b-thinking",
+      "qwen/qwen3.6-max-preview",
       "stealth/ox-alpha",
       "stealth/space-bunny-alpha",
       "tencent/hy3:free",
