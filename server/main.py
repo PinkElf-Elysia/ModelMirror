@@ -3372,6 +3372,10 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "microsoft/microsoft-decision-1",
+        "cloudflare/clef-omni",
+        "nace-ai/drex-v1.5",
+        "inception/mercury-decide",
         "togethercomputer/tev1-4b-experimental",
         "inception/mercury-decide:free",
         "upstage/solar-decide",

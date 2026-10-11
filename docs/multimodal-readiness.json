@@ -1,58 +1,373 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-08",
+  "reviewed_at": "2026-10-10",
   "catalog": {
-    "snapshot_total": 694,
-    "serving_variant_total": 78,
+    "snapshot_total": 700,
+    "serving_variant_total": 80,
     "serving_variants_by_type": {
-      "batch": 78
+      "batch": 80
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 585,
-    "uncertain": 95,
-    "expired": 14,
-    "onsite_openrouter": 680,
-    "adaptation_denominator": 680,
+    "live": 579,
+    "uncertain": 96,
+    "expired": 25,
+    "onsite_openrouter": 675,
+    "adaptation_denominator": 675,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
     "dedicated_profiles": 30,
     "verified": [
-      { "model_id": "bytedance/seedance-2.0", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
-      { "model_id": "runway/aleph-2", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
-      { "model_id": "runway/gen-4.5", "verified_at": "2026-07-28", "evidence": ["manual_submission", "polling", "playback", "download"] },
-      { "model_id": "x-ai/grok-imagine-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "x-ai/grok-imagine-video-1.5", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "alibaba/happyhorse-1.0", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "alibaba/happyhorse-1.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "alibaba/wan-2.6", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "alibaba/wan-2.7", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "minimax/hailuo-2.3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "minimax/hailuo-3", "verified_at": "2026-08-06", "evidence": ["manual_submission", "playback", "download"] },
-      { "model_id": "minimax/hailuo-3-max", "verified_at": "2026-09-02", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "frame_images", "cost_estimate"] },
-      { "model_id": "kwaivgi/kling-v3.0-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
-      { "model_id": "kwaivgi/kling-v3.0-std", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
-      { "model_id": "kwaivgi/kling-video-o1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
-      { "model_id": "bytedance/seedance-1-5-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "frame_controls", "playback", "download"] },
-      { "model_id": "bytedance/seedance-2.0-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "reference_images", "playback", "download"] },
-      { "model_id": "bytedance/seedance-2.5", "verified_at": "2026-08-11", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "reference_images", "cost_estimate"] },
-      { "model_id": "bytedance/seedance-2.0-mini", "verified_at": "2026-08-13", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "size_matrix", "cost_estimate"] },
-      { "model_id": "google/veo-3.1-lite", "verified_at": "2026-08-06", "evidence": ["manual_submission", "audited_provider_options", "playback", "download"] },
-      { "model_id": "google/veo-3.1-fast", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
-      { "model_id": "google/veo-3.1", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
-      { "model_id": "black-forest-labs/flux-3-video", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] },
-      { "model_id": "black-forest-labs/flux-video-upscale", "verified_at": "2026-08-20", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "source_video", "upscale_factor", "creativity", "cost_estimate"] },
-      { "model_id": "black-forest-labs/flux-video-edit", "verified_at": "2026-09-11", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "source_video", "edit_prompt", "cost_estimate"] },
-      { "model_id": "heygen/avatar-iv", "verified_at": "2026-08-24", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "reference_images", "unit_cost", "cost_estimate"] },
-      { "model_id": "heygen/heygen-video-1", "verified_at": "2026-09-30", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "first_frame", "seed", "cost_estimate", "tiered_cost_estimate"] },
-      { "model_id": "alibaba/wan-3.0", "verified_at": "2026-08-24", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "frame_images", "reference_images", "generated_audio", "seed", "cost_estimate"] },
-      { "model_id": "alibaba/wan-3.0-prime", "verified_at": "2026-08-27", "verification_status": "adapted_contract", "evidence": ["catalog_contract", "async_submission", "first_frame", "generated_audio", "seed", "cost_estimate", "reference_rejection"] },
-      { "model_id": "openai/sora-2-pro", "verified_at": "2026-08-06", "evidence": ["manual_submission", "minimum_spec", "playback", "download"] }
+      {
+        "model_id": "bytedance/seedance-2.0",
+        "verified_at": "2026-07-28",
+        "evidence": [
+          "manual_submission",
+          "polling",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "runway/aleph-2",
+        "verified_at": "2026-07-28",
+        "evidence": [
+          "manual_submission",
+          "polling",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "runway/gen-4.5",
+        "verified_at": "2026-07-28",
+        "evidence": [
+          "manual_submission",
+          "polling",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "x-ai/grok-imagine-video",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "x-ai/grok-imagine-video-1.5",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "alibaba/happyhorse-1.0",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "alibaba/happyhorse-1.1",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "alibaba/wan-2.6",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "alibaba/wan-2.7",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "minimax/hailuo-2.3",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "minimax/hailuo-3",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "minimax/hailuo-3-max",
+        "verified_at": "2026-09-02",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "frame_images",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "kwaivgi/kling-v3.0-pro",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "frame_controls",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "kwaivgi/kling-v3.0-std",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "frame_controls",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "kwaivgi/kling-video-o1",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "frame_controls",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "bytedance/seedance-1-5-pro",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "frame_controls",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "bytedance/seedance-2.0-fast",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "reference_images",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "bytedance/seedance-2.5",
+        "verified_at": "2026-08-11",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_images",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "bytedance/seedance-2.0-mini",
+        "verified_at": "2026-08-13",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "size_matrix",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "google/veo-3.1-lite",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "audited_provider_options",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "google/veo-3.1-fast",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "minimum_spec",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "google/veo-3.1",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "minimum_spec",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "black-forest-labs/flux-3-video",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "minimum_spec",
+          "playback",
+          "download"
+        ]
+      },
+      {
+        "model_id": "black-forest-labs/flux-video-upscale",
+        "verified_at": "2026-08-20",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "source_video",
+          "upscale_factor",
+          "creativity",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "black-forest-labs/flux-video-edit",
+        "verified_at": "2026-09-11",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "source_video",
+          "edit_prompt",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "heygen/avatar-iv",
+        "verified_at": "2026-08-24",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_images",
+          "unit_cost",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "heygen/heygen-video-1",
+        "verified_at": "2026-09-30",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "first_frame",
+          "seed",
+          "cost_estimate",
+          "tiered_cost_estimate"
+        ]
+      },
+      {
+        "model_id": "alibaba/wan-3.0",
+        "verified_at": "2026-08-24",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "frame_images",
+          "reference_images",
+          "generated_audio",
+          "seed",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "alibaba/wan-3.0-prime",
+        "verified_at": "2026-08-27",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "first_frame",
+          "generated_audio",
+          "seed",
+          "cost_estimate",
+          "reference_rejection"
+        ]
+      },
+      {
+        "model_id": "openai/sora-2-pro",
+        "verified_at": "2026-08-06",
+        "evidence": [
+          "manual_submission",
+          "minimum_spec",
+          "playback",
+          "download"
+        ]
+      }
     ],
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "microsoft/microsoft-decision-1",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "文字状态与类型化问题契约已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "cloudflare/clef-omni",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "仅适配文字决策；图片状态尚未适配，音视频上游未开放，未执行真实调用。"
+    },
+    {
+      "model_id": "nace-ai/drex-v1.5",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "文字状态与类型化问题契约已适配；未执行真实调用。"
+    },
+    {
+      "model_id": "inception/mercury-decide",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "付费版文字决策与输入 Token 费用已适配；未执行真实调用。"
+    },
     {
       "model_id": "elevenlabs/scribe-v2",
       "operation": "transcribe",
@@ -527,10 +842,30 @@
     }
   ],
   "deferred_capabilities": [
-    { "capability": "realtime_translation", "status": "planned", "status_reason": "需单独设计语言对、字幕、费用与错误恢复闭环。" },
-    { "capability": "voice_video_calls", "status": "planned", "status_reason": "需独立审计通话生命周期、权限、隐私与网络恢复。" },
-    { "capability": "sip_telephony", "status": "planned", "status_reason": "需独立审计号码、呼叫路由、录音合规和供应商契约。" },
-    { "capability": "realtime_tools", "status": "planned", "status_reason": "实时语音首期保持纯语音，不组合工具、RAG 或 Agent。" },
-    { "capability": "custom_voice_library", "status": "planned", "status_reason": "在可验证删除自定义音色或用户接受持久化前不开放。" }
+    {
+      "capability": "realtime_translation",
+      "status": "planned",
+      "status_reason": "需单独设计语言对、字幕、费用与错误恢复闭环。"
+    },
+    {
+      "capability": "voice_video_calls",
+      "status": "planned",
+      "status_reason": "需独立审计通话生命周期、权限、隐私与网络恢复。"
+    },
+    {
+      "capability": "sip_telephony",
+      "status": "planned",
+      "status_reason": "需独立审计号码、呼叫路由、录音合规和供应商契约。"
+    },
+    {
+      "capability": "realtime_tools",
+      "status": "planned",
+      "status_reason": "实时语音首期保持纯语音，不组合工具、RAG 或 Agent。"
+    },
+    {
+      "capability": "custom_voice_library",
+      "status": "planned",
+      "status_reason": "在可验证删除自定义音色或用户接受持久化前不开放。"
+    }
   ]
 }

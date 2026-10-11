@@ -26,6 +26,10 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "microsoft/microsoft-decision-1",
+  "cloudflare/clef-omni",
+  "nace-ai/drex-v1.5",
+  "inception/mercury-decide",
   "bytedance-seed/seedream-5-0-flash",
   "black-forest-labs/flux-3-image",
   "liquid/d1",

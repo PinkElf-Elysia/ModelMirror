@@ -86,6 +86,10 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 @pytest.mark.parametrize(
     "model_id",
     [
+        "microsoft/microsoft-decision-1",
+        "cloudflare/clef-omni",
+        "nace-ai/drex-v1.5",
+        "inception/mercury-decide",
         "inception/mercury-decide:free",
         "upstage/solar-decide",
         "jaredpalmer/kev-4b",
