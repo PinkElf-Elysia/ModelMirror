@@ -165,6 +165,14 @@ python -m server.model_router.migrate_credentials --storage-dir <path>
 - R4 受管 Provider 不会自动配置或接管普通 `/api/chat`。当前 default Chat 仍读取
   `LLM_GATEWAY_URL/KEY` 或 `OPENROUTER_API_KEY`；迁移和 newAPI 默认门禁属于 Round 5。
 
+## R9B4：只读 Readiness 与实际准入
+
+Chat 的公开状态、稳定路由准备与 Catalog 复用同一策略/资格判定；Workload 的公开状态、Catalog 与 `prepare_call` 复用逐入口、逐精确模型和形态的 Binding 判定。required 只检查批准的首目标，且必须满足当前 Gate；缺失任一策略资格记录也不能被当作完整证据。
+
+Catalog 的 Managed Offering 必须同时满足当前 Inventory、连接状态和至少一个精确入口的准入，不能只凭目录在线、认证成功或另一连接的同名模型标为 `invocable`。加法字段 `managed_readiness` 列出入口、执行形态、可用性和稳定原因码，不包含连接、租户或认证 ID。operation 聚合仍允许任一可用 Offering，但其可用入口不代表默认 Chat 或其他入口已批准。已有 native、OmniRoute 与未接管 legacy 的证据保留独立语义；已接管入口的阻断不能被旧目录快照覆盖。
+
+Readiness/Catalog/总览只读已保存事实，不同步 Gate、不写 Receipt、不解析 DNS、不访问上游。实际发送仍保留凭据快照、Egress 授权、运行关联、原子派发与最终漂移复核；只读“可用”不保证网络成功。部署开关关闭或策略 legacy 时不拦截旧路径。模型市场和提示词选择器数量口径不变；没有数据库迁移或默认策略切换。
+
 ## Managed Chat 策略、稳定路由与 required 门禁（Round 5A—5E）
 
 - 内部契约版本为 `modelmirror-provider-chat-routing-v1`，将 `chat_text`、

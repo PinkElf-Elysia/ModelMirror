@@ -3990,7 +3990,7 @@ async def test_r8c_public_status_is_unavailable_when_stale_or_inactive(
 
     transport = httpx.MockTransport(handler)
     service, connection = _service(tmp_path, transport, kind="openrouter")
-    await _certify_and_activate_audio(
+    gateway = await _certify_and_activate_audio(
         service,
         connection,
         transport,
@@ -4022,8 +4022,15 @@ async def test_r8c_public_status_is_unavailable_when_stale_or_inactive(
         "audio_transcription",
     )
     assert public_status.available is False
-    assert public_status.blocks_before_dispatch is True
-    assert public_status.reason_code != "provider_workload_available"
+    # Administrator deactivation explicitly restores legacy; credential drift
+    # must instead remain required and fail closed. Public state must describe
+    # the same interception decision as the actual multimodal gateway.
+    expected_mode = "degraded_required" if terminal_state == "stale" else "legacy"
+    assert gateway.routing_mode("multimodal_transcription") == expected_mode
+    assert public_status.status == expected_mode
+    assert public_status.blocks_before_dispatch is (terminal_state == "stale")
+    assert public_status.reason_code == "provider_workload_policy_not_active"
+    assert service.repository.list_workload_receipts("local")["calls"] == []
 
 
 @pytest.mark.asyncio

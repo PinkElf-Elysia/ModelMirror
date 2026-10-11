@@ -9,14 +9,15 @@ from decimal import Decimal
 from typing import Any, Iterable
 
 from .chat_canary import ProviderChatCanaryService
+from .catalog_admission import CatalogAdmissionSnapshot
 from .provider_catalog import PROVIDER_CATALOG_CONTRACT_VERSION
-from .provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
 from .repository import RouterRepositoryError, utc_now
 from .schemas import (
     ControlPlaneCatalogModel,
     ControlPlaneCatalogResponse,
     ControlPlaneOperationCount,
     OperationReadinessProjection,
+    ManagedEntryReadiness,
     ProviderCatalogOfferingSummary,
     ProviderCatalogOfferingsResponse,
     ProviderCatalogPrice,
@@ -59,6 +60,7 @@ class _Evidence:
     availability_status: str
     verification_status: str
     invocable: bool
+    managed_readiness: list[ManagedEntryReadiness] = field(default_factory=list)
     access_modes: set[str] = field(default_factory=set)
     reason_codes: set[str] = field(default_factory=set)
     observed_at: str | None = None
@@ -152,7 +154,8 @@ class ControlPlaneCatalogService:
         cursor: str | None = None,
         limit: int = 200,
     ) -> ProviderCatalogOfferingsResponse:
-        projected, revision = self._build_projection()
+        admission = CatalogAdmissionSnapshot(self.router_service)
+        projected, revision = self._build_projection(admission)
         del projected
         offset = self._decode_cursor(cursor, revision)
         bounded_limit = max(1, min(int(limit), 500))
@@ -193,6 +196,7 @@ class ControlPlaneCatalogService:
                 connection,
                 refreshes.get(str(row["last_refresh_id"])),
                 certifications.get((connection.id, str(row["model_id"]))),
+                admission,
             )
             if status is not None:
                 inventory_status = str(inventory["status"])
@@ -213,6 +217,7 @@ class ControlPlaneCatalogService:
                     connection_health=connection.health,
                     verification_status=evidence.verification_status,
                     invocable=evidence.invocable,
+                    managed_readiness=evidence.managed_readiness,
                     reason_codes=sorted(evidence.reason_codes),
                     refresh_id=str(row["last_refresh_id"]),
                     observed_at=str(row["observed_at"]),
@@ -293,7 +298,10 @@ class ControlPlaneCatalogService:
             blocking_reason_codes=blockers,
         )
 
-    def _build_projection(self) -> tuple[dict[str, _ProjectedModel], str]:
+    def _build_projection(
+        self, admission: CatalogAdmissionSnapshot | None = None,
+    ) -> tuple[dict[str, _ProjectedModel], str]:
+        admission = admission or CatalogAdmissionSnapshot(self.router_service)
         tenant_id = self.router_service.tenant_id
         connections = {item.id: item for item in self.router_service.list_connections()}
         model_rows = self._all_catalog_models()
@@ -333,12 +341,14 @@ class ControlPlaneCatalogService:
                     connection,
                     refreshes.get(str(row["last_refresh_id"])),
                     certifications.get((connection.id, str(row["model_id"]))),
+                    admission,
                 )
             )
-        self._add_general_snapshot(projected, self.general_catalog)
+        self._add_general_snapshot(projected, self.general_catalog, admission)
         for catalog in (self.audio_catalog, self.image_catalog, self.video_catalog):
-            self._add_specialized_snapshot(projected, catalog)
+            self._add_specialized_snapshot(projected, catalog, admission)
         revision_material = {
+            "admission": admission.revision_material(),
             "refreshes": [
                 [
                     row.get("id"),
@@ -504,6 +514,7 @@ class ControlPlaneCatalogService:
         connection: RouterConnection,
         refresh: dict[str, object] | None,
         certification: dict[str, object] | None,
+        admission: CatalogAdmissionSnapshot,
     ) -> _Evidence:
         stale = bool(offering["stale"]) or inventory["status"] != "active"
         try:
@@ -537,27 +548,38 @@ class ControlPlaneCatalogService:
             reasons.add("managed_catalog_present")
         verification = "manual_required"
         if str(offering["operation"]) == "chat" and certification is not None:
-            certification_current = (
-                certification.get("connection_fingerprint") == current_fingerprint
-                and certification.get("contract_version")
-                == PROVIDER_CHAT_CONTRACT_VERSION
+            qualification, qualification_reason = admission.chat.current_qualification(
+                connection_id=connection.id, model_id=str(offering["model_id"]),
+                capability="chat_text",
             )
             status = str(certification.get("status"))
-            if status == "passed" and certification_current:
+            if qualification is not None:
                 verification = "contract_verified"
                 reasons.add("chat_contract_certified")
             elif status in {"failed", "uncertain"}:
                 verification = "failed"
                 reasons.add("chat_certification_failed")
             else:
-                reasons.add("chat_certification_required")
+                reasons.add(qualification_reason)
         elif str(offering["operation"]) == "chat":
             reasons.add("chat_certification_required")
+        entries = admission.entries(
+            connection.id, str(offering["model_id"]), str(offering["operation"])
+        )
+        admitted = any(item.available for item in entries)
+        reasons.update(item.reason_code for item in entries)
+        if not entries:
+            reasons.add("managed_entry_binding_required")
+        if admitted:
+            verification = "contract_verified"
+        elif availability == "available":
+            availability = "verification_required"
         invocable = (
             connection.enabled
             and connection.health == "online"
             and not stale
             and availability == "available"
+            and admitted
         )
         price = self._price_from_row(offering, stale=stale)
         return _Evidence(
@@ -566,7 +588,8 @@ class ControlPlaneCatalogService:
             availability_status=availability,
             verification_status=verification,
             invocable=invocable,
-            access_modes={"native"},
+            managed_readiness=entries,
+            access_modes={"managed"},
             reason_codes=reasons,
             observed_at=str(offering["observed_at"]),
             stale=stale,
@@ -592,7 +615,8 @@ class ControlPlaneCatalogService:
             return None
 
     def _add_general_snapshot(
-        self, projected: dict[str, _ProjectedModel], catalog: object | None
+        self, projected: dict[str, _ProjectedModel], catalog: object | None,
+        admission: CatalogAdmissionSnapshot,
     ) -> None:
         if catalog is None:
             return
@@ -621,26 +645,33 @@ class ControlPlaneCatalogService:
                 "disabled": "disabled",
             }.get(availability_value, "verification_required")
             for operation in getattr(candidate, "operations", ["chat"]):
+                block = (
+                    admission.blocks_legacy_snapshot(
+                        model_id, str(operation), specialized=False
+                    ) if mode == "default" else None
+                )
+                operation_invocable = invocable and block is None
                 model.add(
                     _Evidence(
                         operation=str(operation),
-                        interaction_status=interaction,
-                        availability_status=availability,
-                        verification_status=("verified" if invocable else "not_applicable"),
-                        invocable=invocable,
+                        interaction_status="planned" if block else interaction,
+                        availability_status="verification_required" if block else availability,
+                        verification_status=("verified" if operation_invocable else "not_applicable"),
+                        invocable=operation_invocable,
                         access_modes={mode},
                         reason_codes={
                             "general_catalog_available"
-                            if invocable
+                            if operation_invocable
                             else "general_catalog_unavailable"
-                        },
+                        } | ({block} if block else set()),
                         observed_at=observed_at,
                         stale=stale,
                     )
                 )
 
     def _add_specialized_snapshot(
-        self, projected: dict[str, _ProjectedModel], catalog: object | None
+        self, projected: dict[str, _ProjectedModel], catalog: object | None,
+        admission: CatalogAdmissionSnapshot,
     ) -> None:
         if catalog is None:
             return
@@ -698,6 +729,13 @@ class ControlPlaneCatalogService:
                     and interaction == "ready"
                     and not stale
                 )
+                block = admission.blocks_legacy_snapshot(
+                    model_id, operation, specialized=True
+                )
+                if block:
+                    invocable = False
+                    interaction = "planned"
+                    availability = "verification_required"
                 model.add(
                     _Evidence(
                         operation=operation,
@@ -712,7 +750,7 @@ class ControlPlaneCatalogService:
                             "specialized_catalog_available"
                             if invocable
                             else "specialized_catalog_not_ready"
-                        },
+                        } | ({block} if block else set()),
                         observed_at=observed_at,
                         stale=stale,
                         pricing=self._specialized_prices(profile, observed_at, stale),
@@ -810,6 +848,7 @@ class ControlPlaneCatalogService:
                         availability_status=availability,
                         verification_status=verification,
                         invocable=invocable,
+                        managed_readiness=self._merge_managed_readiness(evidence),
                         access_modes=sorted(
                             {mode for item in evidence for mode in item.access_modes}
                         ),
@@ -847,6 +886,18 @@ class ControlPlaneCatalogService:
                 )
             )
         return result
+
+    @staticmethod
+    def _merge_managed_readiness(
+        evidence: list[_Evidence],
+    ) -> list[ManagedEntryReadiness]:
+        entries: dict[tuple[str, str], ManagedEntryReadiness] = {}
+        for item in evidence:
+            for entry in item.managed_readiness:
+                key = (entry.entry_id, entry.execution_shape)
+                if key not in entries or entry.available:
+                    entries[key] = entry
+        return [entries[key] for key in sorted(entries)]
 
     def _add_canary_modes(self, models: list[ControlPlaneCatalogModel]) -> None:
         service = ProviderChatCanaryService(self.router_service)

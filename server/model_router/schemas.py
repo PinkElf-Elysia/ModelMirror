@@ -445,6 +445,15 @@ class ProviderCatalogRefreshResponse(BaseModel):
     message: str
 
 
+class ManagedEntryReadiness(BaseModel):
+    """Public entry/shape facts, never a connection or policy disclosure."""
+
+    entry_id: str
+    execution_shape: str
+    available: bool
+    reason_code: str
+
+
 class ProviderCatalogOfferingSummary(BaseModel):
     connection_id: str
     connection_name: str
@@ -457,6 +466,7 @@ class ProviderCatalogOfferingSummary(BaseModel):
     connection_health: ConnectionHealth
     verification_status: OperationVerificationStatus
     invocable: bool
+    managed_readiness: list[ManagedEntryReadiness] = Field(default_factory=list)
     reason_codes: list[str] = Field(default_factory=list)
     refresh_id: str
     observed_at: str
@@ -476,6 +486,7 @@ class OperationReadinessProjection(BaseModel):
     availability_status: OperationAvailabilityStatus
     verification_status: OperationVerificationStatus
     invocable: bool
+    managed_readiness: list[ManagedEntryReadiness] = Field(default_factory=list)
     access_modes: list[str] = Field(default_factory=list)
     reason_codes: list[str] = Field(default_factory=list)
     observed_at: str | None = None

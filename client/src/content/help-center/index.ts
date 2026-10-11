@@ -14,6 +14,7 @@ import prepareVisionEvaluation from "./articles/prepare-vision-evaluation.md?raw
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
 import recoverUnavailableFeature from "./articles/recover-unavailable-feature.md?raw";
 import reviewProviderQualification from "./articles/review-provider-qualification.md?raw";
+import checkManagedCatalog from "./articles/check-managed-catalog.md?raw";
 import reviewSpecializedModels from "./articles/review-specialized-models.md?raw";
 import reviewElevenlabsBatch from "./articles/review-elevenlabs-batch.md?raw";
 import reviewDecisionsSolBatch from "./articles/review-decisions-sol-batch.md?raw";
@@ -353,6 +354,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedCommit: "114461d3",
     verifiedDate: "2026-10-08",
     content: reviewProviderQualification,
+    nextSlug: "check-managed-catalog",
+  },
+  {
+    slug: "check-managed-catalog",
+    title: "分清模型目录在线与实际可调用",
+    summary: "区分目录在线、认证证据与入口准入，不用真实请求试探配置。",
+    category: "解决问题",
+    contentType: "how-to",
+    audience: "已获得本地 Provider 管理权限的管理员",
+    estimatedMinutes: 4,
+    keywords: ["Provider", "Catalog", "目录在线", "可调用", "入口绑定", "contract_verified", "manual_required"],
+    relatedRoutes: ["/settings?section=providers", "/settings?section=routing"],
+    verifiedCommit: "e5a808a6",
+    verifiedDate: "2026-10-09",
+    content: checkManagedCatalog,
     nextSlug: "review-remote-mcp-auth",
   },
   {
@@ -586,6 +602,7 @@ export const helpSections: HelpSection[] = [
     items: [
       { id: "unavailable", title: "功能不可用或尚未开放", summary: "看懂待适配、开关未开启、需要配置和当前入口未开放。", to: "/help/recover-unavailable-feature", keywords: ["不可用", "未开放", "待适配", "开关"] },
       { id: "provider-qualification", title: "核对 Provider 认证资格与到期状态", summary: "区分历史期限未知、已过期和按时续期，不把连接在线当成可调用。", to: "/help/review-provider-qualification", keywords: ["资格提示", "认证", "到期", "续期"] },
+      { id: "managed-catalog", title: "分清模型目录在线与实际可调用", summary: "查看模型状态，再核对实际入口的资格和绑定。", to: "/help/check-managed-catalog", keywords: ["目录在线", "可调用", "Provider", "Catalog"] },
       { id: "workflow-error-output", title: "让只读节点受限重试或走安全分支", summary: "为合格的 HTTP、数据表查询或知识检索配置固定退避、尝试次数和错误出口。", to: "/help/handle-workflow-node-failure", keywords: ["工作流", "受限重试", "等待重试", "错误分支", "HTTP", "503", "429", "数据表", "知识检索"] },
       { id: "no-response", title: "页面、按钮或运行没有反应", summary: "先检查加载、按钮状态和可见错误，再决定是否重试。", to: "/help/sections/troubleshooting#no-response", keywords: ["没反应", "按钮", "加载"] },
       { id: "configuration", title: "配置、权限与连接问题", summary: "判断是否需要有管理权限的人处理。", to: "/help/sections/troubleshooting#configuration", keywords: ["配置", "权限", "连接"] },
