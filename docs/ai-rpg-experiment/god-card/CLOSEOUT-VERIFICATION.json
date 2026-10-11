@@ -1,0 +1,74 @@
+{
+  "at": "2026-10-11T14:02:13.617189+00:00",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "branch": "codex/rpg-god-card",
+  "offline": {
+    "tests": 359,
+    "passed": 358,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided"
+  },
+  "frontend": {
+    "tests": 94,
+    "passed": 94,
+    "failed": 0,
+    "scope": "71 God/plugin cases plus 23 Studio/chat-state/help cases; not full client suite"
+  },
+  "backend": {
+    "passed": 30,
+    "failed": 0,
+    "environment": "network-disabled disposable existing image; only Python source copied into temporary storage; no shared container changed",
+    "initialEnvironmentFailures": "host temp permission/missing duckdb; read-only container import mkdir; tmpfs mount rejected; all retained in CLOSEOUT-VERIFICATION.json"
+  },
+  "builds": {
+    "card": "passed; isolated closeout/card-dist",
+    "client": "passed; isolated closeout/client-dist; chunk size warning",
+    "helpImages": "passed; 26 registered articles"
+  },
+  "commands": [
+    "node --test experiments/ai-rpg-engine/god-card/tests/*.test.mjs experiments/ai-rpg-engine/card-replica/tests/*.test.mjs experiments/ai-rpg-engine/studio/*.test.mjs experiments/ai-rpg-engine/plugins/*.test.mjs",
+    "npx.cmd vitest run src/pages/RpgGod.test.tsx src/pages/RpgHistoryWindow.test.tsx src/pages/RpgMemoryPalace.test.tsx src/pages/RpgModelSelector.test.tsx src/pages/RpgPluginsPage.test.tsx src/pages/RpgRollingSummary.test.tsx src/pages/StudioPage.test.tsx src/pages/RpgPage.test.tsx",
+    "npx.cmd vitest run src/components/StudioBetaPanels.test.tsx src/pages/RpgChatState.test.ts src/content/help-center/helpContent.test.ts",
+    "npm.cmd run verify:help-images",
+    "npm.cmd run build -- --outDir ../.rpg04-work/god-card/closeout/card-dist",
+    "npm.cmd run build -- --outDir ../experiments/ai-rpg-engine/.rpg04-work/god-card/closeout/client-dist",
+    "python -m pytest server/tests/test_rpg_bridge.py -q --basetemp=/tmp/god-closeout -p no:cacheprovider (disposable container)",
+    "git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check"
+  ],
+  "commandNotes": [
+    "First Vitest command matched 6 files, not the nonexistent StudioPage/RpgPage test names; actual StudioBetaPanels checked separately.",
+    "Help structure first run: 22 passed/1 failed; fixed required headings and step count in article only; rerun23 passed.",
+    "Host Python: 1 passed/1 failed/28 errors (temp permission and missing duckdb).",
+    "Read-only container: 29 passed/1 failed (world storage mkdir), repeated29/1 (MCP installed mkdir). Tmpfs mount attempt failed before tests. Final temporary Python-source copy:30 passed.",
+    "Default git diff --check reports existing CRLF as trailing whitespace; cr-at-eol variant passed; runtime source not normalized.",
+    "Earlier R5 full-client attempt observed2 models.refresh failures and was stopped; full client suite not rerun in closeout."
+  ],
+  "dockerImage": "sha256:8abd5cdc09d24e596e21eb7898bbde710353405c53d4d702623f02faa9b4b461",
+  "providerCalls": 0,
+  "budget": {
+    "limit": 13,
+    "used": 13,
+    "reserved": 0,
+    "remaining": 0,
+    "attempts": 16,
+    "exempted": 3
+  },
+  "frozenTextExact": {
+    "system": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+    "supplement": "67f5c809149eee996ef01b4face065e7dd126dfe2f1c59916b90a3b148b70e8a"
+  },
+  "candidateScan": {
+    "forbiddenPaths": [],
+    "commonCredentialPatternFiles": [],
+    "note": "Bounded pattern scan, not an exhaustive security audit; credentials and persistent data excluded."
+  },
+  "livePreviewPreserved": true,
+  "stagedFiles": [],
+  "unrun": [
+    "latest-main integration and tutorial UI replay",
+    "R5 390px repair verification",
+    "complete real plain-render result (last call filtered)",
+    "full backend/client suites and CI"
+  ]
+}

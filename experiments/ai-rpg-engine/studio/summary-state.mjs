@@ -13,10 +13,10 @@ export const initialSummaryState=()=>sealSummary({policyVersion:POLICY_VERSION,r
 const sourceHash=(s,end)=>sha(canonical(s.history.slice(0,end*2).map(({role,content})=>({role,content}))));
 const versionId=body=>sha(canonical(body));
 export function activeSummary(h){return h.versions.find(v=>v.id===h.activeVersionId)||null;}
-export function requireSummaryState(s){
+export function requireSummaryState(s,validateModel=validChoice){
  const h=s.rollingSummary;
  const bad=()=>{throw fail('SUMMARY_STATE_INVALID');};
- if(!exact(h,['policyVersion','revision','config','activeVersionId','versions','pending','operations','stateHash'])||h.policyVersion!==POLICY_VERSION||!revision(h.revision)||h.stateHash!==sealSummary(h).stateHash||!exact(h.config,['timing','model'])||!['before','after'].includes(h.config.timing)||(h.config.model!==null&&(!validChoice(h.config.model)||h.config.model.kind!=='controlled'))||!Array.isArray(h.versions)||!record(h.operations))bad();
+ if(!exact(h,['policyVersion','revision','config','activeVersionId','versions','pending','operations','stateHash'])||h.policyVersion!==POLICY_VERSION||!revision(h.revision)||h.stateHash!==sealSummary(h).stateHash||!exact(h.config,['timing','model'])||!['before','after'].includes(h.config.timing)||(h.config.model!==null&&(!validateModel(h.config.model)||h.config.model.kind!=='controlled'))||!Array.isArray(h.versions)||!record(h.operations))bad();
  const coverage=planCoverage(s.history),seen=new Map(),requestIds=new Set();let previous=null;
  for(const v of h.versions){
   if(!exact(v,['id','kind','previousVersionId','coveredThrough','sourceHash','raw','effectiveText','model','receipt','restoredFrom',...(Object.hasOwn(v,'compression')?['compression']:[])]))bad();
@@ -24,7 +24,7 @@ export function requireSummaryState(s){
   if(Object.hasOwn(v,'compression')&&(v.kind!=='model'||!validCompression(v.compression)||Array.from(v.raw||'').length>COMPRESSION_MAX||v.receipt?.requestId===v.compression.receipt.requestId))bad();
   if(!hash(id)||id!==versionId(body)||seen.has(id)||v.previousVersionId!==(previous?.id||null)||!Number.isSafeInteger(v.coveredThrough)||v.coveredThrough<1||v.coveredThrough>coverage.targetThrough||v.sourceHash!==sourceHash(s,v.coveredThrough)||!validText(v.effectiveText))bad();
   if(v.kind==='model'){
-   if(!validText(v.raw)||v.raw!==v.effectiveText||!validChoice(v.model)||v.model.kind!=='controlled'||!exact(v.receipt,['requestId','requestHash','responseHash'])||!operationId(v.receipt.requestId)||!hash(v.receipt.requestHash)||v.receipt.responseHash!==sha(v.raw)||v.restoredFrom!==null||previous&&v.coveredThrough<=previous.coveredThrough)bad();
+   if(!validText(v.raw)||v.raw!==v.effectiveText||!validateModel(v.model)||v.model.kind!=='controlled'||!exact(v.receipt,['requestId','requestHash','responseHash'])||!operationId(v.receipt.requestId)||!hash(v.receipt.requestHash)||v.receipt.responseHash!==sha(v.raw)||v.restoredFrom!==null||previous&&v.coveredThrough<=previous.coveredThrough)bad();
    if(requestIds.has(v.receipt.requestId))bad();requestIds.add(v.receipt.requestId);
   }else if(v.kind==='manual'){
    if(!previous||v.coveredThrough!==previous.coveredThrough||v.sourceHash!==previous.sourceHash||v.raw!==null||v.model!==null||v.receipt!==null)bad();
@@ -40,8 +40,8 @@ export function requireSummaryState(s){
  if(h.pending!==null&&(!operationId(h.pending)||h.operations[h.pending]?.status!=='pending'))bad();
  return h;
 }
-export function modelSummaryVersion(s,input){
- const h=requireSummaryState(s),prior=activeSummary(h),plan=planCoverage(s.history,prior?.coveredThrough||0);
+export function modelSummaryVersion(s,input,validateModel=validChoice){
+ const h=requireSummaryState(s,validateModel),prior=activeSummary(h),plan=planCoverage(s.history,prior?.coveredThrough||0);
  if(!exact(input,['raw','finishReason','model','receipt','expectedActiveVersionId','targetThrough',...(Object.hasOwn(input,'compression')?['compression']:[])])||input.expectedActiveVersionId!==h.activeVersionId||input.targetThrough!==plan.targetThrough||!plan.needsUpdate)throw fail('SUMMARY_COVERAGE_CONFLICT');
  if(input.finishReason!=='stop'||!validText(input.raw))throw fail('SUMMARY_OUTPUT_REJECTED');
  if(Object.hasOwn(input,'compression')&&(!validCompression(input.compression)||Array.from(input.raw).length>COMPRESSION_MAX))throw fail('SUMMARY_COMPRESSION_REJECTED');
@@ -49,27 +49,27 @@ export function modelSummaryVersion(s,input){
  const body={kind:'model',previousVersionId:h.activeVersionId,coveredThrough:plan.targetThrough,sourceHash:sourceHash(s,plan.targetThrough),raw:input.raw,effectiveText:input.raw,model:structuredClone(input.model),receipt:structuredClone(input.receipt),restoredFrom:null,...(input.compression?{compression:structuredClone(input.compression)}:{})};
  return {id:versionId(body),...body};
 }
-export function manualSummaryVersion(s,{text,restoreVersionId=null}){
- const h=requireSummaryState(s),prior=activeSummary(h);if(!prior)throw fail('SUMMARY_NOT_AVAILABLE');
+export function manualSummaryVersion(s,{text,restoreVersionId=null},validateModel=validChoice){
+ const h=requireSummaryState(s,validateModel),prior=activeSummary(h);if(!prior)throw fail('SUMMARY_NOT_AVAILABLE');
  if(restoreVersionId!==null){const old=h.versions.find(v=>v.id===restoreVersionId);if(!old||old.coveredThrough!==prior.coveredThrough||old.sourceHash!==prior.sourceHash)throw fail('SUMMARY_RESTORE_COVERAGE_MISMATCH');text=old.effectiveText;}
  if(!validText(text))throw fail('SUMMARY_TEXT_INVALID',400);
  const body={kind:'manual',previousVersionId:prior.id,coveredThrough:prior.coveredThrough,sourceHash:prior.sourceHash,raw:null,effectiveText:text,model:null,receipt:null,restoredFrom:restoreVersionId};
  return {id:versionId(body),...body};
 }
-export function withSummaryVersion(s,version){
- const h=structuredClone(requireSummaryState(s));h.versions.push(structuredClone(version));h.activeVersionId=version.id;h.revision++;
- const result=sealSummary(h);requireSummaryState({...s,rollingSummary:result});return result;
+export function withSummaryVersion(s,version,validateModel=validChoice){
+ const h=structuredClone(requireSummaryState(s,validateModel));h.versions.push(structuredClone(version));h.activeVersionId=version.id;h.revision++;
+ const result=sealSummary(h);requireSummaryState({...s,rollingSummary:result},validateModel);return result;
 }
-export function summaryUpdateSource(s){
- const h=requireSummaryState(s),active=activeSummary(h),plan=planCoverage(s.history,active?.coveredThrough||0);
+export function summaryUpdateSource(s,validateModel=validChoice){
+ const h=requireSummaryState(s,validateModel),active=activeSummary(h),plan=planCoverage(s.history,active?.coveredThrough||0);
  return {...plan,previousVersionId:h.activeVersionId,previousSummary:active?.effectiveText||null,sourceHash:sourceHash(s,plan.targetThrough)};
 }
-export function effectiveContextPolicy(s,summaryAuth,historyAuth){
- const h=requireSummaryState(s);
+export function effectiveContextPolicy(s,summaryAuth,historyAuth,validateModel=validChoice){
+ const h=requireSummaryState(s,validateModel);
  if(!exact(summaryAuth,['enabled','revision'])||typeof summaryAuth.enabled!=='boolean'||!hash(summaryAuth.revision))throw fail('SUMMARY_AUTHORIZATION_UNKNOWN');
  const m1=effectiveHistoryPolicy(s,historyAuth),active=activeSummary(h),mode=summaryAuth.enabled?'rolling-summary':m1.enabled?'history-window':'full-history';
  const body={policyVersion:POLICY_VERSION,mode,modelRevision:s.modelState.revision,summaryRevision:h.revision,summaryAuthorizationRevision:summaryAuth.revision,historyPolicyRevision:m1.revision,runtimeHash:s.runtime.hash,activeVersionId:summaryAuth.enabled?h.activeVersionId:null};
- const update=summaryAuth.enabled?summaryUpdateSource(s):null;
+ const update=summaryAuth.enabled?summaryUpdateSource(s,validateModel):null;
  const blocked=h.pending||s.historyWindow.pending?'SUMMARY_OPERATION_UNCONFIRMED':Object.values(s.requests||{}).some(r=>r.status==='pending')?'SUMMARY_UNCONFIRMED_REQUEST':null;
  return {...body,revision:sha(canonical(body)),historyPolicy:m1,selectedTurns:summaryAuth.enabled?(s.history.length?[s.history.length/2]:[]):null,coveredThrough:summaryAuth.enabled?(active?.coveredThrough||0):null,needsUpdate:update?.needsUpdate||false,ready:!blocked&&(!summaryAuth.enabled||!!h.config.model&&!update.needsUpdate),reason:blocked||(summaryAuth.enabled&&!h.config.model?'SUMMARY_MODEL_REQUIRED':update?.needsUpdate?'SUMMARY_UPDATE_REQUIRED':null)};
 }

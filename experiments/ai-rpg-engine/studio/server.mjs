@@ -11,7 +11,7 @@ import {resolve,join,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {offlineGenerate,projection} from '../card-replica/lib/store.mjs';
 import {defaults,worldbookRules} from '../card-replica/lib/assembly.mjs';
-import {safeHtml} from '../card-replica/lib/render.mjs';
+import {cardDisplay} from '../card-replica/lib/card-presentation.mjs';
 import {createUiService} from '../ui-host/service.mjs';
 import {createRecordStore} from '../ui-host/storage.mjs';
 import {createProvider,models} from './provider.mjs';
@@ -24,7 +24,7 @@ import {createControlledProvider} from './controlled-provider.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false}={}){
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const providerOptions={directory:join(directory,'dispatches'),key,enabled,limit,fetcher};
@@ -39,8 +39,11 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  if(rollingSummary)earth.control=summaryTransport;
  const earthBudget=async()=>{if(rollingSummary)return summaryTransport.status();const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await (rollingSummary?summaryTransport:control).status()).enabled}:b;};
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
+ let godHost=null;
+ if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl});}
  let plugins=null,pluginError=null;
- try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:()=>loadReviewedPlugins({rollingSummary,memoryPalace}),lookupSession:async id=>{
+ try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:()=>godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}),lookupSession:async id=>{
+  if(godHost){try{return await godHost.pluginSession(id);}catch(e){if(e.status!==404&&e.code!=='ENOENT')throw e;}}
   if(rollingSummary)return earth.pluginSession(id);
   const s=await earth.read(id);
   return {id:s.id,cardId:'earth',revision:s.revision,completedTurns:s.history.length/2,
@@ -49,6 +52,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    busy:earth.running.has(id),pending:Object.values(s.requests).some(r=>r.status==='pending')||!!s.historyWindow?.pending};
  }});}catch(e){pluginError=e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_HOST_UNAVAILABLE';}
 
+ if(godHost&&plugins)godHost.connect?.(plugins);
  if(historyWindow)earth.plugins=plugins;
  if(rollingSummary&&plugins){if(memoryPalace)earth.connectMemory(plugins,summaryTransport);else earth.connectSummary(plugins,summaryTransport);}
  const server=http.createServer(async(req,res)=>{
@@ -60,7 +64,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!=='application/json'))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
-   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))})))});
+   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    if(pathname==='/rpg-app/api/plugins'&&req.method==='GET')return plugins?send(200,await plugins.catalog()):send(503,{error:pluginError});
@@ -70,11 +74,13 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     if(data?.pluginId!==pluginAction[1])return send(400,{error:'PLUGIN_ID_BINDING'});
     return plugins?send(200,await plugins.change(pluginAction[2],data)):send(503,{error:pluginError});
    }
+   if(godHost&&pathname.startsWith('/rpg-app/god/')){if(req.method==='GET'&&godPlugins){const {godUi}=await import('../god-card/lib/ui.mjs');if(await godUi(pathname.slice('/rpg-app/god/'.length),res,cardDist))return;}await godHost.handle({route:pathname.slice('/rpg-app/god/'.length),method:req.method,data,plugins,send,query:new URL(req.url,'http://rpg').searchParams});return;}
    const match=pathname.match(/^\/rpg-app\/(earth|rpg05)\/(.*)$/);if(!match)return send(404,{error:'NOT_FOUND'});
    const [,card,route]=match;
    if(card==='earth'){
     const pluginSession=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/plugins\/([a-z0-9.-]+)(?:\/(enable|disable))?$/);
     if(pluginSession){
+     await earth.read(pluginSession[1]);
      if(!REVIEWED_PLUGIN_IDS.includes(pluginSession[2]))return send(404,{error:'PLUGIN_UNKNOWN'});
      if(!plugins)return send(503,{error:pluginError});
      if(req.method==='GET'&&!pluginSession[3])return send(200,await plugins.sessionStatus(pluginSession[1],pluginSession[2]));
@@ -85,7 +91,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
      }
     }
 
-    const view=s=>({...projection(s),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:safeHtml(t.raw)}))});
+    const view=s=>({...projection(s),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:cardDisplay(t.raw,'earth')}))});
     if(memoryPalace&&await memoryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     if(rollingSummary&&await summaryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     const historyRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/history-window$/);
@@ -106,6 +112,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     }
     const branchRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/(branches|plugins\/rpg\.branch-save\/nodes)$/);
     if(branchRoute){
+     await earth.read(branchRoute[1]);
      if(req.method==='POST'&&branchRoute[2]==='branches'){const result=await earth.createBranch(branchRoute[1],data,plugins);return send(result.replayed?200:201,{...result,session:view(result.session)});}
      if(req.method==='GET'&&branchRoute[2]==='plugins/rpg.branch-save/nodes')return send(200,await earth.nodes(branchRoute[1],plugins));
     }
@@ -118,17 +125,17 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     if(req.method==='POST'&&route==='api/command')return send(200,await legacy.command(data.command,data.payload));
    }
    if(req.method!=='GET'||!/^$|^index\.html$|^assets\/[a-zA-Z0-9_.-]+$/.test(route))return send(404,{error:'NOT_FOUND'});
-   const file=join(root,card==='earth'?'card-replica/dist':'ui/dist',route||'index.html');const bytes=await readFile(file);
-   res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'}[extname(file)]||'application/octet-stream')});res.end(bytes);
+   const file=join(card==='earth'&&cardDist?resolve(cardDist):join(root,card==='earth'?'card-replica/dist':'ui/dist'),route||'index.html');const bytes=await readFile(file);
+   res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.jpg':'image/jpeg','.webp':'image/webp'}[extname(file)]||'application/octet-stream')});res.end(bytes);
   }catch(e){send(e.status||(e.code==='ENOENT'?404:400),{error:e.status?(e.code||e.message):'REQUEST_FAILED'});}
  });
  server.on('close',()=>{void plugins?.close().catch(()=>{});});
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,host,ok);});}catch(e){await plugins?.close();throw e;}
- return {server,provider,earth,legacy,plugins,control};
+ return {server,provider,earth,legacy,plugins,control,god:godHost?.store||null};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';
  if(!key&&process.env.RPG_CREDENTIAL_FILE){const env=await readFile(process.env.RPG_CREDENTIAL_FILE,'utf8');const line=env.split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');}
- await start({memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
+ await start({godPlugins:process.env.RPG_GOD_PLUGINS_ENABLED==='true',godBranches:process.env.RPG_GOD_BRANCHES_ENABLED==='true',godCard:process.env.RPG_GOD_CARD_ENABLED==='true',memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
  console.log('RPG service started; credentials are server-only; no automatic dispatch.');
 }

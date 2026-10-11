@@ -1,0 +1,730 @@
+{
+  "cardId": "god",
+  "phase": "integrated-candidate-publication-authorized",
+  "worktree": "C:\\Users\\21547\\.codex\\worktrees\\rpg-god-integration\\模型浏览器",
+  "branch": "codex/rpg-god-integration",
+  "base": "7eaaa305cface49ca3eedba6f47a7315f641e584",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "Frozen author system and approved user suffix exact; slot-16 actual wire full history exact. No author semantic changes.",
+  "ui": "User accepted current display repairs; R5 desktop evidence retained; latest 390px repair verification still unrun",
+  "plugins": {
+    "branch-save": "offline-HTTP-and-UI-candidate; God format5, explicit install and per-session grant",
+    "model-selector": "offline-HTTP-and-UI-candidate; God format5, explicit install and per-session grant",
+    "history-window": "offline-HTTP-and-UI-candidate; God format5, explicit install and per-session grant",
+    "rolling-summary": "offline-HTTP-and-UI-candidate; God format5, explicit install and per-session grant",
+    "memory-palace": "offline-HTTP-and-UI-candidate; God format5, explicit install and per-session grant"
+  },
+  "offline": {
+    "tests": 359,
+    "passed": 358,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided"
+  },
+  "real": {
+    "authorized": 13,
+    "dispatched": 16,
+    "model": "google/gemini-3.8-flash",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 32768
+    },
+    "status": "one authorized story call ended content_filter; no complete new turn; no retry",
+    "remaining": 0,
+    "receipt": "R5-RETEST.json",
+    "sessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+    "dispatchedMeaning": "16 physical attempts; 13 charged; 3 preserved historical exemptions",
+    "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+    "latestReport": "R5-RETEST.json",
+    "charged": 13,
+    "exempted": 3,
+    "reserved": 0
+  },
+  "screenshots": "B3.5 and R2 desktop/mobile historical evidence; R5-GOD-DESKTOP.jpg and R5-RETEST-RESULT.jpg current desktop evidence",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false,
+    "sharedControlRepair": "authorized server-only targeted replacement; no general stack update",
+    "authorization": {
+      "date": "2026-10-11",
+      "userStatement": "开始最终收尾和PR提交",
+      "scope": [
+        "commit",
+        "push",
+        "pull-request"
+      ],
+      "excludes": [
+        "merge",
+        "shared-deploy",
+        "provider-call"
+      ]
+    },
+    "snapshotMeaning": "Pre-commit checkpoint; actual Git commit and PR receipt is reported after publication. Prior false flags are not a denial of current authorization."
+  },
+  "nextBatch": "Execute authorized Commit/Push/PR; user reviews merge. No new Provider budget or shared deployment.",
+  "report": "PR-CLOSEOUT.md",
+  "preview": "http://127.0.0.1:18512/rpg-app/god/?session=fef7a176-90d8-47bf-978f-ab5f58d5b995",
+  "apiPreview": "http://127.0.0.1:18511/rpg-app/god/api/status",
+  "manual": {
+    "B1": "accepted by user this turn",
+    "B2": "accepted by user",
+    "real": "User accepted the current candidate; latest slot-16 remains incomplete content_filter, not a complete-output pass",
+    "B3.1": "accepted by user",
+    "B3.2": "accepted by user",
+    "B3.3": "accepted by user",
+    "B3.4": "accepted by user",
+    "B3.5": "accepted by user",
+    "R1": "accepted by user; proceed to R2",
+    "renderingFinding": "User judged content quality broadly comparable but reported major display differences; this is not full card quality acceptance",
+    "R2": "accepted by user: 判定合格，可以继续实测",
+    "closeout": {
+      "at": "2026-10-11T14:02:13.617189+00:00",
+      "userStatement": "通过。可开始PR前收尾",
+      "scope": "local closeout only; no new publication or provider authorization"
+    }
+  },
+  "pluginHost": {
+    "enabledByDefault": false,
+    "flag": "godPlugins / RPG_GOD_PLUGINS_ENABLED",
+    "runtime": "god-plugins-real-v1",
+    "mode": "controlled-real",
+    "persistentPreviewStarted": true
+  },
+  "frontend": {
+    "tests": 94,
+    "passed": 94,
+    "failed": 0,
+    "scope": "71 God/plugin cases plus 23 Studio/chat-state/help cases; not full client suite"
+  },
+  "builds": {
+    "card": "passed; isolated closeout/card-dist",
+    "client": "passed; isolated closeout/client-dist; chunk size warning",
+    "helpImages": "passed; 26 registered articles"
+  },
+  "offlineSimulation": {
+    "used": 7,
+    "limit": 100,
+    "remaining": 93,
+    "reserved": 0,
+    "separateFromRealBudget": true
+  },
+  "offlinePreview": "http://127.0.0.1:18510/rpg",
+  "offlineB4": {
+    "tests": 322,
+    "passed": 321,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided",
+    "scope": "God + studio + plugins: 296; original Earth: 26; no duplicate reruns counted"
+  },
+  "frontendB4": {
+    "tests": 59,
+    "passed": 59,
+    "finalGodRerun": {
+      "tests": 9,
+      "passed": 9,
+      "includedInOriginal59": true
+    }
+  },
+  "presentationR2": {
+    "status": "accepted-by-user",
+    "providerCalls": 0,
+    "originalSessionsUnchanged": true,
+    "preview": "http://127.0.0.1:18514/",
+    "report": "R2-PRESENTATION.md",
+    "evidence": "R2-REPLAY-EVIDENCE.json",
+    "delivery": "R2-DELIVERY.json",
+    "regression": {
+      "passed": 338,
+      "failed": 0,
+      "tests": 339,
+      "skipped": 1
+    },
+    "focused": {
+      "passed": 19,
+      "includedInRegression": true,
+      "tests": 19
+    },
+    "frontend": {
+      "tests": 63,
+      "passed": 63
+    },
+    "builds": {
+      "isolated": true,
+      "card": "passed",
+      "studio": "passed"
+    },
+    "desktop": "God and Earth replay checked",
+    "mobile390": "God and Earth checked, no horizontal overflow after flip clip fix",
+    "screenshots": [
+      "R2-GOD-DESKTOP.jpg",
+      "R2-GOD-MOBILE.jpg",
+      "R2-EARTH-DESKTOP.jpg",
+      "R2-EARTH-MOBILE.jpg"
+    ],
+    "notVerified": [
+      "OS reduced-motion preference activation",
+      "dark author variant",
+      "all author modules and exact frame-by-frame timing",
+      "new real model generation"
+    ],
+    "manual": "2026-10-11: user judged qualified and authorized continuing real tests"
+  },
+  "realPreflight": {
+    "at": "2026-10-11T08:26:38.4094329Z",
+    "report": "R3-PREFLIGHT.json",
+    "newDispatches": 0,
+    "used": 2,
+    "remaining": 2,
+    "reserved": 0,
+    "unconfirmedFirstAttempt": "Preserved; Provider content_filter with PROHIBITED_CONTENT; host pending/unknown",
+    "runtimeDrift": [
+      "god-card/lib/http.mjs",
+      "studio/server.mjs"
+    ],
+    "automaticReplay": false,
+    "authorTextChanged": false,
+    "configurationDecision": "User approved same-role new session, story + memory both Gemini; original preflight snapshot retained"
+  },
+  "realPluginR3": {
+    "report": "R3-PLUGIN-REAL.md",
+    "evidence": "R3-RESULT.json",
+    "installedAndGranted": "rpg.memory-palace",
+    "memoryModel": "google/gemini-3.8-flash",
+    "newTurns": 0,
+    "memoryUpdates": 0,
+    "branch": "not-run",
+    "contentGenerality": "not-verified",
+    "localOperation": "unknown-preserved",
+    "budget": {
+      "limit": 4,
+      "used": 2,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 3,
+      "exempted": 1,
+      "enabled": true
+    },
+    "budgetAmendment": "User explicitly waived slot-3 control-plane failure on 2026-10-11; historical R3-RESULT remains unchanged"
+  },
+  "controlRepair": {
+    "date": "2026-10-11",
+    "report": "R3-CONTROL-REPAIR.md",
+    "rootCause": "openrouter.ai resolved to non-public 198.18.0.60 inside shared server container",
+    "repair": "single-host /etc/hosts override from HTTPS DNS; no guard bypass, no rebuild",
+    "scope": "current modelmirror-server container; recreation loses override; upstream VPN DNS remains unchanged",
+    "publicAddresses": [
+      "104.18.2.115",
+      "104.18.3.115"
+    ],
+    "httpsHead": 200,
+    "tlsVerified": true,
+    "protectedAddressesStillBlocked": true,
+    "providerCalls": 0,
+    "tests": {
+      "passed": 54,
+      "failed": 0
+    },
+    "budget": {
+      "limit": 4,
+      "used": 2,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 3,
+      "exempted": 1,
+      "enabled": true
+    },
+    "oldSessionRuntime": {
+      "compatible": false,
+      "code": "RUNTIME_VERSION_MISMATCH"
+    }
+  },
+  "manualTestReady": {
+    "sessionId": "760cc57c-6a47-4bc1-85ba-f8ed4fce0868",
+    "url": "http://127.0.0.1:18512/rpg-app/god/?session=760cc57c-6a47-4bc1-85ba-f8ed4fce0868",
+    "storyModel": "google/gemini-3.8-flash",
+    "memoryModel": "google/gemini-3.8-flash",
+    "memoryEnabled": true,
+    "maxCalls": 2,
+    "manualDispatchOnly": true,
+    "budgetBefore": {
+      "limit": 5,
+      "used": 3,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 5,
+      "exempted": 2,
+      "enabled": true
+    },
+    "budgetAfter": {
+      "limit": 5,
+      "used": 3,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 5,
+      "exempted": 2,
+      "enabled": true
+    }
+  },
+  "terminalRepair": {
+    "report": "R3-TERMINAL-REPAIR.md",
+    "oldOperationStatus": "failed",
+    "oldOperationError": "PROVIDER_CONTENT_FILTERED",
+    "originalRuntimePreserved": true,
+    "originalRawPreserved": true,
+    "providerCallsByAgent": 0,
+    "backendTests": 58,
+    "frontendTests": 19,
+    "cardTypecheckAndBuild": "passed",
+    "newSessionId": "88900dd0-e723-41cd-ad6f-284b4197660f",
+    "runtime": {
+      "compatible": true,
+      "code": null,
+      "hash": "1141f6d76f91a7c6d4e05f0bea2e96797d582c43ed8fb7873e7e2ded5afab70a"
+    },
+    "budget": {
+      "limit": 5,
+      "used": 3,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 4,
+      "exempted": 1,
+      "enabled": true
+    },
+    "url": "http://127.0.0.1:18512/rpg-app/god/?session=88900dd0-e723-41cd-ad6f-284b4197660f"
+  },
+  "quotaRepair": {
+    "report": "R3-QUOTA-REPAIR.md",
+    "controlLimit": 100,
+    "controlCounted": 5,
+    "cardBudget": {
+      "limit": 5,
+      "used": 3,
+      "reserved": 0,
+      "remaining": 2,
+      "attempts": 5,
+      "exempted": 2,
+      "enabled": true
+    },
+    "providerCallsByAgent": 0,
+    "tests": {
+      "bridge": 29,
+      "adapter": 22,
+      "memoryBudgetGod": 43,
+      "frontend": 20
+    },
+    "cardBuild": "passed",
+    "runtime": {
+      "compatible": true,
+      "code": null,
+      "hash": "ade68dc36d30e76cc03e37f858f2fbf3ec8dc78534c58a09de83bf1649ec2eee"
+    },
+    "oldOperationStatus": "failed",
+    "oldOperationError": "CONTROL_BUDGET_EXHAUSTED",
+    "sharedServerRecreated": true,
+    "credentialsPersisted": false
+  },
+  "history": [
+    {
+      "phase": "R3-control-quota-100-card-budget-3-of-5-manual-ready",
+      "real": {
+        "authorized": 7,
+        "dispatched": 7,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "manual-ready; no Agent dispatch; new output not run",
+        "remaining": 2,
+        "completeOutputs": 3,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "7 physical attempts; 5 charged; 2 historical explicit exemptions",
+        "latestSessionId": "f63f9b55-eb2e-4e77-848e-fe35240ec7d3",
+        "latestReport": "R3-LENGTH-32768.md",
+        "charged": 5,
+        "exempted": 2
+      }
+    },
+    {
+      "phase": "R3-God-32768-manual-ready",
+      "real": {
+        "authorized": 9,
+        "dispatched": 9,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "suffix candidate prepared; manual generation pending",
+        "remaining": 2,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "9 physical attempts; 7 charged; 2 historical explicit exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R4-OUTPUT-SUFFIX.md",
+        "charged": 7,
+        "exempted": 2
+      }
+    },
+    {
+      "phase": "R4-user-output-suffix-manual-ready",
+      "real": {
+        "authorized": 9,
+        "dispatched": 10,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "slot-10 content_filter terminal failure; explicitly waived; original session ready for manual retry",
+        "remaining": 2,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "10 physical attempts; 7 charged; 3 explicit historical exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R4-TERMINAL-WAIVER.md",
+        "charged": 7,
+        "exempted": 3
+      }
+    }
+  ],
+  "latestManualOpinion": "2026-10-11: 通过。可开始PR前收尾。 Human acceptance does not override retained Provider failure.",
+  "lengthValidation": {
+    "bridgeTests": 30,
+    "adapterAndHostTests": 24,
+    "godAndMemoryRegressionTests": 82,
+    "ui": "passed: send enabled, remaining2, maxCalls2; no click",
+    "real": "not-run"
+  },
+  "outputSupplement": {
+    "source": {
+      "name": "输出要求.docx",
+      "bytes": 11453,
+      "sha256": "d0730384048886d4b22b7e752f7ea5b6f0073b722f9d9a9f53f75016317cda9d"
+    },
+    "textIntegrity": {
+      "sha256": "67f5c809149eee996ef01b4face065e7dd126dfe2f1c59916b90a3b148b70e8a",
+      "unicodeCharacters": 573,
+      "paragraphs": 29,
+      "emptyParagraphs": 6,
+      "textRuns": 23,
+      "orderedTextRunsVerified": true
+    },
+    "scope": "God real profile only, every current story user message",
+    "tests": {
+      "passed": 92,
+      "failed": 0
+    },
+    "ui": "input hides supplement; Send enabled",
+    "real": "User reported effective macro-length improvement; historical raw/receipts retained"
+  },
+  "budgetDisplayAudit": {
+    "status": "verified and loaded into task-owned preview; previous deferred evidence retained in R4 report",
+    "cause": "UI uses remaining===0 without reserved or used/limit; reserved quota is mislabelled exhausted",
+    "paths": [
+      "card-replica/src/chat.tsx:46",
+      "card-replica/src/chat.tsx:62",
+      "studio/memory-budget.mjs:31"
+    ]
+  },
+  "budgetDisplayFix": {
+    "report": "R5-RENDER-REPAIR.md",
+    "verification": "God UI 19 passed; affected plugin UI 52 unique cases passed after legacy assertion correction",
+    "runtimeChanged": false,
+    "previewBuildChanged": true,
+    "providerCalls": 0
+  },
+  "stateHistory": [
+    {
+      "phase": "R4-terminal-waived-original-session-ready",
+      "real": {
+        "authorized": 9,
+        "dispatched": 10,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "slot-10 content_filter terminal failure; explicitly waived; original session ready for manual retry",
+        "remaining": 2,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "10 physical attempts; 7 charged; 3 explicit historical exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R4-TERMINAL-WAIVER.md",
+        "charged": 7,
+        "exempted": 3
+      }
+    },
+    {
+      "phase": "R4-continuation-authorized-user-request-in-flight",
+      "real": {
+        "authorized": 11,
+        "dispatched": 13,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "Snapshot during new pending operation; not a final result",
+        "remaining": 0,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "13 physical attempts; 10 charged; 3 preserved exemptions; one further call reserved",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R4-CONTINUATION-AUTHORIZATION.md",
+        "charged": 10,
+        "exempted": 3,
+        "reserved": 1
+      },
+      "budgetDisplayFix": {
+        "report": "R4-BUDGET-DISPLAY-FIX.md",
+        "scope": "UI source only; same logic for Earth and God",
+        "verification": "diff review only; new regression tests written, NOT RUN",
+        "runtimeChanged": false,
+        "providerCalls": 0,
+        "budgetSnapshotNote": "Existing real counters are the prior terminal-waiver snapshot, not refreshed during the ongoing manual test.",
+        "nextGate": "Wait for user to finish the second manual test before mock verification, build or runtime update."
+      }
+    },
+    {
+      "phase": "R5-render-repaired-same-session-manual-ready",
+      "real": {
+        "authorized": 13,
+        "dispatched": 15,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "new retest not dispatched; browser navigation blocked",
+        "remaining": 1,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "15 preserved physical attempts; 12 charged; 3 historical exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R5-RETEST.json",
+        "charged": 12,
+        "exempted": 3,
+        "reserved": 0
+      }
+    },
+    {
+      "phase": "R5-retest-restored-browser-origin-blocked",
+      "real": {
+        "authorized": 13,
+        "dispatched": 16,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "one authorized story call ended content_filter; no complete new turn; no retry",
+        "remaining": 0,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "16 physical attempts; 13 charged; 3 preserved historical exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R5-RETEST.json",
+        "charged": 13,
+        "exempted": 3,
+        "reserved": 0
+      }
+    },
+    {
+      "at": "2026-10-11T14:02:13.617189+00:00",
+      "reason": "before user-accepted PR preparation closeout",
+      "phase": "one-authorized-call-failed-provider-content-filter",
+      "offline": {
+        "tests": 320,
+        "passed": 319,
+        "failed": 0,
+        "skipped": 1,
+        "skipReason": "RPG_B3_LEGACY_COPY not provided"
+      },
+      "frontend": {
+        "tests": 81,
+        "passed": 81,
+        "failed": 0
+      },
+      "manual": {
+        "B1": "accepted by user this turn",
+        "B2": "accepted by user",
+        "real": "second complete output pending user review",
+        "B3.1": "accepted by user",
+        "B3.2": "accepted by user",
+        "B3.3": "accepted by user",
+        "B3.4": "accepted by user",
+        "B3.5": "accepted by user",
+        "R1": "accepted by user; proceed to R2",
+        "renderingFinding": "User judged content quality broadly comparable but reported major display differences; this is not full card quality acceptance",
+        "R2": "accepted by user: 判定合格，可以继续实测"
+      },
+      "real": {
+        "authorized": 13,
+        "dispatched": 16,
+        "model": "google/gemini-3.8-flash",
+        "parameters": {
+          "temperature": 0.7,
+          "top_p": 0.8,
+          "max_tokens": 32768
+        },
+        "status": "one authorized story call ended content_filter; no complete new turn; no retry",
+        "remaining": 0,
+        "completeOutputs": 5,
+        "receipt": "B4-SECOND-RECEIPT.json",
+        "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+        "dispatchedMeaning": "16 physical attempts; 13 charged; 3 preserved historical exemptions",
+        "latestSessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+        "latestReport": "R5-RETEST.json",
+        "charged": 13,
+        "exempted": 3,
+        "reserved": 0
+      },
+      "latestManualOpinion": "2026-10-11: user reports significant macro-section improvement and judges the output supplement effective; second manual test still in progress"
+    }
+  ],
+  "continuationAuthorization": {
+    "id": "god-r4-continuation-two-20261011",
+    "additionalCalls": 2,
+    "manualDispatchOnly": true,
+    "sameSession": true,
+    "sameRuntime": true,
+    "newPendingOperation": "02a2dddb-98a4-4cd1-8a08-2cd16c672863",
+    "agentDispatches": 0,
+    "previewPid": 46724,
+    "sharedContainerChanged": false,
+    "uiBuildChanged": false,
+    "dataCheck": "117/118 pre-existing files unchanged at readiness check; existing session file changed with new pending operation; no all-files-unchanged claim"
+  },
+  "renderRepair": {
+    "report": "R5-RENDER-REPAIR.md",
+    "receipt": "R5-VERIFICATION.json",
+    "nodeTests": 94,
+    "uiTests": 71,
+    "cardBuild": "passed",
+    "mobile": "not verified",
+    "real": "latest authorized retest incomplete content_filter; user accepted candidate separately"
+  },
+  "retest": {
+    "at": "2026-10-11T13:47:17.081355+00:00",
+    "sessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+    "phase": "one-authorized-call-failed-provider-content-filter",
+    "operationId": "3709a448-08d3-4ec9-85d5-8c872598145f",
+    "newCalls": 1,
+    "storyCalls": 1,
+    "memoryCalls": 0,
+    "retries": 0,
+    "budget": {
+      "limit": 13,
+      "used": 13,
+      "reserved": 0,
+      "remaining": 0,
+      "attempts": 16,
+      "exempted": 3,
+      "enabled": true
+    },
+    "runtime": "0422509148fca01c8c44ec17bf0157e33192df897b7b6aa545916d6e975495f7",
+    "originalTurnsUnchanged": true,
+    "memoryEntriesUnchanged": true,
+    "assembly": {
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "frozenSystemExact": true,
+      "fullHistoryExact": true,
+      "frozenSupplementExact": true,
+      "frozenInputExact": true
+    },
+    "provider": {
+      "model": "google/gemini-3.8-flash",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 32768
+      },
+      "finishReason": "content_filter",
+      "characters": 3213,
+      "requestHash": "88e8a1b2e81190c122cd8446bc0508505b6198754a0f9d6cb003d3201ae7d80a",
+      "controlRequestHash": "73777d6dd8ed25f2e035ad7a5a5b0ea05b3a133b3d5664aa1c3c6396ddc6462c",
+      "rawHash": "75a4d15545cbfaffe42b6753b114821039f977eda49d64554ba09c8e8810e52c",
+      "sseHash": "347648974b1734a9c55bac6439522a52551520f0872cde547b2f7016fa43245e",
+      "runId": "chatrun_243a1408834a47238c2d3d2ddccf63e6",
+      "attemptId": "chatattempt_c49ed99e03da44d09fe99d636c1e86fd",
+      "source": "experiments/ai-rpg-engine/.rpg04-work/god-card/b4-real/data/god/real-dispatches/god/slot-16"
+    },
+    "outcome": {
+      "entry": "passed; exact public document navigation only; APIs cross-site remain 403",
+      "budgetDisplay": "mock35 passed; live 12/13 before and13/13 after; true exhaustion shown",
+      "completePlainRenderingRetest": "not passed: incomplete provider output excluded from history",
+      "quality": "not assessed",
+      "uiErrorLimitation": "SUMMARY_TASK_FAILED generic label also used for story task; no summary was dispatched"
+    },
+    "tests": {
+      "navigationAndAssets": 5,
+      "quotaUI": 35
+    },
+    "screenshot": "R5-RETEST-RESULT.jpg"
+  },
+  "backendCloseout": {
+    "passed": 30,
+    "failed": 0,
+    "environment": "network-disabled disposable existing image; only Python source copied into temporary storage; no shared container changed",
+    "initialEnvironmentFailures": "host temp permission/missing duckdb; read-only container import mkdir; tmpfs mount rejected; all retained in CLOSEOUT-VERIFICATION.json"
+  },
+  "closeout": {
+    "at": "2026-10-11T14:02:13.617189+00:00",
+    "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+    "originMain": "7eaaa305cface49ca3eedba6f47a7315f641e584",
+    "behind": 4,
+    "ahead": 0,
+    "overlap": [
+      "client/src/content/help-center/index.ts",
+      "client/src/content/help-center/helpContent.test.ts"
+    ],
+    "latestBaselineHelpGate": "pending",
+    "delivery": "CLOSEOUT-DELIVERY.json",
+    "verification": "CLOSEOUT-VERIFICATION.json",
+    "newProviderCalls": 0,
+    "livePreviewChanged": false,
+    "sharedDeploy": false
+  },
+  "priorCandidate": {
+    "worktree": "C:/tmp/modelmirror-rpg-god-card",
+    "branch": "codex/rpg-god-card",
+    "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+    "phase": "human-accepted-pr-preparation-candidate-unpublished"
+  },
+  "integration": {
+    "report": "INTEGRATION-REPLAY.md",
+    "verification": "INTEGRATION-VERIFICATION.json",
+    "delivery": "INTEGRATION-DELIVERY.json",
+    "helpGate": "desktop clean-state tutorial replay completed; real/model-specific and mobile limits retained",
+    "newProviderCalls": 0,
+    "preview": "http://127.0.0.1:18520/rpg/god",
+    "humanAcceptance": "prior candidate accepted; new integration replay agent-verified, no new human acceptance inferred"
+  }
+}

@@ -23,6 +23,21 @@ import {createSummaryBudget} from './summary-budget.mjs';
 const root=fileURLToPath(new URL('../.rpg04-work/memory-palace-b2/',import.meta.url));await mkdir(root,{recursive:true});
 const models=['google/gemini-3.8-flash','openai/gpt-5.6-luna'].map((model,i)=>({model,name:model,selectionId:'model-'+i,selectionRevision:'v1',available:true,parameters:parametersFor(model)}));
 const latch=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {resolve,promise};};
+test('filtered story settles as failed; recovery of legacy unknown neither publishes partial text nor dispatches memory',async t=>{
+ const f=await fixture(t,{limit:2,onCall:b=>response(b,{raw:'partial',finish:'content_filter',status:'failed_or_unknown',receipt:{error:'rpg_incomplete_output'}})});
+ const s=await f.create(),op=await f.send(s.id);assert.equal(op.status,'failed');assert.equal(op.error,'PROVIDER_CONTENT_FILTERED');assert.equal(f.wires.length,1);
+ const saved=await f.store.read(s.id),key=Object.keys(saved.memoryTasks.operations)[0],old=saved.memoryTasks.operations[key];
+ old.status='unknown';old.error='MEMORY_TASK_RESULT_UNKNOWN';old.tasks[0].status='unknown';saved.memoryTasks=sealMemoryTasks(saved.memoryTasks);await f.store.write(saved);
+ const recovered=await f.tasks.recover(s.id,key);assert.equal(recovered.status,'failed');assert.equal(recovered.error,'PROVIDER_CONTENT_FILTERED');
+ const after=await f.store.read(s.id);assert.equal(after.turns.length,0);assert.equal(after.history.length,0);assert.equal(after.memoryPalace.entries.length,0);assert.equal(f.wires.length,1);assert.equal((await f.transport.status()).used,1);assert.equal((await f.transport.status()).reserved,0);
+});
+test('control quota rejection ends story and releases unused memory reservation without a retry',async t=>{
+ const f=await fixture(t,{limit:2,onCall:async b=>{const v=await response(b,{raw:'',status:'failed'}).json();v.sse='';Object.assign(v.receipt,{actualModel:null,dispatched:false,error:'rpg_fallback_limit_exhausted',sseHash:sha('')});return Response.json(v,{status:409});}});
+ const s=await f.create(),op=await f.send(s.id);assert.equal(op.status,'failed');assert.equal(op.error,'CONTROL_BUDGET_EXHAUSTED');
+ const recovered=await f.tasks.recover(s.id,op.input.operationId);assert.equal(recovered.status,'failed');assert.equal(f.wires.length,1);
+ const after=await f.store.read(s.id);assert.equal(after.turns.length,0);assert.equal(after.memoryPalace.entries.length,0);
+ const budget=await f.transport.status();assert.equal(budget.used,1);assert.equal(budget.reserved,0);assert.equal(budget.remaining,1);
+});
 function response(b,{raw,finish='stop',status='complete',receipt={}}={}){
  raw??=b.messages[0].content===MEMORY_INSTRUCTION?'{"operations":[]}':b.messages[0].content===SUMMARY_INSTRUCTION?'合成摘要':b.messages[0].content===COMPRESSION_INSTRUCTION?'合成压缩':'合成剧情原文';
  const model=models.find(m=>m.selectionId===b.selectionId).model,sse='data: '+JSON.stringify({choices:[{delta:{content:raw},finish_reason:finish}]})+'\n\ndata: [DONE]\n\n';

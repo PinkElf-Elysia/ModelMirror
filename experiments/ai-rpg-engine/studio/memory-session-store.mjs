@@ -1,34 +1,43 @@
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {SummarySessionStore} from './summary-session-store.mjs';
+import {SummarySessionStore,createSummaryStoreClass} from './summary-session-store.mjs';
 import {MemoryBranchArchive} from './memory-branch-archive.mjs';
-import {memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus} from './memory-runtime.mjs';
+import * as runtimeDefaults from './memory-runtime.mjs';
 import {initialMemoryState,requireMemoryState,memoryOperations} from './memory-state.mjs';
-import {initialMemoryTasks,requireMemoryTasks,memoryTaskBlock,memoryContextPolicy} from './memory-task-state.mjs';
+import * as memoryDefaults from './memory-task-state.mjs';
 import {createMemoryTasks} from './memory-tasks.mjs';
-import {assembleMemoryRequest,commitMemoryStory,settleMemoryStory,requireMemoryEvidence} from './memory-assembly.mjs';
-import {assembleSummaryRequest,commitSummaryStory,requireContextEvidence} from './summary-assembly.mjs';
+import * as memoryAssemblyDefaults from './memory-assembly.mjs';
+import * as summaryAssemblyDefaults from './summary-assembly.mjs';
 import {createSummaryTasks,summaryTaskBlock,requireTaskState} from './summary-tasks.mjs';
-import {initialSummaryState,requireSummaryState,effectiveContextPolicy} from './summary-state.mjs';
+import * as summaryDefaults from './summary-state.mjs';
 import {initialHistoryState,requireHistoryState,exact,operationId,revision} from './history-state.mjs';
-import {initialModelState,fixedChoice,requireModelState,controlledChoice,validChoice} from './model-runtime.mjs';
+import * as modelDefaults from './model-runtime.mjs';
 import {validateParameters} from '../card-replica/lib/assembly.mjs';
 import {models} from './provider.mjs';
 import {canonical,sha,fail,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const bridgePending=s=>Object.entries(s.memoryLegacyInputs||{}).some(([key,o])=>o.status==='prepared'&&!s.summaryTasks?.operations?.[key]);
-const policyBlock=(s,a)=>bridgePending(s)||memoryTaskBlock(s)||summaryTaskBlock(s)||s.memoryPalace.pending||s.historyWindow.pending||s.rollingSummary.pending?'MEMORY_TASK_UNCONFIRMED':s.memoryTasks.blocked&&(s.memoryTasks.operations[s.memoryTasks.blocked].blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled)||s.summaryTasks?.blocked&&a.summary.enabled?'MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION':null;
+const policyBlock=(s,a)=>bridgePending(s)||memoryDefaults.memoryTaskBlock(s)||summaryTaskBlock(s)||s.memoryPalace.pending||s.historyWindow.pending||s.rollingSummary.pending?'MEMORY_TASK_UNCONFIRMED':s.memoryTasks.blocked&&(s.memoryTasks.operations[s.memoryTasks.blocked].blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled)||s.summaryTasks?.blocked&&a.summary.enabled?'MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION':null;
 const taskInput=x=>exact(x,['operationId','expectedSessionRevision','expectedMemoryRevision','expectedContextPolicyRevision','input'])&&operationId(x.operationId)&&revision(x.expectedSessionRevision)&&revision(x.expectedMemoryRevision)&&typeof x.expectedContextPolicyRevision==='string'&&/^[a-f0-9]{64}$/.test(x.expectedContextPolicyRevision)&&typeof x.input==='string'&&!!x.input.trim()&&x.input.length<=20000;
-export class MemorySessionStore extends SummarySessionStore{
- constructor(...args){super(...args);this.archive=new MemoryBranchArchive(join(this.directory,'branches'));}
+export function createMemoryStoreClass(profile=null){
+ const {memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus}=profile?{memoryRuntime:profile.runtime,bindMemoryRuntime:profile.bind,memoryRuntimeStatus:profile.status}:runtimeDefaults;
+ const {initialMemoryTasks,requireMemoryTasks,memoryTaskBlock,memoryContextPolicy}=profile?.state.memory||memoryDefaults;
+ const {assembleMemoryRequest,commitMemoryStory,settleMemoryStory,requireMemoryEvidence}=profile?{assembleMemoryRequest:profile.context.memory,commitMemoryStory:profile.context.commitMemory,settleMemoryStory:profile.context.settleMemory,requireMemoryEvidence:profile.context.verifyMemory}:memoryAssemblyDefaults;
+ const {assembleSummaryRequest,commitSummaryStory,requireContextEvidence}=profile?{assembleSummaryRequest:profile.context.summary,commitSummaryStory:profile.context.commitSummary,requireContextEvidence:profile.context.verifySummary}:summaryAssemblyDefaults;
+ const {initialSummaryState,requireSummaryState,effectiveContextPolicy}=profile?.state.summary||summaryDefaults;
+ const {initialModelState,fixedChoice,requireModelState,controlledChoice,validChoice}=profile?{...modelDefaults,...profile.state.models,requireModelState:profile.state.requireModelState}:modelDefaults;
+ const Base=profile?createSummaryStoreClass(profile.state):SummarySessionStore;
+ return class MemorySessionStore extends Base{
+ constructor(...args){super(...args);this.cardState=profile?.state;this.archive=new MemoryBranchArchive(join(this.directory,'branches'),profile);}
  status(s){return memoryRuntimeStatus(s);}
  async requireRuntime(s){
   if(s.runtime?.format!==5)return super.requireRuntime(s);
   const status=this.status(s);if(!status.compatible)throw fail(status.code);
-  requireModelState(s);requireHistoryState(s);requireSummaryState(s);requireMemoryState(s);requireMemoryTasks(s);requireTaskState(s);requireMemoryEvidence(s);
+  requireModelState(s);requireHistoryState(s);requireSummaryState(s);requireMemoryState(s);requireMemoryTasks(s);requireTaskState(s,profile?.state.validateModel);requireMemoryEvidence(s);
   for(const [key,o] of Object.entries(s.memoryLegacyInputs||{}))if(!exact(o,['input','hash','mapped','authorization','status'])||!['prepared','not-applied'].includes(o.status)||!taskInput(o.input)||key!==o.input.operationId||o.hash!==sha(canonical(o.input))||!exact(o.mapped,['operationId','expectedSessionRevision','expectedContextPolicyRevision','input'])||o.mapped.operationId!==key||o.mapped.input!==o.input.input||!revision(o.mapped.expectedSessionRevision)||!/^[a-f0-9]{64}$/.test(o.mapped.expectedContextPolicyRevision)||!exact(o.authorization,['memory','summary','history'])||o.authorization.memory.enabled!==false)throw fail('MEMORY_LEGACY_INPUT_INVALID');
   await memoryRuntime.verify();
  }
  async create(input){
+  if(profile){const configuration=profile.create(input);await profile.runtime.verify();const s={...configuration,id:randomUUID(),created:new Date().toISOString(),revision:0,history:[],turns:[],requests:{},modelState:initialModelState(profile.initialSelection()),historyWindow:initialHistoryState(),rollingSummary:initialSummaryState(),memoryPalace:initialMemoryState(),memoryTasks:initialMemoryTasks()};s.runtime=profile.bind(s);await this.write(s);return s;}
   if(!input||Object.keys(input).some(k=>!['characterText','world','params','mode'].includes(k)))throw fail('SESSION_CONFIGURATION_INVALID',400);
   const {characterText,world,mode}=input;if(!['real','offline'].includes(mode))throw fail('PROVIDER_DISABLED',403);
   if(mode==='real'&&!(await this.control?.status?.())?.enabled)throw fail('PROVIDER_DISABLED',403);
@@ -44,8 +53,8 @@ export class MemorySessionStore extends SummarySessionStore{
   // The unchanged M2 coordinator receives the same purposes, messages and call
   // order. Only its trusted budget adapter maps purposes onto shared stage leases.
   const legacyTransport={...transport,budget:{...transport.budget,reserve:(group,id,purposes)=>transport.budget.reserve(group,id,purposes.map(purpose=>({stageId:purpose,purpose})))}};
-  this.summaryTasks=createSummaryTasks({store:this,plugins,transport:legacyTransport,admit:legacyAdmit,buildStory:async(s,input,p)=>{if(s.runtime.format===5){requireMemoryEvidence(s);const full=memoryContextPolicy(s,await this.memoryAuthorizations(s.id));if(full.memoryEnabled||full.baseRevision!==p.revision)throw fail('MEMORY_AUTHORIZATION_CHANGED');return assembleMemoryRequest(s,input,full);}requireContextEvidence(s);return {...assembleSummaryRequest(s,input,p),input};},commitStory:(s,t,r)=>s.runtime.format===5?commitMemoryStory(s,t,r):commitSummaryStory(s,t,r)});
-  const coordinator=createMemoryTasks({store:this,plugins,transport,buildStory:async(s,input,p)=>{await admit(s);requireMemoryEvidence(s);return assembleMemoryRequest(s,input,p);},commitStory:commitMemoryStory,settleStory:settleMemoryStory,legacySend:(s,x)=>this.sendWithoutMemory(s.id,x)});
+  this.summaryTasks=createSummaryTasks({cardState:profile?.state,store:this,plugins,transport:legacyTransport,admit:legacyAdmit,buildStory:async(s,input,p)=>{if(s.runtime.format===5){requireMemoryEvidence(s);const full=memoryContextPolicy(s,await this.memoryAuthorizations(s.id));if(full.memoryEnabled||full.baseRevision!==p.revision)throw fail('MEMORY_AUTHORIZATION_CHANGED');return assembleMemoryRequest(s,input,full);}requireContextEvidence(s);return {...assembleSummaryRequest(s,input,p),input};},commitStory:(s,t,r)=>s.runtime.format===5?commitMemoryStory(s,t,r):commitSummaryStory(s,t,r)});
+  const coordinator=createMemoryTasks({cardState:profile?.state,store:this,plugins,transport,buildStory:async(s,input,p)=>{await admit(s);requireMemoryEvidence(s);return assembleMemoryRequest(s,input,p);},commitStory:commitMemoryStory,settleStory:settleMemoryStory,legacySend:(s,x)=>this.sendWithoutMemory(s.id,x)});
   this.memoryTasks={...coordinator,status:async id=>{const x=await coordinator.status(id),s=await this.read(id),a=await this.memoryAuthorizations(id),reason=policyBlock(s,a);return {...x,effectivePolicy:reason?{...x.effectivePolicy,ready:false,reason}:x.effectivePolicy};},send:async(id,input)=>{await admit(await this.read(id));return coordinator.send(id,input);},update:async(id,input)=>{await admit(await this.read(id));return coordinator.update(id,input);}};
   this.memoryEdits=memoryOperations(this,plugins);return this.memoryTasks;
  }
@@ -53,7 +62,7 @@ export class MemorySessionStore extends SummarySessionStore{
  async pluginSession(id){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.pluginSession(id);
   const compatible=this.status(s).compatible;
-  return {id,cardId:'earth',revision:s.revision,completedTurns:s.turns.length,resourceHash:sha(s.runtime.hash),memoryPalaceCompatible:compatible,historyWindowCompatible:compatible,rollingSummaryCompatible:compatible,busy:this.running.has(id),pending:bridgePending(s)||memoryTaskBlock(s)||summaryTaskBlock(s)||!!s.memoryPalace.pending||!!s.historyWindow.pending||!!s.rollingSummary.pending||Object.values(s.requests).some(r=>r.status==='pending')};
+  return {id,cardId:profile?.state.cardId||'earth',revision:s.revision,completedTurns:s.turns.length,resourceHash:sha(s.runtime.hash),memoryPalaceCompatible:compatible,historyWindowCompatible:compatible,rollingSummaryCompatible:compatible,busy:this.running.has(id),pending:bridgePending(s)||memoryTaskBlock(s)||summaryTaskBlock(s)||!!s.memoryPalace.pending||!!s.historyWindow.pending||!!s.rollingSummary.pending||Object.values(s.requests).some(r=>r.status==='pending')};
  }
  async requireSummarySession(s){if(s.runtime?.format!==5)return super.requireSummarySession(s);await this.requireRuntime(s);if(memoryTaskBlock(s)||s.memoryPalace.pending)throw fail('MEMORY_TASK_UNCONFIRMED');return requireSummaryState(s);}
  async requireHistorySession(s){if(s.runtime?.format!==5)return super.requireHistorySession(s);await this.requireSelectable(s);return requireHistoryState(s);}
@@ -65,7 +74,7 @@ export class MemorySessionStore extends SummarySessionStore{
  async summaryStatus(id,plugins=this.plugins){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.summaryStatus(id,plugins);
   await this.requireRuntime(s);const a=await this.memoryAuthorizations(id),h=s.rollingSummary,policy=memoryContextPolicy(s,a);
-  return {compatible:true,enabled:a.summary.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(requireTaskState(s)),effectivePolicy:policyBlock(s,a)?{...policy,ready:false,reason:policyBlock(s,a)}:policy};
+  return {compatible:true,enabled:a.summary.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(requireTaskState(s,profile?.state.validateModel)),effectivePolicy:policyBlock(s,a)?{...policy,ready:false,reason:policyBlock(s,a)}:policy};
  }
  async historyWindowStatus(id,plugins=this.plugins){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.historyWindowStatus(id,plugins);
@@ -140,3 +149,6 @@ export class MemorySessionStore extends SummarySessionStore{
   return this.exclusive(id,async()=>{const s=await this.read(id);await this.requireSelectable(s);const policy=memoryContextPolicy(s,await this.memoryAuthorizations(id));if(policy.revision!==input.expectedContextPolicyRevision)throw fail('MEMORY_TASK_REVISION_CONFLICT');return assembleMemoryRequest(s,input.input,policy);});
  }
 }
+
+ }
+export const MemorySessionStore=createMemoryStoreClass();

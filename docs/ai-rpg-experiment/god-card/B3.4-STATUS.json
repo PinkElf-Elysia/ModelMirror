@@ -1,0 +1,55 @@
+{
+  "cardId": "god",
+  "phase": "B3.4-offline-HTTP-candidate-awaiting-user",
+  "worktree": "C:/tmp/modelmirror-rpg-god-card",
+  "branch": "codex/rpg-god-card",
+  "base": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "authorText": "frozen-verbatim; no semantic audit",
+  "assembly": "God versioned plugin host, actual HTTP configuration, tasks and branch continuation passed offline; player UI and real provider pending",
+  "ui": "B1 accepted by user; chat UI pending B3",
+  "plugins": {
+    "branch-save": "offline-HTTP-candidate; explicit reviewed install and per-session grant; God format5 only",
+    "model-selector": "offline-HTTP-candidate; explicit reviewed install and per-session grant; God format5 only",
+    "history-window": "offline-HTTP-candidate; explicit reviewed install and per-session grant; God format5 only",
+    "rolling-summary": "offline-HTTP-candidate; explicit reviewed install and per-session grant; God format5 only",
+    "memory-palace": "offline-HTTP-candidate; explicit reviewed install and per-session grant; God format5 only"
+  },
+  "offline": {
+    "tests": 319,
+    "passed": 318,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not provided"
+  },
+  "real": {
+    "authorized": 0,
+    "dispatched": 0
+  },
+  "screenshots": "7 actual browser JPEGs archived; no PNG claim",
+  "publication": {
+    "commit": false,
+    "push": false,
+    "pr": false,
+    "sharedDeploy": false
+  },
+  "nextBatch": "B3.5-player-chat-UI-and-help",
+  "report": "B3.4-HTTP-ACCEPTANCE.md",
+  "preview": "http://127.0.0.1:18505/",
+  "apiPreview": "http://127.0.0.1:18507/rpg-app/god/api/status",
+  "manual": {
+    "B1": "accepted by user this turn",
+    "B2": "accepted by user",
+    "real": "not-run",
+    "B3.1": "accepted by user",
+    "B3.2": "accepted by user",
+    "B3.3": "accepted by user",
+    "B3.4": "pending"
+  },
+  "pluginHost": {
+    "enabledByDefault": false,
+    "flag": "godPlugins / RPG_GOD_PLUGINS_ENABLED",
+    "runtime": "god-plugins-offline-v1",
+    "mode": "offline-only",
+    "persistentPreviewStarted": false
+  }
+}

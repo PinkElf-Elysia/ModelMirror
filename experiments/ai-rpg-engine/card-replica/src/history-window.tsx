@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import {Modal} from './main';
+import {Modal} from './modal';
 import type {HistoryConfig} from './session-client';
 export function HistoryWindowDialog({config,busy,pending,error,save,recover,close}:{config:HistoryConfig;busy:boolean;pending:boolean;error:string;save:(v:HistoryConfig)=>void;recover:()=>void;close:()=>void}){
  const [turns,setTurns]=useState(String(config.turns)),[include,setInclude]=useState(config.includeInitialCharacter);

@@ -1,0 +1,48 @@
+{
+  "phase": "R2",
+  "recordedAt": "2026-10-11T08:09:59.198Z",
+  "providerCalls": 0,
+  "preview": "http://127.0.0.1:18514/",
+  "cards": {
+    "god": {
+      "sessionId": "d717d78a-dbdd-4256-80ef-780d3ce2abb2",
+      "sourceSessionSha256": "ed23db5c5690bc465250dc2f13ff96aff573f0fed0250b1d7e8ff989c0bba061",
+      "copyByteIdentical": true,
+      "rawByteIdentical": true,
+      "historySha256": "d60b28a54183b56f32214531f35b223db6bf9b6f58875772d55596a00c676d64",
+      "turns": [
+        {
+          "turn": 1,
+          "rawSha256": "9c55360dfe10f72e7562e125084382a9aa2e3d87a6eccb2244ff45c00e96ddc0",
+          "rawCharacters": 9533,
+          "displaySha256": "8a23dd420bdee99cef2b28174c79178f1af0fcf0a72bc750e6d857048c5ec35c"
+        }
+      ],
+      "writeRejected": 403,
+      "previewRemaining": 0
+    },
+    "earth": {
+      "sessionId": "fb57eeb2-4c55-4eea-a677-c317fd977147",
+      "sourceSessionSha256": "b546f73762e3f2755a643fabb045503382a4701a0245ad5bf91d26df15b563d4",
+      "copyByteIdentical": true,
+      "rawByteIdentical": true,
+      "historySha256": "d08759159f82af83e268f461ddcb91537d739360b2034807d704f41d3798d83a",
+      "turns": [
+        {
+          "turn": 1,
+          "rawSha256": "f8d71789a113679760c2a3186f9279de1abc88d045fd058355f734b8722e245d",
+          "rawCharacters": 13860,
+          "displaySha256": "85e80a36de524e0f4ce72498e49f02efdf83d8acb121c373f2946bdd7091e74f"
+        },
+        {
+          "turn": 2,
+          "rawSha256": "8ffb069c99b59e491c2bb1ea8eec006e7e1104ff84ebd5dfabaeeaf25a14ae2f",
+          "rawCharacters": 17972,
+          "displaySha256": "9a8cbda3f2a3ee2a0fa28ec369faf8a1ac1249a8eb7b453d30c7f846c8cc7efb"
+        }
+      ],
+      "writeRejected": 403,
+      "previewRemaining": 0
+    }
+  }
+}

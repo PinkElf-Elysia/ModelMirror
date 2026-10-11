@@ -1,0 +1,65 @@
+{
+  "at": "2026-10-11T13:47:17.081355+00:00",
+  "sessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+  "phase": "one-authorized-call-failed-provider-content-filter",
+  "operationId": "3709a448-08d3-4ec9-85d5-8c872598145f",
+  "newCalls": 1,
+  "storyCalls": 1,
+  "memoryCalls": 0,
+  "retries": 0,
+  "budget": {
+    "limit": 13,
+    "used": 13,
+    "reserved": 0,
+    "remaining": 0,
+    "attempts": 16,
+    "exempted": 3,
+    "enabled": true
+  },
+  "runtime": "0422509148fca01c8c44ec17bf0157e33192df897b7b6aa545916d6e975495f7",
+  "originalTurnsUnchanged": true,
+  "memoryEntriesUnchanged": true,
+  "assembly": {
+    "roles": [
+      "system",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user"
+    ],
+    "frozenSystemExact": true,
+    "fullHistoryExact": true,
+    "frozenSupplementExact": true,
+    "frozenInputExact": true
+  },
+  "provider": {
+    "model": "google/gemini-3.8-flash",
+    "parameters": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "max_tokens": 32768
+    },
+    "finishReason": "content_filter",
+    "characters": 3213,
+    "requestHash": "88e8a1b2e81190c122cd8446bc0508505b6198754a0f9d6cb003d3201ae7d80a",
+    "controlRequestHash": "73777d6dd8ed25f2e035ad7a5a5b0ea05b3a133b3d5664aa1c3c6396ddc6462c",
+    "rawHash": "75a4d15545cbfaffe42b6753b114821039f977eda49d64554ba09c8e8810e52c",
+    "sseHash": "347648974b1734a9c55bac6439522a52551520f0872cde547b2f7016fa43245e",
+    "runId": "chatrun_243a1408834a47238c2d3d2ddccf63e6",
+    "attemptId": "chatattempt_c49ed99e03da44d09fe99d636c1e86fd",
+    "source": "experiments/ai-rpg-engine/.rpg04-work/god-card/b4-real/data/god/real-dispatches/god/slot-16"
+  },
+  "outcome": {
+    "entry": "passed; exact public document navigation only; APIs cross-site remain 403",
+    "budgetDisplay": "mock35 passed; live 12/13 before and13/13 after; true exhaustion shown",
+    "completePlainRenderingRetest": "not passed: incomplete provider output excluded from history",
+    "quality": "not assessed",
+    "uiErrorLimitation": "SUMMARY_TASK_FAILED generic label also used for story task; no summary was dispatched"
+  },
+  "tests": {
+    "navigationAndAssets": 5,
+    "quotaUI": 35
+  },
+  "screenshot": "R5-RETEST-RESULT.jpg"
+}

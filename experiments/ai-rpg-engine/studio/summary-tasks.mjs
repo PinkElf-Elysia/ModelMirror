@@ -1,22 +1,25 @@
 import {overflow,compressionMessages,compressionEvidence,reusableOverflow,COMPRESSION_MAX} from './summary-compression.mjs';
-import {SUMMARY_INSTRUCTION,summaryUpdateSource,requireSummaryState,modelSummaryVersion,withSummaryVersion,effectiveContextPolicy} from './summary-state.mjs';
+import * as defaultSummaryState from './summary-state.mjs';
+const {SUMMARY_INSTRUCTION}=defaultSummaryState;
 import {canonical,sha,fail} from '../plugins/catalog.mjs';
 import {exact,operationId,revision} from './history-state.mjs';
-import {controlledChoice} from './model-runtime.mjs';
+import {controlledChoice as defaultControlledChoice} from './model-runtime.mjs';
 import {reservationId} from './summary-budget.mjs';
 const pending=new Set(['pending','unknown']);
 export function summaryTaskBlock(s){return Object.values(s.summaryTasks?.operations||{}).some(o=>pending.has(o.status));}
-export function requireTaskState(s){
+export function requireTaskState(s,validateModel=null){
  const state=s.summaryTasks;if(!state)return {operations:{},blocked:null};
  if(!exact(state,['operations','blocked','hash'])||state.hash!==sha(canonical({operations:state.operations,blocked:state.blocked}))||!state.operations||typeof state.operations!=='object'||Array.isArray(state.operations))throw fail('SUMMARY_TASK_STATE_INVALID');
- for(const [key,op] of Object.entries(state.operations))if(!operationId(key)||op.inputHash!==sha(canonical(op.input))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(op.status)||!Array.isArray(op.tasks)||op.tasks.some(t=>t.sessionId!==s.id||!['story','summary','compression'].includes(t.purpose)||t.messagesHash!==sha(canonical(t.messages))))throw fail('SUMMARY_TASK_STATE_INVALID');
+ for(const [key,op] of Object.entries(state.operations))if(!operationId(key)||op.inputHash!==sha(canonical(op.input))||!['pending','unknown','complete','failed','cancelled','revoked'].includes(op.status)||!Array.isArray(op.tasks)||op.tasks.some(t=>t.sessionId!==s.id||!['story','summary','compression'].includes(t.purpose)||t.messagesHash!==sha(canonical(t.messages))||validateModel&&!validateModel(t.selection)))throw fail('SUMMARY_TASK_STATE_INVALID');
  if(state.blocked!==null&&!Object.hasOwn(state.operations,state.blocked))throw fail('SUMMARY_TASK_STATE_INVALID');return state;
 }
 const sealTasks=value=>{const {hash,...body}=value;return {...body,hash:sha(canonical(body))};};
 const taskId=(id,key,purpose)=>sha(canonical({id,key,purpose}));
 const summaryMessages=source=>[{role:'system',content:SUMMARY_INSTRUCTION},{role:'user',content:JSON.stringify({previousSummary:source.previousSummary,completedTurns:source.source})}];
 // Trusted host callbacks supply story assembly/publication at B3. No callbacks come from HTTP/plugin input.
-export function createSummaryTasks({store,plugins,transport,buildStory=null,commitStory=null,admit=null}){
+export function createSummaryTasks({store,plugins,transport,buildStory=null,commitStory=null,admit=null,cardState=null}){
+ const {summaryUpdateSource,requireSummaryState,modelSummaryVersion,withSummaryVersion,effectiveContextPolicy}=cardState?.summary||defaultSummaryState;
+ const controlledChoice=cardState?.models.controlledChoice||defaultControlledChoice;
  const active=new Map();
  async function save(s){s.summaryTasks=sealTasks(s.summaryTasks);await store.write(s);}
  async function auth(s){return {summary:await plugins.summaryAuthorization(s.id),history:await plugins.historyAuthorization(s.id)};}
@@ -67,7 +70,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
  }
  async function work(id,input,kind,admission=input){
   return store.exclusive(id,async()=>{
-   const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s),prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
+   const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s,cardState?.validateModel),prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
    if(prior){if(prior.inputHash!==sha(canonical(input)))throw fail('SUMMARY_TASK_OPERATION_COLLISION');return {...structuredClone(prior),replayed:true};}
    if(admit)await admit(s);
    if(summaryTaskBlock(s)||s.historyWindow.pending||s.rollingSummary.pending||Object.values(s.requests).some(r=>r.status==='pending'))throw fail('SUMMARY_TASK_UNCONFIRMED');
@@ -130,11 +133,11 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
   },
   async update(id,input){validate(input,false);if(active.has(id))throw fail('SESSION_BUSY');return launch(id,structuredClone(input),'update');},
   async wait(id){return active.get(id)?.promise||null;},
-  async status(id){const s=await store.read(id);await store.requireSummarySession(s);return structuredClone(requireTaskState(s));},
+  async status(id){const s=await store.read(id);await store.requireSummarySession(s);return structuredClone(requireTaskState(s,cardState?.validateModel));},
   async recover(id,key){
    if(!operationId(key))throw fail('SUMMARY_TASK_INPUT_INVALID',400);if(active.has(id))throw fail('SESSION_BUSY');
    return store.exclusive(id,async()=>{
-    const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s),op=Object.hasOwn(state.operations,key)?state.operations[key]:null;
+    const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s,cardState?.validateModel),op=Object.hasOwn(state.operations,key)?state.operations[key]:null;
     if(!op)return {status:'not-found'};if(!pending.has(op.status))return structuredClone(op);
     s.summaryTasks=state;
     for(const task of op.tasks){if(task.status==='complete')continue;

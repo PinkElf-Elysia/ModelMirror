@@ -7,9 +7,24 @@ const identity=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const validLease=lease=>lease&&identity(lease.groupId)&&Number.isInteger(lease.index)&&lease.index>=0&&lease.index<=5&&typeof lease.slot==='string'&&/^slot-\d+$/.test(lease.slot);
 const exists=async p=>{try{return JSON.parse(await readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}};
 // Shared slot names also fence older transports. Released evidence is moved, never erased.
-export async function createMemoryBudget({directory,limit=0}){
+export async function createMemoryBudget({directory,limit=0,cardId='earth',budgetExemptions=[]}){
+ if(!['earth','god'].includes(cardId))throw fail('CONTROL_CARD_INCOMPATIBLE');
  if(!Number.isSafeInteger(limit)||limit<0||limit>100)throw fail('INVALID_BUDGET');
- const folder=resolve(directory,'earth'),groups=join(folder,'m3-reservations');await mkdir(groups,{recursive:true});
+ const folder=resolve(directory,cardId),groups=join(folder,'m3-reservations');await mkdir(groups,{recursive:true});
+ // Explicit server-side administrative authorization only; never infer refunds
+ // from errors. Preserve original slots, hashes and no-replay claims forever.
+ if(!Array.isArray(budgetExemptions)||budgetExemptions.length>100||limit+budgetExemptions.length>100)throw fail('BUDGET_EXEMPTION_INVALID');
+ const exemptions=new Map();
+ for(const item of budgetExemptions){
+  if(!item||Object.keys(item).sort().join(',')!=='authorizationId,requestId,resultSha256,slot'||!/^slot-[1-9]\d*$/.test(item.slot)||!identity(item.requestId)||!identity(item.resultSha256)||typeof item.authorizationId!=='string'||! /^[a-zA-Z0-9_-]{1,100}$/.test(item.authorizationId)||exemptions.has(item.slot))throw fail('BUDGET_EXEMPTION_INVALID');
+  exemptions.set(item.slot,structuredClone(item));
+ }
+ async function verifyExemptions(){for(const item of exemptions.values()){
+  const location=join(folder,item.slot),bytes=await readFile(join(location,'result.json'));
+  const result=JSON.parse(bytes),dispatch=await exists(join(location,'dispatched.json'));
+  if(sha(bytes)!==item.resultSha256||result.card!==cardId||result.requestId!==item.requestId||dispatch?.requestId!==item.requestId||result.status==='complete')throw fail('BUDGET_EXEMPTION_INVALID');
+ }}
+ await verifyExemptions();
  const serial=action=>{const next=(queues.get(folder)||Promise.resolve()).then(action);queues.set(folder,next.catch(()=>{}));return next;};
  const slots=async()=>(await readdir(folder)).filter(n=>/^slot-\d+$/.test(n));
  const path=id=>{if(!identity(id))throw fail('BUDGET_ID_INVALID');return join(groups,id+'.json');};
@@ -21,7 +36,7 @@ export async function createMemoryBudget({directory,limit=0}){
   if(canonical(owner)!==canonical(lease))throw fail('BUDGET_LEASE_INVALID');return location;
  }
  const budget={
-  async status(){let consumed=0,reserved=0;for(const name of await slots()){const p=join(folder,name);if(await exists(join(p,'m3-claim.json'))&&!await exists(join(p,'dispatched.json')))reserved++;else consumed++;}return {limit,used:consumed,reserved,remaining:Math.max(0,limit-consumed-reserved)};},
+  async status(){await verifyExemptions();let consumed=0,reserved=0;for(const name of await slots()){const p=join(folder,name);if(await exists(join(p,'m3-claim.json'))&&!await exists(join(p,'dispatched.json')))reserved++;else consumed++;}const used=consumed-exemptions.size;return {limit,used,reserved,remaining:Math.max(0,limit-used-reserved),...(exemptions.size?{attempts:consumed,exempted:exemptions.size}:{})};},
   async reserve(groupId,sessionId,purposes){return serial(async()=>{
    if(!Array.isArray(purposes)||!purposes.length||purposes.length>6||purposes.some(p=>!p||Object.keys(p).sort().join(',')!=='purpose,stageId'||!['summary','compression','story','memory'].includes(p.purpose)||! /^[a-z][a-z-]{0,39}$/.test(p.stageId))||new Set(purposes.map(p=>p.stageId)).size!==purposes.length||typeof sessionId!=='string')throw fail('BUDGET_RESERVATION_INVALID');
    const target=path(groupId),prior=await exists(target);if(prior)throw fail('BUDGET_OPERATION_ALREADY_RESERVED');
@@ -30,7 +45,7 @@ export async function createMemoryBudget({directory,limit=0}){
    let initial;try{initial=await open(target,'wx',0o600);await initial.writeFile(JSON.stringify(group));await initial.sync();}catch(e){if(e.code==='EEXIST')throw fail('BUDGET_OPERATION_ALREADY_RESERVED');throw e;}finally{if(initial)await initial.close();}
    try{
     for(let index=0;index<purposes.length;index++){
-     let name;for(let n=1;n<=limit;n++){const candidate='slot-'+n;try{await mkdir(join(folder,candidate));name=candidate;break;}catch(e){if(e.code!=='EEXIST')throw e;}}
+     let name;for(let n=1;n<=limit+exemptions.size;n++){const candidate='slot-'+n;try{await mkdir(join(folder,candidate));name=candidate;break;}catch(e){if(e.code!=='EEXIST')throw e;}}
      if(!name)throw fail('BUDGET_EXHAUSTED');
      const lease={groupId,index,slot:name,sessionId,purpose:purposes[index].purpose,stageId:purposes[index].stageId};
      await atomicJson(join(folder,name,'m3-claim.json'),lease);group.leases.push(lease);await atomicJson(target,group);

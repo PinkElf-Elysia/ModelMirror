@@ -17,7 +17,11 @@ from .chat_stable import ProviderChatStableService
 
 router = APIRouter(prefix="/api/rpg/v1", tags=["rpg-service"])
 PARAMETERS = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 16384}
-def parameters_for(model):
+def parameters_for(model, profile="default"):
+    if profile not in ("default", "god-long-v1"):
+        raise HTTPException(422, "rpg_parameter_profile_invalid")
+    if profile == "god-long-v1":
+        return {**PARAMETERS, "max_tokens": 32768} if model == "google/gemini-3.8-flash" else None
     # User-approved B5 exception; no blanket parameter stripping.
     return {"max_tokens": 16384} if model == "openai/gpt-5.6-luna" else dict(PARAMETERS)
 
@@ -53,8 +57,9 @@ def json_object(value):
         return {}
 
 
-def catalog(stable):
+def catalog(stable, profile="default"):
     """Project cached, exact-route evidence. Missing compatibility stays unavailable."""
+    parameters_for("google/gemini-3.8-flash", profile)
     policy = stable.control.get_policy()
     route = next((r for r in policy.routes if r.capability == "chat_text"), None)
     connections = list(route.connection_ids if route else [])
@@ -68,6 +73,9 @@ def catalog(stable):
             rows = stable.repository.list_catalog_models(tenant, connection_id=connection, status="active", limit=500, offset=offset)
             for row in rows:
                 model = row["model_id"]
+                effective_parameters = parameters_for(model, profile)
+                if effective_parameters is None:
+                    continue
                 if model in result and result[model]["available"]:
                     continue
                 meta = json_object(row.get("metadata_json"))
@@ -76,13 +84,15 @@ def catalog(stable):
                 supported = meta.get("supported_parameters")
                 context = meta.get("context_length")
                 output = meta.get("max_output_tokens")
-                effective_parameters = parameters_for(model)
-                compatible = (type(context) is int and context > PARAMETERS["max_tokens"] and
-                              type(output) is int and output >= PARAMETERS["max_tokens"] and
+                compatible = (type(context) is int and context > effective_parameters["max_tokens"] and
+                              type(output) is int and output >= effective_parameters["max_tokens"] and
                               isinstance(supported, list) and all(p in supported for p in effective_parameters))
                 binding = {"model": model, "connection": connection, "policy": policy.policy_fingerprint,
                            "qualification": qualification, "refresh": row.get("last_refresh_id"), "metadata": meta}
-                item = {"selectionId": digest([connection, model]), "selectionRevision": digest(binding),
+                if profile != "default":
+                    binding.update(parameterProfile=profile, parameters=effective_parameters)
+                identity = [connection, model] if profile == "default" else [connection, model, profile]
+                item = {"selectionId": digest(identity), "selectionRevision": digest(binding),
                         "model": model, "name": str(meta.get("name") or model),
                         "available": bool(ready and qualification and compatible),
                         "contextLength": context if type(context) is int else None,
@@ -102,11 +112,12 @@ def catalog(stable):
 
 
 @router.get("/models", dependencies=[Depends(require_service)])
-def models(stable=Depends(get_stable)):
-    return {"models": [{k: v for k, v in x.items() if not k.startswith("_")} for x in catalog(stable)]}
+def models(stable=Depends(get_stable), profile: str = "default"):
+    return {"models": [{k: v for k, v in x.items() if not k.startswith("_")} for x in catalog(stable, profile)]}
 
 
-async def body(request):
+async def body(request, profile="default"):
+    profile_parameters = parameters_for("google/gemini-3.8-flash", profile)
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
@@ -122,7 +133,8 @@ async def body(request):
     for key in fields - {"messages", "parameters"}:
         if not isinstance(value[key], str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value[key]):
             raise HTTPException(422, "rpg_identity_invalid")
-    if (value["parameters"] not in (PARAMETERS, {"max_tokens": 16384}) or not isinstance(value["parameters"], dict) or
+    allowed_parameters = (PARAMETERS, {"max_tokens": 16384}) if profile == "default" else (profile_parameters,)
+    if (value["parameters"] not in allowed_parameters or not isinstance(value["parameters"], dict) or
             any(type(v) not in (int, float) for v in value["parameters"].values())):
         raise HTTPException(422, "rpg_parameters_mismatch")
     messages = value["messages"]
@@ -195,9 +207,9 @@ def parse_sse(sse, model, evidence=None):
 
 
 @router.post("/chat/completions", dependencies=[Depends(require_service)])
-async def completion(request: Request, stable=Depends(get_stable)):
-    value = await body(request)
-    selected = next((m for m in catalog(stable) if m["selectionId"] == value["selectionId"]), None)
+async def completion(request: Request, stable=Depends(get_stable), profile: str = "default"):
+    value = await body(request, profile)
+    selected = next((m for m in catalog(stable, profile) if m["selectionId"] == value["selectionId"]), None)
     if not selected or not selected["available"] or selected["selectionRevision"] != value["selectionRevision"]:
         raise HTTPException(409, "rpg_selection_unavailable_or_changed")
     if value["parameters"] != selected["parameters"]:
@@ -205,13 +217,22 @@ async def completion(request: Request, stable=Depends(get_stable)):
     # Conservative byte-based admission estimate, not an exact model tokenizer.
     # Never truncate history to make a request fit.
     estimated = sum(len(m["content"].encode()) + 32 for m in value["messages"]) + 256
-    if estimated + PARAMETERS["max_tokens"] > selected["contextLength"]:
+    if estimated + selected["parameters"]["max_tokens"] > selected["contextLength"]:
         raise HTTPException(409, "rpg_context_capacity_exceeded")
     claim(stable, value)
     preflight = await stable.begin_rpg_certified(selected["model"])
     dispatch = preflight.dispatch
     if not dispatch:
-        raise HTTPException(409, "rpg_route_unavailable")
+        # A completed preflight rejection is not an unknown Provider outcome.
+        reason = "rpg_fallback_limit_exhausted" if preflight.error_code == "rpg_fallback_limit_exhausted" else "rpg_route_unavailable"
+        receipt = {"gateway": "rpg_scoped", "requestId": value["requestId"], "sessionId": value["sessionId"],
+                   "runId": None, "attemptId": None, "selectionId": selected["selectionId"],
+                   "selectionRevision": selected["selectionRevision"], "requestedModel": selected["model"],
+                   "actualModel": None, "parameters": dict(selected["parameters"]), "httpStatus": None,
+                   "dispatched": False, "usage": None, "error": reason, "retries": 0,
+                   "requestHash": digest(value), "rawHash": hashlib.sha256(b"").hexdigest(),
+                   "sseHash": hashlib.sha256(b"").hexdigest(), "status": "failed"}
+        return JSONResponse({"raw": "", "sse": "", "receipt": receipt}, status_code=409)
     binding = selected["_binding"]
     qualification = binding["qualification"]
     if (dispatch.target.connection_id != binding["connection"] or dispatch.policy_fingerprint != binding["policy"] or
@@ -237,7 +258,7 @@ async def completion(request: Request, stable=Depends(get_stable)):
     try:
         async with asyncio.timeout(240), httpx.AsyncClient(**stable.transport.client_kwargs()) as client:
             outbound = stable.transport.build_authorized_stream_request(client, dispatch.target, dispatch.authorized, payload)
-            fresh = next((m for m in catalog(stable) if m["selectionId"] == selected["selectionId"]), None)
+            fresh = next((m for m in catalog(stable, profile) if m["selectionId"] == selected["selectionId"]), None)
             if not fresh or not fresh["available"] or fresh["selectionRevision"] != selected["selectionRevision"]:
                 raise ValueError("rpg_selection_changed")
             stable.mark_dispatched(dispatch)

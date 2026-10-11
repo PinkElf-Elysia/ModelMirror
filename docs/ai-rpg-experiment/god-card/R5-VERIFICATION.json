@@ -1,0 +1,118 @@
+{
+  "at": "2026-10-11T12:51:57.858236+00:00",
+  "budget": {
+    "limit": 12,
+    "used": 11,
+    "reserved": 0,
+    "remaining": 1,
+    "attempts": 14,
+    "exempted": 3,
+    "enabled": true
+  },
+  "sessionId": "fef7a176-90d8-47bf-978f-ab5f58d5b995",
+  "turnRawHashes": [
+    "e7f220d024bf84f7ea67c78c99365ada02ff608db9abf4193d2ce7e5714dff7c",
+    "2feacfe85c3e24909232e167e81ecdf0a4b8cafcb3b4fe516ad194fc2ab67578"
+  ],
+  "rawUnchanged": true,
+  "memoryEnabled": false,
+  "memoryEntriesRetained": 4,
+  "memoryEntriesUnchanged": true,
+  "agentProviderDispatches": 0,
+  "assets": [
+    {
+      "asset": "./assets/god-commentary-alt-v1.jpg",
+      "status": 200,
+      "sha256": "bae8e3a381d94322fdb810f2e653aeaae21a680a3c99bf97bb7990482e9163e5"
+    },
+    {
+      "asset": "./assets/god-commentary-287eba7e-830e-4ba3-032a-f55393131900.jpg",
+      "status": 200,
+      "sha256": "44afdc2bc149c85f8929ef0c4909bc84733dddad5283d51f806343c8ffbd608e"
+    },
+    {
+      "asset": "./assets/god-commentary-1fc2661a-a9c2-4330-8a34-51959bda5c00.jpg",
+      "status": 200,
+      "sha256": "785e28609a987720311cce25cb68da1e7f3e3db453117932b920651c9411c21e"
+    },
+    {
+      "asset": "./assets/god-commentary-v1.webp",
+      "status": 200,
+      "sha256": "d76ff72d86bcb4dd73e104fffd838630a7e20ab87876931d5dc66cdee78c7b8f"
+    },
+    {
+      "asset": "./assets/god-commentary-61e70fb9-9a81-4274-56dc-9753b573e000.jpg",
+      "status": 200,
+      "sha256": "0410892d543bf0fbfd72fec8cf937c62f1d7a18ac3e830d6028e7b0f028d1d23"
+    },
+    {
+      "asset": "./assets/god-commentary-2f3c5ff4-ee3e-4ea8-03b9-27ff5cb00d00.jpg",
+      "status": 200,
+      "sha256": "fc6b1ea522b03d655d26990dad53dd83485b5bb18cd68c179b98a7be1187606c"
+    },
+    {
+      "asset": "./assets/god-commentary-5824e5aa-ea5d-4396-32d9-8e3db9095700.jpg",
+      "status": 200,
+      "sha256": "56b8caa384e38b08853a8963bcc312113c28aec95c826f10feaaa6f3d6f676bf"
+    },
+    {
+      "asset": "./assets/god-commentary-6e822f82-cf5c-448b-b976-046800a7b100.jpg",
+      "status": 200,
+      "sha256": "889b7ae24bf3f1fe13ccd76b8d4dbbea2149e2f5075957185fe05e861c63a345"
+    },
+    {
+      "asset": "./assets/god-commentary-98cbbf81-7e73-484d-a713-1b04c0917b00.jpg",
+      "status": 200,
+      "sha256": "f9fe8f6cbfef5659211f48c543b34741dbe18b07d96cb654d83bcf54a0fb47f8"
+    },
+    {
+      "asset": "./assets/god-commentary-9c431025-e8ca-471e-8edf-d82eb7a83400.jpg",
+      "status": 200,
+      "sha256": "1cc83453edab2f84c8ce0b7935911115bee1e69b4ca2ec89c76244b913ca9037"
+    },
+    {
+      "asset": "./assets/god-commentary-c2157402-2346-4fc8-0808-6ab5a1809b00.jpg",
+      "status": 200,
+      "sha256": "80a2068ad73f86f6dd6ceb6f68b74e8dd0694ffdd2541f32eb11b4de11997d9f"
+    },
+    {
+      "asset": "./assets/god-commentary-ab5abbc7-a2ec-45f3-1efe-486b2efe1300.jpg",
+      "status": 200,
+      "sha256": "f31b61b48f90366e93104700b8afaa265af19cbd09f0c9ca0f7fcf06ca35a54d"
+    },
+    {
+      "asset": "./assets/god-commentary-c9a9a34f-9965-4314-146c-7a48fb5c5100.jpg",
+      "status": 200,
+      "sha256": "f6ef92c2db7793c8105e8da01de88610d447c8059f091fcad5c482ae54410645"
+    },
+    {
+      "asset": "./assets/god-commentary-4256c515-785f-420f-d777-683cf95bb900.jpg",
+      "status": 200,
+      "sha256": "ac47c818ef06968d46bc460f624e6838f292251a9648731320fc5795212f2b81"
+    },
+    {
+      "asset": "./assets/god-commentary-5939d0f0-163b-4c27-2a7a-b05419797900.jpg",
+      "status": 200,
+      "sha256": "8d603a4999f3673063904487622fb7c1d123aaed1b7989bc01eba0737b98c4a3"
+    },
+    {
+      "asset": "./assets/god-commentary-280a79e9-0e26-46ad-3f71-028cfa9b5c00.jpg",
+      "status": 200,
+      "sha256": "f36d98bf9f29b8d62d24a4aeb0df23b3e79028319a8a8545ec75a795859e1ca3"
+    },
+    {
+      "asset": "./assets/god-commentary-8f21b0cc-67e2-42ab-95bc-e78dd37fdf00.jpg",
+      "status": 200,
+      "sha256": "cea714c3e7bdea9e9718219f34924424d42f38c373f3de3d269e4a7ba3608a9d"
+    }
+  ],
+  "desktop": {
+    "imagesLoaded": 2,
+    "suggestions": 6,
+    "keyboardToggle": true,
+    "nonemptyComposerEnablesSend": true,
+    "draftRestoredEmpty": true
+  },
+  "mobile": "not-verified: viewport override did not resize target tab",
+  "realRetest": "pending user manual send"
+}

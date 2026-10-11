@@ -1,0 +1,198 @@
+{
+  "observedAt": "2026-10-10T09:03:03.658247+00:00",
+  "type": "offline-browser-flow",
+  "status": {
+    "id": "god",
+    "name": "神临凡尘",
+    "providerEnabled": false,
+    "enabled": false,
+    "mode": "offline-only",
+    "model": null,
+    "parameters": null,
+    "used": 0,
+    "limit": 0,
+    "remaining": 0,
+    "contextPolicy": "default:complete-raw-history; actual policy is per-session",
+    "offlineSimulation": true,
+    "pluginCompatibility": {
+      "rpg.branch-save": "offline-candidate",
+      "rpg.model-selector": "offline-candidate",
+      "rpg.history-window": "offline-candidate",
+      "rpg.rolling-summary": "offline-candidate",
+      "rpg.memory-palace": "offline-candidate"
+    },
+    "offlineBudget": {
+      "limit": 100,
+      "used": 7,
+      "reserved": 0,
+      "remaining": 93,
+      "enabled": true
+    }
+  },
+  "authorSystemCharacters": 17754,
+  "authorSystemSha256": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+  "legacyEarthMainMatchesHEAD": true,
+  "parent": {
+    "id": "de66767d-cb34-435f-b1cf-10abc56d5780",
+    "turns": 2,
+    "requestStatuses": [
+      "complete",
+      "complete",
+      "complete",
+      "complete",
+      "cancelled"
+    ]
+  },
+  "branch": {
+    "id": "branch-c9793064928d65df76f1e93d5803622637c7986c110cd364d270498ea82e69e8",
+    "turns": 4,
+    "inheritedRawUnchanged": true,
+    "historyWindow": {
+      "compatible": true,
+      "enabled": false,
+      "sessionRevision": 5,
+      "configRevision": 1,
+      "config": {
+        "turns": 1,
+        "includeInitialCharacter": false
+      },
+      "pendingOperationId": null,
+      "effectivePolicy": {
+        "policyVersion": "rpg.history-window/1",
+        "configRevision": 1,
+        "config": {
+          "turns": 1,
+          "includeInitialCharacter": false
+        },
+        "enabled": false,
+        "authorizationRevision": "be4c3accd9effc6a1fcaec5a5cee67d7ea33f242c7457631982c30554ca169e8",
+        "runtimeHash": "3804ec9b42cfb959958ca8a35ff52562f2c001803f064d305b44ef1f1f887928",
+        "revision": "5f472d2534ad0c134ca51cb49511a1d9f0e2003451e067fe8343bf3844f25c5c"
+      },
+      "historyPolicyRevision": "5f472d2534ad0c134ca51cb49511a1d9f0e2003451e067fe8343bf3844f25c5c",
+      "temporarilyOverridden": false,
+      "effectiveContextMode": "full-history"
+    }
+  },
+  "requests": [
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-1/request.json",
+      "requestFileSha256": "59f1e59f2e7025d3e3fe2f10f9416bf260cfd7ad5c46a62ae176e15bd9baa26a",
+      "sessionId": "de66767d-cb34-435f-b1cf-10abc56d5780",
+      "selectionId": "god-offline-a",
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "messageContentHashes": [
+        "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+        "7c86102d15d7cd4eaf3fde138a786574e0e0699cee0e9a2e7dcabef18680a41a"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-2/request.json",
+      "requestFileSha256": "372ad9717add914882de83fb8593758a3d263d8c86b2ef8a58c00c6cf4a90907",
+      "sessionId": "de66767d-cb34-435f-b1cf-10abc56d5780",
+      "selectionId": "god-offline-a",
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messageContentHashes": [
+        "1866eb68765fa73792af47ccc10f96073cee1e55394402e271dba104045db913",
+        "7c86102d15d7cd4eaf3fde138a786574e0e0699cee0e9a2e7dcabef18680a41a",
+        "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "68f5d2416e18baa3270d67f6173b3c1e35d39a91d28ccbd1f9053ea311786955"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-3/request.json",
+      "requestFileSha256": "a49f659410fe42ab152b1eebd4c2ee5e265bf16ff0dec81b634950d60b7cca15",
+      "sessionId": "de66767d-cb34-435f-b1cf-10abc56d5780",
+      "selectionId": "god-offline-a",
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "messageContentHashes": [
+        "5c14bf7dc2deb14c380394f7dc7d2cb7ffbd4dfea2e7b3cf502795f3f80601a8",
+        "afd0afe8d299a7d99c45e746ea10001587bbf7a63d19c288cc1e6a4972dd1579"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-4/request.json",
+      "requestFileSha256": "0a8625b53b24073c26c2536ab244121282d202900a17834462936e00f5a38d24",
+      "sessionId": "de66767d-cb34-435f-b1cf-10abc56d5780",
+      "selectionId": "god-offline-a",
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messageContentHashes": [
+        "7903197ed9935f7cf254db6bacb267c950edc44734e3b2fe006b16bed4f3faf2",
+        "68f5d2416e18baa3270d67f6173b3c1e35d39a91d28ccbd1f9053ea311786955",
+        "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "c8e9213acf83a9884e5b45f65fef5dd90b40d980fe5dc42062e6600ef89b4741"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-5/request.json",
+      "requestFileSha256": "c54daaf8311397d4b911eff0f4e72725e0456378ef74c94a9543fc2e6863a8b2",
+      "sessionId": "de66767d-cb34-435f-b1cf-10abc56d5780",
+      "selectionId": "god-offline-b",
+      "messageRoles": [
+        "system",
+        "user"
+      ],
+      "messageContentHashes": [
+        "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+        "db5c277f4955eb758e8245a8e173452ccce8fc20e666f585f40e4ec306cfbbd9"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-6/request.json",
+      "requestFileSha256": "3f9661f39ac5d7174f60e17027de20763fdd4ec65e3ae496f486c2c7efdbf3b8",
+      "sessionId": "branch-c9793064928d65df76f1e93d5803622637c7986c110cd364d270498ea82e69e8",
+      "selectionId": "god-offline-b",
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messageContentHashes": [
+        "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+        "68f5d2416e18baa3270d67f6173b3c1e35d39a91d28ccbd1f9053ea311786955",
+        "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "b1e2e33b2204e6606549ca6cd4c41719828af410a380bee0249d7f3c51b35fcf"
+      ]
+    },
+    {
+      "path": "experiments/ai-rpg-engine/.rpg04-work/god-card/b3-ui/preview-data-v2/god/offline-plugin-dispatches/god/slot-7/request.json",
+      "requestFileSha256": "e2a351219dd59b9a11a118be02d1022e87bfa13d81ab817f41418c8f774d3f30",
+      "sessionId": "branch-c9793064928d65df76f1e93d5803622637c7986c110cd364d270498ea82e69e8",
+      "selectionId": "god-offline-a",
+      "messageRoles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messageContentHashes": [
+        "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+        "b1e2e33b2204e6606549ca6cd4c41719828af410a380bee0249d7f3c51b35fcf",
+        "e37b4e143f85d899509f05da299f4bab4958ccc2562fb7422dd204cc5e63034e",
+        "7399411774e7472acdbc435128ad310b9f05f30881611b13525ea7401143a3ad"
+      ]
+    }
+  ],
+  "limitations": [
+    "Mock fetcher, no real Provider",
+    "Empty-change memory fixture does not verify extraction quality",
+    "Original request files retained locally, hashes identify this snapshot"
+  ]
+}

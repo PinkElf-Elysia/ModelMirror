@@ -1,0 +1,158 @@
+{
+  "at": "2026-10-11T14:32:07.093352+00:00",
+  "base": "7eaaa305cface49ca3eedba6f47a7315f641e584",
+  "branch": "codex/rpg-god-integration",
+  "sourceBase": "e5a808a60b024635a1e13965558f15775c5af86a",
+  "originalCandidatePreserved": true,
+  "sourceOverlayFiles": 190,
+  "originalCandidateHashCheck": "all receipt files unchanged",
+  "integrationConflicts": {
+    "index.ts": "three-way additive merge",
+    "helpContent.test.ts": "retain latest-main entries and add God article; no upstream entry removed"
+  },
+  "node": {
+    "total": 359,
+    "passed": 358,
+    "failed": 0,
+    "skipped": 1,
+    "skipReason": "RPG_B3_LEGACY_COPY not supplied",
+    "verificationWorktree": "C:\\tmp\\modelmirror-god-integration-check",
+    "sourceCopy": "195 candidate overlay files were SHA-256 verified before testing; same main base",
+    "command": "node --test card-replica/tests/*.test.mjs god-card/tests/*.test.mjs studio/*.test.mjs plugins/*.test.mjs"
+  },
+  "environmentFailures": {
+    "longParallel": "357 passed, 1 failed, 1 skipped",
+    "longSerial": "349 passed, 9 failed, 1 skipped",
+    "diagnostic": "EPERM on fs.rename of atomic reservation file; production source unchanged",
+    "conclusion": "Short-path same-source full suite passes. Exact Windows cause not established; do not treat as fixed for arbitrary paths."
+  },
+  "frontend": {
+    "total": 173,
+    "passed": 173,
+    "method": "172 passed / 1 help-image-baseline failure initially; corrected screenshot registration and reran all 17 help tests successfully",
+    "scope": "God, history-window, memory-palace, model-selector, plugins, rolling-summary, StudioBetaPanels, RpgChatState, helpContent, models.refresh, models.oct10"
+  },
+  "backend": {
+    "passed": 91,
+    "scope": [
+      "test_rpg_bridge.py",
+      "test_provider_chat_stable_service.py",
+      "test_provider_readiness_admission.py"
+    ],
+    "environment": "network-disabled disposable existing image, temporary Python source copy; no shared stack changes"
+  },
+  "builds": {
+    "card": "passed",
+    "client": "passed; existing chunk warning",
+    "helpImages": "28 registered articles passed"
+  },
+  "ui": {
+    "mode": "synthetic offline; not content quality evidence",
+    "baseline": "7eaaa305",
+    "primaryOrigin": "http://127.0.0.1:18518",
+    "cleanOrigin": "http://127.0.0.1:18520",
+    "cleanState": "new service data directory and new browser origin; no prior sessions/plugins/drafts",
+    "cleanSession": "102f56e9-96f4-4c4e-9874-590e6f827a9b",
+    "cleanBranch": "branch-8b342c8241f514179dc2307878b250d13a69ef34b1aeee4e139d1dcece25f74b",
+    "passed": [
+      "help page rendered new baseline images",
+      "RPG entry",
+      "folded character fields and era/opening",
+      "scripture snapshot and feature switch",
+      "create without sending",
+      "two manually sent mock turns",
+      "view original and Esc close",
+      "history restore without replay",
+      "install distinct from authorization",
+      "save history window 1",
+      "Esc discards unsaved window change on first replay",
+      "branch creation without model dispatch",
+      "branch authorization does not inherit",
+      "parent and branch in dialog list"
+    ],
+    "screenshots": [
+      "INTEGRATION-WINDOW.jpg",
+      "INTEGRATION-BRANCH.jpg",
+      "INTEGRATION-HELP.jpg"
+    ]
+  },
+  "providerCalls": 0,
+  "originalRuntime18512Changed": false,
+  "sharedDeploy": false,
+  "commit": false,
+  "push": false,
+  "pr": false,
+  "unrun": [
+    "latest repair 390px UI",
+    "full keyboard and original animation timing",
+    "all plugin combinations with real Provider",
+    "legacy downgrade copy",
+    "full repository test suite and remote CI"
+  ],
+  "logs": {
+    "longParallel": {
+      "path": "C:\\Users\\21547\\.codex\\worktrees\\rpg-god-integration\\模型浏览器\\experiments\\ai-rpg-engine\\.rpg04-work\\god-integration\\node-tests.txt",
+      "sha256": "4d1accf92da667bd6545af525931b1ad27a0e7c04faa30736242d68273a3ff98",
+      "tail": [
+        "✖ failing tests:",
+        "",
+        "test at experiments\\ai-rpg-engine\\god-card\\tests\\tasks.test.mjs:70:1",
+        "✖ God task chain binds three explicit profiles, raw assembly, receipts and its own budget (87.2074ms)",
+        "  Error: PLUGIN_PERSIST_FAILED",
+        "      at fail (file:///C:/Users/21547/.codex/worktrees/rpg-god-integration/%E6%A8%A1%E5%9E%8B%E6%B5%8F%E8%A7%88%E5%99%A8/experiments/ai-rpg-engine/plugins/catalog.mjs:17:59)",
+        "      at file:///C:/Users/21547/.codex/worktrees/rpg-god-integration/%E6%A8%A1%E5%9E%8B%E6%B5%8F%E8%A7%88%E5%99%A8/experiments/ai-rpg-engine/plugins/host.mjs:217:79 {",
+        "    code: 'PLUGIN_PERSIST_FAILED',",
+        "    status: 503",
+        "  }"
+      ]
+    },
+    "longSerial": {
+      "path": "C:\\Users\\21547\\.codex\\worktrees\\rpg-god-integration\\模型浏览器\\experiments\\ai-rpg-engine\\.rpg04-work\\god-integration\\node-serial.txt",
+      "sha256": "2d58ae13a57ef4deaa91761b78111453d53aff7a408a68ff3fb13fe1e4483a1f",
+      "tail": [
+        "      at TestContext.<anonymous> (file:///C:/Users/21547/.codex/worktrees/rpg-god-integration/%E6%A8%A1%E5%9E%8B%E6%B5%8F%E8%A7%88%E5%99%A8/experiments/ai-rpg-engine/studio/summary-tasks.test.mjs:41:111)",
+        "      at async Test.run (node:internal/test_runner/test:1332:7)",
+        "      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {",
+        "    generatedMessage: true,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 'failed',",
+        "    expected: 'complete',",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }"
+      ]
+    },
+    "fsDiagnostic": {
+      "path": "C:\\Users\\21547\\.codex\\worktrees\\rpg-god-integration\\模型浏览器\\experiments\\ai-rpg-engine\\.rpg04-work\\god-integration\\fs-diagnostic.txt",
+      "sha256": "0b4407db599fe228846736618d49dca795954a1f6250eb57f372890574a764e9",
+      "tail": [
+        "      at TestContext.<anonymous> (file:///C:/Users/21547/.codex/worktrees/rpg-god-integration/%E6%A8%A1%E5%9E%8B%E6%B5%8F%E8%A7%88%E5%99%A8/experiments/ai-rpg-engine/studio/summary-tasks.test.mjs:130:71)",
+        "      at async Test.run (node:internal/test_runner/test:1332:7)",
+        "      at async Test.processPendingSubtests (node:internal/test_runner/test:911:7) {",
+        "    generatedMessage: true,",
+        "    code: 'ERR_ASSERTION',",
+        "    actual: 'failed',",
+        "    expected: 'complete',",
+        "    operator: 'strictEqual',",
+        "    diff: 'simple'",
+        "  }"
+      ]
+    },
+    "shortFull": {
+      "path": "C:\\tmp\\modelmirror-god-integration-check\\experiments\\ai-rpg-engine\\node-integration-full.txt",
+      "sha256": "994ad2dabc7072d5a313969f307b8e3d046e4ea4541509249f437b87a5963f98",
+      "tail": [
+        "✔ recovery of a truncated result after status persistence failed remains a known failure, never a valid summary (292.6352ms)",
+        "✔ interrupted explicit update before task creation is not reported as a completed update on recovery (231.2824ms)",
+        "ℹ tests 359",
+        "ℹ suites 0",
+        "ℹ pass 358",
+        "ℹ fail 0",
+        "ℹ cancelled 0",
+        "ℹ skipped 1",
+        "ℹ todo 0",
+        "ℹ duration_ms 28545.6081"
+      ]
+    }
+  }
+}

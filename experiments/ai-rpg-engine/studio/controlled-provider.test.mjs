@@ -18,6 +18,39 @@ const messages=[{role:'system',content:'冻结系统\n'},{role:'user',content:'�
 const args={messages,sessionId:'session',requestId:'request',selection:selected};
 const temp=()=>mkdtemp(join(root,'c-'));
 
+for(const mode of ['content_filter','length','missing-done','after-done','bad-receipt'])test('terminal recovery classifies '+mode+' without replay',async()=>{
+ const directory=await temp(),control=await mockControl(directory,{onCall:({res,body})=>{
+  const v=result(body,'partial original');const reason=mode==='length'?'length':'content_filter';
+  v.sse=v.sse.replace('"stop"',JSON.stringify(reason));
+  if(mode==='missing-done')v.sse=v.sse.replace('data: [DONE]\n\n','');
+  if(mode==='after-done')v.sse+='data: '+JSON.stringify({choices:[]})+'\n\n';
+  Object.assign(v.receipt,{status:'failed_or_unknown',error:'rpg_incomplete_output',sseHash:sha(v.sse)});
+  if(mode==='bad-receipt')v.receipt.requestHash='wrong';
+  res.statusCode=502;res.end(JSON.stringify(v));
+ }});
+ try{const p=await createControlledProvider({directory,...control,serviceToken:token,enabled:true,limit:2});
+  await assert.rejects(p.generate('earth',args));const out=await p.recoveredOutput(args.sessionId,args.requestId);
+  assert.equal(out.failureKnown,['content_filter','length'].includes(mode));
+  assert.equal(out.raw,'partial original');assert.equal(control.wires.length,1);assert.equal((await p.status()).used,1);
+  if(out.failureKnown)assert.equal(out.failureCode,mode==='length'?'PROVIDER_OUTPUT_TRUNCATED':'PROVIDER_CONTENT_FILTERED');
+ }finally{await control.close();}
+});
+
+for(const kind of ['quota','route','unbound','missing'])test('preflight receipt '+kind+' never replays or accepts an unbound rejection',async()=>{
+ const directory=await temp(),control=await mockControl(directory,{onCall:({res,body})=>{
+  const v=result(body,'');v.sse='';Object.assign(v.receipt,{sseHash:sha(''),actualModel:null,dispatched:false,status:'failed',error:kind==='route'?'rpg_route_unavailable':'rpg_fallback_limit_exhausted'});
+  if(kind==='unbound')v.receipt.requestHash='wrong';if(kind==='missing')delete v.receipt;
+  res.statusCode=409;res.end(JSON.stringify(v));
+ }});
+ try{const p=await createControlledProvider({directory,...control,serviceToken:token,enabled:true,limit:2});
+  await assert.rejects(p.generate('earth',args));const out=await p.recoveredOutput(args.sessionId,args.requestId);
+  assert.equal(out.failureKnown,['quota','route'].includes(kind));
+  if(out.failureKnown)assert.equal(out.failureCode,kind==='quota'?'CONTROL_BUDGET_EXHAUSTED':'CONTROL_PREFLIGHT_REJECTED');
+  await assert.rejects(p.generate('earth',args),/REQUEST_ALREADY_CLAIMED/);
+  assert.equal(control.wires.length,1);assert.equal((await p.status()).used,1);
+ }finally{await control.close();}
+});
+
 function result(body,text=raw) {
   const canonical={messages:body.messages.map(m=>({content:m.content,role:m.role})),parameters:{max_tokens:16384,temperature:0.7,top_p:0.8},requestId:body.requestId,selectionId:body.selectionId,selectionRevision:body.selectionRevision,sessionId:body.sessionId};
   const sse='data: '+JSON.stringify({model:selected.model,choices:[{delta:{content:text},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n';

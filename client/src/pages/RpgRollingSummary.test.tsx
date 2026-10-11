@@ -3,7 +3,7 @@ import React from 'react';
 import {render,screen,fireEvent,waitFor} from '@testing-library/react';
 import {it,expect,vi,afterEach,beforeEach} from 'vitest';
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',async()=>await import('react'));
-vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/main',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
 import {RollingSummaryDialog,useRollingSummary} from '../../../experiments/ai-rpg-engine/card-replica/src/rolling-summary';
 const model={kind:'controlled' as const,model:'test-model',selectionId:'test',selectionRevision:'v1'};
 const initial={compatible:true,enabled:true,busy:false,sessionRevision:3,summaryRevision:2,pendingOperationId:null,config:{timing:'before' as const,model},activeVersionId:'a',versions:[{id:'a',kind:'model',coveredThrough:1,effectiveText:'原摘要',raw:'原摘要'}],effectivePolicy:{revision:'a'.repeat(64),mode:'rolling-summary',needsUpdate:false},taskState:{blocked:null,operations:{}}};
@@ -57,8 +57,9 @@ it('compressed effective version shows both originals; cancel during work only c
 });
 
 it('summary polling refreshes shared remaining quota without a new send or manual restore',async()=>{
- let remaining=3;const writes:any[]=[],session:any={id:'s',name:'额度验收',mode:'real',revision:3,rollingSummary:{supported:true},turns:[],requests:{},runtime:{compatible:true}};
- vi.stubGlobal('fetch',vi.fn(async(url:string,opts?:RequestInit)=>{if(opts?.body)writes.push(opts.body);return {ok:true,json:async()=>url.endsWith('/api/status')?{budget:{remaining}}:url.endsWith('/api/plugins')?{revision:0,plugins:[]}:url.endsWith('/rolling-summary')?structuredClone(initial):session};}));
- render(<ChatView sessionId="s" exit={()=>{}} opened={()=>{}}/>);await screen.findByText(/剩余 3 次/);remaining=0;
+ let remaining=3,reserved=0;const writes:any[]=[],session:any={id:'s',name:'额度验收',mode:'real',revision:3,rollingSummary:{supported:true},turns:[],requests:{},runtime:{compatible:true}};
+ vi.stubGlobal('fetch',vi.fn(async(url:string,opts?:RequestInit)=>{if(opts?.body)writes.push(opts.body);return {ok:true,json:async()=>url.endsWith('/api/status')?{budget:{remaining,reserved,limit:3,used:3-remaining-reserved}}:url.endsWith('/api/plugins')?{revision:0,plugins:[]}:url.endsWith('/rolling-summary')?structuredClone(initial):session};}));
+ render(<ChatView sessionId="s" exit={()=>{}} opened={()=>{}}/>);await screen.findByText(/可用 3 次/);remaining=0;reserved=2;
+ await waitFor(()=>expect(screen.getByText(/已预留 2 次/)).toBeInTheDocument(),{timeout:3500});expect(screen.queryByText(/本卡额度已用完/)).not.toBeInTheDocument();reserved=0;
  await waitFor(()=>expect(screen.getByText(/本卡额度已用完/)).toBeInTheDocument(),{timeout:3500});expect(writes).toHaveLength(0);
 });

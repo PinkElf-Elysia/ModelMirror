@@ -7,9 +7,9 @@ import {summaryTaskBlock,requireTaskState,createSummaryTasks} from './summary-ta
 import {randomUUID} from 'node:crypto';
 import {HistorySessionStore} from './history-session-store.mjs';
 import {summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus} from './summary-runtime.mjs';
-import {initialSummaryState,requireSummaryState,sealSummary,manualSummaryVersion,withSummaryVersion,effectiveContextPolicy,summaryUpdateSource} from './summary-state.mjs';
+import * as summaryDefaults from './summary-state.mjs';
 import {initialHistoryState,requireHistoryState,exact,revision,operationId} from './history-state.mjs';
-import {initialModelState,fixedChoice,controlledChoice,validChoice,requireModelState} from './model-runtime.mjs';
+import * as modelDefaults from './model-runtime.mjs';
 import {completeHistory} from './branch-archive.mjs';
 import {validateParameters} from '../card-replica/lib/assembly.mjs';
 import {validSettings,validText} from '../plugins/rolling-summary.mjs';
@@ -18,7 +18,10 @@ import {ROLLING_SUMMARY_ID,sha,canonical,fail} from '../plugins/catalog.mjs';
 const common=['operationId','expectedSessionRevision','expectedSummaryRevision'];
 const validCommon=x=>operationId(x?.operationId)&&revision(x.expectedSessionRevision)&&revision(x.expectedSummaryRevision);
 // HTTP wiring remains gated until B4. Only trusted host code connects the transport.
-export class SummarySessionStore extends HistorySessionStore {
+export function createSummaryStoreClass(cardState=null){
+ const {initialSummaryState,requireSummaryState,sealSummary,manualSummaryVersion,withSummaryVersion,effectiveContextPolicy,summaryUpdateSource}=cardState?.summary||summaryDefaults;
+ const {initialModelState,fixedChoice,controlledChoice,validChoice,requireModelState}=cardState?{...modelDefaults,...cardState.models,requireModelState:cardState.requireModelState}:modelDefaults;
+ return class SummarySessionStore extends HistorySessionStore {
  constructor(...args){super(...args);this.archive=new SummaryBranchArchive(join(this.directory,'branches'));this.fileOperations=new Map();}
  // Windows cannot atomically replace a JSON file while our own read handle is open.
  // Serialize only each short file operation, never the whole generation or polling cycle.
@@ -170,3 +173,6 @@ export class SummarySessionStore extends HistorySessionStore {
   });
  }
 }
+
+}
+export const SummarySessionStore=createSummaryStoreClass();

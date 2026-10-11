@@ -1,0 +1,28 @@
+{
+  "batch": "R4-terminal-waiver",
+  "runtimeHash": "0422509148fca01c8c44ec17bf0157e33192df897b7b6aa545916d6e975495f7",
+  "budget": {
+    "limit": 9,
+    "used": 7,
+    "reserved": 0,
+    "remaining": 2,
+    "attempts": 10,
+    "exempted": 3,
+    "enabled": true
+  },
+  "agentProviderCalls": 0,
+  "files": [
+    {
+      "path": "experiments/ai-rpg-engine/god-card/tools/real-preview.mjs",
+      "sha256": "12321660ba1fd651b1f01342a590775202fbd0875b532c37aa88b5173d76e242"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/STATUS.json",
+      "sha256": "e67e52ec10f8bf3285880d01310f0c490869b3235d901ac11845b8b4c40c5efa"
+    },
+    {
+      "path": "docs/ai-rpg-experiment/god-card/R4-TERMINAL-WAIVER.md",
+      "sha256": "4a1838e1e46a3d9683df524921adb7896b93f59e70ce0922507e51fb4edf675d"
+    }
+  ]
+}

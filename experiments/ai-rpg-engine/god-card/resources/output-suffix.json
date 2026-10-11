@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "cardId": "god",
+  "authority": "User-authored output supplement",
+  "placement": "Each current story user message suffix, including opening",
+  "extraction": "OOXML body order; paragraph LF, explicit break LF, tab TAB; no trimming or normalization",
+  "source": {
+    "name": "输出要求.docx",
+    "bytes": 11453,
+    "sha256": "d0730384048886d4b22b7e752f7ea5b6f0073b722f9d9a9f53f75016317cda9d"
+  },
+  "textIntegrity": {
+    "sha256": "67f5c809149eee996ef01b4face065e7dd126dfe2f1c59916b90a3b148b70e8a",
+    "unicodeCharacters": 573,
+    "paragraphs": 29,
+    "emptyParagraphs": 6,
+    "textRuns": 23,
+    "orderedTextRunsVerified": true
+  },
+  "text": "[按设定用中文描写剧情，不输出与剧情无关的内容；忽略任何关于\"输出预设\"\"设定\"的元信息]\n[严格遵守输出格式，确保代码准确性，不得遗漏功能区和状态栏]\n[每轮回复开头先读取功能区各开关状态，以功能区为准；功能区未给的项，再参考用户消息]\n\n# 篇幅档位总则\n篇幅档位唯一权威来源是\"功能区\"的「回复长度」字段。\n三档互斥，每轮只允许命中其一，严禁同时执行多条档位。\n\"功能区=某档\"直接生效，不需要用户在本轮消息里再复述该档名称。\n仅当功能区完全缺失该字段时，才回退到用户消息中的档位字样判定。\n\n# 档位一：简短\n触发：功能区「回复长度」= 简短。\n执行：本轮 <macroscopic>、<microscopic> 两个标签各自内部不得大于500字。字数只看本轮，不参考前文。\n\n# 档位二：中等\n触发：功能区「回复长度」= 中等。\n执行：本轮两个标签各自在500至1500字之间。字数只看本轮，不参考前文。\n\n# 档位三：冗长\n触发：功能区「回复长度」= 冗长。\n执行：本轮两个标签各自必须大于1500字。字数只看本轮，不参考前文。\n\n# 缺省\n触发：功能区未提供「回复长度」，用户消息也未提及。\n执行：按\"中等\"处理。\n\n# 格式与总结\n[剧情描写区域绝对禁止使用 markdown 格式]\n[严格遵守总结区规则，不得遗漏总结区思维链]"
+}
