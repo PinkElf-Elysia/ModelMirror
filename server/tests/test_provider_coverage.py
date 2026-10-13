@@ -1,6 +1,7 @@
 """Offline mutation tests: no server imports, repository initialization or network."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -13,6 +14,61 @@ SPEC.loader.exec_module(guard)
 
 
 class CoverageTests(unittest.TestCase):
+    def test_reviewed_god_harnesses_distinguish_delegation_from_offline_http(self):
+        manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
+        expected = {
+            "lib/plugin-host.mjs": ("model_delegate", "manual_harness"),
+            "lib/plugin-runtime.mjs": ("non_model_http", "manual_harness"),
+            "lib/ui.mjs": ("non_model_http", "manual_harness"),
+            "preview.mjs": ("non_model_http", "manual_harness"),
+            "tools/integration-preview.mjs": ("non_model_http", "manual_harness"),
+            "tools/presentation-preview.mjs": ("non_model_http", "manual_harness"),
+            "tools/ui-preview.mjs": ("non_model_http", "manual_harness"),
+            "tools/real-first.mjs": ("model_delegate", "rpg_bridge"),
+            "tools/real-preview.mjs": ("model_delegate", "rpg_bridge"),
+        }
+        for relative, (kind, entry) in expected.items():
+            with self.subTest(path=relative):
+                path = "experiments/ai-rpg-engine/god-card/" + relative
+                source = (ROOT / path).read_text(encoding="utf-8-sig")
+                identity = f"{path}::<module>::script_network:{guard.digest(source)}:1"
+                registered = [site for site in manifest["sites"] if site["id"] == identity]
+                self.assertEqual(len(registered), 1)
+                self.assertEqual(registered[0]["kind"], kind)
+                self.assertIn(entry, registered[0]["entries"])
+                self.assertTrue(registered[0]["reason"])
+
+    def test_reviewed_client_callbacks_are_not_provider_inference(self):
+        manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
+        for path in ("server/client_extension/service-worker.js", "server/office_addin/taskpane.js"):
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text(encoding="utf-8-sig")
+                identity = f"{path}::<module>::script_network:{guard.digest(source)}:1"
+                registered = [site for site in manifest["sites"] if site["id"] == identity]
+                self.assertEqual(len(registered), 1)
+                self.assertEqual(registered[0]["kind"], "external_domain")
+                self.assertEqual(registered[0]["entries"], ["external_tools"])
+
+    def test_reviewed_script_changed_endpoint_still_requires_review(self):
+        path = "experiments/ai-rpg-engine/god-card/tools/ui-preview.mjs"
+        source = (ROOT / path).read_text(encoding="utf-8-sig")
+        changed = source.replace("hostname:'127.0.0.1'", "hostname:'provider.invalid'")
+        self.assertNotEqual(source, changed)
+        manifest, _ = self.fixture()
+        def site(text):
+            fingerprint = guard.digest(text)
+            return {"id": f"{path}::<module>::script_network:{fingerprint}:1", "path": path,
+                    "line": 1, "symbol": "<module>", "callee": "module review",
+                    "source_sha256": fingerprint}
+        before, after = site(source), site(changed)
+        manifest["sites"][0]["id"] = before["id"]
+        manifest["source_modules"] = {path: before["source_sha256"]}
+        with patch.object(guard, "registry", return_value={}):
+            errors = guard.validate(ROOT, manifest, [after])
+        self.assertTrue(any(error.startswith("unreviewed site:") for error in errors))
+        self.assertTrue(any(error.startswith("stale site:") for error in errors))
+        self.assertIn("source module drift: re-review constants, delegates and exceptions", errors)
+
     def sites(self, source):
         return guard.python_sites(source, "server/example.py")
 
