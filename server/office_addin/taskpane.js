@@ -163,10 +163,15 @@ async function handleToolRequest(request) {
   if (!String(request.tool_name || "").startsWith(`office_${state.officeApp}_`)) {
     return sendToolError(request, "Tool does not match the active Office host.");
   }
-  const receipt = getReceipt(request.operation_id);
+  const capability = state.capabilities.find((item) => item.name === request.tool_name);
+  if (!capability) return sendToolError(request, "Office tool is not supported by this host.");
+  const cacheId = capability.mutating ? request.operation_id
+    : `dispatch:${request.request_id}:${request.dispatch_count ?? 'legacy'}`;
+  const receipt = getReceipt(cacheId);
   if (receipt?.status === "completed") {
     return send({
       type: "tool_result",
+      dispatch_count: request.dispatch_count,
       request_id: request.request_id,
       operation_id: request.operation_id,
       tool_call_id: request.tool_call_id,
@@ -174,9 +179,7 @@ async function handleToolRequest(request) {
       metadata: receipt.metadata || {},
     });
   }
-  const capability = state.capabilities.find((item) => item.name === request.tool_name);
-  if (!capability) return sendToolError(request, "Office tool is not supported by this host.");
-  send({ type: "tool_accepted", request_id: request.request_id });
+  send({ type: "tool_accepted", request_id: request.request_id, dispatch_count: request.dispatch_count });
   if (capability.mutating) setReceipt(request.operation_id, { status: "running", started_at: Date.now() });
   addOperation(request.tool_name, "执行中");
   try {
@@ -188,9 +191,10 @@ async function handleToolRequest(request) {
       operation_receipt: request.operation_id,
       result_length: result.length,
     };
-    setReceipt(request.operation_id, { status: "completed", result, metadata, completed_at: Date.now() });
+    setReceipt(cacheId, { status: "completed", result, metadata, completed_at: Date.now() });
     send({
       type: "tool_result",
+      dispatch_count: request.dispatch_count,
       request_id: request.request_id,
       operation_id: request.operation_id,
       tool_call_id: request.tool_call_id,
@@ -208,6 +212,7 @@ async function handleToolRequest(request) {
 function sendToolError(request, error) {
   send({
     type: "tool_error",
+    dispatch_count: request.dispatch_count,
     request_id: request.request_id,
     operation_id: request.operation_id,
     tool_call_id: request.tool_call_id,

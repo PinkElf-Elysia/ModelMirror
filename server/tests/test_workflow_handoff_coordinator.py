@@ -50,7 +50,9 @@ async def test_terminal_handoff_is_leased_and_resumed_once_after_restart(tmp_pat
 
     async def resume(execution, terminal_handoff) -> None:
         resumed.append(terminal_handoff.handoff_id)
-        executions.complete(execution.task_id, result="done")
+        executions.complete(
+            execution.task_id, result="done", expected_lease_token=execution.lease_token,
+        )
 
     coordinator = WorkflowHandoffCoordinator(tasks, executions, resume)
     assert await coordinator.run_once() == 1
@@ -108,7 +110,9 @@ async def test_expired_wait_invokes_bounded_expiration_then_resumes(tmp_path) ->
         await tasks.update_handoff_status(current_handoff.handoff_id, "dead_letter")
 
     async def resume(execution, _handoff) -> None:
-        executions.fail(execution.task_id, error="HANDOFF_TIMEOUT")
+        executions.fail(
+            execution.task_id, error="HANDOFF_TIMEOUT", expected_lease_token=execution.lease_token,
+        )
 
     coordinator = WorkflowHandoffCoordinator(
         tasks,

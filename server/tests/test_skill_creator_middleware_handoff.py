@@ -514,7 +514,7 @@ async def test_cancelled_workflow_does_not_create_a_handoff_session(
     tmp_path: Path,
 ) -> None:
     class CancelOnCompleteStore(WorkflowExecutionStore):
-        def complete(self, task_id: str, *, result: str):
+        def complete(self, task_id: str, *, result: str, terminal_event=None, expected_lease_token=None):
             self.cancel(task_id, error="cancelled_by_user")
             return self.require(task_id)
 
@@ -743,6 +743,73 @@ async def test_completed_v2_middleware_creates_one_session_without_proposal_tool
         expected_plan_digest=plan.digest,
     )
     assert confirmed.state == "confirmed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["invalidate", "run_id"])
+async def test_completed_handoff_rechecks_committed_snapshot_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    drift: str,
+) -> None:
+    class DriftingStore(WorkflowExecutionStore):
+        def complete(self, task_id, **kwargs):
+            committed = super().complete(task_id, **kwargs)
+            if drift == "invalidate":
+                self.fail(task_id, error="source invalidated")
+            else:
+                self.update_run_id(task_id, run_id="replacement-run")
+            return committed
+
+    execution_store = DriftingStore(tmp_path / "executions")
+    session_store = SkillCreatorSessionStore(tmp_path / "creator")
+    creator = SkillCreatorService(
+        session_store,
+        main_module.get_skill_draft_store(),
+        main_module.authoring_service,
+        source_provider=TrustedCreatorSourceProvider(
+            execution_store, main_module.xpert_context_store
+        ),
+        enabled=True,
+    )
+    handoff = SkillCreatorHandoffService(creator, enabled=True)
+    dispatched = []
+    create_or_get = handoff.create_or_get
+
+    def record_dispatch(**kwargs):
+        dispatched.append(kwargs["task_id"])
+        return create_or_get(**kwargs)
+
+    async def fake_stream(*_args, **_kwargs):
+        yield "analysis completed"
+
+    monkeypatch.setattr(handoff, "create_or_get", record_dispatch)
+    monkeypatch.setattr(main_module, "workflow_execution_store", execution_store)
+    monkeypatch.setattr(main_module, "skill_creator_handoff_service", handoff)
+    monkeypatch.setattr(main_module, "WORKFLOW_AGENT_STRATEGY_V2_ENABLED", False)
+    monkeypatch.setattr(
+        main_module, "get_llm_gateway_config",
+        lambda: ("http://test-gateway.local/v1/chat/completions", "test-key"),
+    )
+    monkeypatch.setattr(main_module, "stream_workflow_llm_text", fake_stream)
+    main_module.request_windows.clear()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=main_module.app),
+        base_url="http://testserver",
+    ) as client:
+        response = await client.post(
+            "/api/workflow/run",
+            json={"workflow": _workflow(), "inputs": {"user_input": "test"}},
+        )
+
+    assert response.status_code == 200, response.text
+    assert dispatched == []
+    assert session_store.list() == []
+    events = _events(response.text)
+    handoff_event = next(e for e in events if e.get("event") == "skill_creator_handoff")
+    assert handoff_event["status"] == "failed"
+    assert "session_id" not in handoff_event
+    assert execution_store.list_items(limit=1)[0].status == "completed"
 
 
 @pytest.mark.asyncio

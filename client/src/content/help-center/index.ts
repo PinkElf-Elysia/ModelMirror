@@ -10,6 +10,7 @@ import checkAvailabilityCostData from "./articles/check-availability-cost-data.m
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
+import recoverWorkflowRun from "./articles/recover-workflow-run.md?raw";
 import modulesAndTerms from "./articles/modules-and-terms.md?raw";
 import prepareVisionEvaluation from "./articles/prepare-vision-evaluation.md?raw";
 import promoteRunToSkill from "./articles/promote-run-to-skill.md?raw";
@@ -299,6 +300,21 @@ export const helpArticles: HelpArticle[] = [
     verifiedDate: workflowErrorRoutingBaseline.date,
     content: handleWorkflowNodeFailure,
     nextSlug: "recover-unavailable-feature",
+  },
+  {
+    slug: "recover-workflow-run",
+    title: "跟踪或取消原工作流运行",
+    summary: "分清等待、恢复与重跑，在断线或重启后核对原任务，不重复派发。",
+    category: "解决问题",
+    contentType: "how-to",
+    audience: "遇到工作流等待、断线或服务重启的用户",
+    estimatedMinutes: 5,
+    keywords: ["工作流", "继续跟踪", "取消原运行", "等待恢复", "重启", "重复执行", "最近运行"],
+    relatedRoutes: ["/workflow", "/runtime"],
+    verifiedCommit: "6ff70de6",
+    verifiedDate: "2026-10-13",
+    content: recoverWorkflowRun,
+    nextSlug: "handle-workflow-node-failure",
   },
   {
     slug: "modules-and-terms",
@@ -609,6 +625,7 @@ export const helpSections: HelpSection[] = [
       { id: "provider-qualification", title: "核对 Provider 认证资格与到期状态", summary: "区分历史期限未知、已过期和按时续期，不把连接在线当成可调用。", to: "/help/review-provider-qualification", keywords: ["资格提示", "认证", "到期", "续期"] },
       { id: "managed-catalog", title: "分清模型目录在线与实际可调用", summary: "查看模型状态，再核对实际入口的资格和绑定。", to: "/help/check-managed-catalog", keywords: ["目录在线", "可调用", "Provider", "Catalog"] },
       { id: "workflow-error-output", title: "让只读节点受限重试或走安全分支", summary: "为合格的 HTTP、数据表查询或知识检索配置固定退避、尝试次数和错误出口。", to: "/help/handle-workflow-node-failure", keywords: ["工作流", "受限重试", "等待重试", "错误分支", "HTTP", "503", "429", "数据表", "知识检索"] },
+      { id: "workflow-recovery", title: "跟踪或取消原工作流运行", summary: "区分等待、恢复与重跑，避免因断线重复派发。", to: "/help/recover-workflow-run", keywords: ["工作流", "继续跟踪", "取消原运行", "等待恢复", "重启"] },
       { id: "no-response", title: "页面、按钮或运行没有反应", summary: "先检查加载、按钮状态和可见错误，再决定是否重试。", to: "/help/sections/troubleshooting#no-response", keywords: ["没反应", "按钮", "加载"] },
       { id: "configuration", title: "配置、权限与连接问题", summary: "判断是否需要有管理权限的人处理。", to: "/help/sections/troubleshooting#configuration", keywords: ["配置", "权限", "连接"] },
     ],

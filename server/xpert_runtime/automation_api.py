@@ -213,10 +213,9 @@ async def retry_automation_execution(
     payload: dict[str, Any] | None = None,
 ):
     try:
-        item = get_automation_store().retry_execution(
+        item = await get_automation_coordinator().retry_execution(
             execution_id, reset_attempts=bool((payload or {}).get("reset_attempts"))
         )
-        get_automation_coordinator().wake()
         return AutomationStore.serialize_execution(item)
     except Exception as exc:
         raise _api_error(exc) from exc
@@ -226,7 +225,7 @@ async def retry_automation_execution(
 async def cancel_automation_execution(execution_id: str):
     try:
         return AutomationStore.serialize_execution(
-            get_automation_store().cancel_execution(execution_id)
+            await get_automation_coordinator().cancel_execution(execution_id)
         )
     except Exception as exc:
         raise _api_error(exc) from exc

@@ -409,7 +409,10 @@ async def test_coordinator_resumes_completed_client_wait_exactly_once(
 
     async def resume(execution, resolved):
         resumed.append(resolved.request_id)
-        executions.complete(execution.task_id, result=resolved.result)
+        executions.complete(
+            execution.task_id, result=resolved.result,
+            expected_lease_token=execution.lease_token,
+        )
 
     coordinator = ClientToolCoordinator(
         store,

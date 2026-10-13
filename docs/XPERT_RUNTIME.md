@@ -1,5 +1,27 @@
 # Xpert Runtime Contract
 
+## 运行目录单实例所有权
+
+后端在构造 Runtime Store 前独占 `AGENT_TASK_STORAGE_DIR`（缺省为
+`server/xpert_runtime/storage`），不能等到 startup 才领取，因为 Store 加载
+已可能恢复并写回运行状态。Windows 使用字节范围锁，POSIX 使用文件锁；
+同目录的第二个后端拒绝启动，错误码为 `RUNTIME_DIRECTORY_BUSY`。不支持多个
+后端进程共享目录、预加载后 fork worker、共享目录的多 worker 或跨主机分布式锁。
+该保护是后端入口的进程所有权，不是让单独构造的 Store 类自动变成多进程安全。
+
+锁文件 `.runtime-owner.lock` 不包含凭据、运行数据或 PID 权威，退出后保留。
+文件存在不代表被占用；进程正常退出或被终止后，OS 释放锁，下一进程可恢复。
+不要删除/替换锁文件抢占，也不要在原进程存活时替换运行目录。锁持有至进程
+退出而非 ASGI shutdown，避免在途请求尚未退出时与新后端交叠。startup 检查
+当前 PID 和文件身份，拒绝继承旧句柄；独立预览必须使用自己的运行目录。
+这是可信本地文件系统上的协作排斥，不防御同一用户主动删除锁或绕过入口写盘。
+
+离线 `execution_store_recovery restore-backup` 同样要求独占目录，活后端存在时
+不修改快照；`inspect` 保持只读但不承诺读取多个文件的原子视图。操作顺序仍为
+停止原后端、检查并保存证据、明确恢复、核对外部效果后重启。锁拒绝只给出安全
+错误码，不回显目录或 OS 异常。备份恢复仍可能丢失最近状态，不能自动重发未知
+请求。回退必须先停写并保留快照，不能用删除锁文件解除运行中的排斥。
+
 ## Versioned Conversation Features
 
 `XpertDraft.features` and immutable `XpertVersion.features` define the conversation contract for each published Xpert. Opening copy and starter questions, generated follow-up questions, conversation titles, context summaries, memory replies, file policy, TTS, and STT are resolved from the selected published version. Editing a draft or publishing a later version never mutates an older deployment.
@@ -19,6 +41,40 @@ Audio endpoints reuse `LLM_GATEWAY_URL` / `LLM_GATEWAY_KEY` or the OpenRouter-co
 The published feature config must explicitly enable audio and select a compatible registered model. Audio bytes, prompts, credentials, and unbounded message text never enter checkpoints.
 
 `XpertAgentConfig.max_concurrency` and `recursion_limit` govern the entire Xpert execution tree. Per-Agent tool settings (`maxToolConcurrency`, `maxToolCalls`, `maxToolDepth`, and `maxIterations`) remain narrower local budgets and cannot expand the global limits.
+
+预算准入在当前进程、同一事件循环的活动父子预算上统一检查与扣减；任一层拒绝时
+所有层的计数保持不变。同一预算实例重复绑定只约束一次，不同实例仍各自约束。
+模型/工具操作先检查余额，取得全部并发槽位后再次原子检查并扣减；排队取消不计
+调用，并释放已经取得的槽位。进入操作体之后的错误或取消保留计数，不能以此
+推断外部请求未发生或自动返还额度。此处计数是运行准入记录，不等同于实际账单。
+仅有进程内预算上下文不足以证明后台子任务继承了根预算；已有持久父预算的
+Handoff 与内联子调用还必须完成下文的服务端委托登记与双向绑定。
+
+Legacy Workflow 流式回退不共用一次调用额度：原请求已消耗的准入计数保留，
+回退派发前重新检查当前执行权限并原子扣减活动父子及持久根预算。两个顺序请求
+继续占用同一并发槽位直至流关闭，不重复申请槽位。余额不足、取消、失权或
+预算落盘失败时不得发出第二次请求。没有预算上下文的旧调用保持既有回退行为；
+本修复不扩大回退条件，超时、损坏或未完整结束的响应不因此获得自动重试许可。
+
+等待 continuation 已保存的 `steps_used/model_calls/tool_calls` 在 Xpert、App、
+Evaluator 及普通 Workflow 视觉 V2 恢复时使用同一校验，不通过字符串转换、
+截零或重新初始化来放宽预算。字段必须完整且仅含非负整数，模型与工具调用数
+之和不能超过总步数。非法快照拒绝恢复且不回显原文；node_retry 保留
+`NODE_RETRY_STATE_INVALID`，其他等待使用 `WORKFLOW_EXECUTION_BUDGET_INVALID`。
+缺失或 null 的旧预算快照仍可读取，但没有历史消耗证据，不证明跨重启限额。
+预算绑定现有 WorkflowExecutionStore 的私有 `execution_budget`，保存 version=1、
+固定 limits 和 usage。首次绑定可读取旧 continuation；后续以持久计数为准，
+允许 continuation 滞后但拒绝超前或限额漂移。恢复预算不一致明确失败，不能
+误判为执行租约被接管。准入在操作体前原子落盘；同一 Store 的活动父子预算
+全成或全败，不同 Store 权威拒绝派发。保存异常后 Store 不可继续使用，须重新
+加载核对；若替换已完成但确认失败，保留可能已消耗的额度，不自动重置。
+
+Managed Workflow 的文本流、Agent 文本/工具决策、文本 unary 与 JSON 修复调用
+同样经过统一预算，资格及发生标识检查在前，预算落盘在 `mark_dispatched` 和
+网络派发之前。并发槽位覆盖响应读取；未知结果保留消耗，发生标识阻止自动
+重放。视觉委托 `vision_json_unary` 仍由视觉服务逐页包装，不重复扣减。
+后台 Handoff 与内联子调用的持久根预算绑定见下文；进程所有权见运行目录单实例
+章节。跨执行期限与综合恢复仍需验收，不能把本地准入计数描述为供应商实际账单。
 
 ## Office Client Runtime
 
@@ -265,6 +321,93 @@ The Todo capability exposes scope-bound `todo_list`, `todo_create`, and `todo_up
 `AutomationStore` persists definitions and executions atomically in the Runtime storage directory. A definition pins one immutable published Xpert version and supports once, fixed interval, or five-field Cron triggers with an IANA timezone. Occurrence IDs, leases, overlap/misfire policies, budgets, bounded retries, and dead-letter states provide the single-process reliability boundary.
 
 `AutomationCoordinator` invokes the fixed Xpert through the same classic workflow runner and creates an `automation` RunRegistry parent. Approval and Client Tool continuations update and resume the same execution. Scheduler Runtime tools are scoped to the current private published Xpert and cannot manage another Xpert's definitions.
+
+新 Automation 发生在首次领取时固定 `runtime_budget_seconds`、`started_at` 和
+`runtime_deadline_at`。等待、续租、派发前重试及重启均消耗同一个墙钟期限；
+修改定义不会扩展在途发生的限额。普通人工重试不得重置已耗尽期限，重新执行
+必须创建新的显式发生。旧已开始且缺少期限字段的快照仍可读，但没有可证明的
+固定期限，不从当前配置猜测历史授权；新字段损坏必须拒绝加载。
+
+期限到达时父状态及 `runtime_expired_at` 先落盘，随后取消匹配发生身份的本地
+子执行并投影 RunRegistry；投影失败可在后续轮询补齐。等待恢复入口和结果提交
+也检查期限，迟到完成不能覆盖失败。正在执行的取消属于协作式取消，不承诺
+硬实时抢占或远端请求撤销。已派发但结果未知仍为 `AUTOMATION_DISPATCH_UNCERTAIN`，
+包括租约先失效的发生；停止后续子执行不证明原请求未执行，不能自动重派。
+这些期限检查不取代下文 Handoff 的持久根调用次数绑定；Goal 全局预算仍不在
+本轮承诺范围内。
+
+Runner 在流执行作用域绑定服务端派发检查器：节点计步、模型和 Runtime 工具
+准入均重查当前父状态，取得并发槽位/预算锁后再次检查；没有计数预算时也不能
+绕过。Managed Workflow 三处 HTTP 派发、Legacy unary/stream（含已有 fallback）
+在实际发送前复核，避免客户端初始化期间过期仍外发。检查器不由模型配置、
+请求或持久快照提供；内层上下文不能移除上层检查，退出及取消后恢复原上下文。
+提前拒绝不计数；已准入但发送前被拒绝的计数保守保留，不等同实际账单。
+派发检查器只覆盖这些已接入入口，不代替 Handoff 的持久根预算绑定，也不
+宣称 Goal 具有全局预算、所有外部 IO 均已检查或已发出的远端请求能被撤销。
+
+后台根预算内核提供服务端专用的委托登记与消费接口。父执行必须在仍持有效
+所有权时登记发生；每个登记只绑定一个子执行，绑定前子预算不得已消耗或已
+派生后代。私有 `execution_budget_parent/children` 双向关系保存在同一执行
+快照，不能用 `runtime_metadata` 或用户输入构造；损坏、成环和重复消费拒绝。
+链最多 16 层、每父最多 1000 个登记。祖先可等待，子执行必须运行且持当前
+lease；终态或运行中租约失效的祖先阻止继续派发。
+
+每次准入在一次快照提交中扣减子执行与所有祖先，共有祖先只扣一次。恢复以
+持久计数为准；旧父对象不覆盖后台子执行新增计数。相同 Store 的预算对象共享
+整链并发槽位，同一预算身份不允许跨事件循环复制额度；不同根任务互不阻断。
+这不是多进程分布式锁。
+排队后的身份变化、父取消与保存结果不确定均停止派发；已准入计数不退款。
+并发槽位不持久化，也不能据此把重启前不确定的外部请求重新派发。
+
+已有预算的 Workflow/Xpert 现在在 Handoff 就绪前登记委托，固定发布版本和
+输入、附件授权等语义摘要。后台执行在首个节点前消费唯一登记并绑定子预算，
+不依赖 ContextVar 继承或可变 `workflow_task_id` 推断父任务。领取返回独立
+快照，每次派发核对固定 lease 与当前 Store；父取消、契约漂移或过期阻止外发。
+已完成的子结果可复用；已登记子执行但结果不确定时必须恢复原执行，不能新建
+任务重发。等待后由原执行 lease 及持久父关联恢复，不延用过期 Handoff lease。
+
+离线验证使用真实 Runner/Executor/Coordinator 与合成模型输出，不是付费模型
+证据。Goal 全局预算尚无独立产品契约，不能把各步骤预算称为 Goal 总额；所有
+等待组合和完整恢复验收仍未关闭。旧无关联快照按旧预算读取，
+不猜测补写父身份。回退保留关联字段及读取，不能抹除后按新根任务恢复执行。
+
+内联 External Xpert 在活动父预算内，从服务端预算作用域取得真实执行及 lease，
+调用 metadata 只用于一致性核验，不能授予父身份。节点、迭代与批次位置构成
+稳定调用位置，目标发布版本、输入及授权来源摘要固定该发生；子 Runner 在首个
+操作前消费登记，持久关联原父与根。Store 重开后，完成项复用已提交结果，
+未成功结算项阻止自动重发，也不能通过更换模型调用位置绕过；原位置输入或
+版本漂移拒绝执行。不新增重试、嵌套等待或附件传播能力。
+
+External Xpert 工具委托仍计一次工具准入，但不在等待子 Runner 时占用其根
+并发槽；实际子模型和工具继续取得整链槽位并原子计数，避免单槽自锁。
+普通工具不变，调用参数不能伪装成委托以绕过并发。预算、所有权和未结算错误
+沿 fatal 路径传播；等待/取消不是成功结果，返回子结果前仍复核父权限。
+生产 External Xpert 继续走原策略兼容路径，不因 V2 开关开启而扩大适用范围。
+无持久父预算的旧调用保留旧准入；不能据此声称历史快照有跨重启根限额证据。
+回退须先暂停内联派发并保留关联及结果，不得删除关联后作为新根重跑。
+
+HandoffExecutor 结算现在在 AgentTaskStore 同一锁内检查领取 token、有效 lease
+和父任务非终态，再将 Task/Handoff 一次持久化。迟到成功、异常、重试与等待
+不能覆盖接管者；领取失败也不授权死信结算。取消先提交则拒绝后到的结算，
+完成/失败先提交则终态不回退，等待/重试之后仍可取消。
+RunRegistry 只在持有源 Store 锁时读取当前权威状态并投影，锁顺序为
+AgentTaskStore → RunRegistry，不在此区间调用模型、重入 Store 或外部 IO。
+checkpoint 观测回调在源锁外执行；返回后重新核对权威状态，若期间取消或接管
+则重新投影，不拿旧回执覆盖新状态。持续漂移最多重查八次，随后明确失败。
+重复投影不重复写同一结算 checkpoint。它不是跨 Store 的磁盘事务；投影失败
+后可以依据已持久化状态重新同步，不得重新执行目标。结算持久化异常后该 Store
+实例停止写入和投影，须重新加载核对磁盘，不猜测保存前后结果。
+上述结算隔离有离线故障注入证据；整个 R8-A 的全量、上游集成与独立预览门禁
+仍需分别关闭，不以局部回归代替真实验收。
+
+Workflow Handoff 的超时决定现在在 AgentTaskStore 一次持久化交接死信与任务取消，
+同时撤销领取权限。已完成、已失败或人工取消的决定优先，不由迟到的超时覆盖。
+`HANDOFF_TIMEOUT` 终态也是跨 Store 取消协调的持久依据：父流程恢复前须完成
+子执行取消及可用 RunRegistry 的投影，传播失败则保留待协调状态，下次扫描或
+重启仅重试本地取消，不重发目标请求。旧快照中仅交接超时、任务未取消的分裂
+状态也可据此补齐；终态相互矛盾则阻断。持久化结果不确定时须重新加载确认。
+该机制不保证已发出的远程请求立即停止，也不撤销已提交副作用或退还预算；
+单个条目传播失败不阻塞其他可恢复条目。回退前停止协调器，保留原超时回执。
 
 Ralph Loop performs bounded continuation and strict verification before the Agent output is committed. Knowledge Writer creates pending proposals only and retains the existing Inbox, pipeline, evaluation, and promotion gates. Plugin Hooks stage an installed Skill's explicit manifest into the offline Sandbox and execute argv only. Public Xpert Apps reject all private automation middleware. See `docs/XPERT_AUTOMATION.md`.
 

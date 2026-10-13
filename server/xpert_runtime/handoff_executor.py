@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from .agent_tasks import AgentHandoff, AgentTask, AgentTaskStore
+from .agent_tasks import AgentHandoff, AgentTask, AgentTaskStore, HandoffOwnershipError
 from .run_registry import RunRegistry, RuntimeRun
 
 
@@ -134,268 +135,65 @@ class HandoffExecutor:
         self._active_handoffs.add(handoff_id)
         try:
             existing = await self.store.get_handoff(handoff_id)
-            claim_attempts = (
-                1
-                if existing is not None
-                and bool(existing.metadata.get("no_auto_retry"))
-                else self.max_attempts
-            )
+            claim_attempts = 1 if existing is not None and existing.metadata.get("no_auto_retry") else self.max_attempts
             try:
                 claimed = await self.store.claim_handoff(
-                    handoff_id,
-                    worker_id=self.worker_id,
-                    lease_seconds=self.lease_seconds,
+                    handoff_id, worker_id=self.worker_id, lease_seconds=self.lease_seconds,
                     max_attempts=claim_attempts,
                 )
+            except HandoffOwnershipError:
+                raise
             except ValueError as exc:
                 if "already leased" in str(exc):
                     raise HandoffBusyError(str(exc)) from exc
-                if "attempt limit" in str(exc):
-                    existing = await self.store.get_handoff(handoff_id)
-                    if existing is not None:
-                        task = await self.store.get_task(existing.task_id)
-                        return await self._finish_failure(
-                            existing,
-                            task,
-                            HandoffPermanentError(str(exc)),
-                        )
+                # A failed claim grants no authority to dead-letter an existing owner.
                 raise HandoffExecutorError(str(exc)) from exc
 
+            await self.store.settle_claimed_handoff(claimed, "accepted", task_metadata={
+                "execution_mode": "xpert_auto", "handoff_attempt": claimed.metadata.get("attempts", 1),
+            })
+            await self._project_current(handoff_id, expected_lease_token=claimed.metadata["lease_token"])
             task = await self.store.get_task(claimed.task_id)
-            if task is None:
-                return await self._finish_failure(
-                    claimed,
-                    None,
-                    HandoffPermanentError("Agent task no longer exists."),
-                )
-
-            attempt = int(claimed.metadata.get("attempts") or 1)
-            await self.store.update_task(
-                task.task_id,
-                status="running",
-                assigned_agent=claimed.target_agent,
-                clear_error=True,
-                metadata={
-                    "execution_mode": "xpert_auto",
-                    "handoff_id": claimed.handoff_id,
-                    "handoff_attempt": attempt,
-                },
-            )
-            task_run, handoff_run = await self._ensure_runs(claimed, task)
-            await self._update_run(
-                handoff_run,
-                status="running",
-                metadata={
-                    "handoff_status": "accepted",
-                    "attempt": attempt,
-                    "lease_owner": self.worker_id,
-                },
-            )
-            await self._update_run(
-                task_run,
-                status="running",
-                metadata={"handoff_id": claimed.handoff_id, "attempt": attempt},
-            )
-            await self._checkpoint(
-                handoff_run,
-                event_type="agent_handoff.attempt.started",
-                title="Xpert handoff attempt started",
-                summary=f"attempt={attempt}",
-                metadata={
-                    "handoff_id": claimed.handoff_id,
-                    "attempt": attempt,
-                    "target_agent": claimed.target_agent,
-                },
-            )
-
+            handoff_run = await self._first_run("agent_handoff", handoff_id)
+            async with self.store.handoff_projection(
+                handoff_id, expected_lease_token=claimed.metadata["lease_token"],
+            ):
+                pass
             try:
-                result = await self.execute_target(
-                    claimed,
-                    task,
-                    handoff_run.run_id if handoff_run else None,
-                )
+                result = await self.execute_target(copy.deepcopy(claimed), task, handoff_run.run_id if handoff_run else None)
             except Exception as exc:
                 return await self._finish_failure(claimed, task, exc)
 
-            if result.waiting_approval:
-                waiting = await self.store.update_handoff_status(
-                    claimed.handoff_id,
-                    "waiting_approval",
-                    metadata={
-                        "approval_id": result.approval_id,
-                        "workflow_task_id": result.task_id,
-                        "xpert_run_id": result.run_id,
-                        "target_xpert_id": result.xpert_id,
-                        "target_xpert_slug": result.xpert_slug,
-                        "target_xpert_version": result.xpert_version,
-                        "lease_owner": "",
-                        "lease_token": "",
-                        "lease_expires_at": 0.0,
-                    },
+            if result.waiting_approval and result.waiting_client:
+                return await self._finish_failure(claimed, task, HandoffPermanentError("HANDOFF_WAIT_INVALID"))
+            metadata = {
+                "target_xpert_id": result.xpert_id, "target_xpert_slug": result.xpert_slug,
+                "target_xpert_version": result.xpert_version, "xpert_run_id": result.run_id,
+            }
+            if result.waiting_approval or result.waiting_client:
+                status = "waiting_approval" if result.waiting_approval else "waiting_client"
+                wait_key = "approval_id" if result.waiting_approval else "client_request_id"
+                wait_id = result.approval_id if result.waiting_approval else result.client_request_id
+                await self.store.settle_claimed_handoff(
+                    claimed, status,
+                    metadata={**metadata, wait_key: wait_id, "workflow_task_id": result.task_id},
+                    task_metadata={wait_key: wait_id, "workflow_task_id": result.task_id},
                 )
-                await self.store.update_task(
-                    task.task_id,
-                    status="waiting_approval",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "approval_id": result.approval_id,
-                        "workflow_task_id": result.task_id,
-                    },
+            else:
+                safe_output = str(result.output or "")
+                if len(safe_output) > 100_000:
+                    return await self._finish_failure(claimed, task, HandoffPermanentError("HANDOFF_RESULT_TOO_LARGE"))
+                await self.store.settle_claimed_handoff(
+                    claimed, "completed", result=safe_output,
+                    metadata={**metadata, "completed_by": self.worker_id, "completed_at": time.time(),
+                              "result": safe_output, "result_length": len(safe_output), "last_error": ""},
+                    task_metadata={"xpert_run_id": result.run_id, "target_xpert_id": result.xpert_id,
+                                   "target_xpert_version": result.xpert_version},
                 )
-                await self._update_run(
-                    handoff_run,
-                    status="waiting",
-                    metadata={
-                        "handoff_status": "waiting_approval",
-                        "approval_id": result.approval_id,
-                    },
-                )
-                await self._update_run(
-                    task_run,
-                    status="waiting",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "approval_id": result.approval_id,
-                    },
-                )
-                await self._checkpoint(
-                    handoff_run,
-                    event_type="agent_handoff.waiting_approval",
-                    title="Xpert handoff is waiting for approval",
-                    summary=f"approval_id={result.approval_id}",
-                    severity="warning",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "approval_id": result.approval_id,
-                    },
-                )
-                return waiting
-            if result.waiting_client:
-                waiting = await self.store.update_handoff_status(
-                    claimed.handoff_id,
-                    "waiting_client",
-                    metadata={
-                        "client_request_id": result.client_request_id,
-                        "workflow_task_id": result.task_id,
-                        "xpert_run_id": result.run_id,
-                        "target_xpert_id": result.xpert_id,
-                        "target_xpert_slug": result.xpert_slug,
-                        "target_xpert_version": result.xpert_version,
-                        "lease_owner": "",
-                        "lease_token": "",
-                        "lease_expires_at": 0.0,
-                    },
-                )
-                await self.store.update_task(
-                    task.task_id,
-                    status="waiting_client",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "client_request_id": result.client_request_id,
-                        "workflow_task_id": result.task_id,
-                    },
-                )
-                await self._update_run(
-                    handoff_run,
-                    status="waiting",
-                    metadata={
-                        "handoff_status": "waiting_client",
-                        "client_request_id": result.client_request_id,
-                    },
-                )
-                await self._update_run(
-                    task_run,
-                    status="waiting",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "client_request_id": result.client_request_id,
-                    },
-                )
-                await self._checkpoint(
-                    handoff_run,
-                    event_type="agent_handoff.waiting_client",
-                    title="Xpert handoff is waiting for a client host",
-                    summary=f"request_id={result.client_request_id}",
-                    severity="warning",
-                    metadata={
-                        "handoff_id": waiting.handoff_id,
-                        "client_request_id": result.client_request_id,
-                    },
-                )
-                return waiting
-
-            completed_at = time.time()
-            safe_output = str(result.output or "")
-            if len(safe_output) > 100_000:
-                return await self._finish_failure(
-                    claimed,
-                    task,
-                    HandoffPermanentError("HANDOFF_RESULT_TOO_LARGE"),
-                )
-            completed = await self.store.update_handoff_status(
-                claimed.handoff_id,
-                "completed",
-                metadata={
-                    "completed_by": self.worker_id,
-                    "completed_at": completed_at,
-                    "result": safe_output,
-                    "result_length": len(safe_output),
-                    "target_xpert_id": result.xpert_id,
-                    "target_xpert_slug": result.xpert_slug,
-                    "target_xpert_version": result.xpert_version,
-                    "xpert_run_id": result.run_id,
-                    "lease_owner": "",
-                    "lease_token": "",
-                    "lease_expires_at": 0.0,
-                    "last_error": "",
-                },
-            )
-            await self.store.update_task(
-                task.task_id,
-                status="completed",
-                result=safe_output,
-                clear_error=True,
-                metadata={
-                    "handoff_id": completed.handoff_id,
-                    "xpert_run_id": result.run_id,
-                    "target_xpert_id": result.xpert_id,
-                    "target_xpert_version": result.xpert_version,
-                },
-            )
-            await self._update_run(
-                handoff_run,
-                status="completed",
-                metadata={
-                    "handoff_status": "completed",
-                    "xpert_run_id": result.run_id,
-                    "target_xpert_id": result.xpert_id,
-                    "target_xpert_version": result.xpert_version,
-                    "result_length": len(safe_output),
-                },
-            )
-            await self._update_run(
-                task_run,
-                status="completed",
-                metadata={
-                    "handoff_id": completed.handoff_id,
-                    "xpert_run_id": result.run_id,
-                    "result_length": len(safe_output),
-                },
-            )
-            await self._checkpoint(
-                handoff_run,
-                event_type="agent_handoff.completed",
-                title="Target Xpert completed handoff",
-                summary=f"result_length={len(safe_output)}",
-                metadata={
-                    "handoff_id": completed.handoff_id,
-                    "attempt": attempt,
-                    "xpert_run_id": result.run_id,
-                    "target_xpert_id": result.xpert_id,
-                    "target_xpert_version": result.xpert_version,
-                },
-            )
-            return completed
+            return await self._project_current(handoff_id)
+        except HandoffOwnershipError:
+            # Reconcile authoritative state only; never apply the stale callback payload.
+            return await self._project_current(handoff_id)
         finally:
             self._active_handoffs.discard(handoff_id)
 
@@ -413,35 +211,7 @@ class HandoffExecutor:
             reset_attempts=reset_attempts,
             repin_version=repin_version,
         )
-        await self.store.update_task(
-            handoff.task_id,
-            status="pending",
-            clear_result=True,
-            clear_error=True,
-            metadata={"handoff_id": handoff.handoff_id, "requeued_by": operator},
-        )
-        task = await self.store.get_task(handoff.task_id)
-        task_run, handoff_run = await self._ensure_runs(handoff, task)
-        await self._update_run(
-            handoff_run,
-            status="pending",
-            clear_error=True,
-            metadata={"handoff_status": "pending", "requeued_by": operator},
-        )
-        await self._update_run(
-            task_run,
-            status="pending",
-            clear_error=True,
-            metadata={"handoff_id": handoff.handoff_id, "requeued_by": operator},
-        )
-        await self._checkpoint(
-            handoff_run,
-            event_type="agent_handoff.requeued",
-            title="Xpert handoff requeued",
-            summary=operator,
-            metadata={"handoff_id": handoff.handoff_id, "operator": operator},
-        )
-        return handoff
+        return await self._project_current(handoff.handoff_id)
 
     async def status(self) -> dict[str, object]:
         handoffs = await self.store.list_handoffs()
@@ -461,127 +231,90 @@ class HandoffExecutor:
             ),
         }
 
+    async def _project_current(
+        self, handoff_id: str, *, expected_lease_token: str | None = None,
+    ) -> AgentHandoff:
+        def identity(handoff, task):
+            return {"handoff_status": handoff.status, "task_status": task.status,
+                    "handoff_updated_at": handoff.updated_at, "task_updated_at": task.updated_at}
+
+        for _ in range(8):
+            # Source authority covers only local state projection, never observer callbacks.
+            async with self.store.handoff_projection(
+                handoff_id, expected_lease_token=expected_lease_token,
+            ) as (handoff, task):
+                task_run, handoff_run = await self._ensure_runs(handoff, task)
+                status = {
+                    "pending": "pending", "running": "running", "waiting_approval": "waiting",
+                    "waiting_client": "waiting", "needs_attention": "waiting",
+                    "completed": "completed", "failed": "failed", "cancelled": "cancelled",
+                }[task.status]
+                marker = identity(handoff, task)
+                metadata = {
+                    key: handoff.metadata[key] for key in (
+                        "xpert_run_id", "target_xpert_id", "target_xpert_version", "result_length",
+                        "approval_id", "client_request_id", "workflow_task_id", "attempts", "next_attempt_at",
+                        "requeued_by",
+                    ) if key in handoff.metadata
+                }
+                metadata.update({"handoff_id": handoff_id, "handoff_status": handoff.status,
+                                 "handoff_settlement_projection": marker})
+                for run in (task_run, handoff_run):
+                    if run is not None and (run.metadata.get("handoff_settlement_projection") != marker or run.status != status):
+                        await self._update_run(run, status=status, error=task.error,
+                                               clear_error=task.error is None, metadata=metadata)
+                event = {
+                    "accepted": "attempt.started", "completed": "completed", "dead_letter": "dead_letter",
+                    "retry_wait": "retry_scheduled", "waiting_approval": "waiting_approval",
+                    "waiting_client": "waiting_client",
+                }.get(handoff.status)
+                if task.status == "cancelled":
+                    event = "cancelled"
+                elif handoff.status == "accepted" and task.status != "running":
+                    event = None
+                elif handoff.status == "pending" and handoff.metadata.get("requeued_at"):
+                    event = "requeued"
+
+            if event and handoff_run is not None and handoff_run.metadata.get("handoff_settlement_checkpoint") != marker:
+                event_type = f"agent_handoff.{event}"
+                checkpoints = await self.run_registry.list_checkpoints(handoff_run.run_id, limit=1)
+                if not any(c.event_type == event_type and c.metadata.get("handoff_settlement_projection") == marker
+                           for c in checkpoints):
+                    await self._checkpoint(
+                        handoff_run, event_type=event_type, title="交接权威状态已同步",
+                        summary=f"status={handoff.status}; task_status={task.status}",
+                        severity="error" if status == "failed" else "info", metadata=metadata,
+                    )
+                await self.run_registry.update_run(
+                    handoff_run.run_id, metadata={"handoff_settlement_checkpoint": marker},
+                )
+            # A slow checkpoint may race cancellation or takeover. Refresh, not old payload replay.
+            async with self.store.handoff_projection(handoff_id) as (current, current_task):
+                if identity(current, current_task) == marker:
+                    return current
+        raise HandoffOwnershipError("交接状态持续变化，需重新同步权威状态。")
+
     async def _finish_failure(
-        self,
-        claimed: AgentHandoff,
-        task: AgentTask | None,
-        exc: Exception,
+        self, claimed: AgentHandoff, task: AgentTask | None, exc: Exception,
     ) -> AgentHandoff:
         is_v2 = int(claimed.metadata.get("contract_version") or 1) == 2
-        error = (
-            "HANDOFF_TARGET_UNAVAILABLE"
-            if is_v2
-            else str(exc or "Handoff execution failed.")[:1000]
-        )
+        error = "HANDOFF_TARGET_UNAVAILABLE" if is_v2 else str(exc or "交接执行失败。")[:1000]
         attempts = int(claimed.metadata.get("attempts") or 1)
-        permanent = isinstance(exc, HandoffPermanentError)
-        max_attempts = 1 if bool(claimed.metadata.get("no_auto_retry")) else self.max_attempts
-        exhausted = attempts >= max_attempts
-        task_run, handoff_run = await self._ensure_runs(claimed, task)
-        if permanent or exhausted:
-            dead_lettered_at = time.time()
-            handoff = await self.store.update_handoff_status(
-                claimed.handoff_id,
-                "dead_letter",
-                metadata={
-                    "last_error": error,
-                    "dead_lettered_at": dead_lettered_at,
-                    "lease_owner": "",
-                    "lease_token": "",
-                    "lease_expires_at": 0.0,
-                },
+        max_attempts = 1 if claimed.metadata.get("no_auto_retry") else self.max_attempts
+        if isinstance(exc, HandoffPermanentError) or attempts >= max_attempts:
+            await self.store.settle_claimed_handoff(
+                claimed, "dead_letter", error=error,
+                metadata={"last_error": error, "dead_lettered_at": time.time()},
+                task_metadata={"handoff_status": "dead_letter", "attempts": attempts},
             )
-            if task is not None:
-                await self.store.update_task(
-                    task.task_id,
-                    status="failed",
-                    error=error,
-                    metadata={
-                        "handoff_id": handoff.handoff_id,
-                        "handoff_status": "dead_letter",
-                        "attempts": attempts,
-                    },
-                )
-            await self._update_run(
-                handoff_run,
-                status="failed",
-                error=error,
-                metadata={
-                    "handoff_status": "dead_letter",
-                    "attempts": attempts,
-                },
+        else:
+            next_attempt_at = time.time() + min(30.0, float(2**attempts))
+            await self.store.settle_claimed_handoff(
+                claimed, "retry_wait", error=error,
+                metadata={"last_error": error, "next_attempt_at": next_attempt_at},
+                task_metadata={"handoff_status": "retry_wait", "next_attempt_at": next_attempt_at, "attempts": attempts},
             )
-            await self._update_run(
-                task_run,
-                status="failed",
-                error=error,
-                metadata={
-                    "handoff_id": handoff.handoff_id,
-                    "handoff_status": "dead_letter",
-                },
-            )
-            await self._checkpoint(
-                handoff_run,
-                event_type="agent_handoff.dead_letter",
-                title="Xpert handoff moved to dead letter",
-                summary=error,
-                severity="error",
-                metadata={
-                    "handoff_id": handoff.handoff_id,
-                    "attempts": attempts,
-                    "permanent": permanent,
-                },
-            )
-            return handoff
-
-        delay = min(30.0, float(2**attempts))
-        next_attempt_at = time.time() + delay
-        handoff = await self.store.update_handoff_status(
-            claimed.handoff_id,
-            "retry_wait",
-            metadata={
-                "last_error": error,
-                "next_attempt_at": next_attempt_at,
-                "lease_owner": "",
-                "lease_token": "",
-                "lease_expires_at": 0.0,
-            },
-        )
-        if task is not None:
-            await self.store.update_task(
-                task.task_id,
-                status="running",
-                error=error,
-                metadata={
-                    "handoff_id": handoff.handoff_id,
-                    "handoff_status": "retry_wait",
-                    "next_attempt_at": next_attempt_at,
-                    "attempts": attempts,
-                },
-            )
-        await self._update_run(
-            handoff_run,
-            status="running",
-            metadata={
-                "handoff_status": "retry_wait",
-                "attempts": attempts,
-                "next_attempt_at": next_attempt_at,
-                "last_error": error,
-            },
-        )
-        await self._checkpoint(
-            handoff_run,
-            event_type="agent_handoff.retry_scheduled",
-            title="Xpert handoff retry scheduled",
-            summary=f"retry_in={delay:.0f}s: {error}",
-            severity="warning",
-            metadata={
-                "handoff_id": handoff.handoff_id,
-                "attempts": attempts,
-                "next_attempt_at": next_attempt_at,
-            },
-        )
-        return handoff
+        return await self._project_current(claimed.handoff_id)
 
     async def _run_loop(self) -> None:
         while not self._stopping.is_set():

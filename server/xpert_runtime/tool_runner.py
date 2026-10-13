@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import inspect
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 from .capabilities import CapabilityRegistry
 from .content_policy import ContentPolicyError
-from .execution_budget import execution_operation
+from .execution_budget import charge_execution_step, execution_operation
 from .middleware import MiddlewarePipeline
 from .models import MiddlewareContext, ToolCallRequest, ToolCallResponse
 from .interrupts import RuntimeInterrupt, RuntimeMiddlewareFatalError
@@ -95,7 +96,12 @@ async def run_tool_with_runtime(
                 },
             )
         try:
-            async with execution_operation("tool_call"):
+            # The delegated Runner gates its actual work; holding its parent slot
+            # while awaiting that work deadlocks a single-slot execution tree.
+            delegated = capability_name == "external_xpert_tools"
+            if delegated:
+                await charge_execution_step("tool_call")
+            async with (nullcontext() if delegated else execution_operation("tool_call")):
                 inner_result = await provider.call_tool(
                     RuntimeToolCall(
                         tool_name=req.tool_name,

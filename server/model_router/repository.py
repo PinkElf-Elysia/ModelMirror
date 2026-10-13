@@ -6800,6 +6800,7 @@ class SQLiteRouterRepository:
         entry_id: str,
         policy_fingerprint: str,
         parent_run_reference: str,
+        replay_guard_run_ids: tuple[str, ...] = (),
     ) -> tuple[dict[str, object], bool]:
         """Atomically reserve a deterministic workload run.
 
@@ -6811,6 +6812,14 @@ class SQLiteRouterRepository:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for guard_id in replay_guard_run_ids:
+                existing = connection.execute(
+                    "SELECT id FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
+                    (clean_tenant, guard_id),
+                ).fetchone()
+                if existing is not None:
+                    raise RouterRepositoryError("provider_workload_logical_run_replay_blocked")
             cursor = connection.execute(
                 """
                 INSERT OR IGNORE INTO provider_workload_runs (

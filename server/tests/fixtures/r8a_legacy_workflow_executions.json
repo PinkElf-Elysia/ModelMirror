@@ -1,0 +1,42 @@
+{
+  "version": "workflow-executions-v1",
+  "items": [
+    {
+      "task_id": "legacy-waiting",
+      "run_id": "legacy-waiting-run",
+      "run_type": "workflow",
+      "status": "waiting",
+      "workflow": {"id": "synthetic", "nodes": [], "edges": []},
+      "inputs": {"flag": true, "count": 2},
+      "approval_id": "legacy-approval",
+      "continuation": {"variables": {"flag": true, "rows": [1, null], "count": 2}},
+      "created_at": 1000,
+      "updated_at": 1001
+    },
+    {
+      "task_id": "legacy-completed",
+      "run_id": "legacy-completed-run",
+      "run_type": "workflow",
+      "status": "completed",
+      "workflow": {"id": "synthetic", "nodes": [], "edges": []},
+      "inputs": {},
+      "result": "synthetic-result",
+      "created_at": 1000,
+      "updated_at": 1002,
+      "completed_at": 1002
+    },
+    {
+      "task_id": "legacy-running",
+      "run_id": "legacy-running-run",
+      "run_type": "workflow",
+      "status": "running",
+      "workflow": {"id": "synthetic", "nodes": [], "edges": []},
+      "inputs": {},
+      "lease_owner": "legacy-worker",
+      "lease_token": "synthetic-lease-not-a-credential",
+      "lease_expires_at": 1005,
+      "created_at": 1000,
+      "updated_at": 1001
+    }
+  ]
+}

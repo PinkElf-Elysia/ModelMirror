@@ -79,6 +79,21 @@ except ModuleNotFoundError:
     from api.dify_proxy import router as dify_router
 
 try:
+    from server.xpert_runtime.workflow_continuation import (
+        WorkflowContinuationError, validate_resume_queue,
+    )
+    from server.xpert_runtime.workflow_outcomes import (
+        WorkflowOutcomeAccumulator, resolve_workflow_outcome,
+    )
+except ModuleNotFoundError:
+    from xpert_runtime.workflow_continuation import (
+        WorkflowContinuationError, validate_resume_queue,
+    )
+    from xpert_runtime.workflow_outcomes import (
+        WorkflowOutcomeAccumulator, resolve_workflow_outcome,
+    )
+
+try:
     from server.api.workflow_deployments import (
         WorkflowTriggerCoordinator,
         configure_workflow_deployment_runtime,
@@ -1489,16 +1504,26 @@ except ModuleNotFoundError:
 try:
     from server.xpert_runtime.execution_budget import (
         XpertExecutionBudget,
+        XpertExecutionBudgetStateError,
+        assert_execution_dispatch_allowed,
         charge_execution_step,
+        current_execution_budget_binding,
         execution_operation,
+        restore_execution_budget_usage,
         use_execution_budget,
+        use_execution_dispatch_guard,
     )
 except ModuleNotFoundError:
     from xpert_runtime.execution_budget import (
         XpertExecutionBudget,
+        XpertExecutionBudgetStateError,
+        assert_execution_dispatch_allowed,
         charge_execution_step,
+        current_execution_budget_binding,
         execution_operation,
+        restore_execution_budget_usage,
         use_execution_budget,
+        use_execution_dispatch_guard,
     )
 
 try:
@@ -1698,6 +1723,11 @@ except ModuleNotFoundError:
 
 load_dotenv()
 
+try:
+    from server.xpert_runtime.runtime_directory import RuntimeDirectoryOwner
+except ModuleNotFoundError:
+    from xpert_runtime.runtime_directory import RuntimeDirectoryOwner
+
 
 def env_float(name: str, default: float, minimum: float) -> float:
     try:
@@ -1771,6 +1801,9 @@ SKILL_CREATOR_EVALUATION_SUITE_TEMPERATURE = 0.1
 SKILL_CREATOR_EVOLUTION_TEMPERATURE = 0.1
 SKILL_EVALUATION_AGENT_MAX_TOKENS = 4_096
 AGENT_TASK_STORAGE_DIR = os.getenv("AGENT_TASK_STORAGE_DIR", "").strip()
+# Store constructors may recover and persist state; ownership precedes them.
+# Keep it until process exit, not ASGI shutdown while requests can still unwind.
+runtime_directory_owner = RuntimeDirectoryOwner.acquire(AGENT_TASK_STORAGE_DIR or None)
 
 
 def is_trusted_skill_creator_runtime(
@@ -5537,6 +5570,7 @@ async def collect_chat_completion_text(
         **transport_evidence.client_kwargs
     ) as client:
         with transport_evidence.capture():
+            await assert_execution_dispatch_allowed()
             response = (
                 await response_sender(client, request_payload)
                 if response_sender is not None
@@ -7779,6 +7813,7 @@ async def _stream_workflow_llm_messages(
         **llm_client_kwargs()
     ) as client:
         async def open_stream(candidate_model_id: str) -> httpx.Response:
+            await assert_execution_dispatch_allowed()
             return await client.send(
                 client.build_request(
                     "POST",
@@ -7797,6 +7832,8 @@ async def _stream_workflow_llm_messages(
             if should_fallback_model(response.status_code, message, data, current_model_id, messages):
                 current_model_id = fallback_model_for(messages)
                 yield f"提示：原模型暂不可用，已自动切换为 {current_model_id}。\n\n"
+                # The sequential fallback keeps this slot, but is a separate request.
+                await charge_execution_step("model_call")
                 response = await open_stream(current_model_id)
             else:
                 raise RuntimeError(message)
@@ -10579,6 +10616,124 @@ def _skill_creator_handoff_node_ids(workflow: WorkflowPayload) -> list[str]:
     return sorted(result)
 
 
+async def _cancel_agent_task_workflow_children(task_id: str) -> None:
+    task = await agent_task_store.get_task(task_id)
+    if task is None or task.status != "cancelled":
+        return
+    handoff_ids = {
+        handoff.handoff_id for handoff in await agent_task_store.list_handoffs(task_id)
+        if handoff.task_id == task_id
+    }
+    children = workflow_execution_store.cancel_agent_task_children(
+        task_id, handoff_ids=handoff_ids,
+    )
+    for cancelled in children:
+        if cancelled.status != "cancelled":
+            continue
+        state = workflow_task_store.get(cancelled.task_id)
+        if state is not None:
+            state["cancel_requested"] = True
+            for key in ("provider_cancel_event", "pause_event"):
+                event = state.get(key)
+                if isinstance(event, asyncio.Event):
+                    event.set()
+    for cancelled in children:
+        if cancelled.status != "cancelled":
+            continue
+        for run_id in {cancelled.run_id, *cancelled.previous_run_ids}:
+            if not run_id:
+                continue
+            try:
+                await run_registry.cancel_run(run_id, reason="HANDOFF_PARENT_CANCELLED")
+            except KeyError:
+                # Registry is ephemeral; durable cancellation survives restart.
+                pass
+
+
+async def _assert_handoff_parent_not_cancelled(metadata: dict[str, Any]) -> None:
+    task_id = str(metadata.get("agent_task_id") or "").strip()
+    handoff_id = str(metadata.get("handoff_id") or "").strip()
+    if not task_id or not handoff_id:
+        return
+    task = await agent_task_store.get_task(task_id)
+    if task is None or task.status != "cancelled":
+        return
+    handoff = await agent_task_store.get_handoff(handoff_id)
+    if handoff is None or handoff.task_id != task_id:
+        raise WorkflowExecutionConflictError("父任务与交接绑定不一致，不能继续执行。")
+    await _cancel_agent_task_workflow_children(task_id)
+    raise WorkflowExecutionConflictError("父任务已取消，不能创建或恢复子执行。")
+
+
+async def _cancel_automation_workflow_children(execution: AutomationExecution) -> None:
+    current = automation_store.get_execution(execution.execution_id)
+    if (
+        current is None or not (current.status == "cancelled" or current.status == "dead_letter" and current.runtime_expired_at is not None)
+        or current.automation_id != execution.automation_id
+        or current.occurrence_key != execution.occurrence_key
+    ):
+        return
+    reason = "AUTOMATION_PARENT_RUNTIME_EXPIRED" if current.runtime_expired_at is not None else "AUTOMATION_PARENT_CANCELLED"
+    children = workflow_execution_store.list_automation_children(
+        automation_id=current.automation_id, execution_id=current.execution_id,
+        occurrence_key=current.occurrence_key,
+    )
+    cancelled_children = []
+    cancellation_error: Exception | None = None
+    # Commit and signal all local children before awaiting Registry projection.
+    for child in children:
+        try:
+            cancelled = workflow_execution_store.cancel(child.task_id, error=reason)
+        except Exception as exc:
+            cancellation_error = cancellation_error or exc
+            continue
+        if cancelled.status != "cancelled":
+            continue
+        cancelled_children.append(cancelled)
+        state = workflow_task_store.get(cancelled.task_id)
+        if state is not None:
+            state["cancel_requested"] = True
+            for key in ("provider_cancel_event", "pause_event"):
+                event = state.get(key)
+                if isinstance(event, asyncio.Event):
+                    event.set()
+    for child in cancelled_children:
+        for run_id in {child.run_id, *child.previous_run_ids}:
+            if not run_id:
+                continue
+            try:
+                await run_registry.cancel_run(run_id, reason=reason)
+            except KeyError:
+                pass  # Registry may be absent after restart; cancellation is durable.
+            except Exception as exc:
+                cancellation_error = cancellation_error or exc
+    if cancellation_error is not None:
+        raise cancellation_error
+
+
+async def _assert_automation_parent_not_cancelled(metadata: dict[str, Any]) -> None:
+    keys = ("automation_id", "automation_execution_id", "automation_occurrence_key")
+    if not any(key in metadata for key in keys):
+        return
+    if any(not isinstance(metadata.get(key), str) or not metadata[key] for key in keys):
+        raise WorkflowExecutionConflictError("自动化父执行身份不完整，不能创建或恢复子执行。")
+    execution = automation_store.get_execution(metadata["automation_execution_id"])
+    if (
+        execution is None or execution.automation_id != metadata["automation_id"]
+        or execution.occurrence_key != metadata["automation_occurrence_key"]
+    ):
+        raise WorkflowExecutionConflictError("自动化父执行与发生标识不一致，不能继续执行。")
+    execution = automation_store.expire_runtime_budget(execution.execution_id)
+    if execution.runtime_expired_at is not None:
+        await _cancel_automation_workflow_children(execution)
+        raise WorkflowExecutionConflictError("自动化父执行的固定总期限已到达，不能创建或恢复子执行。")
+    if execution.status == "cancelled":
+        await _cancel_automation_workflow_children(execution)
+        raise WorkflowExecutionConflictError("自动化父执行已取消，不能创建或恢复子执行。")
+    if execution.status not in {"running", "waiting_approval", "waiting_client"}:
+        raise WorkflowExecutionConflictError("自动化父执行当前不允许创建或恢复子执行。")
+
+
 async def _run_workflow_response(
     payload: WorkflowRunRequest,
     request: Request | None,
@@ -10594,9 +10749,30 @@ async def _run_workflow_response(
     runtime_trigger_event: dict[str, Any] | None = None,
     runtime_task_id: str | None = None,
     evaluation_write_backend: EvaluationWriteBackendContext | None = None,
+    runtime_budget_delegation: tuple[str, str] | None = None,
 ):
     if not workflow_execution_store.available:
         return execution_store_unavailable_response()
+    await _assert_handoff_parent_not_cancelled(
+        resume_execution.runtime_metadata if resume_execution is not None else (runtime_metadata or {})
+    )
+    await _assert_automation_parent_not_cancelled(
+        resume_execution.runtime_metadata if resume_execution is not None else (runtime_metadata or {})
+    )
+    resume_lease_token = (
+        str(resume_execution.lease_token or "").strip()
+        if resume_execution is not None
+        else None
+    )
+
+    def assert_resume_lease() -> None:
+        if resume_execution is not None:
+            workflow_execution_store.assert_lease(
+                resume_execution.task_id,
+                lease_token=resume_lease_token or "",
+            )
+
+    assert_resume_lease()
     controlled_workflow = payload.workflow.model_dump()
     controlled_writes = has_controlled_writes(controlled_workflow)
     try:
@@ -10958,6 +11134,15 @@ async def _run_workflow_response(
         start_node_ids = [order[0]]
 
     cleanup_expired_workflow_tasks()
+    if resume_execution is not None:
+        try:
+            validate_resume_queue(
+                resume_execution.continuation, executable_node_ids=set(order),
+            )
+        except WorkflowContinuationError as exc:
+            raise WorkflowTerminationError(
+                "WORKFLOW_CONTINUATION_INVALID", str(exc), node_id="scheduler",
+            ) from None
     resume_state = (
         dict(resume_execution.continuation or {})
         if resume_execution is not None
@@ -10975,19 +11160,18 @@ async def _run_workflow_response(
         "retry_state",
         "execution_budget",
     }
-    raw_retry_resume_budget = resume_state.get("execution_budget")
-    retry_resume_budget_valid = raw_retry_resume_budget is None or (
-        isinstance(raw_retry_resume_budget, dict)
-        and set(raw_retry_resume_budget) == {
-            "steps_used",
-            "model_calls",
-            "tool_calls",
-        }
-        and all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= 0
-            for value in raw_retry_resume_budget.values()
+    retry_resume_budget_valid = True
+    try:
+        restored_budget_usage = restore_execution_budget_usage(
+            resume_state.get("execution_budget")
         )
-    )
+    except ValueError as exc:
+        if not is_node_retry_resume:
+            raise WorkflowTerminationError(
+                "WORKFLOW_EXECUTION_BUDGET_INVALID", str(exc), node_id="scheduler",
+            ) from None
+        retry_resume_budget_valid = False
+        restored_budget_usage = restore_execution_budget_usage(None)
     raw_retry_control_flow_trace = resume_state.get("control_flow_trace")
     retry_control_flow_trace_valid = raw_retry_control_flow_trace is None or (
         isinstance(raw_retry_control_flow_trace, list)
@@ -11019,18 +11203,12 @@ async def _run_workflow_response(
         if resume_execution is not None
         else str(runtime_task_id or uuid.uuid4().hex)
     )
-    resume_lease_token = (
-        str(resume_execution.lease_token or "").strip() or None
-        if resume_execution is not None
-        else None
-    )
-
     def execution_store_lease_kwargs() -> dict[str, str]:
         """Fence recovery writes without changing the legacy call contract."""
 
         return (
-            {"expected_lease_token": resume_lease_token}
-            if resume_lease_token
+            {"expected_lease_token": resume_lease_token or ""}
+            if resume_execution is not None
             else {}
         )
     run_metadata = {
@@ -11096,6 +11274,7 @@ async def _run_workflow_response(
         if resume_execution is not None
         else None
     )
+    assert_resume_lease()
     if workflow_run is None and resume_execution is not None:
         run_metadata["recovery_run_from"] = resume_execution.run_id
     persisted_run_metadata = checkpoint_safe_workflow_runtime_metadata(
@@ -11187,16 +11366,10 @@ async def _run_workflow_response(
     if runtime_run_type in {"xpert", "xpert_app", "xpert_evaluation"} and isinstance(
         raw_agent_config, dict
     ):
-        restored_budget = safe_resume_state.get("execution_budget")
-        restored_steps = (
-            int(restored_budget.get("steps_used") or 0)
-            if isinstance(restored_budget, dict)
-            else 0
-        )
         execution_budget = XpertExecutionBudget(
             max_concurrency=int(raw_agent_config.get("max_concurrency") or 4),
             recursion_limit=int(raw_agent_config.get("recursion_limit") or 1000),
-            steps_used=restored_steps,
+            **restored_budget_usage,
             max_model_calls=(
                 int(raw_agent_config["max_model_calls"])
                 if raw_agent_config.get("max_model_calls") is not None
@@ -11207,19 +11380,11 @@ async def _run_workflow_response(
                 if raw_agent_config.get("max_tool_calls") is not None
                 else None
             ),
-            model_calls=(
-                int(restored_budget.get("model_calls") or 0)
-                if isinstance(restored_budget, dict)
-                else 0
-            ),
-            tool_calls=(
-                int(restored_budget.get("tool_calls") or 0)
-                if isinstance(restored_budget, dict)
-                else 0
-            ),
         )
     if vision_v2_nodes and execution_budget is None:
-        execution_budget = XpertExecutionBudget(max_concurrency=2, recursion_limit=1000)
+        execution_budget = XpertExecutionBudget(
+            max_concurrency=2, recursion_limit=1000, **restored_budget_usage,
+        )
     if is_node_retry_resume and "variables" not in safe_resume_state:
         restored_workflow_variables = initialize_retry_reconstructible_variables(
             payload.workflow,
@@ -11351,13 +11516,6 @@ async def _run_workflow_response(
             data["output"] = "knowledge proposal source withheld"
         return _encode_sse_payload(data)
 
-    def assert_resume_lease() -> None:
-        if resume_lease_token:
-            workflow_execution_store.assert_lease(
-                task_id,
-                lease_token=resume_lease_token,
-            )
-
     def assert_retry_call_lease(_attempt: int) -> None:
         """Fence an eligible read immediately before a resumed worker calls it."""
 
@@ -11393,6 +11551,32 @@ async def _run_workflow_response(
             runtime_metadata=persisted_run_metadata,
         )
 
+    # A parent can be cancelled during preflight/Registry awaits, before this
+    # child exists. Recheck after registration, before any node is dispatched.
+    await _assert_handoff_parent_not_cancelled(persisted_run_metadata)
+    await _assert_automation_parent_not_cancelled(persisted_run_metadata)
+
+    if execution_budget is not None:
+        try:
+            execution_budget.bind_persistence(
+                workflow_execution_store, task_id, **execution_store_lease_kwargs(),
+            )
+            if runtime_budget_delegation is not None:
+                parent_task_id, occurrence_id = runtime_budget_delegation
+                workflow_execution_store.bind_execution_budget_parent(
+                    task_id, parent_task_id=parent_task_id, occurrence_id=occurrence_id,
+                    **execution_store_lease_kwargs(),
+                )
+        except XpertExecutionBudgetStateError as exc:
+            raise WorkflowTerminationError(
+                "WORKFLOW_EXECUTION_BUDGET_INVALID", str(exc), node_id="scheduler",
+            ) from None
+
+    elif runtime_budget_delegation is not None:
+        raise WorkflowTerminationError(
+            "WORKFLOW_EXECUTION_BUDGET_INVALID", "子执行缺少受控预算，不能派发。", node_id="scheduler",
+        )
+
     controlled_write_runtime = None
     if controlled_writes or evaluation_write_backend is not None:
         controlled_write_runtime = ControlledWriteRuntime(
@@ -11401,6 +11585,7 @@ async def _run_workflow_response(
             execution_store=workflow_execution_store, isolated=evaluation_write_backend is not None,
             receipt_callback=evaluation_write_backend.receipt_callback if evaluation_write_backend is not None else None,
             dispatch_guard=evaluation_write_backend.dispatch_guard if evaluation_write_backend is not None else None,
+            **execution_store_lease_kwargs(),
         )
         task_state["controlled_write_runtime"] = controlled_write_runtime
 
@@ -11545,6 +11730,7 @@ async def _run_workflow_response(
             node_id: str,
             *,
             logical_phase: str = "initial",
+            client_wait_id: str | None = None,
         ) -> ManagedWorkflowAgentRun | None:
             if workflow_agent_managed_mode == "legacy":
                 return None
@@ -11572,6 +11758,7 @@ async def _run_workflow_response(
                 execution_reference=execution_reference,
                 node_id=node_id,
                 logical_phase=logical_phase,
+                **({"client_wait_id": client_wait_id} if client_wait_id is not None else {}),
             )
 
         def finish_managed_node_failure(
@@ -12078,6 +12265,7 @@ async def _run_workflow_response(
                     workflow_execution_store.bind_skill_versions,
                     task_id,
                     bindings=current_bindings,
+                    **execution_store_lease_kwargs(),
                 )
                 middlewares.append(typed_hook_middleware)
             if hitl is not None:
@@ -13703,6 +13891,7 @@ async def _run_workflow_response(
                     workflow_execution_store.bind_skill_versions,
                     task_id,
                     bindings=skill_version_bindings,
+                    **execution_store_lease_kwargs(),
                 )
             return plan, contracts, skill_version_bindings
 
@@ -14739,6 +14928,7 @@ async def _run_workflow_response(
                         workflow_execution_store.bind_skill_versions,
                         task_id,
                         bindings=skill_version_bindings,
+                        **execution_store_lease_kwargs(),
                     )
                     runtime_metadata["skill_version_bindings"] = dict(
                         sorted(skill_version_bindings.items())
@@ -15358,6 +15548,7 @@ async def _run_workflow_response(
                                 bindings={
                                     activated_skill_id: activated_version_id
                                 },
+                                **execution_store_lease_kwargs(),
                             )
                             runtime_metadata["skill_version_bindings"] = dict(
                                 sorted(skill_version_bindings.items())
@@ -21437,10 +21628,45 @@ async def _run_workflow_response(
                             nonlocal node_provider_run
                             if workflow_agent_managed_mode == "legacy":
                                 return None
+                            assert_resume_lease()
                             if node_provider_run is None:
+                                client_wait_id = None
+                                if (
+                                    resume_execution is not None
+                                    and resume_execution.wait_kind == "client_tool"
+                                    and isinstance(restored_agent_state, dict)
+                                    and restored_agent_state
+                                ):
+                                    current = workflow_execution_store.snapshot(task_id)
+                                    client_request = client_tool_store.require_request(
+                                        str(current.wait_id or "")
+                                    )
+                                    if (
+                                        current.wait_kind != "client_tool"
+                                        or current.wait_id != resume_execution.wait_id
+                                        or restored_agent_state.get("type") != "tool_call"
+                                        or restored_agent_state.get("node_id") != node.id
+                                        or client_request.task_id != task_id
+                                        or client_request.node_id != node.id
+                                        or client_request.tool_name != restored_agent_state.get("tool_name")
+                                        or client_request.status not in {
+                                            "completed", "failed", "cancelled", "expired", "uncertain"
+                                        }
+                                        or (
+                                            resolved_client_request is not None
+                                            and resolved_client_request.request_id != client_request.request_id
+                                        )
+                                    ):
+                                        raise ManagedWorkflowRoutingError(
+                                            "provider_workload_client_wait_invalid",
+                                            "客户端恢复身份与当前等待节点不一致，模型调用已阻断。",
+                                            status_code=409,
+                                        )
+                                    client_wait_id = client_request.request_id
                                 node_provider_run = start_managed_agent_run(
                                     node.id,
                                     logical_phase=managed_agent_phase,
+                                    client_wait_id=client_wait_id,
                                 )
                             if not isinstance(
                                 node_provider_run,
@@ -24248,6 +24474,9 @@ async def _run_workflow_response(
                                 },
                             )
                         )
+                        await _register_workflow_handoff_budget(
+                            handoff, task_id, **execution_store_lease_kwargs(),
+                        )
                         await agent_task_store.update_handoff_metadata(
                             handoff.handoff_id, {"ready_for_execution": True}
                         )
@@ -24420,6 +24649,9 @@ async def _run_workflow_response(
                                 "source_agent": source_agent,
                                 "target_agent": target_agent,
                             },
+                        )
+                        await _register_workflow_handoff_budget(
+                            handoff, task_id, **execution_store_lease_kwargs(),
                         )
                         await agent_task_store.update_handoff_metadata(
                             handoff.handoff_id,
@@ -24637,6 +24869,9 @@ async def _run_workflow_response(
                                     "target_version": target_version,
                                 },
                             )
+                        )
+                        await _register_workflow_handoff_budget(
+                            handoff, task_id, **execution_store_lease_kwargs(),
                         )
                         await agent_task_store.update_handoff_metadata(
                             handoff.handoff_id, {"ready_for_execution": True}
@@ -24879,6 +25114,9 @@ async def _run_workflow_response(
                                 "source_agent": source_agent,
                                 "target_agent": target_agent,
                             },
+                        )
+                        await _register_workflow_handoff_budget(
+                            handoff, task_id, **execution_store_lease_kwargs(),
                         )
                         await agent_task_store.update_handoff_metadata(
                             handoff.handoff_id,
@@ -25844,25 +26082,6 @@ async def _run_workflow_response(
                 return
             assert_resume_lease()
 
-            await run_registry.update_run(
-                workflow_run.run_id,
-                status="completed",
-                metadata={
-                    "final_output_length": len(final_output or ""),
-                    "variables_count": len(variables),
-                },
-            )
-            assert_resume_lease()
-            await run_registry.record_checkpoint(
-                workflow_run.run_id,
-                event_type=f"{runtime_run_type}.completed",
-                title="Xpert completed" if runtime_run_type == "xpert" else "Workflow completed",
-                summary=f"final_output_length={len(final_output or '')}",
-                metadata={
-                    "variables_count": len(variables),
-                },
-            )
-            assert_resume_lease()
             conversation_suggestions: list[str] = []
             generated_conversation_title = ""
             if (
@@ -26036,11 +26255,34 @@ async def _run_workflow_response(
             completed_execution = workflow_execution_store.complete(
                 task_id,
                 result=persisted_final_output,
+                terminal_event={
+                    "event": "workflow_end",
+                    "task_id": task_id,
+                    "run_id": workflow_run.run_id,
+                    "final_output": persisted_final_output,
+                    "suggestions": conversation_suggestions,
+                    "conversation_title": generated_conversation_title or None,
+                },
                 **execution_store_lease_kwargs(),
             )
             if completed_execution.status == "cancelled":
                 yield sse_payload(cancellation_event())
                 return
+            await run_registry.update_run(
+                workflow_run.run_id,
+                status="completed",
+                metadata={
+                    "final_output_length": len(final_output or ""),
+                    "variables_count": len(variables),
+                },
+            )
+            await run_registry.record_checkpoint(
+                workflow_run.run_id,
+                event_type=f"{runtime_run_type}.completed",
+                title="Xpert completed" if runtime_run_type == "xpert" else "Workflow completed",
+                summary=f"final_output_length={len(final_output or '')}",
+                metadata={"variables_count": len(variables)},
+            )
             control_flow_terminal = task_state.get("control_flow_terminal")
             if isinstance(control_flow_terminal, dict):
                 await run_registry.record_checkpoint(
@@ -26066,42 +26308,47 @@ async def _run_workflow_response(
                     node_id=str(raw_handoff.get("node_id") or ""),
                     intent=str(raw_handoff.get("intent") or ""),
                 )
-                if completed_execution.source_kind != "workflow_classic":
-                    handoff_event = skill_creator_handoff_service.failed_event(
-                        task_id=task_id,
-                        run_id=workflow_run.run_id,
-                        node_id=handoff_request.node_id,
-                        error_code="skill_creator_handoff_unavailable",
-                    )
-                else:
-                    try:
-                        handoff_session = await asyncio.to_thread(
-                            skill_creator_handoff_service.create_or_get,
-                            task_id=task_id,
-                            run_id=workflow_run.run_id,
-                            request=handoff_request,
-                        )
-                        handoff_event = skill_creator_handoff_service.ready_event(
-                            task_id=task_id,
-                            run_id=workflow_run.run_id,
-                            node_id=handoff_request.node_id,
-                            session_id=handoff_session.session_id,
-                        )
-                    except SkillCreatorHandoffError as exc:
-                        handoff_event = skill_creator_handoff_service.failed_event(
-                            task_id=task_id,
-                            run_id=workflow_run.run_id,
-                            node_id=handoff_request.node_id,
-                            error_code=exc.code,
-                        )
-                        logger.warning(
-                            "Skill Creator handoff failed task_id=%s node_id=%s code=%s",
-                            task_id,
-                            handoff_request.node_id,
-                            exc.code,
-                        )
+
+                def persist_completed_handoff() -> dict[str, Any]:
+                    with workflow_execution_store.completed_local_operation(
+                        task_id, expected_snapshot=completed_execution,
+                    ):
+                        if completed_execution.source_kind != "workflow_classic":
+                            event = skill_creator_handoff_service.failed_event(
+                                task_id=task_id,
+                                run_id=workflow_run.run_id,
+                                node_id=handoff_request.node_id,
+                                error_code="skill_creator_handoff_unavailable",
+                            )
+                        else:
+                            try:
+                                session = skill_creator_handoff_service.create_or_get(
+                                    task_id=task_id,
+                                    run_id=workflow_run.run_id,
+                                    request=handoff_request,
+                                )
+                                event = skill_creator_handoff_service.ready_event(
+                                    task_id=task_id,
+                                    run_id=workflow_run.run_id,
+                                    node_id=handoff_request.node_id,
+                                    session_id=session.session_id,
+                                )
+                            except SkillCreatorHandoffError as exc:
+                                event = skill_creator_handoff_service.failed_event(
+                                    task_id=task_id,
+                                    run_id=workflow_run.run_id,
+                                    node_id=handoff_request.node_id,
+                                    error_code=exc.code,
+                                )
+                                logger.warning(
+                                    "Skill Creator handoff failed task_id=%s node_id=%s code=%s",
+                                    task_id, handoff_request.node_id, exc.code,
+                                )
+                        workflow_execution_store.append_event(task_id, event)
+                        return event
+
                 try:
-                    workflow_execution_store.append_event(task_id, handoff_event)
+                    handoff_event = await asyncio.to_thread(persist_completed_handoff)
                 except Exception:
                     logger.exception(
                         "Failed to persist Skill Creator handoff event "
@@ -26152,17 +26399,6 @@ async def _run_workflow_response(
                     "conversation_title": generated_conversation_title or None,
                     "webhook_reply": task_state.get("webhook_reply"),
                 }
-            )
-            workflow_execution_store.append_event(
-                task_id,
-                {
-                    "event": "workflow_end",
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "final_output": persisted_final_output,
-                    "suggestions": conversation_suggestions,
-                    "conversation_title": generated_conversation_title or None,
-                },
             )
         except RuntimeInterrupt as interrupt:
             if cancellation_requested():
@@ -26603,6 +26839,9 @@ async def _run_workflow_response(
             task_state["created_at"] = time.monotonic()
             yield sse_payload(pending_event)
         except WorkflowExecutionConflictError:
+            if cancellation_requested():
+                yield sse_payload(cancellation_event())
+                return
             if resume_lease_token:
                 logger.warning(
                     "Workflow resume lease was lost task_id=%s",
@@ -26636,6 +26875,10 @@ async def _run_workflow_response(
                 payload.workflow.id,
                 exc.node_id,
                 exc.code,
+            )
+            workflow_execution_store.fail(
+                task_id, error=failure_error, terminal_event=terminal_event,
+                **execution_store_lease_kwargs(),
             )
             try:
                 await run_registry.update_run(
@@ -26680,27 +26923,20 @@ async def _run_workflow_response(
                     "Failed to update terminated workflow status",
                     exc_info=True,
                 )
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=failure_error,
-                    **execution_store_lease_kwargs(),
-                )
-                workflow_execution_store.append_event(
-                    task_id,
-                    terminal_event,
-                )
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning(
-                    "Failed to persist terminated workflow status",
-                    exc_info=True,
-                )
             yield sse_payload(terminal_event)
         except WorkflowKnowledgeFatalError as exc:
             assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
+            failure_event = {
+                "event": "error", "terminal": True,
+                "task_id": task_id, "run_id": workflow_run.run_id,
+                "node_id": exc.node_id, "code": exc.error_code,
+                "message": exc.safe_message,
+            }
+            workflow_execution_store.fail(
+                task_id, error=failure_error, terminal_event=failure_event,
+                **execution_store_lease_kwargs(),
+            )
             logger.warning(
                 "Workflow knowledge node failed workflow=%s node=%s code=%s",
                 payload.workflow.id,
@@ -26729,42 +26965,7 @@ async def _run_workflow_response(
                     "Failed to update workflow knowledge failure status",
                     exc_info=True,
                 )
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=failure_error,
-                    **execution_store_lease_kwargs(),
-                )
-                workflow_execution_store.append_event(
-                    task_id,
-                    {
-                        "event": "error",
-                        "terminal": True,
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": exc.node_id,
-                        "code": exc.error_code,
-                        "message": exc.safe_message,
-                    },
-                )
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning(
-                    "Failed to persist workflow knowledge failure",
-                    exc_info=True,
-                )
-            yield sse_payload(
-                {
-                    "event": "error",
-                    "terminal": True,
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "node_id": exc.node_id,
-                    "code": exc.error_code,
-                    "message": exc.safe_message,
-                }
-            )
+            yield sse_payload(failure_event)
         except WorkflowVisionFatalError as exc:
             assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
@@ -26782,6 +26983,10 @@ async def _run_workflow_response(
             }
             if failure_receipt is not None:
                 failure_event["provider_route_receipts"] = failure_receipt
+            workflow_execution_store.fail(
+                task_id, error=failure_error, terminal_event=failure_event,
+                **execution_store_lease_kwargs(),
+            )
             logger.warning(
                 "Workflow vision node failed workflow=%s node=%s code=%s",
                 payload.workflow.id,
@@ -26810,27 +27015,20 @@ async def _run_workflow_response(
                     "Failed to update workflow vision failure status",
                     exc_info=True,
                 )
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=failure_error,
-                    **execution_store_lease_kwargs(),
-                )
-                workflow_execution_store.append_event(
-                    task_id,
-                    failure_event,
-                )
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning(
-                    "Failed to persist workflow vision failure",
-                    exc_info=True,
-                )
             yield sse_payload(failure_event)
         except WorkflowDocumentFatalError as exc:
             assert_resume_lease()
             failure_error = f"{exc.error_code}: {exc.safe_message}"
+            failure_event = {
+                "event": "error", "terminal": True,
+                "task_id": task_id, "run_id": workflow_run.run_id,
+                "node_id": exc.node_id, "code": exc.error_code,
+                "message": exc.safe_message,
+            }
+            workflow_execution_store.fail(
+                task_id, error=failure_error, terminal_event=failure_event,
+                **execution_store_lease_kwargs(),
+            )
             logger.warning(
                 "Workflow document node failed workflow=%s node=%s code=%s",
                 payload.workflow.id,
@@ -26859,42 +27057,7 @@ async def _run_workflow_response(
                     "Failed to update workflow document failure status",
                     exc_info=True,
                 )
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=failure_error,
-                    **execution_store_lease_kwargs(),
-                )
-                workflow_execution_store.append_event(
-                    task_id,
-                    {
-                        "event": "error",
-                        "terminal": True,
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": exc.node_id,
-                        "code": exc.error_code,
-                        "message": exc.safe_message,
-                    },
-                )
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning(
-                    "Failed to persist workflow document failure",
-                    exc_info=True,
-                )
-            yield sse_payload(
-                {
-                    "event": "error",
-                    "terminal": True,
-                    "task_id": task_id,
-                    "run_id": workflow_run.run_id,
-                    "node_id": exc.node_id,
-                    "code": exc.error_code,
-                    "message": exc.safe_message,
-                }
-            )
+            yield sse_payload(failure_event)
         except ContentPolicyError as exc:
             assert_resume_lease()
             failed_node_id = str(locals().get("node_id") or "").strip() or None
@@ -26914,6 +27077,25 @@ async def _run_workflow_response(
                 exc.code,
                 phase,
                 exc.rule_id or "-",
+            )
+            error_event = {
+                "event": "error",
+                "terminal": True,
+                "task_id": task_id,
+                "run_id": workflow_run.run_id,
+                "node_id": failed_node_id,
+                "node_title": failed_node_title,
+                "code": exc.code,
+                "phase": phase,
+                "rule_id": exc.rule_id or None,
+                "message": safe_message,
+            }
+            provider_receipt = locals().get("node_provider_receipt")
+            if isinstance(provider_receipt, dict):
+                error_event["provider_route_receipts"] = provider_receipt
+            workflow_execution_store.fail(
+                task_id, error=failure_error, terminal_event=error_event,
+                **execution_store_lease_kwargs(),
             )
             try:
                 await run_registry.update_run(
@@ -26936,32 +27118,6 @@ async def _run_workflow_response(
                 )
             except Exception:
                 logger.warning("Failed to update content policy failure", exc_info=True)
-            error_event = {
-                "event": "error",
-                "terminal": True,
-                "task_id": task_id,
-                "run_id": workflow_run.run_id,
-                "node_id": failed_node_id,
-                "node_title": failed_node_title,
-                "code": exc.code,
-                "phase": phase,
-                "rule_id": exc.rule_id or None,
-                "message": safe_message,
-            }
-            provider_receipt = locals().get("node_provider_receipt")
-            if isinstance(provider_receipt, dict):
-                error_event["provider_route_receipts"] = provider_receipt
-            try:
-                workflow_execution_store.fail(
-                    task_id,
-                    error=failure_error,
-                    **execution_store_lease_kwargs(),
-                )
-                workflow_execution_store.append_event(task_id, error_event)
-            except WorkflowExecutionConflictError:
-                raise
-            except Exception:
-                logger.warning("Failed to persist content policy failure", exc_info=True)
             yield sse_payload(error_event)
         except Exception as exc:
             storage_error = isinstance(exc, WorkflowExecutionStorageError)
@@ -27042,43 +27198,6 @@ async def _run_workflow_response(
             failed_node_title = (
                 workflow_node_title(failed_node) if failed_node is not None else None
             )
-            try:
-                await run_registry.update_run(
-                    workflow_run.run_id,
-                    status="failed",
-                    error=durable_error,
-                )
-            except Exception:
-                logger.warning("Failed to update workflow run status", exc_info=True)
-            if not storage_error:
-                try:
-                    workflow_execution_store.fail(
-                        task_id,
-                        error=durable_error,
-                        **execution_store_lease_kwargs(),
-                    )
-                    error_event = {
-                        "event": "error",
-                        "terminal": True,
-                        "task_id": task_id,
-                        "run_id": workflow_run.run_id,
-                        "node_id": failed_node_id,
-                        "node_title": failed_node_title,
-                        "message": public_error,
-                    }
-                    if managed_error is not None:
-                        error_event["code"] = managed_error.code
-                    elif iteration_error is not None:
-                        error_event["code"] = iteration_error.code
-                    elif restricted_node_error:
-                        error_event["code"] = "WORKFLOW_NODE_FAILED"
-                    if isinstance(provider_receipt, dict):
-                        error_event["provider_route_receipts"] = provider_receipt
-                    workflow_execution_store.append_event(task_id, error_event)
-                except WorkflowExecutionConflictError:
-                    raise
-                except Exception:
-                    logger.warning("Failed to persist workflow failure", exc_info=True)
             error_event = {
                 "event": "error",
                 "terminal": True,
@@ -27098,6 +27217,19 @@ async def _run_workflow_response(
                 error_event["code"] = "WORKFLOW_NODE_FAILED"
             if isinstance(provider_receipt, dict):
                 error_event["provider_route_receipts"] = provider_receipt
+            if not storage_error:
+                workflow_execution_store.fail(
+                    task_id, error=durable_error, terminal_event=error_event,
+                    **execution_store_lease_kwargs(),
+                )
+            try:
+                await run_registry.update_run(
+                    workflow_run.run_id,
+                    status="failed",
+                    error=durable_error,
+                )
+            except Exception:
+                logger.warning("Failed to update workflow run status", exc_info=True)
             yield sse_payload(error_event)
         finally:
             try:
@@ -27107,8 +27239,13 @@ async def _run_workflow_response(
             if durable_execution is None or durable_execution.status != "waiting":
                 task_state["completed_at"] = time.monotonic()
 
+    async def assert_parent_dispatch_allowed() -> None:
+        await _assert_handoff_parent_not_cancelled(persisted_run_metadata)
+        await _assert_automation_parent_not_cancelled(persisted_run_metadata)
+        assert_resume_lease()
+
     async def workflow_stream():
-        with use_execution_budget(task_state.get("execution_budget")):
+        with use_execution_budget(task_state.get("execution_budget")), use_execution_dispatch_guard(assert_parent_dispatch_allowed):
             async for event in workflow_stream_body():
                 yield event
 
@@ -27143,14 +27280,9 @@ async def cancel_workflow_task(task_id: str, request: Request):
     if execution is None or execution.source_kind != "workflow_classic":
         raise HTTPException(status_code=404, detail="工作流任务不存在或已过期。")
 
-    if execution.status in {"completed", "failed", "cancelled", "rejected"}:
+    if execution.status in {"completed", "failed", "rejected"}:
         return workflow_execution_store.serialize_public(execution)
 
-    waiting_handoff_id = (
-        str(execution.wait_id or "")
-        if execution.wait_kind == "agent_handoff"
-        else ""
-    )
     cancelled = workflow_execution_store.cancel(
         task_id,
         error="cancelled_by_user",
@@ -27160,27 +27292,6 @@ async def cancel_workflow_task(task_id: str, request: Request):
     # already-terminal RunRegistry entry.
     if cancelled.status != "cancelled":
         return workflow_execution_store.serialize_public(cancelled)
-
-    if waiting_handoff_id:
-        handoff = await agent_task_store.get_handoff(waiting_handoff_id)
-        if handoff is not None and handoff.status not in {
-            "rejected",
-            "completed",
-            "dead_letter",
-        }:
-            await agent_task_store.update_handoff_status(
-                handoff.handoff_id,
-                "dead_letter",
-                metadata={"last_error": "HANDOFF_CANCELLED"},
-            )
-            linked_task = await agent_task_store.get_task(handoff.task_id)
-            if linked_task is not None and linked_task.status not in {
-                "completed",
-                "cancelled",
-            }:
-                await agent_task_store.cancel_task(
-                    linked_task.task_id, reason="HANDOFF_CANCELLED"
-                )
 
     task = workflow_task_store.get(task_id)
     if task is not None:
@@ -27192,14 +27303,7 @@ async def cancel_workflow_task(task_id: str, request: Request):
         if isinstance(pause_event, asyncio.Event):
             pause_event.set()
 
-    cancelled_event = {
-        "event": "workflow_cancelled",
-        "task_id": task_id,
-        "run_id": cancelled.run_id,
-        "status": "cancelled",
-        "message": "工作流已取消。",
-    }
-    workflow_execution_store.append_event(task_id, cancelled_event)
+    await reconcile_cancelled_workflow_handoff(cancelled)
     try:
         await run_registry.cancel_run(
             cancelled.run_id,
@@ -27273,8 +27377,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     if not isinstance(response, StreamingResponse):
         raise RuntimeError("Xpert workflow returned an unsupported response.")
 
-    final_event: dict[str, Any] | None = None
-    pending_wait_event: dict[str, Any] | None = None
+    outcomes = WorkflowOutcomeAccumulator()
     error_message = ""
     error_code: str | None = None
     error_task_id: str | None = None
@@ -27301,6 +27404,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                     event = json.loads(line[5:].strip())
                 except json.JSONDecodeError:
                     continue
+                outcomes.observe(event)
                 if event.get("event") == "error":
                     error_message = str(event.get("message") or "Xpert run failed.")
                     error_code = str(event.get("code") or "").strip() or None
@@ -27334,20 +27438,6 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
                         provider_route_receipts = dict(
                             event["provider_route_receipts"]
                         )
-                elif event.get("event") == "workflow_end":
-                    final_event = event
-                elif event.get("event") == "workflow_cancelled":
-                    final_event = event
-                elif event.get("event") == "runtime_approval_pending":
-                    pending_wait_event = event
-                elif event.get("event") == "client_tool_waiting":
-                    pending_wait_event = event
-                elif event.get("event") == "timer_waiting":
-                    pending_wait_event = event
-                elif event.get("event") == "node_retry_scheduled":
-                    pending_wait_event = event
-                elif event.get("event") == "agent_handoff_waiting":
-                    pending_wait_event = event
     if error_message:
         display_message = (
             f"{error_code}: {error_message}" if error_code else error_message
@@ -27366,11 +27456,7 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
             classification=error_classification,
             exhausted=error_exhausted,
         )
-    if pending_wait_event is not None:
-        return pending_wait_event
-    if final_event is None:
-        raise RuntimeError("Xpert workflow ended without a final result.")
-    return final_event
+    return outcomes.finish()
 
 
 async def run_deployed_workflow_trigger(
@@ -28182,6 +28268,56 @@ skill_creator_evolution_planner = WorkflowCreatorEvolutionPlanner(
 skill_creator_evolution_service.planner = skill_creator_evolution_planner
 
 
+def _register_inline_xpert_budget(
+    resource: dict[str, Any], task: str, call: RuntimeToolCall,
+) -> tuple[tuple[str, str] | None, Any]:
+    binding = current_execution_budget_binding()
+    parent_id = str(call.metadata.get("task_id") or "")
+    if binding is None:
+        parent = workflow_execution_store.get(parent_id) if parent_id else None
+        if parent is not None and parent.execution_budget is not None:
+            raise XpertExecutionBudgetStateError("INLINE_BUDGET_BINDING_MISSING：内联调用缺少活动父预算。")
+        return None, None
+    store, task_id, token = binding
+    if store is not workflow_execution_store or parent_id != task_id:
+        raise XpertExecutionBudgetStateError("INLINE_BUDGET_BINDING_INVALID：内联调用父身份与活动预算不一致。")
+    parent = store.require(task_id)
+    # A different model-selected call slot cannot turn uncertain work into a retry.
+    for occurrence_id, child_id in parent.execution_budget_children.items():
+        if occurrence_id.startswith("inline:") and child_id is not None and store.require(child_id).status != "completed":
+            raise XpertExecutionBudgetStateError("INLINE_EXECUTION_ALREADY_DISPATCHED：已有内联子执行未成功结算，必须核对原执行，禁止自动重发。")
+    node_id = call.metadata.get("node_id")
+    iteration = call.metadata.get("iteration", 0)
+    index = call.metadata.get("parallel_batch_index", 0)
+    if (not isinstance(node_id, str) or not node_id.strip()
+        or type(iteration) is not int or iteration < 0 or type(index) is not int or index < 0):
+        raise XpertExecutionBudgetStateError("INLINE_BUDGET_OCCURRENCE_INVALID：内联调用位置无效。")
+    def digest(value: Any) -> str:
+        return hashlib.sha256(json.dumps(
+            value, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")).hexdigest()
+    prefix = "inline:" + digest([task_id, node_id, iteration, index]) + ":"
+    occurrence = prefix + digest({
+        "target": resource.get("xpert_id"), "version": resource.get("pinned_version"),
+        "task": task, "tool": call.tool_name, "source": call.metadata.get("xpert_id"),
+        "depth": call.metadata.get("external_xpert_depth", 0),
+        "path": call.metadata.get("external_xpert_path", []),
+        "max_depth": call.metadata.get("max_tool_depth", 4),
+        "managed_source": call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY),
+    })
+    existing = store.find_execution_budget_child(prefix)
+    if existing is not None and (existing["parent_task_id"] != task_id or existing["occurrence_id"] != occurrence):
+        raise XpertExecutionBudgetStateError("INLINE_BUDGET_CONTRACT_CHANGED：同一内联调用的输入或目标契约已变化。")
+    store.authorize_execution_budget_child(task_id, occurrence, expected_lease_token=token)
+    child = store.require(existing["child_task_id"]) if existing and existing["child_task_id"] else None
+    if child is not None:
+        if child.execution_budget_parent != {"parent_task_id": task_id, "occurrence_id": occurrence}:
+            raise XpertExecutionBudgetStateError("INLINE_BUDGET_BINDING_INVALID：已登记子执行的关联无效。")
+        if child.status != "completed":
+            raise XpertExecutionBudgetStateError("INLINE_EXECUTION_ALREADY_DISPATCHED：子执行已有记录，必须核对或恢复原执行，禁止重发。")
+    return (task_id, occurrence), child
+
+
 async def execute_external_xpert_resource(
     resource: dict[str, Any],
     task: str,
@@ -28211,6 +28347,17 @@ async def execute_external_xpert_resource(
         path.append(current_xpert_id)
     if target_xpert_id == current_xpert_id or target_xpert_id in path:
         raise ValueError("External Xpert collaboration cycle detected.")
+
+    await assert_execution_dispatch_allowed()
+    delegation, completed_child = _register_inline_xpert_budget(resource, task, call)
+    if completed_child is not None:
+        output = str(completed_child.result or "")
+        return RuntimeToolResult(output=output, metadata={
+            "content_types": ["text"], "target_xpert_id": target_xpert_id,
+            "target_xpert_slug": str(completed_child.runtime_metadata.get("xpert_slug") or ""),
+            "target_xpert_version": target_version, "child_run_id": completed_child.run_id,
+            "output_length": len(output),
+        })
 
     parent_run_id = str(call.metadata.get("run_id") or "").strip() or None
     if parent_run_id:
@@ -28244,6 +28391,7 @@ async def execute_external_xpert_resource(
             "external_xpert_tool_name": call.tool_name,
         }
     )
+    await assert_execution_dispatch_allowed()
     response = await _run_workflow_response(
         prepared.request,
         None,
@@ -28251,6 +28399,7 @@ async def execute_external_xpert_resource(
         runtime_source_id=prepared.xpert.id,
         runtime_metadata=prepared.runtime_metadata,
         runtime_parent_run_id=parent_run_id,
+        runtime_budget_delegation=delegation,
         runtime_execution_source_kind=(
             str(call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY))
             if call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY)
@@ -28258,14 +28407,18 @@ async def execute_external_xpert_resource(
             else None
         ),
     )
-    final_event = await consume_workflow_stream(response)
-    if final_event.get("event") in {
-        "runtime_approval_pending",
-        "client_tool_waiting",
-    }:
-        raise RuntimeError(
-            "The external Xpert paused for an interactive action. "
-            "Resolve that action before retrying the collaboration."
+    try:
+        final_event = await consume_workflow_stream(response)
+    except Exception as exc:
+        if delegation is not None:
+            raise RuntimeMiddlewareFatalError(
+                "INLINE_EXECUTION_NOT_COMPLETED：内联子执行未成功结算，须核对原执行，禁止自动重发。"
+            ) from exc
+        raise
+    await assert_execution_dispatch_allowed()
+    if final_event.get("event") != "workflow_end":
+        raise RuntimeMiddlewareFatalError(
+            "INLINE_EXECUTION_NOT_COMPLETED：内联子执行尚未成功结束，不能把等待或取消当作完成，也不能重新派发。"
         )
     output = str(final_event.get("final_output") or "")
     child_run_id = str(final_event.get("run_id") or "")
@@ -28298,11 +28451,85 @@ async def execute_external_xpert_resource(
     )
 
 
+def _handoff_budget_occurrence(handoff: Any, task: Any) -> str:
+    version = handoff.metadata.get("target_xpert_version")
+    target = handoff.metadata.get("target_xpert_id")
+    if not isinstance(target, str) or not target or type(version) is not int or version < 1:
+        raise HandoffPermanentError("HANDOFF_BUDGET_TARGET_INVALID：根预算委托必须固定目标发布版本。")
+    contract = {
+        "version": 1, "handoff_id": handoff.handoff_id, "task_id": task.task_id,
+        "input": task.input, "source_agent": handoff.source_agent,
+        "target_agent": handoff.target_agent, "reason": handoff.reason,
+        "target_xpert_id": target, "target_xpert_version": version,
+        "handoff_depth": handoff.metadata.get("handoff_depth", 0),
+        "source_xpert_id": handoff.metadata.get("source_xpert_id"),
+        "source_conversation_id": handoff.metadata.get("source_conversation_id"),
+        "file_asset_ids": handoff.metadata.get("file_asset_ids", []),
+        "managed_source": handoff.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY),
+    }
+    digest = hashlib.sha256(json.dumps(
+        contract, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")).hexdigest()
+    return f"handoff:{handoff.handoff_id}:{digest}"
+
+
+async def _register_workflow_handoff_budget(
+    handoff: Any, parent_task_id: str, *, expected_lease_token: str | None = None,
+) -> None:
+    parent = workflow_execution_store.require(parent_task_id)
+    if parent.execution_budget is None or handoff.metadata.get("execution_mode") != "xpert_auto":
+        return
+    task = await agent_task_store.get_task(handoff.task_id)
+    if task is None:
+        raise HandoffPermanentError("HANDOFF_BUDGET_TASK_MISSING：委托任务不存在。")
+    if not handoff.metadata.get("target_xpert_id") or not handoff.metadata.get("target_xpert_version"):
+        store = get_xpert_store()
+        target = store.resolve_xpert(str(handoff.target_agent).removeprefix("xpert:"))
+        version = int(target.published_version or 0)
+        if target.status != "published" or not version:
+            raise HandoffPermanentError("HANDOFF_BUDGET_TARGET_INVALID：目标尚未发布。")
+        store.get_version(target.id, version)
+        handoff = await agent_task_store.update_handoff_metadata(handoff.handoff_id, {
+            "target_xpert_id": target.id, "target_xpert_version": version,
+        })
+    occurrence = _handoff_budget_occurrence(handoff, task)
+    existing = workflow_execution_store.find_execution_budget_child(f"handoff:{handoff.handoff_id}:")
+    if existing is not None and (existing["parent_task_id"] != parent_task_id or existing["occurrence_id"] != occurrence):
+        raise HandoffPermanentError("HANDOFF_BUDGET_CONTRACT_CHANGED：委托身份或固定输入已变化。")
+    workflow_execution_store.authorize_execution_budget_child(
+        parent_task_id, occurrence, expected_lease_token=expected_lease_token,
+    )
+    await agent_task_store.update_handoff_metadata(handoff.handoff_id, {
+        "root_budget_required": True, "no_auto_retry": True,
+    })
+
+
 async def execute_xpert_handoff_target(
     handoff: Any,
     task: Any,
     handoff_run_id: str | None,
 ) -> HandoffExecutionResult:
+    claimed_lease_token = handoff.metadata.get("lease_token")
+    delegation = workflow_execution_store.find_execution_budget_child(f"handoff:{handoff.handoff_id}:")
+    if delegation is None and handoff.metadata.get("root_budget_required"):
+        raise HandoffPermanentError("HANDOFF_BUDGET_DELEGATION_MISSING：根预算委托缺失，不能独立重跑。")
+    if delegation is not None:
+        if delegation["occurrence_id"] != _handoff_budget_occurrence(handoff, task):
+            raise HandoffPermanentError("HANDOFF_BUDGET_CONTRACT_CHANGED：委托固定输入或目标已变化。")
+        if delegation["child_task_id"] is not None:
+            child = workflow_execution_store.require(delegation["child_task_id"])
+            if child.execution_budget_parent != {
+                "parent_task_id": delegation["parent_task_id"], "occurrence_id": delegation["occurrence_id"],
+            }:
+                raise HandoffPermanentError("HANDOFF_BUDGET_BINDING_INVALID：子执行关联不一致。")
+            if child.status != "completed":
+                raise HandoffPermanentError("HANDOFF_EXECUTION_ALREADY_DISPATCHED：子执行已有记录，须恢复原执行，禁止自动重发。")
+            return HandoffExecutionResult(
+                output=str(child.result or ""), run_id=child.run_id, task_id=child.task_id,
+                xpert_id=handoff.metadata["target_xpert_id"],
+                xpert_slug=str(child.runtime_metadata.get("xpert_slug") or ""),
+                xpert_version=handoff.metadata["target_xpert_version"],
+            )
     source_depth = int(handoff.metadata.get("handoff_depth") or 0)
     if source_depth >= HANDOFF_MAX_DELEGATION_DEPTH:
         raise HandoffPermanentError(
@@ -28373,24 +28600,53 @@ async def execute_xpert_handoff_target(
         "xpert_chat": "xpert",
         "xpert_app": "xpert_app",
     }.get(managed_parent_source)
-    response = await _run_workflow_response(
-        prepared.request,
-        None,
-        runtime_run_type="xpert",
-        runtime_source_id=prepared.xpert.id,
-        runtime_metadata={
-            **prepared.runtime_metadata,
-            "handoff_id": handoff.handoff_id,
-            "agent_task_id": task.task_id,
-            "source_agent": handoff.source_agent,
-        },
-        runtime_parent_run_id=handoff_run_id,
-        runtime_execution_source_kind=(
-            managed_parent_source if managed_parent_entry is not None else None
-        ),
-    )
+    async def assert_handoff_budget_owner() -> None:
+        ancestor_id = delegation["parent_task_id"]
+        seen: set[str] = set()
+        while ancestor_id:
+            if ancestor_id in seen or len(seen) >= 16:
+                raise HandoffPermanentError("HANDOFF_BUDGET_BINDING_INVALID：预算祖先关联无效。")
+            seen.add(ancestor_id)
+            ancestor = workflow_execution_store.require(ancestor_id)
+            await _assert_handoff_parent_not_cancelled(ancestor.runtime_metadata)
+            await _assert_automation_parent_not_cancelled(ancestor.runtime_metadata)
+            ancestor_id = (ancestor.execution_budget_parent or {}).get("parent_task_id", "")
+        current = await agent_task_store.get_handoff(handoff.handoff_id)
+        current_task = await agent_task_store.get_task(task.task_id)
+        token = claimed_lease_token
+        expires = current.metadata.get("lease_expires_at") if current is not None else None
+        if (
+            current is None or current_task is None or current.status != "accepted"
+            or not isinstance(token, str) or not token or current.metadata.get("lease_token") != token
+            or type(expires) not in {int, float} or not math.isfinite(expires) or expires <= time.time()
+        ):
+            raise HandoffPermanentError("HANDOFF_BUDGET_OWNER_LOST：交接执行权已失效，禁止继续派发。")
+        if _handoff_budget_occurrence(current, current_task) != delegation["occurrence_id"]:
+            raise HandoffPermanentError("HANDOFF_BUDGET_CONTRACT_CHANGED：派发前委托契约已变化。")
+
     try:
-        final_event = await consume_workflow_stream(response)
+        with use_execution_dispatch_guard(assert_handoff_budget_owner if delegation is not None else None):
+            if delegation is not None:
+                await assert_handoff_budget_owner()
+            response = await _run_workflow_response(
+                prepared.request,
+                None,
+                runtime_run_type="xpert",
+                runtime_source_id=prepared.xpert.id,
+                runtime_metadata={
+                    **prepared.runtime_metadata,
+                    "handoff_id": handoff.handoff_id,
+                    "agent_task_id": task.task_id,
+                    "source_agent": handoff.source_agent,
+                },
+                runtime_parent_run_id=handoff_run_id,
+                runtime_execution_source_kind=(
+                    managed_parent_source if managed_parent_entry is not None else None
+                ),
+                **({"runtime_budget_delegation": (delegation["parent_task_id"], delegation["occurrence_id"])}
+                   if delegation is not None else {}),
+            )
+            final_event = await consume_workflow_stream(response)
     except WorkflowStreamFailure as exc:
         receipt = exc.provider_route_receipts
         if (
@@ -28492,28 +28748,20 @@ async def execute_automation_target(
         )
     )
     final_event = await consume_workflow_stream(response)
-    event_type = str(final_event.get("event") or "")
-    if event_type == "runtime_approval_pending":
-        return AutomationTargetResult(
-            output="",
-            run_id=str(final_event.get("run_id") or target_run_id),
-            workflow_task_id=str(final_event.get("task_id") or task_id),
-            waiting_approval=True,
-            wait_id=str(final_event.get("approval_id") or "") or None,
-        )
-    if event_type == "client_tool_waiting":
-        return AutomationTargetResult(
-            output="",
-            run_id=str(final_event.get("run_id") or target_run_id),
-            workflow_task_id=str(final_event.get("task_id") or task_id),
-            waiting_client=True,
-            wait_id=str(final_event.get("request_id") or "") or None,
-        )
     return AutomationTargetResult(
-        output=str(final_event.get("final_output") or ""),
-        run_id=str(final_event.get("run_id") or target_run_id),
-        workflow_task_id=task_id,
+        output="", run_id=target_run_id, workflow_task_id=task_id, workflow_event=final_event,
     )
+
+
+def _automation_wait_is_expired(execution: WorkflowExecution) -> bool:
+    if execution.wait_kind == "approval":
+        request = runtime_approval_store.get(execution.wait_id or "")
+    elif execution.wait_kind == "client_tool":
+        request = client_tool_store.get_request(execution.wait_id or "")
+    else:
+        return False
+    return bool(request is not None and request.status == "expired"
+                and request.task_id == execution.task_id and request.run_id == execution.run_id)
 
 
 def get_automation_coordinator() -> AutomationCoordinator:
@@ -28523,6 +28771,9 @@ def get_automation_coordinator() -> AutomationCoordinator:
             automation_store,
             run_registry,
             execute_automation_target,
+            cancel_children=_cancel_automation_workflow_children,
+            workflow_executions=workflow_execution_store,
+            is_wait_expired=_automation_wait_is_expired,
             enabled=AUTOMATION_COORDINATOR_ENABLED,
             poll_interval=AUTOMATION_COORDINATOR_POLL_SECONDS,
             lease_seconds=AUTOMATION_COORDINATOR_LEASE_SECONDS,
@@ -28548,6 +28799,9 @@ async def resume_runtime_approval_execution(
     execution: WorkflowExecution,
     approval: RuntimeApprovalRequest,
 ) -> None:
+    workflow_execution_store.assert_lease(
+        execution.task_id, lease_token=str(execution.lease_token or ""),
+    )
     if execution.source_kind == "expert_team_agency":
         if not expert_team_agency_hitl_enabled():
             # Keep the decided continuation durable and retry it when the feature
@@ -28587,53 +28841,26 @@ async def resume_runtime_approval_execution(
         resolved_approval=approval,
     )
     final_event = await consume_workflow_stream(response)
-    if final_event.get("event") == "runtime_approval_pending":
-        automation_execution_id = str(
-            metadata.get("automation_execution_id") or ""
-        ).strip()
-        if automation_execution_id:
-            automation_store.mark_waiting(
-                automation_execution_id,
-                status="waiting_approval",
-                run_id=str(final_event.get("run_id") or execution.run_id),
-                workflow_task_id=str(final_event.get("task_id") or execution.task_id),
-                wait_id=str(final_event.get("approval_id") or "") or None,
-            )
+    settled = workflow_execution_store.snapshot(execution.task_id)
+    outcome = resolve_workflow_outcome(final_event, settled)
+    if settled.runtime_metadata.get("handoff_id"):
+        projected = await agent_task_store.project_workflow_outcome(
+            workflow_execution_store, settled, final_event,
+            completion_metadata={
+                "completed_by": "approval-coordinator",
+                "approval_id": approval.approval_id, "approval_status": "resolved",
+            },
+        )
+        if not projected:
+            return
+    if metadata.get("automation_execution_id"):
+        await get_automation_coordinator().project_workflow_outcome(workflow_execution_store, settled, final_event)
+    if outcome.status != "completed":
         return
-    result = str(final_event.get("final_output") or "")
-    handoff_id = str(metadata.get("handoff_id") or "").strip()
-    agent_task_id = str(metadata.get("agent_task_id") or "").strip()
+    result = str(settled.result or "")
+    handoff_id = str(settled.runtime_metadata.get("handoff_id") or "").strip()
+    agent_task_id = str(settled.runtime_metadata.get("agent_task_id") or "").strip()
     if handoff_id:
-        handoff = await agent_task_store.get_handoff(handoff_id)
-        if handoff is not None and handoff.status in {
-            "waiting_approval",
-            "needs_attention",
-        }:
-            await agent_task_store.update_handoff_status(
-                handoff_id,
-                "completed",
-                metadata={
-                    "completed_by": "approval-coordinator",
-                    "completed_at": time.time(),
-                    "result": result[:100_000],
-                    "result_length": len(result),
-                    "xpert_run_id": str(final_event.get("run_id") or ""),
-                    "approval_id": approval.approval_id,
-                    "approval_status": "resolved",
-                },
-            )
-        if agent_task_id:
-            await agent_task_store.update_task(
-                agent_task_id,
-                status="completed",
-                result=result[:100_000],
-                clear_error=True,
-                metadata={
-                    "handoff_id": handoff_id,
-                    "approval_id": approval.approval_id,
-                    "xpert_run_id": str(final_event.get("run_id") or ""),
-                },
-            )
         for run_type, source_id in (
             ("agent_handoff", handoff_id),
             ("agent_task", agent_task_id),
@@ -28655,22 +28882,14 @@ async def resume_runtime_approval_execution(
                         "result_length": len(result),
                     },
                 )
-    automation_execution_id = str(
-        metadata.get("automation_execution_id") or ""
-    ).strip()
-    if automation_execution_id:
-        await get_automation_coordinator().complete_waiting(
-            automation_execution_id,
-            result=result,
-            target_run_id=str(final_event.get("run_id") or execution.run_id),
-            workflow_task_id=str(final_event.get("task_id") or execution.task_id),
-        )
 
 
 async def resume_runtime_client_tool_execution(
     execution: WorkflowExecution,
     client_request: ClientToolRequest,
 ) -> None:
+    lease_token = str(execution.lease_token or "")
+    workflow_execution_store.assert_lease(execution.task_id, lease_token=lease_token)
     if client_request.tool_name.startswith("office_"):
         workflow_execution_store.append_event(
             execution.task_id,
@@ -28688,6 +28907,7 @@ async def resume_runtime_client_tool_execution(
                 "status": client_request.status,
                 "result_length": len(client_request.result),
             },
+            expected_lease_token=lease_token,
         )
     workflow = WorkflowPayload.model_validate(execution.workflow)
     payload = WorkflowRunRequest(
@@ -28714,67 +28934,27 @@ async def resume_runtime_client_tool_execution(
         resolved_client_request=client_request,
     )
     final_event = await consume_workflow_stream(response)
-    if final_event.get("event") in {
-        "runtime_approval_pending",
-        "client_tool_waiting",
-    }:
-        automation_execution_id = str(
-            metadata.get("automation_execution_id") or ""
-        ).strip()
-        if automation_execution_id:
-            waiting_for_approval = (
-                final_event.get("event") == "runtime_approval_pending"
-            )
-            automation_store.mark_waiting(
-                automation_execution_id,
-                status=(
-                    "waiting_approval" if waiting_for_approval else "waiting_client"
-                ),
-                run_id=str(final_event.get("run_id") or execution.run_id),
-                workflow_task_id=str(final_event.get("task_id") or execution.task_id),
-                wait_id=str(
-                    final_event.get("approval_id")
-                    if waiting_for_approval
-                    else final_event.get("request_id")
-                    or ""
-                )
-                or None,
-            )
+    settled = workflow_execution_store.snapshot(execution.task_id)
+    outcome = resolve_workflow_outcome(final_event, settled)
+    if settled.runtime_metadata.get("handoff_id"):
+        projected = await agent_task_store.project_workflow_outcome(
+            workflow_execution_store, settled, final_event,
+            completion_metadata={
+                "completed_by": "client-tool-coordinator",
+                "client_request_id": client_request.request_id,
+                "client_request_status": client_request.status,
+            },
+        )
+        if not projected:
+            return
+    if metadata.get("automation_execution_id"):
+        await get_automation_coordinator().project_workflow_outcome(workflow_execution_store, settled, final_event)
+    if outcome.status != "completed":
         return
-    result = str(final_event.get("final_output") or "")
-    handoff_id = str(metadata.get("handoff_id") or "").strip()
-    agent_task_id = str(metadata.get("agent_task_id") or "").strip()
+    result = str(settled.result or "")
+    handoff_id = str(settled.runtime_metadata.get("handoff_id") or "").strip()
+    agent_task_id = str(settled.runtime_metadata.get("agent_task_id") or "").strip()
     if handoff_id:
-        handoff = await agent_task_store.get_handoff(handoff_id)
-        if handoff is not None and handoff.status in {
-            "waiting_client",
-            "needs_attention",
-        }:
-            await agent_task_store.update_handoff_status(
-                handoff_id,
-                "completed",
-                metadata={
-                    "completed_by": "client-tool-coordinator",
-                    "completed_at": time.time(),
-                    "result": result[:100_000],
-                    "result_length": len(result),
-                    "xpert_run_id": str(final_event.get("run_id") or ""),
-                    "client_request_id": client_request.request_id,
-                    "client_request_status": client_request.status,
-                },
-            )
-        if agent_task_id:
-            await agent_task_store.update_task(
-                agent_task_id,
-                status="completed",
-                result=result[:100_000],
-                clear_error=True,
-                metadata={
-                    "handoff_id": handoff_id,
-                    "client_request_id": client_request.request_id,
-                    "xpert_run_id": str(final_event.get("run_id") or ""),
-                },
-            )
         for run_type, source_id in (
             ("agent_handoff", handoff_id),
             ("agent_task", agent_task_id),
@@ -28796,16 +28976,6 @@ async def resume_runtime_client_tool_execution(
                         "result_length": len(result),
                     },
                 )
-    automation_execution_id = str(
-        metadata.get("automation_execution_id") or ""
-    ).strip()
-    if automation_execution_id:
-        await get_automation_coordinator().complete_waiting(
-            automation_execution_id,
-            result=result,
-            target_run_id=str(final_event.get("run_id") or execution.run_id),
-            workflow_task_id=str(final_event.get("task_id") or execution.task_id),
-        )
 
 
 async def expire_runtime_client_tool_execution(
@@ -28813,6 +28983,11 @@ async def expire_runtime_client_tool_execution(
     client_request: ClientToolRequest,
 ) -> None:
     metadata = dict(execution.runtime_metadata or {})
+    if metadata.get("automation_execution_id"):
+        await get_automation_coordinator().expire_workflow_wait(
+            execution, wait_kind="client_tool", wait_id=client_request.request_id,
+        )
+        return
     try:
         await run_registry.update_run(
             execution.run_id,
@@ -28856,21 +29031,17 @@ async def expire_runtime_client_tool_execution(
                 "client_request_id": client_request.request_id,
             },
         )
-    automation_execution_id = str(
-        metadata.get("automation_execution_id") or ""
-    ).strip()
-    if automation_execution_id:
-        automation_store.fail_execution(
-            automation_execution_id,
-            error="Client tool request expired.",
-            permanent=True,
-        )
 
 
 async def expire_runtime_approval_execution(
     execution: WorkflowExecution,
     approval: RuntimeApprovalRequest,
 ) -> None:
+    if execution.runtime_metadata.get("automation_execution_id"):
+        await get_automation_coordinator().expire_workflow_wait(
+            execution, wait_kind="approval", wait_id=approval.approval_id,
+        )
+        return
     if execution.source_kind == "expert_team_agency":
         workflow_execution_store.append_event(
             execution.task_id,
@@ -28937,15 +29108,6 @@ async def expire_runtime_approval_execution(
                 "approval_id": approval.approval_id,
             },
         )
-    automation_execution_id = str(
-        metadata.get("automation_execution_id") or ""
-    ).strip()
-    if automation_execution_id:
-        automation_store.fail_execution(
-            automation_execution_id,
-            error="Runtime approval expired.",
-            permanent=True,
-        )
 
 
 def get_approval_coordinator() -> ApprovalCoordinator:
@@ -28983,41 +29145,43 @@ def get_client_tool_coordinator() -> ClientToolCoordinator:
     return client_tool_coordinator
 
 
+async def reconcile_cancelled_workflow_handoff(execution: WorkflowExecution) -> None:
+    current = workflow_execution_store.snapshot(execution.task_id)
+    handoff_id = workflow_execution_store.pending_handoff_cancellation_id(current)
+    if handoff_id is None:
+        return
+    handoff = await agent_task_store.get_handoff(handoff_id)
+    if handoff is None or await agent_task_store.get_task(handoff.task_id) is None:
+        raise WorkflowExecutionConflictError("取消待办缺少交接或父任务，不能确认处理完成。")
+    # The wait ID is the authority; workflow_task_id on a Handoff can refer to
+    # its child after suspension and must not be used to infer the parent.
+    await cancel_agent_task(handoff.task_id, {"reason": "HANDOFF_CANCELLED"})
+    try:
+        await run_registry.cancel_run(current.run_id, reason=current.error or "cancelled")
+    except KeyError:
+        pass
+    workflow_execution_store.acknowledge_handoff_cancellation(
+        current.task_id, handoff_id=handoff_id,
+    )
+
+
 async def expire_workflow_handoff_execution(
     execution: WorkflowExecution,
     handoff: Any,
 ) -> None:
-    if handoff.status not in {"rejected", "completed", "dead_letter"}:
-        await agent_task_store.update_handoff_status(
-            handoff.handoff_id,
-            "dead_letter",
-            metadata={
-                "last_error": "HANDOFF_TIMEOUT",
-                "dead_lettered_at": time.time(),
-                "lease_owner": "",
-                "lease_token": "",
-                "lease_expires_at": 0.0,
-            },
-        )
-    task = await agent_task_store.get_task(handoff.task_id)
-    if task is not None and task.status not in {"completed", "cancelled"}:
-        await agent_task_store.cancel_task(task.task_id, reason="HANDOFF_TIMEOUT")
-    target_run_id = str(handoff.metadata.get("xpert_run_id") or "").strip()
-    if target_run_id:
-        try:
-            await run_registry.update_run(
-                target_run_id,
-                status="cancelled",
-                error="HANDOFF_TIMEOUT",
-            )
-        except KeyError:
-            pass
+    if await agent_task_store.expire_handoff(handoff.handoff_id):
+        current = await agent_task_store.get_handoff(handoff.handoff_id)
+        await _cancel_agent_task_workflow_children(current.task_id)
+    # Registry projection follows the durable child decision above. A legacy
+    # run ID alone cannot prove cancellation or overwrite a completed child.
 
 
 async def resume_workflow_handoff_execution(
     execution: WorkflowExecution,
     handoff: Any,
 ) -> None:
+    lease_token = str(execution.lease_token or "")
+    workflow_execution_store.assert_lease(execution.task_id, lease_token=lease_token)
     continuation = dict(execution.continuation or {})
     agent_state = dict(continuation.get("agent_state") or {})
     if str(agent_state.get("handoff_id") or "") != handoff.handoff_id:
@@ -29058,7 +29222,9 @@ async def resume_workflow_handoff_execution(
         final_event = await consume_workflow_stream(response)
     except Exception as exc:
         safe_error = str(exc)[:300]
-        workflow_execution_store.fail(execution.task_id, error=safe_error)
+        workflow_execution_store.fail(
+            execution.task_id, error=safe_error, expected_lease_token=lease_token,
+        )
         if deployment_execution_id:
             workflow_deployment_store.fail_execution(
                 deployment_execution_id,
@@ -29068,34 +29234,24 @@ async def resume_workflow_handoff_execution(
                 dispatch_failures=workflow_failure_triggers_enabled(),
             )
         raise
-    pending_event = str(final_event.get("event") or "")
+    outcome = resolve_workflow_outcome(
+        final_event, workflow_execution_store.snapshot(execution.task_id),
+    )
     if deployment_execution_id:
-        if pending_event in {
-            "agent_handoff_waiting",
-            "runtime_approval_pending",
-            "client_tool_waiting",
-            "timer_waiting",
-        }:
-            wait_kind = {
-                "agent_handoff_waiting": "agent_handoff",
-                "runtime_approval_pending": "approval",
-                "client_tool_waiting": "client_tool",
-                "timer_waiting": "timer",
-            }[pending_event]
+        if outcome.status == "waiting":
             workflow_deployment_store.mark_execution_waiting(
                 deployment_execution_id,
-                task_id=str(final_event.get("task_id") or execution.task_id),
-                run_id=str(final_event.get("run_id") or execution.run_id),
-                wait_kind=wait_kind,
-                wait_id=str(
-                    final_event.get("wait_id")
-                    or final_event.get("approval_id")
-                    or final_event.get("request_id")
-                    or ""
-                ),
-                resume_at=final_event.get("resume_at"),
+                task_id=outcome.task_id,
+                run_id=outcome.run_id,
+                wait_kind=outcome.wait_kind,
+                wait_id=outcome.wait_id,
+                resume_at=outcome.resume_at,
             )
-        else:
+        elif outcome.status == "cancelled":
+            workflow_deployment_store.cancel_execution(
+                deployment_execution_id, error="子工作流已取消。",
+            )
+        elif outcome.status == "completed":
             workflow_deployment_store.complete_execution(
                 deployment_execution_id,
                 task_id=str(final_event.get("task_id") or execution.task_id),
@@ -29113,6 +29269,7 @@ def get_workflow_handoff_coordinator() -> WorkflowHandoffCoordinator:
             workflow_execution_store,
             resume_workflow_handoff_execution,
             expire_execution=expire_workflow_handoff_execution,
+            cancel_execution=reconcile_cancelled_workflow_handoff,
             enabled=True,
         )
     return workflow_handoff_coordinator
@@ -29241,6 +29398,7 @@ def get_goal_coordinator() -> GoalCoordinator:
             run_registry,
             plan_conversation_goal,
             resolve_published_xpert,
+            cancel_task=cancel_agent_task,
             enabled=GOAL_COORDINATOR_ENABLED,
             poll_interval=GOAL_COORDINATOR_POLL_SECONDS,
         )
@@ -29998,6 +30156,7 @@ async def update_runtime_runs_for_source(
 ) -> None:
     runs = await run_registry.list_runs(
         run_type=run_type,  # type: ignore[arg-type]
+        source_id=source_id,
         limit=200,
     )
     for run in runs:
@@ -30157,16 +30316,6 @@ async def cancel_runtime_run(run_id: str, payload: dict[str, Any] | None = None)
                 pause_event = live_task.get("pause_event")
                 if isinstance(pause_event, asyncio.Event):
                     pause_event.set()
-            workflow_execution_store.append_event(
-                cancelled_execution.task_id,
-                {
-                    "event": "workflow_cancelled",
-                    "task_id": cancelled_execution.task_id,
-                    "run_id": cancelled_execution.run_id,
-                    "status": "cancelled",
-                    "message": "工作流已取消。",
-                },
-            )
             deployment_execution_id = str(
                 cancelled_execution.runtime_metadata.get(
                     "workflow_deployment_execution_id"
@@ -31763,6 +31912,7 @@ async def _start_workflow_execution_services() -> bool:
 @app.on_event("startup")
 async def start_mcp_ttl_cleanup() -> None:
     global runtime_services_started
+    runtime_directory_owner.assert_owned()
     # Storage ownership must precede every background recovery/dispatch loop.
     try:
         from server.model_router.api import start_provider_storage
@@ -32635,13 +32785,25 @@ async def cancel_agent_task(task_id: str, payload: dict[str, Any] | None = None)
         raise HTTPException(status_code=404, detail="Agent task not found.")
     reason = str((payload or {}).get("reason") or "cancelled")
     cancelled = await agent_task_store.cancel_task(task_id, reason=reason)
-    await update_runtime_runs_for_source(
-        task_id,
-        "agent_task",
-        status="cancelled",
-        error=reason,
-        metadata={"cancel_reason": reason},
-    )
+    if cancelled.status == "cancelled":
+        await _cancel_agent_task_workflow_children(task_id)
+        reason = cancelled.error or "cancelled"
+        await update_runtime_runs_for_source(
+            task_id,
+            "agent_task",
+            status="cancelled",
+            error=reason,
+            metadata={"cancel_reason": reason},
+        )
+        for handoff in await agent_task_store.list_handoffs(task_id):
+            if handoff.status == "dead_letter" and handoff.metadata.get("last_error") == "HANDOFF_CANCELLED":
+                await update_runtime_runs_for_source(
+                    handoff.handoff_id,
+                    "agent_handoff",
+                    status="cancelled",
+                    error=reason,
+                    metadata={"cancel_reason": reason},
+                )
     return {
         "task_id": cancelled.task_id,
         "status": cancelled.status,

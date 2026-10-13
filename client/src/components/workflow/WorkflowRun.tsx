@@ -227,6 +227,8 @@ interface PendingHumanIntervention {
 
 type RunStepStatus =
   | "running"
+  | "cancelled"
+  | "timer_waiting"
   | "retry_waiting"
   | "done"
   | "handled_error"
@@ -604,6 +606,8 @@ function appendStepOutput(
 }
 
 function statusCopy(status: RunStepStatus) {
+  if (status === "cancelled") return "已取消";
+  if (status === "timer_waiting") return "等待恢复";
   if (status === "done") return "完成";
   if (status === "retry_waiting") return "等待重试";
   if (status === "handled_error") return "失败已处理";
@@ -617,7 +621,7 @@ function statusClass(status: RunStepStatus) {
   if (status === "done") {
     return "border-emerald-300/25 bg-emerald-300/10 text-emerald-100";
   }
-  if (status === "waiting") {
+  if (status === "waiting" || status === "timer_waiting") {
     return "border-sky-300/25 bg-sky-300/10 text-sky-100";
   }
   if (status === "retry_waiting") {
@@ -626,7 +630,7 @@ function statusClass(status: RunStepStatus) {
   if (status === "handled_error") {
     return "border-amber-300/30 bg-amber-300/10 text-amber-100";
   }
-  if (status === "skipped") {
+  if (status === "skipped" || status === "cancelled") {
     return "border-slate-300/20 bg-slate-300/10 text-slate-300";
   }
   if (status === "error") {
@@ -849,7 +853,7 @@ function RuntimeCheckpointList({
   );
 }
 
-export function buildRunSteps(events: WorkflowRunEvent[]) {
+export function buildRunSteps(events: WorkflowRunEvent[], cancelled = false) {
   const steps: WorkflowRunStep[] = [];
   const byNodeId = new Map<string, WorkflowRunStep>();
 
@@ -876,6 +880,10 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
   }
 
   events.forEach((event, index) => {
+    if (event.event === "workflow_cancelled") {
+      cancelled = true;
+      return;
+    }
     if (
       event.event === "workflow_meta"
       || event.event === "workflow_end"
@@ -894,6 +902,11 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
     }
 
     const step = getStep(event, index);
+    if (event.event === "timer_waiting") {
+      step.status = "timer_waiting";
+      step.title = event.node_title ?? "挂起等待";
+      return;
+    }
     if (event.event === "human_intervention_pending") {
       step.status = "waiting";
       step.output = appendStepOutput(step.output, event.prompt, step.type);
@@ -1001,6 +1014,13 @@ export function buildRunSteps(events: WorkflowRunEvent[]) {
     }
   });
 
+  if (cancelled) {
+    for (const step of steps) {
+      if (["running", "waiting", "retry_waiting", "timer_waiting"].includes(step.status)) {
+        step.status = "cancelled";
+      }
+    }
+  }
   return steps;
 }
 
@@ -1377,7 +1397,10 @@ export default function WorkflowRun({
     [finalOutput],
   );
 
-  const runSteps = useMemo(() => buildRunSteps(events), [events]);
+  const runSteps = useMemo(
+    () => buildRunSteps(events, finishedOutcome === "cancelled"),
+    [events, finishedOutcome],
+  );
   const expectedHookSkillIds = useMemo(
     () => hookSkillIdsFromWorkflowNodes(definition.nodes),
     [definition.nodes],
@@ -1898,13 +1921,9 @@ export default function WorkflowRun({
       }
       const authoritativeStatus = String(payload?.status ?? "");
       if (authoritativeStatus === "cancelled") {
-        window.sessionStorage.removeItem(workflowRunRecoveryKey(definition.id));
-        setRecoveryPending(false);
+        handleRunEvent({ event: "workflow_cancelled", message: "已取消。" });
         if (abort) {
           abort.abort();
-        } else {
-          setFinishedOutcome("cancelled");
-          recordRunHistory("cancelled", "已取消。");
         }
         return;
       }

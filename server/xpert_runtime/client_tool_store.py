@@ -8,9 +8,11 @@ import secrets
 import threading
 import time
 import uuid
+from copy import deepcopy
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 
 ClientToolRequestStatus = Literal[
@@ -130,6 +132,7 @@ class ClientToolRequest:
     result_metadata: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     dispatch_count: int = 0
+    dispatched_connection_id: str | None = None
     revision: int = 1
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -364,26 +367,38 @@ class ClientToolStore:
             host = self._hosts.get(host_id)
             if host is None or host.connection_id != connection_id:
                 return
+            original_host = host
+            originals: dict[str, ClientToolRequest] = {}
+            host = deepcopy(host)
             host.status = "offline"
             host.connection_id = None
             host.updated_at = time.time()
-            for request in self._requests.values():
+            for request in list(self._requests.values()):
                 if request.host_id != host_id or request.status not in {
                     "dispatched",
                     "running",
                 }:
                     continue
-                if request.mutating and request.status == "running":
+                originals[request.request_id] = request
+                request = deepcopy(request)
+                if request.mutating:
                     self._set_request_status_unlocked(
                         request,
                         "uncertain",
-                        error="Client disconnected while a mutating operation was running.",
+                        error="修改请求派发后连接中断，执行结果不确定，禁止自动重发。",
                     )
                 else:
                     request.status = "pending"
                     request.updated_at = time.time()
                     request.revision += 1
-            self._persist_unlocked()
+                self._requests[request.request_id] = request
+            self._hosts[host_id] = host
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._hosts[host_id] = original_host
+                self._requests.update(originals)
+                raise
 
     def revoke_host(self, host_id: str) -> ClientHost:
         with self._lock:
@@ -487,34 +502,81 @@ class ClientToolStore:
         items.sort(key=lambda item: (item.updated_at, item.request_id), reverse=True)
         return items[: max(1, min(int(limit), 1000))]
 
-    def mark_dispatched(self, request_id: str) -> ClientToolRequest:
+    @contextmanager
+    def request_local_operation(self, *, expected_request: ClientToolRequest) -> Iterator[None]:
+        """Fence a synchronous decision after acquiring the parent execution lock.
+
+        Never await or send to a host here. This protects a read/one-Store-write
+        decision, not an atomic commit across different Stores.
+        """
+        with self._lock:
+            current = self.require_request(expected_request.request_id)
+            if current != expected_request:
+                raise ClientToolConflictError("客户端请求已变化，请重新核对操作许可。")
+            yield
+
+    def mark_dispatched(
+        self, request_id: str, *, host_id: str | None = None,
+        connection_id: str | None = None, expected_revision: int | None = None,
+    ) -> ClientToolRequest:
         with self._lock:
             request = self.require_request(request_id)
-            if request.status not in {"pending", "dispatched"}:
-                return request
+            if request.status != "pending" or request.expires_at <= time.time():
+                raise ClientToolConflictError("客户端请求已派发、已终止或已过期，不能再次派发。")
+            if expected_revision is not None and request.revision != expected_revision:
+                raise ClientToolConflictError("客户端请求已变化，请重新核对待发请求。")
+            if host_id is not None or connection_id is not None:
+                host = self.require_host(request.host_id)
+                if (host_id != request.host_id or not connection_id
+                        or host.connection_id != connection_id
+                        or host.status != "online" or host.revoked):
+                    raise ClientToolConflictError("客户端派发连接已失效或不属于此请求。")
+            original = request
+            request = deepcopy(request)
             request.status = "dispatched"
             request.dispatched_at = time.time()
             request.dispatch_count += 1
+            request.dispatched_connection_id = connection_id
+            if request.tool_name == "host_page_screenshot":
+                # A read reconnect starts a fresh capture, retaining old artifacts
+                # for historical reads but not as this dispatch's upload receipt.
+                request.result_metadata.pop("artifact_id", None)
             request.updated_at = request.dispatched_at
             request.revision += 1
-            self._persist_unlocked()
-            return request
+            self._requests[request_id] = request
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
 
-    def mark_running(self, request_id: str, *, host_id: str) -> ClientToolRequest:
+    def mark_running(
+        self, request_id: str, *, host_id: str,
+        connection_id: str | None = None, dispatch_count: int | None = None,
+    ) -> ClientToolRequest:
         with self._lock:
             request = self._require_owned_request(request_id, host_id)
+            self._validate_receipt_dispatch(request, connection_id, dispatch_count)
             if request.status == "completed":
-                return request
+                return deepcopy(request)
             if request.status not in {"dispatched", "running"}:
                 raise ClientToolConflictError(
                     f"Client request cannot run from {request.status}."
                 )
+            original = request
+            request = deepcopy(request)
             request.status = "running"
             request.started_at = request.started_at or time.time()
             request.updated_at = time.time()
             request.revision += 1
-            self._persist_unlocked()
-            return request
+            self._requests[request_id] = request
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
 
     def complete_request(
         self,
@@ -525,21 +587,31 @@ class ClientToolStore:
         tool_call_id: str,
         result: str,
         metadata: dict[str, Any] | None = None,
+        connection_id: str | None = None,
+        dispatch_count: int | None = None,
     ) -> ClientToolRequest:
         with self._lock:
             request = self._require_owned_request(request_id, host_id)
             self._validate_result_identity(request, operation_id, tool_call_id)
+            self._validate_receipt_dispatch(request, connection_id, dispatch_count)
             if request.status == "completed":
-                return request
+                return deepcopy(request)
             if request.status not in {"dispatched", "running"}:
                 raise ClientToolConflictError(
                     f"Client request cannot complete from {request.status}."
                 )
+            original = request
+            request = deepcopy(request)
             request.result = str(result or "")[:64_000]
-            request.result_metadata = self._safe_result_metadata(metadata or {})
+            request.result_metadata = deepcopy(self._safe_result_metadata(metadata or {}))
             self._set_request_status_unlocked(request, "completed")
-            self._persist_unlocked()
-            return request
+            self._requests[request_id] = request
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
 
     def fail_request(
         self,
@@ -549,28 +621,36 @@ class ClientToolStore:
         operation_id: str,
         tool_call_id: str,
         error: str,
+        connection_id: str | None = None,
+        dispatch_count: int | None = None,
     ) -> ClientToolRequest:
         with self._lock:
             request = self._require_owned_request(request_id, host_id)
             self._validate_result_identity(request, operation_id, tool_call_id)
+            self._validate_receipt_dispatch(request, connection_id, dispatch_count)
             if request.status in TERMINAL_REQUEST_STATUSES:
-                return request
+                return deepcopy(request)
+            if request.status not in {"dispatched", "running"}:
+                raise ClientToolConflictError("客户端请求尚未派发，不能提交失败回执。")
+            original = request
+            request = deepcopy(request)
             self._set_request_status_unlocked(request, "failed", error=error)
-            self._persist_unlocked()
-            return request
+            self._requests[request_id] = request
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
 
     def retry_request(self, request_id: str) -> ClientToolRequest:
         with self._lock:
             request = self.require_request(request_id)
-            if request.status not in {
-                "failed",
-                "cancelled",
-                "expired",
-                "uncertain",
-            }:
-                raise ClientToolConflictError(
-                    f"Client request cannot be retried from {request.status}."
-                )
+            blocked = self._retry_blocked_reason(request)
+            if blocked:
+                raise ClientToolConflictError(blocked)
+            original = request
+            request = deepcopy(request)
             request.status = "pending"
             request.result = ""
             request.result_metadata = {}
@@ -580,35 +660,76 @@ class ClientToolStore:
             request.expires_at = time.time() + request.timeout_seconds
             request.updated_at = time.time()
             request.revision += 1
-            self._persist_unlocked()
-            return request
+            self._requests[request_id] = request
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
 
     def cancel_request(self, request_id: str) -> ClientToolRequest:
         with self._lock:
             request = self.require_request(request_id)
-            if request.status not in TERMINAL_REQUEST_STATUSES:
-                self._set_request_status_unlocked(
-                    request, "cancelled", error="Cancelled by local operator."
-                )
+            if request.status in TERMINAL_REQUEST_STATUSES:
+                return deepcopy(request)
+            original = request
+            request = deepcopy(request)
+            if request.mutating and self._may_have_dispatched(request):
+                self._set_request_status_unlocked(request, "uncertain", error=(
+                    "已停止等待；修改请求已经派发，无法确认客户端是否执行或撤销。请先核对实际结果，不得按原请求重派。"
+                ))
+            else:
+                self._set_request_status_unlocked(request, "cancelled", error="已由本地操作者取消请求。")
+            self._requests[request_id] = request
+            try:
                 self._persist_unlocked()
-            return request
+            except BaseException:
+                self._requests[request_id] = original
+                raise
+            return deepcopy(request)
+
+    @staticmethod
+    def _may_have_dispatched(request: ClientToolRequest) -> bool:
+        return (
+            request.dispatch_count > 0
+            or request.dispatched_at is not None
+            or request.started_at is not None
+            or request.status in {"dispatched", "running", "failed", "uncertain"}
+        )
+
+    @classmethod
+    def _retry_blocked_reason(cls, request: ClientToolRequest) -> str | None:
+        if request.status not in {"failed", "cancelled", "expired", "uncertain"}:
+            return "当前请求状态不允许重新派发。"
+        if request.mutating and cls._may_have_dispatched(request):
+            return "修改请求可能已经执行，不能按原请求重新派发。请先核对客户端实际结果。"
+        return None
 
     def expire_due(self, now: float | None = None) -> list[ClientToolRequest]:
         current = time.time() if now is None else float(now)
         expired: list[ClientToolRequest] = []
         with self._lock:
+            originals: dict[str, ClientToolRequest] = {}
             for request in self._requests.values():
                 if request.status in TERMINAL_REQUEST_STATUSES:
                     continue
                 if request.expires_at > current:
                     continue
+                originals[request.request_id] = request
+                request = deepcopy(request)
                 self._set_request_status_unlocked(
                     request, "expired", error="Client tool request expired."
                 )
+                self._requests[request.request_id] = request
                 expired.append(request)
             if expired:
-                self._persist_unlocked()
-        return expired
+                try:
+                    self._persist_unlocked()
+                except BaseException:
+                    self._requests.update(originals)
+                    raise
+        return deepcopy(expired)
 
     def register_artifact(
         self,
@@ -618,8 +739,9 @@ class ClientToolStore:
         filename: str,
         content_type: str,
         data: bytes,
+        connection_id: str | None = None,
+        dispatch_count: int | None = None,
     ) -> ClientToolArtifact:
-        request = self._require_owned_request(request_id, host_id)
         if len(data) > 5 * 1024 * 1024:
             raise ClientToolConflictError("Client tool screenshot exceeds 5 MB.")
         if content_type not in {"image/png", "image/jpeg", "image/webp"}:
@@ -634,10 +756,6 @@ class ClientToolStore:
         root = self.artifact_root.resolve()
         if root not in target.parents:
             raise ClientToolConflictError("Invalid client tool artifact path.")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(target.suffix + ".tmp")
-        temporary.write_bytes(data)
-        os.replace(temporary, target)
         artifact = ClientToolArtifact(
             artifact_id=artifact_id,
             request_id=request_id,
@@ -648,11 +766,45 @@ class ClientToolStore:
             size_bytes=len(data),
         )
         with self._lock:
-            self._artifacts[artifact.artifact_id] = artifact
+            request = self._require_owned_request(request_id, host_id)
+            if (request.tool_name != "host_page_screenshot"
+                    or request.status not in {"dispatched", "running"}
+                    or request.expires_at <= time.time() or not connection_id):
+                raise ClientToolConflictError("截图请求未有效派发、已结束或已过期，不能登记产物。")
+            self._validate_receipt_dispatch(request, connection_id, dispatch_count)
+            previous_id = request.result_metadata.get("artifact_id")
+            if previous_id:
+                previous = self.require_artifact(previous_id)
+                if (previous.request_id != request_id or previous.host_id != host_id
+                        or previous.content_type != content_type or previous.size_bytes != len(data)
+                        or self.artifact_path(previous).read_bytes() != data):
+                    raise ClientToolConflictError("本次派发已有不同截图，不能覆盖已登记产物。")
+                return deepcopy(previous)
+            original = request
+            request = deepcopy(request)
             request.result_metadata["artifact_id"] = artifact.artifact_id
             request.updated_at = time.time()
-            self._persist_unlocked()
-        return artifact
+            request.revision += 1
+            temporary = target.with_suffix(target.suffix + ".tmp")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_bytes(data)
+                os.replace(temporary, target)
+                self._artifacts[artifact.artifact_id] = artifact
+                self._requests[request_id] = request
+                self._persist_unlocked()
+            except BaseException:
+                self._requests[request_id] = original
+                self._artifacts.pop(artifact.artifact_id, None)
+                # Only this new upload is cleaned up. Crash leftovers are never
+                # visible without a committed Store entry, nor scanned on load.
+                for path in (temporary, target):
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                raise
+        return deepcopy(artifact)
 
     def require_artifact(self, artifact_id: str) -> ClientToolArtifact:
         with self._lock:
@@ -697,6 +849,7 @@ class ClientToolStore:
         *,
         include_result: bool = False,
     ) -> dict[str, Any]:
+        retry_blocked_reason = cls._retry_blocked_reason(request)
         payload = {
             "request_id": request.request_id,
             "operation_id": request.operation_id,
@@ -711,6 +864,8 @@ class ClientToolStore:
             "arguments": cls._redact_arguments(request.arguments),
             "mutating": request.mutating,
             "status": request.status,
+            "retryable": retry_blocked_reason is None,
+            "retry_blocked_reason": retry_blocked_reason,
             "error": request.error,
             "dispatch_count": request.dispatch_count,
             "revision": request.revision,
@@ -760,6 +915,26 @@ class ClientToolStore:
         if request.host_id != host_id:
             raise ClientToolConflictError("Client request belongs to another host.")
         return request
+
+    def _validate_receipt_dispatch(
+        self, request: ClientToolRequest, connection_id: str | None,
+        dispatch_count: int | None,
+    ) -> None:
+        # Legacy in-process callers have no transport identity. WebSockets always do.
+        if connection_id is None and request.dispatched_connection_id is None:
+            if dispatch_count is None:
+                return
+        host = self.require_host(request.host_id)
+        if (not connection_id or request.dispatched_connection_id != connection_id
+                or host.connection_id != connection_id
+                or host.status != "online" or host.revoked):
+            raise ClientToolConflictError("客户端回执连接已失效或不属于本次派发。")
+        # Missing generations are safe only for the first dispatch on its bound socket.
+        if dispatch_count is None and request.dispatch_count == 1:
+            return
+        if (type(dispatch_count) is not int or dispatch_count < 1
+                or dispatch_count != request.dispatch_count):
+            raise ClientToolConflictError("客户端回执派发代次不匹配；重派需要支持代次校验的客户端。")
 
     @staticmethod
     def _validate_result_identity(

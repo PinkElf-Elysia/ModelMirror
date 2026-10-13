@@ -60,6 +60,11 @@ def _suspend_xpert_retry(
         wait_id=f"node_retry:{task_id}",
         resume_at=resume_at,
         continuation={
+            "queue": ["request"],
+            "queued": ["request"],
+            "executed": ["input"],
+            "variables": {"user_input": "synthetic"},
+            "scheduler": {"version": 1},
             "retry_state": {
                 "version": 1,
                 "node_id": "request",
@@ -357,8 +362,10 @@ async def test_new_recovery_run_is_cancelled_when_rebind_loses_lease(
         now=100.0,
     )
     original_update = execution_store.update_run_id
+    rebind_attempts = []
 
     def cancel_before_rebind(*args, **kwargs):
+        rebind_attempts.append(True)
         execution_store.cancel("task-xpert-retry", error="cancelled_by_user")
         return original_update(*args, **kwargs)
 
@@ -385,6 +392,8 @@ async def test_new_recovery_run_is_cancelled_when_rebind_loses_lease(
             runtime_execution_source_kind="xpert_chat",
         )
 
+    assert len(rebind_attempts) == 1
+    assert execution_store.require("task-xpert-retry").status == "cancelled"
     recovery_runs = await registry.list_runs(limit=10)
     assert len(recovery_runs) == 1
     assert recovery_runs[0].status == "cancelled"

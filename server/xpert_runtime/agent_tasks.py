@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import math
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 from .events import RuntimeEventStore
+from .execution_store import WorkflowExecution, WorkflowExecutionStore
+from .workflow_outcomes import resolve_workflow_outcome
 
 AgentTaskStatus = Literal[
     "pending",
@@ -43,7 +48,12 @@ HANDOFF_TRANSITIONS: dict[AgentHandoffStatus, set[AgentHandoffStatus]] = {
     "dead_letter": {"pending"},
 }
 TERMINAL_HANDOFF_STATUSES = {"rejected", "completed", "dead_letter"}
+TERMINAL_TASK_STATUSES = {"completed", "failed", "cancelled"}
 AUTO_XPERT_TARGET_PREFIX = "xpert:"
+
+
+class HandoffOwnershipError(ValueError):
+    """A stale worker cannot mutate or settle a claimed handoff."""
 
 
 @dataclass(slots=True)
@@ -94,6 +104,7 @@ class AgentTaskStore:
         self._handoffs: list[AgentHandoff] = []
         self._occurrence_index: dict[str, str] = {}
         self._event_store = event_store
+        self._handoff_commit_uncertain = False
         self.storage_dir = Path(storage_dir) if storage_dir is not None else None
         self.storage_path = (
             self.storage_dir / "agent_tasks.json" if self.storage_dir is not None else None
@@ -118,19 +129,20 @@ class AgentTaskStore:
             input=input_text,
             source_agent=source_agent,
             assigned_agent=assigned_agent,
-            metadata=dict(metadata or {}),
+            metadata=copy.deepcopy(metadata or {}),
         )
         async with self._changed:
             if occurrence:
                 existing_id = self._occurrence_index.get(f"task:{occurrence}")
                 existing = self._tasks.get(str(existing_id or ""))
                 if existing is not None:
-                    return existing
+                    return copy.deepcopy(existing)
             self._tasks[task.task_id] = task
             if occurrence:
                 self._occurrence_index[f"task:{occurrence}"] = task.task_id
             self._persist_unlocked()
             self._changed.notify_all()
+            task = copy.deepcopy(task)
         await self._record(
             "agent.task.created",
             task_id=task.task_id,
@@ -145,7 +157,7 @@ class AgentTaskStore:
 
     async def get_task(self, task_id: str) -> AgentTask | None:
         async with self._lock:
-            return self._tasks.get(task_id)
+            return copy.deepcopy(self._tasks.get(task_id))
 
     async def list_tasks(
         self,
@@ -154,11 +166,66 @@ class AgentTaskStore:
         limit: int = 50,
     ) -> list[AgentTask]:
         async with self._lock:
-            tasks = list(self._tasks.values())
+            tasks = copy.deepcopy(list(self._tasks.values()))
         if status is not None:
             tasks = [task for task in tasks if task.status == status]
         tasks.sort(key=lambda task: task.created_at, reverse=True)
         return tasks[: max(1, limit)]
+
+    async def list_goal_tasks(self, goal_id: str | None = None) -> list[AgentTask]:
+        """Find durable Goal associations without the management list's page limit."""
+        async with self._lock:
+            return [
+                copy.deepcopy(task)
+                for task in self._tasks.values()
+                if isinstance(task.metadata.get("goal_id"), str)
+                and task.metadata["goal_id"]
+                and task.source_agent == f"goal:{task.metadata['goal_id']}"
+                and (goal_id is None or task.metadata["goal_id"] == goal_id)
+            ]
+
+    async def publish_unstarted_goal_handoff(
+        self, *, goal_id: str, step_id: str, task_id: str,
+        handoff_id: str, target_xpert_id: str, target_version: int,
+    ) -> bool:
+        """Finish a linked registration only when no dispatch has occurred."""
+        async with self._changed:
+            task = self._tasks.get(task_id)
+            handoff = self._find_handoff_unlocked(handoff_id)
+            expected = {
+                "goal_id": goal_id, "goal_step_id": step_id,
+                "target_xpert_id": target_xpert_id, "target_xpert_version": target_version,
+            }
+            if (
+                task is None or handoff is None or handoff.task_id != task_id
+                or task.status != "pending" or handoff.status != "pending"
+                or task.source_agent != f"goal:{goal_id}"
+                or handoff.source_agent != task.source_agent
+                or task.assigned_agent != f"xpert:{target_xpert_id}"
+                or handoff.target_agent != task.assigned_agent
+                or any(item.metadata.get(key) != value for item in (task, handoff) for key, value in expected.items())
+                or handoff.metadata.get("ready_for_execution") is not False
+                or handoff.metadata.get("execution_mode") != "xpert_auto"
+                or type(handoff.metadata.get("attempts", 0)) is not int
+                or handoff.metadata.get("attempts", 0) != 0
+                or any(type(item.metadata.get("target_xpert_version")) is not int for item in (task, handoff))
+                or any(handoff.metadata.get(key) for key in (
+                    "lease_owner", "lease_token", "lease_expires_at", "xpert_run_id", "workflow_task_id",
+                ))
+            ):
+                return False
+            index = self._handoffs.index(handoff)
+            updated = copy.deepcopy(handoff)
+            updated.metadata["ready_for_execution"] = True
+            updated.touch()
+            self._handoffs[index] = updated
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._handoffs[index] = handoff
+                raise
+            self._changed.notify_all()
+            return True
 
     async def update_task(
         self,
@@ -176,6 +243,10 @@ class AgentTaskStore:
             task = self._tasks.get(task_id)
             if task is None:
                 raise KeyError(f"Agent task not found: {task_id}")
+            if task.status in TERMINAL_TASK_STATUSES:
+                # Only an explicit handoff requeue may reopen a failed task.
+                return copy.deepcopy(task)
+            task = copy.deepcopy(task)
             if status is not None:
                 task.status = status
             if clear_result:
@@ -189,11 +260,10 @@ class AgentTaskStore:
             if assigned_agent is not None:
                 task.assigned_agent = assigned_agent
             if metadata is not None:
-                task.metadata.update(metadata)
+                task.metadata.update(copy.deepcopy(metadata))
             task.touch()
-            self._persist_unlocked()
-            self._changed.notify_all()
-            updated = task
+            self._commit_task_unlocked(task)
+            updated = copy.deepcopy(task)
         await self._record(
             "agent.task.updated",
             task_id=task_id,
@@ -207,13 +277,237 @@ class AgentTaskStore:
         return updated
 
     async def cancel_task(self, task_id: str, reason: str = "cancelled") -> AgentTask:
-        task = await self.update_task(task_id, status="cancelled", error=reason)
+        async with self._changed:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise KeyError(f"Agent task not found: {task_id}")
+            if task.status in TERMINAL_TASK_STATUSES:
+                return copy.deepcopy(task)
+            original_task = task
+            original_handoffs = self._handoffs
+            task = copy.deepcopy(task)
+            task.status = "cancelled"
+            task.error = reason
+            task.touch()
+            handoffs = list(original_handoffs)
+            for index, handoff in enumerate(handoffs):
+                if handoff.task_id != task_id or handoff.status in TERMINAL_HANDOFF_STATUSES:
+                    continue
+                handoff = copy.deepcopy(handoff)
+                handoff.status = "dead_letter"
+                handoff.metadata.update({
+                    "last_error": "HANDOFF_CANCELLED",
+                    "ready_for_execution": False,
+                    "lease_owner": "", "lease_token": "", "lease_expires_at": 0.0,
+                    "next_attempt_at": 0.0,
+                })
+                handoff.touch()
+                handoffs[index] = handoff
+            # The task and every still-active handoff share one durable decision.
+            self._tasks[task_id], self._handoffs = task, handoffs
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._tasks[task_id], self._handoffs = original_task, original_handoffs
+                raise
+            self._changed.notify_all()
+            task = copy.deepcopy(task)
+        await self._record(
+            "agent.task.updated",
+            task_id=task_id,
+            payload={
+                "task_id": task_id,
+                "status": task.status,
+                "has_result": task.result is not None,
+                "has_error": task.error is not None,
+            },
+        )
         await self._record(
             "agent.task.cancelled",
             task_id=task_id,
             payload={"task_id": task_id, "reason": reason},
         )
         return task
+
+    async def expire_handoff(self, handoff_id: str) -> bool:
+        """Commit timeout and task cancellation together; retry only local propagation."""
+        async with self._changed:
+            if self._handoff_commit_uncertain:
+                raise HandoffOwnershipError("交接持久化结果不确定，须重新加载后核对超时决定。")
+            handoff = self._find_handoff_unlocked(handoff_id)
+            task = self._tasks.get(handoff.task_id) if handoff is not None else None
+            if handoff is None or task is None:
+                raise HandoffOwnershipError("超时交接或父任务不存在。")
+            timed_out = handoff.status == "dead_letter" and handoff.metadata.get("last_error") == "HANDOFF_TIMEOUT"
+            if handoff.status in TERMINAL_HANDOFF_STATUSES and not timed_out:
+                return False
+            if task.status in TERMINAL_TASK_STATUSES:
+                if timed_out and not (task.status == "cancelled" and task.error == "HANDOFF_TIMEOUT"):
+                    raise HandoffOwnershipError("交接超时终态与父任务取消决定不一致。")
+                return timed_out
+            bound_handoff = task.metadata.get("handoff_id")
+            if bound_handoff and bound_handoff != handoff_id:
+                raise HandoffOwnershipError("超时交接与父任务绑定不一致。")
+            original_task, original_handoffs = task, self._handoffs
+            task = copy.deepcopy(task)
+            task.status, task.error = "cancelled", "HANDOFF_TIMEOUT"
+            task.touch()
+            handoffs = list(original_handoffs)
+            for index, item in enumerate(handoffs):
+                if item.task_id != task.task_id:
+                    continue
+                if item.status in TERMINAL_HANDOFF_STATUSES and item.handoff_id != handoff_id:
+                    continue
+                item = copy.deepcopy(item)
+                item.status = "dead_letter"
+                item.metadata.update({
+                    "last_error": "HANDOFF_TIMEOUT" if item.handoff_id == handoff_id else "HANDOFF_CANCELLED",
+                    "ready_for_execution": False, "lease_owner": "", "lease_token": "",
+                    "lease_expires_at": 0.0, "next_attempt_at": 0.0,
+                })
+                if item.handoff_id == handoff_id:
+                    item.metadata.setdefault("dead_lettered_at", time.time())
+                item.touch()
+                handoffs[index] = item
+            self._tasks[task.task_id], self._handoffs = task, handoffs
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._tasks[task.task_id], self._handoffs = original_task, original_handoffs
+                self._handoff_commit_uncertain = True
+                raise
+            self._changed.notify_all()
+        await self._record("agent.handoff.dead_letter", task_id=task.task_id, payload={
+            "handoff_id": handoff_id, "task_id": task.task_id,
+            "status": "dead_letter", "error": "HANDOFF_TIMEOUT",
+        })
+        await self._record("agent.task.cancelled", task_id=task.task_id, payload={
+            "task_id": task.task_id, "reason": "HANDOFF_TIMEOUT",
+        })
+        return True
+
+    async def project_workflow_outcome(
+        self,
+        executions: WorkflowExecutionStore,
+        snapshot: WorkflowExecution,
+        event: dict[str, Any],
+        *,
+        completion_metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Commit a verified child decision to its task/handoff pair once."""
+        snapshot, event = copy.deepcopy(snapshot), copy.deepcopy(event)
+        completion_metadata = {
+            key: copy.deepcopy(value)
+            for key, value in (completion_metadata or {}).items()
+            if key in {
+                "completed_by", "approval_id", "approval_status",
+                "client_request_id", "client_request_status",
+            }
+        }
+        async with self._changed:
+            with executions.projection_local_operation(
+                snapshot.task_id, expected_snapshot=snapshot,
+            ):
+                outcome = resolve_workflow_outcome(event, snapshot)
+                if outcome.status == "waiting" and outcome.wait_kind not in {"approval", "client_tool"}:
+                    return False
+                handoff_id = str(snapshot.runtime_metadata.get("handoff_id") or "")
+                handoff = self._find_handoff_unlocked(handoff_id)
+                if handoff is None:
+                    raise KeyError("父状态投影的交接不存在。")
+                task = self._tasks.get(handoff.task_id)
+                if task is None:
+                    raise KeyError("父状态投影的任务不存在。")
+                source_task = snapshot.runtime_metadata.get("agent_task_id")
+                bound_handoff = task.metadata.get("handoff_id")
+                if (
+                    (source_task and source_task != task.task_id)
+                    or (bound_handoff and bound_handoff != handoff_id)
+                ):
+                    raise ValueError("父状态投影的任务与交接绑定不一致。")
+                bound_run = handoff.metadata.get("xpert_run_id")
+                if bound_run and bound_run not in [snapshot.run_id, *snapshot.previous_run_ids]:
+                    return False
+                requeued_at = self._metadata_float(handoff.metadata, "requeued_at")
+                if requeued_at and snapshot.created_at <= requeued_at:
+                    return False
+                prior = handoff.metadata.get("workflow_projection") or {}
+                if prior and prior.get("task_id") != snapshot.task_id and not requeued_at:
+                    return False
+                receipt = {
+                    "task_id": snapshot.task_id, "run_id": snapshot.run_id,
+                    "revision": snapshot.revision, "status": outcome.status,
+                    "wait_kind": outcome.wait_kind, "wait_id": outcome.wait_id,
+                }
+                if outcome.status == "waiting":
+                    task_status = handoff_status = (
+                        "waiting_approval" if outcome.wait_kind == "approval" else "waiting_client"
+                    )
+                elif outcome.status == "cancelled":
+                    task_status, handoff_status = "cancelled", "dead_letter"
+                else:
+                    task_status = handoff_status = "completed"
+                if (
+                    prior == receipt and task.metadata.get("workflow_projection") == receipt
+                    and task.status == task_status and handoff.status == handoff_status
+                ):
+                    return True
+                if task.status in TERMINAL_TASK_STATUSES or handoff.status in TERMINAL_HANDOFF_STATUSES:
+                    return False
+                if handoff.status not in {"accepted", "waiting_approval", "waiting_client", "needs_attention"}:
+                    return False
+                original_task, original_handoff = task, handoff
+                index = self._handoffs.index(handoff)
+                task, handoff = copy.deepcopy(task), copy.deepcopy(handoff)
+                task.status, handoff.status = task_status, handoff_status
+                task.metadata.update({
+                    "handoff_id": handoff_id, "workflow_projection": copy.deepcopy(receipt),
+                    "xpert_run_id": snapshot.run_id,
+                })
+                handoff.metadata.update({
+                    "workflow_projection": copy.deepcopy(receipt), "xpert_run_id": snapshot.run_id,
+                })
+                if outcome.status == "completed":
+                    result = str(snapshot.result or "")
+                    task.result = result[:100_000]
+                    task.error = None
+                    task.metadata.update(copy.deepcopy(completion_metadata))
+                    handoff.metadata.update({
+                        **completion_metadata, "result": task.result,
+                        "result_length": len(result), "completed_at": time.time(),
+                    })
+                elif outcome.status == "cancelled":
+                    task.error = "WORKFLOW_CANCELLED"
+                    handoff.metadata.update({
+                        "last_error": "WORKFLOW_CANCELLED", "dead_lettered_at": time.time(),
+                        "ready_for_execution": False,
+                    })
+                else:
+                    task.error = None
+                task.touch()
+                handoff.touch()
+                self._tasks[task.task_id], self._handoffs[index] = task, handoff
+                try:
+                    self._persist_unlocked()
+                except Exception:
+                    self._tasks[task.task_id], self._handoffs[index] = original_task, original_handoff
+                    raise
+                self._changed.notify_all()
+        await self._record(
+            f"agent.handoff.{handoff_status}", task_id=task.task_id,
+            payload={
+                "handoff_id": handoff_id, "task_id": task.task_id, "status": handoff_status,
+                "source_agent": handoff.source_agent, "target_agent": handoff.target_agent,
+            },
+        )
+        await self._record(
+            "agent.task.updated", task_id=task.task_id,
+            payload={
+                "task_id": task.task_id, "status": task_status,
+                "has_result": task.result is not None, "has_error": task.error is not None,
+            },
+        )
+        return True
 
     async def create_handoff(
         self,
@@ -244,6 +538,8 @@ class AgentTaskStore:
                 existing = self._find_handoff_unlocked(str(existing_id or ""))
                 if existing is not None:
                     return existing
+            if self._tasks[task_id].status == "cancelled":
+                raise ValueError("已取消任务不能创建新的交接。")
             self._handoffs.append(handoff)
             if occurrence:
                 self._occurrence_index[f"handoff:{occurrence}"] = handoff.handoff_id
@@ -288,7 +584,7 @@ class AgentTaskStore:
                 self._occurrence_index.get(handoff_index_key, "")
             )
             if task is not None and handoff is not None:
-                return task, handoff
+                return copy.deepcopy(task), handoff
             if task is not None or handoff is not None:
                 raise RuntimeError("Routed handoff occurrence index is inconsistent.")
             task = AgentTask(
@@ -297,7 +593,7 @@ class AgentTaskStore:
                 input=input_text,
                 source_agent=source_agent,
                 assigned_agent=target_agent,
-                metadata=dict(task_metadata or {}),
+                metadata=copy.deepcopy(task_metadata or {}),
             )
             handoff = AgentHandoff(
                 handoff_id=f"handoff_{uuid.uuid4().hex}",
@@ -315,6 +611,7 @@ class AgentTaskStore:
             created_handoff = True
             self._persist_unlocked()
             self._changed.notify_all()
+            task = copy.deepcopy(task)
         if created_task:
             await self._record(
                 "agent.task.created",
@@ -355,7 +652,11 @@ class AgentTaskStore:
     ) -> list[AgentHandoff]:
         current_time = time.time() if now is None else now
         async with self._lock:
-            handoffs = list(self._handoffs)
+            handoffs = [
+                copy.deepcopy(handoff) for handoff in self._handoffs
+                if (task := self._tasks.get(handoff.task_id)) is not None
+                and task.status not in TERMINAL_TASK_STATUSES
+            ]
         eligible: list[AgentHandoff] = []
         for handoff in handoffs:
             metadata = handoff.metadata
@@ -389,6 +690,9 @@ class AgentTaskStore:
             handoff = self._find_handoff_unlocked(handoff_id)
             if handoff is None:
                 raise KeyError(f"Agent handoff not found: {handoff_id}")
+            task = self._tasks.get(handoff.task_id)
+            if task is not None and task.status == "cancelled":
+                return copy.deepcopy(handoff)
             handoff.metadata.update(metadata)
             handoff.touch()
             self._persist_unlocked()
@@ -406,9 +710,14 @@ class AgentTaskStore:
     ) -> AgentHandoff:
         current_time = time.time() if now is None else now
         async with self._changed:
+            if self._handoff_commit_uncertain:
+                raise HandoffOwnershipError("交接持久化结果不确定，须重新加载并核对，禁止继续领取。")
             handoff = self._find_handoff_unlocked(handoff_id)
             if handoff is None:
                 raise KeyError(f"Agent handoff not found: {handoff_id}")
+            task = self._tasks.get(handoff.task_id)
+            if task is None or task.status in TERMINAL_TASK_STATUSES:
+                raise ValueError("父任务已终止或不存在，不能领取交接。")
             if not handoff.target_agent.startswith(AUTO_XPERT_TARGET_PREFIX):
                 raise ValueError("Handoff target is not an executable Xpert target.")
             if handoff.metadata.get("execution_mode") != "xpert_auto":
@@ -449,7 +758,8 @@ class AgentTaskStore:
             handoff.touch()
             self._persist_unlocked()
             self._changed.notify_all()
-            claimed = handoff
+            # Ownership must remain fixed even when the stored lease is replaced.
+            claimed = copy.deepcopy(handoff)
         await self._record(
             "agent.handoff.claimed",
             task_id=claimed.task_id,
@@ -461,6 +771,81 @@ class AgentTaskStore:
             },
         )
         return claimed
+
+    def _require_handoff_owner_unlocked(self, handoff: AgentHandoff, task: AgentTask, token: str) -> None:
+        expires = handoff.metadata.get("lease_expires_at")
+        if (
+            self._handoff_commit_uncertain or task.status in TERMINAL_TASK_STATUSES
+            or handoff.status != "accepted" or not isinstance(token, str) or not token
+            or handoff.metadata.get("lease_token") != token
+            or type(expires) not in {int, float} or not math.isfinite(expires) or expires <= time.time()
+        ):
+            raise HandoffOwnershipError("交接执行权已失效，拒绝旧执行者结算。")
+
+    async def settle_claimed_handoff(
+        self, claimed: AgentHandoff, status: AgentHandoffStatus, *,
+        metadata: dict[str, Any] | None = None, task_metadata: dict[str, Any] | None = None,
+        result: str | None = None, error: str | None = None,
+    ) -> AgentHandoff:
+        """Fence ownership and commit task/handoff together; no await between check and persist."""
+        task_states = {"accepted": "running", "completed": "completed", "dead_letter": "failed",
+                       "retry_wait": "running", "waiting_approval": "waiting_approval", "waiting_client": "waiting_client"}
+        if status not in task_states:
+            raise ValueError("不支持的交接结算状态。")
+        async with self._changed:
+            handoff = self._find_handoff_unlocked(claimed.handoff_id)
+            task = self._tasks.get(claimed.task_id)
+            if handoff is None or task is None or handoff.task_id != task.task_id:
+                raise HandoffOwnershipError("交接与父任务身份不一致。")
+            self._require_handoff_owner_unlocked(handoff, task, claimed.metadata.get("lease_token"))
+            index = self._handoffs.index(handoff)
+            updated, updated_task = copy.deepcopy(handoff), copy.deepcopy(task)
+            updated.status, updated_task.status = status, task_states[status]
+            updated.metadata.update(copy.deepcopy(metadata or {}))
+            updated_task.metadata.update(copy.deepcopy(task_metadata or {}))
+            updated_task.metadata["handoff_id"] = handoff.handoff_id
+            updated_task.error = error
+            if status == "accepted":
+                updated_task.assigned_agent = handoff.target_agent
+            else:
+                updated.metadata.update({"lease_owner": "", "lease_token": "", "lease_expires_at": 0.0})
+            if status == "completed":
+                updated_task.result = result
+            updated.touch()
+            updated_task.touch()
+            self._handoffs[index], self._tasks[task.task_id] = updated, updated_task
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._handoffs[index], self._tasks[task.task_id] = handoff, task
+                self._handoff_commit_uncertain = True
+                raise
+            self._changed.notify_all()
+            saved = copy.deepcopy(updated)
+        await self._record("agent.task.updated", task_id=task.task_id, payload={
+            "task_id": task.task_id, "status": updated_task.status,
+            "has_result": updated_task.result is not None, "has_error": updated_task.error is not None,
+        })
+        if status != "accepted":
+            await self._record(f"agent.handoff.{status}", task_id=task.task_id, payload={
+                "handoff_id": saved.handoff_id, "task_id": task.task_id, "status": status,
+                "source_agent": saved.source_agent, "target_agent": saved.target_agent,
+            })
+        return saved
+
+    @asynccontextmanager
+    async def handoff_projection(self, handoff_id: str, *, expected_lease_token: str | None = None):
+        """Lock order: AgentTaskStore then RunRegistry. Never dispatch or reenter this store here."""
+        async with self._lock:
+            if self._handoff_commit_uncertain:
+                raise HandoffOwnershipError("交接持久化结果不确定，不能投影结算状态。")
+            handoff = self._find_handoff_unlocked(handoff_id)
+            task = self._tasks.get(handoff.task_id) if handoff is not None else None
+            if handoff is None or task is None:
+                raise HandoffOwnershipError("交接或父任务不存在，无法投影。")
+            if expected_lease_token is not None:
+                self._require_handoff_owner_unlocked(handoff, task, expected_lease_token)
+            yield copy.deepcopy(handoff), copy.deepcopy(task)
 
     async def update_handoff_status(
         self,
@@ -515,6 +900,22 @@ class AgentTaskStore:
                 raise ValueError(
                     f"Handoff cannot be requeued from {handoff.status}."
                 )
+            task = self._tasks.get(handoff.task_id)
+            if task is None:
+                raise KeyError(f"Agent task not found: {handoff.task_id}")
+            if task.status in {"completed", "cancelled"}:
+                raise ValueError("已完成或已取消的任务不能重新排队。")
+            bound_handoff = task.metadata.get("handoff_id")
+            if bound_handoff and bound_handoff != handoff_id:
+                raise ValueError("任务当前绑定的交接与重排目标不一致。")
+            original_task, original_handoff = task, handoff
+            handoff_index = self._handoffs.index(handoff)
+            task, handoff = copy.deepcopy(task), copy.deepcopy(handoff)
+            task.status = "pending"
+            task.result = None
+            task.error = None
+            task.metadata.update({"handoff_id": handoff_id, "requeued_by": operator})
+            task.touch()
             handoff.status = "pending"
             for key in (
                 "lease_owner",
@@ -543,9 +944,17 @@ class AgentTaskStore:
                 }
             )
             handoff.touch()
-            self._persist_unlocked()
+            # Task reopening and handoff readiness must share one persisted snapshot.
+            self._tasks[task.task_id] = task
+            self._handoffs[handoff_index] = handoff
+            try:
+                self._persist_unlocked()
+            except Exception:
+                self._tasks[task.task_id] = original_task
+                self._handoffs[handoff_index] = original_handoff
+                raise
             self._changed.notify_all()
-            updated = handoff
+            updated = copy.deepcopy(handoff)
         await self._record(
             "agent.handoff.requeued",
             task_id=updated.task_id,
@@ -553,6 +962,16 @@ class AgentTaskStore:
                 "handoff_id": updated.handoff_id,
                 "task_id": updated.task_id,
                 "operator": operator,
+            },
+        )
+        await self._record(
+            "agent.task.updated",
+            task_id=updated.task_id,
+            payload={
+                "task_id": updated.task_id,
+                "status": "pending",
+                "has_result": False,
+                "has_error": False,
             },
         )
         return updated
@@ -585,6 +1004,16 @@ class AgentTaskStore:
             None,
         )
 
+    def _commit_task_unlocked(self, task: AgentTask) -> None:
+        original = self._tasks[task.task_id]
+        self._tasks[task.task_id] = task
+        try:
+            self._persist_unlocked()
+        except Exception:
+            self._tasks[task.task_id] = original
+            raise
+        self._changed.notify_all()
+
     def _load_snapshot(self) -> None:
         assert self.storage_path is not None
         if not self.storage_path.exists():
@@ -615,6 +1044,8 @@ class AgentTaskStore:
             raise RuntimeError("Agent task storage is unreadable.") from exc
 
     def _persist_unlocked(self) -> None:
+        if self._handoff_commit_uncertain:
+            raise HandoffOwnershipError("交接持久化结果不确定，须重新加载并核对，禁止继续写入。")
         if self.storage_path is None or self.storage_dir is None:
             return
         self.storage_dir.mkdir(parents=True, exist_ok=True)

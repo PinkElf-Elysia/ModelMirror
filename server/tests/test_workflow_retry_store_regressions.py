@@ -77,7 +77,7 @@ def test_cancelled_execution_cannot_be_resuspended_or_reclassified(tmp_path):
 
 @pytest.mark.parametrize("wait_kind", ["approval", "agent_handoff"])
 @pytest.mark.parametrize("final_action", ["suspend", "complete", "fail"])
-def test_legacy_wait_callers_remain_compatible_without_explicit_token(
+def test_claimed_legacy_wait_callers_require_explicit_token(
     tmp_path, wait_kind, final_action
 ):
     store = WorkflowExecutionStore(tmp_path)
@@ -85,17 +85,29 @@ def test_legacy_wait_callers_remain_compatible_without_explicit_token(
     store.mark_ready(
         "task-retry", wait_kind=wait_kind, wait_id=f"{wait_kind}:task-retry"
     )
-    store.claim("task-retry", worker_id="legacy-worker")
+    claimed = store.claim("task-retry", worker_id="legacy-worker")
+    before = asdict(store.require("task-retry"))
+    before_bytes = store.snapshot_path.read_bytes()
+    with pytest.raises(WorkflowExecutionConflictError):
+        if final_action == "suspend":
+            store.suspend("task-retry", wait_kind=wait_kind, wait_id="next-wait", continuation={})
+        elif final_action == "complete":
+            store.complete("task-retry", result="done")
+        else:
+            store.fail("task-retry", error="safe failure")
+    assert asdict(store.require("task-retry")) == before
+    assert store.snapshot_path.read_bytes() == before_bytes
     if final_action == "suspend":
         store.suspend(
-            "task-retry", wait_kind=wait_kind, wait_id="next-wait", continuation={}
+            "task-retry", wait_kind=wait_kind, wait_id="next-wait", continuation={},
+            expected_lease_token=claimed.lease_token,
         )
         assert store.require("task-retry").status == "waiting"
     elif final_action == "complete":
-        store.complete("task-retry", result="done")
+        store.complete("task-retry", result="done", expected_lease_token=claimed.lease_token)
         assert store.require("task-retry").status == "completed"
     else:
-        store.fail("task-retry", error="safe failure")
+        store.fail("task-retry", error="safe failure", expected_lease_token=claimed.lease_token)
         assert store.require("task-retry").status == "failed"
 
 
@@ -259,10 +271,12 @@ def test_run_id_rebind_requires_the_current_live_resume_lease(tmp_path, monkeypa
 )
 def test_one_invalid_due_wait_is_quarantined_without_blocking_timer(tmp_path, field, value):
     store = WorkflowExecutionStore(tmp_path)
-    bad = _create_wait(store)
+    _create_wait(store)
     _create_wait(store, "task-timer", wait_kind="timer")
-    setattr(bad, field, value)
-    bad.status = "running"
+    with store._lock:
+        bad = store._require_unlocked("task-retry")
+        setattr(bad, field, value)
+        bad.status = "running"
     assert [item.task_id for item in store.list_due_waits(now=200)] == ["task-timer"]
     assert store.require("task-retry").status == "failed"
     assert store.require("task-retry").error == "WORKFLOW_WAIT_STATE_INVALID"

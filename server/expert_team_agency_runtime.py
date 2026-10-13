@@ -32,6 +32,7 @@ try:
         RunRegistry,
         RuntimeApprovalRequest,
         RuntimeApprovalStore,
+        WorkflowExecutionConflictError,
         WorkflowExecutionStore,
     )
 except ModuleNotFoundError:
@@ -56,6 +57,7 @@ except ModuleNotFoundError:
         RunRegistry,
         RuntimeApprovalRequest,
         RuntimeApprovalStore,
+        WorkflowExecutionConflictError,
         WorkflowExecutionStore,
     )
 
@@ -909,7 +911,9 @@ class AgencyExecutionCoordinator:
                 code="agency_interaction_invalid",
             )
         if approval.request_type == "execution_gate" and approval.decision == "reject":
-            await self.reject_interaction(execution.task_id, approval)
+            await self.reject_interaction(
+                execution.task_id, approval, expected_lease_token=execution.lease_token,
+            )
             return
         if approval.request_type == "execution_gate" and approval.decision == "approve":
             value = "approved"
@@ -927,6 +931,7 @@ class AgencyExecutionCoordinator:
                 "Agency interaction input must contain 1-20000 characters.",
                 code="agency_interaction_invalid",
             )
+        self.store.assert_lease(execution.task_id, lease_token=str(execution.lease_token or ""))
         interaction_resume = {
             "source_task_id": execution.task_id,
             "step_id": approval.node_id,
@@ -963,6 +968,7 @@ class AgencyExecutionCoordinator:
                     revision=None,
                     interaction_resume=interaction_resume,
                     managed_run=managed_run,
+                    expected_lease_token=execution.lease_token,
                 ),
                 name=f"expert-team-agency-hitl:{execution.task_id}",
             )
@@ -975,6 +981,8 @@ class AgencyExecutionCoordinator:
         self,
         task_id: str,
         approval: RuntimeApprovalRequest,
+        *,
+        expected_lease_token: str | None = None,
     ) -> dict[str, Any]:
         item = self.store.require(task_id)
         if item.source_kind != "expert_team_agency":
@@ -993,6 +1001,7 @@ class AgencyExecutionCoordinator:
                 "approval_id": approval.approval_id,
                 "status": "rejected",
             },
+            expected_lease_token=expected_lease_token,
         )
         for step in steps if isinstance(steps, list) else []:
             if not isinstance(step, dict):
@@ -1008,10 +1017,12 @@ class AgencyExecutionCoordinator:
                         "status": "skipped",
                         "error": "agency_interaction_rejected",
                     },
+                    expected_lease_token=expected_lease_token,
                 )
         self._append_terminal_event(
             task_id,
             {"event": "agency.run.rejected", "status": "rejected"},
+            expected_lease_token=expected_lease_token,
         )
         current = self.store.reject(task_id, error="agency_interaction_rejected")
         await self._safe_update_run(
@@ -1348,6 +1359,7 @@ class AgencyExecutionCoordinator:
         recovered = 0
         valid_wait_ids: set[str] = set()
         for item in self.store.list_items(limit=1_000):
+            item = self.store.snapshot(item.task_id)
             if (
                 item.source_kind != "expert_team_agency"
                 or item.status in TERMINAL_STATUSES
@@ -1385,15 +1397,16 @@ class AgencyExecutionCoordinator:
                 if item.status == "running"
                 else "agency_interaction_invalid"
             )
-            self._append_terminal_event(
+            self.store.fail_if_current(
                 item.task_id,
-                {
+                expected_snapshot=item,
+                error=code,
+                safe_event={
                     "event": "agency.run.failed",
                     "status": "failed",
                     "error": code,
                 },
             )
-            self.store.fail(item.task_id, error=code)
             recovered += 1
 
         if self.approval_store is not None:
@@ -1427,9 +1440,15 @@ class AgencyExecutionCoordinator:
         revision: Mapping[str, Any] | None = None,
         interaction_resume: Mapping[str, Any] | None = None,
         managed_run: AgencyManagedRun | None = None,
+        expected_lease_token: str | None = None,
     ) -> None:
         item = self.store.require(task_id)
         managed_run_finished = False
+        settled_here = False
+
+        def assert_owner() -> None:
+            if expected_lease_token is not None:
+                self.store.assert_lease(task_id, lease_token=expected_lease_token)
 
         def finish_managed_run(
             status: Literal["passed", "failed", "uncertain", "cancelled"],
@@ -1445,14 +1464,17 @@ class AgencyExecutionCoordinator:
                     task_id,
                     status,
                     reason_code=reason_code,
+                    expected_lease_token=expected_lease_token,
                 )
             finally:
                 managed_run_finished = True
 
         async def on_event(event: dict[str, Any]) -> None:
+            nonlocal settled_here
             current = self.store.require(task_id)
             if current.status not in TERMINAL_STATUSES:
-                self.store.append_event(task_id, event)
+                assert_owner()
+                self.store.append_event(task_id, event, expected_lease_token=expected_lease_token)
                 if (
                     event.get("event") == "agency.run.completed"
                     and str(event.get("final_output") or "")
@@ -1464,9 +1486,12 @@ class AgencyExecutionCoordinator:
                     self.store.complete(
                         task_id,
                         result=str(event["final_output"]),
+                        expected_lease_token=expected_lease_token,
                     )
+                    settled_here = True
 
         try:
+            assert_owner()
             result = await self._client(
                 model_runner=(managed_run.complete if managed_run is not None else None)
             ).execute(
@@ -1481,9 +1506,11 @@ class AgencyExecutionCoordinator:
                 on_event=on_event,
             )
             payload = result.payload
+            if not settled_here:
+                assert_owner()
             if payload.get("status") == "waiting":
                 finish_managed_run("passed")
-                await self._suspend_interaction(task_id, payload)
+                await self._suspend_interaction(task_id, payload, expected_lease_token=expected_lease_token)
                 return
             final_output = str(payload.get("final_output") or "")
             if not final_output:
@@ -1493,9 +1520,11 @@ class AgencyExecutionCoordinator:
                 )
             current = self.store.require(task_id)
             if current.status not in TERMINAL_STATUSES:
-                self.store.complete(task_id, result=final_output)
+                finish_managed_run("passed")
+                self.store.complete(task_id, result=final_output, expected_lease_token=expected_lease_token)
+                settled_here = True
                 current = self.store.require(task_id)
-            if current.status == "completed":
+            if current.status == "completed" and settled_here:
                 finish_managed_run("passed")
                 await self._safe_update_run(
                     item.run_id,
@@ -1506,7 +1535,18 @@ class AgencyExecutionCoordinator:
                         "quality_status": payload.get("quality_status"),
                     },
                 )
-        except asyncio.CancelledError:
+        except WorkflowExecutionConflictError:
+            # The Provider receipt belongs to this attempt; other runtime state does not.
+            if managed_run is not None and not managed_run_finished:
+                managed_run.finish("uncertain", reason_code="agency_execution_lease_lost")
+            return
+        except asyncio.CancelledError as cancelled:
+            try:
+                assert_owner()
+            except WorkflowExecutionConflictError:
+                if managed_run is not None and not managed_run_finished:
+                    managed_run.finish("uncertain", reason_code="agency_execution_lease_lost")
+                raise cancelled
             finish_managed_run(
                 "cancelled",
                 reason_code="agency_execution_cancelled",
@@ -1516,6 +1556,7 @@ class AgencyExecutionCoordinator:
                 self._append_terminal_event(
                     task_id,
                     {"event": "agency.run.cancelled", "status": "cancelled"},
+                    expected_lease_token=expected_lease_token,
                 )
                 self.store.cancel(task_id, error="agency_execution_cancelled")
                 await self._safe_update_run(
@@ -1525,6 +1566,12 @@ class AgencyExecutionCoordinator:
                 )
             raise
         except Exception as exc:
+            try:
+                assert_owner()
+            except WorkflowExecutionConflictError:
+                if managed_run is not None and not managed_run_finished:
+                    managed_run.finish("uncertain", reason_code="agency_execution_lease_lost")
+                return
             code = getattr(exc, "code", "agency_execution_failed")
             managed_status: Literal["failed", "uncertain"] = "failed"
             if managed_run is not None and any(
@@ -1547,8 +1594,9 @@ class AgencyExecutionCoordinator:
                         "error": str(code),
                         "message": str(exc)[:4_000],
                     },
+                    expected_lease_token=expected_lease_token,
                 )
-                self.store.fail(task_id, error=str(code))
+                self.store.fail(task_id, error=str(code), expected_lease_token=expected_lease_token)
                 await self._safe_update_run(
                     item.run_id, status="failed", error=f"{code}: {exc}"[:500]
                 )
@@ -1557,6 +1605,8 @@ class AgencyExecutionCoordinator:
         self,
         task_id: str,
         payload: Mapping[str, Any],
+        *,
+        expected_lease_token: str | None = None,
     ) -> None:
         if self.approval_store is None:
             raise AgencyExecutionValidationError(
@@ -1564,6 +1614,8 @@ class AgencyExecutionCoordinator:
                 code="agency_worker_unavailable",
             )
         item = self.store.require(task_id)
+        if expected_lease_token is not None:
+            self.store.assert_lease(task_id, lease_token=expected_lease_token)
         wait = payload.get("wait")
         wait = dict(wait) if isinstance(wait, Mapping) else {}
         step_id = str(wait.get("step_id") or "").strip()
@@ -1633,6 +1685,7 @@ class AgencyExecutionCoordinator:
                 "model_calls": continuation["prior_model_calls"],
                 "cumulative_usage": continuation["prior_usage"],
             },
+            expected_lease_token=expected_lease_token,
         )
         await self._safe_update_run(
             item.run_id,
@@ -1687,10 +1740,16 @@ class AgencyExecutionCoordinator:
         status: Literal["passed", "failed", "uncertain", "cancelled"],
         *,
         reason_code: str | None = None,
+        expected_lease_token: str | None = None,
     ) -> None:
         if managed_run is None:
             return
         receipt = managed_run.finish(status, reason_code=reason_code)
+        if expected_lease_token is not None:
+            try:
+                self.store.assert_lease(task_id, lease_token=expected_lease_token)
+            except WorkflowExecutionConflictError:
+                return
         self.store.append_event(
             task_id,
             {
@@ -1698,6 +1757,7 @@ class AgencyExecutionCoordinator:
                 "status": status,
                 "provider_route_receipts": receipt,
             },
+            expected_lease_token=expected_lease_token,
         )
 
     async def _safe_update_run(self, run_id: str, **kwargs: Any) -> None:
@@ -1707,12 +1767,12 @@ class AgencyExecutionCoordinator:
             return
 
     def _append_terminal_event(
-        self, task_id: str, event: dict[str, Any]
+        self, task_id: str, event: dict[str, Any], *, expected_lease_token: str | None = None,
     ) -> None:
         item = self.store.require(task_id)
         if item.events and item.events[-1].get("event") == event.get("event"):
             return
-        self.store.append_event(task_id, event)
+        self.store.append_event(task_id, event, expected_lease_token=expected_lease_token)
 
     def _prune_finished_unlocked(self) -> None:
         for task_id, task in list(self._tasks.items()):

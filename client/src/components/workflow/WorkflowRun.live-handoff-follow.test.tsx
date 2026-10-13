@@ -427,6 +427,8 @@ describe("WorkflowRun durable Handoff stream lifecycle", () => {
       await screen.findByRole("button", { name: "运行工作流" }),
     ).toBeInTheDocument();
     expect(readWorkflowRunRecovery(retryDefinition.id)).toBeNull();
+    expect(screen.queryByText("等待重试")).not.toBeInTheDocument();
+    expect(screen.getAllByText("已取消").length).toBeGreaterThan(0);
   });
 
   it("clears persisted recovery after a node-scoped terminal retry error", async () => {

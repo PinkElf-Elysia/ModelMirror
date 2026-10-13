@@ -1431,7 +1431,8 @@ async def test_tampered_retry_continuation_fails_before_second_call(
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         _, task_id = await _start(client, _workflow(max_attempts=3))
 
-    mutation(execution_store.require(task_id).continuation)
+    with execution_store._lock:
+        mutation(execution_store._require_unlocked(task_id).continuation)
     clock["now"] = 705.0
     failed = await main_module.resume_runtime_due_execution(task_id)
     assert failed["event"] == "error"

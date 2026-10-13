@@ -6,8 +6,9 @@ import os
 import uuid
 import zipfile
 from html import escape
+from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import (
     APIRouter,
@@ -83,6 +84,13 @@ def _serialize_request_with_host(
     request: Any, *, include_result: bool = False
 ) -> dict[str, Any]:
     payload = get_store().serialize_request(request, include_result=include_result)
+    if payload["retryable"]:
+        blocked = (
+            _coordinator.retry_blocked_reason(request) if _coordinator is not None
+            else "客户端恢复协调器不可用，不能重试。"
+        )
+        if blocked is not None:
+            payload.update(retryable=False, retry_blocked_reason=blocked)
     try:
         host = get_store().require_host(request.host_id)
     except Exception:
@@ -334,10 +342,11 @@ async def get_client_tool_request(request_id: str) -> dict[str, Any]:
 @router.post("/client-tool-requests/{request_id}/retry")
 async def retry_client_tool_request(request_id: str) -> dict[str, Any]:
     try:
-        item = get_store().retry_request(request_id)
-        if _coordinator is not None:
-            _coordinator.wake()
-        return get_store().serialize_request(item)
+        if _coordinator is None:
+            raise ClientToolConflictError("客户端恢复协调器不可用，不能重试。")
+        item = _coordinator.retry_request(request_id)
+        _coordinator.wake()
+        return _serialize_request_with_host(item)
     except Exception as exc:
         _raise_error(exc)
 
@@ -348,7 +357,7 @@ async def cancel_client_tool_request(request_id: str) -> dict[str, Any]:
         item = get_store().cancel_request(request_id)
         if _coordinator is not None:
             _coordinator.wake()
-        return get_store().serialize_request(item)
+        return _serialize_request_with_host(item)
     except Exception as exc:
         _raise_error(exc)
 
@@ -365,22 +374,35 @@ async def upload_client_tool_artifact(
     file: UploadFile = File(...),
     x_modelmirror_client_host_id: str = Header(alias="X-ModelMirror-Client-Host-Id"),
     authorization: str | None = Header(default=None),
+    dispatch_count: Annotated[str | None, Header(alias="X-ModelMirror-Dispatch-Count")] = None,
 ) -> dict[str, Any]:
     try:
         token = _bearer_token(authorization)
         host = get_store().authenticate(x_modelmirror_client_host_id, token)
-        request = get_store().require_request(request_id)
+        request = deepcopy(get_store().require_request(request_id))
         if request.host_id != host.host_id or request.tool_name != "host_page_screenshot":
             raise ClientToolConflictError("Artifact does not belong to this host request.")
+        connection_id = host.connection_id
+        if _coordinator is None:
+            raise ClientToolConflictError("客户端恢复协调器不可用，不能登记截图。")
+        if dispatch_count is not None and (
+            not dispatch_count.isascii() or not dispatch_count.isdecimal()
+            or len(dispatch_count) > 10 or int(dispatch_count) < 1
+        ):
+            raise ClientToolConflictError("截图派发代次无效。")
         data = await file.read(5 * 1024 * 1024 + 1)
-        artifact = get_store().register_artifact(
-            request_id=request_id,
+        artifact = _coordinator.register_artifact(
+            expected_request=request,
             host_id=host.host_id,
+            connection_id=connection_id,
+            dispatch_count=int(dispatch_count) if dispatch_count is not None else None,
             filename=file.filename or "client-screenshot.png",
             content_type=file.content_type or "application/octet-stream",
             data=data,
         )
         return get_store().serialize_artifact(artifact)
+    except OSError:
+        raise HTTPException(status_code=503, detail="截图存储暂不可用，未确认登记成功。") from None
     except Exception as exc:
         _raise_error(exc)
 
@@ -584,7 +606,8 @@ async def connect_client_tool_host(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "heartbeat", "ok": True})
             elif message_type == "tool_accepted":
                 get_store().mark_running(
-                    str(message.get("request_id") or ""), host_id=host_id
+                    str(message.get("request_id") or ""), host_id=host_id,
+                    connection_id=connection_id, dispatch_count=message.get("dispatch_count"),
                 )
             elif message_type == "tool_result":
                 get_store().complete_request(
@@ -593,6 +616,8 @@ async def connect_client_tool_host(websocket: WebSocket) -> None:
                     operation_id=str(message.get("operation_id") or ""),
                     tool_call_id=str(message.get("tool_call_id") or ""),
                     result=str(message.get("result") or ""),
+                    connection_id=connection_id,
+                    dispatch_count=message.get("dispatch_count"),
                     metadata=(
                         dict(message.get("metadata") or {})
                         if isinstance(message.get("metadata"), dict)
@@ -608,6 +633,8 @@ async def connect_client_tool_host(websocket: WebSocket) -> None:
                     operation_id=str(message.get("operation_id") or ""),
                     tool_call_id=str(message.get("tool_call_id") or ""),
                     error=str(message.get("error") or "Client tool failed."),
+                    connection_id=connection_id,
+                    dispatch_count=message.get("dispatch_count"),
                 )
                 if _coordinator is not None:
                     _coordinator.wake()

@@ -1556,7 +1556,8 @@ class SandboxToolsetProvider:
         operation_base = self._operation_id(call)
         package_files: list[tuple[Path, Path, bytes]] = []
         total = 0
-        for path in sorted(root.rglob("*")):
+        # Path ordering folds case on Windows; keep dispatch and receipts portable.
+        for path in sorted(root.rglob("*"), key=lambda entry: entry.relative_to(root).parts):
             if path.is_symlink():
                 raise RuntimeToolError(
                     call.tool_name,

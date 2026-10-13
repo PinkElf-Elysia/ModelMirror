@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from server.sandbox_sidecar.engine import SandboxEngine, SandboxEngineError
 from server.skills.application_receipts import (
     APPLICATION_RECEIPT_VERSION,
     APPLICATION_RECEIPT_V1_VERSION,
@@ -689,6 +690,31 @@ async def test_skill_tools_emit_application_evidence_for_installed_package(tmp_p
         "references/guide.md",
     }
     assert client.request.await_count == 3
+
+    requests = [item.args[0] for item in client.request.await_args_list]
+    assert [item["path"] for item in requests] == [
+        f"skills/incident-review/{path}"
+        for path in ["SKILL.md", "assets/sample.pdf", "references/guide.md"]
+    ]
+    assert [item["operation_id"].rsplit(":", 1)[1] for item in requests] == ["0", "1", "2"]
+    engine = SandboxEngine(tmp_path / "canonical-workspaces", require_landlock=False)
+    for request in requests:
+        assert engine.dispatch(request)["replayed"] is False
+        assert engine.dispatch(request)["replayed"] is True
+
+    # An old Windows partial stage assigned slot 0 to assets. Never overwrite
+    # its ledger or silently allocate a new operation when ordering changes.
+    legacy = SandboxEngine(tmp_path / "legacy-workspaces", require_landlock=False)
+    legacy_request = {**requests[1], "operation_id": requests[0]["operation_id"]}
+    assert legacy.dispatch(legacy_request)["replayed"] is False
+    with pytest.raises(SandboxEngineError) as conflict:
+        legacy.dispatch(requests[0])
+    assert conflict.value.code == "operation_conflict"
+    assert legacy.dispatch(legacy_request)["replayed"] is True
+    assert not (
+        tmp_path / "legacy-workspaces" / "workspace-receipt"
+        / "skills" / "incident-review" / "SKILL.md"
+    ).exists()
 
 
 @pytest.mark.asyncio

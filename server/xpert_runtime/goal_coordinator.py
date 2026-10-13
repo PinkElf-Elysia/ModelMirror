@@ -9,6 +9,7 @@ from typing import Any
 
 from .agent_tasks import AgentTaskStore
 from .goals import (
+    GOAL_TERMINAL_STATUSES,
     ConversationGoal,
     GoalConflictError,
     GoalNotFoundError,
@@ -41,6 +42,7 @@ class PinnedXpert:
 PlanGoal = Callable[[ConversationGoal, str], Awaitable[GoalPlan]]
 ResolveXpert = Callable[[str], Awaitable[PinnedXpert]]
 RenderSharedFileContext = Callable[[ConversationGoal], Awaitable[str]]
+CancelGoalTask = Callable[[str], Awaitable[Any]]
 
 
 class GoalCoordinator:
@@ -55,6 +57,7 @@ class GoalCoordinator:
         resolve_xpert: ResolveXpert,
         render_shared_file_context: RenderSharedFileContext | None = None,
         *,
+        cancel_task: CancelGoalTask | None = None,
         enabled: bool = True,
         poll_interval: float = 1.0,
     ) -> None:
@@ -64,12 +67,15 @@ class GoalCoordinator:
         self.plan_goal_callback = plan_goal
         self.resolve_xpert_callback = resolve_xpert
         self.render_shared_file_context_callback = render_shared_file_context
+        self.cancel_task_callback = cancel_task
         self.enabled = enabled
         self.poll_interval = max(0.1, poll_interval)
         self._loop_task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
         self._planning: set[str] = set()
         self._processing: set[str] = set()
+        # Serialize local publication of executable work with the Goal decision.
+        self._dispatch_lock = asyncio.Lock()
 
     def start(self) -> None:
         if not self.enabled or (self._loop_task and not self._loop_task.done()):
@@ -93,6 +99,16 @@ class GoalCoordinator:
         if not self.enabled:
             return 0
         processed = 0
+        goal_ids = {task.metadata["goal_id"] for task in await self.task_store.list_goal_tasks()}
+        for goal_id in sorted(goal_ids):
+            goal = await self.goal_store.get_goal(goal_id)
+            if goal is None or goal.status != "cancelled":
+                continue
+            try:
+                await self.cancel_goal(goal_id)
+                processed += 1
+            except Exception as exc:
+                logger.warning("Goal cancellation reconciliation pending: %s", type(exc).__name__)
         goals = await self.goal_store.list_goals(limit=500)
         for goal in goals:
             if goal.status == "planning" and goal.goal_id not in self._planning:
@@ -124,6 +140,9 @@ class GoalCoordinator:
             await self.goal_store.update_goal(goal_id, status="planning", clear_error=True)
             try:
                 plan = await self.plan_goal_callback(goal, run.run_id)
+                current = await self.goal_store.require_goal(goal_id)
+                if current.status in GOAL_TERMINAL_STATUSES:
+                    return current
                 normalized = validate_goal_plan(plan.steps, plan.final_step_id)
                 for step in normalized:
                     await self.resolve_xpert_callback(step.target_xpert_id)
@@ -156,6 +175,9 @@ class GoalCoordinator:
                 )
                 return updated
             except Exception as exc:
+                current = await self.goal_store.require_goal(goal_id)
+                if current.status in GOAL_TERMINAL_STATUSES:
+                    return current
                 error = str(exc or "Goal planning failed.")[:2000]
                 updated = await self.goal_store.update_goal(
                     goal_id,
@@ -177,6 +199,11 @@ class GoalCoordinator:
                     metadata={"goal_status": "needs_attention"},
                 )
                 return updated
+        except GoalConflictError:
+            current = await self.goal_store.require_goal(goal_id)
+            if current.status in GOAL_TERMINAL_STATUSES:
+                return current
+            raise
         finally:
             self._planning.discard(goal_id)
 
@@ -219,7 +246,7 @@ class GoalCoordinator:
             f"steps={len(updated.steps)} max_parallel={updated.max_parallel}",
             {"goal_id": goal_id, "plan_revision": updated.plan_revision},
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def pause_goal(self, goal_id: str) -> ConversationGoal:
         goal = await self.goal_store.require_goal(goal_id)
@@ -239,7 +266,7 @@ class GoalCoordinator:
             "No new steps will be dispatched.",
             {"goal_id": goal_id},
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def resume_goal(self, goal_id: str) -> ConversationGoal:
         goal = await self.goal_store.require_goal(goal_id)
@@ -261,37 +288,56 @@ class GoalCoordinator:
             "Dependency scheduling resumed.",
             {"goal_id": goal_id},
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def cancel_goal(self, goal_id: str) -> ConversationGoal:
-        goal = await self.goal_store.require_goal(goal_id)
-        if goal.status in {"completed", "cancelled"}:
-            return goal
-
-        def apply_cancel(current: ConversationGoal) -> None:
-            current.status = "cancelled"
-            current.error = "Cancelled by user."
-            for step in current.steps:
-                if step.status not in {"completed", "skipped"}:
-                    step.status = "cancelled"
-                    step.touch()
-
-        updated = await self.goal_store.mutate_steps(goal_id, apply_cancel)
+        async with self._dispatch_lock:
+            goal = await self.goal_store.require_goal(goal_id)
+            updated = await self.goal_store.cancel_goal(goal_id)
+        if updated.status != "cancelled":
+            return updated
+        await self._cancel_goal_children(updated)
         run = await self._ensure_goal_run(updated)
         await self.run_registry.update_run(
             run.run_id,
             status="cancelled",
-            error="Cancelled by user.",
+            error=updated.error,
         )
-        await self._checkpoint(
-            run,
-            "goal.cancelled",
-            "Goal cancelled",
-            "Running Xpert requests are not force-terminated.",
-            {"goal_id": goal_id},
-            severity="warning",
-        )
-        return updated
+        if goal.status != "cancelled":
+            await self._checkpoint(
+                run,
+                "goal.cancelled",
+                "目标已取消",
+                "目标已停止调度；本状态不表示已撤回运行中的模型请求。",
+                {"goal_id": goal_id},
+                severity="warning",
+            )
+        return await self.goal_store.require_goal(goal_id)
+
+    async def _cancel_goal_children(self, goal: ConversationGoal) -> None:
+        step_ids = {step.step_id for step in goal.steps}
+        failure: Exception | None = None
+        cancelled_task_ids: list[str] = []
+        for task in await self.task_store.list_goal_tasks(goal.goal_id):
+            step_id = task.metadata.get("goal_step_id")
+            if not isinstance(step_id, str) or step_id not in step_ids or task.status in {"completed", "failed"}:
+                continue
+            try:
+                cancelled = await self.task_store.cancel_task(task.task_id, reason="GOAL_CANCELLED")
+                if cancelled.status == "cancelled":
+                    cancelled_task_ids.append(task.task_id)
+            except Exception as exc:
+                # One unavailable child must not prevent cancellation of siblings.
+                failure = failure or exc
+        # Commit every local Task decision before awaiting downstream projection.
+        if self.cancel_task_callback is not None:
+            for task_id in cancelled_task_ids:
+                try:
+                    await self.cancel_task_callback(task_id)
+                except Exception as exc:
+                    failure = failure or exc
+        if failure is not None:
+            raise failure
 
     async def retry_step(self, goal_id: str, step_id: str) -> ConversationGoal:
         goal = await self.goal_store.require_goal(goal_id)
@@ -342,7 +388,7 @@ class GoalCoordinator:
             step_id,
             {"goal_id": goal_id, "step_id": step_id, "target_xpert_id": resolved.xpert_id},
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def reassign_step(
         self,
@@ -388,7 +434,7 @@ class GoalCoordinator:
             step_id,
             {"goal_id": goal_id, "step_id": step_id, "target_xpert_id": resolved.xpert_id},
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def skip_step(self, goal_id: str, step_id: str) -> ConversationGoal:
         goal = await self.goal_store.require_goal(goal_id)
@@ -436,7 +482,7 @@ class GoalCoordinator:
             {"goal_id": goal_id, "step_id": step_id},
             severity="warning",
         )
-        return updated
+        return await self.goal_store.require_goal(goal_id)
 
     async def process_goal(self, goal_id: str) -> ConversationGoal:
         if goal_id in self._processing:
@@ -474,6 +520,11 @@ class GoalCoordinator:
                 return goal
             await self._dispatch_ready_steps(goal, run)
             return await self.goal_store.require_goal(goal_id)
+        except GoalConflictError:
+            current = await self.goal_store.require_goal(goal_id)
+            if current.status in GOAL_TERMINAL_STATUSES:
+                return current
+            raise
         finally:
             self._processing.discard(goal_id)
 
@@ -504,6 +555,20 @@ class GoalCoordinator:
             handoff = await self.task_store.get_handoff(step.handoff_id)
             if handoff is None:
                 continue
+            if handoff.status == "pending" and handoff.metadata.get("ready_for_execution") is False:
+                async with self._dispatch_lock:
+                    current = await self.goal_store.require_goal(goal.goal_id)
+                    linked = self._step(current, step.step_id)
+                    if (
+                        current.status == "running" and linked.status == "running"
+                        and linked.task_id == step.task_id and linked.handoff_id == step.handoff_id
+                        and linked.target_version is not None
+                    ):
+                        await self.task_store.publish_unstarted_goal_handoff(
+                            goal_id=current.goal_id, step_id=linked.step_id,
+                            task_id=linked.task_id or "", handoff_id=linked.handoff_id or "",
+                            target_xpert_id=linked.target_xpert_id, target_version=linked.target_version,
+                        )
             task = await self.task_store.get_task(step.task_id or "")
             if handoff.status == "completed":
                 result = str(
@@ -701,6 +766,22 @@ class GoalCoordinator:
         step: GoalStep,
         run: RuntimeRun,
     ) -> None:
+        try:
+            current = await self.goal_store.require_goal(goal.goal_id)
+            if current.status in GOAL_TERMINAL_STATUSES:
+                return
+            await self._prepare_step_handoff(goal, step, run)
+        finally:
+            current = await self.goal_store.require_goal(goal.goal_id)
+            if current.status == "cancelled":
+                await self.cancel_goal(goal.goal_id)
+
+    async def _prepare_step_handoff(
+        self,
+        goal: ConversationGoal,
+        step: GoalStep,
+        run: RuntimeRun,
+    ) -> None:
         if step.target_version is None:
             resolved = await self.resolve_xpert_callback(step.target_xpert_id)
             await self.goal_store.update_step(
@@ -745,24 +826,30 @@ class GoalCoordinator:
                 "agent_task_id": task.task_id,
             },
         )
-        handoff = await self.task_store.create_handoff(
-            task.task_id,
-            source_agent=f"goal:{goal.goal_id}",
-            target_agent=f"xpert:{step.target_xpert_id}",
-            reason=f"Execute goal step {step.step_id}: {step.title}",
-            metadata={
-                "execution_mode": "xpert_auto",
-                "ready_for_execution": False,
-                "goal_id": goal.goal_id,
-                "goal_step_id": step.step_id,
-                "target_xpert_id": step.target_xpert_id,
-                "target_xpert_version": step.target_version,
-                "handoff_depth": 0,
-                "source_xpert_id": goal.source_xpert_id,
-                "source_conversation_id": goal.source_conversation_id,
-                "file_asset_ids": list(goal.file_asset_ids),
-            },
-        )
+        try:
+            handoff = await self.task_store.create_handoff(
+                task.task_id,
+                source_agent=f"goal:{goal.goal_id}",
+                target_agent=f"xpert:{step.target_xpert_id}",
+                reason=f"Execute goal step {step.step_id}: {step.title}",
+                metadata={
+                    "execution_mode": "xpert_auto",
+                    "ready_for_execution": False,
+                    "goal_id": goal.goal_id,
+                    "goal_step_id": step.step_id,
+                    "target_xpert_id": step.target_xpert_id,
+                    "target_xpert_version": step.target_version,
+                    "handoff_depth": 0,
+                    "source_xpert_id": goal.source_xpert_id,
+                    "source_conversation_id": goal.source_conversation_id,
+                    "file_asset_ids": list(goal.file_asset_ids),
+                },
+            )
+        except ValueError:
+            current_task = await self.task_store.get_task(task.task_id)
+            if current_task is not None and current_task.status == "cancelled":
+                return
+            raise
         handoff_run = await self.run_registry.create_run(
             "agent_handoff",
             f"Goal step {step.step_id}",
@@ -785,18 +872,22 @@ class GoalCoordinator:
             summary=step.step_id,
             metadata={"goal_id": goal.goal_id, "goal_step_id": step.step_id},
         )
-        await self.task_store.update_handoff_metadata(
-            handoff.handoff_id,
-            {"ready_for_execution": True},
-        )
-        await self.goal_store.update_step(
-            goal.goal_id,
-            step.step_id,
-            status="running",
-            task_id=task.task_id,
-            handoff_id=handoff.handoff_id,
-            error=None,
-        )
+        async with self._dispatch_lock:
+            current = await self.goal_store.require_goal(goal.goal_id)
+            if current.status in GOAL_TERMINAL_STATUSES:
+                return
+            await self.goal_store.update_step(
+                goal.goal_id,
+                step.step_id,
+                status="running",
+                task_id=task.task_id,
+                handoff_id=handoff.handoff_id,
+                error=None,
+            )
+            await self.task_store.update_handoff_metadata(
+                handoff.handoff_id,
+                {"ready_for_execution": True},
+            )
         await self._checkpoint(
             run,
             "goal.step.dispatched",

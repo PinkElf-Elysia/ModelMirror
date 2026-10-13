@@ -72,7 +72,8 @@ def test_commit_replay_survives_checkpoint_loss_and_schema_advance(tmp_path):
     backend.update_table(table_id, revision=table.draft_revision, patch={"fields": [field.model_dump(mode="json") for field in table.fields] + [{"name": "extra", "data_type": "string"}]})
     backend.publish_table(table_id, revision=backend.get_table(table_id).draft_revision)
     restored_store = WorkflowExecutionStore(tmp_path / "execution.json")
-    restored = ControlledWriteRuntime(task_id="task-fixed", workflow=graph, backend=AgentTableStore(tmp_path / "tables"), execution_store=restored_store)
+    claimed = restored_store.claim("task-fixed", worker_id="checkpoint-recovery")
+    restored = ControlledWriteRuntime(task_id="task-fixed", workflow=graph, backend=AgentTableStore(tmp_path / "tables"), execution_store=restored_store, expected_lease_token=claimed.lease_token)
     replay = restored.execute("write", {}, resolve_filter=_resolve_filter)
     assert replay["replayed"] is True
     assert replay["output"] == original["output"]

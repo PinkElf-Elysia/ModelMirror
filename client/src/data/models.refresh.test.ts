@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_AGENT_BUILDER_MODEL_ID,
   DEFAULT_WORKFLOW_AGENT_MODEL_ID,
 } from "./modelOptions";
 import { models } from "./models";
+
+vi.hoisted(() => {
+  // Catalog totals describe the October 13 snapshot, not the wall-clock date.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-13T06:54:09.420Z"));
+});
+
+afterAll(() => vi.useRealTimers());
 
 const middleModelIds = [
   "sakana/sakana-namazu",

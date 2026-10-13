@@ -933,14 +933,61 @@ def _retry_remove_readonly(
     function(path)
 
 
+def _set_file_mode(descriptor: int, mode: int) -> None:
+    native_fchmod = getattr(os, "fchmod", None)
+    if native_fchmod is not None:
+        native_fchmod(descriptor, mode)
+        return
+    if os.name != "nt":
+        raise NotImplementedError("当前平台不支持按句柄设置临时文件权限。")
+    _windows_fchmod(descriptor, mode)
+
+
+def _windows_fchmod(descriptor: int, mode: int) -> None:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class FileBasicInfo(ctypes.Structure):
+        _fields_ = [
+            ("creation_time", ctypes.c_longlong),
+            ("last_access_time", ctypes.c_longlong),
+            ("last_write_time", ctypes.c_longlong),
+            ("change_time", ctypes.c_longlong),
+            ("attributes", wintypes.DWORD),
+        ]
+
+    current = os.fstat(descriptor)
+    if not stat.S_ISREG(current.st_mode):
+        raise OSError("临时文件句柄必须指向普通文件。")
+    attributes = current.st_file_attributes
+    if mode & stat.S_IWRITE:
+        attributes &= ~stat.FILE_ATTRIBUTE_READONLY
+    else:
+        attributes |= stat.FILE_ATTRIBUTE_READONLY
+    # Zero attributes means "unchanged"; NORMAL explicitly clears READONLY.
+    info = FileBasicInfo()
+    info.attributes = attributes or stat.FILE_ATTRIBUTE_NORMAL
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    set_info = kernel32.SetFileInformationByHandle
+    set_info.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    set_info.restype = wintypes.BOOL
+    # Keep the owned descriptor authoritative; never reopen/chmod by path.
+    if not set_info(msvcrt.get_osfhandle(descriptor), 0, ctypes.byref(info), ctypes.sizeof(info)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def _prepare_temp_file(parent: Path, content: bytes, *, mode: int = 0o644) -> Path:
+    if os.name == "nt" and not mode & stat.S_IWRITE:
+        # Windows cannot replace a read-only target; do not create an undeletable temp.
+        raise PermissionError("拒绝替换 Windows 只读目标文件。")
     descriptor, name = tempfile.mkstemp(prefix=".modelmirror-apply-", dir=parent)
     temporary = Path(name)
     try:
         try:
             # Keep descriptor ownership here, including fdopen/fchmod failures.
             with os.fdopen(descriptor, "wb", closefd=False) as handle:
-                os.fchmod(descriptor, mode)
+                _set_file_mode(descriptor, mode)
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())

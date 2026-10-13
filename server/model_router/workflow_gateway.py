@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -23,11 +24,19 @@ try:
         AgentToolCall,
         AgentUsage,
     )
+    from server.xpert_runtime.execution_budget import (
+        XpertExecutionBudgetExceeded, XpertExecutionBudgetStateError, execution_operation,
+        assert_execution_dispatch_allowed,
+    )
 except ImportError:  # pragma: no cover - direct server package execution
     from xpert_runtime.agent_strategy.models import (
         AgentModelTurn,
         AgentToolCall,
         AgentUsage,
+    )
+    from xpert_runtime.execution_budget import (
+        XpertExecutionBudgetExceeded, XpertExecutionBudgetStateError, execution_operation,
+        assert_execution_dispatch_allowed,
     )
 
 
@@ -69,6 +78,23 @@ class ManagedWorkflowRoutingError(RuntimeError):
         self.public_message = public_message
         self.status_code = status_code
         self.receipt = receipt
+
+
+@contextlib.asynccontextmanager
+async def _workflow_model_operation() -> AsyncIterator[None]:
+    try:
+        async with execution_operation("model_call"):
+            yield
+    except XpertExecutionBudgetExceeded as exc:
+        raise ManagedWorkflowRoutingError(
+            "workflow_execution_budget_exhausted",
+            "工作流调用预算已耗尽，未派发新的模型请求。", status_code=409,
+        ) from exc
+    except XpertExecutionBudgetStateError as exc:
+        raise ManagedWorkflowRoutingError(
+            "workflow_execution_budget_invalid",
+            "工作流持久预算不一致，未派发新的模型请求。", status_code=409,
+        ) from exc
 
 
 @dataclass(slots=True)
@@ -242,6 +268,7 @@ class ManagedWorkflowGateway:
         execution_reference: str,
         node_id: str,
         logical_phase: str = "initial",
+        client_wait_id: str | None = None,
     ) -> ManagedWorkflowAgentRun:
         entry_id = self._AGENT_ENTRY_BY_SOURCE[source_kind]
         if self.agent_routing_mode(source_kind) != "managed_required":
@@ -263,10 +290,26 @@ class ManagedWorkflowGateway:
             f"{self._SOURCE_PREFIX[source_kind]}:{clean_execution}:{clean_node}:"
             f"agent:{clean_phase}"
         )
+        replay_guards: tuple[str, ...] = ()
+        if client_wait_id is not None:
+            if not isinstance(client_wait_id, str) or not client_wait_id.strip():
+                raise ManagedWorkflowRoutingError(
+                    "provider_workload_client_wait_invalid",
+                    "Workflow Agent 缺少有效的客户端等待身份。",
+                    status_code=409,
+                )
+            # A new namespace must never bypass evidence left by older code.
+            replay_guards = (parent_reference,)
+            occurrence = hashlib.sha256(client_wait_id.strip().encode("utf-8")).hexdigest()
+            parent_reference = (
+                f"{self._SOURCE_PREFIX[source_kind]}:{clean_execution}:{clean_node}:"
+                f"agent:client-resume-v1:{occurrence}"
+            )
         try:
             run_id = self.call_service.start_stable_run(
                 entry_id,
                 parent_run_reference=parent_reference,
+                replay_guard_references=replay_guards,
             )
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(
@@ -455,13 +498,14 @@ class ManagedWorkflowNodeRun:
                         status_code=409,
                     )
                 payload.update(extra_payload)
-            async with self._client() as client:
+            async with _workflow_model_operation(), self._client() as client:
                 request = self.gateway.call_service.transport.build_authorized_stream_request(
                     client,
                     prepared.target,
                     prepared.authorized_target,
                     payload,
                 )
+                await assert_execution_dispatch_allowed()
                 self.gateway.call_service.mark_dispatched(prepared)
                 dispatched = True
                 response = await self.gateway.call_service.transport.send_authorized_stream(
@@ -688,13 +732,14 @@ class ManagedWorkflowNodeRun:
                 payload["tool_choice"] = tool_choice or "auto"
                 if parallel_tool_calls is not None:
                     payload["parallel_tool_calls"] = bool(parallel_tool_calls)
-            async with self._client() as client:
+            async with _workflow_model_operation(), self._client() as client:
                 request = self.gateway.call_service.transport.build_authorized_stream_request(
                     client,
                     prepared.target,
                     prepared.authorized_target,
                     payload,
                 )
+                await assert_execution_dispatch_allowed()
                 self.gateway.call_service.mark_dispatched(prepared)
                 dispatched = True
                 response = await self.gateway.call_service.transport.send_authorized_stream(
@@ -951,13 +996,20 @@ class ManagedWorkflowNodeRun:
             }
             if response_format is not None:
                 payload["response_format"] = response_format
-            async with self._client() as client:
+            # Vision delegates share this transport but own their per-page budget.
+            operation = (
+                _workflow_model_operation()
+                if execution_shape in {"chat_text_unary", "chat_json_object"}
+                else contextlib.nullcontext()
+            )
+            async with operation, self._client() as client:
                 request = self.gateway.call_service.transport.build_authorized_stream_request(
                     client,
                     prepared.target,
                     prepared.authorized_target,
                     payload,
                 )
+                await assert_execution_dispatch_allowed()
                 self.gateway.call_service.mark_dispatched(prepared)
                 dispatched = True
                 response = await self.gateway.call_service.transport.send_authorized_stream(

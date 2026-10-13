@@ -18,6 +18,7 @@ from .execution_store import (
 logger = logging.getLogger("modelmirror.workflow_handoff_coordinator")
 ResumeHandoffExecution = Callable[[WorkflowExecution, AgentHandoff], Awaitable[None]]
 ExpireHandoffExecution = Callable[[WorkflowExecution, AgentHandoff], Awaitable[None]]
+CancelHandoffExecution = Callable[[WorkflowExecution], Awaitable[None]]
 
 
 class WorkflowHandoffCoordinator:
@@ -30,6 +31,7 @@ class WorkflowHandoffCoordinator:
         resume_execution: ResumeHandoffExecution,
         *,
         expire_execution: ExpireHandoffExecution | None = None,
+        cancel_execution: CancelHandoffExecution | None = None,
         enabled: bool = True,
         poll_interval: float = 0.5,
         lease_seconds: float = 60.0,
@@ -39,6 +41,7 @@ class WorkflowHandoffCoordinator:
         self.executions = executions
         self.resume_execution = resume_execution
         self.expire_execution = expire_execution
+        self.cancel_execution = cancel_execution
         self.enabled = enabled
         self.poll_interval = max(0.1, float(poll_interval))
         self.lease_seconds = max(5.0, float(lease_seconds))
@@ -73,8 +76,19 @@ class WorkflowHandoffCoordinator:
         self._wake.set()
 
     async def run_once(self) -> int:
+        if self.cancel_execution is not None:
+            for execution in self.executions.pending_handoff_cancellations():
+                try:
+                    await self.cancel_execution(execution)
+                except Exception:
+                    # Leave the durable request pending. One broken relation
+                    # must not starve other cancellations or ready continuations.
+                    logger.warning(
+                        "Workflow handoff cancellation pending task_id=%s", execution.task_id,
+                    )
         now = time.time()
         for execution in self.executions.list_items(limit=1000):
+            execution = self.executions.snapshot(execution.task_id)
             if (
                 execution.status != "waiting"
                 or execution.wait_kind != "agent_handoff"
@@ -83,9 +97,13 @@ class WorkflowHandoffCoordinator:
                 continue
             handoff = await self.handoffs.get_handoff(execution.wait_id)
             if handoff is None:
-                self.executions.fail(
-                    execution.task_id, error="HANDOFF_RECEIPT_INVALID"
-                )
+                try:
+                    self.executions.fail_if_current(
+                        execution.task_id, expected_snapshot=execution,
+                        error="HANDOFF_RECEIPT_INVALID",
+                    )
+                except WorkflowExecutionConflictError:
+                    pass
                 continue
             if (
                 execution.resume_at is not None
@@ -93,7 +111,11 @@ class WorkflowHandoffCoordinator:
                 and handoff.status not in TERMINAL_HANDOFF_STATUSES
                 and self.expire_execution is not None
             ):
-                await self.expire_execution(execution, handoff)
+                try:
+                    await self.expire_execution(execution, handoff)
+                except Exception:
+                    logger.warning("Workflow handoff expiration pending task_id=%s", execution.task_id)
+                    continue
                 handoff = await self.handoffs.get_handoff(execution.wait_id)
                 if handoff is None:
                     continue
@@ -118,12 +140,26 @@ class WorkflowHandoffCoordinator:
                 continue
             handoff = await self.handoffs.get_handoff(execution.wait_id)
             if handoff is not None and handoff.status in TERMINAL_HANDOFF_STATUSES:
+                if handoff.status == "dead_letter" and handoff.metadata.get("last_error") == "HANDOFF_TIMEOUT":
+                    # A terminal receipt may precede child cancellation across a
+                    # crash. Reconcile before claiming/resuming the parent.
+                    if self.expire_execution is None:
+                        continue
+                    try:
+                        await self.expire_execution(execution, handoff)
+                    except Exception:
+                        logger.warning("Workflow handoff timeout propagation pending task_id=%s", execution.task_id)
+                        continue
+                    handoff = await self.handoffs.get_handoff(execution.wait_id)
+                    if handoff is None or handoff.status not in TERMINAL_HANDOFF_STATUSES:
+                        continue
                 ready.append((execution, handoff))
 
         async def resume(
             execution: WorkflowExecution, handoff: AgentHandoff
         ) -> bool:
             self._active.add(execution.task_id)
+            claimed: WorkflowExecution | None = None
             try:
                 claimed = self.executions.claim(
                     execution.task_id,
@@ -139,10 +175,16 @@ class WorkflowHandoffCoordinator:
                     "Workflow handoff continuation failed task_id=%s",
                     execution.task_id,
                 )
-                self.executions.fail(
-                    execution.task_id,
-                    error="HANDOFF_RESUME_FAILED",
-                )
+                if claimed is not None:
+                    try:
+                        self.executions.fail(
+                            execution.task_id,
+                            error="HANDOFF_RESUME_FAILED",
+                            expected_lease_token=claimed.lease_token,
+                        )
+                    except WorkflowExecutionConflictError:
+                        # A delayed callback cannot settle a replacement worker.
+                        pass
                 return False
             finally:
                 self._active.discard(execution.task_id)
