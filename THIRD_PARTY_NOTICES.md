@@ -103,8 +103,8 @@ assets; ModelMirror uses neither.
 
 - Project: `jnMetaCode/agency-agents-zh`
 - License: MIT
-- Vendored content: 268 Chinese agent role definitions and prompts
-- Fixed source commit: `2ecfabf8e944ccdfed63ad8c44d5241290af6977`
+- Vendored content: 277 Chinese agent role definitions and prompts
+- Fixed source commit: `e5a6c0a730878aaa871ec5b95859aec2c2728475`
 - Generated snapshots: `client/src/data/agents.ts` and
   `server/data/agents.json`
 - Reproducible importer: `scripts/update-agency-agents.mjs`
@@ -112,7 +112,34 @@ assets; ModelMirror uses neither.
 ModelMirror preserves each role's upstream path and commit-pinned source URL.
 The local importer adds ModelMirror-specific department metadata, user-facing
 task scenarios and capability tags; it does not change the upstream prompt
-body.
+body (line endings are normalized to LF).
+
+### Catalog maintenance (2026-10-12)
+
+The catalog contains 277 roles across 20 departments. The company department
+includes the moved CFO and chief of staff. ModelMirror retains the local
+`specialized-chief-of-staff` ID for persisted references while importing
+`company/chief-of-staff.md`. No existing local role ID is removed.
+
+Use a clean checkout of the fixed source commit above, then run:
+
+```sh
+node scripts/update-agency-agents.mjs --source <upstream-checkout>
+node scripts/update-agency-agents.mjs --source <upstream-checkout> --check
+python -m pytest server/tests/test_agent_catalog_snapshot.py -q
+cd client
+npm.cmd run build
+```
+
+`--check` compares both complete generated snapshots without writing. The
+importer rejects a mismatched source revision, a dirty checkout, duplicate IDs,
+missing files and unexpected counts. For future updates, inspect upstream
+renames/deletions before changing the pinned commit, count, department metadata
+and snapshot tests together. This is a manual sync, not a scheduled remote check.
+Rollback must restore the importer, both snapshots, snapshot tests and this
+notice together from the previous application revision; no persisted-data
+migration is needed. Existing running services require a separately authorized
+release/restart to load the refreshed catalog.
 
 ### MIT License
 

@@ -104,7 +104,7 @@ describe("help center content catalog", () => {
     expect(imageTutorial?.content).toContain("不要把相似名称视为同一个模型");
     expect(imageTutorial?.content).toContain("不上传资料，也不发送模型请求");
     expect(imageTutorial?.content).toContain("不要因为旁边的“图片”可选");
-    expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe(helpCenterCloseoutBaseline.commit);
+    expect(helpArticles.find((article) => article.slug === "choose-model-agent-workflow")?.verifiedCommit).toBe("262f7caf");
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.verifiedDate).toBe(agentWorkflowTutorialBaseline.date);
     expect(helpArticles.find((article) => article.slug === "build-first-workflow")?.verifiedCommit).toBe(agentWorkflowTutorialBaseline.commit);
