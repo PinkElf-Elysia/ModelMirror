@@ -1,11 +1,13 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import process from "node:process";
 
-const UPSTREAM_COMMIT = "2ecfabf8e944ccdfed63ad8c44d5241290af6977";
-const EXPECTED_AGENT_COUNT = 268;
+const UPSTREAM_COMMIT = "e5a6c0a730878aaa871ec5b95859aec2c2728475";
+const EXPECTED_AGENT_COUNT = 277;
 const REPOSITORY_URL = "https://github.com/jnMetaCode/agency-agents-zh";
 const AGENT_DIRECTORIES = [
+  "company",
   "academic",
   "design",
   "engineering",
@@ -28,6 +30,7 @@ const AGENT_DIRECTORIES = [
 ];
 
 const departmentMeta = {
+  company: { label: "公司经营部", emoji: "🏢", color: "#6366F1" },
   academic: { label: "学术部", emoji: "📚", color: "#10B981" },
   design: { label: "设计部", emoji: "🎨", color: "#EC4899" },
   engineering: { label: "工程部", emoji: "💻", color: "#06B6D4" },
@@ -48,6 +51,9 @@ const departmentMeta = {
   support: { label: "支持部", emoji: "🎧", color: "#2DD4BF" },
   testing: { label: "测试部", emoji: "🧪", color: "#60A5FA" },
 };
+
+// Keep persisted ModelMirror references stable after upstream role renames.
+const LOCAL_ID_BY_UPSTREAM_ID = { "chief-of-staff": "specialized-chief-of-staff" };
 
 const forbiddenScenarios = [
   "构建未来，一个 commit 一个脚印。",
@@ -72,7 +78,7 @@ function parseArgs() {
   const sourceIndex = process.argv.indexOf("--source");
   if (sourceIndex === -1 || !process.argv[sourceIndex + 1]) {
     throw new Error(
-      "Usage: node scripts/update-agency-agents.mjs --source <agency-agents-zh checkout>",
+      "Usage: node scripts/update-agency-agents.mjs --source <agency-agents-zh checkout> [--check]",
     );
   }
   return path.resolve(process.argv[sourceIndex + 1]);
@@ -247,6 +253,14 @@ export const agentDepartmentCounts: Record<string, number> = ${JSON.stringify(co
 async function main() {
   const sourceRoot = parseArgs();
   const repositoryRoot = path.resolve(import.meta.dirname, "..");
+  const git = (...args) => execFileSync("git", ["-C", sourceRoot, ...args], { encoding: "utf8" }).trim();
+  const revision = git("rev-parse", "HEAD");
+  if (revision !== UPSTREAM_COMMIT) {
+    throw new Error(`Source revision mismatch: expected ${UPSTREAM_COMMIT}, found ${revision}.`);
+  }
+  if (git("status", "--porcelain", "--untracked-files=all")) {
+    throw new Error("Source checkout must be clean (including untracked files).");
+  }
   const [agentListSource, readmeSource] = await Promise.all([
     fs.readFile(path.join(sourceRoot, "AGENT-LIST.md"), "utf8"),
     fs.readFile(path.join(sourceRoot, "README.md"), "utf8"),
@@ -256,6 +270,10 @@ async function main() {
     throw new Error(
       `Expected ${EXPECTED_AGENT_COUNT} AGENT-LIST rows, found ${listedAgents.length}.`,
     );
+  }
+
+  if (new Set(listedAgents.map((agent) => agent.id)).size !== listedAgents.length) {
+    throw new Error("Duplicate AGENT-LIST id.");
   }
 
   const relativeFiles = (
@@ -291,7 +309,7 @@ async function main() {
     if (!department) {
       throw new Error(`Missing department metadata for ${sourcePath}.`);
     }
-    const prompt = await fs.readFile(path.join(sourceRoot, sourcePath), "utf8");
+    const prompt = (await fs.readFile(path.join(sourceRoot, sourcePath), "utf8")).replaceAll("\r\n", "\n");
     const readmeProfile = readmeProfiles.get(sourcePath);
     const expertiseCapabilities = extractExpertiseCapabilities(
       listedAgent.expertise,
@@ -319,6 +337,7 @@ async function main() {
 
     agents.push({
       ...listedAgent,
+      id: LOCAL_ID_BY_UPSTREAM_ID[listedAgent.id] ?? listedAgent.id,
       department: department.label,
       scenarios,
       capabilities: finalCapabilities,
@@ -327,8 +346,12 @@ async function main() {
       emoji: department.emoji,
       color: department.color,
       prompt,
-      popularity: popularityFor(listedAgent.id),
+      popularity: popularityFor(LOCAL_ID_BY_UPSTREAM_ID[listedAgent.id] ?? listedAgent.id),
     });
+  }
+
+  if (new Set(agents.map((agent) => agent.id)).size !== agents.length) {
+    throw new Error("Duplicate local agent id after compatibility mapping.");
   }
 
   const departments = Array.from(
@@ -341,21 +364,21 @@ async function main() {
     ]),
   );
 
-  await Promise.all([
-    fs.writeFile(
-      path.join(repositoryRoot, "client", "src", "data", "agents.ts"),
-      serializeTypescript(agents, departments, counts),
-      "utf8",
-    ),
-    fs.writeFile(
-      path.join(repositoryRoot, "server", "data", "agents.json"),
-      `${JSON.stringify(agents, null, 2)}\n`,
-      "utf8",
-    ),
-  ]);
+  const outputs = [
+    [path.join(repositoryRoot, "client", "src", "data", "agents.ts"), serializeTypescript(agents, departments, counts)],
+    [path.join(repositoryRoot, "server", "data", "agents.json"), `${JSON.stringify(agents, null, 2)}\n`],
+  ];
+  if (process.argv.includes("--check")) {
+    for (const [file, expected] of outputs) {
+      const actual = (await fs.readFile(file, "utf8")).replaceAll("\r\n", "\n");
+      if (actual !== expected) throw new Error(`Catalog drift: ${path.relative(repositoryRoot, file)}`);
+    }
+  } else {
+    await Promise.all(outputs.map(([file, content]) => fs.writeFile(file, content, "utf8")));
+  }
 
   process.stdout.write(
-    `Updated ${agents.length} agents from ${UPSTREAM_COMMIT}; ${departments.length} departments.\n`,
+    `${process.argv.includes("--check") ? "Verified" : "Updated"} ${agents.length} agents from ${UPSTREAM_COMMIT}; ${departments.length} departments.\n`,
   );
 }
 
