@@ -41,6 +41,7 @@ describe("help center content catalog", () => {
 
   it("keeps the formal article slugs unique and metadata complete", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
+      "review-wonder-decisions",
       "review-decisions-sol-batch",
       "review-elevenlabs-batch",
       "play-god-card",
@@ -79,7 +80,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
@@ -273,7 +274,8 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("收费").some((entry) => entry.id === "check-availability-cost-data")).toBe(true);
     const everydayCostHits = searchHelpContent("花钱");
     expect(everydayCostHits[0]?.id).toBe("check-availability-cost-data");
-    expect(everydayCostHits.length).toBeLessThanOrEqual(8);
+    expect(everydayCostHits.some((entry) => entry.id === "review-wonder-decisions")).toBe(true);
+    expect(everydayCostHits.length).toBeLessThanOrEqual(9);
     expect(searchHelpContent("运维").some((entry) => entry.id === "runtime")).toBe(true);
     // 全文检索：只出现在正文、不在标题/摘要/关键词的词
     const bodyOnly = searchHelpContent("类型化转换节点").some((entry) => entry.id === "submit-knowledge-proposal");

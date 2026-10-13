@@ -12,6 +12,8 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "nace-ai/drex-v2.0",
+  "~perplexity/pplx-decider-27b-latest",
   "microsoft/microsoft-decision-1",
   "cloudflare/clef-omni",
   "nace-ai/drex-v1.5",
