@@ -2,16 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import threading
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from .workflow_outcomes import resolve_workflow_outcome
+
+if TYPE_CHECKING:
+    from .execution_store import WorkflowExecution, WorkflowExecutionStore
 
 
 AutomationStatus = Literal["draft", "scheduled", "paused", "archived"]
@@ -107,6 +114,9 @@ class AutomationExecution:
     updated_at: float = field(default_factory=time.time)
     started_at: float | None = None
     completed_at: float | None = None
+    runtime_budget_seconds: int | None = None
+    runtime_deadline_at: float | None = None
+    runtime_expired_at: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -389,7 +399,7 @@ class AutomationStore:
                 metadata={"manual": True},
             )
             self._persist_unlocked()
-            return execution
+            return deepcopy(execution)
 
     def materialize_due(self, *, now: float | None = None) -> list[AutomationExecution]:
         current = time.time() if now is None else float(now)
@@ -446,7 +456,7 @@ class AutomationStore:
                 self._persist_unlocked()
             else:
                 self._persist_unlocked()
-        return created
+            return deepcopy(created)
 
     def list_executions(
         self,
@@ -456,7 +466,7 @@ class AutomationStore:
         limit: int = 100,
     ) -> list[AutomationExecution]:
         with self._lock:
-            items = list(self._executions.values())
+            items = deepcopy(list(self._executions.values()))
         if automation_id:
             items = [item for item in items if item.automation_id == automation_id]
         if status:
@@ -466,7 +476,7 @@ class AutomationStore:
 
     def get_execution(self, execution_id: str) -> AutomationExecution | None:
         with self._lock:
-            return self._executions.get(execution_id)
+            return deepcopy(self._executions.get(execution_id))
 
     def claimable(self, *, now: float | None = None, limit: int = 20) -> list[AutomationExecution]:
         current = time.time() if now is None else float(now)
@@ -481,6 +491,7 @@ class AutomationStore:
                 for item in self._executions.values()
                 if item.status == "running" and item.lease_expires_at <= current
             ]
+            items = deepcopy(items)
         items.sort(key=lambda item: (item.available_at, item.scheduled_at, item.execution_id))
         return items[: max(1, min(limit, 100))]
 
@@ -497,17 +508,343 @@ class AutomationStore:
             item = self._require_execution_unlocked(execution_id)
             if item.status == "running" and item.lease_expires_at > current:
                 raise AutomationConflictError("Automation execution is already leased.")
-            if item.status not in {"pending", "running"} or item.available_at > current:
+            if item.status not in {"pending", "running"}:
                 raise AutomationConflictError(f"Execution cannot be claimed from {item.status}.")
+            if item.available_at > current:
+                raise AutomationConflictError(
+                    "AUTOMATION_NOT_DUE: 执行尚未到可领取时间；"
+                    f"status={item.status}, available_at={item.available_at!r}, observed_at={current!r}"
+                )
+            if self._dispatch_may_have_started(item):
+                raise AutomationConflictError("目标派发结果不确定，不能重新领取执行。")
+            self._assert_runtime_remaining(item, current)
+            original = item
+            item = deepcopy(item)
             item.status = "running"
             item.attempt += 1
+            item.metadata["target_dispatch"] = {"version": 1, "attempt": item.attempt, "phase": "prepared"}
             item.lease_owner = str(worker_id)
             item.lease_token = uuid.uuid4().hex
             item.lease_expires_at = current + max(5, float(lease_seconds))
-            item.started_at = item.started_at or current
+            if item.started_at is None:
+                item.started_at = current
+                item.runtime_budget_seconds = self._require_definition_unlocked(item.automation_id).budget.max_runtime_seconds
+                item.runtime_deadline_at = current + item.runtime_budget_seconds
             item.updated_at = current
+            self._executions[execution_id] = item
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                raise
+            return deepcopy(item)
+
+    @staticmethod
+    def _runtime_remaining(item: AutomationExecution, now: float) -> float | None:
+        if item.runtime_budget_seconds is None and item.runtime_deadline_at is None and item.runtime_expired_at is None:
+            return None  # Legacy occurrences have no provable frozen runtime authorization.
+        if (
+            type(item.runtime_budget_seconds) is not int or not 30 <= item.runtime_budget_seconds <= 86_400
+            or type(item.started_at) not in {int, float} or not math.isfinite(item.started_at)
+            or type(item.runtime_deadline_at) not in {int, float} or not math.isfinite(item.runtime_deadline_at)
+            or item.runtime_deadline_at != item.started_at + item.runtime_budget_seconds
+            or item.runtime_expired_at is not None and (
+                type(item.runtime_expired_at) not in {int, float} or not math.isfinite(item.runtime_expired_at)
+                or item.runtime_expired_at < item.runtime_deadline_at
+            )
+        ):
+            raise AutomationValidationError("自动化固定期限状态无效，拒绝继续执行。")
+        return max(0.0, item.runtime_deadline_at - now)
+
+    @classmethod
+    def _assert_runtime_remaining(cls, item: AutomationExecution, now: float | None = None) -> None:
+        if cls._runtime_remaining(item, time.time() if now is None else now) == 0:
+            raise AutomationConflictError("AUTOMATION_RUNTIME_BUDGET_EXCEEDED: 本次执行的固定总期限已到达。")
+
+    def remaining_runtime(self, execution_id: str) -> float | None:
+        with self._lock:
+            return self._runtime_remaining(self._require_execution_unlocked(execution_id), time.time())
+
+    @staticmethod
+    def _runtime_expirable(item: AutomationExecution) -> bool:
+        return item.status in {"pending", "running", "waiting_approval", "waiting_client"} or (
+            item.status == "dead_letter" and item.error == "AUTOMATION_DISPATCH_UNCERTAIN"
+        )
+
+    def expire_runtime_budget(self, execution_id: str) -> AutomationExecution:
+        """Only the persisted deadline can terminate an occurrence without a worker lease."""
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            current = time.time()
+            if item.runtime_expired_at is not None or not self._runtime_expirable(item) or self._runtime_remaining(item, current) != 0:
+                return deepcopy(item)
+            original = item
+            item = deepcopy(item)
+            uncertain = item.error == "AUTOMATION_DISPATCH_UNCERTAIN" or (
+                item.status in {"running", "pending"} and self._dispatch_may_have_started(item)
+            )
+            item.error = "AUTOMATION_DISPATCH_UNCERTAIN" if uncertain else "AUTOMATION_RUNTIME_BUDGET_EXCEEDED"
+            if uncertain:
+                receipt = item.metadata.get("target_dispatch")
+                item.metadata["target_dispatch"] = {
+                    "version": 1, "attempt": item.attempt, "phase": "uncertain",
+                    "run_id": str(receipt.get("run_id") or "") if isinstance(receipt, dict) else "",
+                }
+            item.status, item.result = "dead_letter", None
+            item.runtime_expired_at = item.updated_at = current
+            if item.completed_at is None:
+                item.completed_at = current
+            self._clear_lease(item)
+            definition = self._require_definition_unlocked(item.automation_id)
+            updated = deepcopy(definition)
+            updated.last_run_at = updated.updated_at = current
+            self._executions[execution_id], self._definitions[item.automation_id] = item, updated
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id], self._definitions[item.automation_id] = original, definition
+                raise
+            return deepcopy(item)
+
+    def runtime_expiry_candidates(self) -> list[AutomationExecution]:
+        with self._lock:
+            current = time.time()
+            return [deepcopy(item) for item in self._executions.values()
+                    if item.runtime_expired_at is not None
+                    or self._runtime_expirable(item) and self._runtime_remaining(item, current) == 0]
+
+    @staticmethod
+    def _dispatch_may_have_started(item: AutomationExecution) -> bool:
+        receipt = item.metadata.get("target_dispatch")
+        if receipt is None:
+            return item.attempt > 0
+        return not (
+            isinstance(receipt, dict) and type(receipt.get("version")) is int and receipt.get("version") == 1
+            and type(receipt.get("attempt")) is int
+            and receipt.get("attempt") == item.attempt and receipt.get("phase") == "prepared"
+        )
+
+    def mark_target_dispatch(self, execution_id: str, *, lease_token: str, run_id: str) -> AutomationExecution:
+        """Persist the conservative dispatch boundary before invoking any target."""
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            self.assert_execution_owner(execution_id, lease_token)
+            if self._dispatch_may_have_started(item) or not run_id:
+                raise AutomationConflictError("目标可能已派发或运行身份缺失，拒绝再次调用。")
+            original = item
+            item = deepcopy(item)
+            item.metadata["target_dispatch"] = {
+                "version": 1, "attempt": item.attempt, "phase": "started", "run_id": run_id,
+            }
+            item.updated_at = time.time()
+            self._executions[execution_id] = item
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                raise
+            return deepcopy(item)
+
+    def reconcile_uncertain_dispatches(self, *, now: float | None = None) -> list[AutomationExecution]:
+        current = time.time() if now is None else float(now)
+        with self._lock:
+            for item in list(self._executions.values()):
+                due = (item.status == "running" and item.lease_expires_at <= current
+                       or item.status == "pending" and item.available_at <= current)
+                if not due or not self._dispatch_may_have_started(item):
+                    continue
+                original = item
+                item = deepcopy(item)
+                receipt = item.metadata.get("target_dispatch")
+                item.metadata["target_dispatch"] = {
+                    "version": 1, "attempt": item.attempt, "phase": "uncertain",
+                    "run_id": str(receipt.get("run_id") or "") if isinstance(receipt, dict) else "",
+                }
+                item.status, item.error = "dead_letter", "AUTOMATION_DISPATCH_UNCERTAIN"
+                item.updated_at = item.completed_at = current
+                self._clear_lease(item)
+                definition = self._require_definition_unlocked(item.automation_id)
+                updated = deepcopy(definition)
+                updated.last_run_at = updated.updated_at = current
+                self._executions[item.execution_id] = item
+                self._definitions[item.automation_id] = updated
+                try:
+                    self._persist_unlocked()
+                except BaseException:
+                    self._executions[item.execution_id] = original
+                    self._definitions[item.automation_id] = definition
+                    raise
+            return [deepcopy(item) for item in self._executions.values()
+                    if item.status == "dead_letter" and item.error == "AUTOMATION_DISPATCH_UNCERTAIN"]
+
+    @staticmethod
+    def _settle_target_dispatch(item: AutomationExecution) -> None:
+        receipt = item.metadata.get("target_dispatch")
+        if isinstance(receipt, dict) and receipt.get("attempt") == item.attempt:
+            item.metadata["target_dispatch"] = {**receipt, "phase": "settled"}
+
+    def assert_execution_owner(self, execution_id: str, lease_token: str) -> None:
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            if item.status != "running":
+                raise AutomationConflictError("当前执行不允许派发。")
+            self._assert_transition_unlocked(item, lease_token=lease_token)
+            self._assert_runtime_remaining(item)
+
+    def renew_execution(
+        self, execution_id: str, *, lease_token: str, lease_seconds: float,
+    ) -> AutomationExecution:
+        with self._lock:
+            item = self._require_execution_unlocked(execution_id)
+            if item.status != "running":
+                raise AutomationConflictError("当前执行不允许续租。")
+            self._assert_transition_unlocked(item, lease_token=lease_token)
+            self._assert_runtime_remaining(item)
+            item.lease_expires_at = time.time() + max(5, float(lease_seconds))
+            item.updated_at = time.time()
             self._persist_unlocked()
-            return item
+            return deepcopy(item)
+
+    @staticmethod
+    def _assert_transition_unlocked(
+        item: AutomationExecution,
+        *,
+        lease_token: str | None,
+        run_id: str | None = None,
+        workflow_task_id: str | None = None,
+    ) -> None:
+        if item.status == "running":
+            if (
+                not lease_token or item.lease_token != lease_token
+                or item.lease_expires_at <= time.time()
+            ):
+                raise AutomationConflictError("执行所有权已失效，拒绝迟到提交。")
+            return
+        if lease_token or item.status not in {"waiting_approval", "waiting_client"}:
+            raise AutomationConflictError("当前执行状态不允许此回调提交。")
+        if (
+            (run_id is not None and item.run_id != run_id)
+            or (workflow_task_id is not None and item.workflow_task_id != workflow_task_id)
+        ):
+            raise AutomationConflictError("恢复来源与登记的执行身份不一致。")
+
+    def workflow_projection_executions(self) -> list[AutomationExecution]:
+        with self._lock:
+            return [deepcopy(item) for item in self._executions.values()
+                    if item.status in {"waiting_approval", "waiting_client"}
+                    or item.status in {"completed", "dead_letter"}
+                    and isinstance(item.metadata.get("workflow_projection"), dict)]
+
+    def expire_workflow_wait(
+        self, executions: WorkflowExecutionStore, snapshot: WorkflowExecution,
+    ) -> AutomationExecution:
+        """Project a verified expired request without reopening or retrying it."""
+        snapshot = deepcopy(snapshot)
+        with self._lock, executions.projection_local_operation(snapshot.task_id, expected_snapshot=snapshot):
+            if (snapshot.status != "waiting" or snapshot.wait_kind not in {"approval", "client_tool"}
+                    or not snapshot.wait_id or not snapshot.continuation):
+                raise AutomationConflictError("超时来源不是已登记的审批或客户端等待。")
+            metadata = snapshot.runtime_metadata
+            item = self._require_execution_unlocked(str(metadata.get("automation_execution_id") or ""))
+            if (snapshot.run_type != "xpert" or item.automation_id != metadata.get("automation_id")
+                    or item.occurrence_key != metadata.get("automation_occurrence_key")
+                    or item.workflow_task_id != snapshot.task_id or item.run_id != snapshot.run_id
+                    or item.wait_kind != snapshot.wait_kind or item.wait_id != snapshot.wait_id):
+                raise AutomationConflictError("超时来源与自动化当前等待身份不一致。")
+            receipt = {"task_id": snapshot.task_id, "run_id": snapshot.run_id, "revision": snapshot.revision,
+                       "status": "expired", "wait_kind": snapshot.wait_kind, "wait_id": snapshot.wait_id}
+            if item.status == "dead_letter" and item.metadata.get("workflow_projection") == receipt:
+                return deepcopy(item)
+            expected_status = "waiting_approval" if snapshot.wait_kind == "approval" else "waiting_client"
+            if item.status != expected_status:
+                raise AutomationConflictError("自动化已离开原等待状态，拒绝迟到超时。")
+            original = item
+            item = deepcopy(item)
+            item.status, item.error, item.result = "dead_letter", "AUTOMATION_WAIT_EXPIRED", None
+            item.metadata["workflow_projection"] = receipt
+            item.updated_at = item.completed_at = time.time()
+            self._clear_lease(item)
+            definition = self._require_definition_unlocked(item.automation_id)
+            updated_definition = deepcopy(definition)
+            updated_definition.last_run_at = updated_definition.updated_at = item.updated_at
+            self._executions[item.execution_id] = item
+            self._definitions[item.automation_id] = updated_definition
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[item.execution_id] = original
+                self._definitions[item.automation_id] = definition
+                raise
+            return deepcopy(item)
+
+    def project_workflow_outcome(
+        self, executions: WorkflowExecutionStore, snapshot: WorkflowExecution,
+        event: dict[str, Any], *, lease_token: str | None = None,
+    ) -> AutomationExecution:
+        """Commit only a current durable child outcome under both Store locks."""
+        snapshot, event = deepcopy(snapshot), deepcopy(event)
+        with self._lock, executions.projection_local_operation(snapshot.task_id, expected_snapshot=snapshot):
+            outcome = resolve_workflow_outcome(event, snapshot)
+            metadata = snapshot.runtime_metadata
+            item = self._require_execution_unlocked(str(metadata.get("automation_execution_id") or ""))
+            if (
+                item.automation_id != metadata.get("automation_id")
+                or item.occurrence_key != metadata.get("automation_occurrence_key")
+                or snapshot.run_type != "xpert"
+            ):
+                raise AutomationConflictError("自动化结果的父子身份不一致。")
+            receipt = {"task_id": snapshot.task_id, "run_id": snapshot.run_id, "revision": snapshot.revision,
+                       "status": outcome.status, "wait_kind": outcome.wait_kind, "wait_id": outcome.wait_id}
+            target_status = (
+                {"approval": "waiting_approval", "client_tool": "waiting_client"}.get(outcome.wait_kind, "dead_letter")
+                if outcome.status == "waiting" else outcome.status
+            )
+            if item.metadata.get("workflow_projection") == receipt and item.status == target_status:
+                return deepcopy(item)
+            self._assert_runtime_remaining(item)
+            if lease_token:
+                self._assert_transition_unlocked(item, lease_token=lease_token)
+            elif (
+                item.status not in {"waiting_approval", "waiting_client"}
+                or item.workflow_task_id != snapshot.task_id
+                or item.run_id not in [snapshot.run_id, *snapshot.previous_run_ids]
+            ):
+                raise AutomationConflictError("自动化恢复结果与已绑定子执行不一致或父状态已改变。")
+            original = item
+            item = deepcopy(item)
+            item.metadata["workflow_projection"] = receipt
+            if outcome.status in {"waiting", "completed"}:
+                self._settle_target_dispatch(item)
+            item.run_id, item.workflow_task_id = snapshot.run_id, snapshot.task_id
+            item.wait_kind, item.wait_id = outcome.wait_kind, outcome.wait_id
+            item.error, item.result = None, None
+            if outcome.status == "waiting":
+                item.status = target_status
+                if item.status == "dead_letter":
+                    item.error = "AUTOMATION_WAIT_UNSUPPORTED"
+            else:
+                item.status = outcome.status
+                if item.status == "completed":
+                    item.result = str(snapshot.result or "")[:200_000]
+                else:
+                    item.error = "WORKFLOW_CANCELLED"
+            item.updated_at = time.time()
+            item.completed_at = item.updated_at if item.status in {"completed", "cancelled", "dead_letter"} else None
+            self._clear_lease(item)
+            definition = self._require_definition_unlocked(item.automation_id)
+            updated_definition = deepcopy(definition)
+            if item.completed_at is not None:
+                updated_definition.last_run_at = item.completed_at
+                updated_definition.updated_at = item.updated_at
+            self._executions[item.execution_id] = item
+            self._definitions[item.automation_id] = updated_definition
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[item.execution_id] = original
+                self._definitions[item.automation_id] = definition
+                raise
+            return deepcopy(item)
 
     def mark_waiting(
         self,
@@ -517,9 +854,20 @@ class AutomationStore:
         run_id: str,
         workflow_task_id: str,
         wait_id: str | None,
+        lease_token: str | None = None,
     ) -> AutomationExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            self._assert_runtime_remaining(item)
+            self._assert_transition_unlocked(
+                item, lease_token=lease_token, run_id=run_id,
+                workflow_task_id=workflow_task_id,
+            )
+            if status not in {"waiting_approval", "waiting_client"} or not wait_id:
+                raise AutomationValidationError("等待状态和登记标识不能为空或未知。")
+            original = item
+            item = deepcopy(item)
+            self._settle_target_dispatch(item)
             item.status = status
             item.run_id = run_id or item.run_id
             item.workflow_task_id = workflow_task_id or item.workflow_task_id
@@ -527,8 +875,13 @@ class AutomationStore:
             item.wait_id = wait_id
             self._clear_lease(item)
             item.updated_at = time.time()
-            self._persist_unlocked()
-            return item
+            self._executions[execution_id] = item
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                raise
+            return deepcopy(item)
 
     def complete_execution(
         self,
@@ -537,9 +890,22 @@ class AutomationStore:
         result: str,
         run_id: str | None = None,
         workflow_task_id: str | None = None,
+        lease_token: str | None = None,
     ) -> AutomationExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            self._assert_runtime_remaining(item)
+            if item.status in {"waiting_approval", "waiting_client"} and (
+                not run_id or not workflow_task_id
+            ):
+                raise AutomationConflictError("恢复完成必须提供已登记的执行身份。")
+            self._assert_transition_unlocked(
+                item, lease_token=lease_token, run_id=run_id,
+                workflow_task_id=workflow_task_id,
+            )
+            original = item
+            item = deepcopy(item)
+            self._settle_target_dispatch(item)
             item.status = "completed"
             item.result = str(result or "")[:200_000]
             item.error = None
@@ -551,10 +917,19 @@ class AutomationStore:
             item.updated_at = item.completed_at
             self._clear_lease(item)
             definition = self._require_definition_unlocked(item.automation_id)
+            original_definition = definition
+            definition = deepcopy(definition)
             definition.last_run_at = item.completed_at
             definition.updated_at = item.completed_at
-            self._persist_unlocked()
-            return item
+            self._executions[execution_id] = item
+            self._definitions[item.automation_id] = definition
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                self._definitions[item.automation_id] = original_definition
+                raise
+            return deepcopy(item)
 
     def fail_execution(
         self,
@@ -562,10 +937,24 @@ class AutomationStore:
         *,
         error: str,
         permanent: bool = False,
+        lease_token: str | None = None,
     ) -> AutomationExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
+            if item.status != "running":
+                raise AutomationConflictError("等待失败必须核验当前子执行和等待身份。")
+            self._assert_transition_unlocked(item, lease_token=lease_token)
             definition = self._require_definition_unlocked(item.automation_id)
+            original, original_definition = item, definition
+            item, definition = deepcopy(item), deepcopy(definition)
+            if self._dispatch_may_have_started(item):
+                permanent = True
+                error = "AUTOMATION_DISPATCH_UNCERTAIN"
+                receipt = item.metadata.get("target_dispatch")
+                item.metadata["target_dispatch"] = {
+                    "version": 1, "attempt": item.attempt, "phase": "uncertain",
+                    "run_id": str(receipt.get("run_id") or "") if isinstance(receipt, dict) else "",
+                }
             item.error = str(error or "Automation execution failed.")[:4_000]
             self._clear_lease(item)
             now = time.time()
@@ -578,27 +967,56 @@ class AutomationStore:
             item.updated_at = now
             definition.last_run_at = now
             definition.updated_at = now
-            self._persist_unlocked()
-            return item
+            self._executions[execution_id] = item
+            self._definitions[item.automation_id] = definition
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                self._definitions[item.automation_id] = original_definition
+                raise
+            return deepcopy(item)
 
     def cancel_execution(self, execution_id: str) -> AutomationExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
             if item.status in {"completed", "dead_letter", "cancelled", "skipped", "budget_limited"}:
-                return item
+                return deepcopy(item)
+            original = item
+            item = deepcopy(item)
             item.status = "cancelled"
-            item.error = "Cancelled by operator."
+            item.error = "操作员已取消本次执行。"
             item.completed_at = time.time()
             item.updated_at = item.completed_at
             self._clear_lease(item)
-            self._persist_unlocked()
-            return item
+            self._executions[execution_id] = item
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                raise
+            return deepcopy(item)
+
+    def cancelled_executions(self) -> list[AutomationExecution]:
+        """Internal reconciliation must not use the paginated management list."""
+        with self._lock:
+            return [deepcopy(item) for item in self._executions.values() if item.status == "cancelled"]
 
     def retry_execution(self, execution_id: str, *, reset_attempts: bool = False) -> AutomationExecution:
         with self._lock:
             item = self._require_execution_unlocked(execution_id)
             if item.status not in {"failed", "dead_letter", "budget_limited", "cancelled"}:
                 raise AutomationConflictError("Only terminal failed executions can be retried.")
+            self._assert_runtime_remaining(item)
+            receipt = item.metadata.get("target_dispatch")
+            if self._dispatch_may_have_started(item) and not (
+                isinstance(receipt, dict) and type(receipt.get("version")) is int and receipt.get("version") == 1
+                and type(receipt.get("attempt")) is int
+                and receipt.get("attempt") == item.attempt and receipt.get("phase") == "settled"
+            ):
+                raise AutomationConflictError("目标结果不确定，普通重试不能清除派发证据；请先核对原执行。")
+            original = item
+            item = deepcopy(item)
             if reset_attempts:
                 item.attempt = 0
             item.status = "pending"
@@ -607,10 +1025,16 @@ class AutomationStore:
             item.completed_at = None
             item.wait_kind = None
             item.wait_id = None
+            item.metadata["target_dispatch"] = {"version": 1, "attempt": item.attempt, "phase": "prepared"}
             item.updated_at = time.time()
             self._clear_lease(item)
-            self._persist_unlocked()
-            return item
+            self._executions[execution_id] = item
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._executions[execution_id] = original
+                raise
+            return deepcopy(item)
 
     @staticmethod
     def validate_trigger(raw: dict[str, Any]) -> AutomationTrigger:
@@ -774,16 +1198,14 @@ class AutomationStore:
                 raw["budget"] = AutomationBudget(**dict(raw.get("budget") or {}))
                 item = AutomationDefinition(**raw)
                 self._definitions[item.automation_id] = item
-            now = time.time()
             for raw in payload.get("executions", []):
                 if not isinstance(raw, dict):
                     continue
                 item = AutomationExecution(**raw)
-                if item.status == "running" and item.lease_expires_at <= now:
-                    item.status = "pending"
-                    item.available_at = now
-                    self._clear_lease(item)
                 self._executions[item.execution_id] = item
         except Exception:
             self._definitions = {}
             self._executions = {}
+        # Invalid new deadline evidence must not silently turn into an empty Store.
+        for item in self._executions.values():
+            self._runtime_remaining(item, time.time())

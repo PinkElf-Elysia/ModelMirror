@@ -143,6 +143,22 @@ async def test_budget_failure_cancels_pending_pages_without_retry(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_child_vision_budget_rejection_does_not_spend_parent_budget(monkeypatch):
+    stub = ManagedStub()
+    service = service_for(monkeypatch, stub, pages=4)
+    parent = XpertExecutionBudget(max_concurrency=2, recursion_limit=100, max_model_calls=4)
+    child = XpertExecutionBudget(max_concurrency=1, recursion_limit=100, max_model_calls=1)
+    with use_execution_budget(parent), use_execution_budget(child):
+        with pytest.raises(WorkflowVisionError) as failure:
+            await execute(service)
+    assert failure.value.error_code == "workflow_vision_model_budget_exhausted"
+    assert parent.usage() == child.usage()
+    assert parent.model_calls == parent.steps_used == len(stub.calls) == 1
+    assert stub.active == 0
+    assert stub.finished == "workflow_vision_execution_interrupted"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("pages,limit", [(11, 10), (21, 20)])
 async def test_total_pages_fail_before_any_dispatch(monkeypatch, pages, limit):
     stub = ManagedStub()

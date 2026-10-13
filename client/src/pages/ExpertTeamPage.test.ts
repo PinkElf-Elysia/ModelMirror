@@ -73,7 +73,9 @@ describe("ExpertTeamPage HITL plan validation", () => {
 
 describe("ExpertTeamPage model selection", () => {
   it("finds exact managed models beyond the featured prefix and preserves selections", () => {
-    const modelId = "qwen/qwen3-8b";
+    const availableModels = recommendedChatModels();
+    expect(availableModels.length).toBeGreaterThan(48);
+    const modelId = availableModels[48].id;
     expect(recommendedChatModels().findIndex((model) => model.id === modelId)).toBeGreaterThanOrEqual(48);
     expect(searchableFusionModels([], modelId).map((model) => model.id)).toContain(modelId);
     expect(searchableFusionModels([modelId], "")[0]?.id).toBe(modelId);

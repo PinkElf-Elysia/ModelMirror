@@ -1690,7 +1690,7 @@ def _seed_revisable_run(runtime, prepared, *, task_id="revision-source", failed=
             },
         )
         runtime.store.fail(source.task_id, error="agency_execution_step_failed")
-    return source
+    return runtime.store.require(source.task_id)
 
 
 def test_revision_creates_immutable_version_chain_with_fresh_usage(tmp_path):

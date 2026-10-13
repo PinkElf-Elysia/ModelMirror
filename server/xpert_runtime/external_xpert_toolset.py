@@ -4,6 +4,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from .capabilities import CapabilityRegistry
+from .execution_budget import XpertExecutionBudgetExceeded, XpertExecutionBudgetStateError
+from .execution_store import WorkflowExecutionConflictError
+from .interrupts import RuntimeMiddlewareFatalError
 from .toolset import RuntimeTool, RuntimeToolCall, RuntimeToolError, RuntimeToolResult
 
 
@@ -99,6 +102,10 @@ class ExternalXpertToolsetProvider:
             )
         try:
             return await self.runner(resource, task, call)
+        except RuntimeMiddlewareFatalError:
+            raise
+        except (XpertExecutionBudgetExceeded, XpertExecutionBudgetStateError, WorkflowExecutionConflictError) as exc:
+            raise RuntimeMiddlewareFatalError(str(exc)) from exc
         except RuntimeToolError:
             raise
         except Exception as exc:

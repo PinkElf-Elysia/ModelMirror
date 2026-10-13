@@ -10,6 +10,8 @@ export interface ClientToolRequest {
   arguments: Record<string, unknown>;
   mutating: boolean;
   status: string;
+  retryable?: boolean;
+  retry_blocked_reason?: string | null;
   error?: string | null;
   result_length: number;
   result_metadata?: { artifact_id?: string };
@@ -186,7 +188,7 @@ export default function ClientToolPanel({
               {request.error ? <p className="mt-2 text-[11px] leading-5 text-rose-200">{request.error}</p> : null}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {retryStatuses.has(request.status) ? (
-                  <button className="rounded-md bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100 disabled:opacity-50" disabled={busyId === request.request_id} onClick={() => void mutate(request.request_id, "retry")} type="button">
+                  <button className="rounded-md bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100 disabled:opacity-50" disabled={busyId === request.request_id || request.retryable !== true} title={request.retryable === true ? undefined : request.retry_blocked_reason || "尚未取得服务端重派许可，请刷新请求。"} onClick={() => void mutate(request.request_id, "retry")} type="button">
                     重新派发
                   </button>
                 ) : null}
@@ -202,6 +204,11 @@ export default function ClientToolPanel({
                 ) : null}
                 {request.mutating ? <span className="text-[10px] text-amber-200/70">页面修改操作</span> : null}
               </div>
+              {retryStatuses.has(request.status) && request.retryable !== true ? (
+                <p className="mt-2 break-words text-[11px] leading-5 text-amber-200">
+                  {request.retry_blocked_reason || "尚未取得服务端重派许可，请刷新请求。"}
+                </p>
+              ) : null}
             </article>
           ))}
           <button className="text-[11px] text-cyan-200 hover:text-cyan-100" onClick={() => void refresh()} type="button">刷新客户端请求</button>

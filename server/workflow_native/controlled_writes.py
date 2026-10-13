@@ -187,13 +187,14 @@ def _control_paths(workflow: dict[str, Any]) -> tuple[dict[str, set[str]], list[
 class ControlledWriteRuntime:
     """Internal execution context; never deserialized from an HTTP request."""
 
-    def __init__(self, *, task_id: str, workflow: dict[str, Any], backend: Any, execution_store: Any, isolated: bool = False, receipt_callback: Callable[[dict[str, Any]], None] | None = None, dispatch_guard: Callable[[str, str, str], None] | None = None) -> None:
+    def __init__(self, *, task_id: str, workflow: dict[str, Any], backend: Any, execution_store: Any, isolated: bool = False, receipt_callback: Callable[[dict[str, Any]], None] | None = None, dispatch_guard: Callable[[str, str, str], None] | None = None, expected_lease_token: str | None = None) -> None:
         validate_native_write_sources(workflow)
         self.task_id = task_id
         self.workflow = copy.deepcopy(workflow)
         self.nodes = {node["id"]: node for node in self.workflow.get("nodes", [])}
         self.backend = backend
         self.execution_store = execution_store
+        self.expected_lease_token = expected_lease_token
         self.isolated = isolated
         self.receipt_callback = receipt_callback
         self.dispatch_guard = dispatch_guard
@@ -208,7 +209,10 @@ class ControlledWriteRuntime:
         return entry
 
     def _freeze(self, key: str, entry: dict[str, Any]) -> dict[str, Any]:
-        return self.execution_store.freeze_private_write_entry(self.task_id, key, {"workflow_checksum": self.workflow_checksum, **entry})
+        return self.execution_store.freeze_private_write_entry(
+            self.task_id, key, {"workflow_checksum": self.workflow_checksum, **entry},
+            expected_lease_token=self.expected_lease_token,
+        )
 
     def _producer(self, variable: str) -> dict[str, Any]:
         matches = [node for node in self.nodes.values() if (node.get("data") or {}).get("outputVariable") == variable]
@@ -228,6 +232,12 @@ class ControlledWriteRuntime:
         self._freeze("value:" + node_id, {"value_checksum": canonical_checksum(value), "schema_checksum": canonical_checksum(schema), "node_contract_checksum": write_contract_checksum(node)})
 
     def query(self, node_id: str, *, filter_tree: dict[str, Any] | None) -> tuple[list[dict[str, Any]], Any]:
+        with self.execution_store.owned_local_operation(
+            self.task_id, expected_lease_token=self.expected_lease_token,
+        ):
+            return self._query_owned(node_id, filter_tree=filter_tree)
+
+    def _query_owned(self, node_id: str, *, filter_tree: dict[str, Any] | None) -> tuple[list[dict[str, Any]], Any]:
         node = self.nodes[node_id]
         data = node["data"]
         if node_kind(node) != "data_table_query":
@@ -282,6 +292,12 @@ class ControlledWriteRuntime:
         return {"operation": kind.removeprefix("data_table_"), "table_id": data["tableId"], "schema_version": data["pinnedSchemaVersion"], "schema_checksum": data["pinnedSchemaChecksum"], "data": values, "filter": resolve_filter(data.get("filter"), variables), "expected_records": expected, "writable_fields": list(grant.writable_fields) if kind != "data_table_delete" else [], "max_affected_rows": data.get("maxAffectedRows", 1)}
 
     def execute(self, node_id: str, variables: dict[str, Any], *, resolve_filter: Callable[..., Any]) -> dict[str, Any]:
+        with self.execution_store.owned_local_operation(
+            self.task_id, expected_lease_token=self.expected_lease_token,
+        ):
+            return self._execute_owned(node_id, variables, resolve_filter=resolve_filter)
+
+    def _execute_owned(self, node_id: str, variables: dict[str, Any], *, resolve_filter: Callable[..., Any]) -> dict[str, Any]:
         try:
             from server.data_tables.store import controlled_write_request_checksum
         except ModuleNotFoundError:

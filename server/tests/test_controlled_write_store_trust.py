@@ -13,10 +13,11 @@ from server.xpert_runtime.execution_store import (
 LIMIT = 16 * 1024 * 1024
 
 
-def _store(tmp_path):
+def _store(tmp_path, *, running=False):
     store = WorkflowExecutionStore(tmp_path)
     store.create(task_id="task", run_id="run", run_type="workflow", workflow={}, inputs={})
-    store.complete("task", result="done")
+    if not running:
+        store.complete("task", result="done")
     return store
 
 
@@ -45,8 +46,9 @@ def test_invalid_private_journal_never_becomes_trusted(tmp_path, boundary, inval
             store.snapshot_path.write_bytes(raw)
             WorkflowExecutionStore(tmp_path)
         else:
-            store.require("task").private_write_journal = invalid
-            store._persist_unlocked()
+            with store._lock:
+                store._require_unlocked("task").private_write_journal = invalid
+                store._persist_unlocked()
     if boundary == "persist":
         assert store.available is False
         assert store.snapshot_path.read_bytes() == original
@@ -88,8 +90,9 @@ def test_exact_limit_remains_valid_and_next_entry_is_rejected(tmp_path, limit):
         {f"request:{index}": {} for index in range(1000)}
         if limit == "count" else _journal_at_limit()
     )
-    store.require("task").private_write_journal = journal
-    store._persist_unlocked()
+    with store._lock:
+        store._require_unlocked("task").private_write_journal = journal
+        store._persist_unlocked()
     restored = WorkflowExecutionStore(tmp_path)
     assert restored.require("task").private_write_journal == journal
     before = restored.snapshot_path.read_bytes()
@@ -110,14 +113,15 @@ def test_legacy_snapshot_defaults_to_empty_private_journal(tmp_path):
 
 
 def test_private_freeze_preserves_backup_and_replay_without_public_content(tmp_path):
-    store = _store(tmp_path)
+    store = _store(tmp_path, running=True)
     original = store.snapshot_path.read_bytes()
     value = {"request_checksum": "a" * 64, "values": {"title": "PRIVATE_SENTINEL"}}
     frozen = store.freeze_private_write_entry("task", "request:write", value)
     assert store.backup_path.read_bytes() == original
-    current = store.snapshot_path.read_bytes()
     value["values"]["title"] = "changed"
     restored = WorkflowExecutionStore(tmp_path)
+    assert restored.require("task").status == "ready"
+    current = store.snapshot_path.read_bytes()
     assert restored.freeze_private_write_entry("task", "request:write", frozen) == frozen
     assert store.snapshot_path.read_bytes() == current
     with pytest.raises(WorkflowExecutionConflictError):
@@ -129,7 +133,7 @@ def test_private_freeze_preserves_backup_and_replay_without_public_content(tmp_p
 
 
 def test_write_failure_rolls_back_journal_and_disables_store(tmp_path, monkeypatch):
-    store = _store(tmp_path)
+    store = _store(tmp_path, running=True)
     item = store.require("task")
     before = store.snapshot_path.read_bytes()
 
@@ -182,9 +186,11 @@ def test_older_backup_cannot_duplicate_a_committed_write(tmp_path, monkeypatch, 
     restored_graph = deepcopy(graph)
     if change_request:
         restored_graph["nodes"][-2]["data"]["literalValues"]["title"] = "different"
+    recovered_store = WorkflowExecutionStore(store.storage_dir)
+    claimed = recovered_store.claim("task-fixed", worker_id="backup-recovery")
     recovered = ControlledWriteRuntime(
         task_id="task-fixed", workflow=restored_graph, backend=backend,
-        execution_store=WorkflowExecutionStore(store.storage_dir),
+        execution_store=recovered_store, expected_lease_token=claimed.lease_token,
     )
     if change_request:
         from server.data_tables.store import AgentTableConflictError

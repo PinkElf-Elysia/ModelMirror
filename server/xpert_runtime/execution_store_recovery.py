@@ -4,7 +4,7 @@ Operator procedure (run with the server's Python environment):
 
 1. Stop every server/coordinator writing to the selected AGENT_TASK_STORAGE_DIR.
    Keep them stopped through inspection, restore and verification. Hash checks
-   detect stale observations; they are not a cross-process lock.
+   detect stale observations. Restore also requires exclusive Runtime ownership.
 2. Run ``python -m server.xpert_runtime.execution_store_recovery inspect
    --storage-dir <directory>`` from the repository root (or omit ``server.``
    when running from the server directory). Inspect prints only safe metadata.
@@ -43,6 +43,7 @@ from .execution_store import (
     WorkflowExecutionStorageError,
     WorkflowExecutionStore,
 )
+from .runtime_directory import RuntimeDirectoryError, RuntimeDirectoryOwner
 
 
 _PRIMARY_NAME = "workflow_executions.json"
@@ -134,6 +135,23 @@ def inspect_storage(storage_dir: str | Path) -> dict[str, Any]:
 
 
 def restore_backup(
+    storage_dir: str | Path,
+    *,
+    expected_primary_sha256: str,
+    expected_backup_sha256: str,
+) -> dict[str, Any]:
+    try:
+        owner = RuntimeDirectoryOwner.acquire(storage_dir)
+    except RuntimeDirectoryError as exc:
+        raise RecoveryCommandError(exc.code, str(exc)) from None
+    with owner:
+        return _restore_backup_owned(
+            storage_dir, expected_primary_sha256=expected_primary_sha256,
+            expected_backup_sha256=expected_backup_sha256,
+        )
+
+
+def _restore_backup_owned(
     storage_dir: str | Path,
     *,
     expected_primary_sha256: str,
@@ -298,7 +316,7 @@ def _parser() -> argparse.ArgumentParser:
         description="Inspect or explicitly restore the workflow execution snapshot.",
         epilog=(
             "OFFLINE ONLY: stop all writers before inspection and restore. "
-            "Hash checks are not a process lock. A backup may lose recent "
+            "Restore requires exclusive Runtime ownership. A backup may lose recent "
             "transitions; reconcile external effects before restarting."
         ),
     )

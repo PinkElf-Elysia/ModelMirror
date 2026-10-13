@@ -6518,6 +6518,7 @@ class ProviderWorkloadCallService:
         entry_id: ProviderWorkloadEntryId,
         *,
         parent_run_reference: str,
+        replay_guard_references: tuple[str, ...] = (),
     ) -> str:
         """Claim one durable logical run and reject every later replay."""
 
@@ -6531,13 +6532,26 @@ class ProviderWorkloadCallService:
         policy = self.control.get_policy(entry_id)
         self._ensure_active(policy)
         run_id = self.stable_run_id(entry_id, clean_parent)
-        row, created = self.repository.claim_stable_workload_run(
-            self.router_service.tenant_id,
-            run_id=run_id,
-            entry_id=entry_id,
-            policy_fingerprint=policy.policy_fingerprint,
-            parent_run_reference=clean_parent,
-        )
+        try:
+            row, created = self.repository.claim_stable_workload_run(
+                self.router_service.tenant_id,
+                run_id=run_id,
+                entry_id=entry_id,
+                policy_fingerprint=policy.policy_fingerprint,
+                parent_run_reference=clean_parent,
+                replay_guard_run_ids=tuple(
+                    self.stable_run_id(entry_id, reference)
+                    for reference in replay_guard_references
+                ),
+            )
+        except RouterRepositoryError as exc:
+            if str(exc) != "provider_workload_logical_run_replay_blocked":
+                raise
+            raise RouterServiceError(
+                "provider_workload_logical_run_replay_blocked",
+                "旧恢复身份已有执行证据，系统不会自动重放。",
+                status_code=409,
+            ) from exc
         if (
             str(row["entry_id"]) != entry_id
             or str(row["parent_run_reference"] or "") != clean_parent

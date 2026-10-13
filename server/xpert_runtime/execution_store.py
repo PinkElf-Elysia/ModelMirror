@@ -10,8 +10,13 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
+
+from .execution_budget import (
+    XpertExecutionBudget, XpertExecutionBudgetStateError, restore_execution_budget_usage,
+)
 
 
 WorkflowExecutionStatus = Literal[
@@ -33,6 +38,9 @@ WorkflowExecutionSourceKind = Literal[
 _MAX_RUN_ID_HISTORY = 64
 _MAX_PRIVATE_WRITE_ENTRIES = 1000
 _MAX_PRIVATE_WRITE_BYTES = 16 * 1024 * 1024
+_MAX_BUDGET_DEPTH = 16
+_MAX_BUDGET_CHILDREN = 1000
+_HANDOFF_CANCELLATION = "pending_handoff_cancellation_id"
 _DUE_WAIT_KINDS = frozenset({"timer", "node_retry"})
 _WAIT_KINDS = frozenset({"approval", "agent_handoff", "client_tool", *_DUE_WAIT_KINDS})
 _IDEMPOTENT_ATTEMPT_EVENTS = frozenset(
@@ -112,6 +120,9 @@ class WorkflowExecution:
     runtime_metadata: dict[str, Any] = field(default_factory=dict)
     continuation: dict[str, Any] = field(default_factory=dict)
     private_write_journal: dict[str, Any] = field(default_factory=dict)
+    execution_budget: dict[str, Any] | None = None
+    execution_budget_parent: dict[str, str] | None = None
+    execution_budget_children: dict[str, str | None] = field(default_factory=dict)
     wait_kind: str | None = None
     wait_id: str | None = None
     resume_at: float | None = None
@@ -161,9 +172,10 @@ class WorkflowExecutionStore:
             self._require_available_unlocked()
             existing = self._items.get(task_id)
             if existing is not None:
-                return existing
+                return copy.deepcopy(existing)
             is_skill_evaluation = str(run_type) == "skill_evaluation"
-            safe_runtime_metadata = dict(runtime_metadata or {})
+            safe_runtime_metadata = copy.deepcopy(dict(runtime_metadata or {}))
+            safe_runtime_metadata.pop(_HANDOFF_CANCELLATION, None)
             is_skill_creator = bool(
                 str(run_type) == "workflow"
                 and safe_runtime_metadata.get("assistant_agent_id")
@@ -253,8 +265,8 @@ class WorkflowExecutionStore:
                 run_id=str(run_id),
                 run_type=str(run_type),
                 status="running",
-                workflow=dict(workflow),
-                inputs=dict(inputs),
+                workflow=copy.deepcopy(dict(workflow)),
+                inputs=copy.deepcopy(dict(inputs)),
                 source_kind=self._validated_source_kind(
                     source_kind,
                     run_type=str(run_type),
@@ -264,12 +276,12 @@ class WorkflowExecutionStore:
             )
             self._items[item.task_id] = item
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def get(self, task_id: str) -> WorkflowExecution | None:
         with self._lock:
             self._require_available_unlocked()
-            return self._items.get(task_id)
+            return copy.deepcopy(self._items.get(task_id))
 
     def require(self, task_id: str) -> WorkflowExecution:
         item = self.get(task_id)
@@ -277,14 +289,266 @@ class WorkflowExecutionStore:
             raise WorkflowExecutionNotFoundError("Workflow execution not found.")
         return item
 
+    def snapshot(self, task_id: str) -> WorkflowExecution:
+        """Capture management preconditions without retaining a mutable Store reference."""
+        with self._lock:
+            return copy.deepcopy(self._require_unlocked(task_id))
+
+    def initialize_execution_budget(
+        self, task_id: str, *, limits: dict[str, Any], usage: dict[str, int],
+        expected_lease_token: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            self._require_metadata_write_state_unlocked(item)
+            try:
+                candidate = XpertExecutionBudget.from_persisted_state(
+                    {"version": 1, "limits": limits, "usage": usage},
+                ).persisted_state()
+            except (ValueError, TypeError):
+                raise XpertExecutionBudgetStateError("执行预算初始化数据无效。") from None
+            if item.execution_budget is not None:
+                previous = XpertExecutionBudget.from_persisted_state(item.execution_budget).persisted_state()
+                if previous["limits"] != candidate["limits"] or any(
+                    value > previous["usage"][key] for key, value in candidate["usage"].items()
+                ):
+                    raise XpertExecutionBudgetStateError("执行预算限额或恢复计数与持久记录不一致。")
+                return copy.deepcopy(previous)
+            updated = copy.deepcopy(item)
+            updated.execution_budget = candidate
+            updated.revision += 1
+            updated.updated_at = time.time()
+            self._commit_budget_updates_unlocked({task_id: updated})
+            return copy.deepcopy(candidate)
+
+    def authorize_execution_budget_child(
+        self, task_id: str, occurrence_id: str, *, expected_lease_token: str | None = None,
+    ) -> None:
+        """Register delegation before background work becomes eligible for dispatch."""
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            self._require_metadata_write_state_unlocked(item)
+            self._budget_chain_unlocked(item)
+            if not self._budget_identity_valid(occurrence_id):
+                raise XpertExecutionBudgetStateError("子执行预算发生标识无效。")
+            if occurrence_id in item.execution_budget_children:
+                return
+            if len(item.execution_budget_children) >= _MAX_BUDGET_CHILDREN:
+                raise XpertExecutionBudgetStateError("子执行预算委托数量超限。")
+            updated = copy.deepcopy(item)
+            updated.execution_budget_children[occurrence_id] = None
+            updated.revision += 1
+            updated.updated_at = time.time()
+            self._commit_budget_updates_unlocked({task_id: updated})
+
+    def bind_execution_budget_parent(
+        self, task_id: str, *, parent_task_id: str, occurrence_id: str,
+        expected_lease_token: str | None = None,
+    ) -> None:
+        """Consume a durable delegation once; IDs in runtime metadata confer no authority."""
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            self._require_metadata_write_state_unlocked(item)
+            parent = self._require_unlocked(parent_task_id)
+            ancestors = self._budget_chain_unlocked(parent)
+            if task_id in {entry.task_id for entry in ancestors} or len(ancestors) >= _MAX_BUDGET_DEPTH:
+                raise XpertExecutionBudgetStateError("执行预算父子关联成环或层级超限。")
+            if not self._budget_identity_valid(occurrence_id) or occurrence_id not in parent.execution_budget_children:
+                raise XpertExecutionBudgetStateError("子执行预算未经父执行登记。")
+            link = {"parent_task_id": parent_task_id, "occurrence_id": occurrence_id}
+            consumer = parent.execution_budget_children[occurrence_id]
+            if item.execution_budget_parent == link and consumer == task_id:
+                self._budget_chain_unlocked(item)
+                return
+            if consumer is not None or item.execution_budget_parent is not None:
+                raise XpertExecutionBudgetStateError("预算委托已被消费，不能替换父子身份。")
+            local = XpertExecutionBudget.from_persisted_state(item.execution_budget)
+            if any(local.usage().values()) or item.execution_budget_children:
+                raise XpertExecutionBudgetStateError("已派发或已有子执行的预算不能追溯更换根身份。")
+            updated_parent, updated_child = copy.deepcopy(parent), copy.deepcopy(item)
+            updated_parent.execution_budget_children[occurrence_id] = task_id
+            updated_child.execution_budget_parent = link
+            for updated in (updated_parent, updated_child):
+                updated.revision += 1
+                updated.updated_at = time.time()
+            self._commit_budget_updates_unlocked({parent_task_id: updated_parent, task_id: updated_child})
+
+    def find_execution_budget_child(self, occurrence_prefix: str) -> dict[str, Any] | None:
+        """Resolve a server-owned occurrence, not a caller-supplied parent identity."""
+        with self._lock:
+            self._require_available_unlocked()
+            if not self._budget_identity_valid(occurrence_prefix) or not occurrence_prefix.endswith(":"):
+                raise XpertExecutionBudgetStateError("预算发生查询标识无效。")
+            matches = [
+                {"parent_task_id": item.task_id, "occurrence_id": key, "child_task_id": child_id}
+                for item in self._items.values()
+                for key, child_id in item.execution_budget_children.items()
+                if key.startswith(occurrence_prefix)
+            ]
+            if len(matches) > 1:
+                raise XpertExecutionBudgetStateError("预算发生登记不唯一，不能猜测父执行。")
+            return matches[0] if matches else None
+
+    def execution_budget_chain(
+        self, task_id: str, *, expected_lease_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            self._require_metadata_write_state_unlocked(item)
+            return [
+                {"task_id": entry.task_id, "state": copy.deepcopy(entry.execution_budget)}
+                for entry in self._budget_chain_unlocked(item)
+            ]
+
+    def _budget_chain_unlocked(self, item: WorkflowExecution) -> list[WorkflowExecution]:
+        result: list[WorkflowExecution] = []
+        seen: set[str] = set()
+        while True:
+            if item.task_id in seen or len(result) >= _MAX_BUDGET_DEPTH:
+                raise XpertExecutionBudgetStateError("执行预算父子关联成环或层级超限。")
+            seen.add(item.task_id)
+            if item.status not in {"running", "waiting", "ready"}:
+                raise WorkflowExecutionConflictError("祖先执行已终止，不能继续使用根预算。")
+            if item.status == "running" and item.lease_token and item.lease_expires_at <= time.time():
+                raise WorkflowExecutionConflictError("祖先执行租约已过期，根预算暂不可用。")
+            try:
+                XpertExecutionBudget.from_persisted_state(item.execution_budget)
+                self._validate_budget_links(item)
+            except (ValueError, TypeError):
+                raise XpertExecutionBudgetStateError("执行预算关联或计数无效。") from None
+            result.append(item)
+            if item.execution_budget_parent is None:
+                return list(reversed(result))
+            link = item.execution_budget_parent
+            parent = self._require_unlocked(link["parent_task_id"])
+            if parent.execution_budget_children.get(link["occurrence_id"]) != item.task_id:
+                raise XpertExecutionBudgetStateError("执行预算委托与子执行不匹配。")
+            item = parent
+
+    def reserve_execution_budgets(self, reservations: list[dict[str, Any]], kind: str) -> dict[str, Any]:
+        """Commit every active budget in one snapshot before caller dispatch."""
+        with self._lock:
+            self._require_available_unlocked()
+            if kind not in {"workflow_node", "model_call", "tool_call"} or not reservations:
+                raise XpertExecutionBudgetStateError("执行预算准入类型无效。")
+            updates: dict[str, WorkflowExecution] = {}
+            requested: set[str] = set()
+            chain_items: dict[str, WorkflowExecution] = {}
+            for reservation in reservations:
+                if not isinstance(reservation, dict) or set(reservation) != {
+                    "task_id", "expected_usage", "expected_lease_token",
+                }:
+                    raise XpertExecutionBudgetStateError("执行预算准入数据无效。")
+                task_id = reservation["task_id"]
+                if not isinstance(task_id, str) or task_id in requested:
+                    raise XpertExecutionBudgetStateError("执行预算绑定重复或无效。")
+                requested.add(task_id)
+                item = self._require_unlocked(task_id)
+                self._require_optional_lease_unlocked(item, reservation["expected_lease_token"])
+                self._require_metadata_write_state_unlocked(item)
+                try:
+                    budget = XpertExecutionBudget.from_persisted_state(item.execution_budget)
+                    expected = restore_execution_budget_usage(reservation["expected_usage"])
+                except (ValueError, TypeError):
+                    raise XpertExecutionBudgetStateError("执行预算准入数据无效。") from None
+                if not isinstance(reservation["expected_usage"], dict) or budget.usage() != expected:
+                    raise XpertExecutionBudgetStateError("执行预算计数已变化，请核对当前执行身份。")
+                for entry in self._budget_chain_unlocked(item):
+                    chain_items[entry.task_id] = entry
+            # Shared ancestors are charged exactly once, in the same atomic snapshot.
+            for task_id, item in chain_items.items():
+                budget = XpertExecutionBudget.from_persisted_state(item.execution_budget)
+                budget._check_charge(kind)
+                budget._apply_charge(kind)
+                updated = copy.deepcopy(item)
+                updated.execution_budget = budget.persisted_state()
+                updated.revision += 1
+                updated.updated_at = time.time()
+                updates[task_id] = updated
+            self._commit_budget_updates_unlocked(updates)
+            return {task_id: copy.deepcopy(item.execution_budget) for task_id, item in updates.items()}
+
+    def _commit_budget_updates_unlocked(self, updates: dict[str, WorkflowExecution]) -> None:
+        previous = self._items
+        self._items = {**previous, **updates}
+        try:
+            self._persist_unlocked()
+        except BaseException:
+            self._items = previous
+            self.available = False
+            raise
+
     def read_private_write_entry(self, task_id: str, key: str) -> dict[str, Any] | None:
         with self._lock:
-            return copy.deepcopy(self.require(task_id).private_write_journal.get(key))
+            return copy.deepcopy(self._require_unlocked(task_id).private_write_journal.get(key))
 
-    def freeze_private_write_entry(self, task_id: str, key: str, value: dict[str, Any]) -> dict[str, Any]:
+    @contextmanager
+    def owned_local_operation(
+        self, task_id: str, *, expected_lease_token: str | None = None,
+    ) -> Iterator[None]:
+        """Fence synchronous local Backend work against takeover and cancellation.
+
+        Lock order is execution Store before Backend. Never await or perform
+        network/model calls in this scope; it is not a cross-Store transaction.
+        """
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            self._require_metadata_write_state_unlocked(item)
+            yield
+
+    @contextmanager
+    def projection_local_operation(
+        self, task_id: str, *, expected_snapshot: WorkflowExecution,
+    ) -> Iterator[None]:
+        """Fence a synchronous parent projection against source changes.
+
+        Acquire any async destination lock before entering; never await here.
+        This serializes local decisions, not writes across separate Stores.
+        """
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if (
+                item != expected_snapshot
+                or item.status not in {"waiting", "completed", "cancelled"}
+                or item.runtime_metadata.get("terminal_source_invalidated") is True
+            ):
+                raise WorkflowExecutionConflictError("父状态投影的执行来源已变化。")
+            yield
+
+    @contextmanager
+    def completed_local_operation(
+        self, task_id: str, *, expected_snapshot: WorkflowExecution,
+    ) -> Iterator[None]:
+        """Fence local post-completion work with the committed snapshot.
+
+        Use the same thread for this scope and its local Store calls. Lock order
+        is execution Store first; never await or dispatch external requests.
+        """
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if (
+                item != expected_snapshot
+                or item.status != "completed"
+                or item.runtime_metadata.get("terminal_source_invalidated") is True
+            ):
+                raise WorkflowExecutionConflictError(
+                    "已完成执行的来源发生变化，拒绝派发后续操作。"
+                )
+            yield
+
+    def freeze_private_write_entry(
+        self, task_id: str, key: str, value: dict[str, Any], *,
+        expected_lease_token: str | None = None,
+    ) -> dict[str, Any]:
         """Private request/provenance journal, intentionally absent from public checkpoints."""
         with self._lock:
-            item = self.require(task_id)
+            item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
             try:
                 candidate = json.loads(self._serialize_private_write_journal(
                     {**item.private_write_journal, key: value}
@@ -298,7 +562,9 @@ class WorkflowExecutionStore:
             if prior is not None:
                 if json.dumps(prior, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False) != encoded:
                     raise WorkflowExecutionConflictError("受控写入的固定请求或来源已发生变化。")
+                self._require_metadata_write_state_unlocked(item, unchanged=True)
                 return copy.deepcopy(prior)
+            self._require_metadata_write_state_unlocked(item)
             previous = item.private_write_journal
             item.private_write_journal = candidate
             try:
@@ -320,10 +586,57 @@ class WorkflowExecutionStore:
                 if item.run_id == clean_run_id
                 or clean_run_id in item.previous_run_ids
             ]
-        if not matches:
-            return None
-        matches.sort(key=lambda item: (item.updated_at, item.task_id), reverse=True)
-        return matches[0]
+            if not matches:
+                return None
+            matches.sort(key=lambda item: (item.updated_at, item.task_id), reverse=True)
+            return copy.deepcopy(matches[0])
+
+    def list_agent_task_children(
+        self,
+        agent_task_id: str,
+        *,
+        handoff_ids: set[str],
+    ) -> list[WorkflowExecution]:
+        """Management lookup by both durable parent identities, without paging."""
+        with self._lock:
+            self._require_available_unlocked()
+            if not agent_task_id or not handoff_ids:
+                return []
+            return [
+                copy.deepcopy(item) for item in self._items.values()
+                if item.runtime_metadata.get("agent_task_id") == agent_task_id
+                and item.runtime_metadata.get("handoff_id") in handoff_ids
+            ]
+
+    def cancel_agent_task_children(
+        self,
+        agent_task_id: str,
+        *,
+        handoff_ids: set[str],
+    ) -> list[WorkflowExecution]:
+        # Keep parent matching and cancellation under the same lock. Each child
+        # commits separately; a failed later commit must be reconciled by replay.
+        with self._lock:
+            return [
+                self.cancel(item.task_id, error="HANDOFF_PARENT_CANCELLED")
+                for item in self.list_agent_task_children(agent_task_id, handoff_ids=handoff_ids)
+            ]
+
+    def list_automation_children(
+        self, *, automation_id: str, execution_id: str, occurrence_key: str,
+    ) -> list[WorkflowExecution]:
+        """Internal parent lookup uses all durable identities, without paging."""
+        with self._lock:
+            self._require_available_unlocked()
+            if not automation_id or not execution_id or not occurrence_key:
+                return []
+            return [
+                copy.deepcopy(item) for item in self._items.values()
+                if item.run_type == "xpert"
+                and item.runtime_metadata.get("automation_id") == automation_id
+                and item.runtime_metadata.get("automation_execution_id") == execution_id
+                and item.runtime_metadata.get("automation_occurrence_key") == occurrence_key
+            ]
 
     def list_items(
         self,
@@ -333,11 +646,9 @@ class WorkflowExecutionStore:
     ) -> list[WorkflowExecution]:
         with self._lock:
             self._require_available_unlocked()
-            items = list(self._items.values())
-        if status:
-            items = [item for item in items if item.status == status]
-        items.sort(key=lambda item: (item.updated_at, item.task_id), reverse=True)
-        return items[: max(1, min(int(limit), 1000))]
+            items = [item for item in self._items.values() if not status or item.status == status]
+            items.sort(key=lambda item: (item.updated_at, item.task_id), reverse=True)
+            return copy.deepcopy(items[: max(1, min(int(limit), 1000))])
 
     def list_terminal_deployment_executions(
         self,
@@ -442,7 +753,7 @@ class WorkflowExecutionStore:
                 resolved_wait_id if item.wait_kind == "approval" else None
             )
             item.resume_at = resolved_resume_at
-            item.continuation = dict(continuation)
+            item.continuation = copy.deepcopy(dict(continuation))
             item.lease_owner = None
             item.lease_token = None
             item.lease_expires_at = 0.0
@@ -451,7 +762,7 @@ class WorkflowExecutionStore:
             if safe_event is not None:
                 self._append_event_unlocked(item, safe_event)
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def mark_ready(
         self,
@@ -474,7 +785,7 @@ class WorkflowExecutionStore:
             item.updated_at = time.time()
             item.revision += 1
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def list_due_waits(
         self,
@@ -633,7 +944,7 @@ class WorkflowExecutionStore:
             item.lease_expires_at = current + max(1.0, float(lease_seconds))
             item.updated_at = current
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def assert_lease(self, task_id: str, *, lease_token: str) -> WorkflowExecution:
         """Verify that a resumed worker still owns a live execution lease."""
@@ -701,7 +1012,7 @@ class WorkflowExecutionStore:
             self._append_event_unlocked(item, event)
             item.updated_at = time.time()
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def update_run_id(
         self,
@@ -712,17 +1023,16 @@ class WorkflowExecutionStore:
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
-            if expected_lease_token is not None:
-                if item.status != "running":
-                    raise WorkflowExecutionConflictError(
-                        f"Workflow execution cannot rebind its run from {item.status}."
-                    )
-                self._require_optional_lease_unlocked(item, expected_lease_token)
+            if expected_lease_token is not None and item.status != "running":
+                raise WorkflowExecutionConflictError(
+                    "只有正在执行的任务可以重新绑定运行记录。"
+                )
+            self._require_optional_lease_unlocked(item, expected_lease_token)
             clean_run_id = str(run_id or "").strip()
             if not clean_run_id or len(clean_run_id) > 200:
                 raise WorkflowExecutionConflictError("Workflow run ID is invalid.")
             if item.run_id == clean_run_id:
-                return item
+                return copy.deepcopy(item)
             history = [
                 value
                 for value in (*item.previous_run_ids, item.run_id)
@@ -733,13 +1043,14 @@ class WorkflowExecutionStore:
             item.updated_at = time.time()
             item.revision += 1
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def bind_skill_versions(
         self,
         task_id: str,
         *,
         bindings: dict[str, str],
+        expected_lease_token: str | None = None,
     ) -> WorkflowExecution:
         """Persist immutable Skill version bindings for restart-safe execution."""
 
@@ -757,6 +1068,7 @@ class WorkflowExecutionStore:
             )
         with self._lock:
             item = self._require_unlocked(task_id)
+            self._require_optional_lease_unlocked(item, expected_lease_token)
             current = item.runtime_metadata.get("skill_version_bindings")
             current = dict(current) if isinstance(current, dict) else {}
             for skill_id, version_id in clean.items():
@@ -767,14 +1079,16 @@ class WorkflowExecutionStore:
                     )
                 current[skill_id] = version_id
             if item.runtime_metadata.get("skill_version_bindings") == current:
-                return item
+                self._require_metadata_write_state_unlocked(item, unchanged=True)
+                return copy.deepcopy(item)
+            self._require_metadata_write_state_unlocked(item)
             item.runtime_metadata["skill_version_bindings"] = dict(
                 sorted(current.items())
             )
             item.updated_at = time.time()
             item.revision += 1
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     def complete(
         self,
@@ -782,12 +1096,14 @@ class WorkflowExecutionStore:
         *,
         result: str,
         expected_lease_token: str | None = None,
+        terminal_event: dict[str, Any] | None = None,
     ) -> WorkflowExecution:
         return self._finish(
             task_id,
             status="completed",
             result=result,
             expected_lease_token=expected_lease_token,
+            terminal_event=terminal_event,
         )
 
     def fail(
@@ -796,20 +1112,83 @@ class WorkflowExecutionStore:
         *,
         error: str,
         expected_lease_token: str | None = None,
+        terminal_event: dict[str, Any] | None = None,
     ) -> WorkflowExecution:
         return self._finish(
             task_id,
             status="failed",
             error=error,
             expected_lease_token=expected_lease_token,
+            terminal_event=terminal_event,
         )
 
     def cancel(self, task_id: str, *, error: str = "cancelled") -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
             if item.status in {"completed", "failed", "cancelled", "rejected"}:
-                return item
-            return self._finish(task_id, status="cancelled", error=error)
+                return copy.deepcopy(item)
+            return self._finish(
+                task_id, status="cancelled", error=error, management=True,
+                terminal_event={
+                    "event": "workflow_cancelled", "task_id": item.task_id,
+                    "run_id": item.run_id, "status": "cancelled",
+                    "message": "工作流已取消。",
+                },
+            )
+
+    @staticmethod
+    def pending_handoff_cancellation_id(item: WorkflowExecution) -> str | None:
+        value = item.runtime_metadata.get(_HANDOFF_CANCELLATION)
+        if (
+            item.source_kind == "workflow_classic"
+            and item.status == "cancelled"
+            and isinstance(value, str) and value
+        ):
+            return value
+        return None
+
+    def pending_handoff_cancellations(self) -> list[WorkflowExecution]:
+        with self._lock:
+            self._require_available_unlocked()
+            return [
+                copy.deepcopy(item) for item in self._items.values()
+                if self.pending_handoff_cancellation_id(item) is not None
+            ]
+
+    def acknowledge_handoff_cancellation(
+        self, task_id: str, *, handoff_id: str,
+    ) -> WorkflowExecution:
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            current = self.pending_handoff_cancellation_id(item)
+            if current is None:
+                return copy.deepcopy(item)
+            if current != handoff_id:
+                raise WorkflowExecutionConflictError("取消待办关联已变化，不能确认旧的处理结果。")
+            item.runtime_metadata.pop(_HANDOFF_CANCELLATION)
+            item.revision += 1
+            item.updated_at = time.time()
+            self._persist_unlocked()
+            return copy.deepcopy(item)
+
+    def fail_if_current(
+        self,
+        task_id: str,
+        *,
+        expected_snapshot: WorkflowExecution,
+        error: str,
+        safe_event: dict[str, Any] | None = None,
+    ) -> WorkflowExecution:
+        """Management reconciliation, not a substitute for a worker's lease."""
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if item != expected_snapshot:
+                raise WorkflowExecutionConflictError("任务状态已变化，不能应用旧的管理决定。")
+            if item.status in {"completed", "failed", "cancelled", "rejected"}:
+                raise WorkflowExecutionConflictError("管理对账不能修改任务终态。")
+            if safe_event is not None:
+                self._append_event_unlocked(item, safe_event)
+            return self._finish(task_id, status="failed", error=error, management=True)
 
     def reject(self, task_id: str, *, error: str = "rejected") -> WorkflowExecution:
         return self._finish(task_id, status="rejected", error=error)
@@ -822,6 +1201,8 @@ class WorkflowExecutionStore:
         result: str | None = None,
         error: str | None = None,
         expected_lease_token: str | None = None,
+        management: bool = False,
+        terminal_event: dict[str, Any] | None = None,
     ) -> WorkflowExecution:
         with self._lock:
             item = self._require_unlocked(task_id)
@@ -831,6 +1212,26 @@ class WorkflowExecutionStore:
             # continue emitting terminal events after losing ownership.
             if expected_lease_token is not None:
                 self._require_optional_lease_unlocked(item, expected_lease_token)
+            if terminal_event is not None:
+                expected_event = {
+                    "completed": "workflow_end", "failed": "error",
+                    "cancelled": "workflow_cancelled",
+                }.get(status)
+                allowed_state = item.status == "running" or (
+                    management and status == "cancelled" and item.status in {"waiting", "ready"}
+                )
+                if (
+                    not allowed_state
+                    or not isinstance(terminal_event, dict)
+                    or terminal_event.get("event") != expected_event
+                    or terminal_event.get("task_id") != item.task_id
+                    or terminal_event.get("run_id") != item.run_id
+                    or (status == "failed" and terminal_event.get("terminal") is not True)
+                ):
+                    raise WorkflowExecutionConflictError("终态事件与当前执行身份或结局不一致。")
+                terminal_event = self._safe_event(
+                    terminal_event, agency_execution=item.source_kind == "expert_team_agency",
+                )
             if (
                 expected_lease_token is None
                 and item.status == "completed"
@@ -845,12 +1246,23 @@ class WorkflowExecutionStore:
                     item.updated_at = time.time()
                     item.revision += 1
                     self._persist_unlocked()
-                return item
+                return copy.deepcopy(item)
             # A stale worker must never overwrite an already terminal decision.
             if item.status in {"completed", "failed", "cancelled", "rejected"}:
-                return item
-            if status not in {"cancelled", "rejected"} and expected_lease_token is None:
+                return copy.deepcopy(item)
+            if status == "completed" and item.status != "running":
+                raise WorkflowExecutionConflictError(
+                    "等待中的任务必须先由执行者认领，不能直接标记完成。"
+                )
+            if not management and status not in {"cancelled", "rejected"} and expected_lease_token is None:
                 self._require_optional_lease_unlocked(item, expected_lease_token)
+            # Preserve the authoritative wait relation in the same commit that
+            # clears it. Cross-Store cancellation can then finish after a crash.
+            if (
+                status == "cancelled" and item.source_kind == "workflow_classic"
+                and item.wait_kind == "agent_handoff" and item.wait_id
+            ):
+                item.runtime_metadata[_HANDOFF_CANCELLATION] = item.wait_id
             item.status = status
             if (
                 item.run_type == "skill_evaluation"
@@ -885,8 +1297,11 @@ class WorkflowExecutionStore:
             item.updated_at = time.time()
             item.completed_at = item.updated_at
             item.revision += 1
+            if terminal_event is not None:
+                # The event belongs to this fenced decision, not a later lease-free append.
+                self._append_event_unlocked(item, terminal_event)
             self._persist_unlocked()
-            return item
+            return copy.deepcopy(item)
 
     @staticmethod
     def serialize_public(item: WorkflowExecution) -> dict[str, Any]:
@@ -904,7 +1319,7 @@ class WorkflowExecutionStore:
             "error": item.error,
             "revision": item.revision,
             "sequence": item.sequence,
-            "events": list(item.events),
+            "events": copy.deepcopy(item.events),
             "created_at": item.created_at,
             "updated_at": item.updated_at,
             "completed_at": item.completed_at,
@@ -938,7 +1353,7 @@ class WorkflowExecutionStore:
             clean.pop("final_output", None)
             clean.pop("variable", None)
         clean["sequence"] = item.sequence
-        item.events.append(clean)
+        item.events.append(copy.deepcopy(clean))
         if len(item.events) > 500:
             item.events = item.events[-500:]
 
@@ -1279,6 +1694,18 @@ class WorkflowExecutionStore:
             )
 
     @staticmethod
+    def _require_metadata_write_state_unlocked(
+        item: WorkflowExecution, *, unchanged: bool = False,
+    ) -> None:
+        # Recovery may inspect an identical frozen value before claiming; it
+        # must claim the execution before adding any new durable metadata.
+        if item.status == "running" or (unchanged and item.status == "ready"):
+            return
+        raise WorkflowExecutionConflictError(
+            "当前执行阶段不能写入固定运行元数据；恢复执行须先认领任务。"
+        )
+
+    @staticmethod
     def _require_optional_lease_unlocked(
         item: WorkflowExecution,
         expected_lease_token: str | None,
@@ -1286,6 +1713,10 @@ class WorkflowExecutionStore:
         current = str(item.lease_token or "")
         expected = str(expected_lease_token or "")
         if not expected:
+            if current or expected_lease_token is not None:
+                raise WorkflowExecutionConflictError(
+                    "已认领的任务必须提供有效执行租约，不能省略所有权凭据。"
+                )
             return
         if current != expected:
             raise WorkflowExecutionConflictError("Workflow execution lease changed.")
@@ -1558,6 +1989,23 @@ class WorkflowExecutionStore:
                 if item.task_id in items:
                     raise ValueError("duplicate execution id")
                 items[item.task_id] = item
+            for item in items.values():
+                seen: set[str] = set()
+                current = item
+                while current.execution_budget_parent is not None:
+                    if current.task_id in seen or len(seen) >= _MAX_BUDGET_DEPTH - 1:
+                        raise ValueError("invalid budget ancestry")
+                    seen.add(current.task_id)
+                    link = current.execution_budget_parent
+                    parent = items[link["parent_task_id"]]
+                    if parent.execution_budget_children.get(link["occurrence_id"]) != current.task_id:
+                        raise ValueError("invalid budget delegation")
+                    current = parent
+                for occurrence_id, child_id in item.execution_budget_children.items():
+                    if child_id is not None and items[child_id].execution_budget_parent != {
+                        "parent_task_id": item.task_id, "occurrence_id": occurrence_id,
+                    }:
+                        raise ValueError("invalid budget consumer")
         except WorkflowExecutionStorageError:
             raise
         except Exception:
@@ -1590,6 +2038,9 @@ class WorkflowExecutionStore:
             if not isinstance(value, dict):
                 raise TypeError("invalid execution object")
         cls._serialize_private_write_journal(item.private_write_journal)
+        if item.execution_budget is not None:
+            XpertExecutionBudget.from_persisted_state(item.execution_budget)
+        cls._validate_budget_links(item)
         if not isinstance(item.previous_run_ids, list) or any(
             not isinstance(value, str) for value in item.previous_run_ids
         ):
@@ -1625,6 +2076,28 @@ class WorkflowExecutionStore:
             or item.sequence < 0
         ):
             raise TypeError("invalid execution revision")
+
+    @staticmethod
+    def _budget_identity_valid(value: Any) -> bool:
+        return isinstance(value, str) and bool(value.strip()) and value == value.strip() and len(value) <= 200
+
+    @classmethod
+    def _validate_budget_links(cls, item: WorkflowExecution) -> None:
+        link, children = item.execution_budget_parent, item.execution_budget_children
+        if link is not None and (
+            not isinstance(link, dict) or set(link) != {"parent_task_id", "occurrence_id"}
+            or not all(cls._budget_identity_valid(value) for value in link.values())
+        ):
+            raise ValueError("invalid budget parent")
+        if (
+            not isinstance(children, dict) or len(children) > _MAX_BUDGET_CHILDREN
+            or any(not cls._budget_identity_valid(key) or (value is not None and not cls._budget_identity_valid(value))
+                   for key, value in children.items())
+            or len([value for value in children.values() if value is not None])
+            != len({value for value in children.values() if value is not None})
+            or ((link is not None or children) and item.execution_budget is None)
+        ):
+            raise ValueError("invalid budget children")
 
     @staticmethod
     def _serialize_private_write_journal(value: Any) -> str:

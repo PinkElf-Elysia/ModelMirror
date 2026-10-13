@@ -14,6 +14,35 @@ afterEach(() => {
 });
 
 describe("WorkflowRun handoff recovery pointer", () => {
+  it("projects a persisted cancellation without inventing a running workflow step", () => {
+    const steps = buildRunSteps([
+      { event: "node_end", node_id: "input", node_title: "输入", status: "completed" },
+      { event: "timer_waiting", node_id: "wait", node_title: "等待" },
+      { event: "workflow_cancelled", message: "工作流已取消。" },
+    ]);
+    expect(steps.map((step) => [step.id, step.status])).toEqual([
+      ["input", "done"], ["wait", "cancelled"],
+    ]);
+  });
+
+  it("shows a persisted timer as waiting rather than actively running", () => {
+    expect(buildRunSteps([{ event: "timer_waiting", node_id: "wait" }])[0]?.status)
+      .toBe("timer_waiting");
+  });
+
+  it("projects an acknowledged cancellation only onto unfinished steps", () => {
+    const steps = buildRunSteps([
+      { event: "node_end", node_id: "done", status: "completed" },
+      { event: "error", node_id: "failed", message: "安全错误" },
+      { event: "node_skipped", node_id: "skipped" },
+      { event: "node_start", node_id: "active" },
+      { event: "human_intervention_pending", node_id: "waiting" },
+    ], true);
+    expect(steps.map((step) => step.status)).toEqual([
+      "done", "error", "skipped", "cancelled", "cancelled",
+    ]);
+  });
+
   it("keeps node compatibility errors non-terminal unless explicitly marked", () => {
     expect(isTerminalWorkflowRunEvent({
       event: "error",

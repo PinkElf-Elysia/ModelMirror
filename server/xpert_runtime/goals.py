@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import time
@@ -261,13 +262,11 @@ class GoalStore:
             max_parallel=max(1, min(int(max_parallel), 2)),
         )
         async with self._lock:
-            self._goals[goal.goal_id] = goal
-            self._persist_unlocked()
-        return goal
+            return self._commit_unlocked(goal)
 
     async def get_goal(self, goal_id: str) -> ConversationGoal | None:
         async with self._lock:
-            return self._goals.get(goal_id)
+            return copy.deepcopy(self._goals.get(goal_id))
 
     async def require_goal(self, goal_id: str) -> ConversationGoal:
         goal = await self.get_goal(goal_id)
@@ -283,7 +282,7 @@ class GoalStore:
         limit: int = 50,
     ) -> list[ConversationGoal]:
         async with self._lock:
-            goals = list(self._goals.values())
+            goals = copy.deepcopy(list(self._goals.values()))
         if status is not None:
             goals = [goal for goal in goals if goal.status == status]
         query = search.strip().lower()
@@ -308,7 +307,7 @@ class GoalStore:
     ) -> ConversationGoal:
         normalized = validate_goal_plan(steps, final_step_id)
         async with self._lock:
-            goal = self._require_unlocked(goal_id)
+            goal = self._mutable_copy_unlocked(goal_id)
             if expected_revision is not None and goal.plan_revision != expected_revision:
                 raise GoalConflictError(
                     f"Goal plan revision changed from {expected_revision} to {goal.plan_revision}."
@@ -320,8 +319,7 @@ class GoalStore:
             goal.status = status
             goal.error = None
             goal.touch()
-            self._persist_unlocked()
-            return goal
+            return self._commit_unlocked(goal)
 
     async def update_goal(
         self,
@@ -335,7 +333,18 @@ class GoalStore:
         clear_error: bool = False,
     ) -> ConversationGoal:
         async with self._lock:
-            goal = self._require_unlocked(goal_id)
+            goal = copy.deepcopy(self._require_unlocked(goal_id))
+            if goal.status in GOAL_TERMINAL_STATUSES:
+                if (
+                    status not in {None, goal.status}
+                    or result is not None or error is not None
+                    or clear_result or clear_error
+                ):
+                    raise GoalConflictError("目标已终止，不能修改状态、结果或错误。")
+                # Registry is ephemeral and may need rebinding after restart.
+                # This management update cannot reopen the business decision.
+                if run_id is None or run_id == goal.run_id:
+                    return goal
             if status is not None:
                 goal.status = status
             if clear_result:
@@ -349,8 +358,7 @@ class GoalStore:
             if run_id is not None:
                 goal.run_id = run_id
             goal.touch()
-            self._persist_unlocked()
-            return goal
+            return self._commit_unlocked(goal)
 
     async def update_step(
         self,
@@ -373,17 +381,17 @@ class GoalStore:
             "attempts",
         }
         async with self._lock:
-            goal = self._require_unlocked(goal_id)
+            goal = self._mutable_copy_unlocked(goal_id)
             step = next((item for item in goal.steps if item.step_id == step_id), None)
             if step is None:
                 raise GoalNotFoundError(f"Goal step not found: {step_id}")
             for key, value in patch.items():
                 if key in allowed:
-                    setattr(step, key, value)
+                    setattr(step, key, copy.deepcopy(value))
             step.touch()
             goal.touch()
-            self._persist_unlocked()
-            return step
+            self._commit_unlocked(goal)
+            return copy.deepcopy(step)
 
     async def mutate_steps(
         self,
@@ -391,11 +399,46 @@ class GoalStore:
         mutation: Any,
     ) -> ConversationGoal:
         async with self._lock:
-            goal = self._require_unlocked(goal_id)
+            goal = self._mutable_copy_unlocked(goal_id)
             mutation(goal)
+            if goal.goal_id != goal_id:
+                raise GoalConflictError("目标修改不能替换执行身份。")
             goal.touch()
+            return self._commit_unlocked(goal)
+
+    async def cancel_goal(self, goal_id: str) -> ConversationGoal:
+        async with self._lock:
+            goal = copy.deepcopy(self._require_unlocked(goal_id))
+            if goal.status in GOAL_TERMINAL_STATUSES:
+                return goal
+            goal.status = "cancelled"
+            goal.error = "用户已取消目标。"
+            for step in goal.steps:
+                if step.status not in {"completed", "skipped"}:
+                    step.status = "cancelled"
+                    step.touch()
+            goal.touch()
+            return self._commit_unlocked(goal)
+
+    def _mutable_copy_unlocked(self, goal_id: str) -> ConversationGoal:
+        goal = self._require_unlocked(goal_id)
+        if goal.status in GOAL_TERMINAL_STATUSES:
+            raise GoalConflictError("目标已终止，不能修改计划或步骤。")
+        return copy.deepcopy(goal)
+
+    def _commit_unlocked(self, goal: ConversationGoal) -> ConversationGoal:
+        previous = self._goals.get(goal.goal_id)
+        # Isolate both returned snapshots and objects retained by mutation callbacks.
+        self._goals[goal.goal_id] = copy.deepcopy(goal)
+        try:
             self._persist_unlocked()
-            return goal
+        except BaseException:
+            if previous is None:
+                self._goals.pop(goal.goal_id, None)
+            else:
+                self._goals[goal.goal_id] = previous
+            raise
+        return copy.deepcopy(self._goals[goal.goal_id])
 
     def _require_unlocked(self, goal_id: str) -> ConversationGoal:
         goal = self._goals.get(goal_id)

@@ -628,7 +628,9 @@ async def test_approval_coordinator_resumes_once_and_never_auto_approves_timeout
 
     async def resume(execution, resolved) -> None:
         resumed.append(resolved.approval_id)
-        executions.complete(execution.task_id, result="done")
+        executions.complete(
+            execution.task_id, result="done", expected_lease_token=execution.lease_token,
+        )
 
     async def expire(execution, pending) -> None:
         expired.append(pending.approval_id)

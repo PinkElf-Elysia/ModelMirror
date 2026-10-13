@@ -92,17 +92,19 @@ async function broadcastState() {
 }
 
 async function handleToolRequest(request) {
-  const cacheKey = `operation:${request.operation_id}`;
+  const cacheKey = request.mutating ? `operation:${request.operation_id}`
+    : `dispatch:${request.request_id}:${request.dispatch_count ?? 'legacy'}`;
   const cached = (await getLocal([cacheKey]))[cacheKey];
   if (cached) {
-    send({ ...cached, request_id: request.request_id, operation_id: request.operation_id, tool_call_id: request.tool_call_id });
+    send({ ...cached, request_id: request.request_id, operation_id: request.operation_id, tool_call_id: request.tool_call_id, dispatch_count: request.dispatch_count });
     return;
   }
-  send({ type: 'tool_accepted', request_id: request.request_id });
+  send({ type: 'tool_accepted', request_id: request.request_id, dispatch_count: request.dispatch_count });
   try {
     const result = await executeTool(request);
     const response = {
       type: 'tool_result',
+      dispatch_count: request.dispatch_count,
       operation_id: request.operation_id,
       tool_call_id: request.tool_call_id,
       result: typeof result.output === 'string' ? result.output : JSON.stringify(result.output),
@@ -113,6 +115,7 @@ async function handleToolRequest(request) {
   } catch (error) {
     const response = {
       type: 'tool_error',
+      dispatch_count: request.dispatch_count,
       operation_id: request.operation_id,
       tool_call_id: request.tool_call_id,
       error: String(error?.message || error).slice(0, 1000)
@@ -169,7 +172,8 @@ async function uploadScreenshot(request, dataUrl) {
   body.append('file', blob, 'client-screenshot.png');
   const response = await fetch(`${HTTP_BASE}/api/runtime/client-tool-requests/${request.request_id}/artifact`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${hostToken}`, 'X-ModelMirror-Client-Host-Id': hostId },
+    headers: { Authorization: `Bearer ${hostToken}`, 'X-ModelMirror-Client-Host-Id': hostId,
+      'X-ModelMirror-Dispatch-Count': String(request.dispatch_count) },
     body
   });
   if (!response.ok) throw new Error('截图产物上传失败。');

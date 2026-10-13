@@ -1,6 +1,58 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ClientToolPanel, { type ClientToolRequest } from "./ClientToolPanel";
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+function syntheticRequest(extra: Record<string, unknown> = {}) {
+  return {
+    request_id: "synthetic-request", host_id: "synthetic-host", task_id: "synthetic-task",
+    scope_type: "workflow", scope_id: "synthetic-task:node", tool_name: "host_page_click",
+    arguments: {}, mutating: true, status: "uncertain", result_length: 0, updated_at: 0,
+    ...extra,
+  };
+}
+
+async function show(extra: Record<string, unknown>) {
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ requests: [syntheticRequest(extra)] }) });
+  vi.stubGlobal("fetch", fetcher);
+  render(<ClientToolPanel taskId="synthetic-task" />);
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole("button", { name: /客户端工具/ }));
+  return { fetcher, retry: await screen.findByRole("button", { name: "重新派发" }) };
+}
+
+describe("ClientToolPanel server retry projection", () => {
+  it.each([undefined, false, "true"])("does not infer permission from status or truthy values: %s", async (retryable) => {
+    const { fetcher, retry } = await show({ retryable });
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("尚未取得服务端重派许可，请刷新请求。")).toBeTruthy();
+    fireEvent.click(retry);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the authoritative blocked reason without sending a retry", async () => {
+    const reason = "修改请求可能已经执行，不能按原请求重新派发。";
+    const { fetcher, retry } = await show({ retryable: false, retry_blocked_reason: reason });
+    expect((retry as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(reason)).toBeTruthy();
+    fireEvent.click(retry);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an explicitly allowed read retry available", async () => {
+    const { fetcher, retry } = await show({ tool_name: "host_page_read", mutating: false,
+      status: "expired", retryable: true, retry_blocked_reason: null });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(retry);
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(
+      "/api/runtime/client-tool-requests/synthetic-request/retry", { method: "POST" },
+    ));
+  });
+});
 
 function request(
   requestId: string,
@@ -36,10 +88,6 @@ function deferred() {
   });
   return { promise, resolve };
 }
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
 
 describe("ClientToolPanel terminal notifications", () => {
   it("keeps the legacy callback once per refresh and reports every resolved request", async () => {

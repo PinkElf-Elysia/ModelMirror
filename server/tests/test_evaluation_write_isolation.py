@@ -52,7 +52,8 @@ def controller(tmp_path, context, target):
     execution = WorkflowExecutionStore(tmp_path)
     task_id = context.item_id
     execution.create(task_id=task_id, run_id=context.run_id, run_type="xpert_evaluation", workflow=target["workflow"], inputs={})
-    return ControlledWriteRuntime(task_id=task_id, workflow=target["workflow"], backend=context.backend, execution_store=execution, isolated=True, receipt_callback=context.receipt_callback, dispatch_guard=context.dispatch_guard)
+    claimed = execution.claim(task_id, worker_id="isolated-evaluation")
+    return ControlledWriteRuntime(task_id=task_id, workflow=target["workflow"], backend=context.backend, execution_store=execution, isolated=True, receipt_callback=context.receipt_callback, dispatch_guard=context.dispatch_guard, expected_lease_token=claimed.lease_token)
 
 
 def test_published_initialization_is_private_fixed_and_never_copies_business(tmp_path):

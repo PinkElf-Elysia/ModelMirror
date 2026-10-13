@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import asyncio
+from dataclasses import asdict
 from pathlib import Path
 from typing import get_args
 
@@ -13,7 +14,8 @@ from fastapi.responses import JSONResponse
 import server.main as main_module
 from server.workflow_native.schemas import NativeNodeKind
 from server.workflow_native.validate import SUPPORTED_NODE_KINDS
-from server.xpert_runtime.execution_store import WorkflowExecutionStore
+from server.xpert_runtime.execution_store import WorkflowExecutionConflictError, WorkflowExecutionStore
+from server.xpert_runtime.run_registry import RunRegistry
 
 
 def test_workflow_node_kind_contract_matches_frontend_and_validator() -> None:
@@ -194,12 +196,16 @@ async def test_workflow_run_rejects_constant_override_before_handler(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("projection_fails_once", [False, True])
 async def test_workflow_cancel_persists_terminal_state_and_stops_live_task(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    projection_fails_once: bool,
 ) -> None:
     task_id = "classic-cancel-task"
-    run_id = "classic-cancel-run"
+    registry = RunRegistry()
+    run = await registry.create_run("workflow", "取消对账测试", status="running")
+    run_id = run.run_id
     execution_store = WorkflowExecutionStore(tmp_path / "workflow-executions")
     execution_store.create(
         task_id=task_id,
@@ -217,25 +223,37 @@ async def test_workflow_cancel_persists_terminal_state_and_stops_live_task(
         }
     }
 
-    class FakeRunRegistry:
-        cancelled: list[tuple[str, str]] = []
+    original_cancel = registry.cancel_run
+    fail_next = projection_fails_once
 
-        async def cancel_run(self, target_run_id: str, *, reason: str):
-            self.cancelled.append((target_run_id, reason))
-            return None
+    async def cancel_with_one_failure(target_run_id: str, *, reason: str):
+        nonlocal fail_next
+        if fail_next:
+            fail_next = False
+            raise OSError("synthetic projection failure")
+        return await original_cancel(target_run_id, reason=reason)
 
-    fake_registry = FakeRunRegistry()
+    monkeypatch.setattr(registry, "cancel_run", cancel_with_one_failure)
     monkeypatch.setattr(main_module, "workflow_execution_store", execution_store)
     monkeypatch.setattr(main_module, "workflow_task_store", task_store)
-    monkeypatch.setattr(main_module, "run_registry", fake_registry)
+    monkeypatch.setattr(main_module, "run_registry", registry)
     monkeypatch.setattr(main_module, "rate_limit_or_raise", lambda _client: None)
 
-    transport = httpx.ASGITransport(app=main_module.app)
+    transport = httpx.ASGITransport(app=main_module.app, raise_app_exceptions=False)
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
     ) as client:
+        if projection_fails_once:
+            failed = await client.post(f"/api/workflow/run/{task_id}/cancel")
+            assert failed.status_code == 500
+            assert execution_store.require(task_id).status == "cancelled"
+            assert (await registry.get_run(run_id)).status == "running"
+            assert task_store[task_id]["cancel_requested"] is True
+            assert pause_event.is_set()
         response = await client.post(f"/api/workflow/run/{task_id}/cancel")
+        committed = asdict(await registry.get_run(run_id))
+        durable_bytes = execution_store.snapshot_path.read_bytes()
         repeated = await client.post(f"/api/workflow/run/{task_id}/cancel")
 
     assert response.status_code == 200
@@ -244,8 +262,16 @@ async def test_workflow_cancel_persists_terminal_state_and_stops_live_task(
     assert repeated.json()["status"] == "cancelled"
     assert task_store[task_id]["cancel_requested"] is True
     assert pause_event.is_set()
-    assert fake_registry.cancelled == [(run_id, "cancelled_by_user")]
+    assert committed["status"] == "cancelled"
+    assert committed["error"] == "cancelled_by_user"
+    assert asdict(await registry.get_run(run_id)) == committed
+    checkpoints = await registry.list_checkpoints(run_id)
+    assert [item.event_type for item in checkpoints].count("run.cancelled") == 1
     assert execution_store.complete(task_id, result="late result").status == "cancelled"
+    with pytest.raises(WorkflowExecutionConflictError):
+        execution_store.complete(task_id, result="late result", expected_lease_token="stale-worker")
+    assert execution_store.snapshot_path.read_bytes() == durable_bytes
+    assert WorkflowExecutionStore(execution_store.storage_dir).require(task_id).status == "cancelled"
     events = execution_store.require(task_id).events
     assert [event["event"] for event in events].count("workflow_cancelled") == 1
 

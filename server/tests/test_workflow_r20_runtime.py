@@ -253,10 +253,12 @@ async def test_human_intervention_v2_resumes_once_with_typed_mode_result(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_scheduler", [None, {"version": 1}])
 async def test_legacy_continuation_stays_on_scheduler_v1_after_waiting_again(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    legacy_scheduler: dict | None,
 ) -> None:
     approvals = RuntimeApprovalStore(tmp_path / "approvals")
     executions = WorkflowExecutionStore(tmp_path / "executions")
@@ -276,7 +278,19 @@ async def test_legacy_continuation_stays_on_scheduler_v1_after_waiting_again(
         if event.get("event") == "runtime_approval_pending"
     )
     waiting = executions.require(first_pending["task_id"])
-    waiting.continuation.pop("scheduler")
+    assert waiting.continuation["scheduler"]["version"] == 2
+    # Load an actual legacy snapshot; Store reads deliberately return copies.
+    snapshot = json.loads(executions.snapshot_path.read_text(encoding="utf-8"))
+    persisted = next(item for item in snapshot["items"] if item["task_id"] == waiting.task_id)
+    if legacy_scheduler is None:
+        persisted["continuation"].pop("scheduler")
+    else:
+        persisted["continuation"]["scheduler"] = legacy_scheduler
+    executions.snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    executions = WorkflowExecutionStore(executions.storage_dir)
+    monkeypatch.setattr(main_module, "workflow_execution_store", executions)
+    assert executions.require(waiting.task_id).continuation.get("scheduler") == legacy_scheduler
+    assert executions.require(waiting.task_id).continuation["queue"]
 
     first_approval = approvals.require(first_pending["approval_id"])
     decided = approvals.decide(

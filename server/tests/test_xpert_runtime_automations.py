@@ -82,6 +82,7 @@ def test_store_persists_pinned_definition_and_execution(tmp_path: Path) -> None:
         run_id="target-run",
         workflow_task_id="workflow-task",
         wait_id="approval-1",
+        lease_token=claimed.lease_token,
     )
 
     reloaded = AutomationStore(tmp_path)
@@ -115,7 +116,9 @@ def test_claim_lease_retry_and_dead_letter(tmp_path: Path) -> None:
             now=execution.available_at + 1,
         )
 
-    pending = store.fail_execution(first.execution_id, error="temporary")
+    pending = store.fail_execution(
+        first.execution_id, error="temporary", lease_token=first.lease_token,
+    )
     assert pending.status == "pending"
     second = store.claim_execution(
         pending.execution_id,
@@ -123,7 +126,9 @@ def test_claim_lease_retry_and_dead_letter(tmp_path: Path) -> None:
         lease_seconds=30,
         now=pending.available_at,
     )
-    dead = store.fail_execution(second.execution_id, error="still failing")
+    dead = store.fail_execution(
+        second.execution_id, error="still failing", lease_token=second.lease_token,
+    )
     assert dead.status == "dead_letter"
     assert dead.attempt == 2
 

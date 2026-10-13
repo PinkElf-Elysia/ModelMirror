@@ -408,7 +408,7 @@ class _XpertContextWriteSpy:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "takeover_phase",
-    ["completed_checkpoint", "enrichment_return"],
+    ["output_node_end", "enrichment_return"],
 )
 async def test_private_xpert_retry_lost_lease_blocks_all_postprocessing(
     monkeypatch: pytest.MonkeyPatch,
@@ -518,18 +518,18 @@ async def test_private_xpert_retry_lost_lease_blocks_all_postprocessing(
     wait_id = str(waiting.wait_id)
     clock["now"] = float(waiting.resume_at or 0.0)
 
-    original_record_checkpoint = registry.record_checkpoint
+    original_sse_payload = main_module.sse_payload
 
-    async def checkpoint_and_maybe_reclaim(*args: Any, **kwargs: Any) -> Any:
-        checkpoint = await original_record_checkpoint(*args, **kwargs)
+    def frame_and_maybe_reclaim(event: dict[str, Any]) -> Any:
         if (
-            takeover_phase == "completed_checkpoint"
-            and kwargs.get("event_type") == "xpert.completed"
+            takeover_phase == "output_node_end"
+            and event.get("event") == "node_end"
+            and event.get("node_id") == "output"
         ):
             reclaim()
-        return checkpoint
+        return original_sse_payload(event)
 
-    monkeypatch.setattr(registry, "record_checkpoint", checkpoint_and_maybe_reclaim)
+    monkeypatch.setattr(main_module, "sse_payload", frame_and_maybe_reclaim)
 
     stale_result = await main_module.resume_runtime_due_execution(task_id)
 

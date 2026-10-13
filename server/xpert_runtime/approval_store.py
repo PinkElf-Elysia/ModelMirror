@@ -5,6 +5,7 @@ import os
 import threading
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -319,15 +320,23 @@ class RuntimeApprovalStore:
         current = time.time() if now is None else float(now)
         expired: list[RuntimeApprovalRequest] = []
         with self._lock:
+            originals: dict[str, RuntimeApprovalRequest] = {}
             for item in self._items.values():
                 if item.status == "pending" and item.expires_at <= current:
+                    originals[item.approval_id] = item
+                    item = deepcopy(item)
                     item.status = "expired"
                     item.updated_at = current
                     item.revision += 1
+                    self._items[item.approval_id] = item
                     expired.append(item)
             if expired:
-                self._persist_unlocked()
-        return expired
+                try:
+                    self._persist_unlocked()
+                except BaseException:
+                    self._items.update(originals)
+                    raise
+        return deepcopy(expired)
 
     @staticmethod
     def serialize(item: RuntimeApprovalRequest) -> dict[str, Any]:

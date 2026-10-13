@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager, nullcontext
+from copy import deepcopy
 from typing import Any
 
-from .client_tool_store import ClientToolRequest, ClientToolStore
+from .client_tool_store import ClientToolArtifact, ClientToolConflictError, ClientToolRequest, ClientToolStore
 from .execution_store import (
     WorkflowExecution,
     WorkflowExecutionConflictError,
+    WorkflowExecutionError,
     WorkflowExecutionStore,
 )
 
@@ -55,18 +58,31 @@ class ClientToolConnectionManager:
         async with self._lock:
             return host_id in self._connections
 
-    async def dispatch(self, request: ClientToolRequest) -> bool:
+    async def dispatch(
+        self, request: ClientToolRequest, *,
+        parent_guard: Callable[[], AbstractContextManager[None]] | None = None,
+    ) -> bool:
         async with self._lock:
             current = self._connections.get(request.host_id)
         if current is None:
             return False
         connection_id, websocket = current
+        # Commit the conservative send boundary before yielding to the socket.
+        try:
+            with parent_guard() if parent_guard is not None else nullcontext():
+                request = self.store.mark_dispatched(
+                    request.request_id, host_id=request.host_id,
+                    connection_id=connection_id, expected_revision=request.revision,
+                )
+        except ClientToolConflictError:
+            return False
         try:
             await websocket.send_json(
                 {
                     "type": "tool_request",
                     "protocol": "modelmirror-client-tools-v1",
                     "request_id": request.request_id,
+                    "dispatch_count": request.dispatch_count,
                     "operation_id": request.operation_id,
                     "tool_call_id": request.tool_call_id,
                     "host_id": request.host_id,
@@ -77,14 +93,19 @@ class ClientToolConnectionManager:
                     "expires_at": request.expires_at,
                 }
             )
-            self.store.mark_dispatched(request.request_id)
             return True
-        except Exception:
+        except asyncio.CancelledError:
+            try:
+                await self.detach(request.host_id, connection_id)
+            except Exception as exc:
+                logger.warning("Client cancelled dispatch reconciliation pending type=%s", type(exc).__name__)
+            raise
+        except Exception as exc:
             logger.warning(
-                "Client host dispatch failed host_id=%s request_id=%s",
+                "Client host dispatch failed host_id=%s request_id=%s type=%s",
                 request.host_id,
                 request.request_id,
-                exc_info=True,
+                type(exc).__name__,
             )
             await self.detach(request.host_id, connection_id)
             return False
@@ -144,6 +165,58 @@ class ClientToolCoordinator:
     def wake(self) -> None:
         self._wake.set()
 
+    @staticmethod
+    def _matches_client_wait(execution: WorkflowExecution, request: ClientToolRequest) -> bool:
+        return (
+            execution.task_id == request.task_id and execution.run_id == request.run_id
+            and execution.wait_kind == "client_tool" and execution.wait_id == request.request_id
+            and execution.runtime_metadata.get("terminal_source_invalidated") is not True
+        )
+
+    @contextmanager
+    def _parent_operation(self, request: ClientToolRequest) -> Iterator[None]:
+        try:
+            execution = self.executions.snapshot(request.task_id)
+            if (not self.enabled or execution.status != "waiting"
+                    or not self._matches_client_wait(execution, request)):
+                raise ClientToolConflictError("父执行未停在此客户端请求的等待点，不能重试或派发。")
+            with self.executions.projection_local_operation(
+                execution.task_id, expected_snapshot=execution,
+            ):
+                with self.store.request_local_operation(expected_request=request):
+                    yield
+        except WorkflowExecutionError:
+            raise ClientToolConflictError("父执行已变化或不可验证，不能重试或派发客户端请求。") from None
+
+    def retry_blocked_reason(self, request: ClientToolRequest) -> str | None:
+        request = deepcopy(request)
+        blocked = self.store.serialize_request(request)["retry_blocked_reason"]
+        if blocked is not None:
+            return blocked
+        try:
+            with self._parent_operation(request):
+                return None
+        except ClientToolConflictError as exc:
+            return str(exc)
+
+    def retry_request(self, request_id: str) -> ClientToolRequest:
+        request = deepcopy(self.store.require_request(request_id))
+        with self._parent_operation(request):
+            return self.store.retry_request(request_id)
+
+    def register_artifact(
+        self, *, expected_request: ClientToolRequest, **payload: Any,
+    ) -> ClientToolArtifact:
+        current = deepcopy(self.store.require_request(expected_request.request_id))
+        # An accepted receipt can arrive while the HTTP body is read. It is not
+        # a new dispatch; retry/reconnect identities still must remain fixed.
+        if (expected_request.status not in {"dispatched", "running"}
+                or current.dispatch_count != expected_request.dispatch_count
+                or current.dispatched_connection_id != expected_request.dispatched_connection_id):
+            raise ClientToolConflictError("截图上传期间派发已变化，请核对原请求。")
+        with self._parent_operation(current):
+            return self.store.register_artifact(request_id=current.request_id, **payload)
+
     async def run_once(self) -> int:
         expired = self.store.expire_due()
         if self.expire_execution is not None:
@@ -153,8 +226,7 @@ class ClientToolCoordinator:
                         item
                         for item in self.executions.list_items(limit=1000)
                         if item.status == "waiting"
-                        and item.wait_kind == "client_tool"
-                        and item.wait_id == request.request_id
+                        and self._matches_client_wait(item, request)
                     ),
                     None,
                 )
@@ -164,7 +236,10 @@ class ClientToolCoordinator:
         for request in reversed(
             self.store.list_requests(status="pending", limit=200)
         ):
-            if await self.connections.dispatch(request):
+            request = deepcopy(request)
+            if await self.connections.dispatch(
+                request, parent_guard=lambda request=request: self._parent_operation(request),
+            ):
                 dispatched += 1
 
         for execution in self.executions.list_items(limit=1000):
@@ -174,8 +249,8 @@ class ClientToolCoordinator:
                 or not execution.wait_id
             ):
                 continue
-            request = self.store.get_request(execution.wait_id)
-            if request is None or request.status not in {
+            request = deepcopy(self.store.get_request(execution.wait_id))
+            if request is None or not self._matches_client_wait(execution, request) or request.status not in {
                 "completed",
                 "failed",
                 "cancelled",
@@ -183,12 +258,15 @@ class ClientToolCoordinator:
             }:
                 continue
             try:
-                self.executions.mark_ready(
-                    execution.task_id,
-                    wait_kind="client_tool",
-                    wait_id=request.request_id,
-                )
-            except WorkflowExecutionConflictError:
+                # Recheck both snapshots before consuming a receipt. An explicit
+                # retry may have replaced the terminal Client snapshot meanwhile.
+                with self._parent_operation(request):
+                    self.executions.mark_ready(
+                        execution.task_id,
+                        wait_kind="client_tool",
+                        wait_id=request.request_id,
+                    )
+            except (WorkflowExecutionConflictError, ClientToolConflictError):
                 continue
 
         ready: list[tuple[WorkflowExecution, ClientToolRequest]] = []
@@ -200,7 +278,7 @@ class ClientToolCoordinator:
             ):
                 continue
             request = self.store.get_request(execution.wait_id)
-            if request is not None and request.status in {
+            if request is not None and self._matches_client_wait(execution, request) and request.status in {
                 "completed",
                 "failed",
                 "cancelled",
@@ -212,6 +290,7 @@ class ClientToolCoordinator:
             execution: WorkflowExecution, request: ClientToolRequest
         ) -> bool:
             self._active.add(execution.task_id)
+            claimed: WorkflowExecution | None = None
             try:
                 claimed = self.executions.claim(
                     execution.task_id,
@@ -227,7 +306,16 @@ class ClientToolCoordinator:
                     "Client tool continuation failed task_id=%s",
                     execution.task_id,
                 )
-                self.executions.fail(execution.task_id, error=str(exc))
+                if claimed is not None:
+                    try:
+                        self.executions.fail(
+                            execution.task_id,
+                            error=str(exc),
+                            expected_lease_token=claimed.lease_token,
+                        )
+                    except WorkflowExecutionConflictError:
+                        # Ownership loss must not fail a newer execution.
+                        pass
                 return False
             finally:
                 self._active.discard(execution.task_id)
