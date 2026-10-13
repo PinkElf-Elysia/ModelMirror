@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-11T07:13:38.841Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-13T06:54:09.420Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,94 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "~perplexity/pplx-decider-27b-latest",
+    "canonical_slug": "~perplexity/pplx-decider-27b-latest",
+    "name": "Perplexity: Decider 27B Latest",
+    "raw_description": "This model always redirects to the latest model in the Decider 27B family.",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [],
+    "created": 1791831975,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "浮动决策别名，当前指向 perplexity/pplx-decider-v1.1-27b；保留别名 ID 调用专用 /api/alpha/decisions。本站仅文字状态、最多 50 题；上游图片能力尚未在本站适配。未执行真实调用。"
+  },
+  {
+    "id": "nace-ai/drex-v2.0",
+    "canonical_slug": "nace-ai/drex-v2.0-20261009",
+    "name": "Nace.AI: Drex v2.0",
+    "raw_description": "Drex v2.0 is a 35B mixture-of-experts decision model (3B active) from Nace.AI, the larger successor to [Drex v1.5](https://openrouter.ai/nace-ai/drex-v1.5). Given a state (text or JSON) and typed questions (yes/no, multiple choice,...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.06,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1791827066,
+    "expiration_date": null,
+    "model_author": "Nace.AI",
+    "note": "专用 /api/alpha/decisions 结构化决策：文字状态与 noul / choice / score 问题，本站最多 50 题，返回类型化答案而非聊天文本。未执行真实调用。"
+  },
+  {
+    "id": "meta/muse-wonder",
+    "canonical_slug": "meta/muse-wonder-20261012",
+    "name": "Meta: Muse Wonder",
+    "raw_description": "Muse Wonder is a frontier reasoning model from Meta, designed for complex personal and professional agentic tasks. It accepts text, images, video, audio, and PDF documents and returns text, with...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 4,
+      "output": 20
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1791807945,
+    "expiration_date": null,
+    "model_author": "Meta",
+    "reasoning_declared": true,
+    "note": "多模态推理对话，支持文字、图片、视频、PDF 与音频理解；本站音频入口保守限定 WAV，输出为文本。缓存读取 $0.20/M，原生搜索 $2.50/千次不含在基本 Token 估算内；不额外开放原生搜索。未执行真实调用。"
+  },
   {
     "id": "microsoft/microsoft-decision-1",
     "canonical_slug": "microsoft/microsoft-decision-1-20261009",
@@ -1093,9 +1181,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "cloudflare/clef-flash",
     "name": "Cloudflare: Clef Flash",
     "raw_description": "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
-    "context_length": 65536,
+    "context_length": 24576,
     "pricing": {
-      "input": 0.038000000000000006,
+      "input": 0.020999999999999998,
       "output": 0
     },
     "input_modalities": [
@@ -1119,7 +1207,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
     "context_length": 65536,
     "pricing": {
-      "input": 0.24,
+      "input": 0.041999999999999996,
       "output": 0
     },
     "input_modalities": [
@@ -2884,8 +2972,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.21911999999999998,
-      "output": 0.65736
+      "input": 0.25,
+      "output": 5
     },
     "input_modalities": [
       "text"
@@ -2928,8 +3016,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0348,
-      "output": 0.1392
+      "input": 0.0441,
+      "output": 0.891
     },
     "input_modalities": [
       "text",
@@ -3441,8 +3529,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.0441,
+      "output": 0.891
     },
     "input_modalities": [
       "text",
@@ -4315,6 +4403,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_completion_tokens",
       "max_tokens",
       "min_p",
@@ -4330,6 +4419,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1787897375,
@@ -4453,8 +4543,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.04,
-      "output": 0.5
+      "input": 0.026099999999999998,
+      "output": 0.8999999999999999
     },
     "input_modalities": [
       "text",
@@ -4566,8 +4656,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.026099999999999998,
+      "output": 0.8999999999999999
     },
     "input_modalities": [
       "text",
@@ -4996,8 +5086,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.07,
-      "output": 4.8
+      "input": 0.055,
+      "output": 5
     },
     "input_modalities": [
       "text"
@@ -5070,7 +5160,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.07,
+      "input": 0.079,
       "output": 4.8
     },
     "input_modalities": [
@@ -5730,8 +5820,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.66,
-      "output": 1.9800000000000002,
+      "input": 1.32,
+      "output": 3.9600000000000004,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -6414,8 +6504,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.018,
-      "output": 0.64
+      "input": 0.0144,
+      "output": 0.576
     },
     "input_modalities": [
       "text"
@@ -6460,7 +6550,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.018,
+      "input": 0.016,
       "output": 0.64
     },
     "input_modalities": [
@@ -7695,8 +7785,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.7999999999999999,
-      "output": 10
+      "input": 0.73,
+      "output": 13.5
     },
     "input_modalities": [
       "text",
@@ -9373,8 +9463,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Ultra is an open frontier-reasoning and orchestration model from NVIDIA, with 55B active parameters out of 550B total (MoE). Built on a hybrid Transformer-Mamba mixture-of-experts architecture, it...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.5,
-      "output": 2.2
+      "input": 0.6,
+      "output": 2.4
     },
     "input_modalities": [
       "text"
@@ -11095,8 +11185,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.75,
-      "output": 14.9
+      "input": 0.73,
+      "output": 13.5
     },
     "input_modalities": [
       "text",
@@ -11583,8 +11673,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.20879999999999999,
-      "output": 0.41759999999999997
+      "input": 0.9552599999999999,
+      "output": 1.9105199999999998
     },
     "input_modalities": [
       "text"
@@ -11628,7 +11718,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.03,
+      "input": 0.0433,
       "output": 1.28
     },
     "input_modalities": [
@@ -12613,8 +12703,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0675,
-      "output": 0.22499999999999998
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -13219,8 +13309,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.21,
-      "output": 0.84
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text"
@@ -19080,8 +19170,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.037,
-      "output": 0.16999999999999998
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -21050,8 +21140,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 4 Scout 17B Instruct (16E) is a mixture-of-experts (MoE) language model developed by Meta, activating 17 billion parameters out of a total of 109B. It supports native multimodal input...",
     "context_length": 1310720,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.3
+      "input": 0.18,
+      "output": 0.59
     },
     "input_modalities": [
       "text",
@@ -22286,8 +22376,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.22,
-      "output": 0.5
+      "input": 0.59,
+      "output": 0.7899999999999999
     },
     "input_modalities": [
       "text"
@@ -28229,6 +28319,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "meta/muse-wonder",
+  "nace-ai/drex-v2.0",
+  "~perplexity/pplx-decider-27b-latest",
   "microsoft/microsoft-decision-1",
   "cloudflare/clef-omni",
   "nace-ai/drex-v1.5",

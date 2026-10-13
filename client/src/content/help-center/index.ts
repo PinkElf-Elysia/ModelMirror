@@ -19,6 +19,7 @@ import checkManagedCatalog from "./articles/check-managed-catalog.md?raw";
 import reviewSpecializedModels from "./articles/review-specialized-models.md?raw";
 import reviewElevenlabsBatch from "./articles/review-elevenlabs-batch.md?raw";
 import reviewDecisionsSolBatch from "./articles/review-decisions-sol-batch.md?raw";
+import reviewWonderDecisions from "./articles/review-wonder-decisions.md?raw";
 import reviewMetaPlannerBranches from "./articles/review-meta-planner-branches.md?raw";
 import reviewRemoteMcpAuth from "./articles/review-remote-mcp-auth.md?raw";
 import subscribeEmailWorkflow from "./articles/subscribe-email-workflow.md?raw";
@@ -125,6 +126,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "review-wonder-decisions", title: "核对 Wonder 与文字决策入口", summary: "区分多模态对话和专用决策，查看附件门禁与费用。", category: "按目标找指南", contentType: "how-to", audience: "需要问答或任务分类的用户", estimatedMinutes: 5, keywords: ["Wonder", "Drex", "Perplexity", "Latest", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "262f7caf", verifiedDate: "2026-10-13", content: reviewWonderDecisions, nextSlug: "check-availability-cost-data" },
   { slug: "review-decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "区分专用决策和异步批处理，核对费用与数据边界。", category: "按目标找指南", contentType: "how-to", audience: "需要决策或离线文本处理的用户", estimatedMinutes: 5, keywords: ["Clef", "Microsoft", "Drex", "Mercury", "Sol", "Batch", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "e5a808a6", verifiedDate: "2026-10-11", content: reviewDecisionsSolBatch, nextSlug: "check-availability-cost-data" },
   { slug: "review-elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用、入口和安全边界。", category: "按目标找指南", contentType: "how-to", audience: "需要语音、转写或离线批处理的用户", estimatedMinutes: 5, keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策", "费用"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "70a01640", verifiedDate: "2026-10-08", content: reviewElevenlabsBatch, nextSlug: "check-availability-cost-data" },
   { slug: "play-god-card", title: "游玩神临凡尘与使用插件", summary: "填写天书、核对调用额度、恢复故事并使用可选插件。", category: "按目标找指南", contentType: "how-to", audience: "神临凡尘新版本会话的验收玩家", estimatedMinutes: 5, keywords: ["RPG", "神临凡尘", "上帝", "天书", "离线", "插件"], relatedRoutes: ["/rpg", "/rpg/god", "/rpg/plugins"], verifiedCommit: "7eaaa305", verifiedDate: "2026-10-11", content: playGodCard, nextSlug: "play-rpg-cards" },
@@ -621,6 +623,7 @@ export const helpSections: HelpSection[] = [
       { id: "specialized-models", title: "核对新增对话、路由与专用模型", summary: "查看本轮模型的入口、可用状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Ling 3.1", "Switchyard", "Flux TTS", "Seedream", "MAI Voice", "语音", "费用"] },
       { id: "elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用和未配置边界。", to: "/help/review-elevenlabs-batch", keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策"] },
       { id: "decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "查看文字状态、决策费用和批处理数据边界。", to: "/help/review-decisions-sol-batch", keywords: ["Clef", "Microsoft", "Drex", "Sol", "Batch", "决策"] },
+      { id: "wonder-decisions", title: "核对 Wonder 与文字决策入口", summary: "查看附件门禁、专用决策和费用边界。", to: "/help/review-wonder-decisions", keywords: ["Wonder", "Drex", "Perplexity", "决策"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },
       { id: "data", title: "了解文件与数据处理", summary: "只发送完成任务所需、并且允许外发的内容。", to: "/help/check-availability-cost-data#文件与数据怎么看", keywords: ["文件", "数据", "上传", "隐私"] },
       { id: "remote-mcp", title: "安全连接需要认证的远程 MCP", summary: "供有权限的运维者核对来源、权限范围、激活和撤销。", to: "/help/review-remote-mcp-auth", keywords: ["MCP", "远程", "认证", "权限", "撤销"] },

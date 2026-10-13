@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-10",
+  "reviewed_at": "2026-10-12",
   "catalog": {
-    "snapshot_total": 700,
+    "snapshot_total": 703,
     "serving_variant_total": 80,
     "serving_variants_by_type": {
       "batch": 80
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 579,
+    "live": 582,
     "uncertain": 96,
     "expired": 25,
-    "onsite_openrouter": 675,
-    "adaptation_denominator": 675,
+    "onsite_openrouter": 678,
+    "adaptation_denominator": 678,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -336,6 +336,30 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "nace-ai/drex-v2.0",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "文字决策已适配，最多 50 题；未执行真实调用。"
+    },
+    {
+      "model_id": "~perplexity/pplx-decider-27b-latest",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "保留别名请求 ID；仅文字决策，图片状态尚未适配，未执行真实调用。"
+    },
+    {
+      "model_id": "meta/muse-wonder",
+      "operation": "analyze_audio",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "多模态聊天音频理解已注册，保守限定 WAV，未执行真实调用。"
+    },
     {
       "model_id": "microsoft/microsoft-decision-1",
       "operation": "decide",

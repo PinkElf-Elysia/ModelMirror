@@ -358,7 +358,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-10-08-elevenlabs"
+        "modelmirror-audio-contracts-2026-10-12-muse-wonder"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -658,6 +658,7 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
 @pytest.mark.parametrize(
     "model_id,formats",
     [
+        ("meta/muse-wonder", ["wav"]),
         ("google/gemini-3.8-flash", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
         ("meta/muse-spark-1.3", ["wav"]),
         ("meta/muse-spark-1.3-contributor", ["wav"]),
@@ -706,10 +707,12 @@ def test_september_audio_contracts_preserve_entry_gates_and_evidence(
         else "needs_configuration"
     )
     assert OPENROUTER_AUDIO_CONTRACTS[model_id].behavior_verified is False
-    if model_id.startswith("meta/") and chat_enabled and invocable:
+    if model_id.startswith("meta/muse-spark") and chat_enabled and invocable:
         assert "音频理解尚未完整支持" in (profile.status_reason or "")
         if model_id.endswith("-contributor"):
             assert "改进 Meta 产品" in (profile.status_reason or "")
+    if model_id == "meta/muse-wonder" and chat_enabled and invocable:
+        assert "未执行真实供应商调用" in (profile.status_reason or "")
 
 
 def test_gemini38_batch_does_not_inherit_realtime_audio_contract() -> None:
@@ -813,7 +816,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-10-08-elevenlabs"
+        "modelmirror-audio-contracts-2026-10-12-muse-wonder"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text
