@@ -93,7 +93,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
     "elevenlabs/eleven-flash-v2",
     "elevenlabs/eleven-flash-v2.5",
   ].includes(model.id);
-  const fixedSpeed = isElevenLabs && !elevenLabsSpeedControl;
+  const fixedSpeed = (isElevenLabs && !elevenLabsSpeedControl) || ["heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo"].includes(model.id);
   useEffect(() => { setSpeed(1); }, [model.id]);
   const canGenerate =
     text.trim().length > 0 &&
@@ -341,7 +341,7 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
             使用 {model.name} 生成语音
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-            输入需要朗读的文字，选择已验证声线和语速，生成后可直接播放或下载认证格式音频。
+            输入需要朗读的文字，选择当前模型支持的声线和语速，生成后可播放或下载音频。
           </p>
         </header>
 
@@ -576,13 +576,13 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   </dd>
                 </div>
               ) : null}
-              {model.media_pricing?.unit === "character_million" ? (
+              {model.media_pricing?.unit === "character_million" || model.media_pricing?.unit === "utf8_byte_million" ? (
                 <div>
                   <dt className="text-slate-400">目录费率</dt>
                   <dd className="mt-1 leading-6 text-slate-200">
-                    约 ${model.media_pricing.usd.toFixed(2)} / 百万字符
+                    约 ${model.media_pricing.usd.toFixed(2)} / {model.media_pricing.unit === "utf8_byte_million" ? "百万 UTF-8 字节" : "百万字符"}
                     （最终以 Provider 结算为准）
-                    {characterCount > 0 && <span className="block">本次预估 ${(characterCount * model.media_pricing.usd / 1_000_000).toFixed(6)}</span>}
+                    {characterCount > 0 && <span className="block">本次预估 ${((model.media_pricing.unit === "utf8_byte_million" ? new TextEncoder().encode(text).length : characterCount) * model.media_pricing.usd / 1_000_000).toFixed(6)}</span>}
                   </dd>
                 </div>
               ) : null}

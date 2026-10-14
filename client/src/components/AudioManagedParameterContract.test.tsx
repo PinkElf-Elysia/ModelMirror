@@ -108,6 +108,13 @@ function stubTranscriptionRequest(status: number, payload: unknown) {
 }
 
 describe("Managed audio parameter contract", () => {
+  it("estimates Drama from UTF-8 bytes, not codepoints", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ feature_enabled: true, status: "managed_required", available: true, reason_code: "provider_workload_available", certified_voice: "bf322df2096a46f18c579d0baa36f41d", certified_response_format: "mp3" })));
+    renderWithRouter(<SpeechWorkspace model={{ ...model, id: "fish-audio/drama-3", media_pricing: { unit: "utf8_byte_million", usd: 2 } } as Model} />);
+    await waitFor(() => expect(screen.getByLabelText("声线")).toHaveValue("bf322df2096a46f18c579d0baa36f41d"));
+    fireEvent.change(screen.getByLabelText("需要朗读的文字"), { target: { value: "你好😀" } });
+    expect(screen.getByText("本次预估 $0.000020")).toBeVisible();
+  });
   it("shows ElevenLabs codepoint cost and disables unsupported speed", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({
       feature_enabled: true, status: "managed_required", available: true,

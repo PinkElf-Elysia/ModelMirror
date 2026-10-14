@@ -4,7 +4,7 @@ import path from "node:path";
 import { createServer } from "../client/node_modules/vite/dist/node/index.js";
 import {
   auditAudioHourPricingOverlays,
-  REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
+  REQUIRED_UNIT_PRICING_OVERLAYS,
 } from "./openrouter-pricing-contracts.mjs";
 
 const OPENROUTER_MARKET_URL =
@@ -812,7 +812,7 @@ async function main() {
       },
       audio_hour_pricing_overlay_mismatches: {
         required_model_ids: [
-          ...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.keys(),
+          ...REQUIRED_UNIT_PRICING_OVERLAYS.keys(),
         ].sort((left, right) => left.localeCompare(right)),
         count: audioHourPricingOverlayMismatches.length,
         models: audioHourPricingOverlayMismatches,

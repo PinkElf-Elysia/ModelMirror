@@ -10,6 +10,7 @@ export const DEFAULT_EMBEDDING_MODEL_ID = "text-embedding-3-small";
 export const chatModelOptions = models.filter(
   (model) =>
     model.active &&
+    model.ui_entrypoint !== "scaledown" &&
     model.categories.includes("chat") &&
     !model.categories.includes("embeddings") &&
     !model.categories.includes("rerank"),

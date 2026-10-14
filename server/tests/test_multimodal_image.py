@@ -115,6 +115,13 @@ def image_catalog_handler(request: Request) -> Response:
                         "output_modalities": ["text"],
                     },
                 },
+                *[
+                    {"id": model_id, "architecture": {
+                        "input_modalities": ["text", "image", "file"],
+                        "output_modalities": ["text"],
+                    }}
+                    for model_id in ["scaledown/summarize", "scaledown/extract"]
+                ],
             ]
         },
     )

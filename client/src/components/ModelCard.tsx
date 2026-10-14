@@ -187,6 +187,7 @@ const ModelCard = memo(function ModelCard({
     model.interaction_status === "ready" &&
     model.ui_entrypoint === "decisions" &&
     model.operations.includes("decide");
+  const canUseScaleDown = generalInvocationAllowed && model.interaction_status === "ready" && model.ui_entrypoint === "scaledown";
   const declaresDocumentInput =
     model.operations.includes("analyze_document");
   const documentInputPresentation = deriveDocumentInputPresentation(
@@ -211,7 +212,7 @@ const ModelCard = memo(function ModelCard({
   const canTranscribe =
     confirmedAudioOperations.includes("transcribe");
   const canAnalyzeImage =
-    confirmedImageOperations.includes("analyze_image");
+    model.ui_entrypoint !== "scaledown" && confirmedImageOperations.includes("analyze_image");
   const canGenerateImage =
     confirmedImageOperations.includes("generate_image");
   const operationLabel = operationLabels[model.primary_operation];
@@ -565,6 +566,7 @@ const ModelCard = memo(function ModelCard({
         canManuallyVerifyVideo ||
         canGenerateWorld ||
         canMakeDecision ||
+        canUseScaleDown ||
         showGeneralChatAction ? (
           <div className="flex shrink-0 flex-col items-stretch gap-2">
             {canGenerateWorld ? (
@@ -581,6 +583,11 @@ const ModelCard = memo(function ModelCard({
                 to={`/decisions/${encodeURIComponent(model.id)}`}
               >
                 创建决策
+              </Link>
+            ) : null}
+            {canUseScaleDown ? (
+              <Link className="rounded-full bg-hire-300 px-3.5 py-2 text-center text-sm font-semibold text-ink-950 hover:bg-hire-200" to={`/scaledown/${encodeURIComponent(model.id)}`}>
+                {model.id === "scaledown/extract" ? "提取字段" : "生成摘要"}
               </Link>
             ) : null}
             {canGenerateImage ? (

@@ -7,6 +7,21 @@ const source = {
   pricing: { prompt: "0.1" },
 };
 
+test("HeyGen characters and Drama UTF-8 bytes cannot become token prices", () => {
+  for (const [id, unit, prompt, usd] of [
+    ["heygen/heygen-voice-1", "character_million", "0.000015", 15],
+    ["heygen/heygen-voice-1-turbo", "character_million", "0.0000075", 7.5],
+    ["fish-audio/drama-3", "utf8_byte_million", "0.000002", 2],
+  ]) {
+    const row = { id, pricing_basis: "media", media_pricing: { unit, usd } };
+    const audit = (local) => auditAudioHourPricingOverlays({ localModels: [local], sourceModels: [{ id, pricing: { prompt } }], marketModels: [] });
+    assert.deepEqual(audit(row), []);
+    assert.ok(audit({ id, pricing_basis: "token" })[0].reasons.includes("overlay_missing"));
+    assert.ok(audit({ ...row, media_pricing: { unit: "audio_hour", usd } })[0].reasons.includes("wrong_unit"));
+    assert.ok(audit({ ...row, media_pricing: { unit, usd: usd + 1 } })[0].reasons.includes("price_mismatch"));
+  }
+});
+
 const fishSource = {
   id: "fish-audio/transcribe-1-pro",
   pricing: { prompt: "0.0001" },

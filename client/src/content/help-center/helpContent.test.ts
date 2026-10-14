@@ -41,6 +41,7 @@ describe("help center content catalog", () => {
 
   it("keeps the formal article slugs unique and metadata complete", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
+      "prepare-scaledown-argon-speech",
       "review-wonder-decisions",
       "review-decisions-sol-batch",
       "review-elevenlabs-batch",
@@ -81,7 +82,11 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["recover-workflow-run", "review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    const scaleDownGuide = helpArticles.find((article) => article.slug === "prepare-scaledown-argon-speech");
+    expect(scaleDownGuide?.verifiedCommit).toBe("2df7efba");
+    expect(scaleDownGuide?.content).toContain("不提交模型请求");
+    expect(scaleDownGuide?.content).toContain("UTF-8 字节");
     expect(helpArticles.find((article) => article.slug === "recover-workflow-run")?.verifiedCommit).toBe("6ff70de6");
     expect(searchHelpContent("继续跟踪").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
@@ -278,7 +283,8 @@ describe("help center content catalog", () => {
     const everydayCostHits = searchHelpContent("花钱");
     expect(everydayCostHits[0]?.id).toBe("check-availability-cost-data");
     expect(everydayCostHits.some((entry) => entry.id === "review-wonder-decisions")).toBe(true);
-    expect(everydayCostHits.length).toBeLessThanOrEqual(9);
+    expect(everydayCostHits.some((entry) => entry.id === "prepare-scaledown-argon-speech")).toBe(true);
+    expect(everydayCostHits.length).toBeLessThanOrEqual(10);
     expect(searchHelpContent("运维").some((entry) => entry.id === "runtime")).toBe(true);
     // 全文检索：只出现在正文、不在标题/摘要/关键词的词
     const bodyOnly = searchHelpContent("类型化转换节点").some((entry) => entry.id === "submit-knowledge-proposal");

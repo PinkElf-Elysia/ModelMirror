@@ -47,7 +47,7 @@ from .readiness import (
 
 AUDIO_CATALOG_TTL_SECONDS = 300.0
 AUDIO_CATALOG_STALE_SECONDS = 1_800.0
-AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-10-12-muse-wonder"
+AUDIO_PROFILE_REGISTRY_VERSION = "modelmirror-audio-contracts-2026-10-13-argon"
 
 NATIVE_AUDIO_VOICES = (
     "alloy",
@@ -106,6 +106,14 @@ class AudioContract:
 
 
 OPENROUTER_AUDIO_CONTRACTS: dict[str, AudioContract] = {
+    "google/gemini-4-argon": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=DIRECT_AUDIO_INPUT_FORMATS,
+        interaction_adapted=True,
+        verification_status="contract_verified",
+        planned_reason="多模态输入契约已适配；未执行真实供应商调用。",
+    ),
     "meta/muse-wonder": AudioContract(
         operations=("analyze_audio",),
         chat_modes=("direct_audio_input",),
