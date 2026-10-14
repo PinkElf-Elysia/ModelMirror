@@ -1684,6 +1684,7 @@ try:
     )
     from server.multimodal.chat_attachments import ClaimedChatAttachment
     from server.multimodal.stt import MultimodalServiceError
+    from server.multimodal.scaledown import ScaleDownRequest, scaledown_result
     from server.multimodal.vision_understanding import VisionUnderstandingService
 except ModuleNotFoundError:
     from multimodal import router as multimodal_router
@@ -1700,6 +1701,7 @@ except ModuleNotFoundError:
     )
     from multimodal.chat_attachments import ClaimedChatAttachment
     from multimodal.stt import MultimodalServiceError
+    from multimodal.scaledown import ScaleDownRequest, scaledown_result
     from multimodal.vision_understanding import VisionUnderstandingService
 
 try:
@@ -3405,6 +3407,7 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "scaledown/classify-1",
         "nace-ai/drex-v2.0",
         "~perplexity/pplx-decider-27b-latest",
         "microsoft/microsoft-decision-1",
@@ -33243,6 +33246,32 @@ def openrouter_tev_response_payload(
     }
 
 
+@app.post("/api/scaledown")
+async def create_scaledown_result(payload: ScaleDownRequest, request: Request):
+    rate_limit_or_raise(client_ip(request))
+    if not OPENROUTER_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "专用工作台尚未配置 OpenRouter 凭据。"})
+    try:
+        async with httpx.AsyncClient(**llm_client_kwargs()) as client:
+            response = await client.post(
+                CHAT_COMPLETIONS_URL,
+                headers=llm_gateway_headers(OPENROUTER_API_KEY),
+                json=payload.upstream_payload(),
+                timeout=120.0,
+            )
+    except httpx.TimeoutException:
+        return JSONResponse(status_code=504, content={"error": "请求超时，结果未知；不会自动重试。"})
+    except httpx.RequestError:
+        return JSONResponse(status_code=502, content={"error": "无法连接上游；不会自动重试。"})
+    if not response.is_success:
+        return JSONResponse(status_code=502, content={"error": f"上游拒绝请求（HTTP {response.status_code}）。"})
+    try:
+        result = scaledown_result(response.json(), payload.model)
+    except ValueError:
+        return JSONResponse(status_code=502, content={"error": "上游未返回完整有效的文字结果，请检查输入和输出上限。"})
+    return result
+
+
 @app.post("/api/decisions")
 async def create_openrouter_decision(
     payload: OpenRouterDecisionRequest,
@@ -33483,6 +33512,8 @@ async def get_openrouter_batch(batch_id: str):
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request):
+    if payload.model_id in {"scaledown/summarize", "scaledown/extract", "scaledown/classify-1"}:
+        return JSONResponse(status_code=422, content={"error": "该模型需要专用摘要、提取或决策工作台，不支持普通流式聊天。"})
     if payload.response_format is not None:
         # Host-only experimental access. No CORS/browser credential widening.
         if os.getenv("RPG05_STRUCTURED_OUTPUT_ENABLED") != "true" or not request.client or request.client.host not in {"127.0.0.1", "::1"} or request.headers.get("origin") or request.headers.get("sec-fetch-site"):

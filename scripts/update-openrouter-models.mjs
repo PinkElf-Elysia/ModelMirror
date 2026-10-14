@@ -4,7 +4,7 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   normalizedCatalogPricePerUnit,
-  REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
+  REQUIRED_UNIT_PRICING_OVERLAYS,
 } from "./openrouter-pricing-contracts.mjs";
 
 const CATALOG_URL =
@@ -26,6 +26,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo", "fish-audio/drama-3",
   "nace-ai/drex-v2.0",
   "~perplexity/pplx-decider-27b-latest",
   "microsoft/microsoft-decision-1",
@@ -350,7 +351,7 @@ function normalizeModel(model, existingAuthors) {
 
 export function preserveLocalOverlay(model, currentModel) {
   const requiredAudioHourContract =
-    REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.get(model.id);
+    REQUIRED_UNIT_PRICING_OVERLAYS.get(model.id);
   if (!currentModel) {
     if (requiredAudioHourContract) {
       throw new Error(
@@ -376,7 +377,7 @@ export function preserveLocalOverlay(model, currentModel) {
         ? Number.NaN
         : Number(overlayValue);
     if (
-      currentModel.media_pricing?.unit !== "audio_hour" ||
+      currentModel.media_pricing?.unit !== (requiredAudioHourContract?.unit ?? "audio_hour") ||
       currentModel.pricing_basis_override !== "media" ||
       sourceUsdPerHour === null ||
       !Number.isFinite(overlayUsdPerHour) ||
@@ -405,7 +406,7 @@ export function assertRequiredAudioHourPricingOverlays(
 ) {
   const sourceById = new Map(catalogModels.map((model) => [model.id, model]));
   const currentById = new Map(currentModels.map((model) => [model.id, model]));
-  for (const [id] of REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS) {
+  for (const [id, contract] of REQUIRED_UNIT_PRICING_OVERLAYS) {
     const current = currentById.get(id);
     const source = sourceById.get(id);
     if (!current && !source) continue;
@@ -418,7 +419,7 @@ export function assertRequiredAudioHourPricingOverlays(
     }
     const overlayValue = current.media_pricing?.usd;
     if (
-      current.media_pricing?.unit !== "audio_hour" ||
+      current.media_pricing?.unit !== contract.unit ||
       current.pricing_basis_override !== "media" ||
       overlayValue === null ||
       overlayValue === undefined ||

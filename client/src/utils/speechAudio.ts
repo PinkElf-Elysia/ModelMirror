@@ -129,6 +129,9 @@ export class AudioRequestError extends Error {
 }
 
 const SPEECH_VOICE_LABELS: Record<string, string> = {
+  "bf322df2096a46f18c579d0baa36f41d": "Adrian · 美式英语男声",
+  "c70cfb98867a4bfb9ae20d2401257b92": "Delia · 美式英语女声",
+  "f3a2b90078d54a65af4b95f63bc7798e": "Sheila · 美式英语女声",
   [SEED_AUDIO_PROMPT_VOICE]: "按文字提示自动生成",
   "8ef4a238714b45718ce04243307c57a7": "轻快女声",
   "802e3bc2b27e49c2995d23ef70e6ac89": "活力男声",

@@ -101,6 +101,20 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
   ],
 ]);
 
+// Speech units must never silently fall back to token prices.
+export const REQUIRED_UNIT_PRICING_OVERLAYS = new Map([
+  ...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
+  ...[
+    ["heygen/heygen-voice-1", "character_million"],
+    ["heygen/heygen-voice-1-turbo", "character_million"],
+    ["fish-audio/drama-3", "utf8_byte_million"],
+  ].map(([id, unit]) => [id, Object.freeze({
+    unit, pricingBasis: "media", sourcePricingField: "prompt",
+    normalizedPricingField: "input", normalizedPriceDivisor: 1,
+    sourcePriceMultiplier: 1_000_000,
+  })]),
+]);
+
 function finiteNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const number = Number(value);
@@ -210,7 +224,7 @@ export function auditAudioHourPricingOverlays({
     marketRecordsById.set(id, records);
   }
   const candidateIds = new Set(
-    [...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.keys()].filter(
+    [...REQUIRED_UNIT_PRICING_OVERLAYS.keys()].filter(
       (id) =>
         localById.has(id) ||
         sourceById.has(id) ||
@@ -224,7 +238,7 @@ export function auditAudioHourPricingOverlays({
   return [...candidateIds]
     .sort((left, right) => left.localeCompare(right))
     .map((id) => {
-      const registeredContract = REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS.get(id);
+      const registeredContract = REQUIRED_UNIT_PRICING_OVERLAYS.get(id);
       const contract = registeredContract ?? {
         unit: "audio_hour",
         pricingBasis: "media",

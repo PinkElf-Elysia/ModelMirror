@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo", "fish-audio/drama-3",
   "nace-ai/drex-v2.0",
   "~perplexity/pplx-decider-27b-latest",
   "microsoft/microsoft-decision-1",

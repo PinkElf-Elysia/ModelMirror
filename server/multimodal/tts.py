@@ -34,7 +34,12 @@ logger = logging.getLogger("modelmirror.multimodal")
 MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
-SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-08-elevenlabs"
+SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-13-heygen-drama"
+HEYGEN_SPEECH_MODEL_IDS = frozenset({"heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo"})
+HEYGEN_VOICES = ("nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent")
+DRAMA_3_MODEL_ID = "fish-audio/drama-3"
+# Public cast from Fish Audio's Drama 3 guide; no account-owned clones.
+DRAMA_3_VOICES = ("bf322df2096a46f18c579d0baa36f41d", "c70cfb98867a4bfb9ae20d2401257b92", "f3a2b90078d54a65af4b95f63bc7798e")
 ELEVENLABS_SPEECH_MODEL_IDS = frozenset(
     f"elevenlabs/{name}" for name in (
         "eleven-flash-v2", "eleven-turbo-v2.5", "eleven-multilingual-v2",
@@ -254,6 +259,8 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        *HEYGEN_SPEECH_MODEL_IDS,
+        DRAMA_3_MODEL_ID,
         *ELEVENLABS_SPEECH_MODEL_IDS,
         SEED_AUDIO_MODEL_ID,
         GEMINI_38_FLASH_TTS_MODEL_ID,
@@ -264,11 +271,14 @@ MANUAL_SPEECH_PROFILE_IDS = frozenset(
     }
 )
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
+    **{model_id: "wav" for model_id in HEYGEN_SPEECH_MODEL_IDS},
     GEMINI_PCM_TTS_MODEL_ID: "wav",
     GEMINI_38_FLASH_TTS_MODEL_ID: "wav",
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    **{model_id: HEYGEN_VOICES for model_id in HEYGEN_SPEECH_MODEL_IDS},
+    DRAMA_3_MODEL_ID: DRAMA_3_VOICES,
     **{model_id: ELEVENLABS_VOICES for model_id in ELEVENLABS_SPEECH_MODEL_IDS},
     SEED_AUDIO_MODEL_ID: (SEED_AUDIO_PROMPT_VOICE,),
     GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
@@ -402,7 +412,7 @@ def speech_request_payload(
     # sentinel and lets the natural-language prompt drive voice and tone.
     if model_id != SEED_AUDIO_MODEL_ID:
         payload["voice"] = voice
-        if model_id not in ELEVENLABS_SPEECH_MODEL_IDS or model_id in ELEVENLABS_SPEED_MODEL_IDS:
+        if model_id not in HEYGEN_SPEECH_MODEL_IDS and (model_id not in ELEVENLABS_SPEECH_MODEL_IDS or model_id in ELEVENLABS_SPEED_MODEL_IDS):
             payload["speed"] = speed
     return payload
 
@@ -494,7 +504,7 @@ class OpenRouterTtsAdapter:
             provider=provider,
         )
         if output_format == "wav":
-            content = self._pcm_response_to_wav(response)
+            content = self._pcm_response_to_wav(response, expected_rate=44_100 if model_id in HEYGEN_SPEECH_MODEL_IDS else 24_000)
         else:
             self._validate_mp3(response)
             content = bytes(response.content)
@@ -743,7 +753,7 @@ class OpenRouterTtsAdapter:
             )
 
     @staticmethod
-    def _pcm_response_to_wav(response: httpx.Response) -> bytes:
+    def _pcm_response_to_wav(response: httpx.Response, *, expected_rate: int = 24_000) -> bytes:
         content = bytes(response.content)
         content_type = str(response.headers.get("content-type") or "")
         parts = [part.strip() for part in content_type.split(";")]
@@ -762,10 +772,10 @@ class OpenRouterTtsAdapter:
                 "语音服务返回的 PCM 参数无效，请稍后重试。",
                 status_code=502,
             ) from exc
-        if mime != "audio/pcm" or sample_rate != 24_000 or channels != 1:
+        if mime != "audio/pcm" or sample_rate != expected_rate or channels != 1:
             raise MultimodalServiceError(
                 "invalid_audio_mime",
-                "语音服务没有返回已验证的 24 kHz 单声道 PCM，请稍后重试。",
+                f"语音服务没有返回契约要求的 {expected_rate} Hz 单声道 PCM，请稍后重试。",
                 status_code=502,
             )
         if not content:
@@ -872,6 +882,8 @@ class SpeechService:
                 status_code=422,
             )
         clean_speed = self._speed(speed)
+        if clean_model in HEYGEN_SPEECH_MODEL_IDS and clean_speed != 1.0:
+            raise MultimodalServiceError("invalid_speech_speed", "此 HeyGen 模型当前仅开放默认语速。", status_code=422)
         if clean_model in ELEVENLABS_SPEECH_MODEL_IDS:
             allowed = (
                 0.7 <= clean_speed <= 1.2
@@ -1043,7 +1055,7 @@ class SpeechService:
 
             def parse_response(response: httpx.Response) -> SpeechResult:
                 if effective_response_format == "wav" and openrouter_adapter:
-                    content = self.adapter._pcm_response_to_wav(response)
+                    content = self.adapter._pcm_response_to_wav(response, expected_rate=44_100 if exact_model in HEYGEN_SPEECH_MODEL_IDS else 24_000)
                 elif effective_response_format == "wav":
                     content = bytes(response.content)
                     if not (

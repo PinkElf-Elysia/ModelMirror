@@ -234,7 +234,7 @@ class ImageCatalogService:
                 inputs = self._modalities(item, "input_modalities")
                 outputs = self._modalities(item, "output_modalities")
                 model_id = str(item.get("id") or "").strip()
-                if model_id and "image" in inputs and "text" in outputs:
+                if model_id and model_id not in {"scaledown/summarize", "scaledown/extract"} and "image" in inputs and "text" in outputs:
                     profiles.append(
                         ImageModelProfile(
                             model_id=model_id,

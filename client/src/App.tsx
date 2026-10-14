@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import AgentsPage from "./pages/AgentsPage";
 import ChatPage from "./pages/ChatPage";
 import ExpertTeamPage from "./pages/ExpertTeamPage";
@@ -41,6 +41,15 @@ import AgentConfigPage from "./pages/AgentConfigPage";
 import HelpArticlePage from "./pages/HelpArticlePage";
 import HelpCenterPage from "./pages/HelpCenterPage";
 import DecisionPage from "./pages/DecisionPage";
+import ScaleDownPage from "./pages/ScaleDownPage";
+
+function ContractChatPage() {
+  const { modelId = "" } = useParams();
+  if (modelId === "scaledown/summarize" || modelId === "scaledown/extract") {
+    return <Navigate replace to={`/scaledown/${encodeURIComponent(modelId)}`} />;
+  }
+  return <ChatPage />;
+}
 
 const CodingPage = lazy(() => import("./pages/CodingPage"));
 const SkillCreatorIndexPage = lazy(() => import("./pages/SkillCreatorIndexPage"));
@@ -160,8 +169,9 @@ export default function App() {
       <Route element={<KnowledgePipelineCanvasPage />} path="/rag/:kbId/pipeline" />
       <Route element={<KnowledgeEvaluationPage />} path="/rag/:kbId/evaluation" />
       <Route element={<KnowledgeInboxPage />} path="/rag/:kbId/inbox" />
-      <Route element={<ChatPage />} path="/chat/:modelId" />
+      <Route element={<ContractChatPage />} path="/chat/:modelId" />
       <Route element={<DecisionPage />} path="/decisions/:modelId" />
+      <Route element={<ScaleDownPage />} path="/scaledown/:modelId" />
       <Route element={<WorkflowClassicPage />} path="/workflow" />
       <Route element={<WorkflowClassicPage />} path="/workflow/:id" />
       <Route element={<WorkflowClassicPage />} path="/workflow/classic" />

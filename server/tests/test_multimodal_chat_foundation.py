@@ -358,7 +358,7 @@ async def test_audio_catalog_only_marks_verified_interactions_ready(
 
     assert result.status == "online"
     assert result.catalog_version == (
-        "modelmirror-audio-contracts-2026-10-12-muse-wonder"
+        "modelmirror-audio-contracts-2026-10-13-argon"
     )
     assert by_id["openai/gpt-audio"].provider == "openrouter"
     assert by_id["openai/gpt-audio"].operations == ["analyze_audio"]
@@ -659,6 +659,7 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
     "model_id,formats",
     [
         ("meta/muse-wonder", ["wav"]),
+        ("google/gemini-4-argon", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
         ("google/gemini-3.8-flash", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
         ("meta/muse-spark-1.3", ["wav"]),
         ("meta/muse-spark-1.3-contributor", ["wav"]),
@@ -816,7 +817,7 @@ async def test_audio_catalog_endpoint_does_not_expose_credentials(
     assert response.status_code == 200
     assert response.json()["profiles"]
     assert response.json()["catalog_version"] == (
-        "modelmirror-audio-contracts-2026-10-12-muse-wonder"
+        "modelmirror-audio-contracts-2026-10-13-argon"
     )
     assert response.json()["microphone_enabled"] is True
     assert "audio-catalog-secret" not in response.text

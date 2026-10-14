@@ -86,6 +86,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 @pytest.mark.parametrize(
     "model_id",
     [
+        "scaledown/classify-1",
         "nace-ai/drex-v2.0",
         "~perplexity/pplx-decider-27b-latest",
         "microsoft/microsoft-decision-1",
