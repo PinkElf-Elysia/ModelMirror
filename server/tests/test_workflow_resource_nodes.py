@@ -25,6 +25,17 @@ from server.xpert_runtime.toolset import (
 from server.xperts import XpertStore, set_xpert_store_for_tests
 from server.xperts.app_api import _deployment_preflight
 from server.xperts.app_models import XpertAppPolicy
+from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.service import ModelRouterService
+from server.model_router.call_context_storage import ProviderContextStore
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_origins(tmp_path, monkeypatch):
+    with SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32) as repository:
+        service = ModelRouterService(repository)
+        monkeypatch.setattr(main_module, "get_model_router_service", lambda: service)
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -551,10 +562,13 @@ async def test_external_xpert_only_inherits_trusted_published_xpert_control(
         specialist.id,
         expected_revision=specialist.draft_revision,
     )
-    captured: list[str | None] = []
+    captured: list[tuple[str | None, str | None]] = []
+    store = ProviderContextStore(main_module.get_model_router_service().repository)
+    store.register_execution(execution_id="parent-chat-execution", task_id="parent-chat-task", source_kind="xpert_chat")
+    store.register_execution(execution_id="parent-app-execution", task_id="parent-app-task", source_kind="xpert_app")
 
     async def fake_run(*_args, **kwargs):
-        captured.append(kwargs.get("runtime_execution_source_kind"))
+        captured.append((kwargs.get("runtime_execution_source_kind"), kwargs.get("runtime_provider_parent_execution_id")))
 
         async def body():
             yield main_module.sse_payload(
@@ -572,6 +586,7 @@ async def test_external_xpert_only_inherits_trusted_published_xpert_control(
         "external_xpert_depth": 0,
         "external_xpert_path": [],
         "xpert_id": "parent",
+        "node_id": "agent", "iteration": 1,
     }
 
     await main_module.execute_external_xpert_resource(
@@ -588,6 +603,7 @@ async def test_external_xpert_only_inherits_trusted_published_xpert_control(
             metadata={
                 **base_metadata,
                 "provider_workload_source_kind": "xpert_chat",
+                "provider_origin_execution_id": "parent-chat-execution",
             },
         ),
     )
@@ -600,11 +616,16 @@ async def test_external_xpert_only_inherits_trusted_published_xpert_control(
             metadata={
                 **base_metadata,
                 "provider_workload_source_kind": "xpert_app",
+                "provider_origin_execution_id": "parent-app-execution",
             },
         ),
     )
 
-    assert captured == [None, "xpert_chat", "xpert_app"]
+    assert captured == [(None, None), ("xpert_chat", "parent-chat-execution"), ("xpert_app", "parent-app-execution")]
+    with pytest.raises(ValueError, match="provider_call_context_origin_missing"):
+        await main_module.execute_external_xpert_resource(resource, "missing origin", RuntimeToolCall(
+            tool_name="child", arguments={}, metadata={**base_metadata, "provider_workload_source_kind": "xpert_chat"}))
+    assert len(captured) == 3
 
 
 @pytest.mark.asyncio

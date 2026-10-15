@@ -20,6 +20,7 @@ from .provider_operations import (
     provider_operation_model_matches,
 )
 from .service import ModelRouterService, RouterServiceError
+from .rag_call_context import start_operation_run, require_operation_source
 from .workload_control import (
     MAX_WORKLOAD_UNARY_RESPONSE_BYTES,
     WORKLOAD_RESPONSE_CHUNK_BYTES,
@@ -249,9 +250,9 @@ class ManagedRagEmbeddingGateway:
     def start_index_run(self, job_id: str) -> "ManagedRagEmbeddingRun":
         parent_reference = self.index_parent_reference(job_id)
         try:
-            run_id = self.call_service.start_stable_run(
+            run_id = start_operation_run(self.call_service,
                 RAG_EMBEDDING_ENTRY_ID,
-                parent_run_reference=parent_reference,
+                parent_reference=parent_reference, stable=True,
             )
         except RouterServiceError as exc:
             raise ManagedRagEmbeddingError(
@@ -263,9 +264,9 @@ class ManagedRagEmbeddingGateway:
         return ManagedRagEmbeddingRun(self, run_id)
 
     def start_query_run(self, version_id: str) -> "ManagedRagEmbeddingRun":
-        run_id = self.call_service.start_run(
+        run_id = start_operation_run(self.call_service,
             RAG_EMBEDDING_ENTRY_ID,
-            parent_run_reference=(
+            parent_reference=(
                 f"rag_embedding:query:{str(version_id)[:200]}:{uuid.uuid4().hex}"
             ),
         )
@@ -336,6 +337,7 @@ class ManagedRagEmbeddingRun:
         dispatched = False
         started = time.perf_counter()
         try:
+            require_operation_source(self.gateway.call_service, self.run_id, RAG_EMBEDDING_ENTRY_ID)
             qualification = self.gateway.qualification(model_id)
             if (
                 expected_space_fingerprint

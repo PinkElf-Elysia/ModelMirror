@@ -16,6 +16,7 @@ try:
         OpenAICompatibleGateway,
     )
     from server.model_router.repository import RouterRepositoryError
+    from server.model_router.call_context_storage import ProviderContextStore
     from server.model_router.service import RouterServiceError
     from server.model_router.workload_control import (
         ProviderWorkloadCallService,
@@ -30,6 +31,7 @@ except ImportError:  # pragma: no cover - direct server package execution
         OpenAICompatibleGateway,
     )
     from model_router.repository import RouterRepositoryError
+    from model_router.call_context_storage import ProviderContextStore
     from model_router.service import RouterServiceError
     from model_router.workload_control import (
         ProviderWorkloadCallService,
@@ -94,14 +96,21 @@ class ManagedShadowGateway:
         return binding.model_id if binding is not None else None
 
     def start_run(self, *, parent_run_reference: str) -> str:
-        return self.call_service.start_run(
-            "agent_shadow", parent_run_reference=parent_run_reference
+        # This ID comes from EngineShadowStore, never Worker/client metadata.
+        ProviderContextStore(self.call_service.repository).register_execution(
+            execution_id=parent_run_reference, task_id=parent_run_reference,
+            source_kind="agent_shadow",
+        )
+        return self.call_service.start_stable_run(
+            "agent_shadow", parent_run_reference=parent_run_reference,
+            origin_execution_id=parent_run_reference,
         )
 
     async def stream_turn(
         self,
         *,
         workload_run_id: str,
+        origin_execution_id: str,
         logical_call_key: str,
         call_sequence: int,
         model_id: str,
@@ -115,6 +124,11 @@ class ManagedShadowGateway:
         prepared: ProviderWorkloadPreparedCall | None = None
         dispatched = False
         try:
+            if type(origin_execution_id) is not str or not origin_execution_id:
+                raise GatewayRequestError("The managed Shadow host origin is missing.")
+            ProviderContextStore(self.call_service.repository).require_workload_source(
+                workload_run_id, source_kind="agent_shadow", execution_id=origin_execution_id,
+            )
             prepared = await self.call_service.prepare_call(
                 run_id=workload_run_id,
                 entry_id="agent_shadow",

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from server.model_router.call_context import ProviderCallContext
+
 from server.model_router.repository import (
     SCHEMA_VERSION,
     RouterRepositoryError,
@@ -469,10 +471,21 @@ def test_r5e_gate_aggregates_only_primary_real_text_and_activates_atomically(
     assert "opaque-newapi-log" not in dump
 
 
+def _synthetic_dispatch_context(repository, suffix):
+    policy = repository.replace_chat_control_policy(
+        "local", expected_revision=0, mode="newapi_preferred", auto_enabled=False,
+        policy_fingerprint=f"policy-{suffix}", stable_model_ids=["provider/model"], routes=[], qualifications=[])
+    return ProviderCallContext(tenant_id="local", actor_kind="local_anonymous",
+        actor_reference="local-anonymous", entry_id="chat_default", purpose="user_run",
+        parent_run_id=f"run-{suffix}", logical_call_id=f"run-{suffix}:chat",
+        attempt_id=f"attempt-{suffix}", policy_revision=policy["policy"]["revision"])
+
+
 def test_hard_failure_degrades_epoch_revokes_approval_and_requires_new_policy(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    context = _synthetic_dispatch_context(repository, "hard")
     repository.sync_chat_control_gate_epoch(
         "local",
         epoch_id="epoch-hard",
@@ -494,13 +507,14 @@ def test_hard_failure_degrades_epoch_revokes_approval_and_requires_new_policy(
     repository.claim_chat_control_attempt(
         "local",
         attempt_id="attempt-hard",
+        call_context=context,
         run_id="run-hard",
         capability="chat_text",
         position=0,
         connection_id="conn-newapi",
         provider_kind="newapi",
     )
-    repository.mark_chat_control_attempt_dispatched("local", "attempt-hard")
+    repository.mark_chat_control_attempt_dispatched("local", "attempt-hard", call_context=context)
     repository.complete_chat_control_attempt(
         "local",
         "attempt-hard",
@@ -544,6 +558,7 @@ def test_gate_summary_sees_hard_attempt_before_parent_run_finishes(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    context = _synthetic_dispatch_context(repository, "race")
     repository.sync_chat_control_gate_epoch(
         "local",
         epoch_id="epoch-race",
@@ -565,13 +580,14 @@ def test_gate_summary_sees_hard_attempt_before_parent_run_finishes(
     repository.claim_chat_control_attempt(
         "local",
         attempt_id="attempt-race",
+        call_context=context,
         run_id="run-race",
         capability="chat_text",
         position=0,
         connection_id="conn-newapi",
         provider_kind="newapi",
     )
-    repository.mark_chat_control_attempt_dispatched("local", "attempt-race")
+    repository.mark_chat_control_attempt_dispatched("local", "attempt-race", call_context=context)
     repository.complete_chat_control_attempt(
         "local",
         "attempt-race",

@@ -50,6 +50,8 @@ from server.model_router.workload_control import (
 )
 import server.model_router.workload_control as workload_control_module
 import server.model_router.api as model_router_api_module
+from server.model_router.call_context import ProviderCallContextError
+from server.model_router.call_context_storage import ProviderContextStore
 from server.model_router.cleanup_chat_receipts import cleanup_receipts
 
 
@@ -268,7 +270,7 @@ def test_v17_to_v18_is_additive_and_tenant_scoped(tmp_path: Path) -> None:
                 for row in connection.execute(f"PRAGMA table_info({table_name})")
             }
             assert {"workload_run_id", "workload_call_id", "adapter_contract", "provider_dispatch_state", "post_dispatched"} <= job_columns
-    assert SCHEMA_VERSION == 19
+    assert SCHEMA_VERSION == 20
     assert len(repository.get_workload_policy_bundle("local")["policies"]) == 1
     assert repository.get_workload_policy_bundle("other")["policies"] == []
 
@@ -286,11 +288,21 @@ def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
+    connection = repository.create_connection('local', RouterConnectionCreate(
+        name='synthetic-session', kind='openrouter', base_url='https://provider.example/v1',
+        api_key='synthetic-only', scopes=['video']))
+    repository.claim_workload_certification('local', certification_id='mmcert-1',
+        connection_id=connection.id,
+        connection_fingerprint=repository.connection_config_fingerprint('local', connection.id),
+        contract_version=PROVIDER_WORKLOAD_CONTRACT_VERSION, execution_shape='video_generation_async',
+        requested_model='provider/vision', profile={}, profile_fingerprint='synthetic-profile',
+        idempotency_key_hash='idem-hash', adapter_contract='openrouter_video_jobs_v1',
+        protocol_version=PROVIDER_MULTIMODAL_PROTOCOL_VERSION)
     row, created = repository.claim_multimodal_certification_session(
         "local",
         session_id="mmcert-session-1",
         certification_id="mmcert-1",
-        connection_id="conn-1",
+        connection_id=connection.id,
         requested_model="provider/vision",
         execution_shape="video_generation_async",
         adapter_contract="openrouter_video_jobs_v1",
@@ -303,7 +315,7 @@ def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
         "local",
         session_id="ignored-session-id",
         certification_id="mmcert-1",
-        connection_id="conn-1",
+        connection_id=connection.id,
         requested_model="provider/vision",
         execution_shape="video_generation_async",
         adapter_contract="openrouter_video_jobs_v1",
@@ -317,7 +329,7 @@ def test_multimodal_session_is_tenant_scoped_idempotent_and_restart_safe(
             "local",
             session_id="mmcert-session-2",
             certification_id="mmcert-1",
-            connection_id="conn-1",
+            connection_id=connection.id,
             requested_model="provider/vision",
             execution_shape="video_generation_async",
             adapter_contract="openrouter_video_jobs_v1",
@@ -802,12 +814,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         acknowledge_fail_closed=True,
     )
 
-    repository.claim_workload_run(
-        "local",
-        run_id="run-one",
-        entry_id="meta_agent",
-        policy_fingerprint="policy-one",
-    )
+    _claim_meta_context_run(repository, "run-one", "policy-one")
     first, created = repository.claim_workload_call(
         "local",
         call_id="call-one",
@@ -843,27 +850,20 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         entry_id="meta_agent",
         policy_fingerprint="other-policy",
     )
-    other_call, other_created = repository.claim_workload_call(
-        "other",
-        call_id="call-one",
-        run_id="run-one",
-        entry_id="meta_agent",
-        execution_shape="chat_json_object",
-        requested_model="provider/model",
-        connection_id="conn-one",
-        certification_id="cert-one",
-        connection_fingerprint="connection-one",
-        logical_call_key_hash="logical-one",
-        call_sequence=1,
-    )
-    assert other_created is True
-    assert other_call["id"] == "call-one"
+    # C1 has no non-local dispatch identity; another tenant cannot inherit this call.
+    with pytest.raises(ProviderCallContextError):
+        repository.claim_workload_call(
+            "other", call_id="call-one", run_id="run-one", entry_id="meta_agent",
+            execution_shape="chat_json_object", requested_model="provider/model",
+            connection_id="conn-one", certification_id="cert-one",
+            connection_fingerprint="connection-one", logical_call_key_hash="logical-one", call_sequence=1,
+        )
     local_receipt_calls = repository.list_workload_receipts("local")["calls"]
     assert len(local_receipt_calls) == 1
     assert local_receipt_calls[0]["generation_id_observed"] is None
     assert local_receipt_calls[0]["generation_metadata_get_count"] is None
     assert local_receipt_calls[0]["generation_metadata_wait_ms"] is None
-    assert len(repository.list_workload_receipts("other")["calls"]) == 1
+    assert repository.list_workload_receipts("other")["calls"] == []
     with pytest.raises(RouterRepositoryError) as entry_error:
         repository.claim_workload_call(
             "local",
@@ -888,6 +888,7 @@ def test_policy_revision_drift_and_receipt_replay_guards(tmp_path: Path) -> None
         "certification_id": "cert-one",
         "connection_fingerprint": "connection-one",
         "policy_fingerprint": "policy-one",
+        "call_context": ProviderContextStore(repository).read("local", "call-one"),
     }
     repository.mark_workload_call_dispatched(
         "local", "call-one", **dispatch_args
@@ -911,12 +912,7 @@ def test_workload_receipt_state_machine_rejects_impossible_success(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
-    repository.claim_workload_run(
-        "local",
-        run_id="run-impossible",
-        entry_id="meta_agent",
-        policy_fingerprint="policy-impossible",
-    )
+    _claim_meta_context_run(repository, "run-impossible", "policy-impossible")
     repository.claim_workload_call(
         "local",
         call_id="call-impossible",
@@ -975,16 +971,32 @@ def test_workload_receipt_state_machine_rejects_impossible_success(
     assert completed["status"] == "failed"
 
 
+def _claim_meta_context_run(repository, run_id, fingerprint):
+    policies = repository.get_workload_policy_bundle("local", entry_id="meta_agent")["policies"]
+    if not policies:
+        repository.replace_workload_policy("local", entry_id="meta_agent", expected_revision=0,
+            policy_fingerprint=fingerprint, local_fallback_mode="none", bindings=[])
+        policies = repository.get_workload_policy_bundle("local", entry_id="meta_agent")["policies"]
+    return repository.claim_workload_run("local", run_id=run_id, entry_id="meta_agent",
+        policy_fingerprint=fingerprint, origin_source="meta_agent_request", policy_revision=policies[0]["revision"])
+
+
+def _claim_audio_context_run(repository, run_id, fingerprint):
+    from server.model_router.call_context_storage import ProviderContextStore
+    repository.replace_workload_policy('local', entry_id='chat_audio_output', expected_revision=0,
+        policy_fingerprint=fingerprint, local_fallback_mode='none', bindings=[])
+    ProviderContextStore(repository).register_execution(execution_id=run_id, task_id=run_id,
+        source_kind='multimodal_request')
+    repository.claim_stable_workload_run('local', run_id=run_id, entry_id='chat_audio_output',
+        policy_fingerprint=fingerprint, parent_run_reference=run_id,
+        origin_execution_id=run_id, policy_revision=1)
+
+
 def test_complete_workload_call_and_run_roll_back_together_when_run_update_fails(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
-    repository.claim_workload_run(
-        "local",
-        run_id="run-atomic-failure",
-        entry_id="chat_audio_output",
-        policy_fingerprint="policy-atomic-failure",
-    )
+    _claim_audio_context_run(repository, 'run-atomic-failure', 'policy-atomic-failure')
     repository.claim_workload_call(
         "local",
         call_id="call-atomic-failure",
@@ -1047,12 +1059,7 @@ def test_delivery_pending_workload_call_is_serializable_in_receipts(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
-    repository.claim_workload_run(
-        "local",
-        run_id="run-delivery-pending",
-        entry_id="chat_audio_output",
-        policy_fingerprint="policy-delivery-pending",
-    )
+    _claim_audio_context_run(repository, 'run-delivery-pending', 'policy-delivery-pending')
     repository.claim_workload_call(
         "local",
         call_id="call-delivery-pending",
@@ -1092,12 +1099,7 @@ def test_running_workload_evidence_becomes_uncertain_and_cleanup_is_dry_run(
     tmp_path: Path,
 ) -> None:
     repository = SQLiteRouterRepository.open(tmp_path, master_key=b"x" * 32)
-    repository.claim_workload_run(
-        "local",
-        run_id="run-one",
-        entry_id="meta_agent",
-        policy_fingerprint="policy-one",
-    )
+    _claim_meta_context_run(repository, "run-one", "policy-one")
     repository.claim_workload_call(
         "local",
         call_id="call-one",
@@ -2462,7 +2464,7 @@ async def test_workload_dispatch_rechecks_policy_after_credential_drift(
     assert active.effective_status == "managed_required"
 
     call_service = ProviderWorkloadCallService(router_service)
-    run_id = call_service.start_run("meta_agent")
+    run_id = call_service.start_run("meta_agent", origin_source="meta_agent_request")
     prepared = await call_service.prepare_call(
         run_id=run_id,
         entry_id="meta_agent",

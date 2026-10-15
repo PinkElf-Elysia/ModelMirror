@@ -19,6 +19,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.multimodal_call_context import require_video_job_origin
     from server.model_router.egress import ProviderEgressPolicy, request_provider_url
     from server.model_router.multimodal_control import (
         R8E_VIDEO_GENERATION_ASPECT_RATIO,
@@ -31,6 +32,7 @@ try:
     )
     from server.model_router.service import ModelRouterService
 except ModuleNotFoundError:
+    from model_router.multimodal_call_context import require_video_job_origin
     from model_router.egress import ProviderEgressPolicy, request_provider_url
     from model_router.multimodal_control import (
         R8E_VIDEO_GENERATION_ASPECT_RATIO,
@@ -2367,9 +2369,11 @@ class VideoJobService:
         self, row: dict[str, object]
     ) -> OpenRouterTarget:
         connection_id = str(row.get("connection_id") or "").strip()
-        if not connection_id:
+        if not connection_id and not row.get('workload_run_id'):
             return self.catalog_service.resolve_target()
         try:
+            if row.get('workload_run_id'):
+                require_video_job_origin(self.managed_gateway.call_service, row)
             connection, api_key, current_fingerprint = (
                 self.router_service.repository.get_connection_credential_snapshot(
                     self.router_service.tenant_id, connection_id

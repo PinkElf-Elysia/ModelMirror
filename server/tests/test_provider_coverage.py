@@ -14,6 +14,27 @@ SPEC.loader.exec_module(guard)
 
 
 class CoverageTests(unittest.TestCase):
+    def test_scaledown_is_pending_and_actual_post_cannot_be_hidden(self):
+        manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
+        entry = next(row for row in manifest["entries"] if row["id"] == "openrouter_scaledown")
+        self.assertEqual(entry["status"], "migration_pending")
+        self.assertEqual(entry["flags"], [])
+        self.assertNotEqual(entry.get("registry"), "workload")
+        source = (ROOT / "server/main.py").read_text(encoding="utf-8-sig")
+        sites = [site for site in guard.python_sites(source, "server/main.py")
+                 if site["symbol"] == "create_scaledown_result"]
+        self.assertEqual({site["callee"] for site in sites}, {"httpx.AsyncClient", "client.post"})
+        registered = {row["id"]: row for row in manifest["sites"]}
+        for site in sites:
+            row = registered[site["id"]]
+            self.assertEqual(row["entries"], ["openrouter_scaledown"])
+            self.assertEqual(row["kind"], "model_dispatch" if site["callee"] == "client.post" else "transport")
+        browser = [row for row in manifest["sites"]
+                   if row["id"].startswith("client/src/pages/ScaleDownPage.tsx::")]
+        self.assertEqual(len(browser), 1)
+        self.assertEqual(browser[0]["kind"], "model_delegate")
+        self.assertEqual(browser[0]["entries"], ["openrouter_scaledown"])
+
     def test_reviewed_god_harnesses_distinguish_delegation_from_offline_http(self):
         manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
         expected = {

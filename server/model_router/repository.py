@@ -19,6 +19,14 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from .storage_lifecycle import ProviderStorageError, StorageLease, assert_database_identity
 from .qualification_storage import create_qualification_schema
+from .call_context_storage import (
+    create_context_schema, save_context, verify_context, bind_workload_origin,
+    workload_context,
+    canary_policy_revision, canary_policy_hash, require_canary_context,
+    bind_request_workload_origin,
+)
+from .call_context import ProviderCallContextError
+from .certification_call_context import save_certification_origin, require_certification_origin
 from .qualification_events import (
     begin_qualification_event,
     complete_qualification_event,
@@ -51,7 +59,7 @@ from .schemas import (
 )
 
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 DEFAULT_TENANT_ID = "local"
 CANONICAL_MASTER_KEY_ENV = "MODEL_MIRROR_CREDENTIAL_MASTER_KEY"
 LEGACY_MASTER_KEY_ENV = "MODEL_ROUTER_CREDENTIAL_MASTER_KEY"
@@ -280,6 +288,7 @@ class SQLiteRouterRepository:
 
     def _begin_qualification(self, connection, tenant_id, source, certification_id):
         try:
+            save_certification_origin(connection, tenant_id, source, certification_id)
             return begin_qualification_event(
                 connection, tenant_id=tenant_id, source=source, certification_id=certification_id,
                 configured_ttl=os.getenv("MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS"),
@@ -1410,6 +1419,7 @@ class SQLiteRouterRepository:
                             f"ADD COLUMN {column} {definition}"
                         )
             create_qualification_schema(connection)
+            create_context_schema(connection)
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _recover_provider_operations_after_restart(self) -> None:
@@ -2780,6 +2790,7 @@ class SQLiteRouterRepository:
         position: int,
         connection_id: str | None,
         provider_kind: str,
+        call_context=None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
@@ -2790,6 +2801,10 @@ class SQLiteRouterRepository:
             ).fetchone()
             if run is None:
                 raise RouterRepositoryError("provider_chat_run_not_found")
+            if call_context is not None:
+                if (call_context.tenant_id, call_context.parent_run_id, call_context.attempt_id) != (clean_tenant, run_id, attempt_id):
+                    raise ProviderCallContextError("provider_call_context_reference_mismatch")
+                save_context(connection, call_context, owner_kind="chat")
             connection.execute(
                 """
                 INSERT INTO provider_chat_attempts (
@@ -2816,15 +2831,21 @@ class SQLiteRouterRepository:
         return dict(row)
 
     def mark_chat_control_attempt_dispatched(
-        self, tenant_id: str, attempt_id: str
+        self, tenant_id: str, attempt_id: str, *, call_context=None,
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            saved = verify_context(connection, clean_tenant, attempt_id, call_context)
+            if saved is not None:
+                policy = connection.execute("SELECT revision FROM provider_chat_stable_policies WHERE tenant_id=?", (clean_tenant,)).fetchone()
+                if policy is None or policy[0] != saved.policy_revision:
+                    raise ProviderCallContextError("provider_call_context_policy_changed")
             cursor = connection.execute(
                 """
                 UPDATE provider_chat_attempts
                 SET dispatched = 1, updated_at = ?
-                WHERE tenant_id = ? AND id = ? AND status = 'running'
+                WHERE tenant_id = ? AND id = ? AND status = 'running' AND dispatched = 0
                 """,
                 (utc_now(), clean_tenant, attempt_id),
             )
@@ -3373,6 +3394,7 @@ class SQLiteRouterRepository:
         required_certifications: tuple[tuple[str, str, str], ...],
         contract_version: str,
         certification_max_age_seconds: int,
+        call_context=None,
     ) -> None:
         """Atomically bind dispatch to the exact policy and certification state."""
 
@@ -3427,6 +3449,11 @@ class SQLiteRouterRepository:
                 expected_connection_id=expected_connection_id,
                 bindings=bindings,
             )
+            saved_context = verify_context(connection, clean_tenant, attempt_id, call_context)
+            if saved_context is not None:
+                policy_row = connection.execute("SELECT revision FROM provider_chat_stable_policies WHERE tenant_id=?", (clean_tenant,)).fetchone()
+                if policy_row is None or policy_row[0] != saved_context.policy_revision:
+                    raise ProviderCallContextError("provider_call_context_policy_changed")
             connection_state_cache: dict[tuple[str, str], str] = {}
             certification_expirations: list[datetime] = []
 
@@ -5396,6 +5423,10 @@ class SQLiteRouterRepository:
         now = utc_now()
         with self._lock, self._connect() as connection:
             try:
+                require_certification_origin(connection, clean_tenant, 'provider_workload', certification_id)
+            except ProviderCallContextError as exc:
+                raise RouterRepositoryError(exc.code) from None
+            try:
                 cursor = connection.execute(
                     """
                     UPDATE provider_workload_certifications
@@ -6078,6 +6109,10 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_certification_session_not_found"
                 )
+            try:
+                require_certification_origin(connection, clean_tenant, 'provider_workload', certification_id)
+            except ProviderCallContextError as exc:
+                raise RouterRepositoryError(exc.code) from None
             if str(certification["status"]) == "running":
                 raise RouterRepositoryError(
                     "provider_multimodal_certification_refresh_in_progress"
@@ -6398,6 +6433,11 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_multimodal_session_not_found"
                 )
+            if provider_dispatch_state == 'dispatched':
+                try:
+                    require_certification_origin(connection, clean_tenant, 'provider_workload', existing['certification_id'])
+                except ProviderCallContextError as exc:
+                    raise RouterRepositoryError(exc.code) from None
             if expected_connection_fingerprint is not None:
                 certification = connection.execute(
                     """
@@ -6765,10 +6805,15 @@ class SQLiteRouterRepository:
         entry_id: str,
         policy_fingerprint: str,
         parent_run_reference: str | None = None,
+        origin_source: str | None = None,
+        policy_revision: int | None = None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if origin_source is not None:
+                bind_request_workload_origin(connection, clean_tenant, run_id, entry_id, origin_source, policy_revision)
             connection.execute(
                 """
                 INSERT INTO provider_workload_runs (
@@ -6801,6 +6846,8 @@ class SQLiteRouterRepository:
         policy_fingerprint: str,
         parent_run_reference: str,
         replay_guard_run_ids: tuple[str, ...] = (),
+        origin_execution_id: str | None = None,
+        policy_revision: int | None = None,
     ) -> tuple[dict[str, object], bool]:
         """Atomically reserve a deterministic workload run.
 
@@ -6841,6 +6888,8 @@ class SQLiteRouterRepository:
                 "SELECT * FROM provider_workload_runs WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, run_id),
             ).fetchone()
+            if origin_execution_id is not None and cursor.rowcount == 1:
+                bind_workload_origin(connection, clean_tenant, run_id, origin_execution_id, entry_id, policy_revision)
         if row is None:  # pragma: no cover - protected by the transaction above
             raise RouterRepositoryError("provider_workload_run_not_found")
         return dict(row), cursor.rowcount == 1
@@ -6923,6 +6972,10 @@ class SQLiteRouterRepository:
                 "SELECT * FROM provider_workload_calls WHERE tenant_id = ? AND id = ?",
                 (clean_tenant, call_id),
             ).fetchone()
+            policy = connection.execute("SELECT revision FROM provider_workload_policies WHERE tenant_id=? AND entry_id=?", (clean_tenant, entry_id)).fetchone()
+            context = workload_context(connection, clean_tenant, run_id, call_id, logical_call_key_hash, policy[0] if policy else None)
+            if context is not None:
+                save_context(connection, context, owner_kind="workload")
         return dict(row), True
 
     def get_workload_run(
@@ -6954,13 +7007,14 @@ class SQLiteRouterRepository:
         adapter_contract: str | None = None,
         protocol_version: str | None = None,
         verify_current_connection: bool = False,
+        call_context=None,
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             current = connection.execute(
                 """
-                SELECT status, dispatched FROM provider_workload_calls
+                SELECT status, dispatched, logical_call_key_hash FROM provider_workload_calls
                 WHERE tenant_id = ? AND id = ?
                 """,
                 (clean_tenant, call_id),
@@ -6973,6 +7027,15 @@ class SQLiteRouterRepository:
                 raise RouterRepositoryError(
                     "provider_workload_duplicate_dispatch_blocked"
                 )
+            saved_context = verify_context(connection, clean_tenant, call_id, call_context)
+            policy_row = connection.execute("SELECT revision FROM provider_workload_policies WHERE tenant_id=? AND entry_id=?", (clean_tenant, entry_id)).fetchone()
+            expected_context = workload_context(connection, clean_tenant, run_id, call_id,
+                                                current["logical_call_key_hash"], policy_row[0] if policy_row else None)
+            if saved_context != expected_context:
+                raise ProviderCallContextError("provider_call_context_origin_missing")
+            if saved_context is not None:
+                if policy_row is None or policy_row[0] != saved_context.policy_revision or saved_context.parent_run_id != run_id or saved_context.entry_id != entry_id:
+                    raise ProviderCallContextError("provider_call_context_policy_changed")
             if verify_current_connection:
                 current_connection = connection.execute(
                     """
@@ -7483,7 +7546,11 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant,),
             ).fetchone()
-        return dict(row) if row is not None else None
+            if row is None:
+                return None
+            result = dict(row)
+            result["revision"] = canary_policy_revision(connection, clean_tenant, row)
+            return result
 
     def save_chat_canary_policy(
         self,
@@ -7495,6 +7562,7 @@ class SQLiteRouterRepository:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
                 INSERT INTO provider_chat_canary_policies (
@@ -7514,7 +7582,16 @@ class SQLiteRouterRepository:
                 """,
                 (clean_tenant,),
             ).fetchone()
-        return dict(row)
+            connection.execute(
+                """INSERT INTO provider_canary_policy_revisions VALUES (?, 1, ?)
+                ON CONFLICT(tenant_id) DO UPDATE SET
+                    revision=provider_canary_policy_revisions.revision + 1,
+                    policy_snapshot_hash=excluded.policy_snapshot_hash""",
+                (clean_tenant, canary_policy_hash(row)),
+            )
+            result = dict(row)
+            result["revision"] = canary_policy_revision(connection, clean_tenant, row)
+            return result
 
     def get_open_chat_control_gate_epoch(
         self, tenant_id: str, policy_fingerprint: str
@@ -7562,10 +7639,17 @@ class SQLiteRouterRepository:
         requested_model: str,
         session_id_hash: str,
         baseline_overlap: bool,
+        call_context=None,
     ) -> dict[str, object]:
         clean_tenant = self._tenant_id(tenant_id)
         now = utc_now()
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if call_context is not None:
+                require_canary_context(connection, clean_tenant, {
+                    "id": run_id, "connection_id": connection_id, "session_id_hash": session_id_hash,
+                }, call_context)
+                save_context(connection, call_context, owner_kind="chat")
             connection.execute(
                 """
                 INSERT INTO provider_chat_canary_runs (
@@ -7599,7 +7683,7 @@ class SQLiteRouterRepository:
         return dict(row)
 
     def mark_chat_canary_dispatched(
-        self, tenant_id: str, run_id: str
+        self, tenant_id: str, run_id: str, *, call_context=None,
     ) -> None:
         clean_tenant = self._tenant_id(tenant_id)
         with self._lock, self._connect() as connection:
@@ -7610,6 +7694,8 @@ class SQLiteRouterRepository:
             ).fetchone()
             if run is None or run["status"] != "running" or run["dispatched"]:
                 raise RouterRepositoryError("provider_chat_canary_run_not_running")
+            saved = verify_context(connection, clean_tenant, run_id, call_context)
+            require_canary_context(connection, clean_tenant, run, saved)
             if not dispatch_qualification_current(
                 connection, tenant_id=clean_tenant, source="provider_chat",
                 certification_id=run["certification_id"], connection_id=run["connection_id"],

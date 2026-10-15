@@ -13,6 +13,8 @@ from typing import Any, Literal
 import httpx
 
 from .egress import ProviderEgressError
+from .call_context_storage import ProviderContextStore
+from .call_context import ProviderCallContextError
 from .provider_operations import (
     provider_operation_batch_model_matches,
     ProviderOperationTarget,
@@ -169,9 +171,13 @@ class ManagedOpenRouterBatchGateway:
         dispatched = False
         started = time.perf_counter()
         try:
+            ProviderContextStore(self.repository).register_execution(
+                execution_id=run_id, task_id=run_id, source_kind="batch_request",
+            )
             claimed_run_id = self.call_service.start_stable_run(
                 "openrouter_batch",
                 parent_run_reference=parent_reference,
+                origin_execution_id=run_id,
             )
             run_started = True
             if claimed_run_id != run_id:
@@ -407,11 +413,31 @@ class ManagedOpenRouterBatchGateway:
         *,
         include_results: bool,
     ) -> tuple[int, dict[str, object]]:
+        expected_run = self.call_service.stable_run_id(
+            "openrouter_batch", f"openrouter-batch:{job['idempotency_key_hash']}"
+        )
+        if job.get("workload_run_id") != expected_run:
+            raise RouterServiceError("provider_call_context_reference_mismatch",
+                                     "Batch 来源与运行不一致，刷新已阻断。", status_code=409)
+        try:
+            ProviderContextStore(self.repository).require_dispatched_run(
+                expected_run, entry_id="openrouter_batch", source_kind="batch_request",
+                execution_id=expected_run,
+                call_facts={'connection_id': job['connection_id'],
+                            'connection_fingerprint': job['connection_fingerprint'],
+                            'requested_model': job['model_id'],
+                            'execution_shape': self._operation_for_endpoint(str(job['endpoint']))},
+            )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(exc.code, "Batch 原调用来源不可验证，未执行上游刷新。", status_code=409) from exc
         try:
             connection = self.repository.get_connection(
                 self.router_service.tenant_id, str(job["connection_id"])
             )
-            if connection.kind != "openrouter" or "batch" not in connection.scopes:
+            if (connection.kind != "openrouter" or "batch" not in connection.scopes
+                    or not connection.enabled
+                    or self.repository.connection_config_fingerprint(self.router_service.tenant_id, connection.id)
+                    != job['connection_fingerprint']):
                 raise RouterServiceError(
                     "provider_batch_connection_unavailable",
                     "该 Batch 的 OpenRouter 连接不再可用。",

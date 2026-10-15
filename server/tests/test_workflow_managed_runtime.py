@@ -187,6 +187,14 @@ class FakeManagedWorkflowGateway:
     def for_router(cls, _service: Any) -> FakeManagedWorkflowGateway:
         return cls()
 
+    def bind_execution(self, **kwargs: Any) -> None:
+        # Runtime orchestration double only; durable provenance is exercised
+        # against the real repository/gateway in test_provider_context_workflow.
+        self.origin_binding = dict(kwargs)
+
+    def validate_resume_source(self, **kwargs: Any) -> None:
+        self.resume_origin = dict(kwargs)
+
     @staticmethod
     def entry_id(source_kind: str | None) -> str | None:
         return {

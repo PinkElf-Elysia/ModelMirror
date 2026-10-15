@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from server.model_router.rag_call_context import operation_scope
+except ModuleNotFoundError:
+    from model_router.rag_call_context import operation_scope
+
 import asyncio
 import copy
 import hashlib
@@ -696,17 +701,19 @@ class SkillRerankGovernanceService:
                         semantic=False,
                     )
                 )
-                outcome = await self.rerank_service.rerank_lexical_results(
-                    query=case["query"],
-                    lexical_results=lexical.lexical_results,
-                    scope=case["scope"],
-                    limit=6,
-                    timeout_seconds=(
-                        MARKET_TIMEOUT_SECONDS
-                        if case["scope"] == "market"
-                        else ROUTER_TIMEOUT_SECONDS
-                    ),
-                )
+                with operation_scope("skill_evaluation",
+                        reference=f"skill-evaluation:{evaluation_id}:{case['caseId']}", inherit=False):
+                    outcome = await self.rerank_service.rerank_lexical_results(
+                        query=case["query"],
+                        lexical_results=lexical.lexical_results,
+                        scope=case["scope"],
+                        limit=6,
+                        timeout_seconds=(
+                            MARKET_TIMEOUT_SECONDS
+                            if case["scope"] == "market"
+                            else ROUTER_TIMEOUT_SECONDS
+                        ),
+                    )
                 receipt = outcome.receipt
                 lexical_ids = list(receipt.lexical_ranks)
                 proposed_ids = list(receipt.proposed_ranks)

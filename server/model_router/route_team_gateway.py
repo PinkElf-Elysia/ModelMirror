@@ -75,7 +75,9 @@ class ManagedRouteTeamGateway:
                 ),
             )
         try:
-            run_id = self.call_service.start_run(entry_id)
+            run_id = self.call_service.start_run(
+                entry_id, origin_source={"route_agent": "route_agent_request", "team_chat": "team_chat_request"}[entry_id],
+            )
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(
                 exc.code,

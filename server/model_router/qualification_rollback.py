@@ -1,4 +1,4 @@
-"""Fail-closed preflight for the pinned B2 + v19 compatibility rollback pack.
+"""Fail-closed preflight for the pinned B2 + v19/v20 compatibility rollback pack.
 
 This does NOT opt the current server into rollback or change any state. The
 pack must call it under B2's writer lease, before migrations/key/recovery work.
@@ -14,6 +14,7 @@ from .qualification_storage import (
     QUALIFICATION_SCHEMA_VERSION,
     assert_known_qualification_schema,
 )
+from .call_context_storage import CONTEXT_SCHEMA_VERSION, assert_known_context_schema
 
 
 _FALSE = {"false", "0", "off", "no"}
@@ -25,9 +26,12 @@ def assert_qualification_rollback_safe(
     environment: Mapping[str, str],
     outbox_directory: Path,
 ) -> None:
-    if connection.execute("PRAGMA user_version").fetchone()[0] != QUALIFICATION_SCHEMA_VERSION:
+    version = connection.execute("PRAGMA user_version").fetchone()[0]
+    if version not in {QUALIFICATION_SCHEMA_VERSION, CONTEXT_SCHEMA_VERSION}:
         raise ValueError("provider_qualification_rollback_schema_mismatch")
     assert_known_qualification_schema(connection)
+    if version == CONTEXT_SCHEMA_VERSION:
+        assert_known_context_schema(connection)
     if environment.get("MODEL_MIRROR_PROVIDER_CHAT_CERTIFICATION_ENABLED", "").strip().lower() not in _FALSE:
         raise ValueError("provider_qualification_rollback_certification_enabled")
     for key in environment:

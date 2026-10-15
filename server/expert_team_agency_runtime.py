@@ -95,7 +95,9 @@ class AgencyManagedRun(Protocol):
     def receipt_summary(self) -> dict[str, Any]: ...
 
 
-AgencyManagedRunFactory = Callable[[str, str], AgencyManagedRun | None]
+class AgencyManagedRunFactory(Protocol):
+    def __call__(self, task_id: str, segment_key: str, *,
+                 parent_task_id: str | None = None) -> AgencyManagedRun | None: ...
 
 
 class StrictModel(BaseModel):
@@ -779,6 +781,7 @@ class AgencyExecutionCoordinator:
                 task_id,
                 "initial",
                 required=managed_provider_required,
+                parent_task_id=resumed_from_task_id or revision_parent_task_id or None,
             )
             try:
                 run = await self.run_registry.create_run(
@@ -957,6 +960,7 @@ class AgencyExecutionCoordinator:
                     execution.runtime_metadata.get("provider_control_mode")
                     == "managed_required"
                 ),
+                revalidate=True,
             )
             task = asyncio.create_task(
                 self._run(
@@ -1717,16 +1721,23 @@ class AgencyExecutionCoordinator:
         segment_key: str,
         *,
         required: bool,
+        parent_task_id: str | None = None,
+        revalidate: bool = False,
     ) -> AgencyManagedRun | None:
-        if not required:
+        if not required and not revalidate:
             return None
         if self.managed_run_factory is None:
+            if not required:
+                return None
             raise AgencyExecutionValidationError(
                 "专家团 Managed Provider 执行器不可用，当前调用失败关闭。",
                 code="provider_workload_policy_not_active",
             )
-        managed_run = self.managed_run_factory(task_id, segment_key)
-        if managed_run is None:
+        managed_run = self.managed_run_factory(task_id, segment_key, parent_task_id=parent_task_id)
+        # A saved legacy checkpoint cannot bypass a newly activated policy.
+        # The host factory rechecks current admission and requires an existing
+        # origin for resumed segments; it never manufactures historical facts.
+        if managed_run is None and required:
             raise AgencyExecutionValidationError(
                 "专家团 Managed Provider 策略已变化，当前调用失败关闭。",
                 code="provider_workload_policy_not_active",

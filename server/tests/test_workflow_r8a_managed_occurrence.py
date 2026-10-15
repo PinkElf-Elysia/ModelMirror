@@ -182,10 +182,16 @@ def start_client(gateway, wait="wait-a", **kwargs):
     )
 
 
+def bound_gateway(service, **kwargs):
+    gateway = ManagedWorkflowGateway.for_router(service, **kwargs)
+    gateway.bind_execution(execution_id="occurrence-origin", task_id="task", source_kind="workflow_classic")
+    return gateway
+
+
 @pytest.mark.parametrize("status", ["running", "failed"])
 def test_legacy_evidence_blocks_new_namespace_without_claiming_it(qualified_interactive_agent, status):
     service, _ = qualified_interactive_agent
-    gateway = ManagedWorkflowGateway.for_router(service)
+    gateway = bound_gateway(service)
     old = gateway.start_agent_run(source_kind="workflow_classic", execution_reference="task",
                                   node_id="agent", logical_phase=old_phase())
     if status == "failed":
@@ -200,14 +206,14 @@ def test_legacy_evidence_blocks_new_namespace_without_claiming_it(qualified_inte
 @pytest.mark.parametrize("status", ["running", "failed"])
 def test_same_wait_replay_rejected_after_repository_reload(qualified_interactive_agent, status):
     service, _ = qualified_interactive_agent
-    gateway = ManagedWorkflowGateway.for_router(service)
+    gateway = bound_gateway(service)
     first = start_client(gateway)
     if status == "failed":
         first.finish("failed", reason_code="synthetic_unknown_dispatch")
     storage_dir = service.repository.storage_dir
     service.repository.close()
     service.repository = SQLiteRouterRepository.open(storage_dir, master_key=b"x" * 32)
-    restarted = ManagedWorkflowGateway.for_router(service)
+    restarted = bound_gateway(service)
     with pytest.raises(ManagedWorkflowRoutingError) as blocked:
         start_client(restarted)
     assert blocked.value.code == "provider_workload_logical_run_replay_blocked"
@@ -216,7 +222,7 @@ def test_same_wait_replay_rejected_after_repository_reload(qualified_interactive
 
 def test_concurrent_same_wait_claim_has_exactly_one_winner(qualified_interactive_agent):
     service, _ = qualified_interactive_agent
-    gateway = ManagedWorkflowGateway.for_router(service)
+    gateway = bound_gateway(service)
 
     def claim(_):
         try:
@@ -238,11 +244,11 @@ def test_failed_claim_leaves_no_new_occurrence(qualified_interactive_agent):
         connection.execute("""CREATE TRIGGER reject_synthetic_run AFTER INSERT ON provider_workload_runs
             BEGIN SELECT RAISE(ABORT, 'synthetic-storage-failure'); END""")
     with pytest.raises(sqlite3.IntegrityError, match="synthetic-storage-failure"):
-        start_client(ManagedWorkflowGateway.for_router(service))
+        start_client(bound_gateway(service))
     assert repository.list_workload_receipts("local")["runs"] == []
     with repository._connect() as connection:
         connection.execute("DROP TRIGGER reject_synthetic_run")
-    assert start_client(ManagedWorkflowGateway.for_router(service)).run_id
+    assert start_client(bound_gateway(service)).run_id
 
 
 @pytest.mark.asyncio
@@ -264,7 +270,7 @@ async def test_actual_dispatch_receipt_blocks_replay_after_restart(
         ).encode())
 
     factory = lambda: httpx.AsyncClient(transport=httpx.MockTransport(response), trust_env=False)
-    gateway = ManagedWorkflowGateway.for_router(service, client_factory=factory)
+    gateway = bound_gateway(service, client_factory=factory)
     run = (
         gateway.start_agent_run(source_kind="workflow_classic", execution_reference="task",
                                 node_id="agent", logical_phase=old_phase())
@@ -288,7 +294,7 @@ async def test_actual_dispatch_receipt_blocks_replay_after_restart(
     storage_dir = service.repository.storage_dir
     service.repository.close()
     service.repository = SQLiteRouterRepository.open(storage_dir, master_key=b"x" * 32)
-    restarted = ManagedWorkflowGateway.for_router(service, client_factory=factory)
+    restarted = bound_gateway(service, client_factory=factory)
     with pytest.raises(ManagedWorkflowRoutingError) as blocked:
         start_client(restarted)
     assert blocked.value.code == "provider_workload_logical_run_replay_blocked"

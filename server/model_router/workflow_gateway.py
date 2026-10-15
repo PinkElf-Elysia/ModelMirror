@@ -12,6 +12,8 @@ from typing import Any, Literal
 import httpx
 
 from .repository import RouterRepositoryError
+from .call_context import ProviderCallContextError
+from .call_context_storage import ProviderContextStore
 from .service import ModelRouterService, RouterServiceError
 from .workload_control import (
     PROVIDER_WORKLOAD_CONTRACT_VERSION,
@@ -171,6 +173,51 @@ class ManagedWorkflowGateway:
     ) -> None:
         self.call_service = call_service
         self._client_factory = client_factory
+        self.origin_execution_id: str | None = None
+        self.origin_task_id: str | None = None
+
+    def bind_execution(self, *, execution_id, task_id, source_kind, execution_reference=None,
+                       parent_execution_id=None, resume_from=None):
+        try:
+            ProviderContextStore(self.call_service.repository).register_execution(
+                execution_id=execution_id, task_id=task_id, source_kind=source_kind,
+                execution_reference=execution_reference,
+                parent_execution_id=parent_execution_id, resume_from=resume_from,
+            )
+        except ProviderCallContextError as exc:
+            raise ManagedWorkflowRoutingError(exc.code, "工作流可信来源缺失或不一致，未派发模型请求。", status_code=409) from exc
+        self.origin_execution_id = execution_id
+        self.origin_task_id = task_id
+
+    def validate_resume_source(self, *, execution_id, task_id, source_kind):
+        try:
+            saved = ProviderContextStore(self.call_service.repository).execution("local", execution_id)
+        except ProviderCallContextError as exc:
+            if exc.code == "provider_call_context_origin_missing" and source_kind not in self._ENTRY_BY_SOURCE:
+                return  # Explicitly unintegrated execution, not a managed source.
+            raise ManagedWorkflowRoutingError(exc.code, "恢复运行缺少可信来源，未派发模型请求。", status_code=409) from exc
+        if saved["source_kind"] != source_kind or saved["task_id"] != task_id:
+            raise ManagedWorkflowRoutingError("provider_call_context_reference_mismatch", "恢复运行的可信来源不一致。", status_code=409)
+
+    def child_task_reference(self, *, parent_execution_id, source_kind, logical_parts):
+        try:
+            return ProviderContextStore(self.call_service.repository).child_task_reference(
+                parent_execution_id=parent_execution_id, source_kind=source_kind, logical_parts=logical_parts)
+        except ProviderCallContextError as exc:
+            raise ManagedWorkflowRoutingError(exc.code, "子运行缺少可信来源或稳定轮次，未派发模型请求。", status_code=409) from exc
+
+    def _require_origin(self, source_kind, execution_reference):
+        try:
+            if self.origin_execution_id is None:
+                raise ProviderCallContextError("provider_call_context_origin_missing")
+            origin = ProviderContextStore(self.call_service.repository).execution("local", self.origin_execution_id)
+            if origin["source_kind"] != source_kind:
+                raise ProviderCallContextError("provider_call_context_entry_mismatch")
+            if (origin["task_id"] != self.origin_task_id
+                    or origin["execution_reference"] != execution_reference):
+                raise ProviderCallContextError("provider_call_context_reference_mismatch")
+        except ProviderCallContextError as exc:
+            raise ManagedWorkflowRoutingError(exc.code, "工作流可信来源缺失或不一致，未派发模型请求。", status_code=409) from exc
 
     @classmethod
     def for_router(
@@ -248,9 +295,11 @@ class ManagedWorkflowGateway:
             f"{self._SOURCE_PREFIX[source_kind]}:{clean_execution}:{clean_node}"
         )
         try:
+            self._require_origin(source_kind, clean_execution)
             run_id = self.call_service.start_stable_run(
                 entry_id,
                 parent_run_reference=parent_reference,
+                origin_execution_id=self.origin_execution_id,
             )
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(
@@ -306,10 +355,12 @@ class ManagedWorkflowGateway:
                 f"agent:client-resume-v1:{occurrence}"
             )
         try:
+            self._require_origin(source_kind, clean_execution)
             run_id = self.call_service.start_stable_run(
                 entry_id,
                 parent_run_reference=parent_reference,
                 replay_guard_references=replay_guards,
+                origin_execution_id=self.origin_execution_id,
             )
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(

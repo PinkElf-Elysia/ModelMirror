@@ -12,9 +12,11 @@ from .provider_chat import (
     ProviderChatEndpointResolver,
     ProviderChatTarget,
 )
+from .call_context import ProviderCallContext, ProviderCallContextError
 from .repository import (
     RouterConnectionNotFound,
     RouterCredentialUnavailable,
+    RouterRepositoryError,
 )
 from .schemas import (
     ProviderChatCanaryAdminResponse,
@@ -216,6 +218,7 @@ class ProviderChatCanaryService:
     def __init__(self, router_service: ModelRouterService) -> None:
         self.router_service = router_service
         self.repository = router_service.repository
+        self._call_origins: dict[str, ProviderCallContext] = {}
 
     def _admission_certification(self, certification):
         return self.repository.get_admission_certification(
@@ -387,6 +390,8 @@ class ProviderChatCanaryService:
             return ProviderChatCanaryEligibility(False, "policy_not_configured")
         if not policy["enabled"]:
             return ProviderChatCanaryEligibility(False, "policy_disabled")
+        if type(policy.get("revision")) is not int:
+            return ProviderChatCanaryEligibility(False, "provider_call_context_policy_revision_required")
         try:
             connection = self.repository.get_connection(
                 tenant_id, str(policy["connection_id"])
@@ -522,6 +527,7 @@ class ProviderChatCanaryService:
         default_gateway_url: str | None = None,
     ) -> ProviderChatCanaryDispatch:
         clean_model = self._model_id(model_id)
+        policy = self._repository_method("get_chat_canary_policy")(self.router_service.tenant_id)
         eligibility = self.eligibility(
             clean_model,
             default_gateway_url=default_gateway_url,
@@ -548,17 +554,31 @@ class ProviderChatCanaryService:
             connection_id=eligibility.connection.id,
         )
         run_id = f"chatcanary_{os.urandom(16).hex()}"
-        self._repository_method("claim_chat_canary_run")(
-            self.router_service.tenant_id,
-            run_id=run_id,
-            connection_id=eligibility.connection.id,
-            connection_fingerprint=eligibility.connection_fingerprint,
-            certification_id=str(eligibility.certification["id"]),
-            contract_version=PROVIDER_CHAT_CANARY_CONTRACT_VERSION,
-            requested_model=clean_model,
-            session_id_hash=self.session_hash(session_id),
-            baseline_overlap=eligibility.baseline_overlap,
+        if policy is None or type(policy.get("revision")) is not int:
+            raise RouterServiceError("provider_call_context_policy_revision_required",
+                                     "试运行策略缺少可信版本，请由管理员重新保存策略。", status_code=409)
+        context = ProviderCallContext(
+            tenant_id=self.router_service.tenant_id,
+            actor_kind="local_anonymous", actor_reference="local-anonymous",
+            entry_id="chat_canary", purpose="user_run", parent_run_id=self.session_hash(session_id),
+            logical_call_id=run_id, attempt_id=run_id, policy_revision=policy["revision"],
         )
+        try:
+            self._repository_method("claim_chat_canary_run")(
+                self.router_service.tenant_id,
+                run_id=run_id,
+                connection_id=eligibility.connection.id,
+                connection_fingerprint=eligibility.connection_fingerprint,
+                certification_id=str(eligibility.certification["id"]),
+                contract_version=PROVIDER_CHAT_CANARY_CONTRACT_VERSION,
+                requested_model=clean_model,
+                session_id_hash=self.session_hash(session_id),
+                baseline_overlap=eligibility.baseline_overlap,
+                call_context=context,
+            )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(exc.code, "试运行来源或策略已变化，调用已阻断。", status_code=409) from None
+        self._call_origins[run_id] = context
         return ProviderChatCanaryDispatch(
             run_id=run_id,
             target=target,
@@ -604,9 +624,17 @@ class ProviderChatCanaryService:
         )
 
     def mark_dispatched(self, run_id: str) -> None:
-        self._repository_method("mark_chat_canary_dispatched")(
-            self.router_service.tenant_id, run_id
-        )
+        context = self._call_origins.pop(run_id, None)
+        if context is None:
+            raise RouterServiceError("provider_call_context_origin_missing",
+                                     "试运行缺少可信来源，禁止重新派发。", status_code=409)
+        try:
+            self._repository_method("mark_chat_canary_dispatched")(
+                self.router_service.tenant_id, run_id, call_context=context,
+            )
+        except (ProviderCallContextError, RouterRepositoryError) as exc:
+            code = exc.code if isinstance(exc, ProviderCallContextError) else str(exc)
+            raise RouterServiceError(code, "试运行来源或派发条件已变化，调用已阻断。", status_code=409) from None
 
     def complete_run(
         self,
@@ -620,6 +648,7 @@ class ProviderChatCanaryService:
         evidence: ProviderChatCanaryStreamEvidence | None = None,
         e2e_ms: float | None = None,
     ) -> dict[str, object]:
+        self._call_origins.pop(run_id, None)
         return self._repository_method("complete_chat_canary_run")(
             self.router_service.tenant_id,
             run_id,

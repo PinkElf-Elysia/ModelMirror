@@ -42,6 +42,7 @@ def gateway_for(request, shape, handler):
     gateway = ManagedWorkflowGateway.for_router(service, client_factory=lambda: httpx.AsyncClient(
         transport=httpx.MockTransport(handler), follow_redirects=False, trust_env=False,
     ))
+    gateway.bind_execution(execution_id="budget-execution", task_id="budget-run", source_kind="workflow_classic")
     start = gateway.start_agent_run if shape.startswith("agent") else gateway.start_node_run
     run = start(source_kind="workflow_classic", execution_reference="budget-run", node_id="node")
     return gateway, run, service

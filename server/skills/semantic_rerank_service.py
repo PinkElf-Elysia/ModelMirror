@@ -7,10 +7,18 @@ import os
 import re
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
 import httpx
+
+try:
+    from server.model_router.rag_call_context import inherited_operation
+    from server.model_router.call_context import ProviderCallContextError
+except ModuleNotFoundError:
+    from model_router.rag_call_context import inherited_operation
+    from model_router.call_context import ProviderCallContextError
 
 from .finder import MAX_QUERY_LENGTH, MAX_RECALL_RESULTS, MAX_RESULTS, _normalize
 from .semantic_rerank import (
@@ -311,6 +319,21 @@ class SkillSemanticRerankService:
             limit=request.limit,
             timeout_seconds=MARKET_TIMEOUT_SECONDS,
         )
+
+    @contextmanager
+    def provider_child_scope(self, parent_execution_id, logical_reference):
+        gateway = self._managed_gateway()
+        if (self.effective_router_mode() == "off" or gateway is None
+                or str(gateway.routing_mode("skill_rerank")) == "legacy"):
+            yield
+            return
+        try:
+            with inherited_operation(gateway.call_service.repository, parent_execution_id,
+                                     logical_reference, domain="skill"):
+                yield
+        except ProviderCallContextError as exc:
+            raise SkillSemanticRerankError("Skill Provider source is missing or inconsistent.",
+                                          code=exc.code, status_code=409) from exc
 
     async def rerank_router_results(
         self,

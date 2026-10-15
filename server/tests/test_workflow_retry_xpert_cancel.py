@@ -8,6 +8,9 @@ import pytest
 import server.main as main_module
 from server.xpert_runtime import RunRegistry
 from server.xpert_runtime.execution_store import WorkflowExecutionStore
+from server.model_router.call_context_storage import ProviderContextStore
+from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.service import ModelRouterService
 
 
 def _retry_workflow() -> dict:
@@ -342,7 +345,14 @@ async def test_cancel_refreshes_run_ids_after_concurrent_recovery_rebind(
 async def test_new_recovery_run_is_cancelled_when_rebind_loses_lease(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
+    request,
 ) -> None:
+    repository = SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32)
+    request.addfinalizer(repository.close)
+    service = ModelRouterService(repository)
+    monkeypatch.setattr(main_module, "get_model_router_service", lambda: service)
+    ProviderContextStore(repository).register_execution(execution_id="run-missing-after-restart",
+        task_id="task-xpert-retry", source_kind="xpert_chat")
     monkeypatch.setattr(
         "server.xpert_runtime.execution_store.time.time",
         lambda: 100.0,

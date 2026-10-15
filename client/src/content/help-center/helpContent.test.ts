@@ -88,7 +88,7 @@ describe("help center content catalog", () => {
     expect(assemblyGuide?.verifiedCommit).toBe("ec79e120");
     expect(assemblyGuide?.verifiedDate).toBe("2026-10-15");
     expect(assemblyGuide?.content).toContain("音频转文字待适配");
-    expect(assemblyGuide?.content).toContain("/help-center/ec79e120/jev114-decisions.jpg");
+    expect(assemblyGuide?.content).toContain("/help-center/ec79e120/jev114-decisions.png");
     const scaleDownGuide = helpArticles.find((article) => article.slug === "prepare-scaledown-argon-speech");
     expect(scaleDownGuide?.verifiedCommit).toBe("2df7efba");
     expect(scaleDownGuide?.content).toContain("不提交模型请求");

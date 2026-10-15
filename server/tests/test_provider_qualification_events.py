@@ -4,6 +4,7 @@ import sqlite3
 import pytest
 
 from server.model_router.repository import RouterRepositoryError, SQLiteRouterRepository
+from server.model_router.call_context_storage import ProviderContextStore
 from server.model_router.qualification_events import (
     begin_qualification_event, complete_qualification_event, invalidate_connection_intervals,
     invalidate_certification_intervals,
@@ -179,16 +180,21 @@ def test_admission_rejects_cross_tenant_even_for_already_passed_row(db):
     ("hard_failure", False, False), ("success", True, False),
 ])
 def test_canary_terminal_write_closes_only_dispatched_hard_failure(tmp_path, result_class, dispatched, closed):
+    from server.model_router.call_context import ProviderCallContext
     with SQLiteRouterRepository.open(tmp_path, master_key=b"t" * 32) as repository:
+        policy = repository.save_chat_canary_policy("local", connection_id="synthetic", enabled=True)
+        context = ProviderCallContext(tenant_id="local", actor_kind="local_anonymous", actor_reference="local-anonymous",
+            purpose="user_run", entry_id="chat_canary", parent_run_id="hash", logical_call_id="run", attempt_id="run",
+            policy_revision=policy["revision"])
         repository.claim_chat_certification("local", certification_id="cert",
             connection_id="synthetic", connection_fingerprint="fp", contract_version="v1",
             requested_model="model", idempotency_key_hash="key")
         repository.complete_chat_certification("local", "cert", status="passed", checks={}, warning_codes=[])
         repository.claim_chat_canary_run("local", run_id="run", connection_id="synthetic",
             connection_fingerprint="fp", certification_id="cert", contract_version="v1",
-            requested_model="model", session_id_hash="hash", baseline_overlap=False)
+            requested_model="model", session_id_hash="hash", baseline_overlap=False, call_context=context)
         if dispatched:
-            repository.mark_chat_canary_dispatched("local", "run")
+            repository.mark_chat_canary_dispatched("local", "run", call_context=context)
         repository.complete_chat_canary_run("local", "run", status="failed" if result_class != "success" else "succeeded",
             result_class=result_class, checks={}, warning_codes=[])
         with sqlite3.connect(repository.database_path) as db:
@@ -242,7 +248,10 @@ def test_workload_terminal_closes_exact_qualification_in_same_transaction(
                     begin_qualification_event(db, tenant_id=tenant, source=source, certification_id="cert", configured_ttl=None)
                     db.execute("UPDATE provider_workload_certifications SET status='passed' WHERE tenant_id=?", (tenant,))
                     complete_qualification_event(db, tenant_id=tenant, source=source, certification_id="cert", continuity_blocked=False)
-        repository.claim_workload_run("local", run_id="run", entry_id="meta_agent", policy_fingerprint="policy")
+        repository.replace_workload_policy("local", entry_id="meta_agent", expected_revision=0,
+            policy_fingerprint="policy", local_fallback_mode="none", bindings=[])
+        repository.claim_workload_run("local", run_id="run", entry_id="meta_agent", policy_fingerprint="policy",
+            origin_source="meta_agent_request", policy_revision=1)
         repository.claim_workload_call("local", call_id="call", run_id="run", entry_id="meta_agent",
             execution_shape=shape, requested_model="model", connection_id=conn.id,
             certification_id="cert", connection_fingerprint="fp", logical_call_key_hash="hash", call_sequence=1)
@@ -293,7 +302,9 @@ def test_workload_dispatch_rechecks_latest_qualification_after_plan(tmp_path, re
             }])
         repository.activate_workload_policy("local", entry_id="meta_agent", expected_revision=1,
             policy_fingerprint="policy", no_open_p0_p1=True, acknowledge_fail_closed=True)
-        repository.claim_workload_run("local", run_id="run", entry_id="meta_agent", policy_fingerprint="policy")
+        revision = repository.get_workload_policy_bundle("local", entry_id="meta_agent")["policies"][0]["revision"]
+        repository.claim_workload_run("local", run_id="run", entry_id="meta_agent", policy_fingerprint="policy",
+            origin_source="meta_agent_request", policy_revision=revision)
         repository.claim_workload_call("local", call_id="call", run_id="run", entry_id="meta_agent",
             execution_shape="chat_json_object", requested_model="model", connection_id=conn.id,
             certification_id="cert-a", connection_fingerprint="fp", logical_call_key_hash="hash", call_sequence=1)
@@ -312,7 +323,8 @@ def test_workload_dispatch_rechecks_latest_qualification_after_plan(tmp_path, re
         def dispatch():
             repository.mark_workload_call_dispatched("local", "call", run_id="run", entry_id="meta_agent",
                 execution_shape="chat_json_object", requested_model="model", connection_id=conn.id,
-                certification_id="cert-a", connection_fingerprint="fp", policy_fingerprint="policy")
+                certification_id="cert-a", connection_fingerprint="fp", policy_fingerprint="policy",
+                call_context=ProviderContextStore(repository).read("local", "call"))
         if allowed:
             dispatch()
         else:

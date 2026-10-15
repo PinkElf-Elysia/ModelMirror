@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from server.model_router.rag_call_context import operation_scope, scoped_evaluation_run
+except ModuleNotFoundError:
+    from model_router.rag_call_context import operation_scope, scoped_evaluation_run
+
 import asyncio
 import hashlib
 import json
@@ -1451,6 +1456,7 @@ class RagStrategyTuner:
             )
         return normalized
 
+    @scoped_evaluation_run
     async def _execute(self, run: dict[str, Any]) -> None:
         run_id = str(run["run_id"])
         trial_versions: list[str] = list(run.get("trial_version_ids") or [])
@@ -1752,7 +1758,8 @@ class RagStrategyTuner:
                 if search_profile_checksum in candidate_cache:
                     continue
                 result = await self._evaluate_profile(
-                    version_id, retrieval, optimization_cases
+                    version_id, retrieval, optimization_cases,
+                    provider_reference=f"tuner:{run_id}:search:{search_profile_checksum}",
                 )
                 retrieval_input_checksum = retrieval_semantic_checksum(retrieval)
                 if snapshot.get("threshold_tuning_available"):
@@ -1760,12 +1767,14 @@ class RagStrategyTuner:
                         version_id,
                         retrieval,
                         calibration_cases or optimization_cases,
+                        provider_reference=f"tuner:{run_id}:calibration:{search_profile_checksum}",
                     )
                     calibrated = calibrate_threshold(calibration_result, retrieval)
                     optimized_result = await self._evaluate_profile(
                         version_id,
                         calibrated["retrieval"],
                         optimization_cases,
+                        provider_reference=f"tuner:{run_id}:optimized:{search_profile_checksum}",
                     )
                 else:
                     calibration_result = None
@@ -1851,6 +1860,7 @@ class RagStrategyTuner:
             snapshot["base_version_id"],
             snapshot["base_retrieval"],
             optimization_cases,
+            provider_reference=f"tuner:{run_id}:optimization-baseline",
         )
         candidates, ranked_training, optimization_gate_summary = apply_optimization_gate(
             candidates,
@@ -1898,6 +1908,7 @@ class RagStrategyTuner:
                 snapshot["base_retrieval"],
                 holdout_cases,
                 repetitions=VALIDATION_QUERY_REPETITIONS,
+                provider_reference=f"tuner:{run_id}:holdout-baseline",
             )
             baseline = {
                 "validation_version": VALIDATION_VERSION,
@@ -1932,6 +1943,7 @@ class RagStrategyTuner:
                     candidate["retrieval"],
                     holdout_cases,
                     repetitions=VALIDATION_QUERY_REPETITIONS,
+                    provider_reference=f"tuner:{run_id}:finalist:{candidate['checksum']}",
                 )
                 finalist = _copy(candidate)
                 finalist["holdout_metrics"] = result["metrics"]
@@ -1991,6 +2003,7 @@ class RagStrategyTuner:
                         retrieval,
                         holdout_cases,
                         repetitions=VALIDATION_QUERY_REPETITIONS,
+                        provider_reference=f"tuner:{run_id}:rerank:{rerank_checksum}",
                     )
                     reranked_candidate = {
                         **_copy(candidate),
@@ -2247,20 +2260,24 @@ class RagStrategyTuner:
         cases: list[dict[str, Any]],
         *,
         repetitions: int = 1,
+        provider_reference: str | None = None,
     ) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
+        provider_reference = provider_reference or f"tuner-diagnostic:{uuid.uuid4().hex}"
         top_k = max(1, min(int(retrieval.get("top_k") or 5), 50))
         for case in cases:
             for repeat_index in range(max(1, min(int(repetitions), 5))):
                 started = time.perf_counter()
                 try:
-                    response = await self.service.query_pipeline_version(
-                        version_id,
-                        str(case["query"]),
-                        top_k=top_k,
-                        retrieval={**retrieval, "top_k": top_k},
-                        generate_answer=False,
-                    )
+                    with operation_scope("rag_evaluation",
+                            reference=f"{provider_reference}:{case['case_id']}:{repeat_index}", inherit=False):
+                        response = await self.service.query_pipeline_version(
+                            version_id,
+                            str(case["query"]),
+                            top_k=top_k,
+                            retrieval={**retrieval, "top_k": top_k},
+                            generate_answer=False,
+                        )
                     result = evaluate_retrieval_case(
                         list(response.get("sources") or []),
                         list(case.get("expected_refs") or []),

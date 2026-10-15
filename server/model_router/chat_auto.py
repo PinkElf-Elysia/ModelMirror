@@ -4,6 +4,11 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from .call_context import (
+    ProviderCallContext,
+    ProviderCallContextError,
+    require_provider_call_context,
+)
 from .chat_control import ProviderChatControlService
 from .service import ModelRouterService, RouterServiceError
 
@@ -18,6 +23,7 @@ class ProviderChatAutoAttempt:
     connection_id: str | None
     provider_kind: str
     started_at: float
+    call_context: ProviderCallContext
     dispatched: bool = False
     finalized: bool = False
 
@@ -26,6 +32,7 @@ class ProviderChatAutoAttempt:
 class ProviderChatAutoRun:
     run_id: str
     policy_fingerprint: str
+    policy_revision: int
     requested_model: str
     strategy: str
     boundary_reason_codes: tuple[str, ...]
@@ -41,6 +48,10 @@ class ProviderChatAutoAuditService:
         self.router_service = router_service
         self.repository = router_service.repository
         self.control = ProviderChatControlService(router_service)
+        # Authoritative creation facts must not be rebuilt from mutable run
+        # membership or a returned attempt. Durable recovery is a separate gate.
+        self._attempt_origins: dict[str, tuple[int, ProviderCallContext]] = {}
+        self._dispatch_claims: set[str] = set()
 
     def enabled(self) -> bool:
         if not self.control.feature_enabled():
@@ -62,6 +73,7 @@ class ProviderChatAutoAuditService:
         run = ProviderChatAutoRun(
             run_id=f"chatrun_{uuid.uuid4().hex}",
             policy_fingerprint=policy.policy_fingerprint,
+            policy_revision=policy.revision,
             requested_model=str(requested_model or "").strip(),
             strategy=strategy,
             boundary_reason_codes=(
@@ -102,12 +114,24 @@ class ProviderChatAutoAuditService:
         existing = run.attempts.get(position)
         if existing is not None:
             return existing
+        attempt_id = f"chatattempt_{uuid.uuid4().hex}"
         attempt = ProviderChatAutoAttempt(
-            attempt_id=f"chatattempt_{uuid.uuid4().hex}",
+            attempt_id=attempt_id,
             position=position,
             connection_id=connection_id,
             provider_kind=provider_kind,
             started_at=time.perf_counter(),
+            call_context=ProviderCallContext(
+                tenant_id=self.router_service.tenant_id,
+                actor_kind="local_anonymous",
+                actor_reference="local-anonymous",
+                entry_id="chat_auto",
+                purpose="user_run",
+                parent_run_id=run.run_id,
+                logical_call_id=f"{run.run_id}:chat",
+                attempt_id=attempt_id,
+                policy_revision=run.policy_revision,
+            ),
         )
         self._repository_method("claim_chat_control_attempt")(
             self.router_service.tenant_id,
@@ -117,8 +141,10 @@ class ProviderChatAutoAuditService:
             position=position,
             connection_id=connection_id,
             provider_kind=provider_kind,
+            call_context=attempt.call_context,
         )
         run.attempts[position] = attempt
+        self._attempt_origins[attempt_id] = (position, attempt.call_context)
         return attempt
 
     def mark_dispatched(
@@ -126,7 +152,13 @@ class ProviderChatAutoAuditService:
         run: ProviderChatAutoRun,
         attempt: ProviderChatAutoAttempt,
     ) -> None:
-        if attempt.dispatched:
+        if run.attempts.get(attempt.position) is not attempt:
+            raise RouterServiceError(
+                "provider_call_context_reference_mismatch",
+                "Auto 调用来源与当前运行不一致，已阻止派发。",
+                status_code=409,
+            )
+        if attempt.dispatched or attempt.attempt_id in self._dispatch_claims:
             raise RouterServiceError(
                 "provider_chat_auto_duplicate_post_blocked",
                 "Auto Provider 尝试已派发，禁止重复调用。",
@@ -137,6 +169,7 @@ class ProviderChatAutoAuditService:
             not self.control.feature_enabled()
             or not policy.auto_enabled
             or policy.policy_fingerprint != run.policy_fingerprint
+            or policy.revision != run.policy_revision
         ):
             code = "provider_chat_auto_policy_changed"
             self.complete_attempt(
@@ -157,10 +190,43 @@ class ProviderChatAutoAuditService:
                 "Auto 迁移门禁或控制策略已变化，请刷新后重试。",
                 status_code=409,
             )
-        self._repository_method("mark_chat_control_attempt_dispatched")(
-            self.router_service.tenant_id,
-            attempt.attempt_id,
-        )
+        try:
+            origin = self._attempt_origins.get(attempt.attempt_id)
+            if origin is None:
+                raise ProviderCallContextError("provider_call_context_origin_missing")
+            expected_position, expected = origin
+            if expected_position != attempt.position or expected.parent_run_id != run.run_id:
+                raise ProviderCallContextError("provider_call_context_reference_mismatch")
+            if expected.policy_revision != policy.revision:
+                raise ProviderCallContextError("provider_call_context_policy_changed")
+            require_provider_call_context(
+                attempt.call_context,
+                actor_kind=expected.actor_kind,
+                actor_reference=expected.actor_reference,
+                purpose=expected.purpose,
+                entry_id=expected.entry_id,
+                parent_run_id=expected.parent_run_id,
+                logical_call_id=expected.logical_call_id,
+                attempt_id=attempt.attempt_id,
+                policy_revision=policy.revision,
+            )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(
+                exc.code,
+                "Auto 调用来源校验失败，已阻止派发。",
+                status_code=409,
+            ) from exc
+        # Reserve before the durable write: a write whose outcome is unknown
+        # must not become permission to try dispatch again in this service.
+        self._dispatch_claims.add(attempt.attempt_id)
+        try:
+            self._repository_method("mark_chat_control_attempt_dispatched")(
+                self.router_service.tenant_id,
+                attempt.attempt_id,
+                call_context=attempt.call_context,
+            )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(exc.code, "Auto 调用持久来源不一致，已阻止派发。", status_code=409) from exc
         attempt.dispatched = True
 
     def complete_attempt(

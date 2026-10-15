@@ -358,7 +358,7 @@ export const helpArticles: HelpArticle[] = [
     contentType: "how-to",
     audience: "遇到按钮不可用、能力未开放或需要配置提示的用户",
     estimatedMinutes: 4,
-    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "替代入口", "语音转写", "语音合成", "实际模型证据", "只读刷新模型证据"],
+    keywords: ["不可用", "未开放", "需要配置", "待适配", "开关未开启", "恢复", "可信来源", "provider_call_context_origin_missing", "替代入口", "语音转写", "语音合成", "实际模型证据", "只读刷新模型证据"],
     relatedRoutes: ["/models", "/settings", "/chat/:modelId?operation=transcribe", "/chat/:modelId?operation=synthesize_speech"],
     verifiedCommit: providerMultimodalR8cBaseline.commit,
     verifiedDate: providerMultimodalR8cBaseline.date,

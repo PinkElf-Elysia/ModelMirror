@@ -1182,20 +1182,24 @@ class ManagedMultimodalGateway:
             raise self._blocked(entry_id, "provider_workload_policy_not_active")
         parent = parent_run_reference.strip() or f"multimodal:{entry_id}:{uuid.uuid4().hex}"
         try:
-            run_id = (
-                self.call_service.start_stable_run(
-                    entry_id, parent_run_reference=parent
-                )
-                if stable
-                else self.call_service.start_run(
-                    entry_id, parent_run_reference=parent
-                )
-            )
-        except RouterServiceError as exc:
+            from .multimodal_call_context import start_direct_run, start_inherited_vision_run
+            from .call_context import ProviderCallContextError
+            from .call_context_storage import SOURCE_ENTRIES
+            if entry_id in SOURCE_ENTRIES['multimodal_request']:
+                run_id = start_direct_run(self.call_service, entry_id, parent_reference=parent, stable=stable)
+            elif entry_id in {'workflow_interactive_vision', 'workflow_deployment_vision', 'xpert_vision'}:
+                run_id = start_inherited_vision_run(self.call_service, entry_id, parent_reference=parent, stable=stable)
+            elif entry_id == 'rag_vision':
+                from .rag_call_context import start_operation_run
+                run_id = start_operation_run(self.call_service, entry_id,
+                    parent_reference=parent, stable=True)
+            else:
+                raise ProviderCallContextError('provider_call_context_entry_invalid')
+        except (RouterServiceError, ProviderCallContextError) as exc:
             raise ManagedMultimodalError(
                 exc.code,
                 "多模态 Managed Provider 运行在派发前被阻断。",
-                status_code=exc.status_code,
+                status_code=getattr(exc, 'status_code', 409),
                 receipt=self.blocked_receipt(entry_id, exc.code),
             ) from exc
         delegate = ManagedWorkflowNodeRun(

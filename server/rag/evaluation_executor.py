@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+try:
+    from server.model_router.rag_call_context import operation_scope
+except ModuleNotFoundError:
+    from model_router.rag_call_context import operation_scope
+
 import asyncio
 import hashlib
 import logging
@@ -183,17 +188,19 @@ class KnowledgeEvaluationExecutor:
                     continue
                 started = time.perf_counter()
                 try:
-                    retrieval = await self.service.query_pipeline_version(
-                        str(target["version_id"]),
-                        str(case["query"]),
-                        top_k=target_top_k,
-                        retrieval=(
-                            {**retrieval_override, "top_k": target_top_k}
-                            if retrieval_override
-                            else None
-                        ),
-                        generate_answer=False,
-                    )
+                    with operation_scope("rag_evaluation",
+                            reference=f"evaluation:{run_id}:{target_id}:{case_id}", inherit=False):
+                        retrieval = await self.service.query_pipeline_version(
+                            str(target["version_id"]),
+                            str(case["query"]),
+                            top_k=target_top_k,
+                            retrieval=(
+                                {**retrieval_override, "top_k": target_top_k}
+                                if retrieval_override
+                                else None
+                            ),
+                            generate_answer=False,
+                        )
                     case_result = evaluate_retrieval_case(
                         list(retrieval.get("sources") or []),
                         list(case.get("expected_refs") or []),

@@ -3,8 +3,13 @@ from __future__ import annotations
 import asyncio
 from typing import Callable, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+try:
+    from server.model_router.rag_call_context import skill_request_origin
+except ModuleNotFoundError:
+    from model_router.rag_call_context import skill_request_origin
 
 from .skill_manager import (
     InstalledSkill,
@@ -76,7 +81,7 @@ except ModuleNotFoundError:
     )
 
 
-router = APIRouter(prefix="/api/skills", tags=["skills"])
+router = APIRouter(prefix="/api/skills", tags=["skills"], dependencies=[Depends(skill_request_origin)])
 _skill_manager: SkillManager | None = None
 _skill_draft_store: WorkspaceSkillDraftStore | None = None
 _builtin_library: BuiltinSkillLibrary | None = None

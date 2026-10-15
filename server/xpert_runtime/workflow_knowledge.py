@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Protocol
+from contextlib import nullcontext
 
 
 MAX_CONTEXT_LENGTH = 20_000
@@ -126,6 +127,8 @@ async def execute_workflow_knowledge_retrieval(
     return_mode: str,
     version_id: str | None = None,
     include_resource_evidence: bool = False,
+    provider_parent_execution_id: str | None = None,
+    provider_logical_reference: str | None = None,
 ) -> tuple[str | dict[str, Any], dict[str, Any]]:
     is_v2 = contract_version >= 2
     knowledge_base_id, compatibility_warnings = resolve_workflow_knowledge_base(
@@ -138,11 +141,14 @@ async def execute_workflow_knowledge_retrieval(
     }
     if version_id is not None:
         search_options["version_id"] = version_id
-    result = await service.search_knowledge(
-        knowledge_base_id,
-        query,
-        **search_options,
-    )
+    provider_scope = getattr(service, "provider_child_scope", None)
+    with (provider_scope(provider_parent_execution_id, provider_logical_reference)
+          if callable(provider_scope) else nullcontext()):
+        result = await service.search_knowledge(
+            knowledge_base_id,
+            query,
+            **search_options,
+        )
     raw_sources = result.get("sources")
     sources = [
         _limited_source(source)

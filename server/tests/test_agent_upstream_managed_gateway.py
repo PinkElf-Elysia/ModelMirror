@@ -199,6 +199,7 @@ async def test_managed_shadow_exact_binding_dispatches_once_and_records_no_conte
     run_id = gateway.start_run(parent_run_reference="shadow-run-1")
     turn = await gateway.stream_turn(
         workload_run_id=run_id,
+        origin_execution_id="shadow-run-1",
         logical_call_key="worker-model-request-1",
         call_sequence=1,
         model_id=MODEL_ID,
@@ -216,6 +217,7 @@ async def test_managed_shadow_exact_binding_dispatches_once_and_records_no_conte
     with pytest.raises(GatewayRequestError):
         await gateway.stream_turn(
             workload_run_id=run_id,
+            origin_execution_id="shadow-run-1",
             logical_call_key="worker-model-request-1",
             call_sequence=2,
             model_id=MODEL_ID,
@@ -274,6 +276,7 @@ async def test_managed_shadow_model_mismatch_fails_without_second_post(
     with pytest.raises(GatewayRequestError, match="different model"):
         await gateway.stream_turn(
             workload_run_id=run_id,
+            origin_execution_id="shadow-run-mismatch",
             logical_call_key="model-1",
             call_sequence=1,
             model_id=MODEL_ID,
@@ -320,6 +323,7 @@ async def test_managed_shadow_cancellation_after_dispatch_is_not_replayed(
     task = asyncio.create_task(
         gateway.stream_turn(
             workload_run_id=run_id,
+            origin_execution_id="shadow-run-cancel",
             logical_call_key="model-cancel-1",
             call_sequence=1,
             model_id=MODEL_ID,
@@ -339,6 +343,7 @@ async def test_managed_shadow_cancellation_after_dispatch_is_not_replayed(
     with pytest.raises(GatewayRequestError):
         await gateway.stream_turn(
             workload_run_id=run_id,
+            origin_execution_id="shadow-run-cancel",
             logical_call_key="model-cancel-1",
             call_sequence=2,
             model_id=MODEL_ID,
@@ -389,6 +394,7 @@ async def test_managed_shadow_incomplete_stream_fails_closed_after_one_post(
     with pytest.raises(GatewayRequestError, match="终止信号"):
         await gateway.stream_turn(
             workload_run_id=run_id,
+            origin_execution_id="shadow-run-incomplete",
             logical_call_key="model-incomplete-1",
             call_sequence=1,
             model_id=MODEL_ID,

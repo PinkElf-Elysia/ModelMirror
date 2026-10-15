@@ -15,10 +15,18 @@ import threading
 import time
 import unicodedata
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import httpx
+
+try:
+    from server.model_router.rag_call_context import bind_job, restored_job, scoped_job, scoped_operation, inherited_operation
+    from server.model_router.call_context import ProviderCallContextError
+except ModuleNotFoundError:
+    from model_router.rag_call_context import bind_job, restored_job, scoped_job, scoped_operation, inherited_operation
+    from model_router.call_context import ProviderCallContextError
 
 try:
     from server.context_engine import optimize_context
@@ -324,6 +332,12 @@ class PipelineVersionNotFoundError(RagError):
 
 class PipelineJobStateError(RagError):
     """Raised when a pipeline job operation is invalid for its current state."""
+
+
+class PipelineProviderOriginError(PipelineJobStateError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class PipelineContentContractError(PipelineJobStateError):
@@ -3036,6 +3050,7 @@ class RagService:
                 "started_at": None,
                 "completed_at": None,
             }
+            self._bind_provider_job(job_id)
             metadata["pipeline_jobs"][job_id] = job
             self._write_metadata_unlocked(metadata)
             return self.pipeline_job_payload(job)
@@ -3332,6 +3347,7 @@ class RagService:
                 "started_at": None,
                 "completed_at": None,
             }
+            self._bind_provider_job(job_id)
             metadata["pipeline_jobs"][job_id] = job
             self._write_metadata_unlocked(metadata)
             return self.pipeline_job_payload(job)
@@ -3866,6 +3882,8 @@ class RagService:
                         index_contract=index_contract,
                         retrieval_mode=retrieval_mode,
                     )
+                    with self._provider_job_scope(str(job["job_id"])):
+                        pass
                 except PipelineJobStateError as exc:
                     now = time.time()
                     job["status"] = "failed"
@@ -3913,10 +3931,12 @@ class RagService:
                         job,
                         verify_sources=True,
                     )
+                    with self._provider_job_scope(str(job["job_id"])):
+                        pass
                 except PipelineJobStateError as exc:
                     now = time.time()
                     job["status"] = "failed"
-                    job["error_code"] = "rag_pipeline_job_contract_invalid"
+                    job["error_code"] = getattr(exc, "code", "rag_pipeline_job_contract_invalid")
                     job["error"] = str(exc)[:500]
                     job["completed_at"] = now
                     job["updated_at"] = now
@@ -4435,6 +4455,7 @@ class RagService:
             self._update_pipeline_job(job_id, add_warning)
         return completed
 
+    @scoped_job
     async def process_pipeline_job_sources(self, job_id: str) -> list[dict[str, Any]]:
         """Process each immutable source independently and reuse completed artifacts."""
 
@@ -6985,6 +7006,7 @@ class RagService:
 
         self._update_pipeline_job(job_id, update)
 
+    @scoped_job
     async def embed_managed_pipeline_chunks(
         self,
         job_id: str,
@@ -8024,6 +8046,7 @@ class RagService:
             str(version["version_id"]) if version else None,
         )
 
+    @scoped_operation("rag_service")
     async def _query_namespace(
         self,
         kb_id: str,
@@ -9651,6 +9674,58 @@ class RagService:
                 (identity or {}).get("fingerprint") or ""
             ),
         }
+
+    @contextmanager
+    def provider_child_scope(self, parent_execution_id, logical_reference):
+        from contextlib import ExitStack
+        try:
+            with ExitStack() as stack:
+                for repository in self._provider_job_repositories(query=True):
+                    stack.enter_context(inherited_operation(repository, parent_execution_id, logical_reference))
+                yield
+        except ProviderCallContextError as exc:
+            raise ManagedEmbeddingRouteError(exc.code, "Knowledge Provider source is missing or inconsistent.") from exc
+
+    def _provider_job_repositories(self, *, query=False):
+        """All enabled RAG model stages share the durable job source."""
+        seen = set()
+        vision_repository = getattr(self.vision_processor, 'provider_origin_repository', None)
+        if not query and callable(vision_repository):
+            repository = vision_repository('rag_vision')
+            if repository is not None:
+                seen.add(id(repository))
+                yield repository
+        for gateway, entries in (
+            (self._managed_generation_gateway(), ("rag_query_generate" if query else "rag_processor_generate",)),
+            (self._managed_embedding_gateway(), (None,)),
+            (self._managed_rerank_gateway() if query else None, ("rag_rerank",)),
+        ):
+            if gateway is None:
+                continue
+            if not any(str(gateway.routing_mode(entry) if entry else gateway.routing_mode()) != "legacy"
+                       for entry in entries):
+                continue
+            repository = getattr(getattr(gateway, "call_service", None), "repository", None)
+            if repository is not None and id(repository) not in seen:
+                seen.add(id(repository))
+                yield repository
+
+    def _bind_provider_job(self, job_id):
+        for repository in self._provider_job_repositories():
+            bind_job(repository, job_id)
+
+    @contextmanager
+    def _provider_job_scope(self, job_id):
+        # Origins live in the protected Router store, never in client-controlled
+        # Job.origin/metadata. A legacy job cannot acquire a fabricated owner.
+        from contextlib import ExitStack
+        try:
+            with ExitStack() as stack:
+                for repository in self._provider_job_repositories():
+                    stack.enter_context(restored_job(repository, job_id))
+                yield
+        except ProviderCallContextError as exc:
+            raise PipelineProviderOriginError(exc.code) from exc
 
     def _managed_generation_gateway(self) -> Any | None:
         if self.managed_generation_gateway is not None:

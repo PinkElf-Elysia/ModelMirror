@@ -220,13 +220,15 @@ def test_controlled_runtime_keeps_captured_owner_for_new_request(runtime, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_real_resumed_runner_passes_owner_to_private_journal(tmp_path, monkeypatch):
+async def test_real_resumed_runner_passes_owner_to_private_journal(tmp_path, monkeypatch, request):
     import server.main as main
     from server.tests.test_controlled_write_execution_integration import (
-        _NoEgressWorkflowGateway, _evaluation_context, _events,
+        _evaluation_context, _events,
         _full_write_workflow, _isolated_backend, _metadata, _published_business_table,
     )
     from server.xpert_runtime import RunRegistry
+    from server.model_router.repository import SQLiteRouterRepository
+    from server.model_router.service import ModelRouterService
 
     business, table_id, schema, sentinel = _published_business_table(tmp_path)
     isolated, checksum = _isolated_backend(tmp_path, business, table_id, schema)
@@ -247,8 +249,9 @@ async def test_real_resumed_runner_passes_owner_to_private_journal(tmp_path, mon
     monkeypatch.setattr(main, "run_registry", RunRegistry())
     monkeypatch.setattr(main, "agent_table_store", business)
     monkeypatch.setattr(main, "get_llm_gateway_config", lambda: ("", ""))
-    monkeypatch.setattr(main, "get_model_router_service", lambda: object())
-    monkeypatch.setattr(main, "ManagedWorkflowGateway", _NoEgressWorkflowGateway)
+    router = ModelRouterService(SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32))
+    request.addfinalizer(router.repository.close)
+    monkeypatch.setattr(main, "get_model_router_service", lambda: router)
     writes = []
     original = store.freeze_private_write_entry
 

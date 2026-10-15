@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from .certification_call_context import certification_origin
+from .call_context import ProviderCallContextError
+
 from datetime import UTC, datetime
 
 from .qualifications import qualification_admin_summary
@@ -265,12 +268,11 @@ class ProviderChatCertificationService:
             payload = self._certification_payload(model_id, capability)
             async with asyncio.timeout(60):
                 async with self._client_factory() as client:
-                    async with self.transport.stream(
-                        client,
-                        target,
-                        payload,
-                        certification=True,
-                    ) as response:
+                    authorized = await self.transport.authorize_managed_target(target)
+                    request = self.transport.build_authorized_stream_request(client, target, authorized, payload)
+                    certification_origin(self.repository, 'provider_chat', certification_id)
+                    response = await self.transport.send_authorized_stream(client, request)
+                    try:
                         self._validate_status(response.status_code)
                         evidence.checks["chat_http_ok"] = True
                         await self._consume_sse(
@@ -279,8 +281,12 @@ class ProviderChatCertificationService:
                             started,
                             requested_model=model_id,
                         )
+                    finally:
+                        await response.aclose()
             status = "passed"
         except _CertificationFailure as exc:
+            error_code = exc.code
+        except ProviderCallContextError as exc:
             error_code = exc.code
         except httpx.ConnectTimeout:
             error_code = "provider_chat_connect_timeout"

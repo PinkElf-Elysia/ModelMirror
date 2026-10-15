@@ -21,11 +21,13 @@ try:
         ProviderControlPrincipal,
         require_provider_admin_csrf,
     )
+    from server.model_router.rag_call_context import rag_request_origin
 except ModuleNotFoundError:
     from model_router.admin_auth import (
         ProviderControlPrincipal,
         require_provider_admin_csrf,
     )
+    from model_router.rag_call_context import rag_request_origin
 
 from .rag_service import (
     DocumentDeletionError,
@@ -86,7 +88,7 @@ from .strategy_tuner import (
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
-router = APIRouter(prefix="/api/rag", tags=["rag"])
+router = APIRouter(prefix="/api/rag", tags=["rag"], dependencies=[Depends(rag_request_origin)])
 _rag_service: RagService | None = None
 _pipeline_executor: KnowledgePipelineExecutor | None = None
 _evaluation_store: KnowledgeEvaluationStore | None = None

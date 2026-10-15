@@ -19,6 +19,17 @@ from server.xpert_runtime.handoff_executor import (
 )
 from server.xpert_runtime.run_registry import RunRegistry
 from server.xperts import XpertStore, set_xpert_store_for_tests
+from server.model_router.repository import SQLiteRouterRepository
+from server.model_router.service import ModelRouterService
+from server.model_router.call_context_storage import ProviderContextStore
+
+
+@pytest.fixture(autouse=True)
+def isolated_provider_origins(tmp_path, monkeypatch):
+    with SQLiteRouterRepository.open(tmp_path / "router", master_key=b"x" * 32) as repository:
+        service = ModelRouterService(repository)
+        monkeypatch.setattr(main_module, "get_model_router_service", lambda: service)
+        yield
 
 
 @pytest.mark.asyncio
@@ -129,9 +140,12 @@ async def test_managed_handoff_failure_is_permanent_and_inherits_xpert_context(
             "execution_mode": "xpert_auto",
             "ready_for_execution": True,
             "provider_workload_source_kind": source_kind,
+            "provider_origin_execution_id": "parent-execution",
         },
     )
     captured: dict[str, Any] = {}
+    ProviderContextStore(main_module.get_model_router_service().repository).register_execution(
+        execution_id="parent-execution", task_id="parent-task", source_kind=source_kind)
 
     async def fake_run(*_args: Any, **kwargs: Any) -> StreamingResponse:
         captured.update(kwargs)
@@ -164,6 +178,8 @@ async def test_managed_handoff_failure_is_permanent_and_inherits_xpert_context(
         ):
             await main_module.execute_xpert_handoff_target(handoff, task, None)
         assert captured["runtime_execution_source_kind"] == source_kind
+        assert captured["runtime_provider_parent_execution_id"] == "parent-execution"
+        assert captured["runtime_task_id"].startswith("provider-child-")
     finally:
         set_xpert_store_for_tests(None)
 
