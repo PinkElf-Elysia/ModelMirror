@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-14T09:50:25.681Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-15T07:14:39.204Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,82 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "typesafe/jev-1.14",
+    "canonical_slug": "typesafe/jev-1.14-20261014",
+    "name": "TypeSafe: Jev 1.14",
+    "raw_description": "Jev 1.14 is the latest version of Jev, TypeSafe's structured decision model and the first of its System One models. System One models make fast, structured decisions for software, returning...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1792021417,
+    "expiration_date": null,
+    "model_author": "Typesafe",
+    "note": "结构化决策模型，不生成聊天文本。当前工作台仅开放文字 state 与类型化 questions；图片及目录长上下文尚未验证。"
+  },
+  {
+    "id": "assemblyai/universal-3-6-pro",
+    "canonical_slug": "assemblyai/universal-3-6-pro-20261014",
+    "name": "AssemblyAI: Universal-3.6 Pro",
+    "raw_description": "Universal-3.6 Pro is AssemblyAI's speech-to-text model and the successor to Universal-3.5 Pro, served here through AssemblyAI's Sync API. Compared with Universal-3.5 Pro, AssemblyAI reports 30% fewer errors on short conversational...",
+    "context_length": 0,
+    "pricing": {
+      "input": 83.33330000000001,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1792013919,
+    "expiration_date": null,
+    "model_author": "AssemblyAI",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.29999988
+    },
+    "note": "基础转录仅接受最长 120 秒的 16-bit PCM WAV，约 $0.30/音频小时。尚未开放提示、关键词、会话上下文及词级时间戳展示；真实调用待验收。"
+  },
+  {
+    "id": "~perplexity/pplx-decider-latest",
+    "canonical_slug": "~perplexity/pplx-decider-latest",
+    "name": "Perplexity: Decider Latest",
+    "raw_description": "This model always redirects to the latest model in the Decider family.",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [],
+    "created": 1792003377,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "结构化决策模型，不生成聊天文本。当前工作台仅开放文字 state 与类型化 questions；图片及目录长上下文尚未验证。"
+  },
   {
     "id": "~unbiased/pareto-latest",
     "canonical_slug": "~unbiased/pareto-latest",
@@ -695,7 +771,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "stepfun/step-5-preview-20261008",
     "name": "StepFun: Step 5 Preview",
     "raw_description": "Step 5 Preview is StepFun's flagship model for agentic work, built on a sparse Mixture-of-Experts architecture (27B active / 600B total parameters). It performs strongly in software engineering and professional...",
-    "context_length": 1000000,
+    "context_length": 1048576,
     "pricing": {
       "input": 1,
       "output": 2.7
@@ -712,15 +788,22 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
+      "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
+      "tool_choice",
       "tools",
+      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -1318,13 +1401,17 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
+      "response_format",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -1488,7 +1575,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "cloudflare/clef-flash",
     "name": "Cloudflare: Clef Flash",
     "raw_description": "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
-    "context_length": 24576,
+    "context_length": 65536,
     "pricing": {
       "input": 0.020999999999999998,
       "output": 0
@@ -2826,7 +2913,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Universal-3.5 Pro is AssemblyAI's speech-to-text model served through its Sync API, returning a complete transcript with word-level timestamps in a single synchronous response for audio clips up to 120 seconds....",
     "context_length": 0,
     "pricing": {
-      "input": 62.5,
+      "input": 83.3333,
       "output": 0
     },
     "input_modalities": [
@@ -2843,9 +2930,9 @@ const rawCatalogModels: RawCatalogModel[] = [
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
-      "usd": 0.45
+      "usd": 0.29999988
     },
-    "note": "OpenRouter Sync API 转写契约：仅接受最长 120 秒的 16-bit WAV，返回完整转写与词级时间戳。基础费率为 $0.000125/音频秒（$0.45/音频小时）；自由文本提示、关键词和会话上下文会使用提示转写费率，当前界面尚未暴露这些增强参数。尚未执行付费人工验收。"
+    "note": "基础转录仅接受最长 120 秒的 16-bit PCM WAV，约 $0.30/音频小时。尚未开放提示、关键词、会话上下文及词级时间戳展示；真实调用待验收。"
   },
   {
     "id": "nvidia/switchyard",
@@ -3171,13 +3258,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~typesafe/jev-latest",
     "name": "TypeSafe: Jev Latest",
     "raw_description": "This model always redirects to the latest model in the Jev family.",
-    "context_length": 32000,
+    "context_length": 262144,
     "pricing": {
       "input": 0.041999999999999996,
       "output": 0
     },
     "input_modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "output_modalities": [
       "decisions"
@@ -3187,7 +3275,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1789689685,
     "expiration_date": null,
     "model_author": "Typesafe",
-    "note": "这是结构化决策模型，不生成聊天文本。请在独立决策工作台中提交 state 与类型化 questions。"
+    "note": "别名由上游动态解析；本轮指向 Jev 1.14。当前仅开放文字决策，图片与目录长上下文未验证。"
   },
   {
     "id": "typesafe/jev-1.13",
@@ -3323,7 +3411,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.02016,
+      "input": 0.013680000000000001,
       "output": 0.891
     },
     "input_modalities": [
@@ -3834,7 +3922,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.02016,
+      "input": 0.013680000000000001,
       "output": 0.891
     },
     "input_modalities": [
@@ -4848,7 +4936,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.035100000000000006,
+      "input": 0.036,
       "output": 0.8999999999999999
     },
     "input_modalities": [
@@ -4961,7 +5049,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.035100000000000006,
+      "input": 0.036,
       "output": 0.8999999999999999
     },
     "input_modalities": [
@@ -5391,7 +5479,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0576,
+      "input": 0.06,
       "output": 4.4
     },
     "input_modalities": [
@@ -5532,8 +5620,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.04,
-      "output": 2.3
+      "input": 0.24,
+      "output": 2.2
     },
     "input_modalities": [
       "text",
@@ -6737,7 +6825,7 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "black-forest-labs/flux-3-video",
     "canonical_slug": "black-forest-labs/flux-3-video-20260804",
-    "name": "Black Forest Labs: FLUX.3 Video",
+    "name": "Black Forest Labs: FLUX 3 Video",
     "raw_description": "FLUX.3 Video is a video generation model from Black Forest Labs. It supports text-to-video, image-guided generation with opening and closing keyframes, and video continuation workflows, making it suited for controlled...",
     "context_length": 0,
     "pricing": {
@@ -8089,7 +8177,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.62,
+      "input": 0.44999999999999996,
       "output": 15
     },
     "input_modalities": [
@@ -8510,13 +8598,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
-      "input": 2,
-      "output": 10,
+      "input": 4,
+      "output": 20,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 4,
-          "output": 15
+          "input": 8,
+          "output": 30
         }
       ]
     },
@@ -8554,13 +8642,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
     "context_length": 1050000,
     "pricing": {
-      "input": 2,
-      "output": 10,
+      "input": 4,
+      "output": 20,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 4,
-          "output": 15
+          "input": 8,
+          "output": 30
         }
       ]
     },
@@ -9308,7 +9396,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.049999999999999996,
+      "input": 0.037,
       "output": 7
     },
     "input_modalities": [
@@ -11443,14 +11531,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 2,
-      "output": 12,
-      "overrides": [
-        {
-          "min_prompt_tokens": 200000,
-          "input": 4,
-          "output": 18
-        }
-      ]
+      "output": 10
     },
     "input_modalities": [
       "audio",
@@ -11489,8 +11570,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.496,
-      "output": 14
+      "input": 0.33,
+      "output": 24
     },
     "input_modalities": [
       "text",
@@ -11753,8 +11834,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.95
+      "input": 0.15,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -12923,8 +13004,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.33,
-      "output": 4.18
+      "input": 0.966,
+      "output": 3.036
     },
     "input_modalities": [
       "text"
@@ -13112,8 +13193,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 31B Instruct is Google DeepMind's 30.7B dense multimodal model supporting text and image input with text output. Features a 256K token context window, configurable thinking/reasoning mode, native function...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.33999999999999997
+      "input": 0.19999999999999998,
+      "output": 0.39999999999999997
     },
     "input_modalities": [
       "image",
@@ -14871,7 +14952,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 204800,
     "pricing": {
       "input": 0.27,
-      "output": 1.08
+      "output": 0.95
     },
     "input_modalities": [
       "text"
@@ -14913,8 +14994,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5 is Z.ai’s flagship open-source foundation model engineered for complex systems design and long-horizon agent workflows. Built for expert developers, it delivers production-grade performance on large-scale programming tasks, rivaling leading...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.6,
-      "output": 1.92
+      "input": 1,
+      "output": 3.1999999999999997
     },
     "input_modalities": [
       "text"
@@ -19499,8 +19580,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.037,
-      "output": 0.16999999999999998
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -19746,7 +19827,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "max_tokens",
       "response_format",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -20408,8 +20488,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
     "context_length": 256000,
     "pricing": {
-      "input": 0.09375,
-      "output": 0.25
+      "input": 0.075,
+      "output": 0.19999999999999998
     },
     "input_modalities": [
       "image",
@@ -20758,7 +20838,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1747930371,
-    "expiration_date": null,
+    "expiration_date": 1792022400,
     "model_author": "Anthropic",
     "reasoning_declared": true
   },
@@ -21629,6 +21709,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -21639,6 +21720,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs",
       "temperature",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1741905510,
@@ -23313,8 +23395,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.33
+      "input": 0.0509,
+      "output": 0.335
     },
     "input_modalities": [
       "text"
@@ -25720,13 +25802,13 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol Pro is the same underlying model as [GPT-5.6 Sol](https://openrouter.ai/openai/gpt-5.6-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
     "context_length": 1050000,
     "pricing": {
-      "input": 1,
-      "output": 5,
+      "input": 2,
+      "output": 10,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 2,
-          "output": 7.5
+          "input": 4,
+          "output": 15
         }
       ]
     },
@@ -25763,13 +25845,13 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
     "context_length": 1050000,
     "pricing": {
-      "input": 1,
-      "output": 5,
+      "input": 2,
+      "output": 10,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 2,
-          "output": 7.5
+          "input": 4,
+          "output": 15
         }
       ]
     },
@@ -27765,6 +27847,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
 // but carry a warning because they are absent from the current live catalog.
 const uncertainCatalogModelIds = new Set<string>([
   "~openai/gpt-latest",
+  "~perplexity/pplx-decider-27b-latest",
   "ai21/jamba-large-1.7",
   "aion-labs/aion-1.0",
   "aion-labs/aion-1.0-mini",
@@ -28697,6 +28780,7 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "assemblyai/universal-3-6-pro", "typesafe/jev-1.14", "~perplexity/pplx-decider-latest",
   "~unbiased/pareto-latest",
   "unbiased/pareto-26.9",
   "heygen/heygen-voice-1",

@@ -136,6 +136,21 @@ test("accepts the Universal-3.5 Pro audio-hour overlay", () => {
   );
 });
 
+test("requires Universal-3.6 Pro seconds-to-hour pricing", () => {
+  const id = "assemblyai/universal-3-6-pro";
+  const source = { id, pricing: { prompt: "0.0000833333" } };
+  const local = { id, pricing_basis: "media", media_pricing: { unit: "audio_hour", usd: 0.29999988 } };
+  const market = structuredClone(assemblyMarket);
+  market.slug = id;
+  market.endpoint.model_variant_slug = id;
+  market.endpoint.pricing.prompt = source.pricing.prompt;
+  market.endpoint.display_pricing[0].price = source.pricing.prompt;
+  market.endpoint.pricing_json["assemblyai_stt:audio_seconds"] = source.pricing.prompt;
+  assert.deepEqual(auditAudioHourPricingOverlays({ localModels: [local], sourceModels: [source], marketModels: [market] }), []);
+  assert.notDeepEqual(auditAudioHourPricingOverlays({ localModels: [{ id }], sourceModels: [source], marketModels: [market] }), []);
+  assert.notDeepEqual(auditAudioHourPricingOverlays({ localModels: [{ ...local, media_pricing: { unit: "audio_hour", usd: 83.3333 } }], sourceModels: [source], marketModels: [market] }), []);
+});
+
 test("accepts the required Fish Transcribe 1 Pro audio-hour overlay", () => {
   assert.deepEqual(
     auditAudioHourPricingOverlays({

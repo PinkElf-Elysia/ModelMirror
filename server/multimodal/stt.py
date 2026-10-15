@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
+import wave
 import os
 import re
 import time
@@ -43,7 +45,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-10-08-elevenlabs"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-10-14-assemblyai"
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,28 @@ MANUAL_TRANSCRIPTION_PROFILES["meta/muse-voice-transcribe-1.0"] = (
 MANUAL_TRANSCRIPTION_PROFILES["assemblyai/universal-3-5-pro"] = (
     TranscriptionProfile(input_formats=("wav",))
 )
+MANUAL_TRANSCRIPTION_PROFILES["assemblyai/universal-3-6-pro"] = (
+    TranscriptionProfile(input_formats=("wav",))
+)
+
+
+def validate_assemblyai_audio(model_id: str, audio_format: str, content: bytes) -> None:
+    if model_id not in {"assemblyai/universal-3-5-pro", "assemblyai/universal-3-6-pro"}:
+        return
+    try:
+        if audio_format != "wav":
+            raise ValueError("WAV required")
+        with wave.open(io.BytesIO(content), "rb") as audio:
+            frames = audio.getnframes()
+            if (audio.getsampwidth() != 2 or audio.getcomptype() != "NONE"
+                    or frames <= 0 or frames > 120 * audio.getframerate()):
+                raise ValueError("16-bit PCM, at most 120 seconds required")
+            if len(audio.readframes(frames)) != frames * audio.getnchannels() * 2:
+                raise ValueError("Truncated WAV")
+    except (wave.Error, EOFError, ValueError) as exc:
+        raise MultimodalServiceError(
+            "invalid_assemblyai_audio", "此模型仅接受完整、最长 120 秒的 16-bit PCM WAV。", status_code=422,
+        ) from exc
 
 
 def verification_model_ids() -> set[str]:
@@ -513,6 +537,7 @@ class TranscriptionService:
             content_type,
             content,
         )
+        validate_assemblyai_audio(clean_model, audio_format, content)
         if not managed:
             profile = (
                 VERIFIED_TRANSCRIPTION_PROFILES.get(clean_model)
@@ -601,6 +626,7 @@ class TranscriptionService:
                 "audio_transcription",
                 requested_model=model_id,
             )
+            validate_assemblyai_audio(exact_model, audio_format, content)
             policy = gateway.call_service.control.get_policy(entry_id)
             binding = next(
                 (
