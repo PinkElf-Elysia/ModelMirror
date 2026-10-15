@@ -25,7 +25,7 @@
 7. 打开 [HeyGen 语音页](/chat/heygen%2Fheygen-voice-1?operation=synthesize_speech)、[HeyGen Turbo 语音页](/chat/heygen%2Fheygen-voice-1-turbo?operation=synthesize_speech)及 [Drama 3 语音页](/chat/fish-audio%2Fdrama-3?operation=synthesize_speech)。核对目录费率分别为 $15/$7.5 每百万字符、$2 每百万 UTF-8 字节。字节是文字编码后的长度，不等于汉字数；三者本站文字上限均为 4000 字符。未获得可用连接资格时保留禁用状态，不以切换普通对话绕过。
 8. 重新打开工作台链接，确认原文为空，再重复上述准备和清空步骤。查看费用与限制即可结束，不点击任何生成或提交按钮。
 
-![独立预览中填写合成会议文字和 owner 字段后的提取表单，下方展示费用预估及文字限定提示](/help-center/2df7efba/scaledown-extract.jpg)
+![独立预览中填写合成会议文字和 owner 字段后的提取表单，下方展示费用预估及文字限定提示](/help-center/2df7efba/scaledown-extract.png)
 
 ## 常见问题
 

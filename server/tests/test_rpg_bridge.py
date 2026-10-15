@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from server.model_router import rpg_bridge as bridge
+from server.model_router.call_context_storage import ProviderContextStore
 from server.tests.test_provider_chat_stable_service import _service, _qualify_scoped_model, SCOPED_MODEL_ID
 
 TOKEN = "synthetic-rpg-service-token-for-tests-only"
@@ -132,6 +133,23 @@ def test_actual_transport_preserves_84_messages_and_receipt_and_duplicate_never_
     assert len(captured) == 1
     runs = repo.list_chat_control_receipts("local")["runs"]
     assert any(r["gateway"] == "rpg_scoped" and r["status"] == "succeeded" for r in runs)
+    attempts = repo.list_chat_control_receipts("local")["attempts"]
+    assert len(attempts) == 1 and attempts[0]["dispatched"]
+    context = ProviderContextStore(repo).read("local", attempts[0]["id"])
+    assert (context.actor_kind, context.actor_reference, context.entry_id, context.purpose) == (
+        "service", "rpg-bridge", "rpg_bridge", "user_run")
+    assert context.parent_run_id == result["receipt"]["runId"]
+    assert context.attempt_id == result["receipt"]["attemptId"]
+    assert "actor_reference" not in response.text and "call_context" not in response.text
+
+
+@pytest.mark.parametrize("field", ["tenant_id", "actor_reference", "entry_id", "connection_id", "call_context"])
+def test_client_cannot_supply_bridge_origin(setup, field):
+    client, _, repo, _, captured, _ = setup
+    value = {**payload(client), field: "forged"}
+    assert client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value).status_code == 422
+    assert captured == []
+    assert repo.list_chat_control_receipts("local")["attempts"] == []
 
 
 @pytest.mark.parametrize("change", ["revision", "params", "url", "roles", "capacity", "qualification"])

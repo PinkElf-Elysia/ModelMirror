@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import nullcontext
 from typing import Any
 
 from .capabilities import CapabilityRegistry
@@ -251,12 +252,18 @@ class KnowledgeToolsetProvider:
                 min(float(resource_config.get("score_threshold") or 0), 1.0),
             )
             try:
-                result = await self.service.search_knowledge(
-                    kb_id,
-                    query,
-                    top_k=target_top_k,
-                    version_id=self._fixed_version(call, kb_id),
-                )
+                provider_scope = getattr(self.service, "provider_child_scope", None)
+                node_id = str(call.metadata.get("node_id") or "")
+                tool_call_id = str(call.metadata.get("tool_call_id") or "")
+                logical = f"tool:{node_id}:{tool_call_id}:{kb_id}" if node_id and tool_call_id else None
+                with (provider_scope(call.metadata.get("provider_origin_execution_id"), logical)
+                      if callable(provider_scope) else nullcontext()):
+                    result = await self.service.search_knowledge(
+                        kb_id,
+                        query,
+                        top_k=target_top_k,
+                        version_id=self._fixed_version(call, kb_id),
+                    )
             except Exception as exc:
                 warnings.append(f"{kb_id}: {str(exc)[:180]}")
                 continue

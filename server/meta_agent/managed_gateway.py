@@ -81,7 +81,8 @@ class ManagedMetaAgentGateway:
         return ManagedMetaAgentRun(
             self,
             self.call_service.start_run(
-                "meta_agent", parent_run_reference=parent_run_reference
+                "meta_agent", parent_run_reference=parent_run_reference,
+                origin_source="meta_agent_request",
             ),
         )
 

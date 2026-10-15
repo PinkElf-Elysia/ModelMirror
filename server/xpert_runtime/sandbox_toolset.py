@@ -8,6 +8,7 @@ import re
 import threading
 import time
 import uuid
+from contextlib import nullcontext
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
@@ -1275,11 +1276,17 @@ class SandboxToolsetProvider:
         except (TypeError, ValueError):
             limit = 6
         try:
-            outcome = await self.semantic_rerank_service.rerank_router_results(
-                query=need,
-                lexical_results=payload.get("results") or [],
-                limit=limit,
-            )
+            provider_scope = getattr(self.semantic_rerank_service, "provider_child_scope", None)
+            node_id = str(call.metadata.get("node_id") or "")
+            tool_call_id = str(call.metadata.get("tool_call_id") or "")
+            logical = f"skill-find:{node_id}:{tool_call_id}" if node_id and tool_call_id else None
+            with (provider_scope(call.metadata.get("provider_origin_execution_id"), logical)
+                  if callable(provider_scope) else nullcontext()):
+                outcome = await self.semantic_rerank_service.rerank_router_results(
+                    query=need,
+                    lexical_results=payload.get("results") or [],
+                    limit=limit,
+                )
             payload["results"] = list(outcome.final_results)
             return RuntimeToolResult(
                 output=json.dumps(payload, ensure_ascii=False),

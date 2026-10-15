@@ -68,6 +68,11 @@ async def test_real_managed_adapter_has_one_mock_dispatch_and_actual_usage(tmp_p
     result = await transport.complete(MODEL_ID, "system", "prompt", 1024, "explicit-one", route)
     assert len(calls) == 1 and result["receipt"]["total_tokens"] == 120
     assert result["receipt"]["response_received"] and result["receipt"]["provider_dispatched"]
+    from server.model_router.call_context_storage import ProviderContextStore
+    rows = router.repository.list_workload_receipts("local")
+    assert rows["runs"][0]["parent_run_reference"] == "explicit-one"
+    context = ProviderContextStore(router.repository).read("local", rows["calls"][0]["id"])
+    assert (context.entry_id, context.actor_reference, context.purpose) == ("meta_agent", "local-anonymous", "user_run")
     with pytest.raises(HeadlessAuthoringError):
         transport.route_projection("unbound/model")
     assert len(calls) == 1

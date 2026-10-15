@@ -233,7 +233,8 @@ def test_dag_uses_independent_text_and_json_qualifications(
         shapes=["chat_text_unary", "chat_json_object"],
         handler=handler,
     )
-    run = gateway.start_run("expert_team_dag", parent_run_reference="dag:run-1")
+    gateway.bind_dag_execution("dag:run-1")
+    run = gateway.start_run("expert_team_dag", parent_run_reference="dag:run-1", origin_execution_id="dag:run-1")
 
     async def scenario():
         text = await run.complete(
@@ -275,7 +276,8 @@ def test_duplicate_worker_request_id_is_never_dispatched_twice(
         shapes=["chat_text_unary", "chat_json_object"],
         handler=handler,
     )
-    run = gateway.start_run("expert_team_dag", parent_run_reference="dag:run-replay")
+    gateway.bind_dag_execution("dag:run-replay")
+    run = gateway.start_run("expert_team_dag", parent_run_reference="dag:run-replay", origin_execution_id="dag:run-replay")
     request = _request(request_id="same-worker-request", json_response=False)
 
     async def scenario():

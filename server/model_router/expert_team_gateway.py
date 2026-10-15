@@ -19,6 +19,8 @@ except ImportError:  # pragma: no cover - direct server package execution
     )
 
 from .service import ModelRouterService, RouterServiceError
+from .call_context import ProviderCallContextError
+from .call_context_storage import ProviderContextStore
 from .workflow_gateway import (
     ManagedWorkflowGateway,
     ManagedWorkflowNodeRun,
@@ -80,6 +82,7 @@ class ManagedExpertTeamGateway:
         entry_id: ExpertTeamEntryId,
         *,
         parent_run_reference: str,
+        origin_execution_id: str | None = None,
     ) -> ManagedExpertTeamRun:
         if self.routing_mode(entry_id) != "managed_required":
             raise ManagedWorkflowRoutingError(
@@ -91,10 +94,32 @@ class ManagedExpertTeamGateway:
                 ),
             )
         try:
+            origins = ProviderContextStore(self.call_service.repository)
+            if entry_id == "expert_team_planner":
+                # Only this host request boundary may create Planner roots.
+                if origin_execution_id is not None:
+                    raise ProviderCallContextError("provider_call_context_entry_mismatch")
+                origin_execution_id = parent_run_reference
+                origins.register_execution(
+                    execution_id=origin_execution_id, task_id=origin_execution_id,
+                    source_kind="expert_team_planner",
+                )
+            else:
+                if origin_execution_id is None:
+                    raise ProviderCallContextError("provider_call_context_origin_missing")
+                origins.require_settled_execution(
+                    origin_execution_id, source_kind="expert_team_agency",
+                )
             run_id = self.call_service.start_stable_run(
                 entry_id,
                 parent_run_reference=parent_run_reference,
+                origin_execution_id=origin_execution_id,
             )
+        except ProviderCallContextError as exc:
+            raise ManagedWorkflowRoutingError(
+                exc.code, "Expert Team 的可信来源缺失或前次结果未决，当前调用失败关闭。",
+                status_code=409, receipt=self.blocked_receipt(entry_id, exc.code),
+            ) from exc
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(
                 exc.code,
@@ -107,7 +132,23 @@ class ManagedExpertTeamGateway:
             cast(WorkflowEntryId, entry_id),
             run_id,
         )
-        return ManagedExpertTeamRun(entry_id, node_run)
+        return ManagedExpertTeamRun(entry_id, node_run, origin_execution_id)
+
+    def bind_dag_execution(self, task_id: str, *, parent_task_id: str | None = None) -> None:
+        """Called by the coordinator with persisted host task IDs, not Worker data."""
+        origins = ProviderContextStore(self.call_service.repository)
+        try:
+            if parent_task_id is not None:
+                origins.require_settled_execution(parent_task_id, source_kind="expert_team_agency")
+            origins.register_execution(
+                execution_id=task_id, task_id=task_id, source_kind="expert_team_agency",
+                parent_execution_id=parent_task_id,
+            )
+        except ProviderCallContextError as exc:
+            raise ManagedWorkflowRoutingError(
+                exc.code, "Expert Team 不能从缺失或未决的可信来源恢复。",
+                status_code=409, receipt=self.blocked_receipt("expert_team_dag", exc.code),
+            ) from exc
 
     @staticmethod
     def blocked_receipt(
@@ -132,9 +173,11 @@ class ManagedExpertTeamRun:
         self,
         entry_id: ExpertTeamEntryId,
         node_run: ManagedWorkflowNodeRun,
+        origin_execution_id: str,
     ) -> None:
         self.entry_id = entry_id
         self._node_run = node_run
+        self._origin_execution_id = origin_execution_id
         self._call_sequence = 0
 
     async def complete(self, request: AgencyModelRequest) -> AgencyModelResponse:
@@ -145,6 +188,11 @@ class ManagedExpertTeamRun:
             for message in request.messages
         ]
         try:
+            ProviderContextStore(self._node_run.gateway.call_service.repository).require_workload_source(
+                self._node_run.run_id,
+                source_kind="expert_team_planner" if self.entry_id == "expert_team_planner" else "expert_team_agency",
+                execution_id=self._origin_execution_id,
+            )
             if request.json_response:
                 content = await self._node_run.complete_json_object(
                     logical_call_key=request.request_id,
@@ -163,6 +211,8 @@ class ManagedExpertTeamRun:
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
                 )
+        except ProviderCallContextError as exc:
+            raise AgencyWorkerError("Expert Team 的模型调用来源校验失败。", code=exc.code) from exc
         except ManagedWorkflowRoutingError as exc:
             raise AgencyWorkerError(
                 exc.public_message,

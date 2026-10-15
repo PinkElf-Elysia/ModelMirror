@@ -31,6 +31,25 @@ MODEL_ID = "provider/workflow-model"
 PROVIDER_SECRET = "workflow-provider-secret"
 
 
+@pytest.fixture(autouse=True)
+def trusted_entry_origins(monkeypatch):
+    """Existing transport tests start below the HTTP entry boundary.
+
+    Supply that boundary's durable origin explicitly; negative origin tests
+    live in test_provider_context_workflow without this fixture.
+    """
+    for name in ("start_node_run", "start_agent_run"):
+        original = getattr(ManagedWorkflowGateway, name)
+
+        def enter(self, _original=original, **kwargs):
+            reference = kwargs["execution_reference"]
+            self.bind_execution(execution_id=reference, task_id=reference,
+                                source_kind=kwargs["source_kind"])
+            return _original(self, **kwargs)
+
+        monkeypatch.setattr(ManagedWorkflowGateway, name, enter)
+
+
 def _profile(execution_shape: str) -> tuple[dict[str, object], str]:
     value: dict[str, object] = {
         "execution_shape": execution_shape,

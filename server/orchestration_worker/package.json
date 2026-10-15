@@ -17,7 +17,7 @@
     "test:all": "npm run test && npm run test:upstream"
   },
   "dependencies": {
-    "js-yaml": "4.3.1"
+    "js-yaml": "4.3.2"
   },
   "devDependencies": {
     "@types/js-yaml": "4.0.9",

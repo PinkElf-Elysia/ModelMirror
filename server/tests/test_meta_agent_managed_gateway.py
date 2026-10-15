@@ -214,6 +214,12 @@ async def test_managed_meta_agent_records_each_json_call_without_content(
     receipts = service.repository.list_workload_receipts("local")
     assert receipts["runs"][0]["parent_run_reference"] == "meta-parent-run"
     assert [item["status"] for item in receipts["calls"]] == ["passed", "passed"]
+    from server.model_router.call_context_storage import ProviderContextStore
+    contexts = [ProviderContextStore(service.repository).read("local", row["id"]) for row in receipts["calls"]]
+    assert all((item.entry_id, item.actor_reference, item.purpose) == ("meta_agent", "local-anonymous", "user_run") for item in contexts)
+    assert len({item.logical_call_id for item in contexts}) == len(requests) == 2
+    assert all(item.parent_run_id == run.run_id for item in contexts)
+    assert "actor_reference" not in summary.model_dump_json()
     database = service.repository.database_path.read_bytes()
     assert b"private user goal" not in database
     assert b"private capability snapshot" not in database

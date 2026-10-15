@@ -207,7 +207,7 @@ class EngineShadowService:
             tools=SHADOW_TOOL_DEFINITIONS,
         )
         task = asyncio.create_task(
-            self._run(spec, model),
+            self._run(spec, model, managed_required=managed_mode == "managed_required"),
             name=f"upstream-shadow-{record.run_id}",
         )
         async with self._lifecycle_lock:
@@ -357,7 +357,8 @@ class EngineShadowService:
             self._histories.clear()
 
     async def _run(
-        self, spec: EngineShadowRunSpec, model: ResolvedShadowModel
+        self, spec: EngineShadowRunSpec, model: ResolvedShadowModel,
+        *, managed_required: bool = False,
     ) -> None:
         try:
             result = await self.port.start_run(
@@ -365,7 +366,10 @@ class EngineShadowService:
                 on_event=lambda event_type, payload: self._on_event(
                     spec.run_id, event_type, payload
                 ),
-                execute_model=lambda request: self._execute_model(request, model),
+                execute_model=lambda request: self._execute_model(
+                    request, model, expected_run_id=spec.run_id,
+                    managed_required=managed_required,
+                ),
                 execute_tool=lambda request: self._execute_tool(
                     request, spec.workspace_dir
                 ),
@@ -510,8 +514,11 @@ class EngineShadowService:
         return {"output": result.output}
 
     async def _execute_model(
-        self, request: EngineRequest, model: ResolvedShadowModel
+        self, request: EngineRequest, model: ResolvedShadowModel,
+        *, expected_run_id: str | None = None, managed_required: bool = False,
     ) -> dict[str, Any]:
+        if expected_run_id is not None and request.run_id != expected_run_id:
+            return self._model_failure("failed", "The upstream model origin is invalid.")
         raw_messages = request.payload.get("new_messages")
         if not isinstance(raw_messages, list):
             return self._model_failure("malformed", "The upstream model request was malformed.")
@@ -536,12 +543,13 @@ class EngineShadowService:
         call_sequence = 0
         try:
             workload_run_id, call_sequence = await self._managed_call_context(
-                request.run_id
+                request.run_id, required=managed_required,
             )
             if workload_run_id is not None:
                 assert self.managed_gateway is not None
                 turn = await self.managed_gateway.stream_turn(
                     workload_run_id=workload_run_id,
+                    origin_execution_id=expected_run_id or request.run_id,
                     logical_call_key=request.request_id,
                     call_sequence=call_sequence,
                     model_id=model.invocation_id,
@@ -637,10 +645,12 @@ class EngineShadowService:
             "outcome": {"status": "completed"},
         }
 
-    async def _managed_call_context(self, run_id: str) -> tuple[str | None, int]:
+    async def _managed_call_context(self, run_id: str, *, required: bool = False) -> tuple[str | None, int]:
         async with self._managed_lock:
             workload_run_id = self._managed_runs.get(run_id)
             if workload_run_id is None:
+                if required:
+                    raise GatewayRequestError("The managed Shadow origin is unavailable; replay is blocked.")
                 return None, 0
             sequence = self._managed_call_sequences.get(run_id, 0) + 1
             self._managed_call_sequences[run_id] = sequence

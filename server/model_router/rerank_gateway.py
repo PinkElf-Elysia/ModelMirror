@@ -16,6 +16,7 @@ from .provider_operations import (
     provider_operation_model_matches,
 )
 from .service import ModelRouterService, RouterServiceError
+from .rag_call_context import start_operation_run, require_operation_source
 from .workload_control import (
     MAX_WORKLOAD_UNARY_RESPONSE_BYTES,
     PROVIDER_WORKLOAD_CONTRACT_VERSION,
@@ -216,9 +217,9 @@ class ManagedRerankGateway:
         if not clean_parent:
             clean_parent = f"rerank:{entry_id}:{uuid.uuid4().hex}"
         try:
-            run_id = self.call_service.start_run(
+            run_id = start_operation_run(self.call_service,
                 entry_id,
-                parent_run_reference=clean_parent,
+                parent_reference=clean_parent,
             )
         except RouterServiceError as exc:
             raise ManagedRerankError(
@@ -301,6 +302,7 @@ class ManagedRerankRun:
                 receipt=self.receipt_summary(),
             )
         try:
+            require_operation_source(self.gateway.call_service, self.run_id, self.entry_id)
             prepared = await self.gateway.call_service.prepare_call(
                 run_id=self.run_id,
                 entry_id=self.entry_id,

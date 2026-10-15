@@ -56,7 +56,7 @@ def migrated_database(tmp_path):
     new = SQLiteRouterRepository.open(tmp_path, master_key=b"s" * 32)
     new.close()
     with sqlite3.connect(database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT * FROM provider_chat_certifications").fetchone() == old_row
         assert connection.execute("SELECT COUNT(*) FROM provider_qualification_events").fetchone()[0] == 0
     return database
@@ -172,7 +172,7 @@ def test_rollback_migration_override_starts_and_returns_without_downgrade(
     new = SQLiteRouterRepository.open(migrated_database.parent, master_key=b"s" * 32)
     new.close()
     with sqlite3.connect(migrated_database) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert connection.execute("SELECT * FROM provider_chat_certifications").fetchall() == before
         assert_known_qualification_schema(connection)
 

@@ -80,7 +80,7 @@ class ManagedFusionGateway:
                 receipt=self.blocked_receipt("provider_workload_policy_not_active"),
             )
         try:
-            run_id = self.call_service.start_run("fusion")
+            run_id = self.call_service.start_run("fusion", origin_source="fusion_request")
         except RouterServiceError as exc:
             raise ManagedWorkflowRoutingError(
                 exc.code,

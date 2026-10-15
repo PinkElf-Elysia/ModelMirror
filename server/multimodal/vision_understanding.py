@@ -248,6 +248,21 @@ class VisionUnderstandingService:
         except Exception:
             return "degraded_required"
 
+    def provider_origin_repository(self, entry_id: R8BEntryId):
+        """Existing Router owner only; no network and no anonymous recovery."""
+        if self._managed_gateway is None and os.getenv('MODEL_CONTROL_RAG_VISION_ENABLED', '').strip().lower() not in {'1', 'true', 'yes', 'on'}:
+            return None
+        try:
+            from server.model_router import get_model_router_service
+            from server.model_router.multimodal_gateway import ManagedMultimodalGateway
+        except ModuleNotFoundError:
+            from model_router import get_model_router_service
+            from model_router.multimodal_gateway import ManagedMultimodalGateway
+        gateway = self._managed_gateway or ManagedMultimodalGateway.for_router(get_model_router_service())
+        if gateway.routing_mode(entry_id) == 'legacy':
+            return None
+        return gateway.call_service.repository
+
     def managed_binding_snapshot(self, entry_id: R8BEntryId, model_id: str) -> dict[str, Any]:
         try:
             from server.model_router import get_model_router_service

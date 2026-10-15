@@ -603,7 +603,7 @@ def require_chat_bridge(
 def stable_service(
     router_service: ModelRouterService = Depends(get_model_router_service),
 ) -> ProviderChatStableService:
-    return ProviderChatStableService(router_service)
+    return ProviderChatStableService(router_service, origin_entry_id="ai_research_bridge")
 
 
 @router.get("/models")

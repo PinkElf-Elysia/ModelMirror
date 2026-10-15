@@ -15,6 +15,24 @@ from server.model_router.provider_chat import PROVIDER_CHAT_CONTRACT_VERSION
 from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository, RouterRepositoryError
 from server.model_router.schemas import RouterConnectionCreate, RouterConnectionUpdate
 from server.model_router.service import ModelRouterService
+from server.model_router.call_context import ProviderCallContext
+from server.model_router.call_context_storage import ProviderContextStore
+
+
+def _claim_run(repository, tenant_id, **kwargs):
+    policy = repository.get_chat_canary_policy(tenant_id)
+    if policy is None:
+        policy = repository.save_chat_canary_policy(tenant_id, connection_id=kwargs["connection_id"], enabled=True)
+    context = ProviderCallContext(tenant_id=tenant_id, actor_kind="local_anonymous",
+        actor_reference="local-anonymous", entry_id="chat_canary", purpose="user_run",
+        parent_run_id=kwargs["session_id_hash"], logical_call_id=kwargs["run_id"],
+        attempt_id=kwargs["run_id"], policy_revision=policy["revision"])
+    return repository.claim_chat_canary_run(tenant_id, **kwargs, call_context=context)
+
+
+def _mark_dispatched(repository, tenant_id, run_id):
+    repository.mark_chat_canary_dispatched(tenant_id, run_id,
+        call_context=ProviderContextStore(repository).read(tenant_id, run_id))
 
 
 def _repository(tmp_path: Path) -> tuple[SQLiteRouterRepository, str]:
@@ -76,7 +94,7 @@ def _complete_canary_run(
     status: str,
     error_code: str | None = None,
 ) -> None:
-    repository.claim_chat_canary_run(
+    _claim_run(repository,
         "local",
         run_id=run_id,
         connection_id=connection_id,
@@ -89,7 +107,7 @@ def _complete_canary_run(
         session_id_hash=f"hash-{run_id}",
         baseline_overlap=False,
     )
-    repository.mark_chat_canary_dispatched("local", run_id)
+    _mark_dispatched(repository, "local", run_id)
     repository.complete_chat_canary_run(
         "local",
         run_id,
@@ -108,7 +126,7 @@ def _complete_canary_run(
 def test_canary_dispatch_rechecks_saved_expiry_and_is_one_shot(tmp_path, expired):
     repository, connection_id = _repository(tmp_path)
     certification = _pass_certification(repository, connection_id)
-    repository.claim_chat_canary_run("local", run_id="dispatch-race", connection_id=connection_id,
+    _claim_run(repository, "local", run_id="dispatch-race", connection_id=connection_id,
         connection_fingerprint=repository.connection_config_fingerprint("local", connection_id),
         certification_id=str(certification["id"]), contract_version=PROVIDER_CHAT_CANARY_CONTRACT_VERSION,
         requested_model="provider/model", session_id_hash="synthetic", baseline_overlap=False)
@@ -120,11 +138,11 @@ def test_canary_dispatch_rechecks_saved_expiry_and_is_one_shot(tmp_path, expired
             db.execute("UPDATE provider_qualification_intervals SET valid_from=?",
                 ((now - timedelta(days=1)).isoformat(),))
         with pytest.raises(RouterRepositoryError, match="provider_chat_canary_dispatch_preconditions_changed"):
-            repository.mark_chat_canary_dispatched("local", "dispatch-race")
+            _mark_dispatched(repository, "local", "dispatch-race")
     else:
-        repository.mark_chat_canary_dispatched("local", "dispatch-race")
+        _mark_dispatched(repository, "local", "dispatch-race")
         with pytest.raises(RouterRepositoryError, match="provider_chat_canary_run_not_running"):
-            repository.mark_chat_canary_dispatched("local", "dispatch-race")
+            _mark_dispatched(repository, "local", "dispatch-race")
     assert repository.list_chat_canary_runs("local")[0]["dispatched"] == int(not expired)
 
 
@@ -184,7 +202,7 @@ def test_policy_and_runs_are_tenant_scoped_and_store_no_payload(tmp_path: Path) 
     repository.save_chat_canary_policy(
         "local", connection_id=connection_id, enabled=True
     )
-    row = repository.claim_chat_canary_run(
+    row = _claim_run(repository,
         "local",
         run_id="run-1",
         connection_id=connection_id,
@@ -195,7 +213,7 @@ def test_policy_and_runs_are_tenant_scoped_and_store_no_payload(tmp_path: Path) 
         session_id_hash="one-way-session-hash",
         baseline_overlap=False,
     )
-    repository.mark_chat_canary_dispatched("local", str(row["id"]))
+    _mark_dispatched(repository, "local", str(row["id"]))
     repository.complete_chat_canary_run(
         "local",
         str(row["id"]),
@@ -233,7 +251,7 @@ def test_policy_and_runs_are_tenant_scoped_and_store_no_payload(tmp_path: Path) 
 def test_restart_marks_running_uncertain_without_replay(tmp_path: Path) -> None:
     repository, connection_id = _repository(tmp_path)
     certification = _pass_certification(repository, connection_id)
-    repository.claim_chat_canary_run(
+    _claim_run(repository,
         "local",
         run_id="run-running",
         connection_id=connection_id,
@@ -270,7 +288,7 @@ def test_exact_model_certification_and_new_pass_reset_pause(
     assert service.public_status("other/model").reason_code == "certification_required"
     for index in range(3):
         run_id = f"run-transient-{index}"
-        repository.claim_chat_canary_run(
+        _claim_run(repository,
             "local",
             run_id=run_id,
             connection_id=connection_id,
@@ -283,7 +301,7 @@ def test_exact_model_certification_and_new_pass_reset_pause(
             session_id_hash=f"hash-{index}",
             baseline_overlap=False,
         )
-        repository.mark_chat_canary_dispatched("local", run_id)
+        _mark_dispatched(repository, "local", run_id)
         repository.complete_chat_canary_run(
             "local",
             run_id,
@@ -317,7 +335,7 @@ def test_client_cancel_is_recorded_without_pausing_the_model(
         "local", connection_id=connection_id, enabled=True
     )
     run_id = "run-client-cancelled"
-    repository.claim_chat_canary_run(
+    _claim_run(repository,
         "local",
         run_id=run_id,
         connection_id=connection_id,
@@ -330,7 +348,7 @@ def test_client_cancel_is_recorded_without_pausing_the_model(
         session_id_hash="cancel-session-hash",
         baseline_overlap=False,
     )
-    repository.mark_chat_canary_dispatched("local", run_id)
+    _mark_dispatched(repository, "local", run_id)
     evidence = ProviderChatCanaryStreamEvidence(started_at=0.0)
     status, result_class, error_code, checks, warnings = evidence.finish(
         transport_completed=False,

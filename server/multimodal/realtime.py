@@ -18,6 +18,9 @@ import httpx
 from pydantic import BaseModel, Field
 
 try:
+    from server.model_router.call_context import ProviderCallContextError
+    from server.model_router.multimodal_call_context import start_direct_run
+    from server.model_router.certification_call_context import certification_origin
     from server.model_router.egress import (
         AuthorizedProviderTarget,
         ProviderEgressError,
@@ -49,6 +52,9 @@ try:
         ProviderWorkloadControlService,
     )
 except ModuleNotFoundError:
+    from model_router.call_context import ProviderCallContextError
+    from model_router.multimodal_call_context import start_direct_run
+    from model_router.certification_call_context import certification_origin
     from model_router.egress import (
         AuthorizedProviderTarget,
         ProviderEgressError,
@@ -718,10 +724,8 @@ class RealtimeVoiceService:
         run_id: str | None = None
         prepared: Any = None
         try:
-            run_id = self.call_service.start_stable_run(
-                REALTIME_ENTRY_ID,  # type: ignore[arg-type]
-                parent_run_reference=parent_reference,
-            )
+            run_id = start_direct_run(self.call_service, REALTIME_ENTRY_ID,
+                                      parent_reference=parent_reference, stable=True)
             prepared = await self.call_service.prepare_call(
                 run_id=run_id,
                 entry_id=REALTIME_ENTRY_ID,  # type: ignore[arg-type]
@@ -1625,6 +1629,10 @@ class RealtimeVoiceService:
                 "未找到该 Realtime 认证会话。",
                 status_code=404,
             )
+        try:
+            certification_origin(self.repository, 'provider_workload', certification_id)
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(exc.code, "认证来源缺失或不一致，不能确认资格。", status_code=409) from None
         connection = self.repository.get_connection(
             self.tenant_id,
             str(certification["connection_id"]),

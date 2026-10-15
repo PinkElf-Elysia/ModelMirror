@@ -14,6 +14,7 @@ from server.model_router.schemas import (
     ProviderWorkloadPolicyUpdate,
 )
 from server.model_router.service import RouterServiceError
+from server.model_router.call_context_storage import ProviderContextStore
 from server.model_router.workload_control import (
     ENTRY_FEATURE_FLAGS, ProviderWorkloadCallService,
 )
@@ -158,7 +159,10 @@ async def test_workload_readiness_matches_prepare_without_side_effects(tmp_path,
     calls.control.activate(entry, ProviderWorkloadActivationRequest(
         expected_revision=saved.revision, no_open_p0_p1=True, acknowledge_fail_closed=True,
     ))
-    run_id = calls.start_run(entry)
+    ProviderContextStore(repository).register_execution(
+        execution_id="shadow-admission", task_id="shadow-admission", source_kind="agent_shadow")
+    run_id = calls.start_stable_run(entry, parent_run_reference="shadow-admission",
+                                    origin_execution_id="shadow-admission")
     if state == "flag_off":
         monkeypatch.setenv(ENTRY_FEATURE_FLAGS[entry][0], "false")
     elif state == "legacy":

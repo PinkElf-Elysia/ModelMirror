@@ -7,6 +7,7 @@ from typing import Any, Literal
 import httpx
 
 from .service import ModelRouterService, RouterServiceError
+from .rag_call_context import start_operation_run, require_operation_source
 from .workflow_gateway import (
     ManagedWorkflowGateway,
     ManagedWorkflowNodeRun,
@@ -150,17 +151,8 @@ class ManagedRagGenerationGateway:
         if not clean_parent:
             clean_parent = f"rag:{entry_id}:{uuid.uuid4().hex}"
         try:
-            run_id = (
-                self.call_service.start_stable_run(
-                    entry_id,
-                    parent_run_reference=clean_parent,
-                )
-                if stable
-                else self.call_service.start_run(
-                    entry_id,
-                    parent_run_reference=clean_parent,
-                )
-            )
+            run_id = start_operation_run(self.call_service, entry_id,
+                parent_reference=clean_parent, stable=stable)
         except RouterServiceError as exc:
             raise ManagedRagGenerationError(
                 exc.code,
@@ -212,6 +204,8 @@ class ManagedRagGenerationRun:
         max_tokens: int,
     ) -> str:
         try:
+            require_operation_source(self._delegate.gateway.call_service,
+                self._delegate.run_id, self.entry_id)
             return await self._delegate.complete_text_unary(
                 logical_call_key=logical_call_key,
                 call_sequence=call_sequence,
@@ -220,7 +214,7 @@ class ManagedRagGenerationRun:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-        except ManagedWorkflowRoutingError as exc:
+        except (ManagedWorkflowRoutingError, RouterServiceError) as exc:
             raise self._closed_error(exc) from exc
 
     async def complete_json_object(
@@ -234,6 +228,8 @@ class ManagedRagGenerationRun:
         max_tokens: int,
     ) -> str:
         try:
+            require_operation_source(self._delegate.gateway.call_service,
+                self._delegate.run_id, self.entry_id)
             return await self._delegate.complete_json_object(
                 logical_call_key=logical_call_key,
                 call_sequence=call_sequence,
@@ -242,7 +238,7 @@ class ManagedRagGenerationRun:
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
-        except ManagedWorkflowRoutingError as exc:
+        except (ManagedWorkflowRoutingError, RouterServiceError) as exc:
             raise self._closed_error(exc) from exc
 
     def finish_success(self) -> dict[str, Any]:
@@ -278,7 +274,7 @@ class ManagedRagGenerationRun:
             status_code=exc.status_code,
             receipt=(
                 exc.receipt
-                if isinstance(exc.receipt, dict)
+                if isinstance(getattr(exc, "receipt", None), dict)
                 else self._delegate.receipt_summary()
             ),
         )

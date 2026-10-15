@@ -1611,6 +1611,8 @@ try:
         ManagedExpertTeamRun,
     )
     from server.model_router.fusion_gateway import ManagedFusionGateway
+    from server.model_router.rag_call_context import scoped_operation as provider_operation_scope
+    from server.model_router.multimodal_call_context import execute_inherited as execute_inherited_vision
     from server.model_router.route_team_gateway import (
         ManagedRouteTeamGateway,
         ManagedRouteTeamRun,
@@ -1638,6 +1640,8 @@ except ModuleNotFoundError:
         ManagedExpertTeamRun,
     )
     from model_router.fusion_gateway import ManagedFusionGateway
+    from model_router.rag_call_context import scoped_operation as provider_operation_scope
+    from model_router.multimodal_call_context import execute_inherited as execute_inherited_vision
     from model_router.route_team_gateway import (
         ManagedRouteTeamGateway,
         ManagedRouteTeamRun,
@@ -1893,6 +1897,7 @@ AUTOMATION_COORDINATOR_MAX_CONCURRENCY = env_int(
 )
 HANDOFF_MAX_DELEGATION_DEPTH = 5
 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY = "provider_workload_source_kind"
+_PROVIDER_ORIGIN_METADATA_KEY = "provider_origin_execution_id"
 MAX_IMAGE_DATA_URL_BYTES = 5 * 1024 * 1024
 MANAGED_CHAT_AUDIO_READ_TIMEOUT_SECONDS = 180.0
 MANAGED_CHAT_AUDIO_TOTAL_TIMEOUT_SECONDS = 300.0
@@ -5869,6 +5874,7 @@ def team_chat_control_enabled() -> bool:
 def expert_team_managed_run(
     task_id: str,
     segment_key: str,
+    *, parent_task_id: str | None = None,
 ) -> ManagedExpertTeamRun | None:
     gateway = expert_team_managed_gateway()
     mode = gateway.routing_mode("expert_team_dag")
@@ -5883,9 +5889,12 @@ def expert_team_managed_run(
                 "expert_team_dag", "provider_workload_policy_not_active"
             ),
         )
+    if segment_key == "initial":
+        gateway.bind_dag_execution(task_id, parent_task_id=parent_task_id)
     return gateway.start_run(
         "expert_team_dag",
         parent_run_reference=f"expert-team-dag:{task_id}:{segment_key}",
+        origin_execution_id=task_id,
     )
 
 
@@ -8334,6 +8343,7 @@ class ExpertTeamKnowledgeContextError(Exception):
         self.code = code
 
 
+@provider_operation_scope("rag_request")
 async def resolve_expert_team_knowledge_context(
     payload: ExpertTeamPlanPreviewRequest,
 ) -> tuple[str, dict[str, Any] | None, list[str]]:
@@ -10751,6 +10761,7 @@ async def _run_workflow_response(
     resolved_approval: RuntimeApprovalRequest | None = None,
     resolved_client_request: ClientToolRequest | None = None,
     runtime_execution_source_kind: str | None = None,
+    runtime_provider_parent_execution_id: str | None = None,
     runtime_trigger_event: dict[str, Any] | None = None,
     runtime_task_id: str | None = None,
     evaluation_write_backend: EvaluationWriteBackendContext | None = None,
@@ -10864,6 +10875,14 @@ async def _run_workflow_response(
     workflow_managed_gateway = ManagedWorkflowGateway.for_router(
         get_model_router_service()
     )
+    if resume_execution is not None:
+        try:
+            workflow_managed_gateway.validate_resume_source(
+                execution_id=resume_execution.run_id, task_id=resume_execution.task_id,
+                source_kind=trusted_source_kind,
+            )
+        except ManagedWorkflowRoutingError as exc:
+            return JSONResponse(status_code=exc.status_code, content={"error": exc.public_message, "code": exc.code})
     workflow_managed_mode = workflow_managed_gateway.routing_mode(
         trusted_source_kind
     )
@@ -11308,6 +11327,22 @@ async def _run_workflow_response(
                 )
             },
         )
+    if trusted_source_kind in {"workflow_classic", "workflow_deployment", "xpert_chat", "xpert_app"}:
+        try:
+            workflow_managed_gateway.bind_execution(
+                execution_id=workflow_run.run_id,
+                task_id=task_id,
+                source_kind=trusted_source_kind,
+                execution_reference=(
+                    str(run_metadata.get("workflow_deployment_execution_id") or task_id)
+                    if trusted_source_kind == "workflow_deployment" else task_id
+                ),
+                parent_execution_id=runtime_provider_parent_execution_id,
+                resume_from=resume_execution.run_id if resume_execution is not None else None,
+            )
+        except ManagedWorkflowRoutingError as exc:
+            await run_registry.update_run(workflow_run.run_id, status="failed", error=exc.code)
+            return JSONResponse(status_code=exc.status_code, content={"error": exc.public_message, "code": exc.code})
     if (
         resume_execution is not None
         and resume_execution.run_id != workflow_run.run_id
@@ -13037,6 +13072,7 @@ async def _run_workflow_response(
                         "todo_scope_type": todo_scope_type,
                         "todo_scope_id": todo_scope_id,
                         **dict(metadata or {}),
+                        _PROVIDER_ORIGIN_METADATA_KEY: workflow_run.run_id,
                         "hub_approval": (
                             {
                                 "candidate_id": matched_tool.metadata.get(
@@ -19813,6 +19849,8 @@ async def _run_workflow_response(
                             "contract_version": contract_version,
                             "return_mode": return_mode,
                             "version_id": retry_target_version_id,
+                            "provider_parent_execution_id": workflow_run.run_id,
+                            "provider_logical_reference": f"knowledge-node:{node.id}",
                         }
                         if runtime_run_type == "xpert_evaluation":
                             retrieval_options["include_resource_evidence"] = True
@@ -20458,7 +20496,13 @@ async def _run_workflow_response(
                             if runtime_run_type == "xpert_evaluation":
                                 record_evaluation_vision_receipt(get_xpert_evaluation_store(), vision_metadata, node_ref=str(node.data.get("plannerRef") or node.id), receipt=receipt)
 
-                        result_payload, result = await execute_workflow_vision(
+                        vision_operation = execute_workflow_vision
+                        if trusted_source_kind in {"workflow_classic", "workflow_deployment", "xpert_chat", "xpert_app"}:
+                            from functools import partial
+                            vision_operation = partial(execute_inherited_vision,
+                                workflow_managed_gateway.call_service.repository,
+                                workflow_run.run_id, execute_workflow_vision)
+                        result_payload, result = await vision_operation(
                             asset=asset,
                             model_id=model_id,
                             pdf_page_strategy=str(
@@ -24450,6 +24494,7 @@ async def _run_workflow_response(
                                 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
                                     _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
                                 ),
+                                _PROVIDER_ORIGIN_METADATA_KEY: workflow_run.run_id,
                                 "handoff_depth": int(run_metadata.get("handoff_depth") or 0),
                             },
                         )
@@ -24614,6 +24659,7 @@ async def _run_workflow_response(
                                 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
                                     _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
                                 ),
+                                _PROVIDER_ORIGIN_METADATA_KEY: workflow_run.run_id,
                                 "handoff_depth": int(
                                     run_metadata.get("handoff_depth") or 0
                                 ),
@@ -24837,6 +24883,7 @@ async def _run_workflow_response(
                             _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
                                 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
                             ),
+                            _PROVIDER_ORIGIN_METADATA_KEY: workflow_run.run_id,
                             "handoff_depth": int(run_metadata.get("handoff_depth") or 0),
                         }
                         task, handoff = await agent_task_store.create_task_and_handoff(
@@ -25078,6 +25125,7 @@ async def _run_workflow_response(
                                 _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY: run_metadata.get(
                                     _PROVIDER_WORKLOAD_SOURCE_METADATA_KEY
                                 ),
+                                _PROVIDER_ORIGIN_METADATA_KEY: workflow_run.run_id,
                                 "handoff_depth": int(
                                     run_metadata.get("handoff_depth") or 0
                                 ),
@@ -28365,6 +28413,21 @@ async def execute_external_xpert_resource(
         })
 
     parent_run_id = str(call.metadata.get("run_id") or "").strip() or None
+    provider_parent_origin = call.metadata.get(_PROVIDER_ORIGIN_METADATA_KEY)
+    if call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY) in {"xpert_chat", "xpert_app"} and not provider_parent_origin:
+        raise ValueError("provider_call_context_origin_missing")
+    provider_child_task_id = None
+    if call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY) in {"xpert_chat", "xpert_app"}:
+        iteration = call.metadata.get("iteration")
+        batch_index = call.metadata.get("batch_index", 0)
+        if type(iteration) is not int or iteration < 1 or type(batch_index) is not int or batch_index < 0:
+            raise ValueError("provider_call_context_reference_invalid")
+        provider_child_task_id = ManagedWorkflowGateway.for_router(get_model_router_service()).child_task_reference(
+            parent_execution_id=provider_parent_origin,
+            source_kind=call.metadata[_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY],
+            logical_parts=("external-xpert", call.metadata.get("node_id"), str(iteration),
+                           call.metadata.get("tool_call_id") or "react", str(batch_index)),
+        )
     if parent_run_id:
         await run_registry.record_checkpoint(
             parent_run_id,
@@ -28405,6 +28468,8 @@ async def execute_external_xpert_resource(
         runtime_metadata=prepared.runtime_metadata,
         runtime_parent_run_id=parent_run_id,
         runtime_budget_delegation=delegation,
+        runtime_provider_parent_execution_id=provider_parent_origin,
+        runtime_task_id=provider_child_task_id,
         runtime_execution_source_kind=(
             str(call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY))
             if call.metadata.get(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY)
@@ -28629,6 +28694,18 @@ async def execute_xpert_handoff_target(
         if _handoff_budget_occurrence(current, current_task) != delegation["occurrence_id"]:
             raise HandoffPermanentError("HANDOFF_BUDGET_CONTRACT_CHANGED：派发前委托契约已变化。")
 
+    provider_parent_origin = handoff.metadata.get(_PROVIDER_ORIGIN_METADATA_KEY)
+    if managed_parent_entry is not None and not provider_parent_origin:
+        raise HandoffPermanentError("provider_call_context_origin_missing")
+    provider_child_task_id = None
+    if managed_parent_entry is not None:
+        try:
+            provider_child_task_id = ManagedWorkflowGateway.for_router(get_model_router_service()).child_task_reference(
+                parent_execution_id=provider_parent_origin, source_kind=managed_parent_source,
+                logical_parts=("handoff", handoff.handoff_id),
+            )
+        except ManagedWorkflowRoutingError as exc:
+            raise HandoffPermanentError(exc.code) from exc
     try:
         with use_execution_dispatch_guard(assert_handoff_budget_owner if delegation is not None else None):
             if delegation is not None:
@@ -28645,6 +28722,8 @@ async def execute_xpert_handoff_target(
                     "source_agent": handoff.source_agent,
                 },
                 runtime_parent_run_id=handoff_run_id,
+                runtime_provider_parent_execution_id=provider_parent_origin,
+                runtime_task_id=provider_child_task_id,
                 runtime_execution_source_kind=(
                     managed_parent_source if managed_parent_entry is not None else None
                 ),
@@ -32485,6 +32564,7 @@ async def create_agent_handoff(task_id: str, payload: dict[str, Any]):
     # The managed-parent marker is server-owned.  Public handoff callers may
     # not opt an otherwise excluded workload into the Xpert control plane.
     handoff_metadata.pop(_PROVIDER_WORKLOAD_SOURCE_METADATA_KEY, None)
+    handoff_metadata.pop(_PROVIDER_ORIGIN_METADATA_KEY, None)
     handoff = await agent_task_store.create_handoff(
         task_id,
         source_agent=source_agent or "workflow",

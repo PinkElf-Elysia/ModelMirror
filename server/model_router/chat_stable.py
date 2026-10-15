@@ -4,6 +4,11 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from typing import Literal
+
+from .call_context import (
+    ProviderCallContext, ProviderCallContextError, require_provider_call_context,
+)
 
 from .chat_canary import (
     DEFAULT_PROVIDER_CHAT_CERTIFICATION_MAX_AGE_SECONDS,
@@ -47,6 +52,7 @@ class ProviderChatStableDispatch:
     started_at: float
     required_certifications: tuple[ProviderChatCertificationBinding, ...]
     gateway: str
+    call_context: ProviderCallContext
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,11 +66,44 @@ class ProviderChatStablePreflight:
 class ProviderChatStableService:
     """Plan one stable Managed Chat request without storing request content."""
 
-    def __init__(self, router_service: ModelRouterService) -> None:
+    def __init__(
+        self, router_service: ModelRouterService, *,
+        origin_entry_id: Literal["chat_default", "ai_research_bridge"] = "chat_default",
+    ) -> None:
+        # Set only by the server-owned entry dependency, never request fields.
+        if origin_entry_id not in {"chat_default", "ai_research_bridge"}:
+            raise ProviderCallContextError("provider_call_context_entry_invalid")
+        self._origin_entry_id = origin_entry_id
+        # Server-owned creation facts, independent of the returned dispatch.
+        # This is deliberately not a recovery store: a new service must not
+        # infer historical provenance from a caller-supplied dispatch object.
+        self._call_origins: dict[str, tuple[str, ProviderCallContext]] = {}
         self.router_service = router_service
         self.repository = router_service.repository
         self.control = ProviderChatControlService(router_service)
         self.transport = ProviderChatTransport(router_service.egress_policy)
+
+    def _context_origin(self, gateway: str) -> tuple[str, str, str, str]:
+        if gateway == "rpg_scoped":
+            return "service", "rpg-bridge", "rpg_bridge", "user_run"
+        if gateway == "ai_research_scoped" or (
+            gateway == "default" and self._origin_entry_id == "ai_research_bridge"
+        ):
+            # A service-authenticated research run is not automatically a
+            # background helper merely because it arrives through a bridge.
+            return "service", "ai-research-bridge", "ai_research_bridge", "user_run"
+        if gateway == "default":
+            return "local_anonymous", "local-anonymous", "chat_default", "user_run"
+        raise ProviderCallContextError("provider_call_context_entry_invalid")
+
+    def _call_context(self, gateway: str, run_id: str, attempt_id: str, revision: int) -> ProviderCallContext:
+        actor, reference, entry, purpose = self._context_origin(gateway)
+        return ProviderCallContext(
+            tenant_id=self.router_service.tenant_id,
+            actor_kind=actor, actor_reference=reference, entry_id=entry, purpose=purpose,
+            parent_run_id=run_id, logical_call_id=f"{run_id}:chat",
+            attempt_id=attempt_id, policy_revision=revision,
+        )
 
     def readiness(
         self,
@@ -265,6 +304,7 @@ class ProviderChatStableService:
                 connection_id,
             )
             attempt_id = f"chatattempt_{uuid.uuid4().hex}"
+            call_context = self._call_context(gateway, run_id, attempt_id, policy.revision)
             self._repository_method("claim_chat_control_attempt")(
                 self.router_service.tenant_id,
                 attempt_id=attempt_id,
@@ -273,6 +313,7 @@ class ProviderChatStableService:
                 position=position,
                 connection_id=connection_id,
                 provider_kind=connection.kind,
+                call_context=call_context,
             )
             bindings: dict[
                 ProviderChatCapability, ProviderChatCertificationBinding
@@ -328,6 +369,7 @@ class ProviderChatStableService:
                 certification_id=certification_id,
             )
             bindings[capability] = actual_binding
+            self._call_origins[attempt_id] = (gateway, call_context)
             return ProviderChatStablePreflight(
                 intercepted=True,
                 dispatch=ProviderChatStableDispatch(
@@ -348,6 +390,7 @@ class ProviderChatStableService:
                         bindings[item] for item in required_capabilities
                     ),
                     gateway=gateway,
+                    call_context=call_context,
                 ),
             )
 
@@ -405,11 +448,12 @@ class ProviderChatStableService:
                 certification_max_age_seconds=(
                     self._certification_max_age_seconds()
                 ),
+                call_context=dispatch.call_context,
             )
-        except (RouterServiceError, RouterRepositoryError) as exc:
+        except (RouterServiceError, RouterRepositoryError, ProviderCallContextError) as exc:
             code = (
                 exc.code
-                if isinstance(exc, RouterServiceError)
+                if isinstance(exc, (RouterServiceError, ProviderCallContextError))
                 else str(exc)
             )
             self._repository_method(
@@ -487,6 +531,30 @@ class ProviderChatStableService:
                 "Chat 路由策略或资格已变化，请刷新设置后重试。",
                 status_code=409,
             )
+        # Preserve the existing public policy/qualification error contract.
+        # Provenance adds a check; it must not mask an established drift reason.
+        try:
+            origin = self._call_origins.get(dispatch.attempt_id)
+            if origin is None:
+                raise ProviderCallContextError("provider_call_context_origin_missing")
+            expected_gateway, expected = origin
+            if dispatch.gateway != expected_gateway:
+                raise ProviderCallContextError("provider_call_context_entry_mismatch")
+            if dispatch.run_id != expected.parent_run_id:
+                raise ProviderCallContextError("provider_call_context_reference_mismatch")
+            if expected.policy_revision != policy.revision:
+                raise ProviderCallContextError("provider_call_context_policy_changed")
+            require_provider_call_context(
+                dispatch.call_context,
+                actor_kind=expected.actor_kind, actor_reference=expected.actor_reference,
+                purpose=expected.purpose, entry_id=expected.entry_id,
+                parent_run_id=dispatch.run_id, logical_call_id=expected.logical_call_id,
+                attempt_id=dispatch.attempt_id, policy_revision=policy.revision,
+            )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(
+                exc.code, "模型调用来源或策略已变化，本次调用在派发前阻断。", status_code=409,
+            ) from exc
 
     def _scoped_bindings_for_connection(
         self,

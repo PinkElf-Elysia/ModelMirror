@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .certification_call_context import certification_origin
+
 import asyncio
 import base64
 import binascii
@@ -19,6 +21,8 @@ import httpx
 from . import chat_audio_input_fixture as chat_input_fixture
 from . import r8e_video_fixture as video_fixture
 from .chat_control import ProviderChatControlService
+from .call_context import ProviderCallContext, ProviderCallContextError
+from .call_context_storage import ProviderContextStore
 from .qualifications import qualification_admin_summary
 from .egress import AuthorizedProviderTarget, ProviderEgressError
 from .provider_catalog import ProviderCatalogService
@@ -1379,6 +1383,7 @@ class ProviderWorkloadCertificationService:
                             payload,
                             evidence,
                             started,
+                            certification_id=str(row['id']),
                         )
                     elif payload.execution_shape in R8C_EXECUTION_SHAPES:
                         await self._run_r8c_audio_certification(
@@ -1449,6 +1454,7 @@ class ProviderWorkloadCertificationService:
                             authorized,
                             request_payload,
                         )
+                        certification_origin(self.repository, 'provider_workload', str(row['id']))
                         response = await self.transport.send_authorized_stream(
                             client, request
                         )
@@ -1504,6 +1510,8 @@ class ProviderWorkloadCertificationService:
             error_code = exc.code
         except RouterCredentialUnavailable:
             error_code = "provider_workload_credential_unavailable"
+        except ProviderCallContextError as exc:
+            error_code = exc.code
         except httpx.HTTPError:
             error_code = "provider_workload_transport_error"
         except asyncio.CancelledError:
@@ -2370,6 +2378,8 @@ class ProviderWorkloadCertificationService:
         payload: ProviderWorkloadCertificationRequest,
         evidence: _CertificationEvidence,
         started: float,
+        *,
+        certification_id: str,
     ) -> None:
         if payload.adapter_contract is None:
             raise _WorkloadCertificationFailure(
@@ -2391,6 +2401,7 @@ class ProviderWorkloadCertificationService:
             authorized,
             request_payload,
         )
+        certification_origin(self.repository, 'provider_workload', certification_id)
         response = await self.multimodal_transport.send_authorized(client, request)
         try:
             self._validate_status(response.status_code)
@@ -4212,6 +4223,7 @@ class ProviderWorkloadCertificationService:
             method="POST",
             payload=self._operation_request_payload(payload),
         )
+        certification_origin(self.repository, 'provider_workload', certification_id)
         response = await self.operation_transport.send_authorized(client, request)
         try:
             self._validate_status(response.status_code)
@@ -4524,6 +4536,7 @@ class ProviderWorkloadCertificationService:
             payload=request_payload,
         )
         try:
+            certification_origin(self.repository, 'provider_workload', certification_id)
             response = await self.operation_transport.send_authorized(client, request)
         except (httpx.HTTPError, TimeoutError) as exc:
             self._repository_method("mark_provider_batch_uncertain")(
@@ -4611,6 +4624,12 @@ class ProviderWorkloadCertificationService:
                     authorized_poll,
                     method="GET",
                 )
+                job = self._repository_method('get_provider_batch_job')(self.router_service.tenant_id, job_id)
+                if (job is None or job.get('purpose') != 'certification'
+                        or job.get('connection_id') != target.connection_id
+                        or job.get('upstream_batch_id') != upstream_batch_id):
+                    raise ProviderCallContextError('provider_call_context_reference_mismatch')
+                certification_origin(self.repository, 'provider_workload', str(job['certification_id']))
                 try:
                     poll_response = await self.operation_transport.send_authorized(
                         client, poll_request
@@ -6478,6 +6497,7 @@ class ProviderWorkloadPreparedCall:
     adapter_contract: str | None
     protocol_version: str | None
     authorized_target: AuthorizedProviderTarget
+    call_context: ProviderCallContext
 
 
 class ProviderWorkloadCallService:
@@ -6500,6 +6520,7 @@ class ProviderWorkloadCallService:
         entry_id: ProviderWorkloadEntryId,
         *,
         parent_run_reference: str | None = None,
+        origin_source: str | None = None,
     ) -> str:
         policy = self.control.get_policy(entry_id)
         self._ensure_active(policy)
@@ -6510,6 +6531,8 @@ class ProviderWorkloadCallService:
             entry_id=entry_id,
             policy_fingerprint=policy.policy_fingerprint,
             parent_run_reference=parent_run_reference,
+            origin_source=origin_source,
+            policy_revision=policy.revision,
         )
         return run_id
 
@@ -6519,6 +6542,7 @@ class ProviderWorkloadCallService:
         *,
         parent_run_reference: str,
         replay_guard_references: tuple[str, ...] = (),
+        origin_execution_id: str | None = None,
     ) -> str:
         """Claim one durable logical run and reject every later replay."""
 
@@ -6539,6 +6563,8 @@ class ProviderWorkloadCallService:
                 entry_id=entry_id,
                 policy_fingerprint=policy.policy_fingerprint,
                 parent_run_reference=clean_parent,
+                origin_execution_id=origin_execution_id,
+                policy_revision=policy.revision,
                 replay_guard_run_ids=tuple(
                     self.stable_run_id(entry_id, reference)
                     for reference in replay_guard_references
@@ -6730,6 +6756,7 @@ class ProviderWorkloadCallService:
             adapter_contract=binding.adapter_contract,
             protocol_version=binding.protocol_version,
             authorized_target=authorized,
+            call_context=ProviderContextStore(self.repository).read(self.router_service.tenant_id, str(row["id"])),
         )
 
     def mark_dispatched(self, prepared: ProviderWorkloadPreparedCall) -> None:
@@ -6785,7 +6812,10 @@ class ProviderWorkloadCallService:
                 adapter_contract=prepared.adapter_contract,
                 protocol_version=prepared.protocol_version,
                 verify_current_connection=True,
+                call_context=prepared.call_context,
             )
+        except ProviderCallContextError as exc:
+            raise RouterServiceError(exc.code, "模型调用可信来源已变化，系统未派发请求。", status_code=409) from exc
         except RouterRepositoryError as exc:
             if str(exc) == "provider_workload_dispatch_preconditions_changed":
                 raise RouterServiceError(

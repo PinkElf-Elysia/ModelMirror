@@ -1,4 +1,4 @@
-"""Build, never deploy, an exact B2 compatibility source archive for v19.
+"""Build, never deploy, an exact B2 compatibility source archive for v19/v20.
 
 Run from the reviewed B3 worktree. The output must not already exist. This
 command reads Git source only: no database, credentials or environment export.
@@ -22,6 +22,8 @@ REPOSITORY_BLOB = "d097d68786bcb1d21ae585bb2063ddca4f7d4ede"
 SUPPORT_PATHS = (
     "server/model_router/qualification_storage.py",
     "server/model_router/qualification_rollback.py",
+    "server/model_router/call_context.py",
+    "server/model_router/call_context_storage.py",
 )
 
 REPLACEMENT = '''    def migrate_schema(self) -> None:
@@ -78,7 +80,7 @@ def build_archive(repo: Path, output: Path) -> dict[str, object]:
             package.writestr(path, data)
         manifest = {
             "contract": "modelmirror-provider-qualification-rollback-v1",
-            "baseline": BASELINE, "accepted_schema": 19,
+            "baseline": BASELINE, "accepted_schemas": [19, 20],
             "changes": {
                 path: hashlib.sha256(data).hexdigest()
                 for path, data in {REPOSITORY_PATH: patched, **support}.items()
@@ -87,7 +89,7 @@ def build_archive(repo: Path, output: Path) -> dict[str, object]:
                 "explicit_policy_deactivation", "control_flags_disabled",
                 "certification_disabled", "no_unresolved_operations", "empty_outbox",
             ],
-            "limitations": ["not_a_deployment", "v18_maintenance_commands_reject_v19"],
+            "limitations": ["not_a_deployment", "v18_maintenance_commands_reject_v19_v20"],
         }
         package.writestr("provider-qualification-rollback-manifest.json", json.dumps(manifest, sort_keys=True, indent=2))
     data = result.getvalue()
@@ -107,6 +109,8 @@ def verify_repository_cycle(repo: Path, storage: Path) -> dict[str, object]:
     patched = patch_repository(source)
     sys.path.insert(0, str(repo))
     from server.model_router.repository import SQLiteRouterRepository
+    from server.model_router.call_context import ProviderCallContext
+    from server.model_router.call_context_storage import ProviderContextStore, save_context
     import sqlite3
     import os
 
@@ -124,8 +128,14 @@ def verify_repository_cycle(repo: Path, storage: Path) -> dict[str, object]:
             requested_model="synthetic/model", idempotency_key_hash="synthetic-hash",
         )
         owner.complete_chat_certification("local", "synthetic-old-cert", status="passed", checks={}, warning_codes=[])
-    with SQLiteRouterRepository.open(storage, master_key=b"s" * 32):
-        pass
+    retained_context = ProviderCallContext(tenant_id="local", actor_kind="local_anonymous",
+        actor_reference="local-anonymous", entry_id="xpert", purpose="user_run",
+        parent_run_id="synthetic-run", logical_call_id="synthetic-logical", attempt_id="synthetic-call", policy_revision=1)
+    with SQLiteRouterRepository.open(storage, master_key=b"s" * 32) as owner:
+        ProviderContextStore(owner).register_execution(execution_id="synthetic-execution",
+            task_id="synthetic-task", source_kind="xpert_chat")
+        with owner._connect() as connection:
+            save_context(connection, retained_context, owner_kind="workload")
     flags = {
         key for key in os.environ
         if key.startswith("MODEL_CONTROL_") and key.endswith("_ENABLED")
@@ -146,10 +156,14 @@ def verify_repository_cycle(repo: Path, storage: Path) -> dict[str, object]:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-    with SQLiteRouterRepository.open(storage, master_key=b"s" * 32):
-        pass
+    with SQLiteRouterRepository.open(storage, master_key=b"s" * 32) as owner:
+        context_store = ProviderContextStore(owner)
+        if context_store.read("local", "synthetic-call") != retained_context:
+            raise ValueError("rollback_context_changed")
+        if context_store.execution("local", "synthetic-execution")["task_id"] != "synthetic-task":
+            raise ValueError("rollback_origin_changed")
     with sqlite3.connect(f"file:{(storage / 'router.sqlite3').as_posix()}?mode=ro", uri=True) as db:
-        if db.execute("PRAGMA user_version").fetchone()[0] != 19:
+        if db.execute("PRAGMA user_version").fetchone()[0] != 20:
             raise ValueError("rollback_schema_downgraded")
     return {"baseline": BASELINE, "repository_cycle": "passed", "provider_calls": 0,
             "boundary": "repository integration only; no full server or container validation"}

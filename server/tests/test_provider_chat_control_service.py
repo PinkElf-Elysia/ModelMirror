@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from server.model_router.chat_gate import evaluate_provider_chat_gate
+from server.model_router.call_context import ProviderCallContext
 from server.model_router.chat_control import ProviderChatControlService
 from server.model_router.repository import SQLiteRouterRepository
 from server.model_router.schemas import (
@@ -450,6 +451,11 @@ def test_hard_failure_invalidates_saved_qualification_until_recertification(
         is_real_user=True,
         primary_newapi=True,
     )
+    context = ProviderCallContext(
+        tenant_id="local", actor_kind="local_anonymous", actor_reference="local-anonymous",
+        entry_id="chat_default", purpose="user_run", parent_run_id="hard-run",
+        logical_call_id="hard-run", attempt_id="hard-attempt", policy_revision=policy.revision,
+    )
     repository.claim_chat_control_attempt(
         "local",
         attempt_id="hard-attempt",
@@ -458,8 +464,9 @@ def test_hard_failure_invalidates_saved_qualification_until_recertification(
         position=0,
         connection_id=newapi_id,
         provider_kind="newapi",
+        call_context=context,
     )
-    repository.mark_chat_control_attempt_dispatched("local", "hard-attempt")
+    repository.mark_chat_control_attempt_dispatched("local", "hard-attempt", call_context=context)
     repository.complete_chat_control_attempt(
         "local",
         "hard-attempt",

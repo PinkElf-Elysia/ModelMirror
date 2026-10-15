@@ -954,7 +954,7 @@ def test_managed_start_closes_control_run_when_local_bootstrap_fails(
             run_registry=run_registry,
             model_runner=_noop_model,
             client_factory=CompletingClient,
-            managed_run_factory=lambda _task_id, _segment_key: managed_run,
+            managed_run_factory=lambda _task_id, _segment_key, **_origin: managed_run,
         )
 
         with pytest.raises(RuntimeError, match="local registry unavailable"):
@@ -1047,7 +1047,7 @@ def test_managed_hitl_uses_distinct_initial_and_resume_segments(tmp_path):
         approvals = RuntimeApprovalStore(tmp_path)
         created_runs = []
 
-        def managed_run_factory(task_id, segment_key):
+        def managed_run_factory(task_id, segment_key, *, parent_task_id=None):
             managed_run = FakeManagedRun()
             created_runs.append((task_id, segment_key, managed_run))
             return managed_run
@@ -1231,7 +1231,7 @@ def test_managed_dag_uses_worker_request_id_and_persists_redacted_receipt(tmp_pa
         )
         created_runs = []
 
-        def managed_run_factory(task_id, segment_key):
+        def managed_run_factory(task_id, segment_key, *, parent_task_id=None):
             managed_run = FakeManagedRun()
             created_runs.append((task_id, segment_key, managed_run))
             return managed_run
@@ -1298,7 +1298,7 @@ def test_managed_dag_policy_drift_fails_before_legacy_worker_start(tmp_path):
             run_registry=RunRegistry(),
             model_runner=_noop_model,
             client_factory=lambda: client,
-            managed_run_factory=lambda _task_id, _segment_key: None,
+            managed_run_factory=lambda _task_id, _segment_key, **_origin: None,
         )
 
         with pytest.raises(AgencyExecutionValidationError) as caught:
