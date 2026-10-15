@@ -42,6 +42,7 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "google/gemini-3.8-flash-tts",
   "google/gemini-3.8-flash-lite-tts",
   "typesafe/jev-1.13",
+  "typesafe/jev-1.14", "assemblyai/universal-3-6-pro", "~perplexity/pplx-decider-latest",
   "~typesafe/jev-latest",
   "meta/muse-voice-transcribe-1.0",
   "assemblyai/universal-3-5-pro",

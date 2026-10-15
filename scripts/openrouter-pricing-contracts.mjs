@@ -41,8 +41,8 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
       }),
     }),
   ],
-  [
-    "assemblyai/universal-3-5-pro",
+  ...["assemblyai/universal-3-5-pro", "assemblyai/universal-3-6-pro"].map((id) => [
+    id,
     Object.freeze({
       unit: "audio_hour",
       pricingBasis: "media",
@@ -61,7 +61,7 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
         pricingJsonMultiplier: 3_600,
       }),
     }),
-  ],
+  ]),
   [
     "meta/muse-voice-transcribe-1.0",
     Object.freeze({

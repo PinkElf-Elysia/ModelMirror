@@ -7,6 +7,7 @@ import playGodCard from "./articles/play-god-card.md?raw";
 import playRpgCards from "./articles/play-rpg-cards.md?raw";
 import buildFirstWorkflow from "./articles/build-first-workflow.md?raw";
 import checkAvailabilityCostData from "./articles/check-availability-cost-data.md?raw";
+import reviewAssemblyJev from "./articles/review-assembly-jev.md?raw";
 import chooseModelAgentWorkflow from "./articles/choose-model-agent-workflow.md?raw";
 import createRepeatableAgent from "./articles/create-repeatable-agent.md?raw";
 import handleWorkflowNodeFailure from "./articles/handle-workflow-node-failure.md?raw";
@@ -128,6 +129,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "review-assembly-jev", title: "核对转写与 Jev 决策入口", summary: "检查 Universal-3.6 的格式限制与 Jev 1.14 的文字决策费用，不提交请求。", category: "按目标找指南", contentType: "how-to", audience: "需要转写或结构化决策的用户", estimatedMinutes: 4, keywords: ["AssemblyAI", "Universal", "Jev", "转写", "决策"], relatedRoutes: ["/models", "/decisions/:modelId"], verifiedCommit: "ec79e120", verifiedDate: "2026-10-15", content: reviewAssemblyJev, nextSlug: "check-availability-cost-data" },
   { slug: "prepare-scaledown-argon-speech", title: "准备摘要、字段提取与新语音任务", summary: "准备 ScaleDown 文字输入，核对 Argon 批处理和语音费用边界，不发送请求。", category: "按模块浏览", contentType: "how-to", audience: "需要整理文字或核对新模型入口的用户", estimatedMinutes: 6, keywords: ["ScaleDown", "摘要", "提取", "Argon", "HeyGen", "Drama"], relatedRoutes: ["/models", "/scaledown/:modelId", "/decisions/:modelId", "/chat/:modelId"], verifiedCommit: "2df7efba", verifiedDate: "2026-10-14", content: prepareScaleDownArgonSpeech, nextSlug: "check-availability-cost-data" },
   { slug: "review-wonder-decisions", title: "核对 Wonder 与文字决策入口", summary: "区分多模态对话和专用决策，查看附件门禁与费用。", category: "按目标找指南", contentType: "how-to", audience: "需要问答或任务分类的用户", estimatedMinutes: 5, keywords: ["Wonder", "Drex", "Perplexity", "Latest", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "262f7caf", verifiedDate: "2026-10-13", content: reviewWonderDecisions, nextSlug: "check-availability-cost-data" },
   { slug: "review-decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "区分专用决策和异步批处理，核对费用与数据边界。", category: "按目标找指南", contentType: "how-to", audience: "需要决策或离线文本处理的用户", estimatedMinutes: 5, keywords: ["Clef", "Microsoft", "Drex", "Mercury", "Sol", "Batch", "决策"], relatedRoutes: ["/models", "/chat/:modelId", "/decisions/:modelId"], verifiedCommit: "e5a808a6", verifiedDate: "2026-10-11", content: reviewDecisionsSolBatch, nextSlug: "check-availability-cost-data" },
@@ -639,6 +641,7 @@ export const helpSections: HelpSection[] = [
     path: "/help/sections/safety",
     items: [
       { id: "before-send", title: "发送前做一次完整检查", summary: "依次确认可用性、费用授权和资料是否允许发送。", to: "/help/check-availability-cost-data", keywords: ["发送前", "可用", "费用", "数据"] },
+      { id: "assembly-jev", title: "核对转写与 Jev 决策入口", summary: "核对转写限制和文字决策输入，不提交请求。", to: "/help/review-assembly-jev", keywords: ["AssemblyAI", "Jev", "转写", "决策"] },
       { id: "specialized-models", title: "核对新增对话、路由与专用模型", summary: "查看本轮模型的入口、可用状态与计费单位。", to: "/help/review-specialized-models", keywords: ["Ling 3.1", "Switchyard", "Flux TTS", "Seedream", "MAI Voice", "语音", "费用"] },
       { id: "elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用和未配置边界。", to: "/help/review-elevenlabs-batch", keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策"] },
       { id: "decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "查看文字状态、决策费用和批处理数据边界。", to: "/help/review-decisions-sol-batch", keywords: ["Clef", "Microsoft", "Drex", "Sol", "Batch", "决策"] },

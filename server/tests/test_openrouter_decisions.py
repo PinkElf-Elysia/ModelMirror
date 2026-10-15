@@ -20,15 +20,17 @@ async def client():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model_id", ["typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
 async def test_decisions_proxy_uses_dedicated_openrouter_contract(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
+    model_id: str,
 ) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url == "https://openrouter.ai/api/alpha/decisions"
         assert request.headers["Authorization"] == "Bearer decisions-secret"
         assert json.loads(request.content) == {
-            "model": "typesafe/jev-1.13",
+            "model": model_id,
             "state": "A production alert has repeated twice.",
             "questions": {
                 "priority": {
@@ -45,7 +47,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         return httpx.Response(
             200,
             json={
-                "model": "typesafe/jev-1.13",
+                "model": model_id,
                 "answers": {"priority": {"choice": "page", "probability": 0.92}},
                 "usage": {"prompt_tokens": 17},
             },
@@ -62,7 +64,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
     response = await client.post(
         "/api/decisions",
         json={
-            "model": "typesafe/jev-1.13",
+            "model": model_id,
             "state": "A production alert has repeated twice.",
             "questions": {
                 "priority": {

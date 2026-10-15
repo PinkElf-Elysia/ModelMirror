@@ -3407,6 +3407,8 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "typesafe/jev-1.14",
+        "~perplexity/pplx-decider-latest",
         "scaledown/classify-1",
         "nace-ai/drex-v2.0",
         "~perplexity/pplx-decider-27b-latest",

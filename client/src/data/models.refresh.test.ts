@@ -6,9 +6,9 @@ import {
 import { models } from "./models";
 
 vi.hoisted(() => {
-  // Catalog totals describe the October 13 snapshot, not the wall-clock date.
+  // Catalog totals are fixed to the October 14 Phoenix evidence window.
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-10-13T06:54:09.420Z"));
+  vi.setSystemTime(new Date("2026-10-15T02:22:27.004Z"));
 });
 
 afterAll(() => vi.useRealTimers());
@@ -230,11 +230,11 @@ describe("OpenRouter model refresh", () => {
   });
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(713);
+    expect(counted).toHaveLength(716);
     expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(586);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(102);
-    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(25);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(688);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(103);
+    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(27);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(689);
   });
 
   it("keeps October 7 decisions and media off the ordinary text-only route", () => {
@@ -545,7 +545,7 @@ describe("OpenRouter model refresh", () => {
     });
     expect(byId.get("assemblyai/universal-3-5-pro")).toMatchObject({
       pricing_basis: "media",
-      media_pricing: { unit: "audio_hour", usd: 0.45 },
+      media_pricing: { unit: "audio_hour", usd: 0.29999988 },
       input_modalities: ["audio"],
       output_modalities: ["transcription"],
       operations: ["transcribe"],
@@ -665,7 +665,7 @@ describe("OpenRouter model refresh", () => {
     expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(8);
     expect(byId.get("~deepseek/deepseek-flash-latest")).toMatchObject({
       context_length: 1_048_576,
-      pricing: { input: 0.02016, output: 0.891 },
+      pricing: { input: 0.013680000000000001, output: 0.891 },
       input_modalities: ["text", "image"],
       operations: ["analyze_image", "chat"],
     });
@@ -1047,7 +1047,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.02016, output: 0.891 },
+      pricing: { input: 0.013680000000000001, output: 0.891 },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -1284,15 +1284,15 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Qwen",
         author: "qwen",
-        providers: ["Chutes"],
+        providers: ["Tenstorrent"],
       },
     });
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.input,
-    ).toBeCloseTo(0.04);
+    ).toBeCloseTo(0.24);
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.output,
-    ).toBeCloseTo(2.3);
+    ).toBeCloseTo(2.2);
   });
 
   it("adds the three August 20 snapshots below the first six rows", () => {
@@ -1342,7 +1342,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: { input: 0.0576, output: 4.4 },
+      pricing: { input: 0.06, output: 4.4 },
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1991,7 +1991,7 @@ describe("OpenRouter model refresh", () => {
       active: true,
       primary_operation: "chat",
       interaction_status: "ready",
-      pricing: { input: 0.0000000351 * 1_000_000, output: 0.0000009 * 1_000_000 },
+      pricing: { input: 0.036, output: 0.0000009 * 1_000_000 },
       openrouter_market: {
         series: "Router",
         author: "z-ai",
@@ -2200,7 +2200,7 @@ describe("OpenRouter model refresh", () => {
       series: "Other",
       author: "xiaomi",
       providers: ["GMICloud"],
-      categories: expect.arrayContaining(["programming", "roleplay", "health"]),
+      categories: ["programming", "roleplay", "marketing/seo", "technology", "science", "trivia"],
     });
     expect(
       models.find((model) => model.id === "deepseek/deepseek-v4-flash")
@@ -2298,7 +2298,7 @@ describe("OpenRouter model refresh", () => {
 
     expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.018);
     expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(0.576);
-    expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.05);
+    expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.037);
     expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(7);
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
       input: 0.6712,
@@ -2380,8 +2380,8 @@ describe("OpenRouter model refresh", () => {
       output: 1.2,
     });
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 0.496,
-      output: 14,
+      input: 0.33,
+      output: 24,
     });
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
       input: 0.25,
@@ -2503,7 +2503,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(102);
+    expect(uncertain).toHaveLength(103);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -2708,6 +2708,7 @@ describe("OpenRouter model refresh", () => {
         .map((model) => model.id)
         .sort(),
     ).toEqual([
+      "anthropic/claude-sonnet-4",
       "baidu/ernie-4.5-vl-424b-a47b",
       "deepseek/deepseek-r1-distill-llama-70b",
       "inclusionai/ling-3.0-tiny:free",
@@ -2733,6 +2734,7 @@ describe("OpenRouter model refresh", () => {
       "stealth/ox-alpha",
       "stealth/space-bunny-alpha",
       "tencent/hy3:free",
+      "unbiased/pareto-26.10-preview",
     ]);
   });
 
@@ -2752,7 +2754,7 @@ describe("OpenRouter model refresh", () => {
       const model = models.find((candidate) => candidate.id === modelId);
       expect(model).toMatchObject({
         id: modelId,
-        input_modalities: ["text"],
+        input_modalities: modelId === "~typesafe/jev-latest" ? ["text", "image"] : ["text"],
         output_modalities: ["decisions"],
         operations: ["decide"],
         primary_operation: "decide",
