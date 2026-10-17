@@ -3412,6 +3412,11 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "perplexity/pplx-decider-flash-v1.2",
+        "perplexity/pplx-decider-v1.2",
+        "~perplexity/pplx-decider-flash-latest",
+        "respan/span-02",
+        "liquid/d1-ultra",
         "typesafe/jev-1.14",
         "~perplexity/pplx-decider-latest",
         "scaledown/classify-1",
