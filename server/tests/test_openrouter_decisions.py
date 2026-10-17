@@ -20,7 +20,7 @@ async def client():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_id", ["typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
+@pytest.mark.parametrize("model_id", ["perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2", "~perplexity/pplx-decider-flash-latest", "respan/span-02", "liquid/d1-ultra", "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
 async def test_decisions_proxy_uses_dedicated_openrouter_contract(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

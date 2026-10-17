@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "qwen/qwen-image-2.1-turbo", "qwen/qwen-image-2.1-pro",
   "heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo", "fish-audio/drama-3",
   "nace-ai/drex-v2.0",
   "~perplexity/pplx-decider-27b-latest",
@@ -21,6 +22,7 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "inception/mercury-decide",
   "bytedance-seed/seedream-5-0-flash",
   "black-forest-labs/flux-3-image",
+  "respan/span-02", "liquid/d1-ultra", "krea/k3-edit", "black-forest-labs/flux-3-image-klein",
   "liquid/d1",
   "microsoft/mai-voice-2.1-flash",
   "microsoft/mai-voice-2.1",
