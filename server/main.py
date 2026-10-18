@@ -105,6 +105,8 @@ try:
         workflow_subworkflows_enabled,
     )
     from server.workflow_deployments import (
+        WorkflowDeploymentConflictError,
+        WorkflowDeploymentNotFoundError,
         WorkflowDeploymentStore,
         WorkflowTriggerExecution,
         WorkflowVersion,
@@ -121,6 +123,8 @@ except ModuleNotFoundError:
         workflow_subworkflows_enabled,
     )
     from workflow_deployments import (
+        WorkflowDeploymentConflictError,
+        WorkflowDeploymentNotFoundError,
         WorkflowDeploymentStore,
         WorkflowTriggerExecution,
         WorkflowVersion,
@@ -6690,6 +6694,23 @@ def workflow_call_monotonic() -> float:
     return time.monotonic()
 
 
+def _subworkflow_budget_owner(task_id: str) -> tuple[str, str | None] | None:
+    binding = current_execution_budget_binding()
+    if binding is not None and (binding[0] is not workflow_execution_store or binding[1] != task_id):
+        raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_OWNER_INVALID：子调用父身份与活动预算不一致。")
+    parent = workflow_execution_store.get(task_id)
+    if parent is None or parent.execution_budget is None:
+        if binding is not None:
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_MISSING：父预算记录缺失。")
+        return None
+    token = binding[2] if binding is not None else None
+    try:
+        workflow_execution_store.execution_budget_chain(task_id, expected_lease_token=token)
+    except WorkflowExecutionConflictError:
+        raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_OWNER_INVALID：父任务未认领、已终止或所有权已变化。") from None
+    return task_id, token
+
+
 async def run_private_subworkflow_call(
     *,
     node: WorkflowNodePayload,
@@ -6771,21 +6792,60 @@ async def run_private_subworkflow_call(
         runtime_metadata.get("workflow_test_mode")
         or not runtime_metadata.get("workflow_deployment_execution_id")
     )
-    child, _ = workflow_deployment_store.materialize_subworkflow_execution(
-        parent_execution_id=parent_execution_id,
-        root_execution_id=root_execution_id,
-        parent_depth=parent_depth,
-        call_node_id=node.id,
-        target_project_id=target_project_id,
-        target_version=target_version,
-        test_mode=test_mode,
-        suppress_failure_dispatch=bool(
-            runtime_metadata.get("suppress_failure_dispatch", False)
-        ),
-        batch_occurrence_key=batch_occurrence_key,
-        batch_index=batch_index,
-        input_digest=input_digest,
-    )
+    parent = workflow_execution_store.get(task_id)
+    inspect_completed = (current_execution_budget_binding() is None and parent is not None
+                         and parent.execution_budget is not None and parent.status == "ready")
+    budget_owner = None if inspect_completed else _subworkflow_budget_owner(task_id)
+    call_checksum = hashlib.sha256(json.dumps({
+        "inputs": resolved_inputs, "definition": release.definition_checksum,
+        "parent_task_id": task_id, "parent_execution_id": parent_execution_id,
+        "root_execution_id": root_execution_id, "depth": parent_depth,
+        "test_mode": test_mode, "timeout_seconds": timeout_seconds,
+        "suppress_failure_dispatch": bool(runtime_metadata.get("suppress_failure_dispatch", False)),
+    }, ensure_ascii=True, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")).hexdigest()
+    try:
+        child, created = workflow_deployment_store.materialize_subworkflow_execution(
+            parent_execution_id=parent_execution_id,
+            root_execution_id=root_execution_id,
+            parent_depth=parent_depth,
+            call_node_id=node.id,
+            target_project_id=target_project_id,
+            target_version=target_version,
+            test_mode=test_mode,
+            suppress_failure_dispatch=bool(
+                runtime_metadata.get("suppress_failure_dispatch", False)
+            ),
+            batch_occurrence_key=batch_occurrence_key,
+            batch_index=batch_index,
+            input_digest=input_digest,
+            call_contract_checksum=call_checksum,
+            create_if_missing=not inspect_completed,
+        )
+    except WorkflowDeploymentNotFoundError:
+        if inspect_completed:
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_PARENT_NOT_CLAIMED：恢复新子调用前必须认领父任务。") from None
+        raise
+    relation = workflow_deployment_store.subworkflow_relation_for_child(child.execution_id)
+    if inspect_completed:
+        previous = workflow_execution_store.get(child.task_id) if child.task_id else None
+        if previous is None or previous.status != "completed":
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_EXECUTION_UNSETTLED：原子执行尚未完成，禁止自动重发。")
+    if not created and relation.call_contract_checksum is None:
+        previous = workflow_execution_store.get(child.task_id) if child.task_id else None
+        if (previous is None or previous.inputs != resolved_inputs
+            or previous.workflow != release.workflow):
+            raise WorkflowDeploymentConflictError("SUBWORKFLOW_INPUT_UNVERIFIED：旧子调用缺少可核对的原输入或定义，不能复用或重发。")
+    if budget_owner is not None:
+        prefix = f"subworkflow:{child.execution_id}:"
+        occurrence = prefix + call_checksum
+        registered = workflow_execution_store.find_execution_budget_child(prefix)
+        if registered is not None and (
+            registered["parent_task_id"] != task_id or registered["occurrence_id"] != occurrence
+        ):
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_CONTRACT_CHANGED：子调用预算契约已变化。")
+        workflow_execution_store.authorize_execution_budget_child(
+            task_id, occurrence, expected_lease_token=budget_owner[1],
+        )
 
     async def cancel_child(reason: str, durable_reason: str) -> None:
         workflow_deployment_store.cancel_execution(
@@ -6885,6 +6945,12 @@ async def run_private_subworkflow_call(
         child = workflow_deployment_store.get_execution(child.execution_id) or child
 
     child, durable_child = reconcile_durable_terminal(child)
+    if not inspect_completed:
+        _subworkflow_budget_owner(task_id)
+    else:
+        current_parent = workflow_execution_store.require(task_id)
+        if current_parent.status != "ready" or current_parent.revision != parent.revision:
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_PARENT_CHANGED：结果核对期间父执行状态已变化。")
     if child.status == "completed":
         if durable_child is None or durable_child.status != "completed":
             raise ValueError("Completed subworkflow result is unavailable.")
@@ -6905,6 +6971,8 @@ async def run_private_subworkflow_call(
             "subworkflow_wait_forbidden",
         )
         raise ValueError("Callable workflows cannot enter a waiting state.")
+    if durable_child is not None:
+        raise XpertExecutionBudgetStateError("SUBWORKFLOW_EXECUTION_UNSETTLED：子执行已有持久记录但未结算，禁止自动重发。")
 
     event = {
         "type": "workflow_call",
@@ -6948,6 +7016,7 @@ async def run_private_subworkflow_call(
             raise ValueError("Subworkflow execution timed out.")
         await asyncio.wait({call_task}, timeout=0.05)
     completed_child = await call_task
+    _subworkflow_budget_owner(task_id)
     while completed_child.status == "running":
         if cancellation_requested():
             await cancel_child(
@@ -6994,6 +7063,7 @@ async def run_private_subworkflow_call(
     )
     if durable_child is None or durable_child.status != "completed":
         raise ValueError("Subworkflow completed without a reusable result.")
+    _subworkflow_budget_owner(task_id)
     return {
         "status": "completed",
         "projectId": target_project_id,
@@ -11430,6 +11500,11 @@ async def _run_workflow_response(
         execution_budget = XpertExecutionBudget(
             max_concurrency=2, recursion_limit=1000, **restored_budget_usage,
         )
+    if runtime_budget_delegation is not None and execution_budget is None:
+        parent_budget = XpertExecutionBudget.from_persisted_state(
+            workflow_execution_store.require(runtime_budget_delegation[0]).execution_budget,
+        )
+        execution_budget = XpertExecutionBudget(**parent_budget.limits(), **restored_budget_usage)
     if is_node_retry_resume and "variables" not in safe_resume_state:
         restored_workflow_variables = initialize_retry_reconstructible_variables(
             payload.workflow,
@@ -27517,10 +27592,79 @@ async def consume_workflow_stream(response: Any) -> dict[str, Any]:
     return outcomes.finish()
 
 
+def _subworkflow_provider_parent(parent_task_id: str) -> tuple[str, str] | None:
+    parent = workflow_execution_store.require(parent_task_id)
+    gateway = ManagedWorkflowGateway.for_router(get_model_router_service())
+    gateway.validate_resume_source(
+        execution_id=parent.run_id, task_id=parent.task_id, source_kind=parent.source_kind,
+    )
+    if parent.source_kind is None:
+        # Legacy unintegrated runs do not gain a trusted parent by metadata.
+        return None
+    if parent.source_kind not in {"workflow_classic", "workflow_deployment"}:
+        raise XpertExecutionBudgetStateError(
+            "SUBWORKFLOW_PROVIDER_SOURCE_UNSUPPORTED：当前子流程未开放该可信来源的委托。"
+        )
+    return parent.run_id, parent.source_kind
+
+
 async def run_deployed_workflow_trigger(
     execution: WorkflowTriggerExecution,
     release: WorkflowVersion,
     event: dict[str, Any],
+) -> dict[str, Any]:
+    if execution.trigger_kind != "call":
+        return await _run_deployed_workflow_trigger_body(execution, release, event)
+    # A lease takeover is not evidence that the previous external request did
+    # not dispatch. Never recreate a durable child to restart its graph.
+    previous = workflow_execution_store.get(execution.task_id) if execution.task_id else None
+    if previous is not None:
+        if previous.status == "completed":
+            return {"status": "completed", "task_id": previous.task_id,
+                    "run_id": previous.run_id, "result": previous.result or ""}
+        raise XpertExecutionBudgetStateError("SUBWORKFLOW_EXECUTION_UNSETTLED：子执行未结算，必须核对原执行，禁止重新派发。")
+    registered = workflow_execution_store.find_execution_budget_child(f"subworkflow:{execution.execution_id}:")
+    delegation = None
+    owner = None
+    provider_parent = None
+    if registered is not None:
+        owner = _subworkflow_budget_owner(registered["parent_task_id"])
+        if owner is None or registered["child_task_id"] is not None:
+            raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_LINK_INVALID：子调用预算记录不完整，禁止重新派发。")
+        delegation = (registered["parent_task_id"], registered["occurrence_id"])
+        provider_parent = _subworkflow_provider_parent(registered["parent_task_id"])
+    elif current_execution_budget_binding() is not None:
+        raise XpertExecutionBudgetStateError("SUBWORKFLOW_BUDGET_LINK_MISSING：子调用缺少持久预算委托。")
+    lease_token = execution.lease_token
+
+    async def assert_call_owner() -> None:
+        current = workflow_deployment_store.get_execution(execution.execution_id)
+        if (current is None or current.status != "running" or not lease_token
+            or current.lease_token != lease_token or current.lease_expires_at <= time.time()):
+            raise WorkflowDeploymentConflictError("SUBWORKFLOW_OWNER_CHANGED：子调用已取消或执行所有权已变化。")
+        if owner is not None:
+            workflow_execution_store.execution_budget_chain(owner[0], expected_lease_token=owner[1])
+            if _subworkflow_provider_parent(owner[0]) != provider_parent:
+                raise XpertExecutionBudgetStateError(
+                    "SUBWORKFLOW_PROVIDER_SOURCE_CHANGED：子调用期间父执行的可信来源已变化。"
+                )
+
+    with use_execution_dispatch_guard(assert_call_owner):
+        await assert_call_owner()
+        result = await _run_deployed_workflow_trigger_body(
+            execution, release, event, delegation=delegation, provider_parent=provider_parent,
+        )
+        await assert_call_owner()
+        return result
+
+
+async def _run_deployed_workflow_trigger_body(
+    execution: WorkflowTriggerExecution,
+    release: WorkflowVersion,
+    event: dict[str, Any],
+    *,
+    delegation: tuple[str, str] | None = None,
+    provider_parent: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     runtime_workflow = {
         **release.workflow,
@@ -27564,9 +27708,11 @@ async def run_deployed_workflow_trigger(
         runtime_run_type="workflow",
         runtime_source_id=execution.project_id,
         runtime_metadata=metadata,
-        runtime_execution_source_kind="workflow_deployment",
+        runtime_execution_source_kind=provider_parent[1] if provider_parent else "workflow_deployment",
+        runtime_provider_parent_execution_id=provider_parent[0] if provider_parent else None,
         runtime_trigger_event=safe_event,
         runtime_task_id=execution.task_id,
+        runtime_budget_delegation=delegation,
     )
     try:
         final_event = await consume_workflow_stream(response)

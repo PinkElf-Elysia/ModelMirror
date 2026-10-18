@@ -1,4 +1,5 @@
 """Offline mutation tests: no server imports, repository initialization or network."""
+import ast
 import copy
 import importlib.util
 import json
@@ -14,6 +15,57 @@ SPEC.loader.exec_module(guard)
 
 
 class CoverageTests(unittest.TestCase):
+    def test_subworkflow_delegate_preserves_reviewed_identity_and_budget_arguments(self):
+        path = "server/main.py"
+        source = (ROOT / path).read_text(encoding="utf-8-sig")
+        sites = [site for site in guard.python_sites(source, path)
+                 if site["symbol"] == "_run_deployed_workflow_trigger_body"
+                 and site["callee"] == "_run_workflow_response"]
+        self.assertEqual(len(sites), 1)
+        manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
+        registered = {row["id"]: row for row in manifest["sites"]}
+        self.assertEqual(registered[sites[0]["id"]]["kind"], "model_delegate")
+        self.assertEqual(registered[sites[0]["id"]]["entries"], ["workflow_shared"])
+        body = next(node for node in ast.parse(source).body
+                    if isinstance(node, ast.AsyncFunctionDef)
+                    and node.name == "_run_deployed_workflow_trigger_body")
+        call = next(node for node in ast.walk(body) if isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name) and node.func.id == "_run_workflow_response")
+        arguments = {item.arg: ast.unparse(item.value) for item in call.keywords}
+        self.assertEqual(arguments["runtime_task_id"], "execution.task_id")
+        self.assertEqual(arguments["runtime_budget_delegation"], "delegation")
+        self.assertEqual(arguments["runtime_provider_parent_execution_id"], "provider_parent[0] if provider_parent else None")
+        self.assertEqual(arguments["runtime_execution_source_kind"], "provider_parent[1] if provider_parent else 'workflow_deployment'")
+
+    def test_subworkflow_delegate_rename_or_argument_loss_requires_review(self):
+        path = "server/main.py"
+        tree = ast.parse((ROOT / path).read_text(encoding="utf-8-sig"))
+        body = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef)
+                    and node.name == "_run_deployed_workflow_trigger_body")
+        before = [s for s in guard.python_sites(ast.unparse(body), path)
+                  if s["callee"] == "_run_workflow_response"]
+        self.assertEqual(len(before), 1)
+        for mutation in ("rename", "runtime_budget_delegation", "runtime_provider_parent_execution_id",
+                         "runtime_execution_source_kind", "runtime_task_id"):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(body)
+                if mutation == "rename":
+                    changed.name += "_unreviewed"
+                else:
+                    call = next(node for node in ast.walk(changed) if isinstance(node, ast.Call)
+                                and isinstance(node.func, ast.Name) and node.func.id == "_run_workflow_response")
+                    call.keywords = [kw for kw in call.keywords if kw.arg != mutation]
+                after = [s for s in guard.python_sites(ast.unparse(changed), path)
+                         if s["callee"] == "_run_workflow_response"]
+                manifest, _ = self.fixture()
+                manifest["sites"][0].update(id=before[0]["id"], kind="model_delegate")
+                manifest["source_modules"] = {path: before[0]["source_sha256"]}
+                with patch.object(guard, "registry", return_value={}):
+                    errors = guard.validate(ROOT, manifest, after)
+                self.assertTrue(any(e.startswith("unreviewed site:") for e in errors))
+                self.assertTrue(any(e.startswith("stale site:") for e in errors))
+                self.assertIn("source module drift: re-review constants, delegates and exceptions", errors)
+
     def test_scaledown_is_pending_and_actual_post_cannot_be_hidden(self):
         manifest = json.loads((ROOT / guard.MANIFEST).read_text(encoding="utf-8"))
         entry = next(row for row in manifest["entries"] if row["id"] == "openrouter_scaledown")

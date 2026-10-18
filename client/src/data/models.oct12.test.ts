@@ -10,8 +10,8 @@ describe("October 12 model contracts", () => {
     expect(model?.note).toContain("WAV");
   });
   it("preserves exact decision and alias identities on the dedicated surface", () => {
-    for (const [id, price] of [["nace-ai/drex-v2.0", 0.06], ["~perplexity/pplx-decider-27b-latest", 0.02]] as const) {
-      expect(models.find((entry) => entry.id === id)).toMatchObject({ operations: ["decide"], ui_entrypoint: "decisions", pricing: { input: price, output: 0 }, catalog_status: "live" });
+    for (const [id, price, status] of [["nace-ai/drex-v2.0", 0.06, "live"], ["~perplexity/pplx-decider-27b-latest", 0.02, "uncertain"]] as const) {
+      expect(models.find((entry) => entry.id === id)).toMatchObject({ operations: ["decide"], ui_entrypoint: "decisions", pricing: { input: price, output: 0 }, catalog_status: status });
     }
     expect(models.find((entry) => entry.id === "~perplexity/pplx-decider-27b-latest")?.note).toContain("图片能力尚未在本站适配");
   });

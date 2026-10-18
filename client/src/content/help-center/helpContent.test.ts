@@ -98,7 +98,7 @@ describe("help center content catalog", () => {
     expect(scaleDownGuide?.verifiedCommit).toBe("2df7efba");
     expect(scaleDownGuide?.content).toContain("不提交模型请求");
     expect(scaleDownGuide?.content).toContain("UTF-8 字节");
-    expect(helpArticles.find((article) => article.slug === "recover-workflow-run")?.verifiedCommit).toBe("6ff70de6");
+    expect(helpArticles.find((article) => article.slug === "recover-workflow-run")?.verifiedCommit).toBe("253ad98a");
     expect(searchHelpContent("继续跟踪").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
@@ -142,6 +142,21 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "subscribe-email-workflow")?.verifiedCommit).toBe(emailReviewBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "promote-run-to-skill")?.verifiedCommit).toBe(skillExperienceBaseline.commit);
     expect(helpArticles.find((article) => article.slug === "handle-workflow-node-failure")?.verifiedCommit).toBe(workflowErrorRoutingBaseline.commit);
+  });
+
+  it("keeps recovery guidance distinct from replay and provider qualification", () => {
+    const article = helpArticles.find((item) => item.slug === "recover-workflow-run");
+    expect(article?.content).toContain("90 秒等待");
+    expect(article?.verifiedDate).toBe("2026-10-18");
+    expect(article?.content).toContain("/help-center/253ad98a/r8b-wait-recovered.png");
+    expect(article?.content).toContain("/help-center/253ad98a/r8b-wait-cancelled.png");
+    expect(article?.content).not.toContain("/help-center/6ff70de6/");
+    expect(article?.content).toContain("页面能打开不等于等待任务一定能自动恢复");
+    expect(article?.content).toContain("不要用“重新运行”代替修复恢复服务");
+    expect(article?.content).toContain("不会撤销此前已提交的业务写入");
+    expect(article?.content).toContain("不代表全部模型、工具或父子流程都经过真实调用验收");
+    expect(article?.content).not.toMatch(/wf_[a-f0-9]{32}|wft_[a-f0-9]{32}|127\.0\.0\.1/);
+    expect(searchHelpContent("恢复服务").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
   });
 
   it("places every formal article in a first-level index", () => {

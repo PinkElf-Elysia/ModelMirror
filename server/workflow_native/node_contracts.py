@@ -957,6 +957,8 @@ class NodePolicyService:
         self.registry = registry
 
     def decision(self, kind: str, entrypoint: str, *, node_data: dict[str, Any] | None = None) -> NodePolicyDecision:
+        if entrypoint == "readonly_subworkflow":
+            return self._readonly_subworkflow_decision(kind, node_data or {})
         contract = self.registry.get(kind)
         if contract is None:
             return NodePolicyDecision(
@@ -1002,6 +1004,72 @@ class NodePolicyService:
             code=rule.code,
             message=rule.message,
         )
+
+    def _readonly_subworkflow_decision(self, kind: str, data: dict[str, Any]) -> NodePolicyDecision:
+        from jsonschema import Draft202012Validator
+        from .retry_policy import effective_can_wait
+
+        def deny(code: str, message: str) -> NodePolicyDecision:
+            return NodePolicyDecision(allowed=False, conditional=False, code=code, message=message)
+
+        contract = self.registry.get(kind)
+        if contract is None or contract.contract_status != "complete" or contract.deprecated:
+            return deny("SUBWORKFLOW_CONTRACT_UNSUPPORTED", "子流程含未知、兼容或已弃用的节点契约。")
+        # Check every node, including disconnected bindings. A disabled flag or
+        # inactive branch must not turn a potentially effectful body read-only.
+        if kind in {"invoke_workflow", "iteration", "external_xpert", "toolset_resource",
+                    "plugin_resource", "runtime_middleware", "http_request", "vision_understanding"}:
+            return deny("SUBWORKFLOW_CAPABILITY_FORBIDDEN", "本阶段子流程不允许该委托、工具、网络或扩展能力。")
+        if "contractVersion" in data and type(data["contractVersion"]) is not int:
+            return deny("SUBWORKFLOW_CONFIG_INVALID", "节点执行版本必须是整数。")
+        if not Draft202012Validator(contract.config_schema).is_valid(data):
+            return deny("SUBWORKFLOW_CONFIG_INVALID", "节点配置不符合当前契约。")
+        if data.get("retryMode", "none") not in (None, "", "none") or effective_can_wait(data, contract):
+            return deny("SUBWORKFLOW_WAIT_FORBIDDEN", "本阶段子流程不允许等待或持久重试。")
+        if kind in {"json_serialize", "json_deserialize", "variable_aggregator"} and data.get("contractVersion") != 2:
+            return deny("SUBWORKFLOW_TYPED_V2_REQUIRED", "本阶段子流程要求类型化 V2 配置，不自动升级旧节点。")
+        policy = contract.effective_execution(data)
+        if policy.can_wait or policy.side_effect not in {"none", "read", "external_read"}:
+            return deny("SUBWORKFLOW_EFFECT_FORBIDDEN", "子流程包含写入、等待、代码执行或未知效果。")
+        if kind == "workflow_call_entry":
+            if policy.side_effect != "none" or policy.external_io or not policy.idempotent or contract.resources:
+                return deny("SUBWORKFLOW_EFFECT_FORBIDDEN", "子流程调用入口不再满足无副作用输入契约。")
+            return NodePolicyDecision(allowed=True, conditional=True, code="SUBWORKFLOW_FIXED_INPUT_REQUIRED",
+                                      message="调用入口只接收固定输入，执行时必须核验发生标识与输入摘要。")
+        if kind in {"llm", "workflow_agent"}:
+            allowed_fields = {"modelId", "outputVariable"} | (
+                {"prompt"} if kind == "llm" else {"rolePrompt", "taskInput"}
+            ) | {
+                "kind", "title", "description", "toolMode", "maxIterations", "temperature", "maxTokens",
+                "plannerRef", "plannerOutcomeMapV1",
+            }
+            if set(data) - allowed_fields or data.get("toolMode", "none") != "none":
+                return deny("SUBWORKFLOW_MODEL_EXTENSION_FORBIDDEN", "模型节点必须关闭工具，且不得夹带未审计的扩展配置。")
+            if policy.security_category != "model" or policy.side_effect != "external_read":
+                return deny("SUBWORKFLOW_EFFECT_FORBIDDEN", "模型节点效果契约发生变化。")
+            model_id = data.get("modelId")
+            if not isinstance(model_id, str) or not model_id.strip() or len(model_id) > 256 or "{" in model_id:
+                return deny("SUBWORKFLOW_MODEL_INVALID", "子流程必须固定模型身份，不能从输入构造模型。")
+            return NodePolicyDecision(allowed=True, conditional=True, code="SUBWORKFLOW_MODEL_BUDGET_REQUIRED",
+                                      message="结构许可不授权外发，执行前仍需模型授权及持久根预算。")
+        if kind in {"knowledge_retrieval", "knowledge_base", "data_table_query"}:
+            if kind == "knowledge_retrieval" and data.get("contractVersion") != 2:
+                return deny("SUBWORKFLOW_TYPED_V2_REQUIRED", "子流程知识检索仅允许显式 V2 契约。")
+            if kind == "data_table_query" and (
+                data.get("versionPolicy") != "pinned"
+                or type(data.get("pinnedSchemaVersion")) is not int
+                or data["pinnedSchemaVersion"] < 1
+            ):
+                return deny("SUBWORKFLOW_SCHEMA_PIN_REQUIRED", "子流程查询必须固定具体 Schema 版本。")
+            return NodePolicyDecision(allowed=True, conditional=True, code="SUBWORKFLOW_RESOURCE_CHECK_REQUIRED",
+                                      message="只读资源必须另经服务端资源授权、版本及 Schema 权威校验。")
+        if (policy.side_effect != "none" or policy.external_io or not policy.deterministic
+                or contract.resources or policy.security_category not in {
+                    "input", "output", "control", "data", "transform", "metadata", "private_subworkflow_entry",
+                }):
+            return deny("SUBWORKFLOW_EFFECT_UNPROVEN", "无法证明该配置只做受限纯计算。")
+        return NodePolicyDecision(allowed=True, conditional=False, code="SUBWORKFLOW_PURE_NODE",
+                                  message="节点满足受限纯计算契约。")
 
     def evolution_control_kinds(self) -> set[str]:
         return {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -39,8 +40,9 @@ def test_prepare_failure_closes_descriptor_before_cleanup(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_prepare_success_preserves_content_and_closes_descriptor(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("mode", [0o444, 0o640, 0o644])
+def test_prepare_respects_permissions_and_closes_descriptor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: int
 ) -> None:
     permissions: list[tuple[int, int]] = []
     native_fchmod = getattr(engine.os, "fchmod", None)
@@ -51,11 +53,26 @@ def test_prepare_success_preserves_content_and_closes_descriptor(
             native_fchmod(descriptor, mode)
 
     monkeypatch.setattr(engine.os, "fchmod", set_mode, raising=False)
-    temporary = engine._prepare_temp_file(tmp_path, b"synthetic data", mode=0o640)
+    if os.name == "nt" and not mode & stat.S_IWRITE:
+        with pytest.raises(PermissionError):
+            engine._prepare_temp_file(tmp_path, b"synthetic data", mode=mode)
+        assert permissions == []
+        assert list(tmp_path.iterdir()) == []
+        return
+    temporary = engine._prepare_temp_file(tmp_path, b"synthetic data", mode=mode)
 
-    assert temporary.read_bytes() == b"synthetic data"
-    assert len(permissions) == 1 and permissions[0][1] == 0o640
-    with pytest.raises(OSError):
-        os.fstat(permissions[0][0])
-    if native_fchmod is not None:
-        assert temporary.stat().st_mode & 0o777 == 0o640
+    try:
+        assert temporary.read_bytes() == b"synthetic data"
+        assert len(permissions) == 1 and permissions[0][1] == mode
+        with pytest.raises(OSError):
+            os.fstat(permissions[0][0])
+        if native_fchmod is not None:
+            actual_mode = temporary.stat().st_mode
+            if os.name == "nt":
+                # Windows fchmod (Python 3.13+) only controls the read-only flag.
+                assert bool(actual_mode & stat.S_IWRITE) == bool(mode & stat.S_IWRITE)
+            else:
+                assert actual_mode & 0o777 == mode
+    finally:
+        if os.name == "nt":
+            temporary.chmod(0o644)
