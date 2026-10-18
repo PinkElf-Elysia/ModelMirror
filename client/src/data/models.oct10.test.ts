@@ -11,12 +11,12 @@ describe("October 10 catalog contracts", () => {
   });
 
   it("preserves Step 5 multimodal understanding and reasoning", () => {
-    expect(models.find((entry) => entry.id === "stepfun/step-5-preview")).toMatchObject({ input_modalities: ["text", "image", "video"], output_modalities: ["text"], context_length: 1000000, pricing: { input: 1, output: 2.7 }, reasoning_declared: true, ui_entrypoint: "chat" });
+    expect(models.find((entry) => entry.id === "stepfun/step-5-preview")).toMatchObject({ input_modalities: ["text", "image", "video"], output_modalities: ["text"], context_length: 1048576, pricing: { input: 1, output: 2.7 }, reasoning_declared: true, ui_entrypoint: "chat" });
     expect(models.findIndex((entry) => entry.id === "stepfun/step-5-preview")).toBeGreaterThanOrEqual(20);
   });
 
-  it("retains missing free Sante and attaches new Batch tiers without cards", () => {
-    expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante")?.catalog_status).toBe("live");
+  it("retains missing Sante variants and attaches new Batch tiers without cards", () => {
+    expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante")).toMatchObject({ catalog_status: "uncertain", active: true });
     expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante:free")).toMatchObject({ catalog_status: "uncertain", active: true });
     for (const id of ["openai/gpt-6.1-sol", "openai/gpt-6.1-sol-pro"]) {
       expect(models.some((entry) => entry.id === `${id}:batch`)).toBe(false);

@@ -36,7 +36,7 @@ describe("October 13 contracts and placement", () => {
       expect(models.filter((model) => model.id === id)).toHaveLength(1);
       expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
     }
-    for (const [id, unit, usd] of [["heygen/heygen-voice-1", "character_million", 15], ["heygen/heygen-voice-1-turbo", "character_million", 7.5], ["fish-audio/drama-3", "utf8_byte_million", 2]]) {
+    for (const [id, unit, usd] of [["heygen/heygen-voice-1", "character_million", 15], ["heygen/heygen-voice-1-turbo", "character_million", 4], ["fish-audio/drama-3", "utf8_byte_million", 2]]) {
       expect(models.find((model) => model.id === id)).toMatchObject({ pricing_basis: "media", media_pricing: { unit, usd }, primary_operation: "synthesize_speech" });
     }
     expect(models.find((model) => model.id === "~unbiased/pareto-latest")?.note).toContain("unbiased/pareto-26.9");

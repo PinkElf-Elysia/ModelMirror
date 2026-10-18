@@ -64,8 +64,10 @@
 重新启动、13:11:59 持久完成、13:13:08 原任务重连。恢复发生在进程重启之后，
 不是把一次已完成任务的页面刷新冒充恢复证据。
 
-- 完成截图：`/help-center/6ff70de6/r8a-wait-recovered.png`
-- 取消截图：`/help-center/6ff70de6/r8a-wait-cancelled.png`
+- 完成截图：[历史 PNG](r8a-durable-recovery-20261013/r8a-wait-recovered.png)
+- 取消截图：[历史 PNG](r8a-durable-recovery-20261013/r8a-wait-cancelled.png)
+
+2026-10-18 更新恢复帮助图片时，上述两图从公开 `6ff70de6` 目录原样移入证据目录，SHA-256 与上表一致。归档不改变本页原验收事实；当前公开图片使用 R8-B 用户补交原图的确定性缩小版本。
 
 ## 未覆盖边界
 

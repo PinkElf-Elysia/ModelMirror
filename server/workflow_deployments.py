@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -372,6 +373,7 @@ class WorkflowSubworkflowRelation:
     batch_occurrence_key: str | None = None
     batch_index: int | None = None
     input_digest: str | None = None
+    call_contract_checksum: str | None = None
     created_at: float = field(default_factory=time.time)
 
 
@@ -571,6 +573,23 @@ class WorkflowDeploymentStore:
         if item is None:
             raise WorkflowDeploymentNotFoundError("Workflow version not found.")
         return item
+
+    def snapshot_callable_version(self, project_id: str, version: int) -> WorkflowVersion:
+        """Read a coherent, detached target for admission; never activate or run it."""
+        if not isinstance(project_id, str) or not re.fullmatch(r"wf_[a-f0-9]{32}", project_id):
+            raise WorkflowDeploymentValidationError("子流程项目标识无效。")
+        if type(version) is not int or version < 1:
+            raise WorkflowDeploymentValidationError("子流程必须固定正整数发布版本。")
+        with self._lock:
+            release = self._require_version_unlocked(project_id, version)
+            deployment = self._active_deployment_for_version_unlocked(project_id, version)
+            if release.project_id != project_id or release.version != version or release.workflow.get("id") != project_id:
+                raise WorkflowDeploymentConflictError("子流程发布身份与固定目标不一致。")
+            if release.trigger_kind != "call" or deployment.trigger_kind != "call":
+                raise WorkflowDeploymentConflictError("目标不是活动的已发布子流程。")
+            if canonical_checksum(release.workflow) != release.definition_checksum:
+                raise WorkflowDeploymentConflictError("子流程不可变定义的摘要不一致。")
+            return copy.deepcopy(release)
 
     def activate(
         self,
@@ -2274,6 +2293,8 @@ class WorkflowDeploymentStore:
         batch_occurrence_key: str | None = None,
         batch_index: int | None = None,
         input_digest: str | None = None,
+        call_contract_checksum: str | None = None,
+        create_if_missing: bool = True,
         now: float | None = None,
     ) -> tuple[WorkflowTriggerExecution, bool]:
         current = time.time() if now is None else float(now)
@@ -2291,6 +2312,11 @@ class WorkflowDeploymentStore:
             )
         clean_batch_key = str(batch_occurrence_key or "").strip()
         clean_input_digest = str(input_digest or "").strip()
+        if call_contract_checksum is not None and (
+            not isinstance(call_contract_checksum, str)
+            or re.fullmatch(r"[0-9a-f]{64}", call_contract_checksum) is None
+        ):
+            raise WorkflowDeploymentValidationError("子调用请求摘要无效。")
         if clean_batch_key:
             if type(batch_index) is not int or batch_index < 0:
                 raise WorkflowDeploymentValidationError(
@@ -2332,6 +2358,11 @@ class WorkflowDeploymentStore:
                 if (
                     child.project_id != target_project_id
                     or child.version != int(target_version)
+                    or existing_relation.root_execution_id != clean_root
+                    or existing_relation.depth != depth
+                    or child.test_mode != bool(test_mode)
+                    or (existing_relation.call_contract_checksum is not None
+                        and existing_relation.call_contract_checksum != call_contract_checksum)
                     or existing_relation.batch_occurrence_key
                     != (clean_batch_key or None)
                     or existing_relation.batch_index != batch_index
@@ -2345,6 +2376,8 @@ class WorkflowDeploymentStore:
                     child,
                     False,
                 )
+            if not create_if_missing:
+                raise WorkflowDeploymentNotFoundError("原子调用尚未登记，恢复执行须先认领父任务。")
             descendants = sum(
                 1
                 for relation in self._subworkflow_relations.values()
@@ -2404,6 +2437,7 @@ class WorkflowDeploymentStore:
                 batch_occurrence_key=clean_batch_key or None,
                 batch_index=batch_index,
                 input_digest=clean_input_digest or None,
+                call_contract_checksum=call_contract_checksum,
                 created_at=current,
             )
             self._executions[item.execution_id] = item
@@ -3185,6 +3219,11 @@ class WorkflowDeploymentStore:
                 raw.setdefault("batch_index", None)
                 raw.setdefault("input_digest", None)
                 relation = WorkflowSubworkflowRelation(**raw)
+                if relation.call_contract_checksum is not None and (
+                    not isinstance(relation.call_contract_checksum, str)
+                    or re.fullmatch(r"[0-9a-f]{64}", relation.call_contract_checksum) is None
+                ):
+                    raise ValueError("Subworkflow call contract checksum is invalid.")
                 if relation.occurrence_key in self._subworkflow_relations:
                     raise ValueError("Duplicate subworkflow occurrence key.")
                 child = self._executions.get(relation.child_execution_id)
