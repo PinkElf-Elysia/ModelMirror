@@ -6,9 +6,9 @@ import {
 import { models } from "./models";
 
 vi.hoisted(() => {
-  // Catalog totals are fixed to the October 15 Phoenix evidence window.
+  // Catalog totals are fixed to the October 20 UTC evidence window.
   vi.useFakeTimers({ toFake: ["Date"] });
-  vi.setSystemTime(new Date("2026-10-17T14:38:01.222Z"));
+  vi.setSystemTime(new Date("2026-10-20T13:54:53.244Z"));
 });
 
 afterAll(() => vi.useRealTimers());
@@ -230,11 +230,11 @@ describe("OpenRouter model refresh", () => {
   });
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(734);
+    expect(counted).toHaveLength(737);
     expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(603);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(103);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(106);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(28);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(706);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(709);
   });
 
   it("keeps October 7 decisions and media off the ordinary text-only route", () => {
@@ -399,8 +399,8 @@ describe("OpenRouter model refresh", () => {
       primary_operation: "chat",
       interaction_status: "ready",
     });
-    expect(byId.get("upstage/solar-mini4")?.pricing.input).toBeCloseTo(0.05);
-    expect(byId.get("upstage/solar-mini4")?.pricing.output).toBeCloseTo(0.2);
+    expect(byId.get("upstage/solar-mini4")?.pricing.input).toBeCloseTo(0.049999999999999996);
+    expect(byId.get("upstage/solar-mini4")?.pricing.output).toBeCloseTo(0.19999999999999998);
     for (const modelId of ["aion-labs/aion-3.5", "aion-labs/aion-3.5-mini"]) {
       expect(byId.get(modelId)).toMatchObject({
         context_length: 262_144,
@@ -596,18 +596,9 @@ describe("OpenRouter model refresh", () => {
       1_050_000,
     );
     expect(byId.get("xiaomi/mimo-v2.6-pro")?.context_length).toBe(1_050_000);
-    expect(byId.get("xiaomi/mimo-v2.6-pro-ultraspeed")?.pricing).toEqual({
-      input: 4.35,
-      output: 8.7,
-    });
-    expect(byId.get("xiaomi/mimo-v2.6-flash")?.pricing).toEqual({
-      input: 0.14,
-      output: 0.28,
-    });
-    expect(byId.get("xiaomi/mimo-v2.6-pro")?.pricing).toEqual({
-      input: 0.435,
-      output: 0.87,
-    });
+    expect(byId.get("xiaomi/mimo-v2.6-pro-ultraspeed")?.pricing).toEqual({"input":4.35,"output":8.7});
+    expect(byId.get("xiaomi/mimo-v2.6-flash")?.pricing).toEqual({"input":0.14,"output":0.28});
+    expect(byId.get("xiaomi/mimo-v2.6-pro")?.pricing).toEqual({"input":0.435,"output":0.87});
 
     const grok47 = byId.get("x-ai/grok-4.7");
     expect(grok47).toMatchObject({
@@ -661,11 +652,11 @@ describe("OpenRouter model refresh", () => {
       context_length: 1_048_576,
       input_modalities: ["text"],
     });
-    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.input).toBeCloseTo(0.12);
+    expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.input).toBeCloseTo(0.1307);
     expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(8);
     expect(byId.get("~deepseek/deepseek-flash-latest")).toMatchObject({
       context_length: 1_048_576,
-      pricing: { input: 0.0000001 * 1_000_000, output: 0.5 },
+      pricing: {"input":0.07,"output":0.5},
       input_modalities: ["text", "image"],
       operations: ["analyze_image", "chat"],
     });
@@ -774,8 +765,8 @@ describe("OpenRouter model refresh", () => {
         tool_call_success_rate: null,
       },
     });
-    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.input).toBeCloseTo(0.2);
-    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.output).toBeCloseTo(0.2);
+    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.input).toBeCloseTo(0.19999999999999998);
+    expect(byId.get("nvidia/nemotron-3.5-content-safety")?.pricing.output).toBeCloseTo(0.19999999999999998);
 
     for (const modelId of september3DriftModelIds) {
       expect(models.filter((model) => model.id === modelId)).toHaveLength(1);
@@ -995,11 +986,11 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
     expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
-      .toEqual(["programming", "marketing", "technology", "science", "trivia"]);
+      .toEqual(["programming", "marketing", "science", "trivia"]);
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "roleplay", "marketing", "marketing/seo", "technology",
-        "science", "translation", "legal", "finance", "trivia", "academia",
+        "science", "translation", "legal", "finance", "trivia",
       ]);
   });
 
@@ -1048,7 +1039,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.15, output: 0.6 },
+      pricing: {"input":0.03552,"output":0.12},
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -1059,8 +1050,8 @@ describe("OpenRouter model refresh", () => {
     expect(model?.supported_parameters).toEqual(
       expect.arrayContaining(["reasoning_effort", "tool_choice", "tools"]),
     );
-    // The October 17 catalog again advertises six UTC price windows.
-    expect(model?.pricing_time_windows).toHaveLength(6);
+    // The October 20 catalog no longer advertises time-window prices for the old version.
+    expect(model?.pricing_time_windows).toEqual([]);
   });
 
   it("adapts the September 4 text and image contracts below six rows", () => {
@@ -1290,10 +1281,10 @@ describe("OpenRouter model refresh", () => {
     });
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.input,
-    ).toBeCloseTo(0.24);
+    ).toBeCloseTo(0.04);
     expect(
       models.find((model) => model.id === "qwen/qwen3.8-27b")?.pricing.output,
-    ).toBeCloseTo(2.2);
+    ).toBeCloseTo(1.35);
   });
 
   it("adds the three August 20 snapshots below the first six rows", () => {
@@ -1332,7 +1323,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: { input: 0.079, output: 4.8 },
+      pricing: {"input":0.079,"output":1.4},
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1343,7 +1334,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: { input: 0.0000000632 * 1_000_000, output: 4.4 },
+      pricing: {"input":0.079,"output":1.4},
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1392,7 +1383,7 @@ describe("OpenRouter model refresh", () => {
       },
     });
     expect(byId.get("tencent/hy-mt2-1.8b")?.pricing.input).toBeCloseTo(0.044);
-    expect(byId.get("tencent/hy-mt2-1.8b")?.pricing.output).toBeCloseTo(0.177);
+    expect(byId.get("tencent/hy-mt2-1.8b")?.pricing.output).toBeCloseTo(0.17700000000000002);
     expect(byId.get("tencent/hy-mt2-30b-a3b")).toMatchObject({
       input_modalities: ["text"],
       output_modalities: ["text"],
@@ -1640,8 +1631,8 @@ describe("OpenRouter model refresh", () => {
         "tools",
       ]),
     });
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.15);
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.5);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.047076);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.16);
 
     expect(byId.get("tencent/hy-mt2-7b")).toMatchObject({
       input_modalities: ["text"],
@@ -1992,11 +1983,11 @@ describe("OpenRouter model refresh", () => {
       active: true,
       primary_operation: "chat",
       interaction_status: "ready",
-      pricing: { input: 0.06, output: 0.0000016 * 1_000_000 },
+      pricing: {"input":0.047076,"output":0.16},
       openrouter_market: {
         series: "Router",
         author: "z-ai",
-        providers: ["Reka"],
+        providers: ["OpenInference"],
         discounted: false,
         zero_data_retention: true,
       },
@@ -2201,7 +2192,7 @@ describe("OpenRouter model refresh", () => {
       series: "Other",
       author: "xiaomi",
       providers: ["GMICloud"],
-      categories: ["programming", "roleplay", "marketing/seo", "technology", "science", "finance"],
+      categories: ["programming", "roleplay", "marketing/seo", "science", "trivia"],
     });
     expect(
       models.find((model) => model.id === "deepseek/deepseek-v4-flash")
@@ -2209,7 +2200,7 @@ describe("OpenRouter model refresh", () => {
     ).toMatchObject({
       series: "DeepSeek",
       author: "deepseek",
-      providers: ["Relace"],
+      providers: ["OpenInference"],
       categories: expect.arrayContaining(["translation"]),
     });
     expect(
@@ -2297,18 +2288,12 @@ describe("OpenRouter model refresh", () => {
       ]),
     );
 
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.018);
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(1.28);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.00392);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(0.12);
     expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.62);
     expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(2.42);
-    expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({
-      input: 0.6712,
-      output: 3.35,
-    });
-    expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({
-      input: 0.66,
-      output: 0.00000198 * 1_000_000,
-    });
+    expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({"input":0.6712,"output":3.35});
+    expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({"input":0.66,"output":1.9800000000000002});
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
@@ -2316,28 +2301,13 @@ describe("OpenRouter model refresh", () => {
       discounted: false,
       zero_data_retention: true,
     });
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.2088);
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(0.4176);
-    expect(byId.get("tencent/hy3")?.pricing).toEqual({
-      input: 0.13199999999999998,
-      output: 0.5279999999999999,
-    });
-    expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({
-      input: 0.25,
-      output: 2,
-    });
-    expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({
-      input: 0.091,
-      output: 0.182,
-    });
-    expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({
-      input: 0.26,
-      output: 2.08,
-    });
-    expect(byId.get("deepseek/deepseek-v3.2")?.pricing).toEqual({
-      input: 0.28,
-      output: 0.42,
-    });
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.436044);
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(0.872088);
+    expect(byId.get("tencent/hy3")?.pricing).toEqual({"input":0.13199999999999998,"output":0.5279999999999999});
+    expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({"input":0.25,"output":2});
+    expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({"input":0.091,"output":0.182});
+    expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({"input":0.26,"output":2.08});
+    expect(byId.get("deepseek/deepseek-v3.2")?.pricing).toEqual({"input":0.28,"output":0.42});
     expect(byId.get("mistralai/voxtral-small-24b-2507")?.context_length).toBe(
       32_768,
     );
@@ -2360,50 +2330,20 @@ describe("OpenRouter model refresh", () => {
     }
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.pricing_time_windows,
-    ).toHaveLength(6);
+    ).toEqual([]);
     expect(
       byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
     ).toEqual([]);
-    expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({
-      input: 0.15,
-      output: 1,
-    });
-    expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({
-      input: 0.5,
-      output: 0.0000036 * 1_000_000,
-    });
-    expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({
-      input: 0.5,
-      output: 2,
-    });
-    expect(byId.get("meta/muse-glimmer-30b")?.pricing).toEqual({
-      input: 0.3,
-      output: 1.2,
-    });
-    expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({
-      input: 0.00000027 * 1_000_000,
-      output: 14,
-    });
-    expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({
-      input: 0.25,
-      output: 0.95,
-    });
-    expect(byId.get("qwen/qwen2.5-vl-72b-instruct")?.pricing).toEqual({
-      input: 0.7999999999999999,
-      output: 1,
-    });
-    expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({
-      input: 0.32,
-      output: 0.00000089 * 1_000_000,
-    });
-    expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({
-      input: 0.0000001 * 1_000_000,
-      output: 0.32,
-    });
-    expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({
-      input: 0.35,
-      output: 0.65,
-    });
+    expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({"input":0.15,"output":1});
+    expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({"input":0.39,"output":2.34});
+    expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({"input":0.55,"output":2.2});
+    expect(byId.get("meta/muse-glimmer-30b")?.pricing).toEqual({"input":0.3,"output":1.2});
+    expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({"input":0.238,"output":16});
+    expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({"input":0.25,"output":0.95});
+    expect(byId.get("qwen/qwen2.5-vl-72b-instruct")?.pricing).toEqual({"input":0.7999999999999999,"output":1});
+    expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({"input":0.2574,"output":1.0287});
+    expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({"input":0.09999999999999999,"output":0.32});
+    expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({"input":0.35,"output":0.65});
     expect(byId.get("ibm-granite/granite-4.2-8b")?.supported_parameters).toEqual(
       expect.arrayContaining([
         "reasoning_effort",
@@ -2504,7 +2444,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(103);
+    expect(uncertain).toHaveLength(106);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -2572,7 +2512,7 @@ describe("OpenRouter model refresh", () => {
       );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(82);
+    expect(batchVariants).toHaveLength(80);
     expect(batchCatalogIds).toContain("openai/gpt-oss-120b:batch");
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
@@ -2624,21 +2564,8 @@ describe("OpenRouter model refresh", () => {
         data_retention_days: 30,
       });
     }
-    expect(geminiBatch).toMatchObject({
-      catalog_id: "google/gemini-2.5-flash:batch",
-      request_model_id: "google/gemini-2.5-flash",
-      endpoint: "/v1/chat/completions",
-      input_modalities: ["text"],
-      output_modalities: ["text"],
-      completion_window: "24h",
-      data_retention_days: 30,
-    });
-    expect(geminiBatch?.pricing.input).toBeCloseTo(
-      (gemini?.pricing.input ?? 0) / 2,
-    );
-    expect(geminiBatch?.pricing.output).toBeCloseTo(
-      (gemini?.pricing.output ?? 0) / 2,
-    );
+    expect(gemini).toBeDefined();
+    expect(geminiBatch).toBeUndefined();
     expect(gemini37Batch).toMatchObject({
       catalog_id: "google/gemini-3.7-flash:batch",
       request_model_id: "google/gemini-3.7-flash",
