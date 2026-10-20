@@ -701,6 +701,36 @@ class WorkflowExecutionStore:
                 self._persist_unlocked()
             return copy.deepcopy(item)
 
+    def checkpoint_running(
+        self, task_id: str, *, continuation: dict[str, Any] | None,
+        expected_lease_token: str | None = None,
+    ) -> None:
+        """Persist or clear a bounded in-flight checkpoint without entering wait."""
+        from .workflow_continuation import validate_resume_queue
+
+        with self._lock:
+            item = self._require_unlocked(task_id)
+            if item.status != "running":
+                raise WorkflowExecutionConflictError("只有运行中的任务可以保存批量恢复快照。")
+            self._require_optional_lease_unlocked(item, expected_lease_token)
+            if continuation is not None:
+                validate_resume_queue(continuation, executable_node_ids={
+                    node["id"] for node in item.workflow.get("nodes", [])
+                    if isinstance(node, dict) and isinstance(node.get("id"), str)
+                })
+            updated = copy.deepcopy(item)
+            updated.continuation = copy.deepcopy(continuation) if continuation is not None else {}
+            updated.updated_at = time.time()
+            updated.revision += 1
+            previous = self._items
+            self._items = {**previous, task_id: updated}
+            try:
+                self._persist_unlocked()
+            except BaseException:
+                self._items = previous
+                self.available = False
+                raise
+
     def suspend(
         self,
         task_id: str,

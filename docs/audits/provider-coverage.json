@@ -279,7 +279,7 @@
     "server/file_assets/chat_output.py": "74a81a6dc8d0460cc667e7b4d92cacef18d6b8974ba932ed9f9c5dab88ac39c2",
     "server/file_assets/document_parser.py": "98b18349098c608a827cdd373bc2edd6e641549bf35a62cfbc3095e12dca29e2",
     "server/file_assets/validation.py": "23acbc74450a66cd197b6bbec6aeba24418e82eb15546016ed69ddd0422c2ea6",
-    "server/main.py": "a85923e9e6bec67b5929dbeea0ad8b415ed354adb606574c47822de96e36a529",
+    "server/main.py": "e689caf94ffaeb61b3b23cdfa1faf6a0f6b60a4d697cf0482e4b423322be9e18",
     "server/mcp/browser_proxy.py": "b7e3fcc1f12f37c1e9fe77dd12bacf2b0c8246dea25e67774d7d17b109cda290",
     "server/mcp/database_proxy.py": "813737bea5b49d0a6d1237005e49782ef0ef1ff6e4dbe90cfce59b951702f0bf",
     "server/mcp/file_proxy.py": "f4f849c2fd77500f95f3e2289b66ffb0220e133304ca30a85f244b7d113f9b48",

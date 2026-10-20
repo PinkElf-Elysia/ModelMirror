@@ -18716,6 +18716,36 @@ async def _run_workflow_response(
                                     input_digest=input_digest,
                                 )
                             )
+                            # This checkpoint covers only the in-flight batch.
+                            # Child journals, not a saved loop counter, decide reuse.
+                            batch_checkpointed = (
+                                workflow_runtime_context.get("tool_policy") is None
+                                and not set(task_state.get("ephemeral_variable_names") or set()).intersection(variables)
+                            )
+                            if batch_checkpointed:
+                                workflow_execution_store.checkpoint_running(
+                                    task_id,
+                                    continuation={
+                                        "queue": [node_id, *list(queue)],
+                                        "queued": sorted(queued), "executed": sorted(executed),
+                                        "scheduler": scheduler_v2.snapshot() if scheduler_v2 is not None else {"version": 1},
+                                        "variables": checkpoint_safe_workflow_variables(
+                                            variables, ephemeral_names=set(task_state.get("ephemeral_variable_names") or set()),
+                                        ),
+                                        "final_output": final_output,
+                                        "control_flow_trace": list(task_state.get("control_flow_trace") or []),
+                                        "control_flow_terminal": task_state.get("control_flow_terminal"),
+                                        "execution_budget": execution_budget.usage() if execution_budget is not None else None,
+                                        "runtime_context": {
+                                            "system_prompt": workflow_runtime_context.get("system_prompt"),
+                                            "override_system_prompt": workflow_runtime_context.get("override_system_prompt", False),
+                                            "active_middlewares": list(workflow_runtime_context.get("active_middlewares") or []),
+                                            "global_middleware_specs": [asdict(spec) for spec in workflow_runtime_context.get("global_middleware_specs", [])
+                                                                        if isinstance(spec, RuntimeMiddlewareSpec)],
+                                        },
+                                    },
+                                    **execution_store_lease_kwargs(),
+                                )
                             receipts: list[WorkflowValue] = []
                             for index, resolved_inputs in enumerate(
                                 resolved_batch_inputs
@@ -18778,6 +18808,12 @@ async def _run_workflow_response(
                                 path=f"$.variables.{output_variable}",
                             )
                             output = workflow_value_to_text(receipts)
+                            if batch_checkpointed:
+                                # Never leave a resumable batch behind after downstream
+                                # nodes may have started effects not covered by its journal.
+                                workflow_execution_store.checkpoint_running(
+                                    task_id, continuation=None, **execution_store_lease_kwargs(),
+                                )
                     else:
                         try:
                             input_variable = str(
