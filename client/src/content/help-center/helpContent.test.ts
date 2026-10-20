@@ -98,7 +98,7 @@ describe("help center content catalog", () => {
     expect(scaleDownGuide?.verifiedCommit).toBe("2df7efba");
     expect(scaleDownGuide?.content).toContain("不提交模型请求");
     expect(scaleDownGuide?.content).toContain("UTF-8 字节");
-    expect(helpArticles.find((article) => article.slug === "recover-workflow-run")?.verifiedCommit).toBe("253ad98a");
+    expect(helpArticles.find((article) => article.slug === "recover-workflow-run")?.verifiedCommit).toBe("ba2e5022");
     expect(searchHelpContent("继续跟踪").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
@@ -147,14 +147,19 @@ describe("help center content catalog", () => {
   it("keeps recovery guidance distinct from replay and provider qualification", () => {
     const article = helpArticles.find((item) => item.slug === "recover-workflow-run");
     expect(article?.content).toContain("90 秒等待");
-    expect(article?.verifiedDate).toBe("2026-10-18");
-    expect(article?.content).toContain("/help-center/253ad98a/r8b-wait-recovered.png");
-    expect(article?.content).toContain("/help-center/253ad98a/r8b-wait-cancelled.png");
+    expect(article?.verifiedDate).toBe("2026-10-20");
+    expect(article?.content).toContain("/help-center/ba2e5022/r8b-b3-wait-recovered.png");
+    expect(article?.content).toContain("/help-center/ba2e5022/r8b-b3-wait-cancelled.png");
+    expect(article?.content).not.toContain("/help-center/253ad98a/");
     expect(article?.content).not.toContain("/help-center/6ff70de6/");
     expect(article?.content).toContain("页面能打开不等于等待任务一定能自动恢复");
     expect(article?.content).toContain("不要用“重新运行”代替修复恢复服务");
     expect(article?.content).toContain("不会撤销此前已提交的业务写入");
     expect(article?.content).toContain("不代表全部模型、工具或父子流程都经过真实调用验收");
+    expect(article?.content).toContain("本页没有新增批量自动恢复入口");
+    expect(article?.content).toContain("批量结束后的其他节点中断，不属于该窗口的恢复保证");
+    expect(article?.content).toContain("已派发但结果不确定的请求不能自动重发");
+    expect(article?.content).toContain("运行编号可能变化");
     expect(article?.content).not.toMatch(/wf_[a-f0-9]{32}|wft_[a-f0-9]{32}|127\.0\.0\.1/);
     expect(searchHelpContent("恢复服务").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
   });
