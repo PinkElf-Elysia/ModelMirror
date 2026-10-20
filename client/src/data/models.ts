@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-17T14:39:20.834Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-20T13:56:41.862Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -226,6 +226,41 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "minimax/minimax-m3.1-flash:free",
+    "canonical_slug": "minimax/minimax-m3.1-flash-20261019",
+    "name": "MiniMax: MiniMax M3.1 Flash (free)",
+    "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1792379569,
+    "expiration_date": null,
+    "model_author": "MiniMax",
+    "reasoning_declared": true
+  },
+  {
     "id": "deepseek/deepseek-v4.1-flash-1017",
     "canonical_slug": "deepseek/deepseek-v4.1-flash-20261017",
     "name": "DeepSeek: DeepSeek V4.1 Flash 1017",
@@ -325,8 +360,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -580,8 +617,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Beam 1.0 is Reflection's open-weight reasoning model for coding and long-horizon agentic workflows. It uses a sparse mixture-of-experts architecture with 501B total and 23B active parameters per token, and a...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1,
-      "output": 3
+      "input": 0.3,
+      "output": 1
     },
     "input_modalities": [
       "text"
@@ -615,6 +652,40 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1792160499,
     "expiration_date": null,
     "model_author": "Reflection",
+    "reasoning_declared": true
+  },
+  {
+    "id": "inception/mercury-3",
+    "canonical_slug": "inception/mercury-3-20261019",
+    "name": "Inception: Mercury 3",
+    "raw_description": "Mercury 3 is a diffusion-based language model from Inception, and the lab's most capable model to date. It is suited for agentic workflows and real-time applications where latency compounds, such...",
+    "context_length": 1000000,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.35
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1792158337,
+    "expiration_date": null,
+    "model_author": "Inception",
     "reasoning_declared": true
   },
   {
@@ -841,8 +912,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3.5 Super VL is an open multimodal mixture-of-experts model from NVIDIA, with 12B active parameters out of 120B total. It takes text, images, documents, GUI screenshots, and video...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.39999999999999997
+      "input": 0.15,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -914,6 +985,35 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "NVIDIA",
     "reasoning_declared": true
+  },
+  {
+    "id": "unbiased/pareto-26.10",
+    "canonical_slug": "unbiased/pareto-26.10-20261015",
+    "name": "Pareto 26.10",
+    "raw_description": "Pareto is a multimodal composite model built for research, coding, and agentic workflows, while delivering frontier-level performance across a broad range of general-purpose tasks.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.7999999999999999,
+      "output": 3.1999999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1792073620,
+    "expiration_date": null,
+    "model_author": "Unbiased"
   },
   {
     "id": "typesafe/jev-1.14",
@@ -996,10 +1096,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~unbiased/pareto-latest",
     "name": "Pareto Latest",
     "raw_description": "This model always redirects to the latest model in the Pareto family.",
-    "context_length": 262144,
+    "context_length": 1048576,
     "pricing": {
-      "input": 2.5,
-      "output": 7.5
+      "input": 0.7999999999999999,
+      "output": 3.1999999999999997
     },
     "input_modalities": [
       "text",
@@ -1011,7 +1111,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Router",
     "supported_parameters": [
       "max_tokens",
-      "response_format",
       "temperature",
       "tool_choice",
       "tools",
@@ -1600,7 +1699,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Eleven v4 is a text-to-speech model from ElevenLabs. It is ElevenLabs' most expressive model, with inline audio tags for emotional and delivery control, support for 90+ languages, and a 10,000-character...",
     "context_length": 0,
     "pricing": {
-      "input": 40,
+      "input": 80,
       "output": 0
     },
     "input_modalities": [
@@ -1614,11 +1713,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386285,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 40
+      "usd": 80
     }
   },
   {
@@ -1628,7 +1727,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Eleven v4 Turbo is a low-latency text-to-speech model from ElevenLabs. It keeps Eleven v4's expressive delivery and audio tags while being tuned for faster generation, with support for 90+ languages...",
     "context_length": 0,
     "pricing": {
-      "input": 20,
+      "input": 40,
       "output": 0
     },
     "input_modalities": [
@@ -1642,11 +1741,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386280,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 20
+      "usd": 40
     }
   },
   {
@@ -1656,7 +1755,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Eleven v3 is a text-to-speech model from ElevenLabs. It produces emotionally rich, highly expressive speech with inline audio tags, supports 70+ languages, and has a 5,000-character request limit.",
     "context_length": 0,
     "pricing": {
-      "input": 40,
+      "input": 80,
       "output": 0
     },
     "input_modalities": [
@@ -1670,11 +1769,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386272,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 40
+      "usd": 80
     }
   },
   {
@@ -1682,90 +1781,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "elevenlabs/eleven-v3-conversational-20260930",
     "name": "ElevenLabs: Eleven v3 Conversational",
     "raw_description": "Eleven v3 Conversational is a text-to-speech model from ElevenLabs, a variant of Eleven v3 optimized for natural dialogue in conversational agents. It supports 70+ languages and has a 5,000-character request...",
-    "context_length": 0,
-    "pricing": {
-      "input": 20,
-      "output": 0
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "speech"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [],
-    "created": 1791386266,
-    "expiration_date": null,
-    "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
-    "pricing_basis_override": "media",
-    "media_pricing": {
-      "unit": "character_million",
-      "usd": 20
-    }
-  },
-  {
-    "id": "elevenlabs/eleven-flash-v2.5",
-    "canonical_slug": "elevenlabs/eleven-flash-v2.5-20260930",
-    "name": "ElevenLabs: Eleven Flash v2.5",
-    "raw_description": "Eleven Flash v2.5 is an ultra-low-latency text-to-speech model from ElevenLabs. It is suited for conversational and real-time use cases, supports 32 languages, and has a 40,000-character request limit.",
-    "context_length": 0,
-    "pricing": {
-      "input": 20,
-      "output": 0
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "speech"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [],
-    "created": 1791386250,
-    "expiration_date": null,
-    "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
-    "pricing_basis_override": "media",
-    "media_pricing": {
-      "unit": "character_million",
-      "usd": 20
-    }
-  },
-  {
-    "id": "elevenlabs/eleven-turbo-v2",
-    "canonical_slug": "elevenlabs/eleven-turbo-v2-20260930",
-    "name": "ElevenLabs: Eleven Turbo v2",
-    "raw_description": "Eleven Turbo v2 is an English-only, low-latency text-to-speech model from ElevenLabs. It is suited for developer use cases where speed matters and only English is needed, and has a 30,000-character...",
-    "context_length": 0,
-    "pricing": {
-      "input": 20,
-      "output": 0
-    },
-    "input_modalities": [
-      "text"
-    ],
-    "output_modalities": [
-      "speech"
-    ],
-    "tokenizer": "Other",
-    "supported_parameters": [],
-    "created": 1791386238,
-    "expiration_date": null,
-    "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
-    "pricing_basis_override": "media",
-    "media_pricing": {
-      "unit": "character_million",
-      "usd": 20
-    }
-  },
-  {
-    "id": "elevenlabs/eleven-multilingual-v2",
-    "canonical_slug": "elevenlabs/eleven-multilingual-v2-20260930",
-    "name": "ElevenLabs: Eleven Multilingual v2",
-    "raw_description": "Eleven Multilingual v2 is a text-to-speech model from ElevenLabs. It is suited for lifelike, consistent long-form narration such as voice-overs and audiobooks, supports 29 languages, and has a 10,000-character request...",
     "context_length": 0,
     "pricing": {
       "input": 40,
@@ -1779,14 +1794,98 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [],
-    "created": 1791386232,
+    "created": 1791386266,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
       "usd": 40
+    }
+  },
+  {
+    "id": "elevenlabs/eleven-flash-v2.5",
+    "canonical_slug": "elevenlabs/eleven-flash-v2.5-20260930",
+    "name": "ElevenLabs: Eleven Flash v2.5",
+    "raw_description": "Eleven Flash v2.5 is an ultra-low-latency text-to-speech model from ElevenLabs. It is suited for conversational and real-time use cases, supports 32 languages, and has a 40,000-character request limit.",
+    "context_length": 0,
+    "pricing": {
+      "input": 40,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1791386250,
+    "expiration_date": null,
+    "model_author": "Elevenlabs",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 40
+    }
+  },
+  {
+    "id": "elevenlabs/eleven-turbo-v2",
+    "canonical_slug": "elevenlabs/eleven-turbo-v2-20260930",
+    "name": "ElevenLabs: Eleven Turbo v2",
+    "raw_description": "Eleven Turbo v2 is an English-only, low-latency text-to-speech model from ElevenLabs. It is suited for developer use cases where speed matters and only English is needed, and has a 30,000-character...",
+    "context_length": 0,
+    "pricing": {
+      "input": 40,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1791386238,
+    "expiration_date": null,
+    "model_author": "Elevenlabs",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 40
+    }
+  },
+  {
+    "id": "elevenlabs/eleven-multilingual-v2",
+    "canonical_slug": "elevenlabs/eleven-multilingual-v2-20260930",
+    "name": "ElevenLabs: Eleven Multilingual v2",
+    "raw_description": "Eleven Multilingual v2 is a text-to-speech model from ElevenLabs. It is suited for lifelike, consistent long-form narration such as voice-overs and audiobooks, supports 29 languages, and has a 10,000-character request...",
+    "context_length": 0,
+    "pricing": {
+      "input": 80,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1791386232,
+    "expiration_date": null,
+    "model_author": "Elevenlabs",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 80
     }
   },
   {
@@ -1796,7 +1895,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Eleven Turbo v2.5 is a low-latency text-to-speech model from ElevenLabs. It balances quality and speed for developer use cases that need non-English languages, supports 32 languages, and has a 40,000-character...",
     "context_length": 0,
     "pricing": {
-      "input": 20,
+      "input": 40,
       "output": 0
     },
     "input_modalities": [
@@ -1810,11 +1909,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386218,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 20
+      "usd": 40
     }
   },
   {
@@ -1824,7 +1923,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Eleven Flash v2 is an English-only, ultra-low-latency text-to-speech model from ElevenLabs. It is suited for conversational and real-time English use cases, and has a 30,000-character request limit.",
     "context_length": 0,
     "pricing": {
-      "input": 20,
+      "input": 40,
       "output": 0
     },
     "input_modalities": [
@@ -1838,11 +1937,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386207,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。目录价已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
+    "note": "专用语音合成，21 个预置声线，MP3 输出；按 Unicode 字符计费，音频标签也计费，站内上限 4,000 字符。首发优惠已结束，当前价格以页面和实际回执为准。未开放克隆、多说话人及供应商高级选项；等待人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 20
+      "usd": 40
     }
   },
   {
@@ -1852,7 +1951,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "ElevenLabs Scribe v2 is a speech-to-text model that transcribes audio in 90+ languages with word-level timestamps, optional speaker diarization, and audio-event tagging.",
     "context_length": 0,
     "pricing": {
-      "input": 30.555555555549997,
+      "input": 61.111111111099994,
       "output": 0
     },
     "input_modalities": [
@@ -1866,11 +1965,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791386190,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "同步 JSON Base64 转写，25 MB 上限；当前界面仅提取文字，未开放说话人分离、词级时间戳和医疗合规保证。目录价约 $0.11/音频小时，已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。等待短音频人工验收。",
+    "note": "同步 JSON Base64 转写，25 MB 上限；当前界面仅提取文字，未开放说话人分离、词级时间戳和医疗合规保证。首发优惠已结束，目录价约 $0.22/音频小时，以实际回执为准。等待短音频人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
-      "usd": 0.10999999999997999
+      "usd": 0.21999999999995998
     }
   },
   {
@@ -1880,7 +1979,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "ElevenLabs Scribe v2 Medical is a speech-to-text model tuned for clinical and medical terminology, with word-level timestamps, optional speaker diarization, and audio-event tagging.",
     "context_length": 0,
     "pricing": {
-      "input": 30.555555555549997,
+      "input": 61.111111111099994,
       "output": 0
     },
     "input_modalities": [
@@ -1894,11 +1993,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1791385619,
     "expiration_date": null,
     "model_author": "Elevenlabs",
-    "note": "同步 JSON Base64 转写，25 MB 上限；当前界面仅提取文字，未开放说话人分离、词级时间戳和医疗合规保证。目录价约 $0.11/音频小时，已含首发五折，优惠截至 2026-10-19 15:00 UTC（北京时间 23:00），之后需重新核价。等待短音频人工验收。",
+    "note": "同步 JSON Base64 转写，25 MB 上限；当前界面仅提取文字，未开放说话人分离、词级时间戳和医疗合规保证。首发优惠已结束，目录价约 $0.22/音频小时，以实际回执为准。等待短音频人工验收。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
-      "usd": 0.10999999999997999
+      "usd": 0.21999999999995998
     }
   },
   {
@@ -2267,7 +2366,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
     "context_length": 24576,
     "pricing": {
-      "input": 0.020999999999999998,
+      "input": 0.038000000000000006,
       "output": 0
     },
     "input_modalities": [
@@ -2289,7 +2388,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "cloudflare/clef",
     "name": "Cloudflare: Clef",
     "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
-    "context_length": 65536,
+    "context_length": 65537,
     "pricing": {
       "input": 0.041999999999999996,
       "output": 0
@@ -4057,7 +4156,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.12,
+      "input": 0.1307,
       "output": 8
     },
     "input_modalities": [
@@ -4101,7 +4200,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.09999999999999999,
+      "input": 0.07,
       "output": 0.5
     },
     "input_modalities": [
@@ -4117,8 +4216,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -4612,85 +4713,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 0,
-          "utc_days": [
-            "saturday",
-            "sunday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        }
-      ]
+      "input": 0.03552,
+      "output": 0.12
     },
     "input_modalities": [
       "text",
@@ -5701,8 +5725,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.06,
-      "output": 1.5999999999999999
+      "input": 0.047076,
+      "output": 0.16
     },
     "input_modalities": [
       "text",
@@ -5814,8 +5838,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.047076,
+      "output": 0.16
     },
     "input_modalities": [
       "text",
@@ -6244,8 +6268,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest GLM model from Z.ai.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.06319999999999999,
-      "output": 4.4
+      "input": 0.079,
+      "output": 1.4
     },
     "input_modalities": [
       "text"
@@ -6319,7 +6343,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.079,
-      "output": 4.8
+      "output": 1.4
     },
     "input_modalities": [
       "text"
@@ -6385,8 +6409,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.24,
-      "output": 2.2
+      "input": 0.04,
+      "output": 1.35
     },
     "input_modalities": [
       "text",
@@ -6979,84 +7003,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.66,
-      "output": 1.9800000000000002,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 0,
-          "utc_days": [
-            "saturday",
-            "sunday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        }
-      ]
+      "output": 1.9800000000000002
     },
     "input_modalities": [
       "text"
@@ -7327,8 +7274,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Solar Pro 4 is Upstage's cost-efficient large language model, featuring a 524K context window. It is built for long-horizon tasks and agentic workflows, with strong capabilities in office productivity, document-intensive...",
     "context_length": 524288,
     "pricing": {
-      "input": 0.09,
-      "output": 0.36
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -7661,8 +7608,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.018,
-      "output": 1.28
+      "input": 0.00392,
+      "output": 0.12
     },
     "input_modalities": [
       "text"
@@ -7707,8 +7654,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.018,
-      "output": 1.28
+      "input": 0.44,
+      "output": 1.32
     },
     "input_modalities": [
       "text"
@@ -8942,7 +8889,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.30400000000000005,
+      "input": 0.23900000000000002,
       "output": 11.936
     },
     "input_modalities": [
@@ -12335,8 +12282,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.27,
-      "output": 14
+      "input": 0.238,
+      "output": 16
     },
     "input_modalities": [
       "text",
@@ -12599,8 +12546,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.6-35B-A3B is an open-weight multimodal model from Alibaba Cloud with 35 billion total parameters and 3 billion active parameters per token. It uses a hybrid sparse mixture-of-experts architecture combining Gated...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.15,
-      "output": 1
+      "input": 0.09999999999999999,
+      "output": 0.95
     },
     "input_modalities": [
       "text",
@@ -12823,8 +12770,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.20879999999999999,
-      "output": 0.41759999999999997
+      "input": 0.436044,
+      "output": 0.872088
     },
     "input_modalities": [
       "text"
@@ -13878,8 +13825,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0675,
-      "output": 0.22499999999999998
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -15234,8 +15181,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 27B native vision-language Dense model incorporates a linear attention mechanism, delivering fast response times while balancing inference speed and performance. Its overall capabilities are comparable to those of...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.26,
-      "output": 2.6
+      "input": 0.27,
+      "output": 2.16
     },
     "input_modalities": [
       "text",
@@ -15671,8 +15618,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Qwen3.5 series 397B-A17B native vision-language model is built on a hybrid architecture that integrates a linear attention mechanism with a sparse mixture-of-experts model, achieving higher inference efficiency. It delivers...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.5,
-      "output": 3.5999999999999996
+      "input": 0.39,
+      "output": 2.34
     },
     "input_modalities": [
       "text",
@@ -19118,8 +19065,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Compared with GLM-4.5, this generation brings several key improvements: Longer context window: The context window has been expanded from 128K to 200K tokens, enabling the model to handle more complex...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.5,
-      "output": 2
+      "input": 0.55,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -20614,7 +20561,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-30B-A3B-Instruct-2507 is a 30.5B-parameter mixture-of-experts language model from Qwen, with 3.3B active parameters per inference. It operates in non-thinking mode and is designed for high-quality instruction following, multilingual understanding, and...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09999999999999999,
+      "input": 0.09,
       "output": 0.3
     },
     "input_modalities": [
@@ -20953,7 +20900,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1753200276,
-    "expiration_date": 1792454400,
+    "expiration_date": null,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -21193,7 +21140,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "morph/morph-v3-fast",
     "name": "Morph: Morph V3 Fast",
     "raw_description": "Morph's fastest apply model for code edits. ~10,500 tokens/sec with 96% accuracy for rapid code transformations. The model requires the prompt to be in the following format: <instruction>{instruction}</instruction> <code>{initial_code}</code> <update>{edit_snippet}</update>...",
-    "context_length": 81920,
+    "context_length": 262144,
     "pricing": {
       "input": 0.7999999999999999,
       "output": 1.2
@@ -21206,9 +21153,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "logprobs",
       "max_tokens",
+      "response_format",
       "stop",
-      "temperature"
+      "structured_outputs",
+      "temperature",
+      "top_logprobs"
     ],
     "created": 1751910002,
     "expiration_date": null,
@@ -21363,7 +21314,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750172488,
-    "expiration_date": 1792454400,
+    "expiration_date": null,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -21401,7 +21352,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning",
       "response_format",
       "seed",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -21409,7 +21359,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1750169544,
-    "expiration_date": 1792454400,
+    "expiration_date": null,
     "model_author": "Google",
     "reasoning_declared": true
   },
@@ -22276,7 +22226,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "meta-llama/llama-4-maverick-17b-128e-instruct",
     "name": "Meta: Llama 4 Maverick",
     "raw_description": "Llama 4 Maverick 17B Instruct (128E) is a high-capacity multimodal language model from Meta, built on a mixture-of-experts (MoE) architecture with 128 experts and 17 billion active parameters per forward...",
-    "context_length": 1048576,
+    "context_length": 524288,
     "pricing": {
       "input": 0.1875,
       "output": 0.6525
@@ -22464,8 +22414,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 3 introduces multimodality, supporting vision-language input and text outputs. It handles context windows up to 128k tokens, understands over 140 languages, and offers improved math, reasoning, and chat capabilities,...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.09999999999999999
+      "input": 0.04,
+      "output": 0.049999999999999996
     },
     "input_modalities": [
       "text",
@@ -22667,7 +22617,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.08,
-      "output": 0.44999999999999996
+      "output": 0.35
     },
     "input_modalities": [
       "text",
@@ -23416,8 +23366,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.32,
-      "output": 0.8899999999999999
+      "input": 0.2574,
+      "output": 1.0287
     },
     "input_modalities": [
       "text"
@@ -24164,8 +24114,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.33
+      "input": 0.0509,
+      "output": 0.335
     },
     "input_modalities": [
       "text"
@@ -24399,7 +24349,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1723939200,
-    "expiration_date": null,
+    "expiration_date": 1793577600,
     "model_author": "Nous"
   },
   {
@@ -24435,7 +24385,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1723766400,
-    "expiration_date": null,
+    "expiration_date": 1793577600,
     "model_author": "Nous"
   },
   {
@@ -28214,91 +28164,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
-    "id": "google/gemini-2.5-flash:batch",
-    "canonical_slug": "google/gemini-2.5-flash",
-    "name": "Google: Gemini 2.5 Flash (batch)",
-    "raw_description": "Gemini 2.5 Flash is Google's state-of-the-art workhorse model, specifically designed for advanced reasoning, coding, mathematics, and scientific tasks. It includes built-in \"thinking\" capabilities, enabling it to provide responses with greater...",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.15,
-      "output": 1.25
-    },
-    "input_modalities": [
-      "file",
-      "image",
-      "text",
-      "audio",
-      "video"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Gemini",
-    "supported_parameters": [
-      "include_reasoning",
-      "max_tokens",
-      "reasoning",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_p"
-    ],
-    "created": 1750172488,
-    "expiration_date": 1792454400,
-    "model_author": "Google",
-    "reasoning_declared": true
-  },
-  {
-    "id": "google/gemini-2.5-pro:batch",
-    "canonical_slug": "google/gemini-2.5-pro",
-    "name": "Google: Gemini 2.5 Pro (batch)",
-    "raw_description": "Gemini 2.5 Pro is Google’s state-of-the-art AI model designed for advanced reasoning, coding, mathematics, and scientific tasks. It employs “thinking” capabilities, enabling it to reason through responses with enhanced accuracy...",
-    "context_length": 1048576,
-    "pricing": {
-      "input": 0.625,
-      "output": 5,
-      "overrides": [
-        {
-          "min_prompt_tokens": 200000,
-          "input": 1.25,
-          "output": 7.5
-        }
-      ]
-    },
-    "input_modalities": [
-      "text",
-      "image",
-      "file",
-      "audio",
-      "video"
-    ],
-    "output_modalities": [
-      "text"
-    ],
-    "tokenizer": "Gemini",
-    "supported_parameters": [
-      "include_reasoning",
-      "max_tokens",
-      "reasoning",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_p"
-    ],
-    "created": 1750169544,
-    "expiration_date": 1792454400,
-    "model_author": "Google",
-    "reasoning_declared": true
-  },
-  {
     "id": "openai/o3:batch",
     "canonical_slug": "openai/o3-2025-04-16",
     "name": "OpenAI: o3 (batch)",
@@ -28681,6 +28546,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
   "deepcogito/cogito-v2.1-671b",
   "deepgram/flux-tts:free",
+  "deepseek/deepseek-r1",
   "deepseek/deepseek-r1-distill-qwen-32b",
   "deepseek/deepseek-v4-flash-0731:free",
   "essentialai/rnj-1-instruct",
@@ -28715,6 +28581,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "meta-llama/llama-3.3-70b-instruct:free",
   "meta-llama/llama-guard-3-8b",
   "microsoft/phi-4-mini-instruct",
+  "microsoft/wizardlm-2-8x22b",
   "minimax/minimax-m2.7:free",
   "minimax/minimax-m3:free",
   "mistralai/ministral-8b",
@@ -28748,6 +28615,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "qwen/qwen3.8-27b:free",
   "qwen/qwen3.8-max",
   "sao10k/l3.1-70b-hanami-x1",
+  "sao10k/l3.3-euryale-70b",
   "sourceful/riverflow-v2-fast-preview",
   "sourceful/riverflow-v2-max-preview",
   "sourceful/riverflow-v2-standard-preview",
@@ -29594,6 +29462,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "minimax/minimax-m3.1-flash:free",
+  "inception/mercury-3",
+  "unbiased/pareto-26.10",
   "deepseek/deepseek-v4.1-flash",
   "elorian/glimpse", "qwen/qwen-image-2.1-turbo", "qwen/qwen-image-2.1-pro",
   "perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2",
