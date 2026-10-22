@@ -7,6 +7,19 @@ const source = {
   pricing: { prompt: "0.1" },
 };
 
+test("Voxtral 3 audio seconds cannot drift into token pricing", () => {
+  for (const [id, prompt] of [["mistralai/voxtral-small-transcribe-3-0", "0.0000666667"], ["mistralai/voxtral-mini-transcribe-3-0", "0.0000583333"]]) {
+    const row = { id, pricing_basis: "media", media_pricing: {unit: "audio_hour", usd: Number(prompt) * 3600} };
+    const marketRow = {slug: id, endpoint: {model_variant_slug: id, pricing: {prompt}, display_pricing: [{kind: "unit", sku_label: "Audio Seconds", price: prompt, unitLabel: "/second"}], pricing_json: {"stt:audio_seconds": prompt}}};
+    const audit = (local, records = [marketRow]) => auditAudioHourPricingOverlays({localModels: [local], sourceModels: [{id, pricing: {prompt}}], marketModels: records});
+    assert.deepEqual(audit(row), []);
+    assert.ok(audit({id})[0].reasons.includes("overlay_missing"));
+    const wrongUnit = structuredClone(marketRow);
+    wrongUnit.endpoint.display_pricing[0].unitLabel = "/M tokens";
+    assert.ok(audit(row, [wrongUnit])[0].reasons.includes("market_unit_label_mismatch"));
+  }
+});
+
 test("HeyGen characters and Drama UTF-8 bytes cannot become token prices", () => {
   for (const [id, unit, prompt, usd] of [
     ["heygen/heygen-voice-1", "character_million", "0.000015", 15],
