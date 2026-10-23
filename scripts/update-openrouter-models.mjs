@@ -26,6 +26,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "mistralai/voxtral-mini-tts-3-0", "mistralai/voxtral-small-transcribe-3-0", "mistralai/voxtral-mini-transcribe-3-0",
   "qwen/qwen-image-2.1-turbo", "qwen/qwen-image-2.1-pro",
   "respan/span-02", "liquid/d1-ultra", "krea/k3-edit", "black-forest-labs/flux-3-image-klein",
   "typesafe/jev-1.14", "assemblyai/universal-3-6-pro", "~perplexity/pplx-decider-latest",

@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "mistralai/voxtral-mini-tts-3-0", "mistralai/voxtral-small-transcribe-3-0", "mistralai/voxtral-mini-transcribe-3-0",
   "qwen/qwen-image-2.1-turbo", "qwen/qwen-image-2.1-pro",
   "heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo", "fish-audio/drama-3",
   "nace-ai/drex-v2.0",

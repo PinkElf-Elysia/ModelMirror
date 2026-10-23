@@ -3416,6 +3416,9 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "baseten/mammoth-1:free",
+        "baseten/elephant-1:free",
+        "nace-ai/drex-max",
         "perplexity/pplx-decider-flash-v1.2",
         "perplexity/pplx-decider-v1.2",
         "~perplexity/pplx-decider-flash-latest",

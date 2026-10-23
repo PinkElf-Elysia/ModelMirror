@@ -45,7 +45,7 @@ ALLOWED_AUDIO_FORMATS: dict[str, tuple[str, ...]] = {
     "webm": ("audio/webm", "video/webm", "application/octet-stream"),
     "aac": ("audio/aac", "audio/x-aac", "application/octet-stream"),
 }
-TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-10-14-assemblyai"
+TRANSCRIPTION_PROFILE_VERSION = "stt-contracts-2026-10-22-voxtral3"
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,8 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
 MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     model_id: _STANDARD_TRANSCRIPTION_PROFILE
     for model_id in (
+        "mistralai/voxtral-small-transcribe-3-0",
+        "mistralai/voxtral-mini-transcribe-3-0",
         "elevenlabs/scribe-v2",
         "elevenlabs/scribe-v2-medical",
         "fish-audio/transcribe-1-pro",

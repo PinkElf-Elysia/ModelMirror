@@ -259,6 +259,7 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        "mistralai/voxtral-mini-tts-3-0",
         *HEYGEN_SPEECH_MODEL_IDS,
         DRAMA_3_MODEL_ID,
         *ELEVENLABS_SPEECH_MODEL_IDS,
@@ -277,6 +278,9 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "mistralai/voxtral-mini-tts-3-0": (
+        "en_paul_neutral", "fr_marie_neutral", "gb_jane_neutral", "gb_oliver_neutral",
+    ),
     **{model_id: HEYGEN_VOICES for model_id in HEYGEN_SPEECH_MODEL_IDS},
     DRAMA_3_MODEL_ID: DRAMA_3_VOICES,
     **{model_id: ELEVENLABS_VOICES for model_id in ELEVENLABS_SPEECH_MODEL_IDS},
