@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-22T07:47:44.937Z.
+﻿// Merged with OpenRouter model catalog on 2026-10-23T18:28:18.177Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,43 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "moonshotai/kimi-k3.1-pro",
+    "canonical_slug": "moonshotai/kimi-k3.1-pro-20261023",
+    "name": "MoonshotAI: Kimi K3.1 Pro",
+    "raw_description": "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 2,
+      "output": 10
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1792778188,
+    "expiration_date": null,
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
+  },
   {
     "id": "recursive/flint-v1.0:free",
     "canonical_slug": "recursive/flint-v1.0-20261021",
@@ -483,6 +520,52 @@ const rawCatalogModels: RawCatalogModel[] = [
     "note": "专用音频转写，约 $0.21/小时。本站使用原始 Base64 音频、返回文本；暂不开放说话人分离、时间戳和词汇偏置，未执行真实调用。"
   },
   {
+    "id": "minimax/minimax-m3.1-flash",
+    "canonical_slug": "minimax/minimax-m3.1-flash-20261019",
+    "name": "MiniMax: MiniMax M3.1 Flash",
+    "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.15,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1792379569,
+    "expiration_date": null,
+    "model_author": "MiniMax",
+    "reasoning_declared": true
+  },
+  {
     "id": "minimax/minimax-m3.1-flash:free",
     "canonical_slug": "minimax/minimax-m3.1-flash-20261019",
     "name": "MiniMax: MiniMax M3.1 Flash (free)",
@@ -524,8 +607,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2,
+      "input": 0.15,
+      "output": 0.6,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -874,7 +957,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Beam 1.0 is Reflection's open-weight reasoning model for coding and long-horizon agentic workflows. It uses a sparse mixture-of-experts architecture with 501B total and 23B active parameters per token, and a...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
+      "input": 0.25,
       "output": 1
     },
     "input_modalities": [
@@ -2647,7 +2730,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
     "context_length": 65537,
     "pricing": {
-      "input": 0.041999999999999996,
+      "input": 0.24,
       "output": 0
     },
     "input_modalities": [
@@ -4068,6 +4151,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logprobs",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -4413,7 +4497,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.2235,
+      "input": 0.1188,
       "output": 8
     },
     "input_modalities": [
@@ -4988,6 +5072,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logprobs",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -5816,8 +5901,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.834,
-      "output": 2.501,
+      "input": 0.7505999999999999,
+      "output": 2.2509,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -5844,9 +5929,11 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -5859,6 +5946,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1787897375,
@@ -5982,8 +6070,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.007899999999999999,
-      "output": 0.1825
+      "input": 0.005200000000000001,
+      "output": 0.1985
     },
     "input_modalities": [
       "text",
@@ -6095,8 +6183,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.007899999999999999,
-      "output": 0.1825
+      "input": 0.15,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -6666,8 +6754,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.04,
-      "output": 1.35
+      "input": 0.19999999999999998,
+      "output": 2.5
     },
     "input_modalities": [
       "text",
@@ -7259,8 +7347,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.32,
-      "output": 3.9600000000000004,
+      "input": 0.66,
+      "output": 1.9800000000000002,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -7942,8 +8030,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0475,
-      "output": 0.1568
+      "input": 0.0422,
+      "output": 0.1729
     },
     "input_modalities": [
       "text"
@@ -7988,8 +8076,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.44,
-      "output": 1.32
+      "input": 0.04444,
+      "output": 0.13332
     },
     "input_modalities": [
       "text"
@@ -9093,7 +9181,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
-      "seed",
       "stop",
       "temperature",
       "tool_choice",
@@ -9224,7 +9311,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.23900000000000002,
-      "output": 11.936
+      "output": 10.8
     },
     "input_modalities": [
       "text",
@@ -9240,8 +9327,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -9888,8 +9977,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -12617,7 +12706,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.238,
-      "output": 16
+      "output": 24
     },
     "input_modalities": [
       "text",
@@ -12633,8 +12722,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -13104,8 +13195,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.81432,
+      "output": 1.62864
     },
     "input_modalities": [
       "text"
@@ -13491,21 +13582,16 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
-      "frequency_penalty",
       "include_reasoning",
       "logprobs",
       "max_tokens",
-      "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
       "seed",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
-      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -13540,7 +13626,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
       "seed",
       "stop",
@@ -14424,7 +14509,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1775058318,
-    "expiration_date": null,
+    "expiration_date": 1792972800,
     "model_author": "Arcee AI",
     "reasoning_declared": true
   },
@@ -15152,8 +15237,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.08,
-      "output": 0.13
+      "input": 0.16999999999999998,
+      "output": 0.25
     },
     "input_modalities": [
       "text",
@@ -21542,8 +21627,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
     "context_length": 256000,
     "pricing": {
-      "input": 0.09375,
-      "output": 0.25
+      "input": 0.075,
+      "output": 0.19999999999999998
     },
     "input_modalities": [
       "image",
@@ -28879,6 +28964,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "microsoft/wizardlm-2-8x22b",
   "minimax/minimax-m2.7:free",
   "minimax/minimax-m3:free",
+  "minimax/minimax-m3.1-flash:free",
   "mistralai/ministral-8b",
   "moonshotai/kimi-k2.6:free",
   "nex-agi/deepseek-v3.1-nex-n1",
@@ -29757,6 +29843,7 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "minimax/minimax-m3.1-flash",
   "recursive/flint-v1.0:free", "baseten/mammoth-1:free", "baseten/elephant-1:free",
   "nace-ai/drex-max", "nvidia/nemotron-3.5-embed-1b:free", "nvidia/nemotron-3.5-embed-8b:free",
   "nvidia/nemotron-3.5-rerank-8b:free", "mistralai/voxtral-mini-tts-3-0",
@@ -29958,6 +30045,7 @@ const LATEST_REFRESH_MODEL_IDS = [
   "openai/gpt-6.1-sol",
 ];
 const FRONT_ROW_MODEL_IDS = [
+  "moonshotai/kimi-k3.1-pro",
   "anthropic/claude-opus-5.5", "google/gemini-4-argon",
   "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
   "openai/gpt-6-luna", "anthropic/claude-haiku-5.5",
@@ -30030,6 +30118,7 @@ const primaryCatalogModels: Model[] = [
   ...frontRowModel("anthropic/claude-haiku-5.5"),
   ...(seedance25Model ? [seedance25Model] : []),
   ...DIRECT_OPENAI_AUDIO_MODELS,
+  ...frontRowModel("moonshotai/kimi-k3.1-pro"),
   ...(gptImage25FlareModel ? [gptImage25FlareModel] : []),
   ...(gptImage25SunburstModel ? [gptImage25SunburstModel] : []),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
