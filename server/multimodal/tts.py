@@ -35,7 +35,7 @@ MAX_SPEECH_INPUT_CHARS = 4_000
 MAX_SPEECH_BYTES = 20 * 1024 * 1024
 CATALOG_CACHE_SECONDS = 300.0
 SPEECH_PROFILE_VERSION = "tts-contracts-2026-10-13-heygen-drama"
-HEYGEN_SPEECH_MODEL_IDS = frozenset({"heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo"})
+HEYGEN_SPEECH_MODEL_IDS = frozenset({"heygen/heygen-voice-1", "heygen/heygen-voice-1-turbo", "heygen/heygen-voice-1-turbo:free"})
 HEYGEN_VOICES = ("nadine", "tabitha", "bram", "gareth", "noelle", "meredith", "sabrina", "lucian", "weston", "vincent")
 DRAMA_3_MODEL_ID = "fish-audio/drama-3"
 # Public cast from Fish Audio's Drama 3 guide; no account-owned clones.
@@ -259,6 +259,7 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        "assemblyai/assemblyai-tts-1",
         "mistralai/voxtral-mini-tts-3-0",
         *HEYGEN_SPEECH_MODEL_IDS,
         DRAMA_3_MODEL_ID,
@@ -278,6 +279,7 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "assemblyai/assemblyai-tts-1": ("aai-jane", "aai-alba", "aai-anna", "aai-charles", "aai-eve", "aai-george", "aai-jean", "aai-mary", "aai-michael", "aai-paul", "aai-vera"),
     "mistralai/voxtral-mini-tts-3-0": (
         "en_paul_neutral", "fr_marie_neutral", "gb_jane_neutral", "gb_oliver_neutral",
     ),

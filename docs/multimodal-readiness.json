@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-23",
+  "reviewed_at": "2026-10-28",
   "catalog": {
-    "snapshot_total": 749,
-    "serving_variant_total": 79,
+    "snapshot_total": 765,
+    "serving_variant_total": 75,
     "serving_variants_by_type": {
-      "batch": 79
+      "batch": 75
     },
     "serving_variants_counted_in_snapshot": false,
     "live": 614,
-    "uncertain": 107,
-    "expired": 28,
-    "onsite_openrouter": 721,
-    "adaptation_denominator": 721,
+    "uncertain": 122,
+    "expired": 29,
+    "onsite_openrouter": 736,
+    "adaptation_denominator": 736,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
