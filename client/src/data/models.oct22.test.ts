@@ -7,7 +7,7 @@ describe("October 22 contracts", () => {
   it.each(ids)("places %s once outside flagship rows", id => {
     expect(models.filter(m => m.id === id)).toHaveLength(1);
     expect(models.findIndex(m => m.id === id)).toBeGreaterThanOrEqual(20);
-    expect(byId.get(id)?.catalog_status).toBe("live");
+    expect(byId.get(id)?.catalog_status).toBe(id.startsWith("baseten/") ? "uncertain" : "live");
   });
   it.each(ids.slice(1, 4))("routes %s to decisions, not chat", id => {
     expect(byId.get(id)).toMatchObject({ ui_entrypoint: "decisions", operations: ["decide"] });

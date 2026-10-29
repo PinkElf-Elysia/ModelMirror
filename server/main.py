@@ -3416,6 +3416,11 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "liquid/d1.1",
+        "baseten/mammoth-1",
+        "baseten/elephant-1",
+        "~liquid/d1-latest",
+        "~liquid/d1-ultra-latest",
         "baseten/mammoth-1:free",
         "baseten/elephant-1:free",
         "nace-ai/drex-max",
