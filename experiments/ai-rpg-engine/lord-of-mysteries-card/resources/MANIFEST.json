@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "cardId": "lord-of-mysteries",
+  "authority": "Author-provided and human-reviewed; no semantic edits",
+  "extraction": "OOXML body order; paragraph LF, explicit break LF, tab TAB; no trimming or normalization",
+  "source": {
+    "name": "诡秘之主提示词.docx",
+    "bytes": 142294,
+    "sha256": "70f04d026ef4f99e0cfe1f6736cf0384e8546208ad8e4f8ddd1e070675324123"
+  },
+  "system": {
+    "sha256": "2ed6e8da7ac7415d9279c69ce5ab51da2e4dca6240667f60308b055291482c9e",
+    "unicodeCharacters": 86723,
+    "paragraphs": 2291,
+    "emptyParagraphs": 314,
+    "textRuns": 1978,
+    "orderedTextRunsVerified": true
+  },
+  "prefix": null,
+  "suffix": null,
+  "worldbook": null
+}

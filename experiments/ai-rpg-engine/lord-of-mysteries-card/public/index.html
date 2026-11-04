@@ -1,0 +1,2780 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>诡秘之主档案构建系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --fog-darkest:#6B6964;
+  --fog-deep:#828080;
+  --fog-mid:#989590;
+  --fog-main:#B8B2A2;
+  --fog-light:#CFC8B6;
+  --fog-pale:#DED7C5;
+  --fog-paler:#EBE4D4;
+  --ink-pen:#2A2823;
+  --ink-soft:#56524C;
+  --ink-faint:#7A766F;
+  --text-on-dark:#E8E4DA;
+  --parchment-warm:#EFE5CC;
+  --gaslight:#B8924A;
+  --gaslight-deep:#8E6E2E;
+  --wine-red:#9C4A48;
+  --wine-deep:#6E2F2D;
+  --violet-mist:#7B6A8C;
+  --violet-deep:#5C4D6E;
+  --tier-mythic:#B8924A;
+  --tier-legendary:#7B6A8C;
+  --tier-epic:#5E7785;
+  --tier-rare:#8B9886;
+  --tier-common:#9A958E;
+}
+body{font-family:'Noto Sans SC',sans-serif;background-color:#5a5650;background-image:url('fog-background.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink-pen);min-height:100vh;overflow-x:hidden;}
+.main-container{min-height:100vh;position:relative;}
+.main-container::before{content:'';position:absolute;inset:0;background:linear-gradient(rgba(195,190,178,0.10),rgba(120,115,108,0.16));pointer-events:none;z-index:1;}
+.content-wrapper{position:relative;z-index:2;max-width:1020px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:38px 20px 32px;background:linear-gradient(135deg,rgba(162,158,150,0.86),rgba(132,128,122,0.82));backdrop-filter:blur(10px);border:1px solid rgba(184,146,74,0.45);margin-bottom:20px;position:relative;box-shadow:0 8px 32px rgba(40,38,33,0.4),inset 0 0 60px rgba(184,146,74,0.10);}
+.main-title::before,.main-title::after{content:'';position:absolute;top:50%;width:100px;height:2px;background:linear-gradient(to right,transparent,var(--gaslight),transparent);}
+.main-title::before{left:30px;transform:translateY(-50%);}
+.main-title::after{right:30px;transform:translateY(-50%);}
+.main-title h1{font-family:'Cinzel','Noto Sans SC',sans-serif;font-size:clamp(24px,4.4vw,38px);font-weight:900;letter-spacing:5px;color:var(--text-on-dark);text-shadow:1px 1px 0 rgba(0,0,0,0.45);}
+.main-title .subtitle{margin-top:14px;font-size:12px;letter-spacing:5px;color:rgba(232,228,218,0.72);font-family:'Cinzel',sans-serif;}
+.main-title .seal{margin-top:14px;display:inline-block;padding:6px 18px;border:1px solid var(--wine-red);color:#E8B4B2;font-size:12px;letter-spacing:4px;font-weight:700;background:rgba(156,74,72,0.18);}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:rgba(180,176,168,0.85);backdrop-filter:blur(8px);border:1px solid rgba(107,105,100,0.5);box-shadow:0 4px 18px rgba(40,38,33,0.45);}
+.tab-nav::-webkit-scrollbar{height:4px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--gaslight);}
+.tab-btn{flex:1;min-width:90px;padding:14px 6px;background:transparent;border:none;border-right:1px solid rgba(107,105,100,0.5);font-family:inherit;font-size:clamp(11px,1.85vw,13px);font-weight:700;cursor:pointer;transition:all .25s;white-space:nowrap;color:var(--text-on-dark);position:relative;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(184,146,74,0.18);}
+.tab-btn.active{background:linear-gradient(135deg,var(--gaslight),var(--gaslight-deep));color:#FFF7E6;box-shadow:inset 0 -3px 0 rgba(40,38,33,0.4);text-shadow:1px 1px 2px rgba(0,0,0,0.35);}
+.tab-btn.completed::after{content:'✓';position:absolute;top:5px;right:7px;font-size:11px;color:var(--wine-red);font-weight:900;}
+.tab-btn.active.completed::after{color:#FFF7E6;}
+.tab-content{display:none;background:rgba(220,215,204,0.80);backdrop-filter:blur(9px);border:1px solid rgba(107,105,100,0.4);padding:28px;box-shadow:0 6px 24px rgba(40,38,33,0.35),inset 0 0 40px rgba(200,195,185,0.15);position:relative;}
+.tab-content.active{display:block;animation:fadeIn .35s ease;}
+.tab-content::before{content:'';position:absolute;top:10px;right:10px;width:28px;height:28px;border-top:2px solid rgba(156,74,72,0.5);border-right:2px solid rgba(156,74,72,0.5);}
+.tab-content::after{content:'';position:absolute;bottom:10px;left:10px;width:28px;height:28px;border-bottom:2px solid rgba(156,74,72,0.5);border-left:2px solid rgba(156,74,72,0.5);}
+@keyframes fadeIn{from{opacity:0;transform:translateY(15px);}to{opacity:1;transform:translateY(0);}}
+.section-title{font-size:clamp(20px,3.8vw,28px);font-weight:900;margin-bottom:20px;padding-bottom:12px;border-bottom:2px solid var(--wine-red);display:inline-block;color:var(--ink-pen);position:relative;letter-spacing:2px;}
+.section-title::after{content:'';position:absolute;right:-18px;top:50%;width:14px;height:2px;background:var(--wine-red);transform:translateY(-50%) rotate(-30deg);}
+.intro-box,.info-box{background:linear-gradient(135deg,rgba(228,222,210,0.90),rgba(214,208,196,0.86));border:1px solid rgba(107,105,100,0.35);position:relative;box-shadow:0 3px 12px rgba(40,38,33,0.2);word-break:break-word;overflow-wrap:anywhere;}
+.intro-box{padding:26px;margin-bottom:22px;line-height:2.05;color:var(--ink-pen);font-size:15px;border-left:4px solid var(--gaslight);}
+.intro-box::before{content:'灰雾之外';position:absolute;top:-13px;left:20px;background:var(--parchment-warm);padding:2px 14px;font-size:11px;color:var(--wine-deep);letter-spacing:3px;border:1px solid var(--wine-red);font-weight:700;}
+.intro-box p{margin-bottom:10px;}
+.intro-box .highlight{color:var(--wine-red);font-weight:700;}
+.intro-box .question{margin-top:18px;font-size:18px;font-weight:900;color:var(--ink-pen);letter-spacing:1px;}
+.info-box{padding:20px;margin-bottom:18px;border-left:4px solid var(--gaslight);}
+.info-box::before{content:'档案';position:absolute;top:-13px;left:20px;background:var(--parchment-warm);padding:2px 14px;font-size:11px;color:var(--gaslight-deep);border:1px solid var(--gaslight);font-weight:700;letter-spacing:2px;}
+.info-box.warning{border-left-color:var(--wine-red);}
+.info-box.warning::before{content:'警示';color:var(--wine-deep);border-color:var(--wine-red);}
+.info-box.mystery{border-left-color:var(--violet-mist);}
+.info-box.mystery::before{content:'隐秘';color:var(--violet-deep);border-color:var(--violet-mist);}
+.info-box h3{font-size:16px;margin-bottom:12px;color:var(--wine-red);font-weight:700;}
+.info-box p,.info-box li{font-size:14px;line-height:1.85;color:var(--ink-pen);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:8px;}
+.info-box li::before{content:'◇';position:absolute;left:0;color:var(--gaslight);font-size:11px;}
+.info-box li strong{color:var(--ink-pen);font-weight:700;}
+.tier-list{display:flex;flex-direction:column;gap:10px;margin-top:12px;}
+.tier-item{padding:14px 18px;background:rgba(228,222,210,0.70);border-left:5px solid var(--gaslight);font-size:13px;line-height:1.8;word-break:break-word;}
+.tier-item.t-pillar{border-color:var(--violet-mist);}
+.tier-item.t-elder{border-color:var(--wine-red);}
+.tier-item.t-true{border-color:var(--gaslight);}
+.tier-item.t-angel{border-color:#5E7785;}
+.tier-item.t-saint{border-color:#8B9886;}
+.tier-item.t-mid{border-color:#A0907D;}
+.tier-item.t-low{border-color:#9A958E;}
+.tier-item strong{font-size:15px;color:var(--ink-pen);}
+.tier-item .reps{color:var(--ink-soft);font-style:italic;display:block;margin-top:4px;}
+.timeline-section{margin-bottom:32px;}
+.timeline-title{font-size:17px;font-weight:900;padding:13px 20px;background:rgba(130,126,118,0.92);color:var(--text-on-dark);margin-bottom:14px;display:flex;align-items:center;gap:12px;border-left:5px solid var(--gaslight);letter-spacing:2px;text-shadow:1px 1px 2px rgba(0,0,0,0.5);}
+.chapter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;}
+.chapter-card{padding:18px;cursor:pointer;transition:all .28s;background:linear-gradient(135deg,rgba(228,222,210,0.90),rgba(214,208,196,0.84));border:1px solid rgba(107,105,100,0.35);border-left:4px solid var(--gaslight);box-shadow:0 3px 10px rgba(40,38,33,0.2);min-width:0;word-break:break-word;overflow-wrap:anywhere;}
+.chapter-card:hover{transform:translateY(-4px);box-shadow:0 8px 22px rgba(184,146,74,0.45);border-left-color:var(--wine-red);}
+.chapter-card.selected{border-color:var(--wine-red);border-width:2px;border-left-width:5px;background:linear-gradient(135deg,rgba(232,222,198,0.80),rgba(220,212,196,0.84));box-shadow:0 4px 18px rgba(156,74,72,0.4);}
+.chapter-badge{display:inline-block;font-size:11px;padding:3px 10px;margin-bottom:10px;background:rgba(184,146,74,0.22);color:var(--gaslight-deep);border:1px solid rgba(184,146,74,0.5);border-radius:2px;font-weight:700;}
+.chapter-card h3{font-size:17px;margin-bottom:6px;color:var(--ink-pen);font-weight:900;}
+.chapter-card .chapter-year{font-size:12px;color:var(--violet-deep);margin-bottom:10px;font-style:italic;letter-spacing:1px;}
+.chapter-card .chapter-desc{font-size:13px;line-height:1.75;color:var(--ink-pen);margin-bottom:10px;}
+.chapter-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px;}
+.chapter-events{margin:10px 0;font-size:12px;}
+.chapter-events summary{cursor:pointer;color:var(--wine-red);font-weight:700;padding:4px 0;list-style:none;outline:none;}
+.chapter-events summary::-webkit-details-marker{display:none;}
+.chapter-events summary::before{content:'▶ ';font-size:10px;transition:transform .2s;display:inline-block;}
+.chapter-events[open] summary::before{transform:rotate(90deg);}
+.chapter-events ul{margin-top:8px;padding-left:0;list-style:none;}
+.chapter-events li{padding:5px 8px;line-height:1.7;color:var(--ink-pen);border-bottom:1px dashed rgba(107,105,100,0.2);font-size:12px;}
+.chapter-events li:last-child{border-bottom:none;}
+.chapter-details{margin-top:10px;border-top:1px dashed rgba(107,105,100,0.25);padding-top:8px;}
+.chapter-details summary{cursor:pointer;color:var(--wine-red);font-weight:700;padding:6px 0;list-style:none;outline:none;font-size:13px;}
+.chapter-details summary::-webkit-details-marker{display:none;}
+.chapter-details summary::before{content:'▶ ';font-size:10px;transition:transform .2s;display:inline-block;margin-right:4px;}
+.chapter-details[open] summary::before{transform:rotate(90deg);}
+.chapter-details .chapter-desc{margin-top:10px;font-size:13px;line-height:1.75;color:var(--ink-pen);}
+.chapter-details .events-block{margin-top:12px;font-size:12px;}
+.chapter-details .events-block-title{display:block;color:var(--wine-red);font-weight:700;padding:4px 0;font-size:12px;margin-bottom:4px;}
+.chapter-details .events-block ul{padding-left:0;list-style:none;}
+.chapter-details .events-block li{padding:5px 8px;line-height:1.7;color:var(--ink-pen);border-bottom:1px dashed rgba(107,105,100,0.2);font-size:12px;}
+.chapter-details .events-block li:last-child{border-bottom:none;}
+.chapter-details .chapter-tags{margin-top:12px;}
+.tag{font-size:10.5px;padding:3px 8px;background:rgba(40,38,33,0.08);border:1px solid rgba(40,38,33,0.22);color:var(--ink-soft);border-radius:2px;word-break:keep-all;}
+.entry-section{display:none;margin-top:22px;padding:20px;background:rgba(220,215,204,0.72);border:1px solid rgba(107,105,100,0.35);border-left:4px solid var(--gaslight);}
+.entry-section.visible{display:block;}
+.entry-section h4{font-size:15px;margin-bottom:14px;color:var(--wine-red);font-weight:700;}
+.entry-option{display:flex;align-items:flex-start;padding:14px;background:rgba(228,222,210,0.80);border:1px solid rgba(107,105,100,0.3);margin-bottom:10px;cursor:pointer;transition:all .25s;}
+.entry-option:hover{border-color:var(--gaslight);}
+.entry-option.selected{border-color:var(--wine-red);border-width:2px;background:rgba(232,222,198,0.70);}
+.entry-option input{margin-right:14px;margin-top:3px;accent-color:var(--wine-red);width:18px;height:18px;}
+.entry-option strong{display:block;margin-bottom:4px;color:var(--ink-pen);font-weight:700;}
+.entry-option span{font-size:13px;color:var(--ink-soft);}
+.custom-entry-input{display:none;margin-top:10px;}
+.custom-entry-input.visible{display:block;}
+.custom-entry-input textarea{width:100%;padding:12px;border:1px solid var(--gaslight);background:rgba(232,226,214,0.92);font-family:inherit;font-size:14px;min-height:84px;resize:vertical;color:var(--ink-pen);}
+.form-section{margin-bottom:24px;}
+.form-section h3{font-size:17px;margin-bottom:14px;padding-left:12px;border-left:4px solid var(--wine-red);color:var(--ink-pen);font-weight:900;}
+.form-section h3 small{font-size:12px;color:var(--ink-soft);font-weight:400;margin-left:8px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:13px;font-weight:700;margin-bottom:7px;color:var(--ink-pen);}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:12px;border:1px solid rgba(107,105,100,0.4);background:rgba(232,226,214,0.92);font-family:inherit;font-size:14px;transition:all .25s;color:var(--ink-pen);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(184,146,74,0.25);border-color:var(--gaslight);}
+.form-group textarea{min-height:100px;resize:vertical;line-height:1.65;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:12px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:7px;padding:10px 18px;background:rgba(232,226,214,0.92);border:1px solid rgba(107,105,100,0.3);cursor:pointer;font-size:13px;transition:all .25s;font-weight:600;}
+.radio-group label:hover{background:rgba(184,146,74,0.14);border-color:var(--gaslight);}
+.radio-group input{accent-color:var(--wine-red);width:16px;height:16px;}
+.radio-group input:checked+span{font-weight:900;color:var(--wine-red);}
+.codex-nav{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+.codex-nav-btn{flex:1;min-width:130px;padding:12px 16px;background:rgba(228,222,210,0.85);border:1px solid rgba(107,105,100,0.4);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .25s;color:var(--ink-pen);}
+.codex-nav-btn:hover{background:rgba(184,146,74,0.16);}
+.codex-nav-btn.active{background:linear-gradient(135deg,var(--violet-mist),var(--violet-deep));color:#FFF7E6;border-color:var(--violet-mist);text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.codex-page{display:none;}
+.codex-page.active{display:block;}
+.codex-group{margin-bottom:30px;}
+.codex-group-title{font-size:18px;font-weight:900;padding:12px 18px;background:rgba(130,126,118,0.92);color:var(--text-on-dark);margin-bottom:14px;border-left:5px solid var(--violet-mist);letter-spacing:2px;}
+.codex-group-title.pillar{border-color:var(--gaslight);}
+.codex-group-title.elder{border-color:var(--wine-red);}
+.codex-group-title.gift{border-color:var(--violet-mist);}
+.source-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;}
+.source-card{padding:16px;cursor:pointer;transition:all .25s;background:linear-gradient(135deg,rgba(228,222,210,0.90),rgba(214,208,196,0.84));border:1px solid rgba(107,105,100,0.35);border-top:3px solid var(--gaslight);box-shadow:0 3px 8px rgba(40,38,33,0.18);min-width:0;word-break:break-word;overflow-wrap:anywhere;}
+.source-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(184,146,74,0.35);}
+.source-card.pillar{border-top-color:var(--gaslight);}
+.source-card.elder{border-top-color:var(--wine-red);}
+.source-card.gift{border-top-color:var(--violet-mist);}
+.source-card h3{font-size:18px;margin-bottom:4px;color:var(--ink-pen);font-weight:900;}
+.source-card .source-elder{font-size:12px;color:var(--violet-deep);font-style:italic;margin-bottom:8px;}
+.source-card .source-meta{font-size:11px;color:var(--ink-soft);margin-bottom:8px;display:flex;gap:10px;flex-wrap:wrap;}
+.source-card .source-desc{font-size:12.5px;color:var(--ink-pen);line-height:1.7;}
+.source-detail{display:none;margin-top:14px;padding:18px;background:rgba(228,222,210,0.85);border:1px solid rgba(184,146,74,0.4);border-left:5px solid var(--gaslight);}
+.source-detail.visible{display:block;animation:slideDown .3s ease;}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px);}to{opacity:1;transform:translateY(0);}}
+.source-detail h4{font-size:16px;margin-bottom:10px;color:var(--wine-red);font-weight:900;}
+.source-detail .core-setting{font-size:13px;line-height:1.85;color:var(--ink-pen);padding:10px 14px;margin-bottom:14px;background:rgba(218,212,200,0.72);border-left:3px solid var(--violet-mist);word-break:break-word;}
+.pathway-list{display:flex;flex-direction:column;gap:10px;}
+.pathway-item{background:rgba(228,222,210,0.85);border:1px solid rgba(107,105,100,0.3);border-left:3px solid var(--wine-red);min-width:0;}
+.pathway-head{padding:12px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;color:var(--ink-pen);transition:background .2s;gap:10px;}
+.pathway-head:hover{background:rgba(184,146,74,0.12);}
+.pathway-head .toggle{font-size:14px;color:var(--gaslight);transition:transform .25s;flex-shrink:0;}
+.pathway-item.open .pathway-head .toggle{transform:rotate(180deg);}
+.sequence-list{display:none;padding:14px 16px 16px;border-top:1px dashed rgba(107,105,100,0.35);}
+.pathway-item.open .sequence-list{display:block;}
+.sequence-item{padding:12px;margin-bottom:8px;background:rgba(218,212,200,0.78);border-left:3px solid var(--tier-common);font-size:13px;line-height:1.75;word-break:break-word;overflow-wrap:anywhere;}
+.sequence-item.s9,.sequence-item.s8,.sequence-item.s7{border-left-color:var(--tier-common);}
+.sequence-item.s6,.sequence-item.s5{border-left-color:var(--tier-rare);}
+.sequence-item.s4,.sequence-item.s3{border-left-color:var(--tier-epic);}
+.sequence-item.s2,.sequence-item.s1{border-left-color:var(--tier-legendary);}
+.sequence-item.s0{border-left-color:var(--tier-mythic);background:linear-gradient(135deg,rgba(232,222,198,0.85),rgba(218,212,200,0.78));box-shadow:0 0 10px rgba(184,146,74,0.22);}
+.sequence-item .seq-name{font-weight:900;color:var(--ink-pen);font-size:14px;margin-bottom:4px;}
+.sequence-item .seq-num{color:var(--wine-red);font-weight:700;margin-right:6px;}
+.artifact-tier{margin-bottom:24px;}
+.artifact-tier h4{font-size:16px;margin-bottom:12px;padding:10px 16px;background:rgba(130,126,118,0.85);color:var(--text-on-dark);letter-spacing:2px;}
+.artifact-tier.t0 h4{background:linear-gradient(90deg,var(--wine-deep),#3d1f1d);}
+.artifact-tier.t1 h4{background:linear-gradient(90deg,var(--gaslight-deep),#5c4720);}
+.artifact-tier.t2 h4{background:linear-gradient(90deg,var(--violet-deep),#3d3349);}
+.artifact-tier.t3 h4{background:linear-gradient(90deg,#5E7785,#42525c);}
+.artifact-tier.tx h4{background:linear-gradient(90deg,#5C6E5C,#3d4a3d);}
+.artifact-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;}
+.artifact-item{padding:12px 14px;background:rgba(228,222,210,0.85);border:1px solid rgba(107,105,100,0.3);border-left:3px solid var(--gaslight);font-size:12.5px;line-height:1.65;min-width:0;word-break:break-word;overflow-wrap:anywhere;}
+.artifact-item strong{color:var(--ink-pen);font-size:13.5px;display:block;margin-bottom:3px;word-break:break-word;}
+.artifact-item .art-source{font-size:10.5px;color:var(--violet-deep);font-style:italic;margin-top:5px;}
+.ability-section{margin-bottom:28px;}
+.ability-section h3{font-size:17px;margin-bottom:14px;padding-left:12px;border-left:4px solid var(--wine-red);color:var(--ink-pen);font-weight:900;}
+.ability-section h3 small{font-size:12px;color:var(--ink-soft);font-weight:400;margin-left:8px;}
+.ability-section p.hint{font-size:13px;color:var(--ink-soft);margin-bottom:12px;line-height:1.7;}
+.pathway-picker{background:rgba(220,215,204,0.72);border:1px solid rgba(184,146,74,0.35);border-left:5px solid var(--gaslight);padding:20px;margin-bottom:20px;}
+.pathway-picker.gift{border-left-color:var(--violet-mist);background:rgba(222,215,225,0.65);}
+.picker-step{margin-bottom:18px;}
+.picker-step h4{font-size:14px;margin-bottom:10px;color:var(--wine-red);font-weight:700;}
+.source-options,.pathway-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;}
+.source-opt,.pathway-opt{padding:10px 12px;background:rgba(228,222,210,0.88);border:1px solid rgba(107,105,100,0.35);cursor:pointer;text-align:center;font-size:13px;font-weight:700;transition:all .22s;color:var(--ink-pen);word-break:break-word;}
+.source-opt:hover{background:rgba(184,146,74,0.14);border-color:var(--gaslight);}
+.source-opt.selected{background:var(--gaslight);color:#FFF7E6;border-color:var(--gaslight-deep);text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.pathway-opt{text-align:left;}
+.pathway-opt:hover{background:rgba(123,106,140,0.16);border-color:var(--violet-mist);}
+.pathway-opt.selected{background:var(--violet-mist);color:#FFF7E6;border-color:var(--violet-deep);text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.pathway-opt small{display:block;font-size:11px;font-weight:400;margin-top:2px;opacity:.85;}
+.sequence-picker{display:flex;flex-direction:column;gap:8px;}
+.seq-pick-item{padding:12px 14px;background:rgba(228,222,210,0.88);border:1px solid rgba(107,105,100,0.3);border-left:3px solid var(--tier-common);cursor:pointer;transition:all .22s;font-size:13px;line-height:1.7;word-break:break-word;}
+.seq-pick-item:hover{background:rgba(184,146,74,0.12);}
+.seq-pick-item.selected{border-color:var(--wine-red);border-width:2px;border-left-width:5px;background:rgba(232,222,198,0.70);box-shadow:0 2px 8px rgba(156,74,72,0.25);}
+.seq-pick-item .seq-pick-name{font-weight:900;color:var(--ink-pen);margin-bottom:4px;}
+.clear-pathway-btn{padding:8px 16px;background:rgba(156,74,72,0.12);border:1px solid var(--wine-red);color:var(--wine-red);font-size:12px;font-weight:700;cursor:pointer;margin-top:12px;transition:all .22s;}
+.clear-pathway-btn:hover{background:var(--wine-red);color:#FFF7E6;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;}
+.ability-item{display:flex;align-items:center;padding:11px 13px;background:rgba(228,222,210,0.88);border:1px solid rgba(107,105,100,0.35);cursor:pointer;transition:all .22s;min-width:0;}
+.ability-item:hover{background:rgba(184,146,74,0.12);border-color:var(--gaslight);}
+.ability-item.selected{background:linear-gradient(135deg,rgba(232,222,198,0.75),rgba(218,212,200,0.85));border-color:var(--wine-red);border-width:2px;}
+.ability-item input{margin-right:10px;accent-color:var(--wine-red);width:17px;height:17px;flex-shrink:0;}
+.ability-item span{font-size:13px;font-weight:600;color:var(--ink-pen);flex:1;word-break:break-word;overflow-wrap:anywhere;}
+.custom-skills-section{margin-top:20px;padding:20px;background:rgba(220,215,204,0.72);border:1px solid rgba(184,146,74,0.3);border-left:4px solid var(--gaslight);}
+.custom-skills-section h4{font-size:15px;margin-bottom:14px;color:var(--ink-pen);font-weight:700;}
+.custom-skill-list{display:flex;flex-direction:column;gap:12px;}
+.custom-skill-item{padding:14px;background:rgba(232,226,214,0.90);border:1px solid rgba(107,105,100,0.3);border-left:3px solid var(--gaslight);position:relative;}
+.custom-skill-item .delete-btn{position:absolute;top:10px;right:10px;width:28px;height:28px;border:none;background:var(--wine-red);color:#fff;font-size:16px;cursor:pointer;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:all .22s;}
+.custom-skill-item .delete-btn:hover{background:var(--wine-deep);transform:scale(1.1) rotate(90deg);}
+.custom-skill-item input,.custom-skill-item textarea{width:100%;padding:10px;border:1px solid rgba(107,105,100,0.4);background:rgba(232,226,214,0.95);font-family:inherit;font-size:13px;margin-bottom:10px;color:var(--ink-pen);}
+.custom-skill-item textarea{min-height:60px;resize:vertical;margin-bottom:0;line-height:1.55;}
+.add-skill-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px;background:rgba(228,222,210,0.85);border:2px dashed rgba(184,146,74,0.55);font-family:inherit;font-size:14px;font-weight:700;color:var(--gaslight-deep);cursor:pointer;transition:all .25s;}
+.add-skill-btn:hover{background:rgba(184,146,74,0.14);border-color:var(--wine-red);color:var(--wine-red);}
+.add-skill-btn.disabled{opacity:.45;cursor:not-allowed;}
+.skill-limit-hint{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:10px;}
+.roll-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:20px;align-items:start;}
+.roll-section{text-align:center;padding:22px;background:rgba(220,215,204,0.72);border:1px solid rgba(184,146,74,0.35);}
+.roll-section.gear-side{border-left:4px solid var(--gaslight);}
+.roll-section.destiny-side{border-left:4px solid var(--wine-red);}
+.roll-section h3{font-size:16px;color:var(--ink-pen);font-weight:900;margin-bottom:10px;letter-spacing:2px;}
+.roll-section .roll-hint{font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;line-height:1.7;}
+.roll-btn{padding:14px 32px;font-size:15px;font-weight:900;font-family:inherit;background:linear-gradient(135deg,var(--wine-red),var(--wine-deep));color:#FFF7E6;border:2px solid rgba(156,74,72,0.5);cursor:pointer;transition:all .3s;box-shadow:0 5px 18px rgba(156,74,72,0.45);letter-spacing:2px;text-shadow:1px 1px 3px rgba(0,0,0,0.3);}
+.roll-btn:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 8px 26px rgba(156,74,72,0.6);}
+.roll-btn:disabled{opacity:.55;cursor:not-allowed;transform:none;}
+.roll-btn.rolling{animation:shake .5s infinite;}
+.roll-btn.gear{background:linear-gradient(135deg,var(--gaslight),var(--gaslight-deep));box-shadow:0 5px 18px rgba(184,146,74,0.45);}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-5px) rotate(-2deg);}75%{transform:translateX(5px) rotate(2deg);}}
+.destiny-pool,.gear-pool{display:none;margin-top:20px;text-align:left;}
+.destiny-pool.visible,.gear-pool.visible{display:block;}
+.pool-header{font-size:15px;color:var(--ink-pen);font-weight:900;margin-bottom:8px;text-align:center;}
+.pool-counter{font-size:13px;color:var(--ink-soft);margin-bottom:14px;text-align:center;}
+.destiny-list,.gear-list{display:grid;gap:10px;max-height:520px;overflow-y:auto;padding:12px;background:rgba(220,215,204,0.65);border:1px solid rgba(184,146,74,0.3);}
+.destiny-list::-webkit-scrollbar,.gear-list::-webkit-scrollbar{width:7px;}
+.destiny-list::-webkit-scrollbar-thumb,.gear-list::-webkit-scrollbar-thumb{background:var(--gaslight);}
+.destiny-item,.gear-item{display:flex;align-items:flex-start;padding:14px;background:rgba(232,226,214,0.90);border:1px solid var(--tier-common);border-left:4px solid var(--tier-common);cursor:pointer;transition:all .22s;min-width:0;word-break:break-word;overflow-wrap:anywhere;}
+.destiny-item:hover,.gear-item:hover{border-color:var(--gaslight);}
+.destiny-item.selected,.gear-item.selected{border-width:2px;border-left-width:5px;box-shadow:0 3px 12px rgba(184,146,74,0.35);}
+.destiny-item.mythic,.gear-item.mythic{border-color:var(--tier-mythic);border-left-color:var(--tier-mythic);background:linear-gradient(135deg,rgba(236,224,196,0.92),rgba(228,216,186,0.86));box-shadow:0 0 10px rgba(184,146,74,0.25);}
+.destiny-item.legendary,.gear-item.legendary{border-color:var(--tier-legendary);border-left-color:var(--tier-legendary);background:linear-gradient(135deg,rgba(222,215,225,0.92),rgba(214,208,196,0.86));}
+.destiny-item.epic,.gear-item.epic{border-color:var(--tier-epic);border-left-color:var(--tier-epic);background:linear-gradient(135deg,rgba(215,222,225,0.92),rgba(214,208,196,0.86));}
+.destiny-item.rare,.gear-item.rare{border-color:var(--tier-rare);border-left-color:var(--tier-rare);background:linear-gradient(135deg,rgba(218,225,218,0.92),rgba(214,208,196,0.86));}
+.destiny-item input,.gear-item input{margin-right:12px;margin-top:3px;width:18px;height:18px;accent-color:var(--wine-red);flex-shrink:0;}
+.dest-info,.gear-info{flex:1;min-width:0;}
+.dest-name,.gear-name{font-weight:900;font-size:14px;margin-bottom:5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--ink-pen);word-break:break-word;}
+.dest-badge,.gear-badge{font-size:10px;padding:3px 9px;border-radius:10px;color:#FFF7E6;font-weight:700;text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.dest-badge.mythic,.gear-badge.mythic{background:var(--tier-mythic);}
+.dest-badge.legendary,.gear-badge.legendary{background:var(--tier-legendary);}
+.dest-badge.epic,.gear-badge.epic{background:var(--tier-epic);}
+.dest-badge.rare,.gear-badge.rare{background:var(--tier-rare);}
+.dest-badge.common,.gear-badge.common{background:var(--tier-common);}
+.dest-desc,.gear-desc{font-size:12.5px;color:var(--ink-pen);line-height:1.65;}
+.dest-effect,.gear-effect{font-size:12px;color:var(--wine-red);margin-top:5px;font-style:italic;font-weight:600;line-height:1.6;}
+.preview-box{padding:22px;font-size:13px;line-height:1.95;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;max-height:560px;overflow-y:auto;margin-bottom:18px;font-family:'Courier New',monospace;background:rgba(236,226,200,0.72);border:1px solid rgba(107,105,100,0.35);border-left:4px solid var(--gaslight);color:var(--ink-pen);}
+.preview-box::-webkit-scrollbar{width:7px;}
+.preview-box::-webkit-scrollbar-thumb{background:var(--gaslight);}
+.copy-btn{display:block;width:100%;max-width:320px;margin:0 auto;padding:16px 38px;font-size:18px;font-weight:900;font-family:inherit;background:var(--wine-red);color:#FFF7E6;border:none;cursor:pointer;transition:all .3s;box-shadow:0 5px 18px rgba(156,74,72,0.45);letter-spacing:2px;}
+.copy-btn:hover{transform:translateY(-3px);box-shadow:0 8px 26px rgba(156,74,72,0.6);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:20px;border-top:1px dashed rgba(184,146,74,0.35);gap:10px;}
+.nav-btn{padding:13px 28px;font-size:14px;font-weight:700;font-family:inherit;border:1px solid rgba(107,105,100,0.4);cursor:pointer;transition:all .25s;letter-spacing:1px;}
+.nav-btn.prev{background:rgba(232,226,214,0.92);color:var(--ink-pen);}
+.nav-btn.next{background:var(--gaslight);color:#FFF7E6;border-color:var(--gaslight-deep);box-shadow:0 3px 10px rgba(184,146,74,0.35);text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn.prev:hover{border-color:var(--gaslight);}
+.nav-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:18px;background:rgba(70,66,60,0.92);color:var(--text-on-dark);font-size:12px;position:relative;z-index:2;letter-spacing:2px;}
+@media(max-width:640px){
+  .content-wrapper{padding:10px;}
+  .tab-content{padding:18px;}
+  .main-title{padding:24px 14px 20px;}
+  .main-title::before,.main-title::after{display:none;}
+  .form-row{grid-template-columns:1fr;}
+  .chapter-grid,.ability-grid,.source-grid,.source-options,.pathway-options,.roll-grid,.artifact-list{grid-template-columns:1fr;}
+  .nav-buttons{flex-direction:column;gap:10px;}
+  .nav-btn{width:100%;}
+}
+.world-map-frame{
+  position:relative;
+  margin-bottom:22px;
+  padding:14px;
+  background:linear-gradient(135deg,rgba(162,158,150,0.65),rgba(132,128,122,0.60));
+  border:1px solid rgba(184,146,74,0.5);
+  box-shadow:0 6px 22px rgba(40,38,33,0.35),inset 0 0 30px rgba(184,146,74,0.10);
+}
+.world-map-frame::before,
+.world-map-frame::after{
+  content:'';position:absolute;width:22px;height:22px;
+  border:2px solid var(--wine-red);
+}
+.world-map-frame::before{top:6px;left:6px;border-right:none;border-bottom:none;}
+.world-map-frame::after{bottom:6px;right:6px;border-left:none;border-top:none;}
+.world-map-img{
+  display:block;width:100%;height:auto;
+  filter:sepia(.10) contrast(1.05);
+  transition:transform .4s ease,filter .4s ease;
+  cursor:zoom-in;
+}
+.world-map-img:hover{transform:scale(1.015);filter:sepia(.03) contrast(1.1);}
+.world-map-caption{
+  margin-top:10px;text-align:center;
+  font-family:'Cinzel','Noto Sans SC',sans-serif;
+  font-size:12px;letter-spacing:4px;
+  color:var(--text-on-dark);
+  text-shadow:1px 1px 2px rgba(0,0,0,0.5);
+}
+</style>
+</head>
+<body>
+<div class="main-container">
+  <div class="content-wrapper">
+    <div class="main-title">
+      <h1>诡秘之主档案构建系统</h1>
+      <div class="subtitle">LORD OF THE MYSTERIES · PROFILE BUILDER</div>
+      <div class="seal">灰雾笼罩 · 群星注视</div>
+    </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="intro">📜 序章</button>
+      <button class="tab-btn" data-tab="world">🗺️ 世界图志</button>
+      <button class="tab-btn" data-tab="codex">📖 源质图鉴</button>
+      <button class="tab-btn" data-tab="timeline">⏳ 时间线</button>
+      <button class="tab-btn" data-tab="character">🎭 角色</button>
+      <button class="tab-btn" data-tab="ability">⚡ 能力</button>
+      <button class="tab-btn" data-tab="destiny">🎲 命数</button>
+      <button class="tab-btn" data-tab="preview">📋 档案</button>
+    </div>
+    <!-- tab1 序章 -->
+    <div class="tab-content active" id="tab-intro">
+      <h2 class="section-title">灰雾纪元序章</h2>
+      <div class="intro-box">
+        <p>在贝克兰德的浓雾里，有人戴着圆顶礼帽走过煤气灯下；</p>
+        <p>在特里尔的咖啡馆里，有人摊开一副 <span class="highlight">塔罗牌</span>，喃喃低语；</p>
+        <p>在某处不为人知的灰雾之上，有一张古老的 <span class="highlight">青铜长桌</span>，二十二把椅子静静等待来客就坐。</p>
+        <p style="margin-top:16px;">这里只有 <span class="highlight">源质</span>、<span class="highlight">非凡特性</span> 与 <span class="highlight">序列</span>。</p>
+        <p>力量来自远古众神的尸骸，每一次魔药入喉，都是一次扮演——扮演那个曾真正掌握这份力量的人。</p>
+        <p>七大正神教会维持着表面的秩序，秘密组织在阴影里彼此倾轧，而星空之外，旧日与外神注视着每一颗发出非凡光芒的灵魂。</p>
+        <p class="question">你准备好走入这片灰雾了吗？</p>
+      </div>
+      <div class="info-box">
+        <h3>「档案收录概况」</h3>
+        <ul>
+          <li><strong>9大本土源质</strong>：3支柱级（混沌海/源堡/母巢）+ 6旧日级（永暗之河/灾祸之城/失序之国/暗影世界/知识荒野/光之钥）</li>
+          <li><strong>22条神之途径 × 10序列 = 220阶完整描述</strong>，从序列9凡俗入门到序列0真神位格</li>
+          <li><strong>10份外神恩赐源质 × 10条恩赐途径 × 10序列 = 100阶</strong>，附完整污染机制</li>
+          <li><strong>61件封印物档案</strong>：0级17件 / 1级17件 / 2级10件 / 3级7件 + 特殊神奇物品10件</li>
+          <li><strong>21个时间线篇章</strong>：上古纪元5篇 + 愚者主线8篇 + 宿命之环8篇</li>
+          <li>命途池88条 + 行囊池61条，按神话/传说/史诗/稀有/普通五档分级</li>
+        </ul>
+      </div>
+      <div class="info-box">
+        <h3>「构建流程」</h3>
+        <ul>
+          <li>第一步：阅读世界图志，了解你将身处的舞台</li>
+          <li>第二步：查阅源质图鉴，理解力量的来源与代价</li>
+          <li>第三步：选择时间线篇章与入场节点</li>
+          <li>第四步：创建角色身份（基础信息、势力、背景）</li>
+          <li>第五步：自由构建能力体系——所有模块均为可选，凡俗或非凡完全由你决定</li>
+          <li>第六步：抽取命数与机缘行囊（两个抽取互相独立）</li>
+          <li>第七步：生成完整的非凡档案</li>
+        </ul>
+      </div>
+      <div class="info-box warning">
+        <h3>「非凡特性三大铁律」</h3>
+        <ul>
+          <li><strong>不灭定律</strong>：非凡特性不增不减，只在承载物之间转移，旧日陨落也不会让特性消失。</li>
+          <li><strong>守恒定律</strong>：同一途径高序列特性多了，低序列特性就少；每条途径最多容纳 1个序列0 或 3个序列1，二者不能并存。</li>
+          <li><strong>聚合定律</strong>：同途径与相邻途径的非凡者会被无意识地相互吸引，位格越高引力越强。</li>
+        </ul>
+      </div>
+      <div class="info-box mystery">
+<h3>「位格层级官方排序」</h3>
+<div class="tier-list">
+  <div class="tier-item t-pillar"><strong>支柱阶</strong> · 旧日顶点 · 世界观战力天花板，3位先天支柱+1位后天合成支柱。<span class="reps">代表：上帝（原初/全知全能者）、诡秘之主（天尊/克莱恩）、堕落母神（原完整支柱，现源质被撕裂力量不完整）；第四支柱可由永恒之暗与毁灭天灾聚合而成</span></div>
+  <div class="tier-item t-elder"><strong>旧日阶</strong> · 序列之上 · 需掌握对应源质+本组全部相邻途径唯一性+至少1份序列1特性，摆脱单途径限制。<span class="reps">代表：混沌之子（外神）、欲望母树（外神）等星空旧日；地球上仅克莱恩最终触及准支柱级旧日</span></div>
+  <div class="tier-item t-true"><strong>真神阶</strong> · 序列0 · 单途径天花板，掌握完整权柄与唯一性，拥有神国。<span class="reps">代表：黑夜女神阿曼妮西斯、风暴之主列奥德罗、永恒烈阳、原初魔女奇克、罗塞尔（黑皇帝，后陨落）</span></div>
+    <div class="tier-item t-king"><strong>天使之王</strong> · 准神（序列1之上、序列0未满）· 容纳了本途径唯一性，或容纳两份及以上本途径序列1特性的大天使，可使用三段式尊名。<span class="reps">代表：阿蒙（时天使）、红天使梅迪奇、智天使赫拉伯根、纯白天使奥赛库斯、风天使列奥德罗（远古太阳神麾下八大天使之王）</span></div>
+  <div class="tier-item t-angel"><strong>天使阶</strong> · 序列2—序列1（序列2称天使/从神，序列1称大天使）· 第二次生命质变，可显现神话生物形态，寿命大幅延长。<span class="reps">代表：查拉图（序列1诡秘侍者）、阿里安娜（序列2隐秘之仆）、戴里克·伯格（序列2逐光者）</span></div>
+  <div class="tier-item t-saint"><strong>圣者阶（半神）</strong> · 序列3-4 · 第一次生命质变，拥有神性与不完整神话生物形态，可称"圣者"。<span class="reps">代表：伦纳德·米切尔（序列4守夜人）、布提斯（极光会秘之圣者）、安东尼·史蒂文森（序列3恐惧主教）</span></div>
+  <div class="tier-item t-mid"><strong>中序列</strong> · 序列5-7 · 能力体系成型，世俗势力骨干，非凡者中的中坚力量。<span class="reps">代表：邓恩·史密斯（序列7梦魇）、值夜者正式队员、教会执事、非凡者小队队长（注：古代分界线为序列6，现代非凡衰退后为序列7）</span></div>
+  <div class="tier-item t-low"><strong>低序列</strong> · 序列8-9 · 非凡入门，本质仍属凡人范畴，仅获得基础超凡能力。<span class="reps">代表：占卜家学徒、教会见习、新觉醒者、刚服魔药的新人</span></div>
+  <div class="tier-item" style="border-color:#8a857c;"><strong>普通人</strong> · 未承载任何非凡特性，绝大多数贝克兰德市民，对非凡世界一无所知。<span class="reps">代表：港口工人、报童、印刷工、店员、普通市民</span></div>
+</div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" disabled>← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">翻开档案 →</button>
+      </div>
+    </div>
+    <!-- tab2 世界图志 -->
+    <div class="tab-content" id="tab-world">
+      <h2 class="section-title">世界图志</h2>
+<!-- 世界地图 -->
+<div class="world-map-frame">
+  <img src="world-map.jpg" alt="世界地图" class="world-map-img">
+  <div class="world-map-caption">CARTA MUNDI · 第五纪元世界全图</div>
+</div>
+      <div class="info-box">
+        <h3>「世界结构」</h3>
+        <p>整个世界由 <strong>物质星球 - 本土超凡维度 - 星空域外</strong> 三层结构组成。物质世界包含四块大陆与五大海域，本土超凡维度与现实重叠或连通，星空域外则是旧日与外神的领域。</p>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">🌍 四块大陆</div>
+        <div class="chapter-grid" id="continents-grid"></div>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">🌊 五大海域</div>
+        <div class="chapter-grid" id="seas-grid"></div>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">🌌 本土超凡维度</div>
+        <div class="chapter-grid" id="dimensions-grid"></div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab3 源质图鉴 -->
+    <div class="tab-content" id="tab-codex">
+      <h2 class="section-title">源质图鉴</h2>
+      <div class="info-box mystery">
+        <h3>「档案性质」</h3>
+        <p>此处收录世间所有 <strong>9大本土源质 × 22条途径 × 10序列 + 10份外神恩赐源质 × 10条恩赐途径 × 10序列</strong> 的完整资料，以及61件已知封印物档案。点击源质卡片展开详情，点击途径标题展开完整序列描述。</p>
+        <p><strong style="color:var(--wine-red);">此页仅供阅读，能力实际选择在「能力」页中进行。</strong></p>
+      </div>
+      <div class="codex-nav">
+        <button class="codex-nav-btn active" onclick="switchCodexPage(event,'local')">本土源质</button>
+        <button class="codex-nav-btn" onclick="switchCodexPage(event,'gift')">外神恩赐</button>
+        <button class="codex-nav-btn" onclick="switchCodexPage(event,'artifact')">封印物档案</button>
+      </div>
+      <div class="codex-page active" id="codex-local">
+        <div class="codex-group">
+          <div class="codex-group-title pillar">🏛️ 支柱级源质 · 三大本源</div>
+          <div class="source-grid" id="pillar-grid"></div>
+        </div>
+        <div class="codex-group">
+          <div class="codex-group-title elder">⚔️ 旧日级源质 · 六份普通源质</div>
+          <div class="source-grid" id="elder-grid"></div>
+        </div>
+      </div>
+      <div class="codex-page" id="codex-gift">
+        <div class="info-box warning">
+          <h3>「外神恩赐警示」</h3>
+          <p>恩赐途径不需要配制魔药，通过向对应外神 <strong>祈祷、献祭</strong> 即可获得能力。但使用恩赐会受到外神持续精神污染，序列越高污染越深。<strong>高序列者会被外神彻底回收意识，沦为无自我的眷族傀儡。</strong></p>
+          <p>恩赐与本土魔药体系可以叠加共存（如极光会成员、阿蒙、亚当等），但同样承担污染代价。</p>
+        </div>
+        <div class="codex-group">
+          <div class="codex-group-title gift">🌌 外神恩赐 · 九份星空之外的源质</div>
+          <div class="source-grid" id="gift-grid"></div>
+        </div>
+      </div>
+      <div class="codex-page" id="codex-artifact">
+        <div class="info-box">
+          <h3>「封印物分级标准」</h3>
+          <ul>
+            <li><strong>0级</strong>：天使及以上位格，毁灭国家乃至世界的破坏力，仅教会最高层可接触</li>
+            <li><strong>1级</strong>：圣者位格（序列4-3），教区主教/执事以上权限</li>
+            <li><strong>2级</strong>：中序列位格（序列6-5），主教/小队队长以上可申请</li>
+            <li><strong>3级</strong>：低序列位格（序列9-7），正式队员以上可申请</li>
+          </ul>
+        </div>
+        <div class="artifact-tier t0">
+          <h4>⚠️ 0级封印物 · 天使及以上位格</h4>
+          <div class="artifact-list" id="artifact-t0"></div>
+        </div>
+        <div class="artifact-tier t1">
+          <h4>🔱 1级封印物 · 圣者位格</h4>
+          <div class="artifact-list" id="artifact-t1"></div>
+        </div>
+        <div class="artifact-tier t2">
+          <h4>🔮 2级封印物 · 中序列位格</h4>
+          <div class="artifact-list" id="artifact-t2"></div>
+        </div>
+        <div class="artifact-tier t3">
+          <h4>💎 3级封印物 · 低序列位格</h4>
+          <div class="artifact-list" id="artifact-t3"></div>
+        </div>
+        <div class="artifact-tier tx">
+          <h4>⭐ 特殊神奇物品 · 民间流通</h4>
+          <div class="artifact-list" id="artifact-tx"></div>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab4 时间线 -->
+    <div class="tab-content" id="tab-timeline">
+      <h2 class="section-title">时间线篇章选择</h2>
+      <div class="info-box">
+        <h3>「说明」</h3>
+        <p>选择你想进入的时间线篇章，每个篇章都有独特的背景与事件。上古纪元为历史回溯线，可扮演该时代见证者；愚者主线（第一部）从1349年起，宿命之环（第二部）从1358年起。</p>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">📜 上古纪元 · 历史回溯线</div>
+        <div class="chapter-grid" id="chapters-ancient"></div>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">🎭 愚者主线 · 1349年起</div>
+        <div class="chapter-grid" id="chapters-fool"></div>
+      </div>
+      <div class="timeline-section">
+        <div class="timeline-title">🔮 宿命之环 · 1358年起</div>
+        <div class="chapter-grid" id="chapters-cycle"></div>
+      </div>
+      <div class="entry-section" id="entry-section">
+        <h4>⏱️ 选择入场节点</h4>
+        <div class="entry-option selected" onclick="selectEntryPoint('start')">
+          <input type="radio" name="entry-point" value="start" checked>
+          <div><strong>篇章开始</strong><span>从事件刚刚发生时进入</span></div>
+        </div>
+        <div class="entry-option" onclick="selectEntryPoint('mid')">
+          <input type="radio" name="entry-point" value="mid">
+          <div><strong>篇章中期</strong><span>在冲突已经明朗化时切入</span></div>
+        </div>
+        <div class="entry-option" onclick="selectEntryPoint('end')">
+          <input type="radio" name="entry-point" value="end">
+          <div><strong>篇章尾声</strong><span>接近事件结局时介入</span></div>
+        </div>
+        <div class="entry-option" onclick="selectEntryPoint('custom')">
+          <input type="radio" name="entry-point" value="custom">
+          <div><strong>自定义入场</strong><span>自行描述你想切入的时间点或场景</span></div>
+        </div>
+        <div class="custom-entry-input" id="custom-entry-input">
+          <textarea id="custom-entry-text" placeholder="描述你想切入的具体时间点、场景或事件节点……"></textarea>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab5 角色 -->
+    <div class="tab-content" id="tab-character">
+      <h2 class="section-title">角色创建</h2>
+      <div class="info-box" id="selected-chapter-display">
+        <h3>📍 当前时间线归属</h3>
+        <p id="selected-chapter-name">尚未选择篇章</p>
+      </div>
+      <div class="form-section">
+        <h3>基础信息</h3>
+        <div class="form-row">
+          <div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="输入角色姓名"></div>
+          <div class="form-group"><label>年龄</label><input type="number" id="char-age" placeholder="22" min="1" max="999"></div>
+        </div>
+        <div class="form-group">
+          <label>性别</label>
+          <div class="radio-group">
+            <label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+            <label><input type="radio" name="gender" value="女"><span>女</span></label>
+            <label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>所在地</label>
+            <select id="char-origin">
+              <optgroup label="鲁恩王国">
+                <option value="贝克兰德">贝克兰德（首都·黑夜女神教会核心据点）</option>
+                <option value="廷根市">廷根市（故事的开始地点，罗思威尔郡·因斯惨案发生地）</option>
+                <option value="班西港">班西港（东部港口·灾祸之城裂隙）</option>
+                <option value="凛冬郡">凛冬郡（宁静教堂·黑夜女神教会总部）</option>
+              </optgroup>
+              <optgroup label="因蒂斯共和国">
+                <option value="特里尔">特里尔（首都·永恒烈阳核心教区）</option>
+                <option value="科尔杜村">科尔杜村（卢米安故乡·时间循环）</option>
+                <option value="因蒂斯港口城市">因蒂斯港口城市</option>
+              </optgroup>
+              <optgroup label="弗萨克帝国">
+                <option value="圣密隆">圣密隆（首都·原战神教会总部）</option>
+                <option value="弗萨克北境">弗萨克北境（冰原）</option>
+              </optgroup>
+              <optgroup label="费内波特王国">
+                <option value="费内波特城">费内波特城（大地母神教会总部）</option>
+              </optgroup>
+              <optgroup label="中南三国">
+                <option value="伦堡·艾萨拉">伦堡·艾萨拉（知识圣殿）</option>
+                <option value="马锡">马锡（钢铁煤炭中心）</option>
+                <option value="塞加尔">塞加尔（深山遗迹）</option>
+              </optgroup>
+              <optgroup label="南大陆">
+                <option value="罗思德群岛·拜亚姆">罗思德群岛·拜亚姆（南大陆港口枢纽）</option>
+                <option value="东拜朗">东拜朗（鲁恩殖民地）</option>
+                <option value="西拜朗">西拜朗（军阀割据）</option>
+                <option value="星星高原">星星高原（玫瑰学派发源地）</option>
+                <option value="帕斯河谷">帕斯河谷（纵欲派核心）</option>
+              </optgroup>
+              <optgroup label="海上与境外">
+                <option value="苏尼亚海">苏尼亚海（远洋航线）</option>
+                <option value="狂暴海">狂暴海（南北分隔）</option>
+                <option value="迷雾海">迷雾海（要素黎明根据地）</option>
+                <option value="神弃之地·白银城">神弃之地·白银城</option>
+                <option value="神弃之地·月城">神弃之地·月城</option>
+              </optgroup>
+              <option value="custom">自定义...</option>
+            </select>
+            <div class="custom-input" id="custom-origin-input">
+              <input type="text" id="custom-origin" placeholder="输入自定义所在地">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>职业/身份说明</label>
+            <input type="text" id="char-occupation" placeholder="如：私家侦探、报社记者、教会见习、平凡市民……">
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>所属势力 <small>无所属也可，凡俗市民请选「无所属/凡俗」</small></h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>势力类型</label>
+            <select id="faction" onchange="handleFactionChange(this.value)">
+              <optgroup label="七大正神教会">
+                <option value="黑夜女神教会">黑夜女神教会</option>
+                <option value="风暴之主教会">风暴之主教会</option>
+                <option value="永恒烈阳教会">永恒烈阳教会</option>
+                <option value="大地母神教会">大地母神教会</option>
+                <option value="知识与智慧之神教会">知识与智慧之神教会</option>
+                <option value="蒸汽与机械之神教会">蒸汽与机械之神教会</option>
+                <option value="原战神教会(已被吞并)">原战神教会（已被吞并）</option>
+              </optgroup>
+              <optgroup label="秘密超凡组织">
+                <option value="塔罗会">塔罗会</option>
+                <option value="魔女教派">魔女教派</option>
+                <option value="密修会">密修会</option>
+                <option value="极光会">极光会</option>
+                <option value="心理炼金会">心理炼金会</option>
+                <option value="摩斯苦修会">摩斯苦修会</option>
+                <option value="拜血教">拜血教</option>
+                <option value="玫瑰学派·纵欲派">玫瑰学派·纵欲派</option>
+                <option value="玫瑰学派·节制派">玫瑰学派·节制派</option>
+                <option value="黄昏隐士会">黄昏隐士会</option>
+                <option value="要素黎明">要素黎明</option>
+                <option value="灵教团">灵教团</option>
+                <option value="生命学派">生命学派</option>
+              </optgroup>
+              <optgroup label="官方组织">
+                <option value="值夜者">值夜者（黑夜女神教会低阶）</option>
+                <option value="代罚者">代罚者（风暴之主教会执法）</option>
+                <option value="净化者">净化者（永恒烈阳教会执法）</option>
+                <option value="机械之心">机械之心（蒸汽与机械之神教会秘警）</option>
+                <option value="审判庭">审判庭（知识与智慧之神教会）</option>
+              </optgroup>
+              <optgroup label="古老家族">
+                <option value="奥古斯都家族">奥古斯都家族（鲁恩王室）</option>
+                <option value="古斯塔夫家族">古斯塔夫家族（罗塞尔血脉）</option>
+                <option value="安提哥努斯家族(已灭)">安提哥努斯家族（已灭）</option>
+                <option value="亚伯拉罕家族">亚伯拉罕家族</option>
+              </optgroup>
+              <optgroup label="境外">
+                <option value="海盗势力">海盗势力（四王七将）</option>
+              </optgroup>
+              <optgroup label="其他">
+                <option value="散修/野生非凡者">散修/野生非凡者</option>
+                <option value="无所属/凡俗" selected>无所属/凡俗</option>
+                <option value="custom">自定义...</option>
+              </optgroup>
+            </select>
+            <div class="custom-input" id="custom-faction-input">
+              <input type="text" id="custom-faction" placeholder="输入自定义势力名称">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>组织职阶</label>
+            <input type="text" id="faction-rank" placeholder="如：见习教士、正式队员、高级执事、枢机主教……">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>入圈原因</label>
+          <select id="entry-reason" onchange="handleEntryReasonChange(this.value)">
+            <option value="家族传承">家族传承</option>
+            <option value="意外觉醒">意外觉醒</option>
+            <option value="被迫卷入非凡事件">被迫卷入非凡事件</option>
+            <option value="主动寻求力量">主动寻求力量</option>
+            <option value="教会招募">教会招募</option>
+            <option value="秘密组织拉拢">秘密组织拉拢</option>
+            <option value="穿越者觉醒">穿越者觉醒</option>
+            <option value="不知情(凡俗)">不知情（凡俗）</option>
+            <option value="custom">自定义原因</option>
+          </select>
+          <div class="custom-input" id="custom-entry-reason-input">
+            <input type="text" id="custom-entry-reason" placeholder="输入自定义入圈原因">
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>外貌与性情</h3>
+        <div class="form-group">
+          <label>外貌描述</label>
+          <textarea id="appearance" placeholder="描述角色容貌、衣着、气度等……例如：身着深褐色西装马甲，戴怀表与圆顶礼帽，灰绿色眼眸总带着审慎……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>性格特质</label>
+          <textarea id="personality" placeholder="描述角色性格，如冷静谨慎、孤傲偏执、机变多疑、虔诚狂热……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>日常兴趣/爱好</label>
+          <input type="text" id="hobby" placeholder="如：收集旧书、研究占卜、写作、煮茶……">
+        </div>
+        <div class="form-group">
+          <label>背景故事</label>
+          <textarea id="background" placeholder="补充角色身世来历、关键经历、入局原因……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>当前处境/开局场景</label>
+          <textarea id="opening-scene" placeholder="描述角色故事开始时所处的环境、处境或事件节点……例如：正在贝克兰德某条雾气弥漫的小巷里调查一起诡异失踪案；刚从大学历史系毕业还没找到工作；在某个深夜目睹了不该看到的仪式……"></textarea>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab6 能力 -->
+    <div class="tab-content" id="tab-ability">
+      <h2 class="section-title">能力构建</h2>
+      <div class="info-box mystery">
+        <h3>「自由组合」</h3>
+        <p>以下所有模块均为<strong>可选</strong>。不选主修途径 = 你是凡俗；只选低阶仪式 = 你是边缘见证者；本土主修 + 外神恩赐并存 = 你走极光会/阿蒙路线。<strong>诡秘世界的真实在于：每个角色都是独一无二的组合。</strong></p>
+      </div>
+      <!-- 主修源质/途径 -->
+      <div class="ability-section" id="main-pathway-section">
+        <h3>🏛️ 主修源质 · 途径 · 序列 <small>可选 · 所有源质均可选</small></h3>
+        <p class="hint">9 大源质 + 22 条途径 + 10 序列任意组合。世界观铁律是"理论上每一条都有机会"，所以这里不做任何限制——你自己拍板。</p>
+        <div class="pathway-picker">
+          <div class="picker-step">
+            <h4>① 选择源质</h4>
+            <div class="source-options" id="main-source-options"></div>
+          </div>
+          <div class="picker-step" id="main-pathway-step" style="display:none;">
+            <h4>② 选择途径</h4>
+            <div class="pathway-options" id="main-pathway-options"></div>
+          </div>
+          <div class="picker-step" id="main-sequence-step" style="display:none;">
+            <h4>③ 选择当前序列（点击展开完整描述）</h4>
+            <div class="sequence-picker" id="main-sequence-options"></div>
+          </div>
+          <button class="clear-pathway-btn" onclick="clearMainPathway()">✕ 清除主修选择</button>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>扮演法掌握度</label>
+            <select id="role-playing-level">
+              <option value="未涉及">未涉及（凡俗）</option>
+              <option value="初学">初学（残留烙印明显）</option>
+              <option value="熟练">熟练（情绪基本可控）</option>
+              <option value="精通" selected>精通（消化大半）</option>
+              <option value="完美消化">完美消化（彻底纳为己用）</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>精神状态</label>
+            <select id="mental-state">
+              <option value="正常" selected>正常</option>
+              <option value="轻微烙印">轻微烙印</option>
+              <option value="临近失控边缘">临近失控边缘</option>
+              <option value="间歇性精神污染">间歇性精神污染</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <!-- 外神恩赐 -->
+      <div class="ability-section" id="gift-pathway-section">
+        <h3>🌌 外神恩赐 <small>可选 · 可与本土主修并存（如极光会路线）</small></h3>
+        <p class="hint" style="color:var(--wine-red);">⚠️ 使用恩赐会受到对应外神的持续精神污染。序列越高污染越深，高序列者最终会被外神彻底回收意识。可以与本土途径同时存在，但污染会叠加。</p>
+        <div class="pathway-picker gift">
+          <div class="picker-step">
+            <h4>① 选择恩赐源质</h4>
+            <div class="source-options" id="gift-source-options"></div>
+          </div>
+          <div class="picker-step" id="gift-pathway-step" style="display:none;">
+            <h4>② 当前恩赐序列</h4>
+            <div class="sequence-picker" id="gift-sequence-options"></div>
+          </div>
+          <button class="clear-pathway-btn" onclick="clearGiftPathway()">✕ 清除恩赐选择</button>
+        </div>
+        <div class="form-group">
+          <label>当前污染度</label>
+          <div class="radio-group">
+            <label><input type="radio" name="contamination" value="无" checked><span>无（未启用恩赐）</span></label>
+            <label><input type="radio" name="contamination" value="低"><span>低（偶发幻觉）</span></label>
+            <label><input type="radio" name="contamination" value="中"><span>中（持续低语）</span></label>
+            <label><input type="radio" name="contamination" value="高"><span>高（自我撕裂）</span></label>
+            <label><input type="radio" name="contamination" value="濒临回收"><span>濒临回收</span></label>
+          </div>
+        </div>
+      </div>
+      <!-- 持有封印物 -->
+      <div class="ability-section">
+        <h3>🔱 持有的封印物 / 神奇物品 <small>可选</small></h3>
+        <p class="hint">勾选你携带的封印物。高级封印物建议通过命数解锁，自由勾选过多会引起教会注意。</p>
+        <div class="ability-grid" id="artifact-grid"></div>
+      </div>
+      <!-- 仪式魔法 -->
+      <div class="ability-section">
+        <h3>📜 仪式魔法掌握 <small>可选 · 凡俗也可掌握部分基础占卜</small></h3>
+        <div class="ability-grid" id="ritual-grid"></div>
+      </div>
+      <!-- 通用技艺 -->
+      <div class="ability-section">
+        <h3>🫀 灵性根骨 <small>可选</small></h3>
+        <div class="ability-grid" id="root-grid"></div>
+      </div>
+      <div class="ability-section">
+        <h3>⚔️ 战斗本领 <small>可选</small></h3>
+        <div class="ability-grid" id="combat-grid"></div>
+      </div>
+      <div class="ability-section">
+        <h3>🔮 神秘学问 <small>可选</small></h3>
+        <div class="ability-grid" id="mystic-grid"></div>
+      </div>
+      <div class="ability-section">
+        <h3>🧠 心性品格 <small>可选</small></h3>
+        <div class="ability-grid" id="mind-grid"></div>
+      </div>
+      <div class="ability-section">
+        <h3>⚙️ 时代技能 <small>可选</small></h3>
+        <div class="ability-grid" id="modern-grid"></div>
+      </div>
+      <!-- 自创能力 -->
+      <div class="custom-skills-section">
+        <h4>✨ 自创独门绝技 <small style="font-size:11px;color:var(--ink-soft);font-weight:400;">可选</small></h4>
+        <div class="custom-skill-list" id="custom-skill-list"></div>
+        <button class="add-skill-btn" id="add-skill-btn" onclick="addCustomSkill()">
+          <span>＋</span> 添加新能力
+        </button>
+        <p class="skill-limit-hint">最多可添加 <span id="skill-count">0</span>/5 项</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab7 命数 -->
+    <div class="tab-content" id="tab-destiny">
+      <h2 class="section-title">命数与机缘</h2>
+      <div class="info-box">
+        <h3>「抽取规则」</h3>
+        <ul>
+          <li><strong>命数与行囊互相独立</strong>——可以只抽其中一个，或者两个都不抽，或者两个都抽</li>
+          <li>命数：每次抽 8 张，从中选 3 张；解锁支柱源质与剧情核心封印物</li>
+          <li>行囊：每次抽 6 张，从中选 2 张；包含武器/工具/护符/封印物等起始持有物</li>
+          <li>命数稀有度会影响行囊池的稀有度上限——抽到神话命数可解锁神话行囊</li>
+          <li>任何时候都可以点击按钮重抽，覆盖上一次结果</li>
+        </ul>
+      </div>
+      <div class="roll-grid">
+  <div class="roll-section destiny-side">
+    <h3>🎴 命数抽取</h3>
+    <p class="roll-hint">命运的纸牌正在洗牌……抽 8 选 3</p>
+    <button class="roll-btn" id="roll-btn" onclick="rollDestiny()">🎲 抽取命数</button>
+    <div class="destiny-pool" id="destiny-pool">
+      <p class="pool-header">🃏 命数结果</p>
+      <p class="pool-counter">请从以下命数中选择 3 个（已选择：<span id="destiny-selected-count">0</span>/3）</p>
+      <div class="destiny-list" id="destiny-list"></div>
+    </div>
+  </div>
+  <div class="roll-section gear-side">
+    <h3>🎒 行囊抽取</h3>
+    <p class="roll-hint">命运的行囊正在打包……抽 6 选 2</p>
+    <button class="roll-btn gear" id="roll-gear-btn" onclick="rollGear()">🎁 抽取行囊</button>
+    <div class="gear-pool" id="gear-pool">
+      <p class="pool-header">🎒 行囊结果</p>
+      <p class="pool-counter">请从以下物品中选择 2 件（已选择：<span id="gear-selected-count">0</span>/2）</p>
+      <div class="gear-list" id="gear-list"></div>
+    </div>
+  </div>
+</div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- tab8 预览 -->
+    <div class="tab-content" id="tab-preview">
+      <h2 class="section-title">档案预览</h2>
+      <div class="preview-box" id="preview-box"></div>
+      <button class="copy-btn" onclick="copyPreview()">📋 复制档案</button>
+      <button class="copy-btn" id="prepare-opening" hidden>装配开局（离线）</button>
+      <output id="prepare-result" aria-live="polite"></output>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+      </div>
+    </div>
+  </div>
+</div>
+<footer>诡秘之主档案构建系统 · 灰雾笼罩，群星注视</footer>
+<script>
+/* ============== 地理数据 ============== */
+const continentsDB = [
+  {id:'north', name:'北大陆', meta:'七大正神基本盘 · 第五纪文明核心',
+   desc:'位于星球北半球，整体呈北寒南暖梯度气候。鲁恩、因蒂斯、弗萨克、费内波特四大强国与七大正神教会以此为核心教区，是世俗与非凡秩序的主导者。霍纳奇斯山脉纵贯大陆中央，主峰冰封有夜之国遗迹；间海为第四纪所罗门帝国的核心统治疆域。',
+   tags:['鲁恩','因蒂斯','弗萨克','费内波特','贝克兰德','特里尔']},
+  {id:'south', name:'南大陆', meta:'前拜朗帝国 · 半殖民地状态',
+   desc:'北隔狂暴海与北大陆相望。第五纪「背誓之战」后沦为北大陆列强半殖民地，原拜朗帝国分裂为多个傀儡政权。受死神权柄残留影响，全境死灵气息浓郁，盛产非凡材料。星星高原留存有倒金字塔式死神陵寝。',
+   tags:['东拜朗','西拜朗','灵教团','玫瑰学派','拜亚姆','星星高原']},
+  {id:'east', name:'东大陆 · 神弃之地', meta:'诸神遗弃 · 永恒黑暗',
+   desc:'被废墟海与外界完全隔绝，常规航路无法抵达。第三纪神战中被诸神遗弃，终年笼罩永恒黑暗，仅靠闪电频率区分昼夜。仅存白银城与月城两个人类聚居点。切尔诺贝利为远古太阳神苏醒之地，地底埋藏混沌海源质入口。',
+   tags:['白银城','月城','巨人王庭','切尔诺贝利','混沌海入口']},
+  {id:'west', name:'西大陆', meta:'被天尊封印 · 七源质所在',
+   desc:'第一纪末期被诡秘之主布下的灰雾屏障完全封印。相传是第二纪精灵族故乡，封印有除源堡、混沌海之外的七份源质（母巢、失序之国、暗影世界、灾祸之城、永暗之河、知识荒野、光之钥）。是天尊重要的复活后手布局区域。',
+   tags:['灰雾屏障','蓬莱','七份封印源质','天尊后手']}
+];
+const seasDB = [
+  {id:'sunia', name:'苏尼亚海', meta:'风暴之主教会核心教区 · 远洋主航道',
+   desc:'位于北大陆东侧、南大陆东北侧，是连通神弃之地的过渡海域。海盗势力空前活跃，四王七将的主要活动舞台。东侧废墟海是从海路进入神弃之地的唯一通道。',
+   tags:['帕苏岛','罗思德群岛','加尔加斯','废墟海','风暴之主教会']},
+  {id:'rage', name:'狂暴海', meta:'死神陨落点 · 南北天然屏障',
+   desc:'世界最危险海域。死神萨林格尔陨落时的力量冲击造就极端环境，常年雷暴、巨浪、磁场紊乱。仅罗塞尔开辟的三条固定安全航道可通行，深海大漩涡传说连通灵界与冥界。',
+   tags:['死神陨落点','罗塞尔航道','乌托邦','深海漩涡']},
+  {id:'mist', name:'迷雾海', meta:'要素黎明根据地 · 灰雾屏障所在',
+   desc:'位于北大陆西侧。终年笼罩超自然浓雾，所有定位手段失效。贝尔纳黛的要素黎明以此为核心根据地，翡翠城藏匿其中。西端尽头即西大陆灰雾屏障。',
+   tags:['翡翠城','要素黎明','原始岛','西大陆屏障','所罗门宝藏']},
+  {id:'north_sea', name:'北海', meta:'弗萨克掌控 · 摩斯苦修会藏身处',
+   desc:'位于北大陆北侧，星球北半球高纬度寒带海域。气候极端严寒，冰下隐藏大量第二纪巨人文明遗迹。摩斯苦修会的秘密总部「理想乡阿瓦隆」隐藏于此海域的现实与灵界夹缝中。',
+   tags:['阿瓦隆','摩斯苦修会','巨人冰原祭坛','浮冰墓园']},
+  {id:'polar', name:'极地海', meta:'世界已知最南端 · 完全未知',
+   desc:'位于南大陆最南侧，环绕南极冰盖。终年完全冰封，无任何世俗政权与常驻非凡势力。永夜区域是星空外神注视最强烈的区域，进入者几乎全部失控或失踪。',
+   tags:['南极冰盖','永夜区域','外神锚点','世界尽头']}
+];
+const dimensionsDB = [
+  {id:'spirit_world', name:'灵界', meta:'基础高维空间 · 七光执掌',
+   desc:'与物质世界完全重叠的高维基础空间，所有超凡能力的底层运行载体。无物理距离与上下方位，过去现在未来在此交织堆叠。由灵界七光执掌（红光艾尔·莫瑞亚、橘光希拉里昂、黄光威尼坦、绿光、蓝光、靛光赫苏斯、紫光），位格仅在真神之下。',
+   tags:['七光','净光兄弟会','占卜本源','灰雾压制']},
+  {id:'star_world', name:'星界', meta:'权柄象征层 · 真神神国所在',
+   desc:'凌驾于灵界之上，由世间所有概念、法则、权柄聚合而成。现实中看到的星星本质是星界高位存在的投影。原初上帝是星界主宰，七大正神神国均坐落于此。外神在星界之外注视地球。',
+   tags:['真神神国','星之匙','概念符号','外神窥视']},
+  {id:'underworld', name:'冥界', meta:'灵界从属维度 · 亡者归所',
+   desc:'不死鸟始祖格蕾嘉莉在灵界深层开辟的从属维度。永暗之河的支流冥河贯穿全域，核心城市为卡尔德隆城（亡灵语「未知灵魂」）。是死神途径能力的核心本源，所有死亡相关仪式最终都指向冥界。',
+   tags:['卡尔德隆城','格蕾嘉莉','冥河','死神途径本源']},
+  {id:'mirror', name:'镜世界', meta:'反射面概念集合 · 门途径媒介',
+   desc:'依附于所有反射面存在的概念聚合维度，本质是「门」概念的集合。通过镜面、水面、光滑金属、皮肤等所有反射表面互相连通。分普通镜世界与特殊镜世界（如魔镜阿罗德斯镜后区、原初魔女镜中神国）。',
+   tags:['魔镜阿罗德斯','原初魔女','门途径','学徒能力']},
+  {id:'history_void', name:'历史孔隙', meta:'源堡延伸 · 历史虚空',
+   desc:'位于灵界之上的历史灰雾中，是过去所有历史片段、人物、物品的投影聚合空间。不同时空历史相互隔离，仅愚者途径高序列可稳定调用。源堡掌控者可从中拉取过去的自己、甚至其他高序列存在的投影。',
+   tags:['愚者途径','历史投影','克莱恩核心','诡秘侍者']},
+  {id:'abyss', name:'深渊', meta:'暗影世界对应维度 · 恶魔巢穴',
+   desc:'对应源质暗影世界的独立邪恶维度，扎根于物质世界深层，入口隐藏在南大陆与狂暴海海底。已被外神欲望母树深度侵蚀。恶魔君王法布提（宇宙暗面）是深渊统治者。罪犯（深渊）途径的力量本源。',
+   tags:['法布提','恶魔君王','欲望母树污染','拜血教','纵欲派']}
+];
+/* ============== 时间线篇章 ============== */
+const chaptersDB = {
+  ancient: [
+    {id:'chaos', name:'混沌纪元篇', year:'第一纪元 史前0-981年',
+     desc:'有历史记载的第一个纪元，分为失落年代、毁灭之年、杀戮年代三个时期。沉睡的最初造物主苏醒后因混沌与疯狂无法维持存在，自我分裂自爆，分解为9个旧日级源质、22份途径唯一性与无数非凡特性，旧人类文明、旧灵界与旧七光在爆炸中彻底毁灭。大陆板块剧烈重塑形成诡秘世界基本地理格局，外神被扯断的源质坠地补完为巢母之巢、黑暗世界、失序之国。上帝与天尊两大支柱苏醒，联手击碎其余坠落源质，封印混沌之子于许愿神灯。564年上帝与巢母之巢结合诞下欧弥贝拉与吉达斯，565年双支柱爆发神战，566年同归于尽：上帝陨落凝结为第一亵渎石板，天尊将其余源质封印至西大陆，西大陆从此被灰雾笼罩。567-981年杀戮年代，超凡种族陷入414年无序混战。981年欧弥贝拉助巨人奥尔米尔恢复理性、登临古神之位，成为第一位古神（黄昏巨人途径），第一纪元结束。',
+     tags:['最初造物主自爆','源质坠落','双支柱之战','上帝陨落','天尊封印西大陆','奥尔米尔','第一位古神']},
+
+    {id:'dark', name:'黑暗纪元篇', year:'第二纪元 0-2561年',
+     desc:'又称黑暗纪元，因太阳位格被外神超星主宰占据世界长期处于黑暗中得名。萌芽年代八大古神陆续诞生：巨人王奥尔米尔、空想之龙安格尔威德、精灵王苏尼亚索列姆、血族始祖莉莉丝、恶魔君主法布提、不死鸟始祖格蕾嘉莉、异种王克瓦希图恩、毁灭魔狼弗雷格拉。远古太阳神（亚当）暗中苏醒，与莉莉丝、厄运女神阿曼妮西斯秘密合作。1730年火之初耀年代末，远古太阳神策划背叛阴谋：莉莉丝假死替换欧弥贝拉成为大地母神，异种王战死，魔狼麾下从神叛逃。双生年代爆发230年「背叛者战争」，巨人与巨龙成为两大主导种族。1960-2325年宁静年代势力均衡。2325年远古太阳神正式现身，2348年同时击杀精灵王与空想之龙，古神或陨落或退入神国，2561年人类成为新主宰，黑暗纪元结束。',
+     tags:['八大古神','超星主宰','远古太阳神','莉莉丝假死','背叛者战争','古神时代终结']},
+
+    {id:'calamity', name:'灾变纪元篇', year:'第三纪元 0-1086年',
+     desc:'又称光辉纪元/灾变纪元。远古太阳神成为唯一正统神，麾下八大天使王侍奉：暗天使萨斯利尔、时天使阿蒙、空想天使亚当、纯白天使奥赛库斯、风天使列奥德罗、智天使赫拉伯根、红天使梅迪奇、命运天使乌洛琉斯。光辉年代人类文明达到史前顶峰。800年左右远古太阳神体内沉睡的原初（上帝）意志开始苏醒侵蚀神智，萨斯利尔离开神国与黑夜女神组建秘密组织「救赎蔷薇」，目标击杀被原初控制的远古太阳神。1086年弑神计划发动，远古太阳神被击杀；纯白天使、风天使、智天使三人背叛夺取唯一性当场晋升序列0成为永恒烈阳、风暴之主、知识与智慧之神，复活计划失败。远古太阳神尸体重生为真实造物主，核心神性转移至空想天使亚当体内。原初意志分裂引发灭世大灾变：东大陆扭曲为神弃之地被灰雾彻底包裹，第二亵渎石板凝聚形成。',
+     tags:['远古太阳神','八大天使王','救赎蔷薇','三天使背叛','真实造物主','神弃之地','第二亵渎石板']},
+
+    {id:'gods', name:'众神纪元篇', year:'第四纪元 0-1233年',
+     desc:'真神行走于大地、直接统治人类的时代。第二亵渎石板出世，所有顶级天使窥见完整22条途径配方。112年所罗门成为序列0黑皇帝建立第一所罗门帝国统一北大陆。396年六神联盟支持图铎与特伦索斯特弑杀黑皇帝，建立联合帝国。510年所罗门复活建立第二帝国，联合帝国分裂：特伦索斯特转换为审判者途径夜皇，阿利斯塔·图铎与亚当、阿蒙合作猎杀红祭司天使强行晋升血皇帝，三国鼎立537年。1047-1052年四皇之战爆发，血皇帝战死、黑皇帝再次被杀、夜皇陨落，冥皇萨林格尔攫取红祭司唯一性成为最大赢家。1053-1210年七神之争混战167年。1210-1233年苍白年代，死神与原初魔女联手发动苍白灾难，最终七神联手决战死神陨落，原初魔女重伤逃遁。战争余波形成狂暴海永久隔绝南北大陆。七神受创将神国迁往星界，第四纪元落幕。',
+     tags:['第二亵渎石板','所罗门帝国','三国鼎立','四皇之战','冥皇坐大','七神之争','苍白年代','众神归星界']},
+
+    {id:'iron', name:'黑铁纪元前篇', year:'第五纪元 0-1349年6月',
+     desc:'真神不再行走于大地、七正神通过教会间接统治人类的时代。北大陆四大国确立：鲁恩王国（奥古斯都家族/黑夜女神国教）、弗萨克帝国（艾因霍恩家族/战神国教）、费内波特王国（索伦家族/大地母神国教）、因蒂斯王国（卡斯蒂亚家族/永恒烈阳国教）。359-870年列国战争时代：鲁恩与弗萨克爆发二十年战争、白玫瑰战争与背誓之战，伦堡、马锡、塞加尔以知识与智慧之神为唯一信仰独立，北大陆现代版图正式定型。1143年穿越者黄涛出生成为罗塞尔·古斯塔夫，改良蒸汽机推动第一次工业革命，工匠之神更名蒸汽与机械之神。1173年推翻索伦王朝建立因蒂斯第二共和国，1174年秘密制作22张亵渎之牌，1192年加冕凯撒大帝筹备黑皇帝成神仪式，1194年开通南大陆航线开启全球殖民。1198年罗塞尔在白枫宫被刺杀，借黑皇帝复活特性重生但被原始月亮污染，被长女贝尔纳黛封印。1349年6月28日，第三位穿越者周明瑞自杀，灵魂占据克莱恩·莫雷蒂，源堡正式激活。',
+     tags:['七神归星界','四大王国','列国战争','罗塞尔','穿越者','工业革命','亵渎之牌','源堡激活']}
+  ],
+
+  fool: [
+    {id:'tingen', name:'廷根迷雾篇', year:'1349年6月-9月',
+     desc:'1349年6月28日，地球青年周明瑞穿越成霍伊大学历史系毕业生克莱恩·莫雷蒂。因接触安提哥努斯家族笔记尝试转运仪式，意外登上灰雾之上的源堡。加入黑夜女神教会黑荆棘安保公司成为值夜者预备成员。7月2日服用占卜家魔药晋升序列9，召集首批塔罗会成员「倒吊人」阿尔杰、「正义」奥黛丽，塔罗会正式成立。8月19日「太阳」戴里克加入。8月31日攒够功勋晋升序列8小丑。9月廷根邪神降临事件爆发：邓恩队长以心脏为祭品激发圣赛琳娜骨灰阻止真实造物主子嗣降生，与因斯·赞格威尔决战中战死，克莱恩被穿心击杀，圣赛琳娜骨灰与安提哥努斯笔记被夺走。9月16日克莱恩借灰雾之力复活，改换身份离开廷根前往贝克兰德。',
+     tags:['周明瑞穿越','源堡激活','塔罗会建立','值夜者','邓恩牺牲','因斯·赞格威尔','晋升小丑']},
+
+    {id:'backlund', name:'贝克兰德暗影篇', year:'1349年9月-1350年1月',
+     desc:'克莱恩抵达贝克兰德化名夏洛克·莫里亚蒂以私家侦探身份活动，结识委托人伊恩·赖特卷入因蒂斯间谍与军情九处冲突。10月8日击杀廷根事件帮凶兰尔乌斯，10月10日晋升序列7魔术师，「魔术师」佛尔思·沃尔加入塔罗会。10月16日盗得「黑皇帝」亵渎之牌。11月1日化身侠盗黑皇帝击杀人贩子卡平，传说震动地下世界。12月23日晋升序列6无面人。12月28日贝克兰德大雾霾事件爆发：极光会A先生主持真实造物主降临仪式，魔女特莉丝散布黄黑色疫雾东区死亡逾两万一千人。黑夜女神教会圣安东尼大主教携0-17「隐秘之天使」压制仪式，克莱恩突入打断降临被0-08陨石攻击时阿兹克救场。埃德萨克王子被迫自杀顶罪，吸血鬼埃姆林·怀特加入塔罗会代号「月亮」。1350年1月3日以格尔曼·斯帕罗身份离开贝克兰德。',
+     tags:['夏洛克·莫里亚蒂','侠盗黑皇帝','大雾霾事件','极光会A先生','0-17隐秘之天使','晋升无面人']},
+
+    {id:'sea', name:'海上狂想篇', year:'1350年1月-4月',
+     desc:'克莱恩化名疯狂冒险家格尔曼·斯帕罗开启海上冒险。1月在班西港遭遇红天使梅迪奇恶灵残余污染，1月12日抵达罗思德群岛首府拜亚姆，俘虏黄金梦想号四副达尼兹为仆从。1月17日海神卡维图瓦被风暴之主教会海王亚恩·考特曼镇压死亡，克莱恩获得海神权杖成为罗思德群岛新海神。1月20日蕾妮特·缇尼科尔成为专属灵界信使，1月23日「隐者」嘉德丽雅在贝尔纳黛示意下加入塔罗会。在奥拉维岛慈善医院做义工两个月消化魔药。4月16日在美人鱼歌声中完成晋升仪式成为序列5秘偶大师。4月20日进入《格罗塞尔游记》书中世界与冰龙尤利塞斯决战。4月26日玫瑰学派在拜亚姆山围堵爆发大战，制伏血之上将塞尼奥尔成为第一个秘偶，海王将悬赏提升至五万镑。4月30日以新身份道恩·唐泰斯返回贝克兰德。',
+     tags:['格尔曼·斯帕罗','海神权杖','蕾妮特信使','隐者入会','秘偶大师','《格罗塞尔游记》','血之上将秘偶']},
+
+    {id:'revenant', name:'不死者归来篇', year:'1350年4月-6月',
+     desc:'克莱恩化名退休富豪道恩·唐泰斯重返贝克兰德进入上流社会。5月20日刺杀极光会X先生彻底释放蠕动的饥饿。5月25-28日与阿尔杰探索原始岛屿，在远古太阳神教堂获得「暴君」亵渎之牌。6月6日借0-17传送至霍纳奇斯山脉迷雾小镇，遭遇绝望魔女潘娜蒂亚、A先生与查拉图分身，意外放出被封印的查拉图。6月20日前往南大陆，6月26日与阿兹克登上地狱上将路德维尔的黑郁金香号，黑夜女神亲自夺取死神途径唯一性，阿兹克陷入长期沉睡，路德维尔成为秘偶。6月30日西拜朗决战爆发：克莱恩、伦纳德、戴莉联手对战因斯·赞格威尔，戴莉以生命为代价驱使灵界生物打断0-08命运安排，克莱恩用死亡丧钟击杀因斯了结廷根血仇，戴莉化为秘偶。亚当取走0-08，克莱恩获得「红祭司」亵渎之牌晋升序列4诡法师，透过源堡看到光茧中悬挂的穿越者灵魂。',
+     tags:['道恩·唐泰斯','暴君亵渎之牌','迷雾小镇','查拉图释放','阿兹克沉睡','复仇因斯','戴莉牺牲','晋升诡法师']},
+
+    {id:'redpriest', name:'红祭司篇', year:'1350年7月-12月',
+     desc:'7月1日伦纳德·米切尔加入塔罗会代号「星星」，7月2日休·迪尔查加入代号「审判」。7月19日阿蒙分身发动瘟疫式感染找到克莱恩，威尔·昂赛汀动用命运重启削弱阿蒙，帕列斯趁机吞噬阿蒙分身。9月30日玫歌庄园社交晚宴击败斯特福德子爵获得远古太阳神遗物「无暗十字」。10月5日击杀心理炼金会会长赫温·兰比斯获得序列3古代学者配方。10月13日弗萨克帝国飞空艇空袭贝克兰德，鲁恩对弗萨克宣战，第一次世界大战全面爆发。克莱恩与红天使恶灵梅迪奇达成合作，决意阻止乔治三世成神。11月4日在狂暴海荒岛完成仪式晋升序列3古代学者，源堡气息外泄惊动阿蒙、查拉图。11月底联合多方势力潜入图铎陵寝。12月初乔治三世加冕演讲日，成神仪式被克莱恩、贝尔纳黛、特莉丝、红天使恶灵联手破坏，乔治三世陨落，阿蒙追踪到具体位置。',
+     tags:['星星与审判入会','无暗十字','赫温之死','一战爆发','晋升古代学者','破坏成神仪式','乔治三世陨落']},
+
+    {id:'pursuer', name:'逐光者篇', year:'1350年12月-1352年1月',
+     desc:'12月3日图铎陵寝破坏战，贝尔纳黛使用许愿神灯，特莉丝引原初魔女降临攻击乔治三世仪式失败爆炸身亡，特莉丝牺牲。克莱恩被阿蒙俘虏带入神弃之地展开「追逃游戏」，12月5日抵达切尔诺贝利，阿蒙揭开穿越者真相，克莱恩自杀预支奇迹师复活能力，识破安提哥努斯笔记陷阱，怀疑黑夜女神才是第一位穿越者。1351年1月1日塔罗会联手猎杀秘之圣者布提斯获得「旧日之盒」。多里安代表亚伯拉罕家族与克莱恩交易换取「星之杖」。9月用蘑菇为月城居民净化污染。10月贝尔纳黛将0-05许愿神灯托付给嘉德丽雅。12月北大陆神战全面爆发。1352年1月初进入巨人王庭最深处见到暗天使萨斯利尔恶灵，洛薇雅、科林·伊利亚特相继牺牲，戴里克彻底净化萨斯利尔；神战终局：莉莉丝背刺战神，战神陨落，亚当成神「空想家」，神弃之地重见光明。1月中旬克莱恩完成奇迹师晋升仪式成为序列2，意识到天尊正在体内苏醒。',
+     tags:['特莉丝牺牲','神弃之地追逃','切尔诺贝利','旧日之盒','星之杖','巨人王庭','神战终局','晋升奇迹师','天尊苏醒']},
+
+    {id:'hanged', name:'倒吊人篇', year:'1352年1月-10月',
+     desc:'克莱恩化身流浪魔术师梅林·赫尔墨斯在北大陆游历实现愿望消化魔药。2月上旬战神大牧首拉里昂携带0-02「特伦索斯特黄铜书」叛逃，克莱恩与阿里安娜将黄铜书丢给迷雾小镇的安提哥努斯陷入无限律令循环，并在此获得最后一张「愚者」亵渎之牌，集齐暴君、红祭司、愚者三张。贝尔纳黛在迷雾海找到罗塞尔无名岛陵寝，用苍白的死亡封印被污染的罗塞尔，晋升序列3贤者。9月中旬在狂暴海无名荒岛建立秘偶城镇「乌托邦」，操控秘偶扮演居民准备诡秘侍者晋升仪式。10月查拉图通过文德尔入侵乌托邦，克莱恩被关入亚当的尸骨教堂，阅读第二块亵渎石板了解全部22条途径配方。10月下旬维尔杜·加西亚在班西港举行门先生回归仪式，门先生主动放弃抵抗让阿蒙窃取成神仪式，阿蒙晋升序列0「错误」成为双途径真神。克莱恩与灯神交易自杀触发诡秘侍者复活仪式，复活后晋升序列1击杀查拉图，成为占卜家途径天使之王。',
+     tags:['梅林·赫尔墨斯','黄铜书循环','愚者亵渎之牌','贝尔纳黛晋升','乌托邦','尸骨教堂','门先生回归','阿蒙成神','晋升诡秘侍者']},
+
+    {id:'foolascent', name:'愚者篇', year:'1352年秋-冬',
+     desc:'最终成神篇。克莱恩借助查拉图非凡特性稳定精神压制天尊苏醒，黑夜女神告知容纳愚者唯一性的正确方法及天尊陨落真相。阿尔杰脱离风暴之主教会成为海神教会教皇。克莱恩拜访奥黛丽做最后心理治疗，突袭摧毁心理炼金会伊甸园总部报复亚当。将五枚源堡气息污染金币交给阿兹克信使、伦纳德、威尔、班森与梅丽莎、贝尔纳黛作为人性锚点。克莱恩前往霍纳奇斯山脉顶端开始容纳愚者唯一性仪式，亚当进入混沌海空想暴君、太阳、白塔三途径权柄暂时成为半个上帝封锁三神。克莱恩晋升序列0「愚者」成为真神。阿蒙提前入侵源堡展开终极决战「愚者的赌局」，克莱恩主动解除天尊压制以源堡所有权对赌，阿蒙输掉赌局失去双途径唯一性本体陨落。黑夜女神用永暗之河封印天尊意志为永恒沉眠。第139次塔罗会布置长期任务，释放源堡中所有古人类穿越者。克莱恩与魔镜阿罗德斯进入源堡深处沉睡。十年后梅丽莎带侄女爱丽丝向愚者祈祷，爱丽丝与愚者从灰雾伸出的虚幻触手轻轻击掌，人性与神性初步平衡。',
+     tags:['海神教皇','人性锚点','晋升愚者','愚者的赌局','阿蒙陨落','天尊封印','源堡沉睡','十年之约']}
+  ],
+
+  cycle: [
+    {id:'corduroy', name:'梦魇篇', year:'1358年3月-4月',
+     desc:'愚者沉睡六年后。卢米安·李在因蒂斯王国科尔杜村登场，与姐姐奥萝尔·李（穿越者作家）相依为命。3月29日官方非凡者瑞安、瓦伦丁、莉亚抵达村庄调查匿名举报，卢米安与好友雷蒙德寻找术士传说线索，在老酒馆遇到魔术师女士佛尔思获得小阿卡那「权杖七」。当晚开始进入梦中废墟。卢米安发现自己陷入时间循环，姐姐奥萝尔教他仪式魔法与灵视，告知卷毛狒狒研究会的存在。从魔术师女士处得知舞蹈家（宿命之环）途径，学会二元仪式获得宿命之环恩赐成为序列9「舞蹈家」，同时拥有猎人途径与宿命（舞蹈家）途径力量。本堂神甫纪尧姆·贝内主导献祭仪式，4月6日四旬斋庆典最终献祭：全村村民血肉灵魂与奥萝尔融合变成三头巨人，奥萝尔在最后时刻恢复意识自杀阻止，整个科尔杜村除卢米安外无人生还。魔术师交给他去特里尔的任务。',
+     tags:['卢米安','奥萝尔','穿越者姐姐','时间循环','权杖七','宿命之环恩赐','纪尧姆','三头巨人','奥萝尔自杀']},
+
+    {id:'trier', name:'特里尔篇', year:'1358年5月-7月',
+     desc:'卢米安化名夏尔抵达特里尔入住金公鸡旅馆，通过魔术师女士接到任务联络奥斯塔·图鲁。地下墓穴中被布里涅男爵的人认出是悬赏3000费尔金的通缉犯。结识女演员简娜、信息贩子安东尼·里德、隐刃芙兰卡·罗兰。体内宿命（舞蹈家）途径天使忒尔弥波洛斯苏醒，告知序列之上真相，获得托钵僧恩赐。完成最后一次心理治疗，正义小姐为他设置心理触发点防止真实造物主呓语污染。与芙兰卡进入地铁镜中世界粉碎镜中人替换阴谋。普阿利斯夫人现身测试其能力。卢米安、芙兰卡、简娜联手击杀连环杀手「锤子」艾特、毒刺帮成员，加入萨瓦帮获得「狮子夏尔」外号。瘟疫散播者蒂博尔·雅克布森制造神秘瘟疫，卢米安伪装博诺·古德维尔潜入议会击杀蒂博尔终结瘟疫，正式晋升猎人途径序列7「纵火家」。粉碎欲望母树通过影子之树污染特里尔的阴谋。',
+     tags:['化名夏尔','金公鸡旅馆','忒尔弥波洛斯','镜中世界','普阿利斯夫人测试','心理锚点','晋升纵火家','母树阴谋']},
+
+    {id:'intrigue', name:'阴谋家篇', year:'1358年7月-9月',
+     desc:'卢米安加入铁血十字会成为官方非凡者线人。参观特里尔愚者教堂遇到达尼兹。简娜彻底消化魔药晋升猎人途径序列8「挑衅者」。卢米安舞蹈家途径晋升序列8「托钵僧侣」，与脓肿之手、人面螳螂、装甲阴影三个灵签订契约。芙兰卡完成仪式晋升魔女途径序列6「欢愉魔女」。找到真正的纪尧姆·贝内将其击杀为科尔杜村复仇。海拉（卷毛狒狒研究会副会长）抵达特里尔与卢米安会面，两人深入地下墓穴第四层寻找撒玛利亚妇人之泉，与梅迪奇、血皇帝阿利斯塔·图铎残魂战斗，卢米安右手被血皇帝气息污染。时之天使阿蒙抹除破碎舞厅和所有阿蒙分身，偷走一分钟时间。卢米安、芙兰卡、简娜联手猎杀连环杀手「我知道是谁」并火刑处死。9月卢米安再次受邀红天鹅城堡，击杀蜡像师获得阴谋家特性，在地下墓穴第三层晋升猎人途径序列6「阴谋家」。倒吊人阿尔杰抵达特里尔。卢米安、芙兰卡、魔术师、倒吊人联手召唤装甲阴影获西大陆情报。简娜晋升魔女途径序列7「女巫」完成途径转换。「招待所」异空间最终决战中加德纳被骄傲铠甲副作用侵蚀死亡，维尔芒德·索伦战死，梅迪奇融合两份特性恢复红祭司天使之王位格，卢米安获得高位封印物骄傲铠甲。',
+     tags:['铁血十字会','三契约灵','复仇纪尧姆','地下第四层','血皇帝污染','阿蒙抹除','晋升阴谋家','骄傲铠甲','梅迪奇复位']},
+
+    {id:'sinner', name:'罪人篇', year:'1358年9月-1359年初',
+     desc:'分赃中卢米安获得骄傲铠甲、收割者特性、仇恨交响曲；芙兰卡获得镜世界碎片与原始魔女雕像。卢米安获得灵界信使贝恩费尔。带着路德维希、卢加诺离开特里尔前往费内波特王国追捕愚人节组织。11月调查海祈仪式破解塔玛拉家族阴谋。卢加诺改信大地母神。佩德罗船长委托调查恶魔附身的弗洛雷斯。汉思岛卢米安被恶魔之眼污染，太阳先生戴里克为他净化污染。派洛斯港调查四年前连环杀人案，凶手希斯帕在梦中阴谋陷阱中被围杀。卢米安晋升猎人途径序列5「收割者」，得知希斯帕是塔罗会「节制派」叛徒。蒂萨莫镇梦节事件，卡利神父自杀，卢米安舞蹈家途径晋升序列5「猎命师」。返回特里尔与血手杰克签约获镜之印记，与贝恩费尔签约获影子活化能力。莫兰庄园镜中人事件爆发，外神监督者珀尔以「罪人」名义审判众人，骄傲铠甲逼退珀尔，安东尼召唤阿蒙的化身莫尼特，K先生双臂被砍仍叼剑攻击。阿蒙偷走的两秒时间回溯帮助魔术师逆转战局，卢米安因与忒尔弥波洛斯命运纠缠暂获天使级实力击杀珀尔（实为画作）。',
+     tags:['信使贝恩费尔','海祈仪式','戴里克净化','希斯帕','节制派叛徒','晋升收割者','晋升猎命师','镜中人','监督者珀尔','K先生忏悔']},
+
+    {id:'witch', name:'魔女篇', year:'1359年初-春',
+     desc:'卢米安登上幽蓝复仇者号触发异常，被传送到阿利斯塔·图铎的王座空间，获得绝望魔女配方、勇气之剑（嵌铁血骑士特性）、尸蜡蜡烛。得知临时使用0级封印物成为魔女的三个条件：大母神血脉、直系亲属背叛、女性身份。路德维希用欧弥贝拉脐带制作生命源质为卢米安注入大母神血脉。卢加诺晋升序列7「丰收祭司」。进入冥界寻找脓肿之手躯体，在死神宫殿见到沉睡的格雷格雷斯遗体，掷出勇气之剑击杀鸟爪婴儿。与深海上将豪尔·康斯坦丁海战，芙兰卡完成仪式晋升魔女途径序列5「痛苦魔女」，确认豪尔半精灵身份。卢米安被审判流放进入流放城莫罗拉，遇到蜡像傀儡执法者赫拉伯格。脓肿之手躯体散落在酒吧食物中，与酒吧老板（序列5剥夺者）决斗获胜。0-01激活脓肿之手复活变成女性形态，朱莉被0-01控制开始神降，卢米安成为0-01临时代理人。简娜得知自己是血皇帝阿利斯塔·图铎的后裔。漩涡计划正式启动，为阻止神降，卢米安以男性之身完成绝望魔女仪式，临时成为魔女途径序列4「绝望魔女」，利用0-01代理人权限破坏降临仪式，漩涡计划破产。哈里森（穿越者叛徒）登场。',
+     tags:['图铎王座','勇气之剑','大母神血脉','冥界之行','晋升痛苦魔女','流放城莫罗拉','0-01激活','简娜身世','男性绝望魔女','漩涡计划破产']},
+
+    {id:'dreamweaver', name:'织梦人篇', year:'1359年春',
+     desc:'漩涡计划结束当日，卢米安将众人传送至新白银城。芙兰卡占卜高位封印物「必然之枪」，卢米安占卜「束缚之环」，魔术师现身封印必然之枪并告知卢米安「愚者之梦」真相：愚者克莱恩在源堡沉睡编织巨大梦境消化天尊意志，持有幸运币的人可以进入梦境帮助其苏醒。简娜晋升魔女途径序列5「痛苦魔女」。黑魔女分身袭击芙兰卡，被联手击杀，真正的黑魔女现身安排芙兰卡潜入皇帝派调查阴谋。卢米安、安东尼、路德维希成功猎捕黑梦貘制作两份清醒药剂。卢米安传送至古老城堡见到苏醒的阿兹克·艾格斯，获赠幸运币作为进入愚者之梦的钥匙。塔罗会成员持幸运币集体进入愚者之梦：一个类似现代社会的世界（电影、手机、补习班、公司、医院、精神病院），所有人在梦中都有现代身份，按剧本生活，卢米安身份是格尔曼·斯帕罗。众人逐步清醒，联手解决医院病毒、补习班、精神病院等事件，清理天尊污染节点。芙兰卡完成仪式晋升序列4「绝望魔女」并得知所有穿越者真相。卢米安在梦境深处念出愚者尊名直面沉睡的克莱恩，1359年春周一下午2点前愚者完成初步苏醒。下午3点塔罗会召开，卢米安以「战车」加入，莎伦以「节制」加入，核心塔罗会大阿卡那从9位增至11位。众人前往廷根远远看望已结婚生子的罗珊。',
+     tags:['必然之枪','愚者之梦','黑梦貘清醒药剂','阿兹克幸运币','现代梦境','梦中晋升绝望魔女','愚者初醒','战车与节制','塔罗会扩编','廷根罗珊']},
+
+    {id:'secondlaw', name:'第二定律篇', year:'1359年春-8月',
+     desc:'塔罗会传送至幽蓝复仇者号探索图铎宝藏获得大量魔女特性。卢米安与镜中自我和解晋升魔女途径序列3「不老魔女」，芙兰卡同晋升不老魔女，两人成为愚者教会圣者获得稳定锚点。锚定尊名「永不老去者，疫病与灾祸的侍者」「混乱与战争的代行者，冰与火铸就的双身者」。狩猎病者教会高层劫持锚点。在新白银城借取「大地馈赠」前往流放城莫罗拉，将其扔给脓肿之手泽德乌斯立下诅咒：欧弥贝拉将在巨人王庭被其直系后代亲手杀死。简娜晋升魔女途径序列4「绝望魔女」，路德维希晋升序列4。愚者主导塔罗会全员、贝尔纳黛、黑夜女神教会、蒸汽与机械之神教会多方联手猎杀隐匿贤者为老尼尔复仇，行动成功蒸汽与机械之神获得隐者途径唯一性稳固真神位格，嘉德丽雅晋升序列2贤者，卢米安获得《末日后书》预言世界末日将在1360年或1368年7月到来。8月卢米安在班西港吸收特性晋升猎人途径序列2「天气术士」。阿蒙现身用超新星炸掉宿命之环送来的警告信。1359年8月堕落母神（原始月亮）撕裂世界屏障正式降临地球：影子树覆盖特里尔，红月亮急剧变大，蒙苏里幽灵潮、神弃之地黑暗扩张、古龙艾德法纳出现、母神亵渎之牌被抽出，多灾多难之日开始。',
+     tags:['图铎宝藏','晋升不老魔女','圣者锚定','泽德乌斯诅咒','猎杀隐匿贤者','《末日后书》','晋升天气术士','母神降临','多灾多难之日']},
+
+    {id:'eternal', name:'永劫者篇', year:'1359年-1360年7月',
+     desc:'最终决战篇。堕落母神降临后特里尔几乎被毁灭仅存安全区。卢米安掌握猎人序列1「征服者」与魔女序列1「末日」权柄。奥黛丽晋升观众途径序列2「洞察者」。莉莉丝在埃姆林梦中赠予美神特性与创生者特性，并与愚者克莱恩商定献祭计划。卢米安从流放城莫罗拉取得0-01封印物，与恶魔纳博雷斯迪达成互助协议。普阿利斯夫人作为美神化身现身告别后回归大地母神怀抱。莉莉丝按计划献祭自身重创堕落母神。塔罗会联手击杀战役：原始魔女奇克被彻底击杀，芙兰卡晋升魔女途径序列1「末日」，卢米安吸收红祭司与魔女双途径唯一性成为双途径真神（红祭司+魔女序列0）。戴里克晋升太阳途径序列2「逐光者」。1360年6月25日克莱恩在源堡完全融合天尊残余意志成为完整序列0愚者。1360年7月克莱恩容纳错误、门途径唯一性，三途径合一成为支柱级旧日「诡秘之主」（Lord of Mysteries）。1360年7月底天空降下红雨，外神全面入侵末日到来，诡秘之主带领正神、塔罗会与全世界非凡者展开最终决战，成功击退外神第一波入侵阻止原初上帝苏醒。安提哥努斯带着失忆的妹妹离开战场隐居。部分成员与赫尔塔踏上星际航行寻找盟友，卢米安留守地球：终局借宿环「替代」使奥萝尔与简娜部分复活（三人仅一人能回现实、其余留在梦境），守护重建的科尔杜村与奥萝尔、简娜残魂，愚者克莱恩注视下方的世界与所有为生存而战的人们。阳光穿过红雨照在大地上，新的时代开始了。',
+     tags:['莉莉丝献祭','击杀原始魔女','双途径真神','晋升末日魔女','诡秘之主','支柱级旧日','末日降临','击退外神','星际航行','新时代']}
+  ]
+};
+const chapterEvents = {
+  chaos:[
+    '失落年代（0—564年）：最初造物主苏醒，混沌眷族涌出，旧人类文明毁灭大半',
+    '失落年代0年：最初造物主因混沌与疯狂自我分裂自爆，分解为9个旧日级源质、22份途径唯一性与无数非凡特性',
+    '失落年代0年：旧灵界与旧七光在爆炸中彻底毁灭，大陆板块剧烈重塑',
+    '失落年代0年：外神被扯断的源质坠地，补完为巢母之巢、黑暗世界、失序之国',
+    '失落年代：上帝与天尊两大支柱苏醒，联手击碎其余坠落源质',
+    '失落年代：混沌之子被天尊击败，封印于许愿神灯成为灯神',
+    '毁灭之年564年：上帝与巢母之巢结合，诞下神裔欧弥贝拉与吉达斯',
+    '毁灭之年565年：天尊与上帝爆发全面神战，上帝作为太阳化身被击落，世界陷入永恒黑暗',
+    '毁灭之年566年：双支柱同归于尽；上帝陨落凝结为第一亵渎石板；天尊将其余源质封印至西大陆',
+    '毁灭之年末：精灵一族在封印完成前举族迁出西大陆',
+    '杀戮年代（567—981年）：超凡种族被聚合本能驱动，陷入长达414年的无序混战',
+    '杀戮年代：神裔欧弥贝拉受母性本能驱动想要结束世间混乱',
+    '981年：欧弥贝拉助巨人奥尔米尔登临古神之位（黄昏巨人途径）；吉达斯在争夺月亮唯一性中死亡',
+    '981年：奥尔米尔建立第一个古神神系，第一纪元混沌纪元正式结束'
+  ],
+  dark:[
+    '萌芽年代（0—1268年）：巨人王奥尔米尔建立巨人王庭，古神统治秩序初步建立',
+    '萌芽年代：八大古神陆续诞生——空想之龙、精灵王、血族始祖莉莉丝、恶魔君主、不死鸟始祖、异种王、毁灭魔狼',
+    '萌芽年代：太阳位格被外神超星主宰占据，世界长期处于黑暗中',
+    '萌芽年代：远古太阳神（亚当）暗中苏醒，与莉莉丝、阿曼妮西斯秘密合作',
+    '火之初耀年代（1268—1730年）：八大古神正式划分势力范围，人形种族占据优势',
+    '1730年：远古太阳神策划背叛阴谋，莉莉丝假死替换欧弥贝拉成为大地母神',
+    '1730年：异种王克瓦希图恩战死；毁灭魔狼麾下从神叛逃',
+    '双生年代（1730—1960年）：第一亵渎石板出世，泄露晋升路径',
+    '双生年代：巨人族与精灵族正式开战，230年「背叛者战争」展开',
+    '双生年代末：巨人和龙族成为两大主导种族',
+    '宁静年代（1960—2325年）：五大势力形成均势，进入365年相对和平时期',
+    '2325年：远古太阳神正式现身，自称「全知全能的神」，带领人类反抗古神统治',
+    '2348年：远古太阳神第一战同时击杀精灵王苏尼亚索列姆与空想之龙安格尔威德',
+    '黎明年代末：不死鸟始祖被击败身体碎裂；恶魔君主退入深渊；阿曼妮西斯晋升黑夜女神；战神、大地母神先后成神',
+    '2561年：远古太阳神基本统一三大陆，黑暗纪元结束'
+  ],
+  calamity:[
+    '第三纪元0年：远古太阳神统一大陆成为唯一正统神，人类成为神的选民',
+    '光辉年代前期：八大天使王侍奉左右——暗天使萨斯利尔、时天使阿蒙、空想天使亚当',
+    '光辉年代前期：纯白天使奥赛库斯、风天使列奥德罗、智天使赫拉伯根、红天使梅迪奇、命运天使乌洛琉斯',
+    '光辉年代前期：黑夜女神、战神、大地母神三神秘密结盟对抗远古太阳神，多次战败',
+    '800年左右：远古太阳神体内沉睡的原初（上帝）意志开始苏醒，逐渐侵蚀神智',
+    '光辉年代中期：暗天使萨斯利尔离开神国，与黑夜女神组建秘密组织「救赎蔷薇」',
+    '光辉年代中期：救赎蔷薇核心成员集结——六位天使王、黑夜女神、大地母神、战神、死神途径从神',
+    '1086年：救赎蔷薇发动弑神计划，战场选在东大陆中心区域',
+    '1086年：纯白天使、风天使、智天使背叛，夺取唯一性当场晋升序列0',
+    '1086年：永恒烈阳、风暴之主、知识与智慧之神诞生；远古太阳神复活计划失败',
+    '1086年：远古太阳神尸体重生为真实造物主；核心神性转移至空想天使亚当体内',
+    '1086年：原初意志分裂引发灭世大灾变，东大陆扭曲为神弃之地被灰雾彻底包裹',
+    '1086年：第二亵渎石板凝聚形成，记载完整9大源质与22条非凡途径'
+  ],
+  gods:[
+    '第四纪元0年：第二亵渎石板出世，所有顶级天使窥见完整22条途径配方',
+    '纷争年代：魔女教派、黄昏隐士会、摩斯苦修会等秘密组织先后建立',
+    '纷争年代：南大陆被死神萨林格尔统一，建立拜朗帝国',
+    '112年：所罗门成为序列0黑皇帝，建立第一所罗门帝国统一北大陆',
+    '396年：六神联盟支持图铎与特伦索斯特弑杀黑皇帝，建立图铎-特伦索斯特联合帝国',
+    '510年：黑皇帝复活建立第二所罗门帝国；联合帝国分裂',
+    '510年：特伦索斯特转换为审判者途径夜皇；阿利斯塔·图铎强行晋升红祭司途径血皇帝',
+    '三国鼎立537年：所罗门第二帝国、图铎帝国、特伦索斯特帝国对峙；安提哥努斯成为「半愚」',
+    '1047年：四皇之战全面爆发，工匠之神斯蒂亚诺晋升蒸汽与机械之神扭转战局',
+    '1052年：血皇帝战死；安提哥努斯被黑夜女神封印于霍纳奇斯山脉迷雾小镇',
+    '1052年：黑皇帝再次被击杀；夜皇陨落；冥皇萨林格尔获得红祭司唯一性成为最大赢家',
+    '1053—1210年七神之争：七神分为三大阵营混战167年',
+    '七神之争后期：死神萨林格尔成为双途径半旧日，与原初魔女奇克联手',
+    '1210—1233年苍白年代：死神与原初魔女发动苍白灾难，北大陆生灵涂炭',
+    '1233年：七神联手决战，死神陨落，原初魔女重伤逃遁；战争余波形成狂暴海永久隔绝南北大陆',
+    '1233年：七神受创将神国迁往星界，仅能通过化身降临现实，众神时代结束'
+  ],
+  iron:[
+    '第五纪元0年：七神协议退回星界，通过教会与信徒间接统治人类，黑铁纪元开始',
+    '列国初立：鲁恩王国（奥古斯都/黑夜女神）、弗萨克帝国（艾因霍恩/战神）、费内波特王国（索伦/大地母神）、因蒂斯王国（卡斯蒂亚/永恒烈阳）确立',
+    '列国初立：南大陆拜朗帝国分裂，灵教团转入地下；各国教会成立处刑所猎杀野生非凡者',
+    '359—642年：鲁恩与弗萨克爆发二十年战争，鲁恩割让苏尼亚岛',
+    '642—870年：白玫瑰战争与背誓之战，伦堡、马锡、塞加尔以知识与智慧之神为唯一信仰独立',
+    '870—1055年蛰伏和平时代：枪炮发明装备军队，普通人彻底遗忘非凡者与真神存在',
+    '1143年：穿越者黄涛出生于因蒂斯破落贵族家庭，成为罗塞尔·古斯塔夫',
+    '1146年起：罗塞尔凭借现代知识改良蒸汽机，发明蒸汽船、印刷机、报纸、纺织机，推动第一次工业革命',
+    '1173年：罗塞尔推翻索伦王朝建立因蒂斯第二共和国，成为第一任执政官',
+    '1174年：颁布《民法典》；发明塔罗牌；秘密制作22张亵渎之牌；工匠之神改名蒸汽与机械之神',
+    '1192年：罗塞尔改共和国为帝国，加冕因蒂斯凯撒大帝',
+    '1194年：罗塞尔船队发现南大陆安全航线，正式开启全球殖民时代',
+    '1198年：罗塞尔在白枫宫被永恒烈阳教会联合旧贵族刺杀',
+    '1198年：罗塞尔借黑皇帝复活特性重生，被原始月亮污染成为半疯的不完整黑皇帝，被长女贝尔纳黛封印',
+    '1198—1349年：列国完成全球殖民瓜分；各大秘密组织快速发展；乔治三世筹备黑皇帝成神仪式',
+    '1349年6月28日：第三位穿越者周明瑞在廷根市自杀，灵魂占据克莱恩·莫雷蒂，源堡正式激活'
+  ],
+  tingen:[
+    '1349年6月28日凌晨：周明瑞穿越成霍伊大学毕业生克莱恩·莫雷蒂',
+    '1349年6月28日：克莱恩尝试转运仪式，初次登上灰雾之上的源堡',
+    '1349年6月29—30日：值夜者上门核查自杀事件；克莱恩通过考验加入黑荆棘安保公司',
+    '1349年7月2日：克莱恩服用占卜家魔药晋升序列9，召集首批塔罗会成员，塔罗会正式成立',
+    '1349年7月18日：克莱恩击杀密修会成员西里斯，获得小丑魔药配方',
+    '1349年8月19日：塔罗会吸纳「太阳」戴里克，神弃之地白银城线索进入北大陆视野',
+    '1349年8月29日：老尼尔尝试复活未婚妻仪式失败，被隐匿贤者污染失控死亡',
+    '1349年8月31日：克莱恩攒够功勋晋升序列8「小丑」',
+    '1349年9月7日：邓恩率队围剿欢愉魔女雪伦夫人，科恩黎·怀特牺牲',
+    '1349年9月9日：廷根邪神降临事件爆发；邓恩·史密斯掏心献祭战死；克莱恩被穿心击杀',
+    '1349年9月9日：因斯·赞格威尔携0-08现身夺走圣赛琳娜骨灰与安提哥努斯笔记',
+    '1349年9月16日：克莱恩借灰雾之力从墓地复活，改换身份离开廷根前往贝克兰德'
+  ],
+  backlund:[
+    '1349年9月16日：克莱恩抵达贝克兰德，化名夏洛克·莫里亚蒂以私家侦探身份活动',
+    '1349年9月27日：克莱恩与莎伦合力击杀因蒂斯间谍罗萨戈，获得「全黑之眼」',
+    '1349年10月8日：在东区码头追踪并击杀廷根事件帮凶兰尔乌斯',
+    '1349年10月10日：克莱恩晋升序列7「魔术师」；佛尔思·沃尔加入塔罗会代号「魔术师」',
+    '1349年10月16日：克莱恩在罗塞尔纪念展上盗得「黑皇帝」亵渎之牌',
+    '1349年11月1日：克莱恩化身侠盗「黑皇帝」突入卡平别墅，击杀人贩子救出数十名儿童',
+    '1349年11月5日：戴里克借「全黑之眼」探索白银城遭遇阿蒙寄生，克莱恩远程救解',
+    '1349年12月16日：克莱恩以侠盗黑皇帝身份击杀欲望使徒杰森·贝里亚',
+    '1349年12月23日：克莱恩晋升序列6「无面人」',
+    '1349年12月28日：贝克兰德大雾霾事件爆发，东区死亡逾两万一千人',
+    '1349年12月28日：黑夜女神教会圣安东尼大主教携0-17「隐秘之天使」压制仪式；克莱恩打断A先生降临仪式',
+    '1349年12月28日：埃德萨克王子被迫自杀顶罪；埃姆林·怀特加入塔罗会代号「月亮」',
+    '1350年1月3日：克莱恩以格尔曼·斯帕罗身份离开贝克兰德，前往普利兹港'
+  ],
+  sea:[
+    '1350年1月5日：克莱恩以疯狂冒险家格尔曼·斯帕罗身份从普利兹港登船出发',
+    '1350年1月9日：白玛瑙号停靠班西港，克莱恩遭遇红天使梅迪奇恶灵残余污染',
+    '1350年1月12日：抵达罗思德群岛首府拜亚姆，俘虏黄金梦想号四副达尼兹为仆从',
+    '1350年1月17日：海神卡维图瓦被海王亚恩·考特曼镇压死亡，克莱恩获得海神权杖成为新海神',
+    '1350年1月20日：蕾妮特·缇尼科尔成为克莱恩的专属灵界信使',
+    '1350年1月23日：星之上将嘉德丽雅在贝尔纳黛示意下加入塔罗会，代号「隐者」',
+    '1350年2月4日：克莱恩护送达克威尔抵达奥拉维岛，依靠概率之骰化解极光会布提斯的偷袭',
+    '1350年2月13日起：克莱恩在奥拉维岛慈善医院做义工两个月消化无面人魔药',
+    '1350年4月13日：克莱恩在加斯群岛登上未来号，前往神弃之地海域',
+    '1350年4月16日：克莱恩在美人鱼歌声中完成晋升仪式，成为序列5「秘偶大师」',
+    '1350年4月20日：进入《格罗塞尔游记》书中世界，与冰龙尤利塞斯决战',
+    '1350年4月26日：玫瑰学派在拜亚姆山围堵爆发大战，制伏血之上将塞尼奥尔成为第一个秘偶',
+    '1350年4月30日：克莱恩以新身份道恩·唐泰斯返回贝克兰德'
+  ],
+  revenant:[
+    '1350年4月30日：克莱恩化名退休富豪道恩·唐泰斯，租下博克伦德街160号',
+    '1350年5月20日：克莱恩刺杀极光会X先生，彻底释放蠕动的饥饿中的灵魂',
+    '1350年5月25—28日：与阿尔杰探索原始岛屿，在远古太阳神教堂获得「暴君」亵渎之牌',
+    '1350年5月30日：克莱恩在下水道破坏魔女教派阴谋，被一位男性半神引爆炸药阻止',
+    '1350年6月6日：克莱恩潜入查尼斯门，被0-17「隐秘之天使」传送到霍纳奇斯山脉迷雾小镇',
+    '1350年6月6日：迷雾小镇遭遇绝望魔女潘娜蒂亚、A先生与查拉图分身，意外放出被封印的查拉图',
+    '1350年6月9日：奥黛丽晋升序列6「催眠师」',
+    '1350年6月20日：克莱恩乘飞艇前往南大陆；戴莉晋升序列5「看门人」',
+    '1350年6月26日：克莱恩与阿兹克登上地狱上将路德维尔的黑郁金香号，进入死神宝藏之地',
+    '1350年6月26日：黑夜女神亲自夺取死神途径唯一性，阿兹克陷入长期沉睡，路德维尔成为秘偶；威尔·昂赛汀出生',
+    '1350年6月30日：西拜朗决战，克莱恩、伦纳德、戴莉联手对战因斯·赞格威尔',
+    '1350年6月30日：戴莉以生命驱使灵界生物打断0-08命运安排；克莱恩用死亡丧钟击杀因斯',
+    '1350年6月30日：亚当取走0-08；克莱恩获得「红祭司」亵渎之牌，完成仪式晋升序列4「诡法师」'
+  ],
+  redpriest:[
+    '1350年7月1日：伦纳德·米切尔加入塔罗会代号「星星」；克莱恩将「阴谋家」配方交给达尼兹',
+    '1350年7月2日：佛尔思与休探索德莱尔森林古堡，休念诵愚者尊名获救加入塔罗会代号「审判」',
+    '1350年7月9日：克莱恩回到贝克兰德；灵教团实验产物「不死者」帕特里克·布雷恩成为下属',
+    '1350年7月19日：阿蒙分身瘟疫式感染找到克莱恩；威尔·昂赛汀动用命运重启削弱阿蒙；帕列斯吞噬阿蒙分身',
+    '1350年7月20日：克莱恩与贝尔纳黛秘密会面交流罗塞尔情报；莎伦晋升序列4「木偶」',
+    '1350年9月27日：嘉德丽雅晋升序列4「神秘学家」',
+    '1350年9月28日：佛尔思晋升序列6「记录官」，戴里克晋升序列5「光之祭司」',
+    '1350年9月30日：玫歌晚宴击败斯特福德子爵，获得远古太阳神遗物「无暗十字」',
+    '1350年10月2日：克莱恩占卜「无暗十字」来历，看到远古太阳神从切尔诺贝利走出的画面',
+    '1350年10月5日：克莱恩与阿里安娜击杀心理炼金会会长赫温·兰比斯，获得序列3「古代学者」配方',
+    '1350年10月7日：奥黛丽晋升序列5「梦境行者」',
+    '1350年10月13日：弗萨克空袭贝克兰德，鲁恩对弗萨克宣战，第一次世界大战全面爆发',
+    '1350年10月13日：克莱恩与红天使恶灵梅迪奇达成合作；舍弃道恩身份决意阻止乔治三世成神',
+    '1350年10月20日：白银城探索队进入巨人王庭，发现救赎蔷薇与萨斯利尔沉睡的真相',
+    '1350年11月4日：克莱恩在狂暴海荒岛完成仪式，正式晋升序列3「古代学者」；源堡气息惊动阿蒙、查拉图',
+    '1350年12月初：乔治三世加冕日，成神仪式被克莱恩、贝尔纳黛、特莉丝、红天使恶灵联手破坏，乔治三世陨落'
+  ],
+  pursuer:[
+    '1350年12月3日：图铎陵寝破坏战；贝尔纳黛使用许愿神灯短暂掌握知识皇帝能力',
+    '1350年12月3日：特莉丝使用昨日重现符咒引原初魔女降临攻击仪式，受神降反噬牺牲',
+    '1350年12月3日：克莱恩在亚当诚实大厅问答后被送出；阿蒙寄生克莱恩从梦境漏洞进入神弃之地',
+    '1350年12月5日：阿蒙带克莱恩抵达切尔诺贝利，揭开穿越者的真相',
+    '1350年12月5日：克莱恩自杀预支奇迹师复活能力；识破安提哥努斯笔记陷阱；怀疑黑夜女神是第一位穿越者',
+    '1350年12月5日：科林·伊利亚特晋升序列3「银骑士」；克莱恩通过源堡规则欺诈在白银城复活',
+    '1350年12月22日：冬礼日弥撒，奥黛丽晋升序列4「操纵师」，苏茜同期晋升',
+    '1351年1月1日：塔罗会联手猎杀秘之圣者布提斯，获得0级封印物「旧日之盒」',
+    '1351年1月：阿蒙集齐三份时之虫特性；多里安以家族改信换取旅法师配方和「星之杖」',
+    '1351年9月：克莱恩为月城居民净化迷雾污染',
+    '1351年9月13日：戴里克晋升序列4「无暗者」，阳光重新照进白银城',
+    '1351年10月：贝尔纳黛将0-05「许愿神灯」托付给嘉德丽雅，独自出海寻找罗塞尔陵寝',
+    '1351年12月：北大陆神战全面爆发；洛薇雅晋升序列4「黑骑士」',
+    '1352年1月上旬：进入巨人王庭见到暗天使萨斯利尔恶灵；洛薇雅、科林·伊利亚特牺牲',
+    '1352年1月上旬：莉莉丝背刺战神，战神陨落；黑夜女神获黄昏巨人唯一性；亚当成神「空想家」',
+    '1352年1月中旬：克莱恩完成奇迹师晋升仪式，正式成为序列2「奇迹师」；意识到天尊正在体内苏醒'
+  ],
+  hanged:[
+    '1352年1月下旬：克莱恩从博诺瓦处获得魔镜阿罗德斯，化身流浪魔术师梅林·赫尔墨斯',
+    '1352年1月下旬：第134次塔罗会推理出大地母神就是莉莉丝的真相',
+    '1352年2月上旬：战神大牧首拉里昂携0-02「特伦索斯特黄铜书」叛逃，被克莱恩丢给迷雾小镇的安提哥努斯',
+    '1352年2月上旬：克莱恩在贝尔丹城获得最后一张「愚者」亵渎之牌，集齐暴君、红祭司、愚者三张',
+    '1352年2月上旬：佛尔思借助恶魔画卷晋升序列4「秘法师」',
+    '1352年2月中旬：贝尔纳黛在迷雾海找到罗塞尔无名岛陵寝，唤醒被污染的罗塞尔后用苍白的死亡封印',
+    '1352年2月中旬：贝尔纳黛完成仪式晋升序列3「贤者」',
+    '1352年2月19日：埃姆林·怀特成为大地母神教会高级执事，负责血族事务',
+    '1352年2月25日：第137次塔罗会，克莱恩公布六条外神途径，提醒众人亚当已成神',
+    '1352年9月上旬：月城居民集体祷告，克莱恩用愿望之力治愈畸形，完全消化奇迹师魔药',
+    '1352年9月中旬：克莱恩在狂暴海无名荒岛建立秘偶城镇「乌托邦」准备诡秘侍者仪式',
+    '1352年10月上旬：查拉图通过文德尔入侵乌托邦；克莱恩被关入亚当的尸骨教堂',
+    '1352年10月上旬：克莱恩在尸骨教堂中阅读第二亵渎石板，了解全部22条途径配方',
+    '1352年10月下旬：维尔杜在班西港举行门先生回归仪式，门先生主动放弃抵抗',
+    '1352年10月下旬：阿蒙窃取门先生成神仪式晋升序列0「错误」，成为双途径真神；维尔杜死亡',
+    '1352年10月下旬：克莱恩与灯神交易自杀触发诡秘侍者复活仪式；复活后晋升序列1「诡秘侍者」击杀查拉图'
+  ],
+  foolascent:[
+    '1352年秋：克莱恩借助查拉图非凡特性稳定精神，压制天尊苏醒',
+    '1352年秋：阿尔杰脱离风暴之主教会，正式成为海神教会的教皇',
+    '1352年秋：亚伯拉罕家族目睹门途径特性从天而降，剩余家族成员正式改信愚者',
+    '1352年秋：班森·莫雷蒂与恋人结婚，克莱恩以梅林身份悄悄参加婚礼远远看了家人一眼',
+    '1352年秋：克莱恩拜访奥黛丽做最后心理治疗，突袭摧毁心理炼金会伊甸园总部报复亚当',
+    '1352年秋：克莱恩取得永暗之河支流河水交给黑夜女神作为最终仪式后手',
+    '1352年秋：克莱恩将五枚源堡气息污染金币交给阿兹克信使、伦纳德、威尔、班森与梅丽莎、贝尔纳黛',
+    '1352年秋冬：克莱恩前往霍纳奇斯山脉顶端，开始容纳愚者唯一性的成神仪式',
+    '1352年秋冬：亚当进入混沌海空想三途径权柄，暂时成为半个上帝封锁三神',
+    '1352年秋冬：克莱恩成功容纳愚者唯一性与三份序列1特性，正式晋升序列0「愚者」',
+    '1352年秋冬：阿蒙提前入侵源堡；两人在源堡展开终极决战「愚者的赌局」',
+    '1352年秋冬：克莱恩主动解除天尊压制以源堡所有权对赌，阿蒙输掉赌局本体陨落，分身远走星空',
+    '1352年冬：黑夜女神用永暗之河河水将天尊意志暂时封印为永恒沉眠',
+    '1352年冬：第139次塔罗会布置长期任务；释放源堡光茧中所有古人类穿越者灵魂',
+    '1352年冬：克莱恩将黄水晶灵摆留在廷根墓地，与阿罗德斯一同进入源堡深处沉睡',
+    '十年后：梅丽莎带侄女爱丽丝向愚者祈祷，爱丽丝与愚者从灰雾伸出的虚幻触手轻轻击掌，人性与神性初步平衡'
+  ],
+  corduroy:[
+    '1358年3月29日：官方非凡者瑞安、瓦伦丁、莉亚抵达科尔杜村调查匿名举报',
+    '1358年3月29日：卢米安在老酒馆遇到魔术师女士佛尔思，获得小阿卡那「权杖七」',
+    '1358年3月29日夜：卢米安第一次做清醒梦，进入梦中废墟',
+    '1358年4月2日：猫头鹰第一次出现；卢米安发现《蓝皮书》被挖去文字拼出求救信',
+    '1358年4月3日：纳罗卡死亡；卢米安在梦中击杀猎枪怪物，获得猎人非凡特性',
+    '1358年4月4日：卢米安在梦中服下魔药成为序列9「猎人」；学习非凡者守则与扮演法',
+    '1358年4月5日：四旬斋庆典，艾娃被皮埃尔·贝里杀死，卢米安击杀纪尧姆神父后失去意识',
+    'X+1次循环：卢米安出村发现荒野满是不死生物，确认陷入时间循环',
+    'X+2次循环：奥萝尔教卢米安仪式魔法与灵视，告知卷毛狒狒研究会的存在',
+    'X+2次循环：卢米安从魔术师女士处得知舞蹈家（宿命之环）途径，举行二元仪式成为序列9「舞蹈家」',
+    'X+2次循环：卢米安在普阿利斯夫人花园通灵雷蒙德灵魂，得知教堂地下藏着秘密存在',
+    'X+2次循环：卢米安在梦中击杀铁匠怪物，获得5级封印物「堕落水银」',
+    'X+2次循环：卢米安在梦中击杀火焰怪物获得纵火家非凡特性',
+    '1358年4月6日：纪尧姆提前举行最终献祭仪式，全村血肉灵魂与奥萝尔融合变成三头巨人',
+    '1358年4月6日：奥萝尔在最后时刻恢复意识自杀阻止；除卢米安外科尔杜村无人生还',
+    '1358年4月6日：魔术师女士交给卢米安去特里尔的任务，告知复活奥萝尔的渺茫希望'
+  ],
+  trier:[
+    '1358年5月4日：卢米安化名夏尔抵达特里尔，入住金公鸡旅馆207房间',
+    '1358年5月5日：地下墓穴被布里涅男爵的人认出是悬赏3000费尔金的通缉犯',
+    '1358年5月6日：卢米安召唤舞灵召来爱丽丝灵魂，写信洗清查理嫌疑',
+    '1358年5月8—11日：体内忒尔弥波洛斯苏醒，告知序列之上真相，获得托钵僧恩赐；正式加入萨瓦帮',
+    '1358年5月12日：救出被绑架的简娜，击杀黑德西；袭击毒刺帮击杀「锤子」艾特',
+    '1358年5月13日：卢米安见到加德纳·马丁，认识「隐刃」芙兰卡·罗兰，获得「狮子夏尔」外号',
+    '1358年5月14—18日：与芙兰卡进入地铁镜中世界，粉碎镜中人替换阴谋',
+    '1358年5月：奥黛丽以「苏茜女士」身份为卢米安心理治疗，设置真实造物主尊名替换为「那个存在」的心理锚点',
+    '1358年5月：卢米安抓住路易·伦德并审讯，得知科尔杜村更多真相',
+    '1358年6月：众人发现简娜在旧鸽笼剧院学表演；普阿利斯夫人现身测试卢米安能力',
+    '1358年6月：卢米安、芙兰卡潜入毒刺帮据点击杀「短腿烛台」「秃子」哈尔曼；雕像腹部发现母树种子',
+    '1358年6月下旬：鲁尔患神秘疾病死亡；芙兰卡发现致病恶灵来自蒂博尔',
+    '1358年7月：卢米安伪装博诺·古德维尔潜入议会，击杀瘟疫散播者蒂博尔，终结瘟疫',
+    '1358年7月：卢米安正式晋升猎人途径序列7「纵火家」',
+    '1358年7月：粉碎欲望母树通过影子之树污染特里尔的阴谋'
+  ],
+  intrigue:[
+    '1358年7月：卢米安正式加入铁血十字会成为官方非凡者线人；参观特里尔愚者教堂遇到达尼兹',
+    '1358年7月：简娜彻底消化魔药晋升猎人途径序列8「挑衅者」',
+    '1358年7月：卢米安舞蹈家途径晋升序列8「托钵僧侣」，与脓肿之手、人面螳螂、装甲阴影签订契约',
+    '1358年7月：卢米安、简娜、芙兰卡前往南大陆，芙兰卡完成仪式晋升魔女途径序列6「欢愉魔女」',
+    '1358年7月：卢米安找到真正的纪尧姆·贝内将其击杀，为科尔杜村复仇',
+    '1358年7月：海拉（卷毛狒狒研究会副会长）抵达特里尔与卢米安会面',
+    '1358年7月：阿蒙偷走地血矿石又「还给」卢米安；佛尔思赠送「幸运影拳击手套」',
+    '1358年7月：卢米安与海拉深入地下墓穴第四层，与梅迪奇、阿利斯塔·图铎残魂战斗，右手被血皇帝气息污染',
+    '1358年7月：时之天使阿蒙抹除破碎舞厅和所有阿蒙分身，偷走一分钟时间',
+    '1358年8月：卢米安、芙兰卡在无政府主义者街遭遇洛基袭击；海拉将众人传送到地下采石场',
+    '1358年8月：卢米安、芙兰卡、简娜联手猎杀「我知道是谁」并火刑处死',
+    '1358年8月：芙兰卡击杀极乐学会成员得知核心名单与「招待所」的存在',
+    '1358年9月：卢米安再次受邀红天鹅城堡，探索地下室得知六年前弗萨克内战真相',
+    '1358年9月：击杀蜡像师获得阴谋家特性',
+    '1358年9月：倒吊人阿尔杰抵达特里尔；四人联手召唤装甲阴影获得西大陆情报',
+    '1358年9月：简娜晋升魔女途径序列7「女巫」完成途径转换；芙兰卡正式加入魔女教派',
+    '1358年9月：卢米安在地下墓穴第三层晋升猎人途径序列6「阴谋家」',
+    '1358年9月：「招待所」异空间决战，加德纳被骄傲铠甲副作用侵蚀死亡；维尔芒德·索伦战死',
+    '1358年9月：梅迪奇融合索伦、艾因霍恩两份特性，恢复红祭司途径天使之王位格；卢米安获得高位封印物骄傲铠甲'
+  ],
+  sinner:[
+    '1358年9月：分赃中卢米安获得骄傲铠甲、收割者特性、仇恨交响曲；芙兰卡获得镜世界碎片与原始魔女雕像',
+    '1358年9月：简娜获得变异知识兔子信使，卢米安获得灵界信使贝恩费尔',
+    '1358年9月：卢米安带路德维希、卢加诺离开特里尔前往费内波特王国追捕愚人节组织',
+    '1358年11月：调查海祈仪式，破解塔玛拉家族阴谋；卢加诺改信大地母神',
+    '1358年11月：佩德罗船长委托调查恶魔附身的弗洛雷斯',
+    '1358年12月：汉思岛卢米安被恶魔之眼污染；太阳先生戴里克为他净化污染',
+    '1358年12月：派洛斯港调查四年前连环杀人案；卢米安在梦中阴谋陷阱围杀希斯帕',
+    '1358年12月：卢米安晋升猎人途径序列5「收割者」；得知希斯帕是塔罗会「节制派」叛徒',
+    '1358年12月17日：蒂萨莫镇梦节事件爆发；卡利神父自杀；卢米安舞蹈家途径晋升序列5「猎命师」',
+    '1359年初：返回特里尔；与血手杰克签约获镜之印记；与贝恩费尔签约获影子活化能力',
+    '1359年初：莫兰庄园镜中人事件；得知不老魔女永生秘密与镜中人领袖是罗塞尔镜像',
+    '1359年初：外神监督者珀尔以「罪人」名义审判众人；骄傲铠甲逼退珀尔',
+    '1359年初：芙兰卡和简娜被封在琥珀里；卢米安献祭迷雾盒子戴金面具被判定为「已死」',
+    '1359年初：安东尼召唤阿蒙化身莫尼特；阿蒙偷走的两秒时间回溯帮助魔术师逆转战局',
+    '1359年初：K先生即使双臂被砍仍叼剑攻击；卢米安因命运纠缠暂获天使级实力击杀珀尔（实为画作）',
+    '1359年初：K先生在真实造物主教堂忏悔；卢米安通过信使副作用看到教堂里的蜥蜴'
+  ],
+  witch:[
+    '1359年初：芙兰卡索要欢愉魔药辅助材料给简娜作为奖励；卢米安申请探索倒吊人幽灵船',
+    '1359年初：卢米安登上幽蓝复仇者号被传送到阿利斯塔·图铎的王座空间',
+    '1359年初：获得绝望魔女配方、嵌铁血骑士特性的勇气之剑、尸蜡蜡烛',
+    '1359年初：路德维希用欧弥贝拉脐带制作生命源质，为卢米安注入大母神血脉',
+    '1359年初：永恒烈阳教会找回失窃的1级封印物1-147；卢加诺晋升序列7「丰收祭司」',
+    '1359年初：卢米安用死亡面具和冥界封印进入冥界寻找脓肿之手躯体',
+    '1359年初：在死神宫殿见到沉睡的格雷格雷斯遗体；掷出勇气之剑击杀鸟爪婴儿',
+    '1359年2月：与深海上将豪尔·康斯坦丁海战；芙兰卡完成仪式晋升魔女途径序列5「痛苦魔女」',
+    '1359年2月：卢米安被审判流放，进入流放城莫罗拉，遇到蜡像傀儡执法者赫拉伯格',
+    '1359年3月：脓肿之手躯体散落酒吧食物中；卢米安与酒吧老板（序列5剥夺者）决斗获胜',
+    '1359年3月：脓肿之手拼齐头颅复活变成女性形态；0-01封印物激活神降开始',
+    '1359年3月：朱莉被0-01控制开始神降；简娜得知自己是血皇帝阿利斯塔·图铎的后裔',
+    '1359年3月：阿尔布斯杀死塞莱斯特逃进镜世界；卢米安成为0-01临时代理人',
+    '1359年春：哈里森（穿越者叛徒）登场试图偷卢米安旅行包',
+    '1359年春：漩涡计划正式启动，原始月亮试图通过0-01降临',
+    '1359年春：为阻止神降，卢米安以男性之身完成绝望魔女仪式，临时成为魔女途径序列4「绝望魔女」',
+    '1359年春：卢米安利用0-01代理人权限破坏降临仪式，漩涡计划破产'
+  ],
+  dreamweaver:[
+    '1359年春：卢米安将众人传送至新白银城；芙兰卡占卜「必然之枪」，卢米安占卜「束缚之环」',
+    '1359年春：魔术师现身封印必然之枪，告知卢米安「愚者之梦」真相',
+    '1359年春：芙兰卡和镜中自我和解前的准备；简娜晋升魔女途径序列5「痛苦魔女」',
+    '1359年春：黑魔女分身袭击芙兰卡被联手击杀；真正的黑魔女现身',
+    '1359年春：黑魔女安排芙兰卡潜入崇拜罗塞尔的「皇帝派」组织',
+    '1359年春：卢米安、安东尼、路德维希成功猎捕黑梦貘，制作两份清醒药剂',
+    '1359年春：芙兰卡见到皇帝派间谍妮西娅，获取情报',
+    '1359年春：卢米安传送至古老城堡见到苏醒的阿兹克·艾格斯，获赠幸运币作为进入愚者之梦的钥匙',
+    '1359年春：塔罗会成员持幸运币集体进入愚者之梦（一个类似现代社会的世界）',
+    '1359年春：卢米安在梦中身份为格尔曼·斯帕罗；众人在梦中逐渐清醒探索梦境',
+    '1359年春：梦境中发生医院病毒、补习班、精神病院、电影、午夜凶铃类事件',
+    '1359年春：芙兰卡在梦中完成仪式晋升序列4「绝望魔女」，得知所有穿越者真相',
+    '1359年春：卢米安在梦境深处念出愚者尊名，破解封印直面沉睡的克莱恩',
+    '1359年春周一：贝克兰德时间下午2点前愚者克莱恩完成初步苏醒',
+    '1359年春周一下午3点：塔罗会召开，卢米安以「战车」加入，莎伦以「节制」加入，核心成员从9位增至11位',
+    '1359年春：众人前往廷根，远远看望已结婚生子的罗珊'
+  ],
+  secondlaw:[
+    '1359年春：塔罗会传送至幽蓝复仇者号探索图铎宝藏，获得大量魔女特性',
+    '1359年春：卢米安与镜中自我和解，完成仪式晋升魔女途径序列3「不老魔女」',
+    '1359年春：芙兰卡同晋升不老魔女；两人成为愚者教会圣者获得稳定锚点',
+    '1359年春：卢米安狩猎病者教会的高层序列者，劫持病者教会的锚点',
+    '1359年春：卷毛狒狒研究会聚会上芙兰卡宣布晋升半神；卢米安理清欧弥贝拉与泽德乌斯的关系',
+    '1359年春：克丽丝芒娜警告简娜不要晋升不老魔女',
+    '1359年春：众人借取「大地馈赠」前往流放城莫罗拉；简娜晋升魔女途径序列4「绝望魔女」',
+    '1359年春：卢米安将大地馈赠扔给脓肿之手泽德乌斯，立下诅咒——欧弥贝拉将在巨人王庭被其直系后代亲手杀死',
+    '1359年春：卢米安前往科尔杜村遗址，解除村民灵魂封印让他们安息',
+    '1359年春：卢加诺被安排传教病者教会作为卧底；路德维希晋升序列4',
+    '1359年春：愚者主导塔罗会全员、贝尔纳黛、黑夜女神教会、蒸汽与机械之神教会多方联手猎杀隐匿贤者，为老尼尔复仇',
+    '1359年春：行动成功——蒸汽与机械之神获隐者途径唯一性稳固真神位格；嘉德丽雅晋升序列2贤者',
+    '1359年春：卢米安获得《末日后书》——预言世界末日将在1360年或1368年7月到来；获得天气术士配方',
+    '1359年8月：卢米安在班西港吸收特性晋升猎人途径序列2「天气术士」',
+    '1359年8月：阿蒙现身用超新星炸掉宿命之环送来的警告信',
+    '1359年8月：堕落母神（原始月亮）撕裂世界屏障正式降临地球；影子树覆盖特里尔，红月亮急剧变大',
+    '1359年8月：蒙苏里幽灵潮、神弃之地黑暗扩张、古龙艾德法纳出现；母神亵渎之牌被抽出，多灾多难之日开始'
+  ],
+  eternal:[
+    '1359年冬—1360年春：堕落母神降临后特里尔几乎被毁灭仅存安全区；莱昂传播病者教会信仰',
+    '1359年冬—1360年春：卢加诺已晋升大地途径德鲁伊，成为病者教会大主教',
+    '1359年冬—1360年春：卢米安完全掌握猎人途径序列1「征服者」与魔女途径序列1「末日」权柄',
+    '1359年冬—1360年春：奥黛丽返回贝克兰德霍尔伯爵府，托梦联系梅迪奇达成合作',
+    '1359年冬—1360年春：堕落母神占领灰白雾气中的巢母之巢，彻底封锁西大陆',
+    '1359年冬—1360年春：梅迪奇同意将征服者特性赠予卢米安助他成神',
+    '1359年冬—1360年春：莉莉丝在埃姆林梦中赠予美神特性与创生者特性；与愚者商定献祭计划',
+    '1359年冬—1360年春：卢米安两拳击打亚当破除其对选民的精神迷惑；从莫罗拉拿到0-01封印物',
+    '1359年冬—1360年春：恶魔纳博雷斯迪与卢米安达成互助协议',
+    '1359年冬—1360年春：塔罗会制定击杀原始魔女完整计划；伦纳德申请临时调用0-17「隐秘之天使」',
+    '1359年冬—1360年春：莉莉丝按计划献祭自身，重创即将与巢母之巢完全融合的堕落母神',
+    '1360年5—6月：塔罗会联手击杀战役——原始魔女奇克被彻底击杀',
+    '1360年5—6月：芙兰卡完成仪式晋升魔女途径序列1「末日」',
+    '1360年5—6月：血皇帝图铎与原始魔女奇克设局，卢米安险些沦为血皇帝容器，简娜为救卢米安而死，意识存于卢米安体内',
+    '1360年5—6月：卢米安吸收红祭司与魔女双途径唯一性，成为双途径真神（红祭司+魔女序列0）',
+    '1360年5—6月：路德维希身上的封印被战斗余波破坏，恢复为吞噬天使位格；戴里克晋升序列2「逐光者」',
+    '1360年5—6月：纳博雷斯迪交付恶魔途径序列1「憎恶」特性，卢米安分给蕾妮特和莎伦稳定天使位格',
+    '1360年5—6月：普阿利斯夫人作为美神化身现身告别后回归大地母神怀抱',
+    '1360年6月25日：克莱恩·莫雷蒂在源堡完成与福生玄黄天尊的最终对抗，完全容纳源堡与愚者途径唯一性',
+    '1360年7月：克莱恩容纳错误、门途径唯一性，三途径合一成为支柱级旧日「诡秘之主」（Lord of Mysteries）',
+    '1360年7月底：天空降下红雨，外神全面入侵末日正式到来',
+    '1360年7月底：诡秘之主带领正神、塔罗会与全世界非凡者展开最终决战，击退外神第一波入侵阻止原初上帝苏醒',
+    '1360年7月后：卢米安借宿环「替代」使奥萝尔与简娜部分复活，三人仅一人能回现实、其余留在梦境；卢米安三头六臂静坐灰雾废墟石柱，简娜歌声回荡于重建的科尔杜酒馆',
+    '1360年7月底：安提哥努斯找回失忆的妹妹离开战场隐居',
+    '1360年7月后：部分塔罗会成员与赫尔塔踏上星际航行寻找盟友；芙兰卡留守地球承诺帮助梅丽莎晋升',
+    '1360年7月后：卢米安留守地球，守护重建的科尔杜村与奥萝尔、简娜残魂',
+    '1360年7月后：愚者克莱恩坐在源堡灰雾之上注视世界；阳光穿过红雨照在大地上，新时代开始'
+  ]
+};
+// 自动把 events 合并进 chaptersDB
+['ancient','fool','cycle'].forEach(g=>{
+  chaptersDB[g].forEach(ch=>{
+    if(chapterEvents[ch.id]) ch.events=chapterEvents[ch.id];
+  });
+});
+/* ============== 9源质 × 22途径 完整序列 ============== */
+const sourcesDB = {
+  'sourcastle': {tier:'pillar', name:'源堡', elder:'诡秘之主 / 灵界支配者',
+    setting:'位于灵界之上的历史灰雾最顶端，凌驾于所有本土维度之上。被无垠灰雾完全笼罩，内部有古老青铜宫殿、青铜长桌、对应门途径的光门（垂下无数透明灵之虫，封印着各个时代被源堡拉来的穿越者魂体）、对应错误途径的半透明蠕虫、标记塔罗会成员的深红星辰。时间流速可由掌控者自由调节，完全独立于现实时间线。是远古天尊的复活后手，现由克莱恩·莫雷蒂完全掌控。',
+    pathways:[
+      {name:'愚者途径', alias:'占卜家途径', sequences:[
+        {n:9,name:'占卜家',desc:'掌握灵视与卡牌、占星等多种占卜术，神秘学知识扎实，缺乏直接战斗手段。'},
+        {n:8,name:'小丑',desc:'身体协调性与控制力大幅提升，可精准操控面部表情，具备战斗直觉预判。'},
+        {n:7,name:'魔术师',desc:'掌握火焰跳跃、纸人替身、伤害转移等多种类法术，施法迅捷无需冗长咒文。'},
+        {n:6,name:'无面人',desc:'可完美模仿见过的任何人的外形与气质，变形范围随魔药消化逐步扩大。'},
+        {n:5,name:'秘偶大师',desc:'能看见并操控「灵体之线」，将目标逐步转化为可保留原能力的秘偶。'},
+        {n:4,name:'诡法师',desc:'秘偶操控效率与范围质变，可与秘偶互换位置，靠秘偶实现多重替身复活。'},
+        {n:3,name:'古代学者',desc:'能从历史孔隙中召唤人或物的影像，可持续借过去的自身补充力量，无虚弱期。'},
+        {n:2,name:'奇迹师',desc:'掌握「愿望」之力，可借历史迷雾复活四次，能干预事件发生的概率。'},
+        {n:1,name:'诡秘侍者',desc:'可唤醒物品的灵体之线转化秘偶，掌握篡改、嫁接概念的权柄，能构建神国雏形。'},
+        {n:0,name:'愚者',desc:'执掌「愚弄」权柄，可愚弄时间、命运与规则，掌控完整历史迷雾与诡秘之境神国。'}
+      ]},
+      {name:'错误途径', alias:'偷盗者途径', sequences:[
+        {n:9,name:'偷盗者',desc:'身手敏捷灵巧，擅长悄无声息窃取物品，精通短兵器格斗。'},
+        {n:8,name:'诈骗师',desc:'擅长观察微表情与心理误导，口才出众，能通过话术扭曲他人思维。'},
+        {n:7,name:'解密学者',desc:'逻辑推理与解析能力极强，能从蛛丝马迹还原神秘事件的全貌。'},
+        {n:6,name:'盗火人',desc:'可短时间窃取他人的非凡能力自用，对目标越了解越容易精准窃取。'},
+        {n:5,name:'窃梦家',desc:'能偷走他人的记忆、想法与梦境，可伪装成其他神灵信徒窃取神赐力量。'},
+        {n:4,name:'寄生者',desc:'可寄生在他人体内隐藏自身、恢复伤势，深层寄生能完全掌控宿主身体。'},
+        {n:3,name:'欺瞒导师',desc:'能欺诈自然规则，可一次性窃取多种能力，伪装与欺诈能力发生质变。'},
+        {n:2,name:'命运木马',desc:'可嫁接、互换他人命运，顶替他人身份，能寄生神奇物品抵消负面效果。'},
+        {n:1,name:'时之虫',desc:'掌握部分时间权柄，可窃取时间、加速目标衰老，能靠分身死亡回溯自身。'},
+        {n:0,name:'错误',desc:'执掌欺诈、窃取与时间权柄，可钻规则漏洞，以假代真窃取权柄，分身本体难辨。'}
+      ]},
+      {name:'门途径', alias:'学徒途径', sequences:[
+        {n:9,name:'学徒',desc:'可穿越普通墙壁与门扉，不受常规屏障阻隔，无法穿过厚重山体等特殊障碍。'},
+        {n:8,name:'戏法大师',desc:'掌握闪光、黑幕、冰冻、电击等多种实用小法术，偏向表演与辅助。'},
+        {n:7,name:'占星人',desc:'灵性直觉敏锐，具备危险预感，能用水晶球占卜并干扰他人占卜结果。'},
+        {n:6,name:'记录官',desc:'能记录他人使用过的非凡能力并复刻使用，目标位格越高记录成功率越低。'},
+        {n:5,name:'旅行家',desc:'掌握灵界穿梭能力，可长距离传送与短距离闪现，能远程摄物。'},
+        {n:4,name:'秘法师',desc:'可隐藏空间、放逐目标入时空乱流，能幻化虚门规避攻击，掌握守秘能力。'},
+        {n:3,name:'漫游者',desc:'可遨游星空与星界，能撕裂空间、构建空间牢笼，可突破绝大多数屏障。'},
+        {n:2,name:'旅法师',desc:'能转化为概念符号借星界穿梭，可收纳场景、再现记录的场景与能力。'},
+        {n:1,name:'星之匙',desc:'执掌定位权柄，可制造时空迷宫困住敌人，初步掌握封印与空间破碎能力。'},
+        {n:0,name:'门',desc:'执掌空间与封印权柄，能操控所有「门」的概念，可开辟异度空间，无处不可抵达。'}
+      ]}
+    ]},
+  'chaos_sea': {tier:'pillar', name:'混沌海', elder:'上帝 / 全知全能者',
+    setting:'埋藏于地心深处，东大陆神弃之地切尔诺贝利地下有现世入口，是地底超凡污染的源头。浓厚阴影帷幕后的混沌海洋，内部元素混乱、规则扭曲、权柄交织，没有固定的物理法则，可凭空创造物质与生命。第一块亵渎石板为上帝尸身所化，记载22条神之途径全部信息。远古太阳神（亚当、阿蒙的父亲）在此苏醒。',
+    pathways:[
+      {name:'空想家途径', alias:'观众途径', sequences:[
+        {n:9,name:'观众',desc:'观察力与精神力出众，能从细节举止窥探他人真实想法。'},
+        {n:8,name:'读心者',desc:'可感知气场与以太体，能精准把握人心，面前难有秘密。'},
+        {n:7,name:'心理医生',desc:'掌握震慑、狂乱、心理暗示与安抚能力，可疏导精神、治愈失控边缘。'},
+        {n:6,name:'催眠师',desc:'能强行催眠敌人做出反常举动，可借助意识死角实现「心理学隐身」。'},
+        {n:5,name:'梦境行者',desc:'可穿梭于他人梦境，通过修改梦境潜移默化影响目标的意识与行为。'},
+        {n:4,name:'操纵师',desc:'可直接篡改他人潜意识，能虚拟多个人格，散播精神瘟疫，掌握龙化战斗形态。'},
+        {n:3,name:'织梦人',desc:'能编织近乎真实的幻象，敌人信以为真便会造成真实伤害，可分割独立身份。'},
+        {n:2,name:'洞察者',desc:'能深入集体潜意识大海，洞悉人心最深处的恐惧与欲望。'},
+        {n:1,name:'作家',desc:'可书写命运，让事件按照自身构想发展，言出法随的雏形。'},
+        {n:0,name:'空想家',desc:'执掌空想权柄，所想即现实，可分离特性用空想替代，位格与能力不衰减。'}
+      ]},
+      {name:'太阳途径', alias:'歌颂者途径', sequences:[
+        {n:9,name:'歌颂者',desc:'通过歌声赋予同伴勇气与力量，能提升团队士气与战斗力。'},
+        {n:8,name:'祈光人',desc:'可施展基础太阳领域法术，召唤圣光，克制死灵与污秽生物。'},
+        {n:7,name:'太阳神官',desc:'掌握光明之火、神圣誓约、净化之斩等多种神术，体质与抗性大幅提升。'},
+        {n:6,name:'公证人',desc:'可公证事物真伪，能强化或驱散非凡能力效果，是能力的「裁判」。'},
+        {n:5,name:'光之祭司',desc:'周身散发净化光环，可大范围净化死灵与污秽，召唤神圣光柱。'},
+        {n:4,name:'无暗者',desc:'核心能力为净化，可清除非凡特性内的精神污染，阳炎之力重创不死生物。'},
+        {n:3,name:'正义导师',desc:'执掌正义与惩戒，神圣力量进一步质变，对邪恶压制力极强。'},
+        {n:2,name:'逐光者',desc:'可化身纯粹光的形态，速度极快，光明之力覆盖范围极广。'},
+        {n:1,name:'纯白天使',desc:'太阳权柄的天使级体现，是光明与净化的化身。'},
+        {n:0,name:'太阳',desc:'执掌光明与净化权柄，是永恒烈阳，所有污秽与黑暗的天然克星。'}
+      ]},
+      {name:'白塔途径', alias:'阅读者途径', sequences:[
+        {n:9,name:'阅读者',desc:'记忆力与理解力超群，知识储备丰厚，可施展基础仪式魔法。'},
+        {n:8,name:'推理学员',desc:'观察力与逻辑思维大幅提升，是仪式魔法专家。'},
+        {n:7,name:'侦探',desc:'推理与格斗能力兼备，精通武器与器械，是知识与行动结合的侦探。'},
+        {n:6,name:'博学者',desc:'掌握「解析」能力，可解析并模仿对手的非凡能力，知识越全面效果越好。'},
+        {n:5,name:'秘术导师',desc:'掌握大量独特秘术，可自行发明创造新奇有效的法术。'},
+        {n:4,name:'预言家',desc:'初步掌握命运领域知识，可预知未来的走向与危机。'},
+        {n:3,name:'洞悉者',desc:'能洞悉世界规则与敌人弱点，找到撬动事物的杠杆，以巧破局。'},
+        {n:2,name:'智天使',desc:'智慧与知识权柄的天使级体现，全知的雏形。'},
+        {n:1,name:'全知之眼',desc:'可洞察世间绝大多数秘密，知识本身就是力量。'},
+        {n:0,name:'白塔',desc:'执掌全知权柄，掌握世间一切知识与规则，是智慧的化身。'}
+      ]},
+      {name:'暴君途径', alias:'水手途径', sequences:[
+        {n:9,name:'水手',desc:'水中行动灵活如鱼，力量出众，平衡感极强，不惧海上风暴。'},
+        {n:8,name:'暴怒之民',desc:'愤怒时力量与速度爆发式增长，如同行走的风暴。'},
+        {n:7,name:'航海家',desc:'精通天文地理，能精准把握洋流与风向，是天生的海上向导。'},
+        {n:6,name:'风眷者',desc:'掌握风、水与天气相关能力，可实现短途飞行。'},
+        {n:5,name:'海洋歌者',desc:'用歌声影响敌人心智，初步掌控雷电，水下作战能力拉满。'},
+        {n:4,name:'灾难主祭',desc:'可制造龙卷风、海啸等自然灾害，声浪足以掀翻船只。'},
+        {n:3,name:'海王',desc:'可操控范围内天气，支配海洋生物，是海域内绝对的主宰。'},
+        {n:2,name:'天灾',desc:'能引发大范围天灾，暴雪、洪水、地震皆在掌控之中。'},
+        {n:1,name:'雷神',desc:'执掌雷电权柄，雷霆之力毁天灭地。'},
+        {n:0,name:'暴君',desc:'执掌风暴、雷电与天灾权柄，战力狂暴，是海洋与风暴的主宰。'}
+      ]},
+      {name:'倒吊人途径', alias:'秘祈人途径', sequences:[
+        {n:9,name:'秘祈人',desc:'灵感极高，可感知隐秘存在，掌握基础祭祀与仪式魔法。'},
+        {n:8,name:'倾听者',desc:'能听到隐秘存在的耳语，获得扭曲强大的能力，但极易疯狂。'},
+        {n:7,name:'隐修士',desc:'可融入阴影潜行，召唤阴影生物，施展阴影诅咒。'},
+        {n:6,name:'蔷薇主教',desc:'血肉魔法大师，可操控血肉自愈、变形、制造血肉炸弹，几乎无致命部位。'},
+        {n:5,name:'牧羊人',desc:'核心能力为「放牧」，可吞噬灵魂并驱使对方的三种非凡能力。'},
+        {n:4,name:'黑骑士',desc:'化身黑骑士形态，掌握堕落之力的灵肉之刃，可外放放牧的灵魂。'},
+        {n:3,name:'三首圣堂',desc:'三个头颅可同时驱使三个放牧的灵魂，血肉不灭，残躯即可重生。'},
+        {n:2,name:'秽语长老',desc:'言语自带堕落诅咒，可借言辞制造言灵效果，诱导目标堕落。'},
+        {n:1,name:'暗天使',desc:'执掌阴影与堕落权柄，可掌控阴影世界，放牧的灵魂可化为眷属。'},
+        {n:0,name:'倒吊人',desc:'执掌堕落、阴影、异变权柄，具备替罪与牺牲特性，血肉不灭可重生。'}
+      ]}
+    ]},
+  'mother_nest': {tier:'pillar', name:'母巢', elder:'堕落母神 / 万物之母',
+    setting:'源自星空外神堕落母神，被最初造物主撕裂部分权柄落于地球。执掌血肉、繁衍与异变权柄，自带强精神污染属性，可独立催生意识。母树根系遍布地球深层，深渊已被其深度侵蚀。原始月亮莉莉丝（血族始祖）为最知名继承者。',
+    pathways:[
+      {name:'母亲途径', alias:'耕种者途径', sequences:[
+        {n:9,name:'耕种者',desc:'可分辨种子、预测天气，力量出众，擅长使用农具。'},
+        {n:8,name:'医师',desc:'可通过灵视诊断病情，外科医术精湛，能缝合断肢、修补灵魂。'},
+        {n:7,name:'丰收祭司',desc:'可催化植物生长，驱使虫豸与普通植物，掌握祈雨等仪式魔法。'},
+        {n:6,name:'生物学家',desc:'对生物的理解加深，可研究、改造简单的生物形态。'},
+        {n:5,name:'德鲁伊',desc:'可汲取大地养分，能地底潜行，掌握多种自然变形能力。'},
+        {n:4,name:'古代炼金师',desc:'掌握生命炼金术，可炼制生命之石，改造生物形态。'},
+        {n:3,name:'抬棺人',desc:'生命权柄进一步提升，与死亡、衰败领域产生交集。'},
+        {n:2,name:'荒芜主母',desc:'男性在此序列强制变为女性，执掌荒芜与生命的两极力量。'},
+        {n:1,name:'自然行者',desc:'自然与生命权柄的天使级体现，可操控大地与万物生长。'},
+        {n:0,name:'母亲',desc:'执掌生命、大地与繁育权柄，是万物之母，生命的源头。'}
+      ]},
+      {name:'月亮途径', alias:'药师途径', sequences:[
+        {n:9,name:'药师',desc:'擅长调配药剂治病，可驯化药用植物，对毒素抗性强。'},
+        {n:8,name:'驯兽师',desc:'可驯化并驱使超凡生物，能分享动物的感官。'},
+        {n:7,name:'吸血鬼',desc:'寿命延长至300岁，颜值与敏捷拉满，掌握黑暗与月亮领域基础法术。'},
+        {n:6,name:'魔药教授',desc:'对应血族男爵，可调配多种超凡药剂与香水，战力靠药剂搭配拉满。'},
+        {n:5,name:'深红学者',desc:'对应血族子爵，可操控月相营造优势环境，月光下可瞬移、重组身体。'},
+        {n:4,name:'巫王',desc:'对应血族伯爵，寿命超千年，再生能力极强，精通黑暗与月亮法术。'},
+        {n:3,name:'召唤大师',desc:'对应血族侯爵，可借月亮之力召唤灵界强大生物助战。'},
+        {n:2,name:'创生者',desc:'对应血族公爵，掌握创造之力，可催生全新的生命形态。'},
+        {n:1,name:'美神',desc:'对应血族女王，阴性力量的极致，容貌与魅力本身就是最强武器。'},
+        {n:0,name:'月亮',desc:'执掌月亮与生命权柄，是血族始祖，掌控血肉与繁衍的力量。'}
+      ]}
+    ]},
+  'dark_river': {tier:'elder', name:'永暗之河', elder:'永恒之暗 / 万物奇点',
+    setting:'象征终结与永眠，力量通过冥界支流渗透现实。可遮蔽命运、隐藏存在，与灾祸之城完全融合后可成为后天第四支柱。包含黑暗、死神、黄昏巨人三条途径，是黑夜女神、死神（已陨落）、战神（已陨落）共同的源质归属。',
+    pathways:[
+      {name:'黑暗途径', alias:'不眠者途径', sequences:[
+        {n:9,name:'不眠者',desc:'夜视能力出众，夜间精力充沛，对危险感知敏锐。'},
+        {n:8,name:'午夜诗人',desc:'可用诗篇影响他人情绪，或安抚或恐惧，格斗与侦查能力提升。'},
+        {n:7,name:'梦魇',desc:'可强行将他人拉入梦境，塑造梦境套取秘密、击溃精神。'},
+        {n:6,name:'安魂师',desc:'可安抚灵魂、平息欲望，能直接看见灵体，强制入梦范围扩大。'},
+        {n:5,name:'灵巫',desc:'可封印并驱使自然灵与怨魂，配合自身实现多线作战。'},
+        {n:4,name:'守夜人',desc:'黑暗环境下实力与恢复力暴涨，可展开黑夜领域，给目标带去厄运。'},
+        {n:3,name:'恐惧主教',desc:'执掌恐惧权柄下位能力，目光可直接吓死低序列者，创造梦魇世界。'},
+        {n:2,name:'隐秘之仆',desc:'掌握隐秘权柄，可将事物隐藏至无法被窥探，也能解除隐秘。'},
+        {n:1,name:'厄难骑士',desc:'黑暗中近乎不死，可给敌人带去厄难，统御所有灵体。'},
+        {n:0,name:'黑暗',desc:'执掌隐秘、黑暗、恐惧、厄运权柄，黑暗中不死不灭，是永眠的化身。'}
+      ]},
+      {name:'死神途径', alias:'收尸人途径', sequences:[
+        {n:9,name:'收尸人',desc:'体温偏低，自带尸体特质，可免疫部分亡灵攻击，了解不死生物弱点。'},
+        {n:8,name:'掘墓人',desc:'体魄更强，灵视升级，可初步沟通亡灵、找出不死生物弱点。'},
+        {n:7,name:'通灵者',desc:'可直接与亡魂、自然灵沟通，借灵的力量实现多种超自然效果。'},
+        {n:6,name:'死灵导师',desc:'可涉足灵界，驱使骷髅、活尸等亡灵，掌握亡者之语。'},
+        {n:5,name:'看门人',desc:'可感应冥界入口，驱使冥界亡灵，体内有小型冥界可收纳灵魂。'},
+        {n:4,name:'不死者',desc:'每隔六十年死亡复活一次，会短暂失忆，可借助冥界力量封印物品。'},
+        {n:3,name:'摆渡人',desc:'对视可直接令生灵死亡，视野内的目标会缓慢凋零衰败。'},
+        {n:2,name:'死亡执政官',desc:'执掌审判亡灵的权柄，是冥界的管理者。'},
+        {n:1,name:'苍白皇帝',desc:'死亡权柄的天使级体现，可带来大范围的衰败与死亡。'},
+        {n:0,name:'死神',desc:'执掌死亡与亡灵权柄，是冥界的主宰，所有亡者的最终归宿。'}
+      ]},
+      {name:'黄昏巨人途径', alias:'战士途径', sequences:[
+        {n:9,name:'战士',desc:'力量与敏捷超越常人，精通各类格斗术与武器防具。'},
+        {n:8,name:'格斗家',desc:'近身格斗专家，可凭身体削弱部分超自然力量的影响。'},
+        {n:7,name:'武器大师',desc:'能以大师级水准使用任何武器，可降低神奇物品的负面伤害。'},
+        {n:6,name:'黎明骑士',desc:'力量堪比巨人，可凝聚黎明铠甲与晨曦之剑，晨曦领域驱散幻觉。'},
+        {n:5,name:'守护者',desc:'防御极强，守护状态下近乎免疫高序列以下伤害，可替同伴承担伤害。'},
+        {n:4,name:'猎魔者',desc:'可隐藏恶意干扰占卜，猎魔之眼能辨识目标弱点与污染，可制作多种驱魔药剂。'},
+        {n:3,name:'银骑士',desc:'银甲护体，可借光躲藏，能凝聚可传送的银白细剑，身体可水银化。'},
+        {n:2,name:'荣耀者',desc:'力量与荣耀权柄的天使级体现，正面战力极强。'},
+        {n:1,name:'神明之手',desc:'黄昏权柄的雏形，一击可带来衰败与毁灭。'},
+        {n:0,name:'黄昏巨人',desc:'执掌战争与黄昏权柄，肉身战力天花板，自带衰败黄昏领域。'}
+      ]}
+    ]},
+  'disaster_city': {tier:'elder', name:'灾祸之城', elder:'毁灭天灾 / 根源之祸',
+    setting:'象征战争与毁灭，远古时被封印于西大陆，力量泄漏曾污染班西港。与永暗之河互为补全，是世界毁灭规则的具象化载体。原初魔女奇克为传统继承者，卢米安在《宿命之环》后期容纳此源质成为新的「根源之祸」。',
+    pathways:[
+      {name:'红祭司途径', alias:'猎人途径', sequences:[
+        {n:9,name:'猎人',desc:'五感与体能全面强化，擅长追踪、设陷阱，野外生存能力极强。'},
+        {n:8,name:'挑衅者',desc:'可精准激怒目标，让敌人失去理智，自身恢复能力提升。'},
+        {n:7,name:'纵火家',desc:'掌控火焰，可凝聚火球、火墙、火鸦，对火焰抗性极强。'},
+        {n:6,name:'阴谋家',desc:'思维敏捷擅长布局，火焰操控精细化，可借火焰快速位移。'},
+        {n:5,name:'收割者',desc:'可侦测目标弱点，攻击附带「收割」效果，命中即等同打在要害。'},
+        {n:4,name:'铁血骑士',desc:'女性强制变为男性，可火焰化、钢铁化，能共享团队视野与伤害。'},
+        {n:3,name:'战争主教',desc:'可共享团队非凡能力，制造战争迷雾干扰感知，能向战争本源献祭。'},
+        {n:2,name:'天气术士',desc:'可操控极端天气，火焰化为紫色，范围覆盖数十公里战场。'},
+        {n:1,name:'征服者',desc:'可征服生灵身心，瓦解意志让人屈服，能直接操控目标身体。'},
+        {n:0,name:'红祭司',desc:'执掌战争与毁灭权柄，是战争之神，灾难与毁灭的化身。'}
+      ]},
+      {name:'魔女途径', alias:'刺客途径', sequences:[
+        {n:9,name:'刺客',desc:'身手轻盈敏捷，夜视能力强，擅长隐匿与爆发式一击必杀。'},
+        {n:8,name:'教唆者',desc:'可感知并放大他人的恶念与欲望，教唆目标做出不理智的选择。'},
+        {n:7,name:'女巫',desc:'男性强制变为女性，掌握黑焰、冰霜、诅咒、镜子魔法，可隐形。'},
+        {n:6,name:'欢愉',desc:'魅惑能力极强，可制造无形蛛丝束缚敌人，黑魔法全面升级。'},
+        {n:5,name:'痛苦',desc:'可散播多种疾病病原体，魅惑主动化，蛛丝与诅咒能力大幅增强。'},
+        {n:4,name:'绝望',desc:'疾病升级为覆盖数公里的瘟疫，可穿梭镜中世界，诅咒无法被替身转移。'},
+        {n:3,name:'不老',desc:'青春永驻，可借镜中人复活，掌握石化能力，瘟疫范围扩大至十五公里。'},
+        {n:2,name:'灾难',desc:'可引发暴雪、洪水、地震等天灾，是灾难的代言人。'},
+        {n:1,name:'末日',desc:'末日权柄的雏形，带来毁灭与终结。'},
+        {n:0,name:'魔女',desc:'执掌灾难、痛苦与欢愉权柄，是混沌的阴性面，灾难与末日的象征。'}
+      ]}
+    ]},
+  'disorder_kingdom': {tier:'elder', name:'失序之国', elder:'失序者 / 秩序阴影',
+    setting:'原属星空外神混沌之子，被最初造物主撕裂后留存地球。执掌秩序与混乱双向权柄，可扭曲现实规则、制定法则，是世俗王权超凡力量的源头。0-02黄铜书（规则书）为典型代表，原属战神教会。',
+    pathways:[
+      {name:'黑皇帝途径', alias:'律师途径', sequences:[
+        {n:9,name:'律师',desc:'擅长发现规则漏洞，口才出众，可引导扭曲他人思维。'},
+        {n:8,name:'野蛮人',desc:'力量与体魄极强，精神抗性出众，用力量打破规则的束缚。'},
+        {n:7,name:'贿赂者',desc:'核心能力「贿赂」，可削弱、魅惑、狂妄化目标，建立神秘联系。'},
+        {n:6,name:'腐化男爵',desc:'可扭曲目标的言行、意图甚至物理轨迹，潜移默化腐蚀人心。'},
+        {n:5,name:'混乱导师',desc:'可制造混乱，让攻击偏离、建筑崩塌、距离扭曲，打破固有秩序。'},
+        {n:4,name:'堕落伯爵',desc:'可将负面状态直接赠予目标，能放大自身攻击与状态效果。'},
+        {n:3,name:'狂乱法师',desc:'可让范围内生灵陷入疯狂，秩序彻底崩塌。'},
+        {n:2,name:'熵之公爵',desc:'加速事物的混乱与衰败，让秩序走向熵增瓦解。'},
+        {n:1,name:'弑序亲王',desc:'可扭曲空间隔绝区域，是秩序的破坏者与弑杀者。'},
+        {n:0,name:'黑皇帝',desc:'执掌规则扭曲权柄，九座陵寝可无限复活，秩序的阴影面化身。'}
+      ]},
+      {name:'审判者途径', alias:'仲裁人途径', sequences:[
+        {n:9,name:'仲裁人',desc:'自带威严信服气场，格斗能力出色，是秩序的维护者。'},
+        {n:8,name:'治安官',desc:'过目不忘目标相貌，具备超凡追踪感应，擅长侦查邪恶混乱。'},
+        {n:7,name:'审讯者',desc:'掌握精神刺穿与痛苦之鞭，可直接攻击灵体，逼迫目标吐露真相。'},
+        {n:6,name:'法官',desc:'可用古赫密斯语宣告判决，如囚禁、鞭打、死亡，强制目标遵守规则。'},
+        {n:5,name:'惩戒骑士',desc:'指定惩戒对象后攻击力大幅强化，违规者会受到更强的打击。'},
+        {n:4,name:'律令法师',desc:'可制定大范围律令，如「神秘减弱现实增强」，可剥夺目标非凡能力。'},
+        {n:3,name:'混乱猎手',desc:'擅长从混乱中揪出源头，精准打击破坏秩序的目标。'},
+        {n:2,name:'平衡者',desc:'可通过区域的不平衡发现隐秘目标，维持秩序的均衡。'},
+        {n:1,name:'秩序之手',desc:'可瞬间分割战场，让混乱重归秩序，是秩序的执掌者。'},
+        {n:0,name:'审判者',desc:'执掌秩序与裁决权柄，制定的规则无人可以违背，是秩序的化身。'}
+      ]}
+    ]},
+  'shadow_world': {tier:'elder', name:'暗影世界', elder:'恶魔之父 / 异类之主',
+    setting:'受星空外神欲望母树深度侵蚀。执掌束缚、堕落与异种权柄，可污染物质与灵魂、催生血肉异化，是诅咒类能力的源头。深渊维度即为本源质对应空间，恶魔君王法布提为统治者。',
+    pathways:[
+      {name:'深渊途径', alias:'罪犯途径', sequences:[
+        {n:9,name:'罪犯',desc:'体魄强健直觉敏锐，精通各类犯罪技巧，良知尚未泯灭。'},
+        {n:8,name:'折翼天使',desc:'彻底失去良知，获得恶魔类法术，身体逐步非人化。'},
+        {n:7,name:'连环杀手',desc:'掌握恶魔崇拜仪式，可通过连环杀人召唤恶魔投影。'},
+        {n:6,name:'恶魔',desc:'可预知致命危险，能恶魔化提升战力，掌握毒焰、污秽之语等法术。'},
+        {n:5,name:'欲望使徒',desc:'可操控他人情绪与欲望，让目标失控甚至爆体而亡。'},
+        {n:4,name:'魔鬼',desc:'高智商冷酷狡诈，可直接让目标陷入迷幻，引爆欲望击溃理智。'},
+        {n:3,name:'呓语者',desc:'言语自带诅咒与疯狂，可远程传声让目标不明不白暴毙。'},
+        {n:2,name:'鲜血大公',desc:'执掌鲜血与体液权柄，可操控血液制造恐怖杀伤。'},
+        {n:1,name:'污秽君王',desc:'执掌污秽与腐蚀权柄，污染之力侵蚀万物。'},
+        {n:0,name:'深渊',desc:'执掌堕落与欲望权柄，是深渊的主宰，所有邪恶的源头。'}
+      ]},
+      {name:'被缚者途径', alias:'囚犯途径', sequences:[
+        {n:9,name:'囚犯',desc:'身体强壮直觉敏锐，外表沉默内心疯狂，擅长随手之物杀人。'},
+        {n:8,name:'疯子',desc:'可牺牲理智换取力量，对精神干扰抗性极强，极易失控。'},
+        {n:7,name:'狼人',desc:'满月时兽化失控，力量敏捷极强，爪牙带毒，可转化下位狼人。'},
+        {n:6,name:'活尸',desc:'身体坚硬如钢铁，渴望鲜血血肉，掌握死亡类法术与亡灵驱使。'},
+        {n:5,name:'怨魂',desc:'可化为幽影穿墙附魂，满月需吸食灵魂维持自身，极易失控。'},
+        {n:4,name:'木偶',desc:'自身化为无生命人偶，可操控范围内无生命物体攻击，擅长诅咒反噬。'},
+        {n:3,name:'沉默门徒',desc:'可施展变形诅咒，将目标变成无害动物，剥夺其非凡能力。'},
+        {n:2,name:'古代邪物',desc:'依附古代邪物承载力量，诅咒与异变能力进一步质变。'},
+        {n:1,name:'神孽',desc:'诅咒与束缚权柄的天使级体现，是被诅咒的神之孽物。'},
+        {n:0,name:'被缚者',desc:'执掌束缚与诅咒权柄，是无尽诅咒的集合体，束缚万物的存在。'}
+      ]}
+    ]},
+  'knowledge_wild': {tier:'elder', name:'知识荒野', elder:'知识之妖 / 疯狂奥秘',
+    setting:'承载世间所有知识与隐秘奥秘。知识本身自带疯狂属性，过度接触会导致理智崩溃。曾活化隐者途径唯一性形成「隐匿贤者」，是摩斯苦修会的真正幕后影响者。',
+    pathways:[
+      {name:'完美者途径', alias:'通识者途径', sequences:[
+        {n:9,name:'通识者',desc:'记忆力与学习能力超凡，精通数理化与机械知识，博闻强识。'},
+        {n:8,name:'考古学家',desc:'掌握历史、遗迹与野外生存知识，体魄与仪式魔法基础提升。'},
+        {n:7,name:'鉴定师',desc:'可快速鉴别非凡物品的能力与隐患，规避使用风险。'},
+        {n:6,name:'机械专家',desc:'可制作机械奇物与低阶非凡物品，成品负面效果低、威力强。'},
+        {n:5,name:'天文学家',desc:'掌握星象相关的实战非凡能力，知识转化为战斗力。'},
+        {n:4,name:'炼金术士',desc:'可为造物注入灵魂，赋予物品初步的生命与灵性。'},
+        {n:3,name:'奥秘学者',desc:'掌握更深层的神秘学知识，是知识与奥秘的研究者。'},
+        {n:2,name:'知识导师',desc:'可传播知识赋予力量，是文明的引导者。'},
+        {n:1,name:'启蒙者',desc:'文明启蒙者，可推动文明跃迁，知识本身化为权柄。'},
+        {n:0,name:'完美者',desc:'执掌知识与创造权柄，是科学与文明的化身，造物完美无缺。'}
+      ]},
+      {name:'隐者途径', alias:'窥秘人途径', sequences:[
+        {n:9,name:'窥秘人',desc:'掌握基础魔法、占星与仪式知识，对隐秘存在感知敏锐。'},
+        {n:8,name:'格斗学者',desc:'将知识转化为格斗技巧，理论与实战结合。'},
+        {n:7,name:'巫师',desc:'掌握多种正统巫术，法术体系全面。'},
+        {n:6,name:'卷轴教授',desc:'可制作各类法术卷轴，激活后释放对应非凡能力。'},
+        {n:5,name:'星象师',desc:'可操控星芒攻击、防御、筑桥，窥秘之眼可透视事物本质。'},
+        {n:4,name:'神秘学家',desc:'核心能力「神秘再现」，靠隐秘知识创造法术，知识越偏门威力越强。'},
+        {n:3,name:'预言大师',desc:'可窥探命运秘密，做出精准的预言与启示。'},
+        {n:2,name:'贤者',desc:'可化为信息洪流存在，还原事物最底层的信息本质。'},
+        {n:1,name:'知识皇帝',desc:'可赋予知识力量，能灌输海量知识撑爆目标脑海。'},
+        {n:0,name:'隐者',desc:'执掌奥秘与隐秘知识权柄，是所有神秘知识的主宰。'}
+      ]}
+    ]},
+  'fate_key': {tier:'elder', name:'光之钥', elder:'命运化身 / 光之钥',
+    setting:'唯一仅对应单条途径的源质，执掌命运、因果与概率权柄。可干涉预言、改写命运线，不受常规时空壁垒限制，位格特殊难以掌控。0级封印物概率之骰为典型代表，由生命学派威尔·昂赛汀守护。',
+    pathways:[
+      {name:'命运之轮途径', alias:'怪物途径', sequences:[
+        {n:9,name:'怪物',desc:'灵感极高，可偶然窥见未来，对危险直觉敏锐，常被当成疯子。'},
+        {n:8,name:'机器',desc:'计算力与控制力恐怖，格斗射击天赋拉满，掌握占卜与反占卜。'},
+        {n:7,name:'幸运儿',desc:'被动获得好运，但效果不稳定不可控，需节制使用。'},
+        {n:6,name:'灾祸教士',desc:'被动遭遇灾祸，可主动引灾祸波及敌人，自身靠幸运规避伤害。'},
+        {n:5,name:'赢家',desc:'可主动积累幸运，关键时刻化解致命危机，能给敌人带去厄运。'},
+        {n:4,name:'厄运法师',desc:'可主动施加厄运，让目标霉运缠身、意外频发。'},
+        {n:3,name:'混乱行者',desc:'可引发混乱，让命运的轨迹偏离既定方向。'},
+        {n:2,name:'先知',desc:'可清晰预见未来的走向与必然发生的事件。'},
+        {n:1,name:'巨蛇',desc:'又称巨蛇，掌握「重启」能力，可转世重生、还原区域状态。'},
+        {n:0,name:'命运之轮',desc:'执掌命运权柄，可编织、裁决命运，在命运长河中永生不灭。'}
+      ]}
+    ]}
+};
+/* ============== 9条外神恩赐途径 ============== */
+const giftsDB = {
+  'reincarn_lock': {name:'轮回锁', elder:'宿命之环 / 永劫者',
+    setting:'第二部核心外神权柄，司掌宿命、轮回与时间循环。可制造封闭时间闭环、编织干预命运线。恩赐可让使用者获得时间回溯、命运操控能力，但会被逐步拉入永恒宿命闭环，最终成为「环」的一部分。',
+    pathway:{name:'舞蹈家途径', sequences:[
+      {n:9,name:'舞蹈家',desc:'身体柔韧性极致提升，可完成大量违背人体结构的动作，是天然的节奏大师；可通过祭舞、招摄之舞两类仪式舞蹈调动自然力量，能以自身鲜血为代价召请灵体附身。'},
+      {n:8,name:'托钵僧侣',desc:'灵性大幅增长，对极端环境、情绪蛊惑具备强耐受性；可直观感应他人粗略运势，掌握造畜、转运、预言、替代、驱鬼五类仪式魔法。'},
+      {n:7,name:'受契之人',desc:'可与灵界生物、超凡怪物签订长期神秘契约，以献祭对应事物为代价换取对方的一项专属能力。'},
+      {n:6,name:'苦修士',desc:'掌握核心能力「积压」，可分别对情绪欲望、灵性力量、仪式效果进行压缩存储。'},
+      {n:5,name:'猎命师',desc:'可观测他人的命运长河，读取过去与现在的命运片段；核心掌握猎取、交换、推动三类命运操控能力。'},
+      {n:4,name:'环中人',desc:'圣者阶，核心能力「环」，可制造有限范围或针对单体的时间与命运闭环，让目标回归初始状态。'},
+      {n:3,name:'受难者',desc:'圣者阶，初步执掌「现在」与「过程」权柄；可将自身承受过的所有苦难具象复现于目标身上。'},
+      {n:2,name:'罪人',desc:'天使阶，初步执掌「过去」与「原因」权柄；可将自身状态回溯至过去任意时刻。'},
+      {n:1,name:'救赎天使',desc:'天使之王阶，初步执掌「未来」与「结果」权柄；可直接固定目标的命运走向，指定必然降临的结果。'},
+      {n:0,name:'永劫者',desc:'统合宿命、轮回、时间循环全部权柄，执掌过去现在未来三位一体；可制造覆盖区域的时间闭环。'}
+    ]}},
+  'star_furnace': {name:'星核炉', elder:'超星主宰 / 群星之主',
+    setting:'司掌恒星、引力、基本力与密度权柄。恩赐可操控重力、高能辐射、聚合能量，使用者会逐步失去碳基实体，最终化为无自我的光能聚合体。',
+    pathway:{name:'天文爱好者途径', sequences:[
+      {n:9,name:'天文爱好者',desc:'观察力与计算力大幅提升，可精准观测星象、计算天体运行轨迹；对星空有天然的亲和力。'},
+      {n:8,name:'拜星人',desc:'可解读群星之语，从星辰轨迹中获得命运的指引与启示；体表浮现星辉鳞片，防御力提升。'},
+      {n:7,name:'祭星师',desc:'掌握「星祭」仪式，可通过献祭血肉、灵性或神奇物品换取星辰之力的加持。'},
+      {n:6,name:'领航员',desc:'空间感知与方向感达到超凡级别，可借助星辰之力折叠短距离空间。'},
+      {n:5,name:'潮汐学者',desc:'执掌「潮汐」权柄，可操控引力引发的潮汐力，操控水流、地脉潮汐。'},
+      {n:4,name:'沉重者',desc:'圣者阶，执掌「重力」权柄，可随意操控大范围区域的重力。'},
+      {n:3,name:'牧星人',desc:'圣者阶，初步执掌「星辰牧养」权柄；可操控小型天体与陨石。'},
+      {n:2,name:'璀璨天使',desc:'天使阶，初步执掌「恒星辐射」权柄；自身化为璀璨光之人形。'},
+      {n:1,name:'星之巨龙',desc:'天使之王阶，执掌「星体与密度」权柄的极致；可化为神话生物形态星之巨龙。'},
+      {n:0,name:'致密者',desc:'统合恒星、引力、基本力、密度全部权柄，执掌宇宙基本力与星体运行的终极规则。'}
+    ]}},
+  'greed_root': {name:'婪根渊', elder:'欲望母树 / 主父',
+    setting:'司掌欲望、掠夺与血肉繁衍权柄。恩赐可操控生物原始欲望、模仿他人能力、掠夺他人非凡特性，使用者会被自身欲望吞噬，最终成为母树的血肉养分。',
+    pathway:{name:'吝啬鬼途径', sequences:[
+      {n:9,name:'吝啬鬼',desc:'核心欲望为贪欲与食欲，可诱发他人的占有欲与食欲；自身对财物与食物有极强的感应能力。'},
+      {n:8,name:'性瘾病人',desc:'核心欲望为性欲，可诱发他人的原始情欲，使其理智沦陷、身体乏力；自身身体素质全面提升。'},
+      {n:7,name:'演员',desc:'核心欲望为表演欲，演技达到超凡级别，可完美模仿他人的言行举止、神态气质。'},
+      {n:6,name:'受勋者',desc:'核心欲望为荣誉欲与掌控欲，可通过授予他人「勋章」的方式赋予对方临时的力量增幅。'},
+      {n:5,name:'堕落树精',desc:'核心欲望为同化欲，肉身出现植物化特征，可与树木、植被建立连接。'},
+      {n:4,name:'祈树人',desc:'圣者阶，核心执掌「祈树」权柄，可向欲望母树祈祷借取更高层级的欲望与血肉力量。'},
+      {n:3,name:'欲望祭司',desc:'圣者阶，初步执掌「欲望」权柄；可操控所有类型的基础欲望。'},
+      {n:2,name:'爱神',desc:'天使阶，初步执掌「爱欲」权柄；可让任意目标产生极致的爱意。'},
+      {n:1,name:'利维坦',desc:'天使之王阶，执掌「血肉与掠夺」权柄的极致；掌握「特性掠夺」可直接掠夺目标的非凡特性。'},
+      {n:0,name:'主父',desc:'统合欲望、血肉、繁衍、掠夺全部权柄，执掌所有有情众生的欲望本源。'}
+    ]}},
+  'chaos_vortex': {name:'乱雾涡', elder:'混沌之子（灯神） / 不定之雾',
+    setting:'第一纪被天尊封印为0级封印物「许愿神灯」。司掌交易、混乱与愿望权柄。恩赐可实现持有者愿望、篡改契约条款，每一次许愿都会付出被混沌污染的等价代价。',
+    pathway:{name:'掮客途径', sequences:[
+      {n:9,name:'掮客',desc:'擅长信息搜集与人脉搭建，能在多方势力间游走牵线促成交易。'},
+      {n:8,name:'阴影商人',desc:'可在阴影中完成隐秘交易，交易全程不会被常规占卜与观测捕捉。'},
+      {n:7,name:'公诉人',desc:'掌握「规则解读」权柄，可精准引用既定规则与律法，扭曲判决结果。'},
+      {n:6,name:'野心家',desc:'野心化为实质力量，自身目标越明确、野心越强烈，灵性与体能增幅越大。'},
+      {n:5,name:'暗箱',desc:'掌握「暗箱操作」权柄，可在不打破表层规则的前提下，暗中篡改事件结果。'},
+      {n:4,name:'监督者',desc:'圣者阶，执掌「监督」权柄，可全方位观测目标的所有行为轨迹与信息流转。'},
+      {n:3,name:'漩涡编织者',desc:'圣者阶，初步执掌「混乱漩涡」权柄；可编织大范围的混沌漩涡。'},
+      {n:2,name:'亵渎者',desc:'天使阶，初步执掌「亵渎」权柄；可逆渎一切正统规则与神圣权柄。'},
+      {n:1,name:'真理',desc:'天使之王阶，执掌「绝对真理」权柄；口中说出的"真理"会强行改写局部规则。'},
+      {n:0,name:'混沌迷雾',desc:'统合混乱、交易、愿望、亵渎全部权柄，执掌失序与混沌的终极规则。'}
+    ]}},
+  'whisper_tide': {name:'低语潮', elder:'不熄的呓语',
+    setting:'司掌噪音、呓语与精神感染权柄。恩赐可通过声音传播精神污染、操控群体心智，使用者会逐步失去自我意识，成为持续传播呓语的活体载体。',
+    pathway:{name:'入门者途径', sequences:[
+      {n:9,name:'入门者',desc:'灵性与听觉双重强化，能捕捉到常人无法察觉的细微声波与精神波动。'},
+      {n:8,name:'评论人',desc:'言语具备灵性加持，可通过点评、解构精准击中目标的认知弱点。'},
+      {n:7,name:'演讲者',desc:'声音感染力质变，可通过演讲引导群体情绪，让听众产生强烈的精神共鸣。'},
+      {n:6,name:'歌唱家',desc:'歌声成为承载呓语的核心载体，可实现安抚、幻觉、疯狂、震碎灵体等效果。'},
+      {n:5,name:'传密人',desc:'可将完整的精神碎片、隐秘知识封装进声音里，目标接收后会被植入信息。'},
+      {n:4,name:'哲学家',desc:'圣者阶，核心掌握「认知扭曲」权柄，可重塑目标的底层认知。'},
+      {n:3,name:'神之信使',desc:'圣者阶，成为旧日意志的直接传声载体；可传递完整的神性呓语。'},
+      {n:2,name:'旧日侍者',desc:'天使阶，意识与不熄的呓语深度融合；可展开「低语潮」领域。'},
+      {n:1,name:'心之声',desc:'天使之王阶，执掌「心灵之声」权柄；可无视距离与屏障在意识中响起呓语。'},
+      {n:0,name:'不朽者',desc:'统合呓语、精神、意识、思想全部权柄，与「意识」概念本身同在。'}
+    ]}},
+  'entropy_ruin': {name:'熵寂墟', elder:'衰败君王',
+    setting:'司掌衰败、疾病、熵增与时间权柄。恩赐可传播烈性瘟疫、加速有机物/无机物衰败、操纵必中必死攻击，使用者自身也会持续腐朽，最终化为无智腐烂行尸。',
+    pathway:{name:'病患途径', sequences:[
+      {n:9,name:'病患',desc:'肉身强度与耐受力全面提升；自身成为病原体载体，可通过接触传播轻症。'},
+      {n:8,name:'秘书',desc:'逻辑思维与洞察力质变，擅长在固定规则与组织体系中找到漏洞。'},
+      {n:7,name:'蛀虫',desc:'掌握「腐朽之触」，肢体接触的有机物会快速腐坏变质；可穿行于物质缝隙。'},
+      {n:6,name:'疾病使者',desc:'可定向制造并传播多种带有灵性属性的烈性传染病；掌握「病痛蓄力」。'},
+      {n:5,name:'腐烂之子',desc:'肉身进入半腐烂状态，常规物理攻击难以致命；展开「腐烂领域」。'},
+      {n:4,name:'必死之人',desc:'圣者阶，核心执掌「必死」权柄，可为目标打上必死印记。'},
+      {n:3,name:'衰败左手',desc:'圣者阶，初步执掌「衰败」权柄；左手触碰的事物会发生不可逆的朽坏。'},
+      {n:2,name:'时光巨人',desc:'天使阶，初步执掌「时光」权柄；可加速局部区域的时间流速。'},
+      {n:1,name:'衰老之神',desc:'天使之王阶，执掌「衰老」权柄；可无视位格差距施加衰老效果。'},
+      {n:0,name:'第二定律',desc:'统合熵增、衰败、疾病、时光全部权柄，执掌热力学第二定律的终极规则。'}
+    ]}},
+  'high_dim': {name:'画外境', elder:'高维俯视者 / 隐贤者',
+    setting:'司掌高维、信息、维度与幻想权柄。恩赐可跨越维度窥视场景、构造画中世界、操纵维度弦，使用者会被过量高维信息冲击，理智永久崩溃。（官方补充：高维俯视者实为双途径旧日，分别象征「维度」与「幻想」，「尘世之眼」为维度途径序列0之名）',
+    pathway:{name:'萨满途径', sequences:[
+      {n:9,name:'萨满',desc:'灵性与感知全面强化，可通过祭祀舞蹈、灵媒仪式沟通画中灵与低维异度存在。'},
+      {n:8,name:'记者',desc:'观察力与记忆力质变，可瞬间捕捉场景内所有细节；可刻录信息胶片。'},
+      {n:7,name:'画家',desc:'可将自身记忆、想象中的事物绘于纸面，形成短暂的具现化造物。'},
+      {n:6,name:'文学爱好者',desc:'可通过文字叙事构建沉浸式精神幻境，让目标沉浸在故事之中。'},
+      {n:5,name:'妖精',desc:'可自由穿梭于画境、故事、梦境等所有幻想维度，常规物理攻击大半穿透无效。'},
+      {n:4,name:'异度旅客',desc:'圣者阶，可自由穿梭于不同的平行维度、画中世界与叙事空间。'},
+      {n:3,name:'弦之弹奏者',desc:'圣者阶，初步执掌「维度弦」权柄；可拨动构成世界的基础维度弦。'},
+      {n:2,name:'维度之影',desc:'天使阶，自身化为高维阴影，可同时存在于多个维度层面。'},
+      {n:1,name:'观察者',desc:'天使之王阶，执掌「观测」权柄；观测本身即可干涉现实。'},
+      {n:0,name:'尘世之眼',desc:'统合维度、观测、幻想、信息全部权柄，执掌高维俯视的终极力量。'}
+    ]}},
+  'fate_net': {name:'隐命网', elder:'命运女神 / 织命者',
+    setting:'司掌命运、偶然、概率与永生权柄，与本土「命运之轮」途径权柄部分重合。恩赐可篡改概率、扭曲短期命运、编织命运线。',
+    pathway:{name:'失梦人途径', sequences:[
+      {n:9,name:'失梦人',desc:'永久失去做梦能力，免疫所有梦境入侵与操控类能力；获得基础命运感知。'},
+      {n:8,name:'乐师',desc:'可通过乐器演奏倾听到命运的低语，借助音律引导命运流向。'},
+      {n:7,name:'窥命师',desc:'无需道具即可直接窥视命运启示，可看到目标的短期命运走向与关键节点。'},
+      {n:6,name:'哑巴',desc:'掌握「言灵命运」能力，亲口说出的命运断言会一定程度上成为现实。'},
+      {n:5,name:'逝者',desc:'可通过模拟死亡状态暂时脱离命运线的束缚，规避既定的厄运。'},
+      {n:4,name:'改命人',desc:'圣者阶，可主动改写目标的短期命运走向，将小概率事件强行变为必然。'},
+      {n:3,name:'命运侍者',desc:'圣者阶，初步执掌「命运编织」权柄；可编织多根命运线构建小型命运闭环。'},
+      {n:2,name:'织网人',desc:'天使阶，自身化为命运网络的节点，可同时操控海量命运线。'},
+      {n:1,name:'命运之刃',desc:'天使之王阶，执掌「命运裁决」权柄；可凝聚命运之刃直接斩断目标的命运线。'},
+      {n:0,name:'永生律',desc:'统合命运、概率、编织、永生全部权柄，可随意编织与改写整个文明的命运走向。'}
+    ]}},
+  'insatiable': {name:'无餍渊', elder:'原初饥饿',
+    setting:'司掌吞噬、聚合与饥饿权柄。恩赐可吞噬万物、消化非凡特性、剥夺他人能力，使用者会被永恒饥饿驱动，无差别吞噬周围一切最终吞噬自身。',
+    pathway:{name:'流浪汉途径', sequences:[
+      {n:9,name:'流浪汉',desc:'环境适应力与耐饥能力大幅提升，嗅觉敏锐可定位食物与活物。'},
+      {n:8,name:'贪吃者',desc:'牙齿硬度与咬合力质变，可轻易咬碎骨骼与普通金属；消化道重构。'},
+      {n:7,name:'美食家',desc:'获得食材解析能力，可通过味觉读取食材承载的信息与记忆。'},
+      {n:6,name:'厨师',desc:'掌握神秘烹饪术，可通过料理激活食材内的超凡属性。'},
+      {n:5,name:'剥夺者',desc:'掌握「剥夺」权柄，可通过接触短时间内剥夺目标1-3种非凡能力。'},
+      {n:4,name:'海怪',desc:'圣者阶，肉身可异化巨型化为深海巨怪形态。'},
+      {n:3,name:'九头蛇',desc:'圣者阶，吞噬的非凡特性凝聚为八个额外头颅；初步掌握「聚合」之力。'},
+      {n:2,name:'噬之天使',desc:'天使阶，初步执掌「吞噬与抹消」权柄。'},
+      {n:1,name:'混沌胃液',desc:'天使之王阶，执掌「消化与抹除」权柄的极致。'},
+      {n:0,name:'饕餮',desc:'统合吞噬、聚合、饥饿、抹消全部权柄，可吞噬星系级范围的一切事物。'},
+    ]}}
+,'primal_nest': {name:'原始巢', elder:'堕落母神 / 现实支柱',
+  setting:'堕落母神的完整本源质（地球本土「母巢」仅为其权柄碎片衍生）。司掌生命孕育、现实物质与邪异污染权柄；与「世界」途径同属本源质双途径体系，二者合一可达支柱级旧日位格。本土月亮、母亲（大地）两条途径均为其权柄碎片。恩赐无需配制魔药，通过向堕落母神祈祷即可获得血肉强化、亡灵操控、邪术诅咒等能力。使用者会逐步被根源意志同化，善恶认知扭曲，最终沦为堕落母神在物质世界的代行载体。（官方补充：堕落母神共掌四条途径，序列0分别为月亮、母亲、混沌原胎、世界；「至高者」「破损之柱」属世界途径）核心组织：圣母会、五谷妈妈、唯灵会、伟大母亲、夜游会、谷神教、神降学派、存在学派。',
+  pathway:{name:'恶棍途径', sequences:[
+    {n:9,name:'恶棍',desc:'体魄与格斗大幅强化，序列9顶尖近战素质；自带欺凌性邪意气场，可诱发普通人与低阶非凡者本能恐惧使其行动迟滞、战意溃散；越处于施暴压制状态，自身力量发挥越强，对疼痛与负面状态耐受度远超常人。'},
+    {n:8,name:'园丁',desc:'掌握完整草药、植物与毒理学知识，可调配强化、狂暴、慢性毒素的血肉药剂；擅长培育邪异植物，种子可植入土壤或生物体内长成监控、束缚、汲取生命力的植株；惯用锄剪锤等农具作战，攻击附带微弱生命侵蚀。'},
+    {n:7,name:'邪术师',desc:'掌握完整邪异秘术体系，可借邪言、血祭施加诅咒，引发目标厄运、病痛、器官衰败；能召唤低阶邪灵亡灵或封入器物；可临时异化自身肢体生成利爪骨甲；施法自带根源污染，长期接触者会出现认知扭曲、血肉异变。'},
+    {n:6,name:'播种者',desc:'掌握生命播种权柄，可通过体液让任意性别目标受孕，或将生命种子植入非生物中孕育邪异造物；种子作为监控与汲取媒介，可远距感知目标状态、抽取生命力与灵性补给自身；可种下寄生种子在指定时刻爆发吞噬宿主。'},
+    {n:5,name:'女妖',desc:'雄性强制转化为雌性，受相邻月亮途径影响自带天然魅惑；死亡尖啸可造成精神肉体双重冲击，震碎灵体、撕裂血肉；背生褐色羽翼飞行，可操控数十只中低阶亡灵与邪异生物；肢体接触可瞬间汲取生命力愈合自身，或转化为污染注入敌人。'},
+    {n:4,name:'恶主',desc:'圣者阶，半人半树的不完整神话生物形态；晋升时分化「恶主」「仁主」双分支——恶主侧重生命剥夺、亡灵支配、根源污染，仁主侧重孕育治愈与血肉物质干涉；可批量创造低阶邪异，施加难以解除的血肉诅咒，近乎不死再生；可展开「彼岸」异空间作战；可复活死者为半尸半邪异，意识残碎，最多存续七日。'},
+    {n:3,name:'孕神者',desc:'又称神圣之母，圣者阶，初步执掌完整孕育与生命权柄；可对24小时内的尸体植入生命种子伪复活，复活体仅能执行简单指令；体内可孕育序列4级邪异战力随时释放或回收；展开「血肉孕育领域」缓慢同化范围内血肉生物；可随意扭曲自身与他人血肉形态，实现极致变形与肢体重组。'},
+    {n:2,name:'破损之主',desc:'又称破损之柱，天使阶，初步执掌「现实」权柄，自身存在与物质世界深度绑定；常规封印、放逐、灵界攻击几乎无效，针对自身的攻击会触发现实规则反噬；可赋予非生命物体初步灵性使其成为活物；生命操控覆盖整座城市，可批量创造序列5邪异军团，亡灵支配达天灾级。'},
+    {n:1,name:'谷神',desc:'又称树神，天使之王阶，掌握本途径唯一性，执掌完整生命、繁衍、丰收权柄；可真正复活死亡七天内的生灵并完整保留意识、能力与位格（但永久携带母神污染）；可化身贯通天地的参天巨树，根系所及皆为绝对领域；能赐予土地丰收或降下万物凋零诅咒；近乎不灭，留一丝根系残片便可重新孕育完整自身。'},
+    {n:0,name:'混沌原胎',desc:'统合生命、繁殖、现实物质、原罪污染全部权柄，象征孕育中的下一代最初造物主，具备宇宙级特殊位格；可赋予万物以灵，使敌人攻击与规则束缚倒戈失效；与现实规则深度共生，几乎无法被封印、放逐或摧毁；可凭空创造完整智慧物种，执掌生死终极边界。神国「原初母巢」由无穷血肉与根系堆叠而成，与「世界」途径合一可达支柱级旧日。'}
+  ]}}
+};
+/* ============== 61件封印物档案 ============== */
+const artifactsDB = {
+  t0: [
+    {name:'0-02 特伦索斯特黄铜书（规则书）', desc:'审判者途径唯一性，被「失序之国」污染，活物特性。可制定并强制执行底层规则，痛恨被寻找漏洞。原属战神教会，归克莱恩。', src:'《诡秘之主》'},
+    {name:'0-05 许愿神灯', desc:'内含愚者途径序列2「奇迹师」特性与被天尊封印的外神「灯神」。可实现10个愿望，最好不要超过3个，愿望要么扭曲实现，要么附带极可怕后果。', src:'《诡秘之主》《宿命之环》'},
+    {name:'0-08 阿勒苏霍德之笔', desc:'空想家途径序列1「作家」特性（噩梦之龙阿勒苏霍德死后凝聚）。会自行编写命运剧本，当你知道它时它就知道了你。', src:'《诡秘之主》'},
+    {name:'0-13 最后的盛宴', desc:'奇迹师相关高危封印物，永恒烈阳教会持有。', src:'《诡秘之主》'},
+    {name:'0-17 隐秘之天使', desc:'活着的天使。黑暗途径序列2「隐秘之仆」特性，本体为毁灭魔狼后裔「天之母亲」。可彻底抹除事物存在痕迹，「橡皮擦天使」。', src:'《诡秘之主》'},
+    {name:'0-32 永不落幕的剧场', desc:'四皇之战产物，奇迹师相关高危封印物，风暴之主教会持有。', src:'《诡秘之主》'},
+    {name:'0-36 荆棘冠冕', desc:'可形成「无暗之枪」「无暗之域」，奥古斯都家族持有。', src:'《诡秘之主》'},
+    {name:'0-61 旧日之盒', desc:'门途径序列2「旅法师」特性+星空污染，三层银黑首饰盒：第一层玩具化缩小空间对换；第二层跨大陆传送；第三层严重星空污染。', src:'《诡秘之主》《宿命之环》'},
+    {name:'0-62 星之杖', desc:'门途径序列2「旅法师」特性，可精确空间传送、复现见过的非凡能力。', src:'《诡秘之主》'},
+    {name:'概率之骰', desc:'命运之轮途径唯一性，可操控半径范围内的概率：1点不利最大化，4-6点有利提升。生命学派持有。', src:'《诡秘之主》'},
+    {name:'荣耀之证（荣耀冠冕）', desc:'黄昏巨人途径序列2「荣耀者」特性，巨人王奥尔米尔冠冕。可形成圣光牢笼。白银城神级封印物。', src:'《诡秘之主》'},
+    {name:'大地的恩赐', desc:'巨人王后欧弥贝拉的遗骸。让区域长出黑面草支撑白银城两千多年；范围内人会背负诅咒命运。', src:'《诡秘之主》'},
+    {name:'神之画卷', desc:'亚伯拉罕家族持有，可召唤场景降临、召唤人物攻击、开启不同门传送；无人注视时画中人物会活过来进入现实。', src:'《诡秘之主》'},
+    {name:'天鹅绒幕布', desc:'包含占卜家途径序列9到序列1的全部特性。', src:'《诡秘之主》'},
+    {name:'天灾之书', desc:'结合天灾女王部分特性的羊皮书，结局由风暴之主教会送给倒吊人阿尔杰。', src:'《诡秘之主》'},
+    {name:'格罗塞尔游记', desc:'空想之龙制作，封印奇迹之城利维希德和上帝污染，内部有独立世界，可将人吸入书中。', src:'《诡秘之主》'},
+    {name:'苍白的死亡', desc:'罗塞尔制作的金属面具，可实质化复杂神秘符号封印他人或粉碎封印物，但佩戴者逐渐死去成奴隶。贝尔纳黛持有。', src:'《诡秘之主》'}
+  ],
+  t1: [
+    {name:'1-29', desc:'黑夜女神教会持有，可清除他人记忆，专门用于封印0-17后的记忆清除。', src:'《诡秘之主》'},
+    {name:'1-42 疯狂的盔甲', desc:'黄昏巨人途径序列3「银骑士」特性融合古神血液。可格挡绝大多数非凡能力、锁定敌人方位。黑夜女神教会持有。', src:'《诡秘之主》'},
+    {name:'1-63', desc:'古朴镀银镜子，可建立只针对非凡者的镜中世界。黑夜女神教会持有。', src:'《诡秘之主》'},
+    {name:'1-80', desc:'空想家途径序列3「织梦人」特性，可将物体封印于真实与虚幻的梦境夹缝中。', src:'《诡秘之主》'},
+    {name:'阿罗德斯魔镜', desc:'原编号2-111，后提升为1级。来自混沌海的活魔镜，可全知式回答问题，但使用者也必须回答它的隐私问题。', src:'《诡秘之主》'},
+    {name:'女神之剑', desc:'黑夜女神教会圣物，纯白色骨剑，由高级执事克雷斯泰·塞西玛执掌。', src:'《诡秘之主》'},
+    {name:'海神权杖', desc:'风暴途径序列3「海王」特性，可掌控海洋、风暴、雷电。原属卡维图瓦，后归愚者教会。', src:'《诡秘之主》'},
+    {name:'无暗十字', desc:'远古太阳神神血形成的铜绿十字架，可极强净化堕落与黑暗，清除非凡特性内的精神污染。', src:'《诡秘之主》'},
+    {name:'生命手杖', desc:'大地途径圣者级特性，可治愈重伤、驱使超凡生物、生命炼成制造魔像；但被抽打者会疯狂失控。', src:'《诡秘之主》'},
+    {name:'堕落长笛', desc:'深渊途径圣者级特性，吹响可放大负面情绪和欲望。白银城圣级封印物。', src:'《诡秘之主》'},
+    {name:'黄昏面具', desc:'黄昏巨人途径圣者级特性，头骨制成的面具，可隐藏恶意，与佩戴者对视者直接死亡。', src:'《诡秘之主》'},
+    {name:'曦银之剑', desc:'可隐藏恶意、干扰占卜、掀起光之风暴、形成防御墙；身高不足180厘米无法拿起。', src:'《诡秘之主》'},
+    {name:'蔚蓝之门', desc:'风暴途径圣者级特性，可开启空间通道、召唤巨浪。风暴之主教会持有。', src:'《诡秘之主》'},
+    {name:'安提哥努斯家族笔记', desc:'愚者途径序列3「密语大师」特性，记载大量古代秘辛与魔药配方，首页写着"所有人都会死，包括我"。', src:'《诡秘之主》'},
+    {name:'光与影的协奏曲', desc:'丘纳斯死后形成的怀表，可禁止范围内某种行为、剥夺目标某种非凡能力、扭曲攻击效果。', src:'《诡秘之主》'},
+    {name:'黑泪', desc:'被缚者途径序列4「绝望魔女」特性，黑色泪滴状饰品，可传播神秘学病原体。', src:'《宿命之环》'},
+    {name:'圣赛琳娜的骨灰', desc:'黑暗途径序列4「守夜人」特性，可伸出无数黑色细丝束缚目标。', src:'《诡秘之主》'}
+  ],
+  t2: [
+    {name:'2-030 永不枯竭的毒药', desc:'透明液体，接触即可致命，会主动诱惑周围生物饮用。', src:'黑夜女神教会'},
+    {name:'2-049 安提哥努斯木偶', desc:'愚者途径特性，可提供对邪灵和亡灵的极强防护，但会慢慢吸食佩戴者的信仰和意志。', src:'黑夜女神教会'},
+    {name:'2-078 死亡之门', desc:'死神途径特性，活物特性，会伪装成普通门试图逃跑，穿过它的生物会直接死亡。', src:'黑夜女神教会'},
+    {name:'2-105 血管小偷', desc:'偷盗者途径序列6特性，可偷走他人一项非凡能力。', src:'黑夜女神教会'},
+    {name:'2-037 永恒之梦', desc:'可将目标拖入深层梦境造成精神创伤。', src:'风暴之主教会'},
+    {name:'2-166 恒温金盒', desc:'太阳途径特性，可保持内部温度恒定，但长期接触会被转化为太阳信徒。', src:'风暴之主教会'},
+    {name:'2-081 博学者之戒', desc:'白塔途径序列6「博学者」特性，可迅速辨识敌人非凡能力的优缺点。', src:'知识与智慧之神教会'},
+    {name:'2-217 塔纳戈稻草人', desc:'空间类封印物，可干扰空间封锁，直视者会被强制拖入异空间。', src:'永恒烈阳教会'},
+    {name:'太阳胸针（盛夏）', desc:'太阳途径序列7「太阳神官」特性，可释放圣光、净化亡灵，副作用是永久燥热。', src:'民间流通'},
+    {name:'深红月冕', desc:'月亮途径序列5「深红学者」特性，可操控月光、汲取血肉生命力。原属玫瑰学派。', src:'民间流通'}
+  ],
+  t3: [
+    {name:'3-0271 通灵者的镜子', desc:'死神途径序列7特性，照镜会触发随机灵异事件。', src:'黑夜女神教会'},
+    {name:'3-0611 安静发丝', desc:'黑暗途径特性，可消除声音、安抚灵体，长期接触会变得冷漠嗜睡。', src:'黑夜女神教会'},
+    {name:'3-0625 厄运布偶', desc:'命运之轮途径特性，可给目标施加厄运，但同时会反噬持有者。', src:'黑夜女神教会'},
+    {name:'3-0782 变异太阳圣徽', desc:'沾染永恒烈阳神血的圣徽，可自动净化周围邪灵，但长期佩戴会变得狂热愚钝。', src:'黑夜女神教会'},
+    {name:'3-1328 水晶之眼', desc:'掘墓人途径序列8特性，可看穿墙体、感知亡灵方位。', src:'蒸汽与机械之神教会'},
+    {name:'戏法手套', desc:'学徒途径序列8「戏法大师」特性，可实现短距离闪现、物品漂浮。', src:'民间流通'},
+    {name:'知识之重', desc:'阅读者途径特性，可记录知识并转化为重量，质地坚固可作武器与盾牌。', src:'民间流通'}
+  ],
+  tx: [
+    {name:'蠕动的饥饿', desc:'秘祈人途径序列5「牧羊人」特性，活着的人皮手套。融合A先生后可放牧7个灵魂。', src:'阿兹克→克莱恩'},
+    {name:'丧钟左轮', desc:'红祭司途径序列5「收割者」特性，铁黑色长管左轮，三种模式：弱点攻击、致命攻击、屠杀。', src:'克莱恩主力'},
+    {name:'莱曼诺的旅行笔记', desc:'门途径序列6「记录官」特性，封面写着"我来到，我看见，我记录"，可记录见过的非凡能力并释放。', src:'亚伯拉罕家族'},
+    {name:'谎言（无面人面具）', desc:'愚者途径序列6「无面人」特性，可自由变形伪装，附带火焰操控、伤害转移、危险直觉能力。', src:'克莱恩'},
+    {name:'堕落水银（猎命刀）', desc:'被缚者途径序列5「猎命师」特性，可通过血液交换猎取命运，但血肉长期接触会逐渐活尸化。', src:'《宿命之环》'},
+    {name:'正直胸针', desc:'太阳途径序列7「太阳神官」特性，可释放神圣阳光，但佩戴者会失去不道德念头并逐渐变得狂热。', src:'《宿命之环》'},
+    {name:'亵渎之牌', desc:'共22张，罗塞尔制作，对应22条途径，每张牌包含对应途径序列9到序列0的全部魔药配方、能力、晋升仪式。', src:'罗塞尔遗物'},
+    {name:'阿兹克铜哨', desc:'死神途径高阶信物，最常用功能是召唤信使，对死灵生物有极大吸引力。', src:'阿兹克·艾格斯'},
+    {name:'命运银项链（赢家项链）', desc:'命运之轮途径序列5「赢家」特性，被动提升幸运，但严格遵循运气守恒。', src:'《诡秘之主》'},
+    {name:'命运千纸鹤', desc:'威尔·昂赛汀送给克莱恩的信物，可局部重置命运、规避死亡结局。', src:'威尔·昂赛汀'}
+  ]
+};
+/* ============== 命途池 · 故事钩子版 共45条 ============== */
+const destinyPool = {
+  mythic: [
+    {name:'拉莱耶暗涌', desc:'遇袭时，浓稠黑雾会先一步裹住你', effect:'雾中触须会撕碎一切来犯之物，没人知道被拖进去的人去了哪，只留下挥不散的深海腥气'},
+    {name:'克苏鲁虚影锚定', desc:'盯着你久了的人，总会莫名心慌发冷', effect:'普通人只会事后做深海噩梦，超凡者才会窥见章首虚影、触发精神刺痛，越深入探查，陷得越深'},
+{name:'伪人拟态', desc:'见过的人你都能完美复刻，只有眼神总透着不对劲', effect:'可百分百模仿外形与声音，仅极细微的面部违和感会暴露；直视你过久会触发认知紊乱，严重者直接精神崩溃'},
+{name:'Re0死亡回档', desc:'死了就会回到之前的节点醒过来，所有痛感一分不少', effect:'死亡瞬间自动重置时间，完整保留记忆与受伤体验，存档点随关键事件更新，绝不能向任何人透露此能力'},
+    {name:'千瞳圣痕', desc:'凝神时，你皮肤下会睁开无数灰白玉竖瞳', effect:'360度无死角视野，可破一切幻术伪装，众瞳齐凝时，能直接震碎对手的心智'},
+    {name:'眷族低语频段', desc:'你总能听懂阴暗角落里的奇怪颤音', effect:'深潜者、食尸鬼的语言对你毫无障碍，你开口时，低阶眷族会下意识俯首听从'},
+    {name: '歪曲之魔眼', desc: '红绿螺旋在眼底交织，视线所及之处万物皆被拧碎', effect: '左右眼生成双向回转轴，无视硬度体积扭曲一切有形物质，双轴交叠即可捻断目标，觉醒灵视后可穿透障碍锁敌'},
+    {name: '矢量操作', desc: '所有指向我的伤害，都会原封不动返还给你', effect: '操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球'},
+{name: '黑光病毒原型体', desc: '血肉翻涌间演化万般兵器，吞噬即是进化，核心不灭便永不死亡', effect: '全身生物质自由重构，可幻化多种战斗形态与完美拟态，吞噬目标获取记忆与能量，核心残留即可无限再生，是站在食物链顶端的生物兵器'},
+    {name:'直死魔眼', desc:'你眼里的万物，都爬满了暗红的死线', effect:'沿线可割裂一切材质，点中死点直接抹除存在，看得越久，越难看见事物完整的模样'},
+    {name:'奥林匹斯雷霆权柄', desc:'握持权杖，你便执掌天罚雷霆', effect:'主神级体质无惧凡俗伤害，雷电长矛可破神级以下防御，范围雷暴可顷刻夷平街区'},
+    {name: '斯巴达之怒', desc: '怒火点燃血脉的时刻，连神明都将在铁拳之下陨落', effect: '激活后获得霸体无敌与伤害翻倍，拳拳回血可残血翻盘，爆发冲击波震碎周遭一切，是斯巴达战士的终极狂暴天赋'},
+    {name: '奈非天血脉', desc: '天使与恶魔的血脉交融，诞生出超越神魔的力量', effect: '光暗双重力量加持全属性拉满，成长无上限可正面硬撼魔神，灵魂本源不灭便永不死亡，是庇护之地最顶级的天赋血脉'},
+{name:'召唤·SCP-049疫医', desc:'黑袍鸟嘴的医生会向你颔首，称你为“无瘟疫者”', effect:'他能解咒治畸变、配药牵制敌人，还能转化死尸为行尸助战，只是别让他碰普通人类'},
+{name:'天庭注视', desc:'抬头时，南天门的目光正越过界域落在你身上', effect:'寻常邪祟不敢近身，每日可入天庭云台觐见仙官求助，危急时能求下天规敕令，只是这份眷顾从来都不是免费的'},
+{name:'召唤·SCP-999', desc:'你招手就会跑来一团暖乎乎的橙色粘液', effect:'它能治愈所有伤口、吸走负面情绪，遇袭还能膨胀成粘液护盾挡伤害，唯一缺点是总爱蹭你脸撒娇'},
+    {name:'古一法师维度秘术', desc:'结印抬手间，现实便可被折叠翻转', effect:'镜像维度隔绝战场，一掌可抽离目标灵魂，空间护盾与能量刃攻防兼备，可借多元维度之力'},
+    {name:'灰雾彼端的座位', desc:'灰雾之上的青铜长桌上，二十二把椅子中有一把刻着你的名字', effect:'你不记得自己什么时候答应过出席。所有占卜对你的指向都会扭曲，仿佛灰雾在主动保护你'}
+  ],
+  legendary: [
+    {name:'鸦群跟随', desc:'不知从何时起，有一群乌鸦总在你出现的地方盘旋', effect:'它们不靠近也不离去，只是看着你。当它们突然飞走时，意味着附近有比它们更值得关注的存在'},
+    {name:'见过自己的死亡', desc:'某次失神中你清晰看见了自己未来的死法', effect:'从那以后你格外谨慎，但越谨慎，那个画面越清晰。你开始怀疑回避本身就是它实现的方式'},
+    {name:'名字被禁止', desc:'你的真名在某些场合被高位存在禁止提及', effect:'提到它的人都会出事。你保有这个名字，但每次自我介绍都像在投放一颗不知威力的炸弹'},
+    {name:'黑色信封', desc:'你每月收到一封无寄件人的黑色信封，里面写着你下个月的某件小事', effect:'从不出错。你已经学会预判，但试图反抗预言时事情总会以更扭曲的方式实现'},
+    {name:'童年挚友消失', desc:'你儿时有个最好的朋友，但翻遍家族相册和邻居记忆没有任何痕迹', effect:'只有你记得他。他的某些口头禅你至今还在用，你担心有一天连你也会忘记他'},
+    {name:'一次精准的占卜', desc:'你曾做出一次精准到令人发指的预言', effect:'至今没人相信你只是猜的。某些组织开始定期"询问"你，提问方式让人无法拒绝'},
+    {name:'同名同姓的死者', desc:'报纸上登过一篇讣告，死者的姓名、生日、家乡与你完全一致', effect:'你保留着那份剪报。每年那个忌日你都会发烧，但医生检查不出任何问题'},
+    {name:'被诅咒的家族', desc:'你家族的每一代都有一人在四十岁前莫名死亡', effect:'轮到你这一代了。家族秘传几件不该存在的物品，每一件都需要被传下去'}
+  ],
+  epic: [
+    {name:'街角的注视', desc:'某个戴礼帽的怪人总在你必经的街角出现', effect:'从不靠近也不离开。某天他不在了，你反而感到不安，从那天起你开始失眠'},
+    {name:'匿名委托', desc:'你收到一封匿名信，对方付了三倍报酬，让你"找到一本不存在的书"', effect:'书的描述异常具体。你已经查了三个图书馆和两个黑市，离它越近你越睡不安稳'},
+    {name:'火灾幸存', desc:'你是某场难以解释的火灾中唯一活下来的人', effect:'灰烬里所有人脸都朝你那个方向。火灾原因至今未明，但有人偶尔会专程来看你'},
+    {name:'影子异常', desc:'在月光下，你的影子偶尔会比你的动作慢半拍', effect:'白天看不出问题。你已经放弃在卧室里挂月相画了'},
+    {name:'出海归来', desc:'你曾出海消失数月，回来时无任何记忆', effect:'但你带回了一些谁也认不出的东西。它们安静地躺在你的抽屉里，偶尔会被打开'},
+    {name:'临终遗言', desc:'你的某位长辈临终前用古赫密斯语对你说了一句你听不懂的话', effect:'你后来辗转查到了那句话的意思，但你希望自己没查过'},
+    {name:'不存在的门', desc:'你曾推开过一道不存在的门，从内侧关上后它消失了', effect:'门里的事你不愿回想。但你的左手现在不能戴戒指，会从皮肤里浮出来'},
+    {name:'不该听的对话', desc:'你曾偶然听见两个高位非凡者的对话', effect:'其中提到了你。从那天起你格外注意陌生人的视线，但奇怪的是你再没遇到过他们'},
+    {name:'十三响钟声', desc:'某个雾夜你听见教堂敲响了十三下', effect:'那夜全城无人能证明这件事，除了你。你从此对所有钟表敏感'},
+    {name:'月圆夜的访客', desc:'每个月圆夜你的窗外都有什么东西路过', effect:'你从不敢去看。但有一次它在玻璃上留下了一个图案，你把它贴在所有窗户上后就再没出现过'}
+  ],
+  rare: [
+    {name:'街头算命中过', desc:'你曾被街头算命师极其精确地说中过一些事', effect:'那个算命师第二天就消失了。你保留着她给你的那张牌'},
+    {name:'失眠者', desc:'你已经五年没睡过完整的一觉', effect:'但精力反而比常人更充沛。你在凌晨四点的城市里看见过很多东西'},
+    {name:'旧物收藏', desc:'你的房间里堆满了你说不清来历的旧物', effect:'每一件都让你莫名安心。其中至少一件不该存在'},
+    {name:'总被跟踪', desc:'你总觉得有什么东西在跟着你', effect:'每次回头都什么也没有。但你确定它在那里——它只是比你转身更快'},
+    {name:'异常直觉', desc:'你对危险的预感强得不可思议', effect:'多次救了自己一命。但每次预警之后你都会鼻血不止'},
+    {name:'见鬼者', desc:'你从小就能看到一些"不存在"的东西', effect:'你早已学会了不去看。但偶尔有些"东西"会主动凑过来'},
+    {name:'符号解读者', desc:'你看不懂的文字，盯久了反而能猜出大概意思', effect:'你不知道这是天赋还是诅咒。某些古文你看一眼就会头痛半天'},
+    {name:'看穿谎言', desc:'几乎没人能在你面前说谎不被察觉', effect:'你看得出对方在撒谎的瞬间，眼前会闪过一道很轻的红光'},
+    {name:'异常同情', desc:'你能感受到陌生人的情绪，强烈到经常崩溃', effect:'拥挤的场所对你是地狱。你学会了戴一种特殊的耳塞'},
+    {name:'偏门兴趣', desc:'你研究的领域偏门到连图书管理员都皱眉', effect:'那些书让你心情平静。某一本你借出后再没归还，因为它消失了'},
+    {name:'意外之财', desc:'一笔说不清来路的小钱不时进入你的账户', effect:'每次都是整数。你不敢全部花掉，怕账目一旦清零就再不会进账'},
+    {name:'日记的异常', desc:'你坚持写日记，但翻看时常发现一些自己不记得写下的句子', effect:'笔迹是你的，内容也合情合理，只是你没有记忆。最近这些条目开始预测明天'}
+  ],
+  common: [
+    {name:'贝克兰德市民', desc:'你住在这座永远雾蒙蒙的城市里', effect:'是它千万分之一的呼吸。你的存在感不强，但这有时候是好事'},
+    {name:'退伍士兵', desc:'你打过那场没有人愿意提起的仗', effect:'回来后你比离开时安静得多。某些声音会让你的手不自觉摸向腰间'},
+    {name:'因病退学', desc:'你曾是个有前途的学生，一场病改变了一切', effect:'病好之后你的世界小了一圈，但视野反而更清晰'},
+    {name:'移居者', desc:'你来自远方，至今还没习惯本地的雾气', effect:'但你已经回不去了。家乡的来信越来越少'},
+    {name:'失恋者', desc:'一场刻骨的恋爱结束了', effect:'你正在重建自己。对方的影响仍以你意想不到的方式残留'},
+    {name:'平凡上班族', desc:'你的人生由早晨的咖啡和傍晚的报纸构成', effect:'稳定。直到你开始注意到报纸上一些被忽略的小新闻'},
+    {name:'失业中', desc:'你刚被解雇，正在思考下一步', effect:'但你的求职信总在投出当晚被退回，理由各异'},
+    {name:'学徒未满', desc:'你跟着师傅学手艺，还差三年才能出师', effect:'师傅最近行为奇怪，频繁让你独自看店'},
+    {name:'偶遇过怪事', desc:'你见过一些不该见的，但你说服自己那只是错觉', effect:'你已经成功遗忘了大部分。剩下的那部分偶尔在梦里清晰起来'},
+    {name:'平凡之路', desc:'你的人生平平无奇地度过', effect:'这本身就是一种奢侈。你不知道自己有多幸运'}
+  ]
+};
+/* ============== 行囊池 61条 ============== */
+const gearPool = {
+  mythic: [
+    {name:'十二符咒', desc:'十二枚小小石雕，藏着十二种超凡之力', effect:'巨力、极速、隐身、自愈、不死、灵魂出窍全能覆盖，集齐十二枚便拥有圣主级综合战力'},
+{name: '火花棱镜（神光棒）', desc: '金色棱镜展开的瞬间，超古代的光芒将再次照亮大地', effect: '激活迪迦光之力量，可自由切换复合、强力、空中三形态适配全场景战斗，绝境中汇聚信念之光可觉醒无上限的闪耀形态'},
+    {name: '进化信赖者', desc: '利刃出鞘之时，光的纽带便会在新的适能者身上延续', effect: '诺亚之光的传承媒介，变身奈克瑟斯可展开美塔领域隐秘作战，随信念进化至更强形态，自带预警、屏障与空间转移能力'},
+    {name: '奥特眼镜（赛文X）', desc: '红光掠过眼眸的刹那，赤色的斗士将以雷霆之势终结战斗', effect: '变身平行宇宙的赛文X，拥有秒杀级近战与光线威力，头镖意念操控攻防一体，太阳能供能无严格时限，可自由切换体型作战'},
+{name:'朗基努斯之枪', desc:'长枪所指，连神的心壁都能贯穿', effect:'无视所有护盾与防御的规则级破防，可无限延展追踪投掷，命中即贯穿，是当之无愧的弑神之枪'},
+    {name:'黑檀木与白象牙', desc:'黑白双枪在指尖旋转，子弹永远追着恶魔的要害', effect:'魔力附魔子弹自带恶魔特攻，可精准点射可疯狂连射，花式跳弹防不胜防，是永远不会卡壳的恶魔猎手标配'},
+    {name:'叛逆之刃', desc:'沉重的大剑背负身后，出鞘便是恶魔的末日', effect:'魔剑自带恶魔特攻，斩击锋利无匹，可释放剑气远程打击，觉醒后力量翻倍，连空间斩都能硬扛下来'},
+{name:'造化玉碟·残片', desc:'玉片贴在眉心，大道的纹路便会在识海中浮现', effect:'加速悟道修行，可推演天机预判危机，拆解解析一切功法秘术，是洪荒修士梦寐以求的悟道至宝'},
+    {name:'太极图', desc:'画卷展开，阴阳流转，天地便重归秩序', effect:'定地水火风稳空间，白玉金桥免疫万般攻击，演化幻境困敌神魂，是攻防一体的先天至宝'},
+    {name:'四次元百宝袋', desc:'伸手进去，总能掏出意想不到的未来道具', effect:'连通四次元空间，竹蜻蜓、任意门、空气炮应有尽有，覆盖生活战斗全场景，只有你想不到，没有它掏不出'},
+    {name:'誓约胜利之剑', desc:'风王结界散去的瞬间，圣剑的光辉将照亮整片战场', effect:'星造圣剑自带邪祟特攻，解放真名释放对城级金光柱，一击便可夷平要塞，是幻想种中当之无愧的最强圣剑'},
+    {name:'王之财宝', desc:'空中绽开无数金色涟漪，宝具之雨便会倾泻而下', effect:'连通巴比伦宝库，可投射海量宝具覆盖打击，也可取出专属宝具攻防兼备，是王者独有的无尽武库'},
+    {name:'黑影兵团面具', desc:'戴上面具，阴影便成了你的领土', effect:'可召唤无穷黑影士兵作战，自身能在阴影间自由穿梭，佩戴越久，越易被暗影意志侵蚀'},
+    {name:'霍格沃茨魔杖', desc:'念咒挥杖的瞬间，奇迹便会降临', effect:'覆盖攻防、实用、变形全套巫师魔咒，熟练度越高威力越强，念错咒语也可能反噬自身'},
+    {name:'无限宝石嵌合', desc:'每多嵌一颗宝石，人性便淡一分', effect:'空间折跃、心灵操控、现实改写、时间回溯，集齐六颗可执掌全域规则，重塑宇宙秩序'},
+    {name:'雷神之锤·神格共鸣', desc:'举起锤子的瞬间，雷声便为你而鸣', effect:'操控风暴雷电，肉身坚不可摧，可借锤力高速飞行，一锤砸下便是地裂雷崩'},
+    {name:'亵渎之牌·愚者', desc:'罗塞尔制作的22张亵渎之牌之一，对应愚者途径的全部魔药配方与晋升仪式', effect:'解锁愚者途径的全部知识；牌上偶尔自行浮现新的字迹'},
+    {name:'概率之骰碎片', desc:'真正的概率之骰崩落的一小块，残留命运权柄', effect:'每日可主动改变一次小概率事件结果；身边持续发生不合常理的巧合'},
+    {name:'阿罗德斯魔镜分镜', desc:'魔镜阿罗德斯掉落的一小块碎镜，自带活物意识', effect:'可向碎镜提问获得全知式回答，但每次都要回答它的隐私问题'},
+    {name:'丧钟左轮·原版', desc:'红祭司途径序列5「收割者」特性原版武器', effect:'三种模式：弱点攻击/致命攻击/屠杀；使用后6小时内会暴露自身弱点'},
+    {name:'许愿神灯（已封印）', desc:'被天尊封印过的灯神残骸，可极小程度许愿', effect:'一生只能许3个愿望，每个愿望都会以扭曲方式实现并附带可怕后果'}
+  ],
+  legendary: [
+    {name:'纯白之视', desc:'太阳途径圣者级特性，眼珠状玻璃球，凑在眼前可看到堕落邪恶的存在', effect:'可揭示一切隐藏的污染与堕落痕迹'},
+    {name:'白骨教堂入场券', desc:'亚当持有的隐秘据点的进入凭证', effect:'可隔绝一切窥探，是修炼与会面的绝佳之地'},
+    {name:'1级封印物使用授权', desc:'你所在教会授予你某件1级封印物的有限度使用权', effect:'随机分配一件1级封印物；使用次数被严格记录'},
+    {name:'名匠定制猎枪', desc:'弗萨克北境名匠手工打造的双管猎枪，可装填祝福过的银弹', effect:'对低阶非凡生物伤害+50%；银弹补给极难获得'},
+    {name:'安提哥努斯笔记残页', desc:'1级封印物「安提哥努斯家族笔记」的几页复印件', effect:'解锁愚者途径序列7-9的部分关键扮演心得'},
+    {name:'巨额遗产', desc:'一位远房亲戚临终前将全部财产留给了你', effect:'获得5000磅现金 + 一栋贝克兰德西区住宅；同时继承亲戚生前的所有麻烦'},
+    {name:'威尔·昂赛汀的千纸鹤', desc:'生命学派守护者亲手叠的命运信物', effect:'危急时可局部重置命运、规避一次致命结局；只能用一次'},
+    {name:'阿兹克的铜哨', desc:'死神途径高阶信物的复刻品', effect:'可召唤一次低阶死灵信使；对死灵生物有威慑力'},
+    {name:'罗塞尔笔记残卷', desc:'罗塞尔遗留的灰皮笔记的一部分残卷，写满气象学暗语', effect:'解锁罗塞尔级别的暗语知识；阅读会被命运标记'}
+  ],
+  epic: [
+    {name:'戏法手套（量产版）', desc:'学徒途径序列8特性的量产版手套', effect:'可实现短距离闪现、物品漂浮'},
+    {name:'2级封印物授权', desc:'你获得某件2级封印物的临时使用权', effect:'随机分配一件2级封印物；任务结束须立刻归还'},
+    {name:'通灵者的镜子（仿品）', desc:'3-0271的高仿版本，效果略弱但稳定', effect:'照镜会触发可控的灵异感应；可用于通灵仪式'},
+    {name:'圣赛琳娜骨灰复刻品', desc:'守夜人途径相关装备的简化版', effect:'可短时间伸出黑色细丝束缚目标；耗灵性极快'},
+    {name:'优质毛瑟自动手枪', desc:'弗萨克帝国军方制式自动手枪，性能可靠', effect:'射速快、弹容大；噪音明显，不适合潜行'},
+    {name:'防弹长大衣', desc:'内衬细密钢丝的高级大衣，可挡住低速弹丸', effect:'对枪械伤害减免40%；闷热且行动稍受影响'},
+    {name:'优秀马匹', desc:'纯血温血马，速度与耐力俱佳', effect:'长途奔袭与越野能力极强'},
+    {name:'神秘学典籍套装', desc:'三册涵盖占卜、炼金、符文的入门级正版典籍', effect:'神秘学知识快速提升；可与同好交换更高级资料'},
+    {name:'魔药学徒的工坊', desc:'一间配备齐全的小型炼金工坊（含基础药材）', effect:'可自行配制序列9-8的非凡魔药'},
+    {name:'富商身份证件', desc:'一套伪造但极其逼真的中产以上身份证件', effect:'可自由出入大多数中上层场合；身份审查时有风险'},
+    {name:'警察局的内线', desc:'你在贝克兰德或特里尔警察局内有一个稳定线人', effect:'可优先获得犯罪情报；线人随时可能反水'},
+    {name:'稀有非凡材料一份', desc:'一份完整的序列6-5主材料', effect:'可用于自配中序列魔药；引来非凡同行觊觎'},
+    {name:'信使乌鸦', desc:'一只经过训练的非凡信使乌鸦，可携带轻便信件远距离飞行', effect:'隐秘通讯利器；乌鸦本身不可替代，死了就没了'},
+    {name:'匿名银行账户', desc:'一份在中立银行的匿名账户，存款2000磅', effect:'资金转移与跨国洗钱便捷；账户存在被冻结风险'}
+  ],
+  rare: [
+    {name:'标准点二八口径左轮', desc:'七响左轮，鲁恩警方制式装备', effect:'稳定可靠的远程武器'},
+    {name:'仪式蜡烛与白粉笔', desc:'最基础的仪式魔法耗材一套', effect:'可施展低阶占卜与防护仪式'},
+    {name:'银十字架', desc:'某教会发放的标准银制圣物', effect:'对低阶不死生物有威慑效果'},
+    {name:'塔罗牌一副', desc:'手工绘制的塔罗牌，附简易占卜手册', effect:'可施展卡牌占卜与基础灵感引导'},
+    {name:'水晶球', desc:'一颗成色不错的占卜水晶球', effect:'可施展水晶占卜术；水晶易碎'},
+    {name:'黄铜罗盘', desc:'指向非凡能量浓度高方向的特制罗盘', effect:'可大致定位附近的非凡污染源'},
+    {name:'仪式骰', desc:'一套带有古赫密斯字符的占卜骰子', effect:'可用于命运占卜与简单决策辅助'},
+    {name:'紧凑型怀表', desc:'一只双盖银壳怀表，内嵌简易罗盘', effect:'报时准确 + 紧急情况可作钝器'},
+    {name:'医师手提箱', desc:'内含基础医疗用品、镇痛剂与缝合工具', effect:'可处理大多数外伤；非凡伤势仍需专业处理'},
+    {name:'侦探放大镜与笔记本', desc:'夏洛克·莫里亚蒂式的标配装备', effect:'侦查与记录效率显著提升'},
+    {name:'伪造证件套装', desc:'一套低质量的伪造身份证件', effect:'可通过基础身份盘查；高级审查必败'},
+    {name:'仪式短刀', desc:'一柄符文蚀刻的银制仪式刀，平时也可作武器', effect:'仪式与日常实用双重价值'},
+    {name:'防水油布雨衣', desc:'贝克兰德雾天必备装备', effect:'防雨防雾，可隐藏身形'},
+    {name:'优质烟斗与烟草', desc:'象牙烟嘴、上等烟草，富商常用', effect:'社交利器；偶尔可镇定神经'},
+    {name:'侦察犬', desc:'一只训练有素的猎犬，对非凡气息敏感', effect:'追踪与警戒；不适合战斗'},
+    {name:'低阶神奇物品一件', desc:'随机一件3级或未编号的低阶神奇物品', effect:'根据物品具体能力分配'},
+    {name:'500磅现金', desc:'一笔够生活一年的现金（鲁恩磅或因蒂斯弗利特）', effect:'解决短期资金压力'}
+  ],
+  common: [
+    {name:'普通短刀', desc:'随处可见的钢制短刀', effect:'基础近战武器'},
+    {name:'铜质怀表', desc:'走时还算准的便宜怀表', effect:'报时'},
+    {name:'金属烟盒', desc:'刻花的廉价金属烟盒，装20支卷烟', effect:'社交小物'},
+    {name:'旧地图集', desc:'一本翻旧的北大陆地图集', effect:'对各地地理略有了解'},
+    {name:'廉价手枪', desc:'最普通的单发手枪，准头不佳', effect:'入门级远程武器'},
+    {name:'手电筒', desc:'最新发明的便携电池手电筒', effect:'夜间照明'},
+    {name:'银十字项链', desc:'最普通的银十字，更多是装饰', effect:'信仰象征'},
+    {name:'素描本与铅笔', desc:'画家或学者常备', effect:'记录与素描'},
+    {name:'家传银餐刀', desc:'一把家中传下来的银柄餐刀', effect:'对低阶污秽有一点点效果'},
+    {name:'旧怀表', desc:'走时不准的破怀表', effect:'纪念意义大于实用'},
+    {name:'100磅现金', desc:'够普通人生活一两个月的现金', effect:'临时应急'},
+    {name:'破旧背包', desc:'一只装满杂物的破布背包', effect:'勉强能装下行囊'},
+    {name:'廉价烈酒一瓶', desc:'酒精浓度极高的廉价烈酒', effect:'壮胆 / 应急消毒'},
+    {name:'旧报纸合订本', desc:'最近三个月的旧报纸', effect:'可查阅近期事件'}
+  ]
+};
+/* ============== 仪式与通用技艺 ============== */
+const ritualsList = [
+  '占卜类（卡牌/水晶球/古赫密斯字符）','通灵类（亡者通话/灵体感应）','防护类（家宅结界/护身符）',
+  '诅咒类（追踪/疾病/厄运）','召唤类（自然灵/低阶恶魔）','净化类（净化邪灵/解除诅咒）',
+  '隐匿类（隐匿气息/反占卜）','转运类（小幅扭转运势）','驱鬼类（驱散低阶亡灵）',
+  '替代类（替身/转嫁伤害）','催眠类（精神暗示/入梦）'
+];
+const generalSkills = {
+  root: ['灵性感知敏锐','精神强度过人','非凡亲和力','体质特殊','理智值上限高','扮演天赋','以太敏感','古神血裔'],
+  combat: ['近战格斗','枪械精通','冷兵器','射击专精','潜行刺杀','拳脚硬功','马术骑乘','武器制造'],
+  mystic: ['塔罗占卜','星象占卜','炼金术','符文学','古赫密斯语','降神术','解梦学','尸检学'],
+  mind: ['临危不乱','城府深沉','谈判口才','洞察人心','抗精神污染','钢铁意志','演技扮演','侦查推理'],
+  modern: ['驾驶（蒸汽车/汽车/船舶）','外语精通（鲁恩/因蒂斯/弗萨克）','机械维修','摄影记录','打字电报','化学知识','医学护理','法律财务']
+};
+</script>
+<script>
+/* ============== 应用状态 ============== */
+const appState = {
+  currentTab:'intro',
+  selectedChapter:null, entryPoint:'start',
+  customSkills:[],
+  rolledDestiny:[], selectedDestiny:[],
+  rolledGear:[], selectedGear:[],
+  mainSource:null, mainPathway:null, mainSequence:null,
+  giftSource:null, giftSequence:null
+};
+/* ============== 初始化 ============== */
+document.addEventListener('DOMContentLoaded',function(){
+  renderContinents(); renderSeas(); renderDimensions();
+  renderChapters('ancient','chapters-ancient');
+  renderChapters('fool','chapters-fool');
+  renderChapters('cycle','chapters-cycle');
+  renderCodexSources();
+  renderArtifacts();
+  renderArtifactGrid();
+  renderRitualGrid();
+  renderGeneralSkills();
+  renderMainSourceOptions();
+  renderGiftSourceOptions();
+  initTabNav();
+  initFormBindings();
+});
+function initTabNav(){
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',function(){switchTab(this.dataset.tab);});
+  });
+}
+function switchTab(tab){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  appState.currentTab=tab;
+  if(tab==='character') updateChapterDisplay();
+  if(tab==='preview') generatePreview();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){
+  const order=['intro','world','codex','timeline','character','ability','destiny','preview'];
+  const i=order.indexOf(appState.currentTab);
+  if(i<order.length-1) switchTab(order[i+1]);
+}
+function prevTab(){
+  const order=['intro','world','codex','timeline','character','ability','destiny','preview'];
+  const i=order.indexOf(appState.currentTab);
+  if(i>0) switchTab(order[i-1]);
+}
+function markCompleted(tab){
+  const btn=document.querySelector(`.tab-btn[data-tab="${tab}"]`);
+  if(btn) btn.classList.add('completed');
+}
+/* ============== 地理渲染 ============== */
+function renderGeoCard(item){
+  return `<div class="chapter-card">
+    <div class="chapter-badge">${item.meta}</div>
+    <h3>${item.name}</h3>
+    <p class="chapter-desc">${item.desc}</p>
+    <div class="chapter-tags">${item.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+  </div>`;
+}
+function renderContinents(){document.getElementById('continents-grid').innerHTML=continentsDB.map(renderGeoCard).join('');}
+function renderSeas(){document.getElementById('seas-grid').innerHTML=seasDB.map(renderGeoCard).join('');}
+function renderDimensions(){document.getElementById('dimensions-grid').innerHTML=dimensionsDB.map(renderGeoCard).join('');}
+/* ============== 篇章 ============== */
+function renderChapters(group,containerId){
+  const container=document.getElementById(containerId);
+  container.innerHTML='';
+  chaptersDB[group].forEach(ch=>{
+    const card=document.createElement('div');
+    card.className='chapter-card';
+    card.dataset.chapterId=ch.id;
+    const groupLabel=group==='ancient'?'上古纪元':(group==='fool'?'愚者主线':'宿命之环');
+    const eventsHtml = ch.events && ch.events.length ? `
+      <div class="events-block">
+        <span class="events-block-title">📅 详细事件年表（${ch.events.length} 条）</span>
+        <ul>${ch.events.map(e=>`<li>${e}</li>`).join('')}</ul>
+      </div>` : '';
+    card.innerHTML=`
+      <div class="chapter-badge">${groupLabel}</div>
+      <h3>${ch.name}</h3>
+      <p class="chapter-year">${ch.year}</p>
+      <details class="chapter-details" onclick="event.stopPropagation()">
+        <summary>📖 展开详细介绍</summary>
+        <p class="chapter-desc">${ch.desc}</p>
+        ${eventsHtml}
+        <div class="chapter-tags">${ch.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+      </details>`;
+    card.onclick=()=>selectChapter(ch);
+    container.appendChild(card);
+  });
+}
+function selectChapter(ch){
+  document.querySelectorAll('.chapter-card[data-chapter-id]').forEach(c=>c.classList.remove('selected'));
+  document.querySelector(`[data-chapter-id="${ch.id}"]`).classList.add('selected');
+  appState.selectedChapter=ch;
+  document.getElementById('entry-section').classList.add('visible');
+  markCompleted('timeline');
+}
+function selectEntryPoint(type){
+  document.querySelectorAll('.entry-option').forEach(o=>o.classList.remove('selected'));
+  const opt=Array.from(document.querySelectorAll('.entry-option')).find(el=>el.querySelector(`input[value="${type}"]`));
+  if(opt){opt.classList.add('selected');opt.querySelector('input').checked=true;}
+  appState.entryPoint=type;
+  document.getElementById('custom-entry-input').classList.toggle('visible',type==='custom');
+}
+function updateChapterDisplay(){
+  const display=document.getElementById('selected-chapter-name');
+  if(appState.selectedChapter) display.textContent=`${appState.selectedChapter.name}（${appState.selectedChapter.year}）`;
+  else display.textContent='尚未选择篇章';
+}
+/* ============== 源质图鉴 ============== */
+function switchCodexPage(e,page){
+  document.querySelectorAll('.codex-nav-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.codex-page').forEach(p=>p.classList.remove('active'));
+  e.target.classList.add('active');
+  document.getElementById('codex-'+page).classList.add('active');
+}
+function renderCodexSources(){
+  const pillarKeys=Object.keys(sourcesDB).filter(k=>sourcesDB[k].tier==='pillar');
+  const elderKeys=Object.keys(sourcesDB).filter(k=>sourcesDB[k].tier==='elder');
+  document.getElementById('pillar-grid').innerHTML=pillarKeys.map(k=>renderSourceCard(k,sourcesDB[k],'pillar')).join('');
+  document.getElementById('elder-grid').innerHTML=elderKeys.map(k=>renderSourceCard(k,sourcesDB[k],'elder')).join('');
+  document.getElementById('gift-grid').innerHTML=Object.keys(giftsDB).map(k=>renderGiftCard(k,giftsDB[k])).join('');
+}
+function renderSourceCard(key,s,tier){
+  const pathCount=s.pathways.length;
+  const seqCount=s.pathways.reduce((a,p)=>a+p.sequences.length,0);
+  return `<div class="source-card ${tier}" onclick="toggleSourceDetail(event,'${key}')">
+    <h3>${s.name}</h3>
+    <div class="source-elder">对应旧日：${s.elder}</div>
+    <div class="source-meta"><span>${pathCount}条途径</span><span>${seqCount}阶序列</span><span>${tier==='pillar'?'支柱级':'旧日级'}</span></div>
+    <div class="source-desc">${s.setting.slice(0,80)}...</div>
+    <div class="source-detail" id="detail-${key}">
+      <h4>📜 源质核心设定</h4>
+      <div class="core-setting">${s.setting}</div>
+      <h4>🜂 包含途径（点击展开序列）</h4>
+      <div class="pathway-list">${s.pathways.map((p,i)=>renderPathwayItem(key,i,p)).join('')}</div>
+    </div>
+  </div>`;
+}
+function renderGiftCard(key,g){
+  return `<div class="source-card gift" onclick="toggleSourceDetail(event,'gift-${key}')">
+    <h3>${g.name}</h3>
+    <div class="source-elder">对应旧日：${g.elder}</div>
+    <div class="source-meta"><span>1条途径</span><span>10阶序列</span><span>外神恩赐</span></div>
+    <div class="source-desc">${g.setting.slice(0,80)}...</div>
+    <div class="source-detail" id="detail-gift-${key}">
+      <h4>📜 源质核心设定</h4>
+      <div class="core-setting">${g.setting}</div>
+      <h4>🜂 恩赐途径</h4>
+      <div class="pathway-list">${renderPathwayItem('gift-'+key,0,g.pathway)}</div>
+    </div>
+  </div>`;
+}
+function renderPathwayItem(skey,idx,p){
+  return `<div class="pathway-item" data-path="${skey}-${idx}">
+    <div class="pathway-head" onclick="togglePath(event,'${skey}-${idx}')">
+      <span>🜍 ${p.name}${p.alias?'（'+p.alias+'）':''}</span>
+      <span class="toggle">▼</span>
+    </div>
+    <div class="sequence-list">${p.sequences.map(s=>`
+      <div class="sequence-item s${s.n}">
+        <div class="seq-name"><span class="seq-num">序列${s.n}</span>${s.name}</div>
+        <div>${s.desc}</div>
+      </div>`).join('')}</div>
+  </div>`;
+}
+function toggleSourceDetail(e,key){
+  e.stopPropagation();
+  if(e.target.closest('.pathway-head')||e.target.closest('.sequence-list')) return;
+  const d=document.getElementById('detail-'+key);
+  if(d) d.classList.toggle('visible');
+}
+function togglePath(e,path){
+  e.stopPropagation();
+  const item=document.querySelector(`.pathway-item[data-path="${path}"]`);
+  if(item) item.classList.toggle('open');
+}
+function renderArtifacts(){
+  const render=arr=>arr.map(a=>`<div class="artifact-item">
+    <strong>${a.name}</strong>
+    <div>${a.desc}</div>
+    <div class="art-source">来源：${a.src}</div>
+  </div>`).join('');
+  document.getElementById('artifact-t0').innerHTML=render(artifactsDB.t0);
+  document.getElementById('artifact-t1').innerHTML=render(artifactsDB.t1);
+  document.getElementById('artifact-t2').innerHTML=render(artifactsDB.t2);
+  document.getElementById('artifact-t3').innerHTML=render(artifactsDB.t3);
+  document.getElementById('artifact-tx').innerHTML=render(artifactsDB.tx);
+}
+/* ============== 途径选择 ============== */
+function renderMainSourceOptions(){
+  const c=document.getElementById('main-source-options');  c.innerHTML=Object.keys(sourcesDB).map(k=>{
+    const s=sourcesDB[k];
+    return `<div class="source-opt" data-key="${k}" onclick="pickMainSource('${k}')">${s.name}</div>`;
+  }).join('');
+}
+function pickMainSource(key){
+  const s=sourcesDB[key];
+  appState.mainSource=key; appState.mainPathway=null; appState.mainSequence=null;
+  document.querySelectorAll('#main-source-options .source-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelector(`#main-source-options [data-key="${key}"]`).classList.add('selected');
+  document.getElementById('main-pathway-step').style.display='block';
+  document.getElementById('main-sequence-step').style.display='none';
+  const c=document.getElementById('main-pathway-options');  c.innerHTML=s.pathways.map((p,i)=>`<div class="pathway-opt" data-idx="${i}" onclick="pickMainPathway(${i})">${p.name}<small>${p.alias||''}</small></div>`).join('');
+}
+function pickMainPathway(idx){
+  appState.mainPathway=idx; appState.mainSequence=null;
+  document.querySelectorAll('#main-pathway-options .pathway-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelector(`#main-pathway-options [data-idx="${idx}"]`).classList.add('selected');
+  document.getElementById('main-sequence-step').style.display='block';
+  const seqs=sourcesDB[appState.mainSource].pathways[idx].sequences;
+  const c=document.getElementById('main-sequence-options');
+  c.innerHTML=seqs.map(s=>`<div class="seq-pick-item" data-n="${s.n}" onclick="pickMainSequence(${s.n})">
+    <div class="seq-pick-name">序列${s.n} · ${s.name}</div>
+    <div>${s.desc}</div>
+  </div>`).join('');
+}
+function pickMainSequence(n){
+  appState.mainSequence=n;
+  document.querySelectorAll('#main-sequence-options .seq-pick-item').forEach(o=>o.classList.remove('selected'));
+  document.querySelector(`#main-sequence-options [data-n="${n}"]`).classList.add('selected');
+}
+function clearMainPathway(){
+appState.mainSource=null;appState.mainPathway=null;appState.mainSequence=null;
+  document.querySelectorAll('#main-source-options .source-opt').forEach(o=>o.classList.remove('selected'));
+  document.getElementById('main-pathway-step').style.display='none';
+  document.getElementById('main-sequence-step').style.display='none';
+}
+function renderGiftSourceOptions(){
+  const c=document.getElementById('gift-source-options');
+  c.innerHTML=Object.keys(giftsDB).map(k=>{
+    const g=giftsDB[k];
+    return `<div class="source-opt" data-key="${k}" onclick="pickGiftSource('${k}')">${g.name}</div>`;
+  }).join('');
+}
+function pickGiftSource(key){
+  appState.giftSource=key; appState.giftSequence=null;
+  document.querySelectorAll('#gift-source-options .source-opt').forEach(o=>o.classList.remove('selected'));
+  document.querySelector(`#gift-source-options [data-key="${key}"]`).classList.add('selected');
+  document.getElementById('gift-pathway-step').style.display='block';
+  const seqs=giftsDB[key].pathway.sequences;
+  const c=document.getElementById('gift-sequence-options');
+  c.innerHTML=seqs.map(s=>`<div class="seq-pick-item" data-n="${s.n}" onclick="pickGiftSequence(${s.n})">
+    <div class="seq-pick-name">序列${s.n} · ${s.name}</div>
+    <div>${s.desc}</div>
+  </div>`).join('');
+}
+function pickGiftSequence(n){
+  appState.giftSequence=n;
+  document.querySelectorAll('#gift-sequence-options .seq-pick-item').forEach(o=>o.classList.remove('selected'));
+  document.querySelector(`#gift-sequence-options [data-n="${n}"]`).classList.add('selected');
+}
+function clearGiftPathway(){
+  appState.giftSource=null;appState.giftSequence=null;
+  document.querySelectorAll('#gift-source-options .source-opt').forEach(o=>o.classList.remove('selected'));
+  document.getElementById('gift-pathway-step').style.display='none';
+}
+/* ============== 封印物/仪式/通用 ============== */
+function bindCheckGrid(grid){  grid.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+    const update=()=>{
+      const label=cb.closest('label');
+      if(label) label.classList.toggle('selected', cb.checked);
+    };
+    cb.addEventListener('change', update);
+    update(); // 初始化一次，处理已勾选状态
+  });
+}
+function renderArtifactGrid(){
+  const all=[...artifactsDB.t0.map(a=>({...a,tier:'0级'})),
+             ...artifactsDB.t1.map(a=>({...a,tier:'1级'})),
+             ...artifactsDB.t2.map(a=>({...a,tier:'2级'})),
+             ...artifactsDB.t3.map(a=>({...a,tier:'3级'})),
+             ...artifactsDB.tx.map(a=>({...a,tier:'特殊'}))];
+  const grid=document.getElementById('artifact-grid');
+  grid.innerHTML=all.map(a=>`<label class="ability-item">
+    <input type="checkbox" value="${a.tier}|${a.name}">
+    <span title="${a.desc.replace(/"/g,'&quot;')}">[${a.tier}] ${a.name}</span>
+  </label>`).join('');
+  bindCheckGrid(grid);
+}
+function renderRitualGrid(){
+  const grid=document.getElementById('ritual-grid');
+  grid.innerHTML=ritualsList.map(r=>`<label class="ability-item">
+    <input type="checkbox" value="${r}"><span>${r}</span>
+  </label>`).join('');
+  bindCheckGrid(grid);
+}
+function renderGeneralSkills(){
+  const map={root:'root-grid',combat:'combat-grid',mystic:'mystic-grid',mind:'mind-grid',modern:'modern-grid'};
+  Object.keys(map).forEach(cat=>{
+    const grid=document.getElementById(map[cat]);
+    grid.innerHTML=generalSkills[cat].map(s=>`<label class="ability-item">
+      <input type="checkbox" value="${s}" data-cat="${cat}"><span>${s}</span>
+    </label>`).join('');
+    bindCheckGrid(grid);
+  });
+}
+/* ============== 自创能力 ============== */
+function addCustomSkill(){
+  if(appState.customSkills.length>=5){alert('最多只能添加5项自创能力！');return;}
+  appState.customSkills.push({id:Date.now(),name:'',effect:''});
+  renderCustomSkills();updateSkillCount();
+}
+function renderCustomSkills(){
+  const list=document.getElementById('custom-skill-list');
+  list.innerHTML=appState.customSkills.map(s=>`<div class="custom-skill-item">
+    <button class="delete-btn" onclick="deleteSkill(${s.id})">×</button>
+    <input type="text" placeholder="能力名称"  oninput="updateSkill(${s.id},'name',this.value)">
+    <textarea placeholder="能力效果描述" oninput="updateSkill(${s.id},'effect',this.value)"></textarea>
+  </div>`).join('');
+  Array.from(list.children).forEach((row,i)=>{
+    row.querySelector('input').value=appState.customSkills[i].name;
+    row.querySelector('textarea').value=appState.customSkills[i].effect;
+  });
+}
+function updateSkill(id,field,val){
+  const s=appState.customSkills.find(x=>x.id===id);
+  if(s) s[field]=val;
+}
+function deleteSkill(id){
+  appState.customSkills=appState.customSkills.filter(x=>x.id!==id);
+  renderCustomSkills();updateSkillCount();
+}
+function updateSkillCount(){
+  document.getElementById('skill-count').textContent=appState.customSkills.length;
+  document.getElementById('add-skill-btn').classList.toggle('disabled',appState.customSkills.length>=5);
+}
+/* ============== 表单绑定 ============== */
+function initFormBindings(){
+  document.getElementById('char-origin')?.addEventListener('change',function(){
+    document.getElementById('custom-origin-input').classList.toggle('visible',this.value==='custom');
+  });
+}
+function handleFactionChange(v){document.getElementById('custom-faction-input').classList.toggle('visible',v==='custom');}
+function handleEntryReasonChange(v){document.getElementById('custom-entry-reason-input').classList.toggle('visible',v==='custom');}
+/* ============== 命数抽取（独立） ============== */
+function rollDestiny(){
+  const btn=document.getElementById('roll-btn');
+  btn.classList.add('rolling');btn.disabled=true;
+  setTimeout(()=>{
+    appState.rolledDestiny=[];appState.selectedDestiny=[];
+    for(let i=0;i<8;i++){
+      const r=Math.random()*100;
+      let pool,rarity;
+      if(r<12){pool=destinyPool.mythic;rarity='mythic';}
+      else if(r<34){pool=destinyPool.legendary;rarity='legendary';}
+      else if(r<62){pool=destinyPool.epic;rarity='epic';}
+      else if(r<85){pool=destinyPool.rare;rarity='rare';}
+      else{pool=destinyPool.common;rarity='common';}
+      let d,tries=0;
+      do{d=pool[Math.floor(Math.random()*pool.length)];tries++;}while(appState.rolledDestiny.some(x=>x.name===d.name)&&tries<50);
+      appState.rolledDestiny.push({...d,rarity});
+    }
+    renderDestinyList();
+    btn.classList.remove('rolling');btn.disabled=false;
+    document.getElementById('destiny-pool').classList.add('visible');
+    document.getElementById('destiny-selected-count').textContent='0';
+  },900);
+}
+function renderDestinyList(){
+  const list=document.getElementById('destiny-list');
+  const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+  const sorted=[...appState.rolledDestiny].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+  list.innerHTML=sorted.map((d,i)=>`<div class="destiny-item ${d.rarity}" data-name="${d.name}">
+    <input type="checkbox" id="dest-${i}">
+    <div class="dest-info">
+      <div class="dest-name">${d.name}<span class="dest-badge ${d.rarity}">${rarityName(d.rarity)}</span></div>
+      <div class="dest-desc">${d.desc}</div>
+      <div class="dest-effect">效果：${d.effect}</div>
+    </div>
+  </div>`).join('');
+  list.querySelectorAll('.destiny-item').forEach(item=>{
+    const cb=item.querySelector('input');
+    item.addEventListener('click',e=>{
+      if(e.target===cb) return;
+      cb.checked=!cb.checked;
+      cb.dispatchEvent(new Event('change'));
+    });
+    cb.addEventListener('change',()=>{
+      const name=item.dataset.name;
+      const d=sorted.find(x=>x.name===name);
+      if(cb.checked){
+        if(appState.selectedDestiny.length>=3){cb.checked=false;alert('最多只能选择3条命数！');return;}
+        appState.selectedDestiny.push(d);
+        item.classList.add('selected');
+      }else{
+        appState.selectedDestiny=appState.selectedDestiny.filter(x=>x.name!==name);
+        item.classList.remove('selected');
+      }
+      document.getElementById('destiny-selected-count').textContent=appState.selectedDestiny.length;
+   if(appState.selectedDestiny.length===3) markCompleted('destiny');
+    });
+  });
+}
+function rarityName(r){return {mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'}[r];}
+function rarityIcon(r){return {mythic:'🔥',legendary:'⚡',epic:'🔮',rare:'💎',common:'⭐'}[r];}
+/* ============== 行囊抽取（独立） ============== */
+function rollGear(){
+  const btn=document.getElementById('roll-gear-btn');
+  btn.classList.add('rolling');btn.disabled=true;
+  setTimeout(()=>{
+    appState.rolledGear=[];appState.selectedGear=[];
+    const sd=appState.selectedDestiny;
+    const has=r=>sd.some(d=>d.rarity===r);
+    for(let i=0;i<6;i++){
+      const r=Math.random()*100;
+      let rarity;
+      if(has('mythic')){
+        if(r<25) rarity='mythic';
+        else if(r<50) rarity='legendary';
+        else if(r<75) rarity='epic';
+        else if(r<92) rarity='rare';
+        else rarity='common';
+      }else if(has('legendary')){
+        if(r<10) rarity='mythic';
+        else if(r<35) rarity='legendary';
+        else if(r<65) rarity='epic';
+        else if(r<88) rarity='rare';
+        else rarity='common';
+      }else if(has('epic')||has('rare')){
+        if(r<5) rarity='legendary';
+        else if(r<30) rarity='epic';
+        else if(r<70) rarity='rare';
+        else rarity='common';
+      }else if(sd.length>0){
+        if(r<3) rarity='legendary';
+        else if(r<18) rarity='epic';
+        else if(r<55) rarity='rare';
+        else rarity='common';
+      }else{
+        // 未抽命数时使用平均池
+        if(r<12) rarity='mythic';
+        else if(r<34) rarity='legendary';
+        else if(r<62) rarity='epic';
+        else if(r<85) rarity='rare';
+        else rarity='common';
+      }
+      const pool=gearPool[rarity];
+      let g,tries=0;
+      do{g=pool[Math.floor(Math.random()*pool.length)];tries++;}while(appState.rolledGear.some(x=>x.name===g.name)&&tries<50);
+      appState.rolledGear.push({...g,rarity});
+    }
+    renderGearList();
+    btn.classList.remove('rolling');btn.disabled=false;
+    document.getElementById('gear-pool').classList.add('visible');
+    document.getElementById('gear-selected-count').textContent='0';
+  },900);
+}
+function renderGearList(){
+  const list=document.getElementById('gear-list');
+  const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+  const sorted=[...appState.rolledGear].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+  list.innerHTML=sorted.map((g,i)=>`<div class="gear-item ${g.rarity}" data-name="${g.name}">
+    <input type="checkbox" id="gear-${i}">
+    <div class="gear-info">
+      <div class="gear-name">${g.name}<span class="gear-badge ${g.rarity}">${rarityName(g.rarity)}</span></div>
+      <div class="gear-desc">${g.desc}</div>
+      <div class="gear-effect">效果：${g.effect}</div>
+    </div>
+  </div>`).join('');
+  list.querySelectorAll('.gear-item').forEach(item=>{
+    const cb=item.querySelector('input');
+    item.addEventListener('click',e=>{
+      if(e.target===cb) return;
+      cb.checked=!cb.checked;
+      cb.dispatchEvent(new Event('change'));
+    });
+    cb.addEventListener('change',()=>{
+      const name=item.dataset.name;
+      const g=sorted.find(x=>x.name===name);
+      if(cb.checked){
+        if(appState.selectedGear.length>=2){cb.checked=false;alert('最多只能选择2件行囊！');return;}
+        appState.selectedGear.push(g);
+        item.classList.add('selected');
+      }else{
+        appState.selectedGear=appState.selectedGear.filter(x=>x.name!==name);
+        item.classList.remove('selected');
+      }
+      document.getElementById('gear-selected-count').textContent=appState.selectedGear.length;
+    });
+  });
+}
+/* ============== 档案预览 ============== */
+function getCheckedValues(selector){
+  return Array.from(document.querySelectorAll(selector)).filter(i=>i.checked).map(i=>i.value);
+}
+function generatePreview(){
+  const name=document.getElementById('char-name').value||'未命名';
+  const age=document.getElementById('char-age').value||'未知';
+  const gender=document.querySelector('input[name="gender"]:checked')?.value||'未知';
+  let origin=document.getElementById('char-origin').value;
+  if(origin==='custom') origin=document.getElementById('custom-origin').value||'自定义所在地';
+  const occ=document.getElementById('char-occupation').value||'未填写';
+  let faction=document.getElementById('faction').value||'无';
+  if(faction==='custom') faction=document.getElementById('custom-faction').value||'自定义势力';
+  const rank=document.getElementById('faction-rank').value||'未填写';
+  let reason=document.getElementById('entry-reason').value;
+  if(reason==='custom') reason=document.getElementById('custom-entry-reason').value||'自定义';
+  const appearance=document.getElementById('appearance').value||'未填写';
+  const personality=document.getElementById('personality').value||'未填写';
+  const hobby=document.getElementById('hobby').value||'未填写';
+  const bg=document.getElementById('background').value||'未填写';
+  const opening=document.getElementById('opening-scene').value||'未填写';
+  let chapter='未选择';let entryText='未设定';
+  if(appState.selectedChapter){
+    chapter=`${appState.selectedChapter.name}（${appState.selectedChapter.year}）`;
+    entryText={start:'篇章开始',mid:'篇章中期',end:'篇章尾声',custom:document.getElementById('custom-entry-text').value||'自定义'}[appState.entryPoint];
+  }
+  let pathwayText='未选择（凡俗）';
+  if(appState.mainSource&&appState.mainPathway!==null&&appState.mainSequence!==null){
+    const s=sourcesDB[appState.mainSource];
+    const p=s.pathways[appState.mainPathway];
+    const seq=p.sequences.find(x=>x.n===appState.mainSequence);
+    pathwayText=`${s.name} · ${p.name} · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
+  }
+  const role=document.getElementById('role-playing-level').value;
+  const mental=document.getElementById('mental-state').value;
+  let giftText='未选择';
+  if(appState.giftSource&&appState.giftSequence!==null){
+    const g=giftsDB[appState.giftSource];
+    const seq=g.pathway.sequences.find(x=>x.n===appState.giftSequence);
+    giftText=`${g.name} · ${g.pathway.name} · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
+  }
+  const cont=document.querySelector('input[name="contamination"]:checked')?.value||'无';
+  const artifacts=getCheckedValues('#artifact-grid input[type=checkbox]');
+  const rituals=getCheckedValues('#ritual-grid input[type=checkbox]');
+  const root=getCheckedValues('#root-grid input[type=checkbox]');
+  const combat=getCheckedValues('#combat-grid input[type=checkbox]');
+  const mystic=getCheckedValues('#mystic-grid input[type=checkbox]');
+  const mind=getCheckedValues('#mind-grid input[type=checkbox]');
+  const modern=getCheckedValues('#modern-grid input[type=checkbox]');
+  let txt=`━━━━━━━━━━━━━━━━━━━━━━━━━
+   诡秘之主档案构建系统
+━━━━━━━━━━━━━━━━━━━━━━━━━
+【时间线归属】
+${chapter}
+【入场节点】
+${entryText}
+【基础信息】
+姓名：${name}
+性别：${gender}　年龄：${age}岁　所在地：${origin}
+职业/身份：${occ}
+【所属势力】
+势力：${faction}
+职阶：${rank}
+入圈原因：${reason}
+【外貌性格】
+外貌：${appearance}
+性格：${personality}
+兴趣爱好：${hobby}
+【背景故事】
+${bg}
+【当前处境】
+${opening}
+【主修途径】
+${pathwayText}`;
+  if(appState.mainSource){
+    txt+=`\n扮演法掌握度：${role}\n精神状态：${mental}`;
+  }
+  txt+=`\n\n【外神恩赐】\n${giftText}`;
+  if(appState.giftSource){
+    txt+=`\n污染度：${cont}`;
+  }
+  if(artifacts.length){
+    txt+=`\n\n【持有封印物 / 神奇物品】（${artifacts.length}件）`;
+    artifacts.forEach((a,i)=>{txt+=`\n${i+1}. ${a.replace('|',' · ')}`;});
+  }
+  if(rituals.length){txt+=`\n\n【掌握仪式魔法】\n${rituals.join(' · ')}`;}
+  if(root.length||combat.length||mystic.length||mind.length||modern.length){
+    txt+=`\n\n【通用技艺】`;
+    if(root.length) txt+=`\n灵性根骨：${root.join('、')}`;
+    if(combat.length) txt+=`\n战斗本领：${combat.join('、')}`;
+    if(mystic.length) txt+=`\n神秘学问：${mystic.join('、')}`;
+    if(mind.length) txt+=`\n心性品格：${mind.join('、')}`;
+    if(modern.length) txt+=`\n时代技能：${modern.join('、')}`;
+  }
+  const validSkills=appState.customSkills.filter(s=>s.name.trim());
+  if(validSkills.length){
+    txt+=`\n\n【自创独门绝技】（${validSkills.length}项）`;
+    validSkills.forEach((s,i)=>{txt+=`\n${i+1}. ${s.name}`;if(s.effect.trim()) txt+=`\n   效果：${s.effect}`;});
+  }
+  if(appState.selectedDestiny.length){
+    txt+=`\n\n【命数】（${appState.selectedDestiny.length}/3）`;
+    appState.selectedDestiny.forEach((d,i)=>{
+      txt+=`\n${i+1}. ${rarityIcon(d.rarity)} [${rarityName(d.rarity)}] ${d.name}`;
+      txt+=`\n   ${d.desc}`;
+      txt+=`\n   效果：${d.effect}`;
+    });
+  }
+  if(appState.selectedGear.length){
+    txt+=`\n\n【行囊机缘】（${appState.selectedGear.length}件）`;
+    appState.selectedGear.forEach((g,i)=>{
+      txt+=`\n${i+1}. ${rarityIcon(g.rarity)} [${rarityName(g.rarity)}] ${g.name}`;
+      txt+=`\n   ${g.desc}`;
+      txt+=`\n   效果：${g.effect}`;
+    });
+  }
+  txt+=`\n\n━━━━━━━━━━━━━━━━━━━━━━━━━
+灰雾笼罩 · 群星注视
+━━━━━━━━━━━━━━━━━━━━━━━━━`;
+  document.getElementById('preview-box').textContent=txt;
+}
+if(location.protocol==='http:' && location.hostname==='127.0.0.1'){
+  const prepare=document.getElementById('prepare-opening');
+  prepare.hidden=false;
+  prepare.onclick=async()=>{
+    const result=document.getElementById('prepare-result');
+    try {
+      const response=await fetch('./prepare',{method:'POST',body:document.getElementById('preview-box').textContent});
+      if(!response.ok) throw Error();
+      const {characters}=await response.json();
+      result.textContent='已装配首轮档案（'+characters+'字）';
+    } catch {result.textContent='装配失败，请重试';}
+  };
+}
+function copyPreview(){
+  const text=document.getElementById('preview-box').textContent;
+  const btn=document.querySelector('.copy-btn');
+  const success=()=>{
+    const orig=btn.textContent;btn.textContent='✅ 已复制！';btn.style.background='#5C6E5C';
+    setTimeout(()=>{btn.textContent=orig;btn.style.background='';},2000);
+  };
+  const fail=()=>{
+    const orig=btn.textContent;btn.textContent='❌ 复制失败，请手动复制';btn.style.background='#8B4513';
+    setTimeout(()=>{btn.textContent=orig;btn.style.background='';},2500);
+  };
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(success).catch(()=>fallback(text,success,fail));
+  }else{fallback(text,success,fail);}
+}
+function fallback(text,success,fail){
+  const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+  document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy')?success():fail();}catch(e){fail();}
+  document.body.removeChild(ta);
+}
+</script>
+</body>
+</html>
