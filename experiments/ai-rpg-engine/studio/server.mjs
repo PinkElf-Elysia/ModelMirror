@@ -66,10 +66,24 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!=='application/json'))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
-   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
+   if (req.method === 'GET' && ['/rpg-app/ancient/', '/rpg-app/ancient/landscape.jpg'].includes(pathname)) {
+    const image = pathname.endsWith('.jpg');
+    const bytes = await readFile(join(root, 'ancient-card', image ? 'landscape.jpg' : 'index.html'));
+    if (!image) res.setHeader('Content-Security-Policy', "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+    res.writeHead(200, {'Content-Type': image ? 'image/jpeg' : 'text/html; charset=utf-8'});
+    return res.end(bytes);
+   }
+   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    if(pathname.startsWith('/rpg-app/cultivation/'))return await cultivationHttp({route:pathname.slice('/rpg-app/cultivation/'.length),method:req.method,data,res,send,runtime:cultivation});
+   if (req.method === 'POST' && pathname === '/rpg-app/ancient/api/opening') {
+    if (typeof data?.input !== 'string' || !data.input.trim() || data.input.length > 20000)
+      return send(400, {error: 'INVALID_OPENING'});
+    const {assemble} = await import('../ancient-card/assembly.mjs');
+    const messages = assemble({input: data.input});
+    return send(200, {cardId: 'ancient', providerEnabled: false, openingHash: sha(messages[1].content), requestHash: sha(JSON.stringify(messages))});
+   }
    if(pathname==='/rpg-app/api/plugins'&&req.method==='GET')return plugins?send(200,await plugins.catalog()):send(503,{error:pluginError});
    const pluginAction=pathname.match(/^\/rpg-app\/api\/plugins\/([a-z0-9.-]+)\/(install|uninstall)$/);
    if(pluginAction&&req.method==='POST'){

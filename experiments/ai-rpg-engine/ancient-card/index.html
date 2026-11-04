@@ -1,0 +1,670 @@
+<!DOCTYPE html><html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>古代人生 · 命运卷轴</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html{scroll-behavior:smooth;}
+body{font-family:'Noto Serif SC','SimSun','Songti SC','STSong',serif;background:url('landscape.jpg') center center/cover fixed no-repeat #e8e4e0;color:#2c2c2c;min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.1);z-index:0;pointer-events:none;}
+.snow-wrap{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999;overflow:hidden;}
+.sf{position:absolute;top:-6px;background:rgba(255,255,255,0.85);border-radius:50%;animation:snowf linear infinite;opacity:0;}
+@keyframes snowf{0%{opacity:0;transform:translateX(0) translateY(0);}10%{opacity:0.9;}90%{opacity:0.4;}100%{opacity:0;transform:translateX(var(--dx)) translateY(100vh);}}
+.wrap{position:relative;z-index:1;max-width:640px;margin:0 auto;padding:16px 14px 60px;min-height:100vh;}
+.header{text-align:center;padding:24px 0 8px;}
+.header h1{font-size:1.5em;font-weight:700;color:#1a1a1a;letter-spacing:6px;text-shadow:0 1px 6px rgba(255,255,255,0.5);}
+.header p{font-size:0.78em;color:#666;letter-spacing:3px;margin-top:4px;}
+.prog{display:flex;align-items:center;justify-content:center;padding:12px 0 16px;gap:0;}
+.prog-dot{width:34px;height:34px;border-radius:50%;border:2px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:0.8em;color:#999;background:rgba(255,255,255,0.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);transition:all 0.3s;cursor:pointer;flex-shrink:0;}
+.prog-dot.active{border-color:#555;color:#1a1a1a;background:rgba(255,255,255,0.75);box-shadow:0 0 10px rgba(0,0,0,0.08);}
+.prog-dot.done{border-color:#999;color:#666;background:rgba(255,255,255,0.6);}
+.prog-line{width:24px;height:1px;background:#ccc;flex-shrink:0;}
+.prog-line.done{background:#999;}
+.step{display:none;animation:fadeUp 0.5s ease;}
+.step.active{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
+.card{background:rgba(255,255,255,0.6);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,0.5);border-radius:10px;padding:20px 18px;margin-bottom:14px;box-shadow:0 2px 12px rgba(0,0,0,0.04);}
+.sep{text-align:center;color:#888;margin:18px 0 14px;font-size:0.78em;letter-spacing:4px;}
+.sep::before,.sep::after{content:'───  ';}
+.sep::after{content:'  ───';}
+.prose{font-size:0.88em;line-height:2;color:#333;text-align:justify;letter-spacing:0.5px;}
+.prose p{margin-bottom:8px;}
+.nav{display:flex;gap:10px;margin-top:18px;justify-content:center;}
+.btn{padding:12px 20px;background:rgba(255,255,255,0.5);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(180,180,180,0.4);border-radius:8px;font-family:inherit;font-size:0.9em;color:#1a1a1a;cursor:pointer;transition:all 0.3s;letter-spacing:3px;text-align:center;}
+.btn:hover{background:rgba(255,255,255,0.78);box-shadow:0 2px 10px rgba(0,0,0,0.06);}
+.btn:active{transform:scale(0.97);}
+.btn-p{background:rgba(120,130,140,0.15);border-color:rgba(120,130,140,0.3);font-weight:600;}
+.btn-p:hover{background:rgba(120,130,140,0.28);}
+.btn-back{background:transparent;border:1px solid rgba(160,160,160,0.3);color:#777;font-size:0.82em;padding:10px 18px;letter-spacing:2px;}
+.route-item{padding:18px;margin-bottom:10px;cursor:pointer;transition:all 0.3s;position:relative;}
+.route-item:hover{background:rgba(255,255,255,0.78);}
+.route-item.sel{background:rgba(120,130,140,0.12);border-color:rgba(120,130,140,0.35);}
+.route-item h3{font-size:1em;font-weight:700;color:#1a1a1a;letter-spacing:2px;margin-bottom:4px;}
+.route-item p{font-size:0.8em;color:#555;line-height:1.6;}
+.acc-item{border-bottom:1px solid rgba(0,0,0,0.06);padding:12px 0;cursor:pointer;transition:all 0.3s;}
+.acc-item:last-child{border-bottom:none;}
+.acc-head{display:flex;justify-content:space-between;align-items:center;}
+.acc-head h4{font-size:0.9em;font-weight:600;color:#1a1a1a;letter-spacing:1px;}
+.acc-head span{font-size:0.75em;color:#999;transition:transform 0.3s;display:inline-block;}
+.acc-item.open .acc-head span{transform:rotate(90deg);}
+.acc-brief{font-size:0.78em;color:#888;margin-top:2px;}
+.acc-body{display:none;padding-top:10px;}
+.acc-item.open .acc-body{display:block;animation:fadeUp 0.3s ease;}
+.acc-intro{font-size:0.82em;line-height:1.8;color:#444;margin-bottom:10px;}
+.emp-row{padding:10px 12px;margin:4px 0;background:rgba(255,255,255,0.3);border:1px solid rgba(180,180,180,0.2);border-radius:6px;cursor:pointer;transition:all 0.3s;display:flex;justify-content:space-between;align-items:center;}
+.emp-row:hover{background:rgba(255,255,255,0.6);}
+.emp-row.sel{background:rgba(120,130,140,0.15);border-color:rgba(120,130,140,0.4);}
+.emp-row .name{font-size:0.88em;font-weight:600;color:#1a1a1a;}
+.emp-row .info{font-size:0.75em;color:#888;}
+.fig-row{padding:9px 12px;margin:3px 0;background:rgba(255,255,255,0.3);border:1px solid rgba(180,180,180,0.2);border-radius:6px;cursor:pointer;transition:all 0.3s;}
+.fig-row:hover{background:rgba(255,255,255,0.6);}
+.fig-row.sel{background:rgba(120,130,140,0.15);border-color:rgba(120,130,140,0.4);}
+.fig-row .name{font-size:0.85em;font-weight:600;color:#1a1a1a;}
+.fig-row .info{font-size:0.73em;color:#888;margin-top:1px;}
+.era-opt{padding:10px 12px;margin:5px 0;background:rgba(255,255,255,0.35);border:1px solid rgba(180,180,180,0.25);border-radius:6px;cursor:pointer;transition:all 0.3s;}
+.era-opt:hover{background:rgba(255,255,255,0.6);}
+.era-opt.sel{background:rgba(120,130,140,0.15);border-color:rgba(120,130,140,0.4);}
+.era-opt h5{font-size:0.83em;font-weight:600;color:#1a1a1a;}
+.era-opt p{font-size:0.76em;color:#666;margin-top:2px;line-height:1.5;}
+.fg{margin-bottom:14px;}
+.fl{display:block;font-size:0.82em;font-weight:600;color:#333;margin-bottom:5px;letter-spacing:1px;}
+.fh{font-size:0.72em;color:#888;font-weight:400;margin-left:3px;}
+input[type="text"],input[type="number"],textarea,select{width:100%;padding:9px 11px;background:rgba(255,255,255,0.45);border:1px solid rgba(180,180,180,0.35);border-radius:6px;font-family:inherit;font-size:0.86em;color:#2c2c2c;transition:all 0.3s;outline:none;}
+input:focus,textarea:focus,select:focus{background:rgba(255,255,255,0.7);border-color:rgba(120,130,140,0.45);box-shadow:0 0 6px rgba(120,130,140,0.12);}
+textarea{resize:vertical;min-height:60px;line-height:1.7;}
+select{cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23888' d='M5 7L1 3h8z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.opt-group{display:flex;flex-wrap:wrap;gap:7px;}
+.opt-btn{padding:7px 14px;background:rgba(255,255,255,0.38);border:1px solid rgba(180,180,180,0.3);border-radius:16px;cursor:pointer;transition:all 0.3s;font-size:0.82em;user-select:none;color:#444;}
+.opt-btn:hover{background:rgba(255,255,255,0.65);}
+.opt-btn.sel{background:rgba(60,70,80,0.22);border-color:rgba(60,70,80,0.55);color:#111;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,0.08);}
+.opt-btn.sel::before{content:'✓ ';}
+.opt-btn input{display:none;}
+.tsec{font-size:0.75em;color:#777;margin:8px 0 5px;letter-spacing:1px;}
+.talent-row{padding:9px 12px;margin:4px 0;border-radius:6px;cursor:pointer;transition:all 0.3s;display:flex;align-items:center;gap:10px;border:1px solid transparent;}
+.talent-row:hover{background:rgba(255,255,255,0.4);}
+.talent-row.sel{border-color:rgba(120,130,140,0.4);background:rgba(255,255,255,0.35);}
+.talent-row.disabled{opacity:0.4;cursor:default;}
+.talent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.talent-name{font-size:0.84em;font-weight:600;flex-shrink:0;}
+.talent-desc{font-size:0.73em;color:#888;flex:1;}
+.talent-grade{font-size:0.7em;flex-shrink:0;padding:2px 8px;border-radius:10px;border:1px solid;}
+.t-fan .talent-dot{background:#999;}.t-fan .talent-name{color:#666;}.t-fan .talent-grade{color:#999;border-color:#ccc;background:rgba(200,200,200,0.15);}
+.t-liang .talent-dot{background:#4a8a5a;}.t-liang .talent-name{color:#3a7a4a;}.t-liang .talent-grade{color:#4a8a5a;border-color:rgba(74,138,90,0.3);background:rgba(74,138,90,0.08);}
+.t-you .talent-dot{background:#2a6aaa;}.t-you .talent-name{color:#2060a0;}.t-you .talent-grade{color:#2a6aaa;border-color:rgba(42,106,170,0.3);background:rgba(42,106,170,0.08);}
+.t-xi .talent-dot{background:#7a3aaa;}.t-xi .talent-name{color:#6a2a9a;}.t-xi .talent-grade{color:#7a3aaa;border-color:rgba(122,58,170,0.3);background:rgba(122,58,170,0.08);}
+.t-chuan .talent-dot{background:#aa8a20;}.t-chuan .talent-name{color:#8a7010;}.t-chuan .talent-grade{color:#aa8a20;border-color:rgba(170,138,32,0.35);background:rgba(170,138,32,0.1);}
+.check-mark{width:18px;height:18px;border:1.5px solid #bbb;border-radius:4px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.3s;font-size:0.7em;color:transparent;}
+.talent-row.sel .check-mark{border-color:#555;color:#333;background:rgba(255,255,255,0.5);}
+.rel-card{background:rgba(255,255,255,0.25);border:1px solid rgba(180,180,180,0.25);border-radius:8px;padding:12px;margin-bottom:8px;position:relative;}
+.rel-rm{position:absolute;top:6px;right:8px;background:none;border:none;color:#bbb;font-size:1.1em;cursor:pointer;}
+.rel-rm:hover{color:#c55;}
+.add-rel{display:block;width:100%;padding:10px;border:1px dashed rgba(180,180,180,0.35);border-radius:8px;background:none;color:#999;font-family:inherit;font-size:0.82em;cursor:pointer;transition:all 0.3s;text-align:center;}
+.add-rel:hover{border-color:rgba(120,130,140,0.4);color:#666;}
+.preview-box{background:rgba(255,255,255,0.45);border:1px solid rgba(180,180,180,0.35);border-radius:8px;padding:14px;font-size:0.82em;line-height:1.9;white-space:pre-wrap;word-break:break-all;color:#2c2c2c;min-height:80px;max-height:400px;overflow-y:auto;}
+.custom-input{display:flex;gap:8px;margin-top:8px;align-items:center;}
+.custom-input input{flex:1;}
+.custom-input button{padding:9px 14px;white-space:nowrap;font-size:0.82em;}
+.modal-ov{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.25);z-index:10000;justify-content:center;align-items:center;}
+.modal-ov.show{display:flex;}
+.modal-box{background:rgba(255,255,255,0.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:10px;padding:28px;text-align:center;max-width:280px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.08);}
+.modal-box p{margin-bottom:14px;font-size:0.9em;letter-spacing:1px;color:#333;}
+footer{text-align:center;padding:16px;position:relative;z-index:1;}
+footer a{color:#999;font-size:0.7em;text-decoration:none;letter-spacing:1px;}
+footer a:hover{color:#666;}
+@media(max-width:400px){.wrap{padding:10px 8px 50px;}.card{padding:16px 14px;}.header h1{font-size:1.25em;letter-spacing:4px;}.fr{grid-template-columns:1fr;}.prog-dot{width:30px;height:30px;font-size:0.72em;}.prog-line{width:16px;}}
+</style>
+</head>
+<body>
+<div class="snow-wrap" id="snow"></div>
+<div class="wrap">
+<div class="header"><h1>命运卷轴</h1><p>古代人生模拟</p></div>
+<div class="prog" id="prog"><div class="prog-dot active" onclick="jumpTo(1)">壹</div><div class="prog-line "></div><div class="prog-dot " onclick="jumpTo(2)">贰</div><div class="prog-line "></div><div class="prog-dot " onclick="jumpTo(3)">叁</div><div class="prog-line "></div><div class="prog-dot " onclick="jumpTo(4)">肆</div><div class="prog-line "></div><div class="prog-dot " onclick="jumpTo(5)">伍</div><div class="prog-line "></div><div class="prog-dot " onclick="jumpTo(6)">陆</div></div>
+<!-- 壹·序章 -->
+<div class="step active" id="s1">
+<div class="card">
+<div class="prose" style="text-align:center;">
+<p style="font-size:1.05em;font-weight:700;letter-spacing:3px;color:#1a1a1a;">开 卷</p>
+<div class="sep">天地不仁</div>
+<p>你将投身一个真实的古代世界。</p>
+<p>没有系统面板，没有主角光环，</p>
+<p>有的只是一副凡人躯壳，和一段未知的命途。</p>
+<div class="sep">世之铁律</div>
+<p>一、万物有灵，众生自主。所有人皆有独立意志。</p>
+<p>二、因果不虚，善恶有报。所有行为皆有后果。</p>
+<p>三、天地不仁，时不待人。世界不会静止等待。</p>
+<p>四、尊卑有序，等级森严。身份决定一切。</p>
+<p>五、雾里看花，知之有限。没有上帝视角。</p>
+<p>六、天高地阔，任君驰骋。没有正确路线。</p>
+<div class="sep">入局需慎</div>
+<p style="font-size:0.85em;color:#888;">一切行为皆有后果，一切选择皆有代价。</p>
+</div>
+</div>
+<div class="nav"><button class="btn btn-p" onclick="next()">踏入此世</button></div>
+</div>
+<!-- 贰·选择人生 -->
+<div class="step" id="s2">
+<div class="card route-item" onclick="pickRoute('emperor')"><h3>帝王之路</h3><p>执掌天下，君临四海。化身历代帝王，体验至高权力与无尽孤独。</p></div>
+<div class="card route-item" onclick="pickRoute('figure')"><h3>青史留名</h3><p>化身历史名人，重走传奇一生。文臣武将、才子佳人，任君择之。</p></div>
+<div class="card route-item" onclick="pickRoute('common')"><h3>芸芸众生</h3><p>选择一个真实朝代，以凡人之身开启你的人生。寒门逆袭或泯然众人，皆在一念之间。</p></div>
+<div class="card route-item" onclick="pickRoute('custom')"><h3>自定义世界</h3><p>架空历史、武侠江湖、仙侠修真……打破历史的藩篱，由你定义世界的规则。</p></div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 叁·路线详情（帝王） -->
+<div class="step" id="s3emperor">
+<div class="card"><div class="sep">择一帝王</div><div id="empList"></div>
+<div class="custom-input"><input type="text" id="empCustom" placeholder="或输入其他帝王名..."><button class="btn" onclick="customEmp()">确认</button></div>
+</div>
+<div class="card" id="empSettings" style="display:none;">
+<div class="sep">帝王设定</div>
+<div class="fg"><span class="fl">参照方式</span>
+<div class="opt-group" id="empMode">
+<span class="opt-btn" onclick="togOpt(this,'empMode')">我就是此人</span>
+<span class="opt-btn" onclick="togOpt(this,'empMode')">穿越成此人</span>
+<span class="opt-btn" onclick="togOpt(this,'empMode')">参照其处境</span>
+</div></div>
+<div class="fg"><span class="fl">起始阶段</span>
+<div class="opt-group" id="empStage">
+<span class="opt-btn" onclick="togOpt(this,'empStage')">少年时期</span>
+<span class="opt-btn" onclick="togOpt(this,'empStage')">崛起之初</span>
+<span class="opt-btn" onclick="togOpt(this,'empStage')">鼎盛时期</span>
+<span class="opt-btn" onclick="togOpt(this,'empStage')">晚年时期</span>
+<span class="opt-btn" onclick="togOpt(this,'empStage')">让AI决定</span>
+</div></div>
+<div class="fg"><span class="fl">历史自由度</span>
+<div class="opt-group" id="empFree">
+<span class="opt-btn" onclick="togOpt(this,'empFree')">严格遵循历史</span>
+<span class="opt-btn" onclick="togOpt(this,'empFree')">以史为底，允许偏离</span>
+<span class="opt-btn" onclick="togOpt(this,'empFree')">完全自由</span>
+</div></div>
+<div class="fg"><span class="fl">当前局势 <span class="fh">选填，可多选</span></span>
+<div class="opt-group" id="empSitu">
+<span class="opt-btn" onclick="togMulti(this)">四海升平</span>
+<span class="opt-btn" onclick="togMulti(this)">内忧外患</span>
+<span class="opt-btn" onclick="togMulti(this)">权臣当道</span>
+<span class="opt-btn" onclick="togMulti(this)">藩镇割据</span>
+<span class="opt-btn" onclick="togMulti(this)">外族入侵</span>
+<span class="opt-btn" onclick="togMulti(this)">后宫干政</span>
+</div></div>
+<div class="fg"><span class="fl">补充设定 <span class="fh">选填</span></span><textarea id="empExtra" placeholder="朝堂格局、后宫情况、个人性格等..."></textarea></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 叁·路线详情（青史留名） -->
+<div class="step" id="s3figure">
+<div class="card"><div class="sep">择一传奇</div><div id="figList"></div>
+<div class="custom-input"><input type="text" id="figCustom" placeholder="或输入其他历史人物名..."><button class="btn" onclick="customFig()">确认</button></div>
+</div>
+<div class="card" id="figSettings" style="display:none;">
+<div class="sep">人物设定</div>
+<div class="fg"><span class="fl">参照方式</span>
+<div class="opt-group" id="figMode">
+<span class="opt-btn" onclick="togOpt(this,'figMode')">我就是此人</span>
+<span class="opt-btn" onclick="togOpt(this,'figMode')">穿越成此人</span>
+<span class="opt-btn" onclick="togOpt(this,'figMode')">参照其处境</span>
+</div></div>
+<div class="fg"><span class="fl">起始阶段</span>
+<div class="opt-group" id="figStage">
+<span class="opt-btn" onclick="togOpt(this,'figStage')">少年时期</span>
+<span class="opt-btn" onclick="togOpt(this,'figStage')">崛起之初</span>
+<span class="opt-btn" onclick="togOpt(this,'figStage')">鼎盛时期</span>
+<span class="opt-btn" onclick="togOpt(this,'figStage')">晚年时期</span>
+<span class="opt-btn" onclick="togOpt(this,'figStage')">让AI决定</span>
+</div></div>
+<div class="fg"><span class="fl">历史自由度</span>
+<div class="opt-group" id="figFree">
+<span class="opt-btn" onclick="togOpt(this,'figFree')">严格遵循历史</span>
+<span class="opt-btn" onclick="togOpt(this,'figFree')">以史为底，允许偏离</span>
+<span class="opt-btn" onclick="togOpt(this,'figFree')">完全自由</span>
+</div></div>
+<div class="fg"><span class="fl">补充设定 <span class="fh">选填</span></span><textarea id="figExtra" placeholder="任何你想补充的设定..."></textarea></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 叁·路线详情（芸芸众生） -->
+<div class="step" id="s3common">
+<div class="card"><div class="sep">择一时代</div><div id="dynList"></div></div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 叁·路线详情（自定义世界） -->
+<div class="step" id="s3custom">
+<div class="card">
+<div class="sep">开辟新天</div>
+<div class="fg"><span class="fl">世界类型</span>
+<div class="opt-group" id="worldType">
+<span class="opt-btn" onclick="togOpt(this,'worldType')">武侠江湖</span>
+<span class="opt-btn" onclick="togOpt(this,'worldType')">仙侠修真</span>
+<span class="opt-btn" onclick="togOpt(this,'worldType')">架空王朝</span>
+<span class="opt-btn" onclick="togOpt(this,'worldType')">玄幻大陆</span>
+<span class="opt-btn" onclick="togOpt(this,'worldType')">自定义</span>
+</div></div>
+<div class="fg"><span class="fl">世界名称 <span class="fh">选填</span></span><input type="text" id="worldName" placeholder="如：大唐武林、九州仙域..."></div>
+<div class="fg"><span class="fl">世界背景 <span class="fh">选填</span></span><textarea id="worldBg" placeholder="简述你的世界设定..."></textarea></div>
+<div class="fg"><span class="fl">特殊规则 <span class="fh">选填</span></span><textarea id="worldRules" placeholder="如：有内力修炼体系、存在妖兽..."></textarea></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 肆·命书上（基本信息+外貌+性格） -->
+<div class="step" id="s4">
+<div class="card">
+<div class="sep">基本信息</div>
+<div class="fr"><div class="fg"><span class="fl">姓名 <span class="fh">选填</span></span><input type="text" id="cName" placeholder="留空则由天命决定"></div>
+<div class="fg"><span class="fl">字 / 号 <span class="fh">选填</span></span><input type="text" id="cZi" placeholder="如：子明"></div>
+</div>
+<div class="fr">
+<div class="fg"><span class="fl">性别</span>
+<div class="opt-group" id="cGender">
+<span class="opt-btn" onclick="togOpt(this,'cGender')">男</span>
+<span class="opt-btn" onclick="togOpt(this,'cGender')">女</span>
+</div></div>
+<div class="fg"><span class="fl">年龄</span><input type="number" id="cAge" placeholder="如：16" min="1" max="80"></div>
+</div>
+</div>
+<div class="card">
+<div class="sep">容貌风姿</div>
+<div class="fg"><span class="fl">外貌描述 <span class="fh">选填，不填则由天命决定</span></span><textarea id="cLook" placeholder="如：面如冠玉，剑眉星目，身形修长..."></textarea></div>
+</div>
+<div class="card">
+<div class="sep">心性秉赋</div>
+<div class="fg"><span class="fl">性格 <span class="fh">可多选，建议3-5个</span></span>
+<div class="tsec">正面</div>
+<div class="opt-group">
+<span class="opt-btn" onclick="togMulti(this)">仁厚</span>
+<span class="opt-btn" onclick="togMulti(this)">刚正</span>
+<span class="opt-btn" onclick="togMulti(this)">机敏</span>
+<span class="opt-btn" onclick="togMulti(this)">豁达</span>
+<span class="opt-btn" onclick="togMulti(this)">沉稳</span>
+<span class="opt-btn" onclick="togMulti(this)">果断</span>
+<span class="opt-btn" onclick="togMulti(this)">仗义</span>
+<span class="opt-btn" onclick="togMulti(this)">温和</span>
+<span class="opt-btn" onclick="togMulti(this)">勤勉</span>
+<span class="opt-btn" onclick="togMulti(this)">忠诚</span>
+</div>
+<div class="tsec">中性</div>
+<div class="opt-group">
+<span class="opt-btn" onclick="togMulti(this)">内敛</span>
+<span class="opt-btn" onclick="togMulti(this)">固执</span>
+<span class="opt-btn" onclick="togMulti(this)">多疑</span>
+<span class="opt-btn" onclick="togMulti(this)">清高</span>
+<span class="opt-btn" onclick="togMulti(this)">圆滑</span>
+<span class="opt-btn" onclick="togMulti(this)">好胜</span>
+<span class="opt-btn" onclick="togMulti(this)">孤僻</span>
+<span class="opt-btn" onclick="togMulti(this)">洒脱</span>
+</div>
+<div class="tsec">负面</div>
+<div class="opt-group">
+<span class="opt-btn" onclick="togMulti(this)">暴躁</span>
+<span class="opt-btn" onclick="togMulti(this)">贪婪</span>
+<span class="opt-btn" onclick="togMulti(this)">懦弱</span>
+<span class="opt-btn" onclick="togMulti(this)">阴狠</span>
+<span class="opt-btn" onclick="togMulti(this)">优柔寡断</span>
+<span class="opt-btn" onclick="togMulti(this)">好色</span>
+<span class="opt-btn" onclick="togMulti(this)">吝啬</span>
+</div>
+</div>
+<div class="fg"><span class="fl">补充性格 <span class="fh">选填</span></span><input type="text" id="cTraitEx" placeholder="标签未覆盖的个性化描述..."></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 伍·命书下（出身+家庭+人际+天赋+志向） -->
+<div class="step" id="s5">
+<div class="card" id="cardOrigin">
+<div class="sep">出身门第</div>
+<div class="fg"><span class="fl">出身阶层</span>
+<select id="cClass" onchange="updIdent()">
+<option value="">请选择</option>
+<option value="皇族宗室">皇族宗室</option>
+<option value="勋贵世家">勋贵世家</option>
+<option value="官宦之家">官宦之家</option>
+<option value="耕读之家">耕读之家</option>
+<option value="商贾之家">商贾之家</option>
+<option value="工匠之家">工匠之家</option>
+<option value="贫苦农家">贫苦农家</option>
+<option value="贱籍">贱籍</option>
+</select></div>
+<div class="fg"><span class="fl">起始身份</span>
+<select id="cIdent"><option value="">请先选择出身阶层</option></select></div>
+<div class="fr">
+<div class="fg"><span class="fl">起始地点</span>
+<select id="cLoc"><option value="">请选择</option><option>京城</option><option>州府</option><option>县城</option><option>乡村</option><option>边塞</option><option>江湖</option></select></div>
+<div class="fg"><span class="fl">起始经济</span>
+<select id="cWealth"><option value="">请选择</option><option>赤贫</option><option>贫寒</option><option>温饱</option><option>小康</option><option>殷实</option><option>豪富</option></select></div>
+</div>
+</div>
+<div class="card" id="cardFamily">
+<div class="sep">家世渊源</div>
+<div class="fr">
+<div class="fg"><span class="fl">父亲 <span class="fh">选填</span></span><input type="text" id="cFather" placeholder="如：私塾先生、佃农..."></div>
+<div class="fg"><span class="fl">母亲 <span class="fh">选填</span></span><input type="text" id="cMother" placeholder="如：农妇、商户之女..."></div>
+</div>
+<div class="fr">
+<div class="fg"><span class="fl">兄弟数量</span><select id="cBro" onchange="updRank()"><option value="0">0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+<div class="fg"><span class="fl">姐妹数量</span><select id="cSis" onchange="updRank()"><option value="0">0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></div>
+</div>
+<div class="fr">
+<div class="fg"><span class="fl">家中排行</span><select id="cRank"><option>独子/独女</option></select></div>
+<div class="fg"><span class="fl">家庭状况</span><select id="cFam"><option value="">请选择</option><option>和睦美满</option><option>平淡普通</option><option>关系紧张</option><option>家道中落</option><option>父母早亡</option><option>孤儿</option></select></div>
+</div>
+<div class="fg"><span class="fl">家庭补充 <span class="fh">选填</span></span><textarea id="cFamEx" placeholder="额外的家庭设定..."></textarea></div>
+</div>
+<div class="card">
+<div class="sep" id="relTitle">重要之人</div>
+<p class="rel-hint" id="relHint" style="font-size:0.78em;color:#888;text-align:center;margin-bottom:10px;display:none;"></p>
+<div id="relBox"></div>
+<button class="add-rel" onclick="addRel()">+ 添加一位重要之人</button>
+</div>
+<div class="card">
+<div class="sep">摇卦问天</div>
+<p style="font-size:0.8em;color:#666;text-align:center;margin-bottom:10px;">点击摇卦，随机生成十枚天赋，择其三枚纳入命格。</p>
+<div style="text-align:center;"><button class="btn" onclick="rollTalent()">摇卦问天</button></div>
+<div id="talentBox" style="margin-top:10px;"><p style="font-size:0.78em;color:#aaa;text-align:center;">尚未摇卦</p></div>
+<div class="fg" style="margin-top:10px;"><span class="fl">自定义天赋 <span class="fh">选填，可替代或补充</span></span><input type="text" id="cTalentEx" placeholder="如：天生神力、过目不忘..."></div>
+</div>
+<div class="card">
+<div class="sep">志向与补充</div>
+<div class="fg"><span class="fl">人生志向 <span class="fh">选填</span></span><textarea id="cGoal" placeholder="如：考取功名光宗耀祖..."></textarea></div>
+<div class="fg"><span class="fl">额外设定 <span class="fh">选填</span></span><textarea id="cExtra" placeholder="任何想补充的角色设定..."></textarea></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回</button><button class="btn btn-p" onclick="next()">下一步</button></div>
+</div>
+<!-- 陆·开场+预览+复制 -->
+<div class="step" id="s6">
+<div class="card">
+<div class="sep">开场</div>
+<div class="fg"><span class="fl">开场场景 <span class="fh">选填</span></span>
+<div class="opt-group" id="openScene">
+<span class="opt-btn" onclick="togOpt(this,'openScene')">清晨醒来</span>
+<span class="opt-btn" onclick="togOpt(this,'openScene')">行路途中</span>
+<span class="opt-btn" onclick="togOpt(this,'openScene')">危机之中</span>
+<span class="opt-btn" onclick="togOpt(this,'openScene')">重要仪式</span>
+<span class="opt-btn" onclick="togOpt(this,'openScene')">市井之间</span>
+<span class="opt-btn" onclick="togOpt(this,'openScene')">让AI决定</span>
+</div></div>
+<div class="fg"><span class="fl">开场补充 <span class="fh">选填</span></span><textarea id="openExtra" placeholder="描述你希望的开场情境..."></textarea></div>
+</div>
+<div class="card">
+<div class="sep">命书总览</div>
+<div class="preview-box" id="pvBox"></div>
+<div style="text-align:center;margin-top:14px;"><button class="btn btn-p" onclick="copyPv()">复制命书</button></div>
+</div>
+<div class="nav"><button class="btn btn-back" onclick="prev()">返回修改</button></div>
+</div>
+</div>
+<div class="modal-ov" id="modal"><div class="modal-box"><p id="modalTxt"></p><button class="btn" onclick="closeModal()">知道了</button></div></div>
+<script>
+var S={route:'',emp:null,fig:null,dyn:null,era:null,talents:[],selTalents:[]};
+var curStep=1;
+var identMap={'皇族宗室':['皇子','公主','王爷','郡主'],'勋贵世家':['世家嫡子','世家庶子','世家女'],'官宦之家':['官家公子','官家小姐'],'耕读之家':['书生','农家子','农家女'],'商贾之家':['商家子弟','商家女'],'工匠之家':['匠人学徒','匠人之女'],'贫苦农家':['佃农','贫家子','贫家女'],'贱籍':['奴仆','乐户','皂隶']};
+var emps=[
+{d:'秦',list:[{n:'秦始皇嬴政',i:'千古一帝，统一六国'},{n:'秦二世胡亥',i:'指鹿为马，二世而亡'}]},
+{d:'西汉',list:[{n:'汉高祖刘邦',i:'布衣天子，大风起兮'},{n:'汉文帝刘恒',i:'躬行节俭，文景之治'},{n:'汉景帝刘启',i:'削藩平乱，承前启后'},{n:'汉武帝刘彻',i:'雄才大略，北击匈奴'},{n:'汉宣帝刘询',i:'民间长大的中兴之主'}]},
+{d:'新朝',list:[{n:'王莽',i:'篡汉改制，理想主义者'}]},
+{d:'东汉',list:[{n:'汉光武帝刘秀',i:'位面之子，再造炎汉'},{n:'汉献帝刘协',i:'傀儡天子，身不由己'}]},
+{d:'三国',list:[{n:'魏武帝曹操（追封）',i:'治世之能臣，乱世之奸雄'},{n:'魏文帝曹丕',i:'篡汉称帝，文武兼备'},{n:'昭烈帝刘备',i:'织席贩履，三分天下'},{n:'后主刘禅',i:'乐不思蜀，亡国之君'},{n:'吴大帝孙权',i:'生子当如孙仲谋'}]},
+{d:'西晋',list:[{n:'晋武帝司马炎',i:'三国归晋，奢靡亡国'}]},
+{d:'东晋',list:[{n:'晋元帝司马睿',i:'衣冠南渡，偏安江左'}]},
+{d:'南北朝',list:[{n:'宋武帝刘裕',i:'金戈铁马，气吞万里'},{n:'北魏孝文帝拓跋宏',i:'汉化改革，民族融合'},{n:'梁武帝萧衍',i:'菩萨皇帝，三次舍身'},{n:'陈后主陈叔宝',i:'玉树后庭花，亡国之音'}]},
+{d:'隋',list:[{n:'隋文帝杨坚',i:'结束乱世，开皇之治'},{n:'隋炀帝杨广',i:'大运河千秋功，三征高句丽亡国'}]},
+{d:'唐',list:[{n:'唐高祖李渊',i:'太原起兵，开创大唐'},{n:'唐太宗李世民',i:'贞观之治，千古明君'},{n:'武则天',i:'千古唯一女帝'},{n:'唐玄宗李隆基',i:'开元盛世，安史之乱'},{n:'唐宪宗李纯',i:'元和中兴，削平藩镇'}]},
+{d:'五代',list:[{n:'后唐庄宗李存勖',i:'百战灭梁，伶人亡国'},{n:'南唐后主李煜',i:'词帝，问君能有几多愁'}]},
+{d:'北宋',list:[{n:'宋太祖赵匡胤',i:'陈桥兵变，杯酒释兵权'},{n:'宋太宗赵光义',i:'烛影斧声，统一南方'},{n:'宋仁宗赵祯',i:'仁宗盛治，最宽仁的皇帝'},{n:'宋神宗赵顼',i:'锐意变法，支持王安石'},{n:'宋徽宗赵佶',i:'艺术天子，靖康之耻'}]},
+{d:'南宋',list:[{n:'宋高宗赵构',i:'偏安江南，杀岳飞求和'},{n:'宋孝宗赵昚',i:'南宋最有作为的皇帝'}]},
+{d:'元',list:[{n:'元太祖成吉思汗',i:'一代天骄，弯弓射大雕'},{n:'元世祖忽必烈',i:'建立元朝，混一天下'},{n:'元顺帝妥懽帖睦尔',i:'末代皇帝，北遁草原'}]},
+{d:'明',list:[{n:'明太祖朱元璋',i:'乞丐皇帝，铁腕治国'},{n:'明成祖朱棣',i:'靖难夺位，永乐盛世'},{n:'明宣宗朱瞻基',i:'仁宣之治，蟋蟀天子'},{n:'明武宗朱厚照',i:'荒唐天子，自封大将军'},{n:'嘉靖帝朱厚熜',i:'修道炼丹，二十年不上朝'},{n:'万历帝朱翊钧',i:'万历怠政，明亡始于万历'},{n:'崇祯帝朱由检',i:'天子守国门，君王死社稷'}]},
+{d:'清',list:[{n:'清太祖努尔哈赤',i:'十三副铠甲起兵'},{n:'皇太极',i:'改国号大清，奠定基业'},{n:'顺治帝福临',i:'入关定鼎，痴情天子'},{n:'康熙帝玄烨',i:'千古一帝，在位六十一年'},{n:'雍正帝胤禛',i:'九子夺嫡，勤政改革'},{n:'乾隆帝弘历',i:'十全老人，盛世余晖'},{n:'慈禧太后',i:'垂帘听政，晚清实际掌权者'},{n:'光绪帝载湉',i:'戊戌变法，囚禁瀛台'},{n:'宣统帝溥仪',i:'末代皇帝，一生浮沉'}]}
+];
+var figs=[
+{g:'文臣谋士',list:[{n:'诸葛亮',i:'三国·鞠躬尽瘁死而后已'},{n:'张良',i:'西汉·运筹帷幄决胜千里'},{n:'萧何',i:'西汉·月下追韩信'},{n:'魏征',i:'唐·犯颜直谏第一人'},{n:'房玄龄',i:'唐·贞观名相'},{n:'王安石',i:'北宋·变法图强'},{n:'司马光',i:'北宋·砸缸少年，保守名臣'},{n:'张居正',i:'明·万历首辅，一条鞭法'},{n:'刘伯温',i:'明·神机妙算'},{n:'范仲淹',i:'北宋·先天下之忧而忧'},{n:'包拯',i:'北宋·铁面无私'},{n:'海瑞',i:'明·海青天，抬棺骂皇帝'},{n:'于谦',i:'明·力挽狂澜保卫北京'},{n:'李斯',i:'秦·助始皇统一，仓鼠之叹'},{n:'商鞅',i:'秦·变法强秦，作法自毙'},{n:'管仲',i:'春秋·辅齐桓公称霸'}]},
+{g:'武将名帅',list:[{n:'项羽',i:'秦末·力拔山兮气盖世'},{n:'韩信',i:'西汉·兵仙，胯下之辱'},{n:'霍去病',i:'西汉·封狼居胥'},{n:'卫青',i:'西汉·奴隶出身的大将军'},{n:'关羽',i:'三国·义绝，武圣'},{n:'张飞',i:'三国·万人敌'},{n:'赵云',i:'三国·一身是胆'},{n:'吕布',i:'三国·人中吕布马中赤兔'},{n:'周瑜',i:'三国·赤壁之战'},{n:'岳飞',i:'南宋·精忠报国'},{n:'戚继光',i:'明·抗倭名将'},{n:'常遇春',i:'明·常十万'},{n:'徐达',i:'明·开国第一功臣'},{n:'李靖',i:'唐·军神'},{n:'薛仁贵',i:'唐·三箭定天山'},{n:'白起',i:'秦·杀神，长平之战'},{n:'王翦',i:'秦·灭楚名将'},{n:'廉颇',i:'战国·负荆请罪'},{n:'李广',i:'西汉·飞将军'},{n:'狄青',i:'北宋·面涅将军'},{n:'韩世忠',i:'南宋·黄天荡大捷'},{n:'郑成功',i:'明末·收复台湾'},{n:'袁崇焕',i:'明末·宁远大捷'}]},
+{g:'才子文豪',list:[{n:'李白',i:'唐·诗仙，斗酒诗百篇'},{n:'杜甫',i:'唐·诗圣，忧国忧民'},{n:'苏轼',i:'北宋·千古第一全才'},{n:'苏辙',i:'北宋·与兄同行'},{n:'苏洵',i:'北宋·大器晚成'},{n:'辛弃疾',i:'南宋·词中之龙'},{n:'陆游',i:'南宋·铁马冰河入梦来'},{n:'王维',i:'唐·诗佛，诗中有画'},{n:'白居易',i:'唐·长恨歌'},{n:'李商隐',i:'唐·锦瑟无端五十弦'},{n:'杜牧',i:'唐·小杜，十年一觉扬州梦'},{n:'柳永',i:'北宋·奉旨填词'},{n:'欧阳修',i:'北宋·醉翁之意不在酒'},{n:'曹植',i:'三国·七步成诗'},{n:'陶渊明',i:'东晋·采菊东篱下'},{n:'唐伯虎',i:'明·江南第一才子'},{n:'纳兰性德',i:'清·人生若只如初见'},{n:'蒲松龄',i:'清·聊斋志异'},{n:'曹雪芹',i:'清·红楼梦'},{n:'司马迁',i:'西汉·史记，忍辱负重'},{n:'班固',i:'东汉·汉书'}]},
+{g:'才女佳人',list:[{n:'蔡文姬',i:'东汉·胡笳十八拍'},{n:'李清照',i:'南宋·千古第一才女'},{n:'上官婉儿',i:'唐·巾帼宰相'},{n:'卓文君',i:'西汉·当垆卖酒'},{n:'鱼玄机',i:'唐·易求无价宝难得有情郎'},{n:'薛涛',i:'唐·女校书'},{n:'谢道韫',i:'东晋·咏絮之才'},{n:'班昭',i:'东汉·续汉书'},{n:'花木兰',i:'传说·代父从军'},{n:'王昭君',i:'西汉·出塞和亲'},{n:'西施',i:'春秋·沉鱼之貌'},{n:'貂蝉',i:'三国·闭月之容'},{n:'杨玉环',i:'唐·羞花，回眸一笑百媚生'},{n:'赵飞燕',i:'西汉·掌上起舞'},{n:'甄宓',i:'三国·洛神赋原型'},{n:'大乔',i:'三国·孙策之妻'},{n:'小乔',i:'三国·周瑜之妻'},{n:'陈圆圆',i:'明末·冲冠一怒为红颜'},{n:'柳如是',i:'明末·秦淮八艳之首'},{n:'董小宛',i:'明末·才貌双全'},{n:'李师师',i:'北宋·名动京城'},{n:'苏小小',i:'南齐·钱塘名妓'},{n:'虞姬',i:'秦末·霸王别姬'}]},
+{g:'商贾巨富',list:[{n:'范蠡',i:'春秋·三散家财，商圣'},{n:'吕不韦',i:'秦·奇货可居'},{n:'沈万三',i:'明·江南首富'},{n:'胡雪岩',i:'清·红顶商人'},{n:'邓通',i:'西汉·铸钱富甲天下'},{n:'石崇',i:'西晋·斗富第一人'}]},
+{g:'侠客奇人',list:[{n:'荆轲',i:'战国·风萧萧兮易水寒'},{n:'聂政',i:'战国·刺韩傀'},{n:'专诸',i:'春秋·鱼腹藏剑'},{n:'豫让',i:'战国·士为知己者死'},{n:'曹沫',i:'春秋·劫齐桓公'},{n:'扁鹊',i:'战国·望闻问切'},{n:'华佗',i:'东汉·外科鼻祖'},{n:'孙思邈',i:'唐·药王'},{n:'徐霞客',i:'明·千古奇人游天下'},{n:'郑和',i:'明·七下西洋'},{n:'张骞',i:'西汉·凿空西域'},{n:'玄奘',i:'唐·西行取经'}]}
+];
+var dyns=[
+{n:'先秦',b:'礼崩乐坏，百家争鸣。诸侯割据战火纷飞，却也是思想最自由奔放的时代。',eras:[
+{n:'春秋（约前770-前476）',d:'诸侯争霸，礼乐尚存。管仲辅齐桓公称霸，孔子周游列国。'},
+{n:'战国（约前475-前221）',d:'七雄并立，合纵连横。商鞅变法强秦，荆轲刺秦王。'}]},
+{n:'秦朝',b:'六王毕，四海一。始皇帝铁血统一天下，书同文车同轨，焚书坑儒严刑峻法。辉煌而短暂。',eras:[
+{n:'始皇一统（前221-前210）',d:'天下初定，万里长城修筑中，法令严苛。'},
+{n:'秦末乱世（前210-前206）',d:'二世昏庸，陈胜吴广揭竿而起，群雄逐鹿。'}]},
+{n:'西汉',b:'大风起兮云飞扬。北击匈奴凿通西域，丝绸之路连通东西。儒术独尊，士人地位崇高。',eras:[
+{n:'开国初期（前202-前141）',d:'黄老无为轻徭薄赋，文景之治太平岁月。'},
+{n:'武帝盛世（前141-前87）',d:'国力最盛，北伐匈奴开疆拓土。'},
+{n:'昭宣中兴（前87-前48）',d:'霍光辅政休养生息，匈奴称臣，西域都护府设立。'},
+{n:'西汉末年（前48-公元9）',d:'外戚专权，土地兼并，王莽蠢蠢欲动。'}]},
+{n:'新朝',b:'王莽篡汉，托古改制。理想主义者试图激进改革，却把天下推向深渊。',eras:[
+{n:'新朝全期（9-23）',d:'改制频繁币制混乱，绿林赤眉起义此起彼伏。'}]},
+{n:'东汉',b:'光武中兴，再造炎汉。前期政治清明，后期外戚宦官交替专权。',eras:[
+{n:'光武中兴（25-88）',d:'天下重归一统，政治清明。'},
+{n:'中后期（88-184）',d:'外戚宦官轮流把持朝政，社会矛盾加剧。'},
+{n:'汉末乱世（184-220）',d:'黄巾起义，群雄割据，三国序幕拉开。'}]},
+{n:'三国',b:'天下三分，英雄辈出。魏蜀吴三足鼎立，谋士运筹帷幄，猛将万军取上将首级。',eras:[
+{n:'群雄逐鹿（184-220）',d:'诸侯混战，官渡赤壁改写天下格局。'},
+{n:'三国鼎立（220-249）',d:'三分天下，诸葛亮北伐，各国明争暗斗。'},
+{n:'三国末期（249-280）',d:'司马氏篡魏，蜀汉灭亡，天下归晋在即。'}]},
+{n:'西晋',b:'三国归晋天下一统，却最短命。门阀奢靡，八王之乱后五胡乱华。',eras:[
+{n:'太康之治（265-290）',d:'短暂太平，门阀奢靡暗流涌动。'},
+{n:'八王之乱（290-316）',d:'皇族内战，五胡趁势南下，中原板荡。'}]},
+{n:'东晋',b:'衣冠南渡偏安江左。王与马共天下，门阀政治登峰造极。',eras:[
+{n:'东晋前期（317-383）',d:'偏安江南，淝水之战以少胜多。'},
+{n:'东晋后期（383-420）',d:'门阀内斗，刘裕崛起，王朝末路。'}]},
+{n:'南北朝',b:'南北对峙，政权更迭如走马灯。南朝文学璀璨，北朝民族大融合。',eras:[
+{n:'南朝（420-589）',d:'宋齐梁陈四朝更替，建康繁华文学鼎盛。'},
+{n:'北朝（386-581）',d:'北魏孝文帝汉化改革，民族融合。'}]},
+{n:'隋朝',b:'结束三百年分裂再造大一统。开皇之治国富民强，大运河贯通南北。',eras:[
+{n:'开皇之治（581-604）',d:'天下一统政治清明，科举初创。'},
+{n:'大业年间（604-618）',d:'大运河开凿，三征高句丽，民变四起。'}]},
+{n:'唐朝',b:'梦回大唐万国来朝。最开放最自信最包容的时代。长安百万人口，诗人剑客纵横天下。',eras:[
+{n:'初唐（618-683）',d:'贞观之治政治清明，万国来朝。'},
+{n:'盛唐（684-755）',d:'武则天称帝，开元盛世，长安繁华冠绝天下。'},
+{n:'中晚唐（755-907）',d:'安史之乱后藩镇割据宦官专权。'}]},
+{n:'五代十国',b:'唐亡后天下碎裂。中原五朝走马灯更替，武人当国。',eras:[
+{n:'五代十国全期（907-960）',d:'政权更迭频繁，南方相对安定商业繁荣。'}]},
+{n:'北宋',b:'杯酒释兵权以文治天下。文人最幸福的时代，汴京夜市通宵，经济繁荣冠绝古今。',eras:[
+{n:'开国承平（960-1022）',d:'结束乱世，澶渊之盟后北方和平。'},
+{n:'仁宗盛治（1022-1085）',d:'政治最宽仁的时代，包拯范仲淹苏轼活跃其间。'},
+{n:'变法与党争（1085-1127）',d:'王安石变法新旧党争，靖康之耻。'}]},
+{n:'南宋',b:'靖康之耻衣冠南渡。半壁江山却创造更繁荣的经济。壮志难酬是底色。',eras:[
+{n:'南渡初期（1127-1162）',d:'岳飞北伐，绍兴和议，偏安初定。'},
+{n:'中期承平（1162-1234）',d:'经济繁荣海上贸易鼎盛。'},
+{n:'南宋末年（1234-1279）',d:'蒙古南侵，崖山之战十万军民蹈海。'}]},
+{n:'元朝',b:'马背上的帝国疆域空前。四等人制下汉人地位低下，但商路畅通中西交流频繁。',eras:[
+{n:'元初（1206-1294）',d:'忽必烈建元天下初定，中西交流频繁。'},
+{n:'元中后期（1294-1368）',d:'政治腐败民族压迫加剧，红巾军起义。'}]},
+{n:'明朝',b:'驱逐胡虏恢复中华。锦衣卫东厂西厂特务横行，郑和下西洋壮举空前。',eras:[
+{n:'洪武开国（1368-1398）',d:'铁腕治国严刑峻法，百废待兴。'},
+{n:'永乐盛世（1402-1435）',d:'靖难之役迁都北京，郑和下西洋。'},
+{n:'中期（1435-1572）',d:'土木堡之变，宦官专权与文官抗争。'},
+{n:'万历到崇祯（1572-1644）',d:'万历怠政东林党争，崇祯殉国。'}]},
+{n:'清朝',b:'最后的王朝。满人入关剃发易服，也有康乾盛世。闭关锁国中世界天翻地覆。',eras:[
+{n:'入关初期（1644-1681）',d:'满汉冲突激烈，剃发令三藩之乱。'},
+{n:'康乾盛世（1681-1795）',d:'国力鼎盛疆域辽阔，文字狱严酷但经济繁荣。'},
+{n:'嘉道中衰（1796-1850）',d:'白莲教起义鸦片泛滥，国力衰退。'},
+{n:'晚清（1850-1912）',d:'太平天国洋务运动，甲午战败辛亥革命。'}]}
+];
+var talentPool={
+fan:[{n:'体格健壮',d:'比常人更结实耐打'},{n:'手脚麻利',d:'做事利索不拖泥带水'},{n:'记性不错',d:'读过的书大多能记住'},{n:'嗓音洪亮',d:'声如洪钟中气十足'},{n:'耐寒耐热',d:'对极端天气适应力强'},{n:'方向感强',d:'不易迷路'},{n:'睡眠极好',d:'倒头就睡精力充沛'},{n:'食量惊人',d:'能吃是福'},{n:'水性不错',d:'天生会水'},{n:'善于模仿',d:'看一遍就能学个七八分'},{n:'心算较快',d:'算账不用算盘'},{n:'手指灵巧',d:'适合精细活计'},{n:'跑得快',d:'两条腿比别人利索'},{n:'酒量不错',d:'三碗不过岗你能喝五碗'}],
+liang:[{n:'过目不忘',d:'看过的东西过目成诵'},{n:'天生力大',d:'力气远超常人'},{n:'能说会道',d:'三寸不烂之舌'},{n:'容貌出众',d:'生得一副好皮囊'},{n:'直觉敏锐',d:'对危险有天生的感知'},{n:'察言观色',d:'一眼看穿他人心思'},{n:'酒量惊人',d:'千杯不醉'},{n:'天生好嗓',d:'歌声动人心魄'},{n:'妙手仁心',d:'对医术有天然悟性'},{n:'精于算计',d:'算盘打得比谁都精'},{n:'善解人意',d:'总能说到别人心坎里'},{n:'身轻如燕',d:'身手敏捷善于攀爬'}],
+you:[{n:'文曲星照',d:'读书过目成诵下笔如有神'},{n:'武曲星临',d:'天生将帅之才'},{n:'天生媚骨',d:'举手投足间魅力无穷'},{n:'商才天授',d:'天生的生意头脑'},{n:'鬼手神医',d:'医术天赋异禀'},{n:'百步穿杨',d:'箭术或投掷精准无比'},{n:'舌灿莲花',d:'辩才无碍说服力极强'},{n:'铁骨铮铮',d:'意志坚定不屈不挠'},{n:'一目十行',d:'阅读速度极快且能理解'},{n:'明察秋毫',d:'观察力惊人细节尽收眼底'},{n:'运筹帷幄',d:'天生的战略思维'}],
+xi:[{n:'帝王之相',d:'天生的领袖气质令人臣服'},{n:'倾国之貌',d:'容颜绝世足以倾城'},{n:'鬼谷传人',d:'纵横捭阖之术浑然天成'},{n:'天命所归',d:'冥冥之中自有气运加身'},{n:'万人之敌',d:'武力值当世罕有匹敌'},{n:'经天纬地',d:'治国理政之才百年一遇'},{n:'妙笔生花',d:'文章诗词惊才绝艳'},{n:'通灵之体',d:'对天地灵气异常敏感'},{n:'不世出之才',d:'某一领域的绝世天才'},{n:'天生将帅',d:'统兵作战如有神助'}],
+chuan:[{n:'穿越者记忆',d:'携带后世千年的知识与见闻'},{n:'前世宿慧',d:'灵魂深处有前世的智慧残留'},{n:'龙凤之姿',d:'天生异象注定不凡'},{n:'紫微星命',d:'命格贵不可言'},{n:'天道宠儿',d:'总能在绝境中逢凶化吉'},{n:'万法皆通',d:'学什么都极快触类旁通'},{n:'不老之身',d:'容颜衰老速度极慢'},{n:'气运之子',d:'运气好到不可思议'}]
+};
+var tNames={fan:'凡',liang:'良',you:'优',xi:'稀',chuan:'传说'};
+(function(){var c=document.getElementById('snow');for(var i=0;i<40;i++){var f=document.createElement('div');f.className='sf';var sz=Math.random()*3.5+1.5;f.style.width=sz+'px';f.style.height=sz+'px';f.style.left=Math.random()*100+'%';f.style.animationDuration=(Math.random()*7+6)+'s';f.style.animationDelay=Math.random()*10+'s';f.style.setProperty('--dx',(Math.random()-0.5)*80+'px');c.appendChild(f);}})();
+var stepLabels=['壹','贰','叁','肆','伍','陆'];
+function renderProg(){var h='';for(var i=1;i<=6;i++){var cls='';if(i===curStep)cls='active';else if(i<curStep)cls='done';h+='<div class="prog-dot '+cls+'" onclick="jumpTo('+i+')">'+stepLabels[i-1]+'</div>';if(i<6)h+='<div class="prog-line '+(i<curStep?'done':'')+'"></div>';}document.getElementById('prog').innerHTML=h;}
+renderProg();
+function getStepId(n){if(n===1)return 's1';if(n===2)return 's2';if(n===3){if(S.route==='emperor')return 's3emperor';if(S.route==='figure')return 's3figure';if(S.route==='common')return 's3common';if(S.route==='custom')return 's3custom';return 's2';}if(n===4)return 's4';if(n===5)return 's5';if(n===6)return 's6';return 's1';}
+function showStep(n){ document.querySelectorAll('.step').forEach(function(s){s.classList.remove('active');});
+  var id=getStepId(n);
+  var el=document.getElementById(id);
+  if(el)el.classList.add('active');
+  curStep=n;
+  renderProg();
+  window.scrollTo(0,0);
+  if(n===6){
+    genPreview();
+    bindStep6Live();
+  }
+}
+function bindStep6Live(){
+  var s6=document.getElementById('s6');
+  if (s6.dataset.bound) return;
+  s6.dataset.bound='true';
+  s6.querySelectorAll('.opt-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      setTimeout(genPreview,50);
+    });
+  }); s6.querySelectorAll('textarea').forEach(function(ta){
+    ta.addEventListener('input',genPreview);
+  });
+}
+function setupFatePanel(){
+var isFixed=(S.route==='emperor'||S.route==='figure');
+document.getElementById('cardOrigin').style.display=isFixed?'none':'';
+document.getElementById('cardFamily').style.display=isFixed?'none':'';
+var hint=document.getElementById('relHint');
+if(S.route==='emperor'){hint.style.display='block';hint.textContent='可添加后妃、皇子、权臣、宦官等与帝王相关的重要人物';}
+else if(S.route==='figure'){hint.style.display='block';hint.textContent='可添加与此人相关的重要人物，如知己、对手、恩师等';}
+else{hint.style.display='none';}
+}
+function next(){
+if(curStep===2&&!S.route){showMsg('请先选择一条人生道路');return;}
+if(curStep===3){
+if(S.route==='emperor'&&!S.emp){showMsg('请先选择一位帝王');return;}
+if(S.route==='figure'&&!S.fig){showMsg('请先选择一位历史人物');return;}
+if(S.route==='common'&&!S.era){showMsg('请选择朝代和起始时期');return;}
+if(S.route==='custom'&&!getOptVal('worldType')){showMsg('请先选择世界类型');return;}
+}
+if(curStep>=6)return;
+if(curStep===4){setupFatePanel();}
+showStep(curStep+1);
+}
+function prev(){if(curStep<=1)return;showStep(curStep-1);}
+function jumpTo(n){if(n<curStep)showStep(n);}
+function pickRoute(r){S.route=r;document.querySelectorAll('.route-item').forEach(function(el){el.classList.remove('sel');});event.currentTarget.classList.add('sel');
+if(r==='emperor')renderEmps();if(r==='figure')renderFigs();if(r==='common')renderDyns();}
+function renderEmps(){var el=document.getElementById('empList');var h='';emps.forEach(function(g){h+='<div class="acc-item" onclick="togAcc(this)">';h+='<div class="acc-head"><h4>'+g.d+'</h4><span>▸</span></div>';h+='<div class="acc-body">';g.list.forEach(function(e){h+='<div class="emp-row" onclick="event.stopPropagation();pickEmp(this,\''+e.n.replace(/'/g,"\\'")+'\')">';h+='<span class="name">'+e.n+'</span><span class="info">'+e.i+'</span></div>';});h+='</div></div>';});el.innerHTML=h;}
+function pickEmp(el,name){document.querySelectorAll('.emp-row').forEach(function(r){r.classList.remove('sel');});el.classList.add('sel');S.emp=name;document.getElementById('empSettings').style.display='block';document.getElementById('cName').placeholder=name;}
+function customEmp(){var v=document.getElementById('empCustom').value.trim();if(!v)return;S.emp=v;document.querySelectorAll('.emp-row').forEach(function(r){r.classList.remove('sel');});document.getElementById('empSettings').style.display='block';document.getElementById('cName').placeholder=v;document.getElementById('empCustom').value='';}
+function renderFigs(){var el=document.getElementById('figList');var h='';figs.forEach(function(g){h+='<div class="acc-item" onclick="togAcc(this)">';h+='<div class="acc-head"><h4>'+g.g+'</h4><span>▸</span></div>';h+='<div class="acc-body">';g.list.forEach(function(f){h+='<div class="fig-row" onclick="event.stopPropagation();pickFig(this,\''+f.n.replace(/'/g,"\\'")+'\')">';h+='<div class="name">'+f.n+'</div><div class="info">'+f.i+'</div></div>';});h+='</div></div>';});el.innerHTML=h;}
+function pickFig(el,name){document.querySelectorAll('.fig-row').forEach(function(r){r.classList.remove('sel');});el.classList.add('sel');S.fig=name;document.getElementById('figSettings').style.display='block';document.getElementById('cName').placeholder=name;}
+function customFig(){var v=document.getElementById('figCustom').value.trim();if(!v)return;S.fig=v;document.querySelectorAll('.fig-row').forEach(function(r){r.classList.remove('sel');});document.getElementById('figSettings').style.display='block';document.getElementById('cName').placeholder=v;document.getElementById('figCustom').value='';}
+function renderDyns(){var el=document.getElementById('dynList');var h='';dyns.forEach(function(d,i){h+='<div class="acc-item" onclick="togAcc(this);pickDyn('+i+')">';h+='<div class="acc-head"><h4>'+d.n+'</h4><span>▸</span></div>';h+='<div class="acc-brief">'+d.b.substring(0,28)+'...</div>';h+='<div class="acc-body">';h+='<div class="acc-intro">'+d.b+'</div>';d.eras.forEach(function(e,j){h+='<div class="era-opt" onclick="event.stopPropagation();pickEra('+i+','+j+',this)">';h+='<h5>'+e.n+'</h5><p>'+e.d+'</p></div>';});h+='</div></div>';});el.innerHTML=h;}
+function pickDyn(i){S.dyn={name:dyns[i].n,idx:i};S.era=null;document.querySelectorAll('.era-opt').forEach(function(e){e.classList.remove('sel');});}
+function pickEra(di,ei,el){document.querySelectorAll('.era-opt').forEach(function(e){e.classList.remove('sel');});el.classList.add('sel');S.dyn={name:dyns[di].n,idx:di};S.era={name:dyns[di].eras[ei].n,desc:dyns[di].eras[ei].d};}
+function togAcc(el){var wasOpen=el.classList.contains('open');el.parentNode.querySelectorAll('.acc-item').forEach(function(a){a.classList.remove('open');});if(!wasOpen)el.classList.add('open');}
+// 核心修复：单选 - 纯span，不再有label+radio冲突
+function togOpt(el,gid){document.querySelectorAll('#'+gid+' .opt-btn').forEach(function(b){b.classList.remove('sel');});el.classList.add('sel');}
+// 核心修复：多选 - 纯span，直接toggle class
+function togMulti(el){el.classList.toggle('sel');}
+function getOptVal(gid){var sel=document.querySelector('#'+gid+' .opt-btn.sel');return sel?sel.textContent.trim():'';}
+function getMultiVals(gid){var vals=[];document.querySelectorAll('#'+gid+' .opt-btn.sel').forEach(function(b){vals.push(b.textContent.trim());});return vals;}
+function updIdent(){var cls=document.getElementById('cClass').value;var sel=document.getElementById('cIdent');sel.innerHTML='';if(!cls){sel.innerHTML='<option value="">请先选择出身阶层</option>';return;}(identMap[cls]||[]).forEach(function(item){var o=document.createElement('option');o.value=item;o.textContent=item;sel.appendChild(o);});}
+function updRank(){var b=parseInt(document.getElementById('cBro').value)||0;var s=parseInt(document.getElementById('cSis').value)||0;var sel=document.getElementById('cRank');sel.innerHTML='';if(b===0&&s===0){sel.innerHTML='<option>独子/独女</option>';return;}var opts=['长子/长女'];var t=b+s+1;for(var i=2;i<t;i++)opts.push('排行第'+i);opts.push('幼子/幼女');opts.forEach(function(o){var op=document.createElement('option');op.value=o;op.textContent=o;sel.appendChild(op);});}
+var relCnt=0;
+function addRel(){relCnt++;var box=document.getElementById('relBox');var d=document.createElement('div');d.className='rel-card';d.id='rel'+relCnt;d.innerHTML='<button class="rel-rm" onclick="this.parentNode.remove()">×</button><div class="fr" style="margin-bottom:8px;"><div class="fg" style="margin-bottom:0;"><span class="fl" style="font-size:0.78em;">关系</span><select><option value="">请选择</option><option>父亲</option><option>母亲</option><option>兄弟</option><option>姐妹</option><option>夫/妻</option><option>情人</option><option>挚友</option><option>仇人</option><option>师父</option><option>仆从</option><option>主公</option><option>其他</option></select></div><div class="fg" style="margin-bottom:0;"><span class="fl" style="font-size:0.78em;">姓名 <span class="fh">选填</span></span><input type="text" placeholder="留空则随机"></div></div><div class="fg" style="margin-bottom:0;"><span class="fl" style="font-size:0.78em;">简述 <span class="fh">选填</span></span><input type="text" placeholder="如：青梅竹马，性格温婉..."></div>';box.appendChild(d);}
+function rollTalent(){var box=document.getElementById('talentBox');var weights=[{k:'fan',w:35},{k:'liang',w:28},{k:'you',w:20},{k:'xi',w:12},{k:'chuan',w:5}];function pick(){var r=Math.random()*100,c=0;for(var i=0;i<weights.length;i++){c+=weights[i].w;if(r<c)return weights[i].k;}return'fan';}var used={};var results=[];for(var i=0;i<10;i++){var rarity=pick();var pool=talentPool[rarity];var t;var att=0;do{t=pool[Math.floor(Math.random()*pool.length)];att++;}while(used[t.n]&&att<30);used[t.n]=true;results.push({name:t.n,desc:t.d,rarity:rarity});}S.talents=results;S.selTalents=[];var h='';results.forEach(function(t,idx){h+='<div class="talent-row t-'+t.rarity+'" onclick="togTalent('+idx+')" id="tr'+idx+'">';h+='<div class="check-mark">&#10003;</div>';h+='<div class="talent-dot"></div>';h+='<span class="talent-name">'+t.name+'</span>';h+='<span class="talent-desc">'+t.desc+'</span>';h+='<span class="talent-grade">'+tNames[t.rarity]+'</span>';h+='</div>';});box.innerHTML=h;}
+function togTalent(idx){var row=document.getElementById('tr'+idx);if(row.classList.contains('disabled'))return;if(row.classList.contains('sel')){row.classList.remove('sel');S.selTalents=S.selTalents.filter(function(i){return i!==idx;});updateTalentState();}else{if(S.selTalents.length>=3)return;row.classList.add('sel');S.selTalents.push(idx);updateTalentState();}}
+function updateTalentState(){S.talents.forEach(function(t,i){var row=document.getElementById('tr'+i);if(!row)return;if(S.selTalents.length>=3&&!row.classList.contains('sel')){row.classList.add('disabled');}else{row.classList.remove('disabled');}});}
+// 修复：性格取值改为读取 .sel class 而非 checkbox
+function getTraits(){var t=[];document.querySelectorAll('.card .opt-group .opt-btn.sel').forEach(function(btn){var p=btn.closest('.card');if(p&&p.querySelector('.sep')&&p.querySelector('.sep').textContent.includes('心性'))t.push(btn.textContent.trim());});return t;}
+function getRels(){var rels=[];document.querySelectorAll('.rel-card').forEach(function(card){var sels=card.querySelectorAll('select');var inps=card.querySelectorAll('input');var type=sels[0]?sels[0].value:'';var name=inps[0]?inps[0].value.trim():'';var desc=inps[1]?inps[1].value.trim():'';if(type){var r=type;if(name)r+='（'+name+'）';if(desc)r+='：'+desc;rels.push(r);}});return rels;}
+function genPreview(){var L=[];
+if(S.route==='emperor'){
+L.push('【人生路线】帝王之路');
+L.push('【帝王】'+(document.getElementById('cName').value||S.emp));
+var mode=getOptVal('empMode');if(mode)L.push('【参照方式】'+mode);
+var stage=getOptVal('empStage');if(stage)L.push('【起始阶段】'+stage);
+var free=getOptVal('empFree');if(free)L.push('【历史自由度】'+free);
+var situs=getMultiVals('empSitu');
+if(situs.length)L.push('【当前局势】'+situs.join('、'));
+var empEx=document.getElementById('empExtra').value.trim();if(empEx)L.push('【帝王补充】'+empEx);
+}else if(S.route==='figure'){
+L.push('【人生路线】青史留名');
+L.push('【历史人物】'+(document.getElementById('cName').value||S.fig));
+var mode=getOptVal('figMode');if(mode)L.push('【参照方式】'+mode);
+var stage=getOptVal('figStage');if(stage)L.push('【起始阶段】'+stage);
+var free=getOptVal('figFree');if(free)L.push('【历史自由度】'+free);
+var figEx=document.getElementById('figExtra').value.trim();if(figEx)L.push('【人物补充】'+figEx);
+}else if(S.route==='common'){
+L.push('【人生路线】芸芸众生');
+if(S.dyn)L.push('【朝代】'+S.dyn.name);
+if(S.era)L.push('【起始时期】'+S.era.name);
+}else if(S.route==='custom'){
+L.push('【人生路线】自定义世界');
+var wt=getOptVal('worldType');if(wt)L.push('【世界类型】'+wt);
+var wn=document.getElementById('worldName').value.trim();if(wn)L.push('【世界名称】'+wn);
+var wb=document.getElementById('worldBg').value.trim();if(wb)L.push('【世界背景】'+wb);
+var wr=document.getElementById('worldRules').value.trim();if(wr)L.push('【特殊规则】'+wr);
+}
+L.push('');
+var name=document.getElementById('cName').value.trim();
+var zi=document.getElementById('cZi').value.trim();
+var age=document.getElementById('cAge').value;
+var gender=getOptVal('cGender');
+if(name)L.push('【姓名】'+name);
+if(zi)L.push('【字/号】'+zi);
+if(gender)L.push('【性别】'+gender);
+if(age)L.push('【年龄】'+age);
+var look=document.getElementById('cLook').value.trim();
+if(look)L.push('【外貌】'+look);
+var traits=getTraits();
+var traitEx=document.getElementById('cTraitEx').value.trim();
+var traitStr='';
+if(traits.length)traitStr=traits.join('、');
+if(traitEx)traitStr+=(traitStr?'；':'')+traitEx;
+if(traitStr)L.push('【性格】'+traitStr);
+L.push('');
+if(S.route==='common'||S.route==='custom'){
+var cls=document.getElementById('cClass').value;
+var ident=document.getElementById('cIdent').value;
+var loc=document.getElementById('cLoc').value;
+var wealth=document.getElementById('cWealth').value;
+if(cls)L.push('【出身阶层】'+cls);
+if(ident)L.push('【起始身份】'+ident);
+if(loc)L.push('【起始地点】'+loc);
+if(wealth)L.push('【起始经济】'+wealth);
+var father=document.getElementById('cFather').value.trim();
+var mother=document.getElementById('cMother').value.trim();
+var bro=document.getElementById('cBro').value;
+var sis=document.getElementById('cSis').value;
+var rank=document.getElementById('cRank').value;
+var fam=document.getElementById('cFam').value;
+var famEx=document.getElementById('cFamEx').value.trim();
+var famParts=[];
+if(father)famParts.push('父：'+father);
+if(mother)famParts.push('母：'+mother);
+if(bro!=='0')famParts.push('兄弟'+bro+'人');
+if(sis!=='0')famParts.push('姐妹'+sis+'人');
+if(rank)famParts.push('排行：'+rank);
+if(fam)famParts.push('家庭：'+fam);
+if(famParts.length)L.push('【家庭】'+famParts.join(' / '));
+if(famEx)L.push('【家庭补充】'+famEx);
+}
+var rels=getRels();
+if(rels.length){L.push('【重要之人】');rels.forEach(function(r){L.push('  '+r);});}
+L.push('');
+var talentStrs=[];
+S.selTalents.forEach(function(idx){var t=S.talents[idx];talentStrs.push(t.name+'('+tNames[t.rarity]+')');});
+var talentEx=document.getElementById('cTalentEx').value.trim();
+if(talentEx)talentStrs.push(talentEx);
+if(talentStrs.length)L.push('【天赋】'+talentStrs.join(' / '));
+var goal=document.getElementById('cGoal').value.trim();
+if(goal)L.push('【人生志向】'+goal);
+var extra=document.getElementById('cExtra').value.trim();
+if(extra)L.push('【额外设定】'+extra);
+var scene=getOptVal('openScene');
+var openEx=document.getElementById('openExtra').value.trim();
+if(scene)L.push('【开场场景】'+scene);
+if(openEx)L.push('【开场补充】'+openEx);
+L.push('');
+document.getElementById('pvBox').textContent=L.join('\n');
+}
+function copyPv(){var text=document.getElementById('pvBox').textContent;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){showMsg('命书已成功复制！');}).catch(function(){fallbackCopy(text);});}else{fallbackCopy(text);}}
+function fallbackCopy(text){var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();var copied=document.execCommand('copy');document.body.removeChild(ta);showMsg(copied?'命书已成功复制！':'请选中命书正文手动复制。');}
+function showMsg(msg){document.getElementById('modalTxt').textContent=msg;document.getElementById('modal').classList.add('show');}
+function closeModal(){document.getElementById('modal').classList.remove('show');}
+</script>
+</body></html>

@@ -11,6 +11,7 @@ COPY tooling ./tooling
 COPY ui-host ./ui-host
 COPY docs/RPG04_PROTOCOL_RUNTIME.txt ./docs/RPG04_PROTOCOL_RUNTIME.txt
 COPY plugins ./plugins
+COPY ancient-card ./ancient-card
 COPY cultivation-card ./cultivation-card
 COPY studio ./studio
 COPY ui/package.json ui/package-lock.json ./ui/
