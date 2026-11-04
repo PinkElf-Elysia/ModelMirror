@@ -57,11 +57,13 @@ async function run(env){
     const line=(await readFile(env.RPG_CREDENTIAL_FILE,'utf8')).split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));
     key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');
   }
+  const {imageService}=await import('./illustrations.mjs');
   const {start,archiveChatOptions}=await import('./server.mjs');
   const archiveOptions=archiveChatOptions(env);
   for(const route of [archiveOptions.xingjianControl,...Object.values(archiveOptions.archiveControls)])if(route)route.fetcher=configFetch;
   const {server,plugins,god}=await start({...archiveOptions,ownArchiveDirectory:ownDirectory,directory,key,limit,fetcher:configFetch,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
+    illustrationService:env.RPG_IMAGE_ENABLED==='false'?null:imageService(env.RPG_CONTROL_URL||'http://server:8000/'),
     transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',
     godCard:yes('RPG_GOD_CARD_ENABLED'),godBranches:yes('RPG_GOD_BRANCHES_ENABLED'),godPlugins:yes('RPG_GOD_PLUGINS_ENABLED'),
