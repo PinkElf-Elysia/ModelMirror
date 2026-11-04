@@ -23,10 +23,11 @@ for(const card of summaryCards)test(card+' 20/21, 40/41, persistence and explici
     const previous=s,offset=calls.length;
     await change('send',{input:'第'+n+'次行动'});
     assert.deepEqual(calls.slice(offset).map(c=>c.purpose),[...(n===21||n===41?['large']:[]),'story','small']);
+    const small=calls.at(-1);
+    assert.deepEqual(JSON.parse(small.messages[1].content),{user_message:s.turns.at(-1).input,assistant_message:s.turns.at(-1).raw});
     if(n===21||n===41){
-      const source=JSON.parse(calls[offset].messages[1].content);
-      assert.equal(source.previous,previous.large);assert.equal(source.summaries.length,20);
-      assert.equal(source.summaries[0].turn,n-20);
+      const numbered=previous.turns.slice(-20).map((turn,i)=>'小总结'+(i+1)+': '+turn.small);
+      assert.equal(calls[offset].messages[1].content,['big_summary:',previous.large,'','small_summary（共20条，按时间从早到晚）:',...numbered].join('\n'));
     }
     if(n>1){
       const send=calls.at(-2).messages;
