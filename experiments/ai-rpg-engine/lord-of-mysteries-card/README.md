@@ -10,7 +10,7 @@
 node experiments/ai-rpg-engine/lord-of-mysteries-card/preview.mjs
 ~~~
 
-在「角色」中填写姓名，在「命数」中抽取命数与行囊，再切到「档案」核对结果。「复制档案」复制全文，「装配开局（离线）」在本机以原文生成首轮消息。当前共享 Studio 的卡片列表和 Docker 镜像没有集成本卡。
+在「角色」中填写姓名，在「命数」中抽取命数与行囊，再切到「档案」核对结果。「复制档案」复制全文，「装配开局（离线）」在本机以原文生成首轮消息。在主站 RPG 大厅选择本卡，打开「档案」后选择「以此档案进入独立聊天」，即可用同一档案创建会话。
 
 ## 离线验收
 
@@ -28,4 +28,4 @@ node experiments/ai-rpg-engine/lord-of-mysteries-card/live-acceptance.mjs offlin
 
 ## 回退
 
-本卡的共享代码改动只有受控适配器中新增的卡片 ID。回退候选改动即可移除本卡，原有 earth、god 和 cultivation 的注册均保留。独立账本按实测记录留存。
+独立预览器可继续按上方命令启动。独立账本按实测记录留存。

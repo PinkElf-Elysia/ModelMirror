@@ -902,7 +902,7 @@ footer{text-align:center;padding:18px;background:rgba(70,66,60,0.92);color:var(-
     <div class="tab-content" id="tab-preview">
       <h2 class="section-title">档案预览</h2>
       <div class="preview-box" id="preview-box"></div>
-      <button class="copy-btn" onclick="copyPreview()">📋 复制档案</button>
+      <button class="copy-btn" onclick="copyPreview()">📋 复制档案</button><button id="open-chat" hidden class="copy-btn">以此档案进入独立聊天</button>
       <button class="copy-btn" id="prepare-opening" hidden>装配开局（离线）</button>
       <output id="prepare-result" aria-live="polite"></output>
       <div class="nav-buttons">
@@ -2741,7 +2741,7 @@ ${pathwayText}`;
 ━━━━━━━━━━━━━━━━━━━━━━━━━`;
   document.getElementById('preview-box').textContent=txt;
 }
-if(location.protocol==='http:' && location.hostname==='127.0.0.1'){
+if(location.protocol==='http:' && location.hostname==='127.0.0.1' && !new URLSearchParams(location.search).has('chat')){
   const prepare=document.getElementById('prepare-opening');
   prepare.hidden=false;
   prepare.onclick=async()=>{
@@ -2774,6 +2774,13 @@ function fallback(text,success,fail){
   document.body.appendChild(ta);ta.select();
   try{document.execCommand('copy')?success():fail();}catch(e){fail();}
   document.body.removeChild(ta);
+}
+</script>
+<script>
+if(new URLSearchParams(location.search).get('chat')==='1' && window.parent!==window){
+ const button=document.getElementById('open-chat');
+ button.hidden=false;
+ button.onclick=()=>parent.postMessage({type:'lord-of-mysteries-opening',text:document.getElementById('preview-box').textContent},new URL(location.href).origin);
 }
 </script>
 </body>

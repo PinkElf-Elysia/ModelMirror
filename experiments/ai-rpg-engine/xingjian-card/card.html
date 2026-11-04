@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport"/>
+<title>无限重生系统 - 启动协议 v16.2 (Pyrite修复版)</title>
+<style>
+        :root { --neon-blue: #00f3ff; --neon-white: #ffffff; --deep-bg: #050510; --panel-bg: rgba(10, 20, 40, 0.95); --border-color: rgba(0, 243, 255, 0.3); --text-glow: 0 0 10px rgba(0, 243, 255, 0.5); --box-glow: 0 0 15px rgba(0, 243, 255, 0.2); --rarity-black: #333333; --rarity-gray: #a0a0a0; --rarity-white: #ffffff; --rarity-green: #00ff00; --rarity-blue: #00f3ff; --rarity-purple: #b026ff; --rarity-gold: #ffd700; --rarity-red: #ff0000; --rarity-pink: #ff69b4; --rarity-rainbow: #ff5fd2; }
+        * { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body { margin: 0; padding: 0; background-color: #000; color: var(--neon-white); font-family: 'Courier New', Courier, monospace; overflow-y: auto; min-height: 100vh; width: 100vw; }
+        .page { position: relative; width: 100%; min-height: 100vh; display: none; flex-direction: column; justify-content: flex-start; align-items: center; padding: 40px 20px 60px 20px; background: radial-gradient(circle at center, #1a2a4a 0%, var(--deep-bg) 70%); }
+        .active-page { display: flex; }
+        .content-panel { display: none; width: 100%; max-width: 800px; height: auto; overflow: visible; padding-bottom: 20px; }
+        .content-panel.active { display: block; }
+        @keyframes blink { 0% { height: 100vh; top: 0; } 45% { height: 0; top: 50%; } 55% { height: 0; top: 50%; } 100% { height: 100vh; top: 0; } }
+        @keyframes pulse-glow { 0% { box-shadow: 0 0 5px var(--neon-blue); } 50% { box-shadow: 0 0 20px var(--neon-blue); } 100% { box-shadow: 0 0 5px var(--neon-blue); } }
+        #page-intro, #page-main { background-image: linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px); background-size: 20px 20px; }
+        .matrix-bg { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; opacity: 0.3; z-index: 0; }
+        .dialog-box { background: var(--panel-bg); border: 1px solid var(--neon-blue); box-shadow: var(--box-glow); padding: 20px; max-width: 800px; width: 95%; border-radius: 5px; position: relative; margin-bottom: 20px; z-index: 1; }
+        .dialog-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, var(--neon-blue), transparent, var(--neon-blue)); z-index: -1; border-radius: 7px; opacity: 0.5; }
+        .typing-text { font-size: 1.0em; line-height: 1.6; text-shadow: var(--text-glow); margin-bottom: 15px; min-height: 80px; text-align: left; }
+        .typing-text p { margin: 0 0 10px 0; }
+        .typing-text b { color: var(--neon-blue); font-weight: bold; }
+        .form-group { margin-bottom: 15px; text-align: left; width: 100%; }
+        label { display: block; color: var(--neon-blue); margin-bottom: 5px; font-size: 0.9em; }
+        input, select, textarea { width: 100%; background: rgba(0, 0, 0, 0.5); border: 1px solid var(--border-color); color: var(--neon-white); padding: 10px; font-family: inherit; border-radius: 3px; }
+        input:focus, textarea:focus { outline: none; border-color: var(--neon-blue); box-shadow: var(--box-glow); }
+        .btn { background: transparent; border: 1px solid var(--neon-blue); color: var(--neon-blue); padding: 10px 20px; cursor: pointer; font-family: inherit; font-weight: bold; text-transform: uppercase; transition: all 0.3s; margin-top: 10px; position: relative; overflow: hidden; display: inline-block; }
+        .btn:hover { background: rgba(0, 243, 255, 0.1); box-shadow: var(--text-glow); color: var(--neon-white); }
+        .btn.primary { background: rgba(0, 243, 255, 0.2); width: 100%; }
+        .nav-bar { display: flex; justify-content: space-around; width: 100%; max-width: 800px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); z-index: 1; background: rgba(0,0,0,0.8); position: sticky; top: 0; padding: 10px 0; }
+        .nav-btn { background: transparent; border: none; color: rgba(255,255,255,0.5); padding: 10px 5px; cursor: pointer; font-size: 0.9em; transition: all 0.3s; flex: 1; text-align: center; }
+        .nav-btn.active { color: var(--neon-blue); border-bottom: 2px solid var(--neon-blue); text-shadow: var(--text-glow); }
+        .nav-btn.highlight { animation: pulse-glow 1.5s infinite; }
+        .option-card { background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); padding: 15px; margin-bottom: 15px; cursor: pointer; transition: all 0.2s; }
+        .option-card:hover, .option-card.selected { background: rgba(0, 243, 255, 0.1); border-color: var(--neon-blue); }
+        .rarity-E { color: var(--rarity-gray); border-color: var(--rarity-gray) !important; } .rarity-D { color: var(--rarity-gray); } .rarity-C { color: var(--rarity-white); } .rarity-B { color: var(--rarity-green); } .rarity-A { color: var(--rarity-blue); } .rarity-S { color: var(--rarity-purple); text-shadow: 0 0 5px var(--rarity-purple); border-color: var(--rarity-purple) !important; } .rarity-SS { color: var(--rarity-gold); text-shadow: 0 0 5px var(--rarity-gold); border-color: var(--rarity-gold) !important; } .rarity-SSS { color: var(--rarity-red); text-shadow: 0 0 8px var(--rarity-red); font-weight: bold; border-color: var(--rarity-red) !important; }
+        .rarity-Pink { color: var(--rarity-pink); text-shadow: 0 0 5px var(--rarity-pink); border-color: var(--rarity-pink) !important; }
+        .rarity-UR { color: var(--rarity-rainbow); text-shadow: 0 0 8px var(--rarity-rainbow); font-weight: bold; border-color: var(--rarity-rainbow) !important; animation: ur-hue 4s linear infinite; }
+        @keyframes ur-hue { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }
+        .search-box { width: 100%; padding: 10px; margin-bottom: 10px; background: rgba(0,0,0,0.7); border: 1px solid var(--border-color); color: white; }
+        #copy-area { width: 100%; height: 200px; background: #000; color: var(--neon-blue); font-family: monospace; font-size: 0.8em; border: 1px solid var(--border-color); padding: 10px; resize: none; }
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--deep-bg); border: 1px solid var(--neon-blue); padding: 20px; z-index: 2000; display: none; box-shadow: 0 0 30px rgba(0,243,255,0.3); text-align: center; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; }
+        .talent-pool-section { margin-top: 15px; padding-top: 10px; border-top: 1px dashed var(--border-color); }
+        .filter-buttons .btn { font-size: 0.7em; padding: 5px 10px; margin: 2px; }
+        .filter-buttons .btn.active-filter { background: rgba(0, 243, 255, 0.4); box-shadow: 0 0 10px var(--neon-blue); color: #fff; border-color: #fff; }
+        footer { position: fixed; bottom: 0; left: 0; width: 100%; text-align: center; font-size: 0.7em; color: rgba(255,255,255,0.5); pointer-events: none; background: rgba(0,0,0,0.8); padding: 5px; z-index: 999; }
+        footer a { color: inherit; text-decoration: none; pointer-events: auto; }
+        #world-selection-list { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+        .world-select-btn { width: 100%; text-align: left; padding: 15px; background: rgba(0, 243, 255, 0.1); border: 1px solid var(--border-color); color: var(--neon-white); cursor: pointer; transition: all 0.3s; }
+        .world-select-btn:hover { background: rgba(0, 243, 255, 0.3); box-shadow: var(--box-glow); }
+        .world-select-btn h4 { margin: 0 0 5px 0; color: var(--neon-blue); }
+        .world-select-btn p { margin: 0; font-size: 0.8em; color: #aaa; }
+        #help-btn { position: fixed; top: 20px; right: 20px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 243, 255, 0.2); border: 1px solid var(--neon-blue); color: var(--neon-blue); font-size: 20px; font-weight: bold; cursor: pointer; z-index: 1500; display: flex; align-items: center; justify-content: center; animation: pulse-glow 2s infinite; }
+        #help-btn:hover { background: rgba(0, 243, 255, 0.5); color: #fff; }
+        #log-btn { position: fixed; top: 20px; right: 70px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 243, 255, 0.2); border: 1px solid var(--neon-blue); color: var(--neon-blue); font-size: 10px; font-weight: bold; cursor: pointer; z-index: 1500; display: flex; align-items: center; justify-content: center; animation: pulse-glow 2s infinite; }
+        #log-btn:hover { background: rgba(0, 243, 255, 0.5); color: #fff; }
+        @keyframes float-tip { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-5px); } }
+        .letter-content { text-align: left; font-size: 0.9em; line-height: 1.6; color: #ddd; }
+        .letter-content h4 { color: var(--neon-blue); margin-top: 15px; margin-bottom: 5px; border-bottom: 1px dashed #555; padding-bottom: 5px; }
+        #custom-world-interface {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--deep-bg); z-index: 2500; display: none;
+            flex-direction: column; align-items: center; padding: 20px;
+            overflow-y: auto;
+        }
+        #custom-world-interface h2 { color: var(--neon-blue); border-bottom: 1px solid var(--neon-blue); padding-bottom: 10px; width: 100%; max-width: 600px; text-align: center; }
+        .custom-section { width: 100%; max-width: 600px; margin-bottom: 20px; border: 1px solid #333; padding: 15px; border-radius: 5px; background: rgba(255,255,255,0.02); }
+        .custom-section h4 { margin-top: 0; color: var(--rarity-gold); }
+        .talent-btn {
+            display: flex; flex-direction: column; justify-content: flex-start; align-items: flex-start;
+            text-align: left; height: auto; min-height: 100px; padding: 8px;
+            white-space: normal; word-break: break-word;
+            position: relative; overflow: hidden;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid #444;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .talent-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .talent-desc {
+            font-size: 0.7em; color: #aaa; margin-top: 4px; line-height: 1.2;
+            border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px; width: 100%; z-index: 2;
+        }
+        .talent-bg-letter {
+            position: absolute; right: -5px; bottom: -15px;
+            font-size: 5em; font-weight: 900; opacity: 0.15;
+            font-family: 'Impact', sans-serif; pointer-events: none; z-index: 0;
+        }
+        .talent-header { z-index: 2; width: 100%; display: flex; justify-content: space-between; align-items: center; }
+        .remove-btn { color: red; cursor: pointer; font-weight: bold; margin-left: 10px; border: 1px solid red; padding: 0 5px; border-radius: 3px; z-index: 10; background: rgba(0,0,0,0.8); }
+        .remove-btn:hover { background: red; color: white; }
+
+        #talent-picker-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 2600; display: none; align-items: center; justify-content: center; padding: 12px; }
+        .tp-panel { background: var(--deep-bg); border: 1px solid var(--neon-blue); box-shadow: 0 0 30px rgba(0,243,255,0.3); width: 100%; max-width: 760px; max-height: 92vh; display: flex; flex-direction: column; padding: 14px 16px; border-radius: 5px; text-align: left; }
+        .tp-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .tp-top h3 { margin: 0; color: var(--neon-blue); font-size: 1.05em; }
+        .tp-top small { color: #888; font-weight: normal; margin-left: 6px; font-size: 0.75em; }
+        .tp-close { margin-top: 0; padding: 4px 12px; }
+        #tp-search { margin: 10px 0 2px; }
+        #tp-scope .btn, #tp-rarity .btn { margin-top: 4px; }
+        .tp-meta { font-size: 0.72em; color: #888; margin: 6px 0; line-height: 1.5; }
+        #tp-list { flex: 1; min-height: 140px; overflow-y: auto; border: 1px solid #333; }
+        .tp-item { padding: 7px 9px; border-bottom: 1px solid #222; border-left: 3px solid #222; cursor: pointer; }
+        .tp-item:hover { background: rgba(0,243,255,0.08); }
+        .tp-item.tp-picked { background: rgba(255,255,255,0.10); }
+        .tp-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.85em; }
+        .tp-tag { font-size: 0.8em; opacity: 0.85; white-space: nowrap; }
+        .tp-desc { font-size: 0.72em; color: #aaa; margin-top: 3px; line-height: 1.45; text-shadow: none; font-weight: normal; }
+        #tp-more { width: 100%; font-size: 0.75em; padding: 6px; margin-top: 6px; }
+        .tp-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 0.8em; }
+        .tp-foot .btn.primary { width: auto; margin-top: 0; flex: 0 0 auto; }
+        .tp-foot span { flex: 1; }
+        .tp-chip { display: inline-block; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; margin: 2px 4px 2px 0; }
+        .tp-x { margin-left: 6px; cursor: pointer; color: #f55; text-shadow: none; }
+        .btn-pick { width: 100%; border-color: var(--rarity-gold); color: var(--rarity-gold); }
+    </style>
+</head>
+<body>
+<div id="log-btn" onclick="showUpdateLog()">日志</div>
+<div id="help-btn" onclick="showHelpLetter()">?</div>
+<div class="page active-page" id="page-intro">
+<div class="matrix-bg" id="matrix-bg"></div>
+<div class="dialog-box">
+<div class="typing-text" id="intro-text"><h2>个人档案</h2></div>
+<div id="intro-form">
+<div class="form-group"><label>姓名</label><input id="p-name" placeholder="输入姓名" type="text"/></div>
+<div class="form-group"><label>性别</label><select id="p-sex"><option>男</option><option>女</option><option>无性</option><option>扶他</option></select></div>
+<div class="form-group"><label>年龄</label><input id="p-age" placeholder="20" type="number"/></div>
+<div class="form-group"><label>外貌</label><textarea id="p-appearance" placeholder="描述外貌特征" rows="2"></textarea></div>
+<div class="form-group"><label>性格</label><input id="p-personality" placeholder="性格关键词" type="text"/></div>
+<div class="form-group"><label>XP系统</label><input id="p-xp" placeholder="性癖好设置" type="text"/></div>
+<div class="form-group"><label>其他设定</label><textarea id="p-other" placeholder="补充设定" rows="2"></textarea></div>
+<button class="btn primary" onclick="submitIntro()">确认身份录入</button>
+</div>
+</div>
+</div>
+<div class="page" id="page-main">
+<div class="matrix-bg"></div>
+<div class="nav-bar">
+<button class="nav-btn" id="nav-info" onclick="switchTab('info')">个人档案</button>
+<button class="nav-btn" id="nav-mode" onclick="switchTab('mode')">开局模式</button>
+<button class="nav-btn" id="nav-world" onclick="switchTab('world')">世界接入</button>
+<button class="nav-btn" id="nav-export" onclick="switchTab('export')">数据导出</button>
+</div>
+<div class="dialog-box" style="margin-bottom: 10px; min-height: 120px;">
+<div class="typing-text" id="main-dialog"></div>
+</div>
+<div class="content-panel" id="tab-info">
+<div class="form-group">
+<label>已录入档案</label>
+<div id="info-preview" style="background:rgba(0,0,0,0.5); padding:10px; border:1px solid var(--border-color); color:var(--rarity-blue);"></div>
+</div>
+<button class="btn" onclick="document.getElementById('page-intro').style.display='flex'; document.getElementById('page-main').style.display='none'; document.getElementById('intro-form').style.display='block';">修改档案</button>
+</div>
+<div class="content-panel" id="tab-mode">
+<div class="option-card" id="mode-card-new" onclick="selectMode('new')">
+<h4>全新攻略者</h4>
+<p>一切归零，从尘埃中崛起。适合首次体验。</p>
+</div>
+<div class="option-card" id="mode-card-legacy" onclick="selectMode('legacy')">
+<h4>继承攻略者</h4>
+<p>消耗积分购买强力开局。适合老练的轮回者。</p>
+</div>
+<div class="option-card" id="mode-card-sandbox" onclick="selectMode('sandbox')">
+<h4>体验者 (沙盒)</h4>
+<p>修改一切，无视规则。仅仅为了爽。</p>
+</div>
+<div id="legacy-options" style="display:none; margin-top:20px; border-top:1px dashed var(--border-color); padding-top:10px;">
+<h3>继承设定</h3>
+<div class="form-group">
+<label>初始积分</label>
+<input id="p-points" onchange="setInitialPoints(this.value)" placeholder="0" type="number"/>
+<p style="font-size:0.8em; color:var(--neon-blue);">当前可用: <span id="player-points-display">0</span> P</p>
+</div>
+<div class="form-group">
+<label>继承物品 (遗产)</label>
+<input id="legacy-item" placeholder="上一世的武器/道具" type="text"/>
+</div>
+<div class="form-group">
+<label>任务证明</label>
+<input id="legacy-proof" placeholder="通关代码/哈希值" type="text"/>
+</div>
+<h3>虚空商店 (<span id="total-talents-count">0</span>)</h3>
+<div class="form-group">
+<input class="search-box" oninput="setSearchTerm(this.value)" placeholder="搜索天赋/世界..." type="text"/>
+</div>
+<div class="filter-buttons">
+<button class="btn" name="price-filter" onclick="setPriceFilter(this, 0, 500)">0-500</button>
+<button class="btn" name="price-filter" onclick="setPriceFilter(this, 501, 2000)">500-2k</button>
+<button class="btn" name="price-filter" onclick="setPriceFilter(this, 2001, 99999)">2k+</button>
+<button class="btn" onclick="toggleAffordableFilter(this)">仅看买得起</button>
+<button class="btn" onclick="resetAllFilters()">重置</button>
+</div>
+<div id="shop-list" style="max-height:300px; overflow-y:auto; border:1px solid #333; margin-top:10px;"></div>
+<div style="margin-top:10px;">
+<label>已购天赋:</label>
+<div id="purchased-list" style="font-size:0.8em; color:var(--rarity-gold);">无</div>
+</div>
+<button class="btn" onclick="showCustomTalentModal()">+ 定制天赋</button>
+</div>
+</div>
+<div class="content-panel" id="tab-world">
+<div id="world-step-1">
+<h3 style="border-bottom:1px solid var(--neon-blue);">Step 1: 位面锚定（在搜索框输入“.”即可查看列表）</h3>
+<div class="form-group">
+<input class="search-box" id="world-search-input" oninput="searchWorld(this.value)" placeholder="输入世界名称进行定向搜索..." type="text"/>
+</div>
+<button class="btn primary" onclick="showWorldSelection()">🎲 随机探测位面 (6选1)</button>
+<button class="btn" onclick="openCustomWorldInterface()">🛠️ 自定义世界 (全能模式)</button>
+<div id="world-selection-area" style="display:none; margin-top:15px;">
+<label style="color:var(--neon-blue);">探测到的世界坐标：</label>
+<div id="world-selection-list"></div>
+</div>
+<div id="world-result" style="margin-top:15px; padding:10px; border:1px solid var(--border-color); display:none;">
+<h2 id="w-name" style="color:var(--neon-blue); margin:0;"></h2>
+<p id="w-desc" style="font-size:0.8em;"></p>
+<p id="w-boss" style="font-size:0.8em; color:var(--rarity-red);"></p>
+</div>
+</div>
+<div id="world-step-2" style="display:none; margin-top:20px;">
+<h3 style="border-bottom:1px solid var(--neon-blue);">Step 2: 躯壳适配</h3>
+<div id="sandbox-identity-input" style="display:none; margin-bottom:10px; border:1px solid var(--rarity-gold); padding:10px; border-radius:5px;">
+<label style="color:var(--rarity-gold);">[已解锁] 自定义身份覆写</label>
+<input id="custom-identity" placeholder="身份名称 (如: 帝国王子)" style="margin-bottom:5px;" type="text"/>
+<input id="custom-items" placeholder="初始物资 (如: 传家宝剑, 100金币)" style="margin-bottom:5px;" type="text"/>
+<select id="custom-rank" style="margin-bottom:10px;">
+<option value="E">E - 尘埃</option><option value="D">D - 路人</option><option value="C">C - 精英</option><option value="B">B - 头目</option><option value="A">A - 主角</option><option value="S">S - 史诗</option><option value="SSS">SSS - 神话</option>
+</select>
+<button class="btn" onclick="confirmCustomIdentity()" style="width:100%; border-color:var(--rarity-gold); color:var(--rarity-gold);">✅ 确认使用自定义身份</button>
+</div>
+<button class="btn" id="paid-identity-btn" onclick="enablePaidIdentity()" style="width:100%; border-color:var(--rarity-gold); color:var(--rarity-gold); display:none;">🔓 100积分开启自定义身份</button>
+<button class="btn primary" onclick="rollIdentity()">🎲 随机适配身份</button>
+<div id="identity-result" style="margin-top:10px; color:var(--rarity-gray);"></div>
+</div>
+<div id="world-step-3" style="display:none; margin-top:20px;">
+<h3 style="border-bottom:1px solid var(--neon-blue);">Step 3: 天赋加载</h3>
+<p style="font-size:0.8em; color:#888;">保底机制：每5抽必出S，每10抽必出SS，每20抽必出SSS，每50抽必出UR（彩色）。<br/><span style="color:var(--neon-blue)">UPDATE: 触发保底时，将在[本源]与[通用]池中各生成一个保底天赋。</span><br/>规则：本源天赋6选2，异界+通用天赋12选3。<br/><span style="color:var(--rarity-gold)">NEW: 可点「🔍 指定天赋」直接挑选任意天赋，名额同上（本源 2 / 异界与通用 3）；已选天赋点 ✕ 可移除。</span></p>
+<button class="btn primary" onclick="rollTalents()">🎲 抽取天赋池 (18连)</button>
+<button class="btn btn-pick" onclick="openTalentPicker()">🔍 指定天赋（直接挑选，不用抽）</button>
+<div class="talent-pool-section">
+<label>✦ 本源天赋 (本世界专属 - 固定6个)</label>
+<div id="talent-pool-exclusive" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:5px; margin-top:5px;"></div>
+</div>
+<div class="talent-pool-section">
+<label>✦ 异界与通用天赋 (9个异界 + 3个通用 - 固定12个)</label>
+<div id="talent-pool-common" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:5px; margin-top:5px;"></div>
+</div>
+<div style="margin-top:10px; font-size:0.8em;">
+                    已选专属 (<span id="count-exclusive">0</span>/2): <span id="selected-exclusive" style="color:var(--neon-blue);">无</span><br/>
+                    已选通用 (<span id="count-common">0</span>/3): <span id="selected-common" style="color:var(--neon-white);">无</span>
+</div>
+</div>
+</div>
+<div class="content-panel" id="tab-export">
+<h3>系统生成协议</h3>
+<p style="font-size:0.8em; color:#888;">请复制以下代码至无限重生系统终端。</p>
+<textarea id="copy-area" readonly=""></textarea>
+<button class="btn primary" id="copy-button" onclick="copyData()">复制全部数据</button><button class="btn primary" id="open-chat" type="button">以此档案进入独立聊天</button>
+</div>
+</div>
+<div id="custom-world-interface">
+<h2>🛠️ 创世引擎 - 自定义世界配置</h2>
+<div class="custom-section">
+<h4>1. 世界观架构</h4>
+<div class="form-group"><label>世界名称</label><input id="cw-full-name" placeholder="例如：赛博朋克2077 / 艾泽拉斯" type="text"/></div>
+<div class="form-group"><label>世界简介</label><textarea id="cw-full-desc" placeholder="描述这个世界的背景、力量体系和主要矛盾..." rows="3"></textarea></div>
+<div class="form-group"><label>战力天花板 (S级存在)</label><input id="cw-full-boss" placeholder="例如：荒坂三郎, 萨格拉斯" type="text"/></div>
+</div>
+<div class="custom-section">
+<h4>2. 初始身份植入</h4>
+<div class="form-group"><label>身份名称</label><input id="cw-id-name" placeholder="例如：流浪黑客 / 暴风城卫兵" type="text"/></div>
+<div class="form-group"><label>初始物资</label><input id="cw-id-items" placeholder="例如：一台旧式义体, 一把破损的长剑" type="text"/></div>
+<div class="form-group"><label>身份等级</label>
+<select id="cw-id-rank">
+<option value="E">E - 尘埃 (默认)</option><option value="D">D - 路人</option><option value="C">C - 精英</option><option value="B">B - 头目</option><option value="A">A - 主角</option><option value="S">S - 史诗</option><option value="SS">SS - 传说</option><option value="SSS">SSS - 神话</option>
+</select>
+</div>
+</div>
+<button class="btn primary" onclick="confirmCustomWorld()">✅ 确认配置并进入天赋抽取</button>
+<button class="btn" onclick="document.getElementById('custom-world-interface').style.display='none'">❌ 取消</button>
+</div>
+<div class="modal" id="msg-modal">
+<h3 style="color:var(--neon-blue);">SYSTEM NOTICE</h3>
+<p id="modal-text"></p>
+<button class="btn" onclick="document.getElementById('msg-modal').style.display='none'">CLOSE</button>
+</div>
+<div class="modal" id="letter-modal">
+<h3>玩法说明</h3>
+<div class="letter-content">
+<h4>建立档案</h4><p>填写角色信息，选择开局模式。在「世界接入」的搜索框中输入世界名称，或输入英文句点（.）查看列表。选定世界后可适配身份和起始物资。</p>
+<h4>选择天赋</h4><p>可以抽取天赋，也可以打开「指定天赋」按名称、世界或品级筛选。本源天赋最多选 2 个，异界与通用天赋合计最多选 3 个。再次点选可取消。</p>
+<h4>开始旅程</h4><p>在导出页核对开局资料，选择「以此档案进入独立聊天」，再创建会话。发送首条消息后开始剧情。</p>
+<h4>世界目标与重生</h4><p>世界重要度取决于角色的实力、影响力以及与关键人物和事件的联系。达到 S 级后可选择离开结算，或留下争取更高评级。按故事中的重生规则，回到存档点时可保留天赋，并携带一项羁绊、道具或装备。</p>
+</div>
+<button class="btn primary" onclick="document.getElementById('letter-modal').style.display='none'">关闭</button>
+</div>
+<div class="modal" id="log-modal">
+<h3>更新日志</h3>
+<div class="letter-content">
+<h4>开局配置</h4><p>可直接从个人档案开始，按世界筛选身份，抽取或指定天赋，并把完整档案带入独立会话。</p>
+<h4>资源收录</h4><p>世界列表现有 643 项，身份及其随身物资共 3,222 项。天赋共 11,020 条，其中世界天赋 10,548 条，通用天赋 472 条。</p>
+<h4>会话工具</h4><p>分支存档、模型选择、历史窗口、滚动总结和记忆宫殿可在「会话与插件」中安装，再在对应会话中启用。</p>
+</div>
+<button class="btn primary" onclick="document.getElementById('log-modal').style.display='none'">关闭</button>
+</div>
+<div id="talent-picker-modal">
+<div class="tp-panel">
+<div class="tp-top">
+<h3>🔍 指定天赋<small>当前位面：<span id="tp-world-name"></span></small></h3>
+<button class="btn tp-close" onclick="closeTalentPicker()">✕</button>
+</div>
+<input class="search-box" id="tp-search" oninput="tpSetQuery(this.value)" placeholder="搜索天赋名 / 描述 / 世界名（空格隔开可多个关键词）" type="text"/>
+<div class="filter-buttons" id="tp-scope">
+<button class="btn" data-s="world" id="tp-scope-world" onclick="tpSetScope('world')">本世界本源</button>
+<button class="btn" data-s="other" onclick="tpSetScope('other')">异界与通用</button>
+<button class="btn" data-s="all" onclick="tpSetScope('all')">全部</button>
+</div>
+<div class="filter-buttons" id="tp-rarity">
+<button class="btn active-filter" data-r="ALL" onclick="tpSetRarity('ALL')">全部品级</button><button class="btn rarity-UR" data-r="UR" onclick="tpSetRarity('UR')">UR</button><button class="btn rarity-SSS" data-r="SSS" onclick="tpSetRarity('SSS')">SSS</button><button class="btn rarity-SS" data-r="SS" onclick="tpSetRarity('SS')">SS</button><button class="btn rarity-S" data-r="S" onclick="tpSetRarity('S')">S</button><button class="btn rarity-A" data-r="A" onclick="tpSetRarity('A')">A</button><button class="btn rarity-B" data-r="B" onclick="tpSetRarity('B')">B</button><button class="btn rarity-C" data-r="C" onclick="tpSetRarity('C')">C</button><button class="btn rarity-D" data-r="D" onclick="tpSetRarity('D')">D</button><button class="btn rarity-E" data-r="E" onclick="tpSetRarity('E')">E</button><button class="btn rarity-Pink" data-r="Pink" onclick="tpSetRarity('Pink')">Pink</button>
+</div>
+<div class="tp-meta">找到 <span id="tp-count">0</span> 条。点一下选中，再点一下取消；本世界的天赋占「本源」名额（2 个），其余占「异界与通用」名额（3 个）。</div>
+<div id="tp-list"></div>
+<button class="btn" id="tp-more" onclick="tpLimit += 120; renderTalentPicker();">再显示</button>
+<div class="tp-foot"><span id="tp-foot-text"></span><button class="btn primary" onclick="closeTalentPicker()">完成</button></div>
+</div>
+</div>
+<div class="modal" id="custom-talent-modal">
+<h3 style="color:var(--neon-blue);">自定义天赋生成器</h3>
+<input id="ct-name" placeholder="天赋名称" style="margin-bottom:10px;" type="text"/>
+<textarea id="ct-desc" placeholder="天赋详细描述" rows="3" style="margin-bottom:10px;"></textarea>
+<select id="ct-rarity" onchange="updateCustomTalentCost()" style="margin-bottom:10px;">
+<option value="C">C - 白色 (150 P)</option> <option value="B">B - 绿色 (400 P)</option> <option value="A">A - 蓝色 (1000 P)</option> <option value="Pink">Pink - 💗 (1000 P)</option> <option value="S">S - 紫色 (3000 P)</option> <option value="SS">SS - 金色 (10000 P)</option> <option value="SSS">SSS - 红色 (50000 P)</option> <option value="UR">UR - 彩色 (200000 P)</option>
+</select>
+<p>预计消耗: <span id="ct-cost">150</span> P</p>
+<button class="btn primary" onclick="createCustomTalent()">生成并购买</button>
+<button class="btn" onclick="document.getElementById('custom-talent-modal').style.display='none'">取消</button>
+</div>
+<script>(function(){if (typeof window === "undefined") return;if (window.__htmlFixerInlineAlert) return;window.__htmlFixerInlineAlert = function(msg){  try {    var doc = document;    var overlay = doc.getElementById("__html_fixer_alert_overlay");    if (!overlay) {      overlay = doc.createElement("div");      overlay.id = "__html_fixer_alert_overlay";      overlay.style.position = "fixed";      overlay.style.inset = "0";      overlay.style.zIndex = "9999";      overlay.style.display = "flex";      overlay.style.alignItems = "center";      overlay.style.justifyContent = "center";      overlay.style.background = "rgba(15,23,42,0.45)";      var box = doc.createElement("div");      box.id = "__html_fixer_alert_box";      box.style.minWidth = "260px";      box.style.maxWidth = "90vw";      box.style.padding = "16px 18px";      box.style.borderRadius = "12px";      box.style.boxShadow = "0 10px 40px rgba(15,23,42,0.4)";      var cs = window.getComputedStyle(doc.body || doc.documentElement);      box.style.background = cs.backgroundColor || "#0f172a";      box.style.color = cs.color || "#e5e7eb";      box.style.fontFamily = cs.fontFamily || "system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif";      var text = doc.createElement("div");      text.id = "__html_fixer_alert_text";      text.style.whiteSpace = "pre-wrap";      text.style.wordBreak = "break-word";      text.style.marginBottom = "12px";      var btn = doc.createElement("button");      btn.type = "button";      btn.textContent = "确定";      btn.style.border = "none";      btn.style.borderRadius = "999px";      btn.style.padding = "8px 16px";      btn.style.cursor = "pointer";      btn.style.fontWeight = "600";      var accentSource = doc.querySelector("button, [type=button], [type=submit], a");      var acs = accentSource ? window.getComputedStyle(accentSource) : cs;      btn.style.background = acs.backgroundColor || cs.color || "#2563eb";      btn.style.color = "#fff";      btn.addEventListener("click", function(){        overlay.style.display = "none";      });      box.appendChild(text);      box.appendChild(btn);      overlay.appendChild(box);      doc.body.appendChild(overlay);    }    var textEl = doc.getElementById("__html_fixer_alert_text");    var overlayEl = doc.getElementById("__html_fixer_alert_overlay");    if (textEl) textEl.textContent = String(msg);    if (overlayEl) overlayEl.style.display = "flex";  } catch (e) {    try { console.log("[alert]", msg); } catch (_) {}  }};})();
+        let userData = {}, gameMode = '', currentWorld = null, selectedIdentity = null, purchasedTalents = [], playerPoints = 0, initialPoints = 0, rollClickCount = 0;
+        let tempSelectedEx = [], tempSelectedCom = [];
+        let shopSearchTerm = '', shopPriceFilter = { min: 0, max: 999999 }, shopAffordableOnly = false;
+        let isCustomIdentityUnlocked = false;
+        const rarityWeights = { 'D': 600, 'C': 600, 'B': 300, 'A': 100, 'S': 20, 'SS': 5, 'SSS': 1, 'Pink': 50, 'UR': 0.2 };
+        const worldDB = __XINGJIAN_worldDB__;
+        const commonTalents = __XINGJIAN_commonTalents__;
+        const customTalentCosts = { C: 150, B: 400, A: 1000, Pink: 1000, S: 3000, SS: 10000, SSS: 50000, UR: 200000 };
+        function showHelpLetter() { document.getElementById('letter-modal').style.display = 'block'; }
+        function showUpdateLog() { document.getElementById('log-modal').style.display = 'block'; }
+        function openCustomWorldInterface() { document.getElementById('custom-world-interface').style.display = 'flex'; }
+        function confirmCustomWorld() {
+            const wName = document.getElementById('cw-full-name').value || "未知位面";
+            const wDesc = document.getElementById('cw-full-desc').value || "数据丢失...";
+            const wBoss = document.getElementById('cw-full-boss').value || "不可名状";
+            const iName = document.getElementById('cw-id-name').value || "流浪者";
+            const iItems = document.getElementById('cw-id-items').value || "无";
+            const iRank = document.getElementById('cw-id-rank').value;
+            currentWorld = { name: wName, desc: wDesc, boss: wBoss, isCustom: true };
+            selectedIdentity = { name: iName, items: iItems, rank: iRank };
+            document.getElementById('custom-world-interface').style.display = 'none';
+            document.getElementById('world-selection-area').style.display = 'none';
+            document.getElementById('world-result').style.display = 'block';
+            document.getElementById('w-name').innerText = currentWorld.name;
+            document.getElementById('w-desc').innerText = currentWorld.desc;
+            document.getElementById('w-boss').innerText = "S级存在: " + currentWorld.boss;
+            document.getElementById('identity-result').innerHTML = `身份: ${selectedIdentity.name} <span class="rarity-${selectedIdentity.rank}">[${selectedIdentity.rank}]</span><br>物资: ${selectedIdentity.items}`;
+            document.getElementById('world-step-2').style.display = 'block';
+            document.getElementById('world-step-3').style.display = 'block';
+        }
+        function showWorldSelection() {
+            const listDiv = document.getElementById('world-selection-list');
+            listDiv.innerHTML = '';
+            let indices = [];
+            while(indices.length < 6) {
+                let r = Math.floor(Math.random() * worldDB.length);
+                if(indices.indexOf(r) === -1) indices.push(r);
+            }
+            indices.forEach(i => {
+                const w = worldDB[i];
+                const btn = document.createElement('div');
+                btn.className = 'world-select-btn';
+                btn.innerHTML = `<h4>${w.name}</h4><p>${w.desc.substring(0, 30)}...</p>`;
+                btn.onclick = () => selectWorld(w);
+                listDiv.appendChild(btn);
+            });
+            document.getElementById('world-selection-area').style.display = 'block';
+        }
+        function searchWorld(query) {
+            const listDiv = document.getElementById('world-selection-list');
+            listDiv.innerHTML = '';
+            if(!query) { document.getElementById('world-selection-area').style.display = 'none'; return; }
+            const matches = worldDB.filter(w => w.name.includes(query));
+            if(matches.length > 0) {
+                matches.forEach(w => {
+                    const btn = document.createElement('div');
+                    btn.className = 'world-select-btn';
+                    btn.innerHTML = `<h4>${w.name}</h4><p>${w.desc}</p>`;
+                    btn.onclick = () => selectWorld(w);
+                    listDiv.appendChild(btn);
+                });
+                document.getElementById('world-selection-area').style.display = 'block';
+            } else {
+                listDiv.innerHTML = '<p style="color:#666; padding:10px;">未探测到相关位面信号...</p>';
+                document.getElementById('world-selection-area').style.display = 'block';
+            }
+        }
+        function selectWorld(world) {
+            currentWorld = world;
+            document.getElementById('world-result').style.display = 'block';
+            document.getElementById('w-name').innerText = currentWorld.name;
+            document.getElementById('w-desc').innerText = currentWorld.desc;
+            document.getElementById('w-boss').innerText = "S级存在: " + currentWorld.boss;
+            document.getElementById('world-selection-area').style.display = 'none';
+            document.getElementById('world-step-2').style.display = 'block';
+            tempSelectedEx = []; tempSelectedCom = [];
+            document.getElementById('count-exclusive').innerText = '0';
+            document.getElementById('count-common').innerText = '0';
+            document.getElementById('selected-exclusive').innerText = '无';
+            document.getElementById('selected-common').innerText = '无';
+        }
+        function submitIntro() {
+            userData = { name: document.getElementById('p-name').value || "未知", sex: document.getElementById('p-sex').value, age: document.getElementById('p-age').value || "20", appearance: document.getElementById('p-appearance').value || "大众脸", personality: document.getElementById('p-personality').value || "冷静", xp: document.getElementById('p-xp').value || "无", other: document.getElementById('p-other').value || "无" };
+            document.getElementById('info-preview').innerHTML = `姓名: ${userData.name} | 性别: ${userData.sex} | 年龄: ${userData.age}<br>外貌: ${userData.appearance}<br>性格: ${userData.personality}<br>XP: ${userData.xp}<br>其他: ${userData.other}`;
+            document.getElementById('intro-text').innerHTML = `<p>档案录入完成。</p><p>攻略者 ${userData.name}，欢迎加入。</p><p>正在载入主控界面...</p>`;
+            setTimeout(() => { document.getElementById('page-intro').style.display = 'none'; document.getElementById('page-main').style.display = 'flex'; switchTab('info'); }, 1000);
+        }
+        function switchTab(tabId) {
+            document.querySelectorAll('.content-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.getElementById('nav-' + tabId).classList.add('active');
+            const dialog = document.getElementById('main-dialog');
+            let text = '';
+            switch(tabId) {
+                case 'info': text = `<p><b>【个人档案】</b></p><p>这里是你的灵魂根源，记录着你的本质。无论你在哪个世界变成什么样，这里的档案都不会改变。你可以随时回来查看或修改它。</p>`; break;
+                case 'mode': text = `<p><b>【开局模式】</b></p><p><b>全新攻略者</b>：从零开始，体验最纯粹的挣扎与崛起，首次游玩推荐选择此开局</p><p><b>继承攻略者</b>：当你攻略世界归来，可带着<b>积分</b>和一件<b>遗产</b>，在这里购买强大的永久天赋，为下一次复仇做好准备，已经结束一次攻略的玩家推荐长期使用此开局长线游玩。</p><p><b>体验者</b>：解除限制，随心所欲，但会失去挑战的乐趣，想玩点啥玩点啥，无所谓了。</p>`; break;
+                case 'world': text = `<p><b>【世界接入】</b></p><p>这里是轮回的入口。你需要分三步完成准备：</p><p>1. 抽取或自定义你要前往的世界。</p><p>2. 抽取你在该世界的初始身份，通常都是最底层的炮灰。</p><p>3. 抽取本次轮回携带的临时天赋，这是你唯一的依仗。</p>`; break;
+                case 'export': text = `<p><b>【数据导出】</b></p><p>完成以上所有选择后，来这里生成你的最终配置。复制所有内容，然后发送给我，你的旅程就将正式开始。</p>`; generateExportData(); break;
+            }
+            dialog.innerHTML = text;
+        }
+        function selectMode(mode) {
+            gameMode = mode;
+            document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+            const card = document.getElementById('mode-card-' + mode);
+            if(card) card.classList.add('selected');
+            const legacyOptions = document.getElementById('legacy-options');
+            const sandboxInput = document.getElementById('sandbox-identity-input');
+            const paidIdentityBtn = document.getElementById('paid-identity-btn');
+            if (legacyOptions) legacyOptions.style.display = (mode === 'legacy') ? 'block' : 'none';
+            if (sandboxInput) sandboxInput.style.display = (mode === 'sandbox') ? 'block' : 'none';
+            if (paidIdentityBtn) paidIdentityBtn.style.display = (mode === 'new') ? 'block' : 'none';
+            if(mode === 'legacy') {
+                renderShop();
+            }
+        }
+        function enablePaidIdentity() {
+            if(playerPoints >= 100) {
+                playerPoints -= 100;
+                updatePlayerPoints(playerPoints);
+                document.getElementById('sandbox-identity-input').style.display = 'block';
+                document.getElementById('paid-identity-btn').style.display = 'none';
+                isCustomIdentityUnlocked = true;
+                __htmlFixerInlineAlert("已扣除100积分，自定义身份权限开启！");
+            } else {
+                __htmlFixerInlineAlert("积分不足！需要100积分。");
+            }
+        }
+        function setInitialPoints(val) { initialPoints = parseInt(val) || 0; playerPoints = initialPoints; updatePlayerPoints(playerPoints); }
+        function updatePlayerPoints(value) { playerPoints = parseInt(value) || 0; document.getElementById('player-points-display').innerText = playerPoints; applyShopFilters(); }
+        function renderShop() {
+            const list = document.getElementById('shop-list');
+            if(!list) return;
+            list.innerHTML = '';
+            let allTalents = [...commonTalents];
+            worldDB.forEach(w => allTalents = allTalents.concat(w.talents));
+            document.getElementById('total-talents-count').innerText = allTalents.length;
+            allTalents.sort((a, b) => a.cost - b.cost).forEach((t, index) => {
+                const div = document.createElement('div'); div.className = `rarity-${t.color}`; div.style.padding = '5px'; div.style.borderBottom = '1px solid #333'; div.style.cursor = 'pointer';
+                div.dataset.cost = t.cost;
+                const worldName = t.type === 'exclusive' ? (worldDB.find(w=>w.talents.includes(t))?.name.toLowerCase() || '??') : '通用';
+                div.dataset.name = t.name.toLowerCase(); div.dataset.world = worldName;
+                div.innerHTML = `<span style="color:var(--neon-blue); font-weight:bold; margin-right:5px;">No.${index + 1}</span> [${worldName.charAt(0).toUpperCase() + worldName.slice(1)}] ${t.name} <span style="color:var(--rarity-gold);">(${t.cost} P)</span><br><small style="color:#ccc;">${t.desc}</small>`;
+                div.onclick = () => buyTalent(t); list.appendChild(div);
+            });
+            applyShopFilters();
+        }
+        function applyShopFilters() {
+            const list = document.getElementById('shop-list');
+            if(!list) return;
+            const items = list.children;
+            for (let item of items) {
+                const cost = parseInt(item.dataset.cost);
+                const nameMatch = item.dataset.name.includes(shopSearchTerm) || item.dataset.world.includes(shopSearchTerm);
+                const priceMatch = cost >= shopPriceFilter.min && cost <= shopPriceFilter.max;
+                const affordableMatch = !shopAffordableOnly || cost <= playerPoints;
+                item.style.display = (nameMatch && priceMatch && affordableMatch) ? 'block' : 'none';
+            }
+        }
+        function setSearchTerm(value) { shopSearchTerm = value.toLowerCase(); applyShopFilters(); }
+        function setPriceFilter(btn, min, max) {
+            document.querySelectorAll('button[name="price-filter"]').forEach(b => b.classList.remove('active-filter'));
+            if (shopPriceFilter.min === min && shopPriceFilter.max === max) {
+                shopPriceFilter = { min: 0, max: 999999 };
+            } else {
+                shopPriceFilter = { min, max };
+                btn.classList.add('active-filter');
+            }
+            applyShopFilters();
+        }
+        function toggleAffordableFilter(btn) { shopAffordableOnly = !shopAffordableOnly; btn.classList.toggle('active-filter', shopAffordableOnly); applyShopFilters(); }
+        function resetAllFilters() {
+            shopSearchTerm = ''; shopPriceFilter = {min: 0, max: 999999}; shopAffordableOnly = false;
+            const searchBox = document.querySelector('.search-box');
+            if(searchBox) searchBox.value = '';
+            document.querySelectorAll('.filter-buttons .btn').forEach(b => b.classList.remove('active-filter'));
+            applyShopFilters();
+        }
+        function updatePurchasedList() {
+            const container = document.getElementById('purchased-list');
+            container.innerHTML = '';
+            if(purchasedTalents.length === 0) { container.innerText = '无'; return; }
+            purchasedTalents.forEach(t => {
+                const span = document.createElement('span');
+                span.style.marginRight = '10px';
+                span.className = `rarity-${t.color}`;
+                span.innerHTML = `[${t.name}] <span class="remove-btn" onclick="refundTalent('${t.name}')">X</span>`;
+                container.appendChild(span);
+            });
+        }
+        function buyTalent(t) {
+            if(purchasedTalents.find(pt => pt.name === t.name)) { __htmlFixerInlineAlert("已购买该天赋"); return; }
+            if(playerPoints >= t.cost) {
+                playerPoints -= t.cost;
+                purchasedTalents.push(t);
+                updatePlayerPoints(playerPoints);
+                updatePurchasedList();
+            } else { __htmlFixerInlineAlert("积分不足！"); }
+        }
+        function refundTalent(name) {
+            const t = purchasedTalents.find(pt => pt.name === name);
+            if(t) {
+                playerPoints += t.cost;
+                purchasedTalents = purchasedTalents.filter(pt => pt.name !== name);
+                updatePlayerPoints(playerPoints);
+                updatePurchasedList();
+            }
+        }
+        function showCustomTalentModal() { document.getElementById('custom-talent-modal').style.display = 'block'; }
+        function updateCustomTalentCost() { const rarity = document.getElementById('ct-rarity').value; document.getElementById('ct-cost').innerText = customTalentCosts[rarity]; }
+        function createCustomTalent() {
+            const name = document.getElementById('ct-name').value, desc = document.getElementById('ct-desc').value, rarity = document.getElementById('ct-rarity').value, cost = customTalentCosts[rarity];
+            if(!name || !desc) { __htmlFixerInlineAlert("名称和描述不能为空！"); return; }
+            const newTalent = { name, desc, color: rarity, cost, type: 'custom' };
+            buyTalent(newTalent); document.getElementById('custom-talent-modal').style.display = 'none';
+        }
+        function confirmCustomIdentity() {
+            const cName = document.getElementById('custom-identity').value;
+            const cItems = document.getElementById('custom-items').value;
+            const cRank = document.getElementById('custom-rank').value;
+            if(!cName) {
+                __htmlFixerInlineAlert("请至少输入身份名称！");
+                return;
+            }
+            selectedIdentity = { name: cName, items: cItems || "无", rank: cRank };
+            document.getElementById('identity-result').innerHTML = `身份: ${selectedIdentity.name} <span class="rarity-${selectedIdentity.rank}">[${selectedIdentity.rank}]</span><br>物资: ${selectedIdentity.items}`;
+            document.getElementById('world-step-3').style.display = 'block';
+            __htmlFixerInlineAlert("自定义身份已应用！");
+        }
+        function rollIdentity() {
+            if(gameMode === 'sandbox' && document.getElementById('custom-identity').value) {
+                selectedIdentity = { name: document.getElementById('custom-identity').value, items: document.getElementById('custom-items').value || "自定义物资", rank: document.getElementById('custom-rank').value };
+            } else {
+                selectedIdentity = currentWorld.isCustom ? { name: "流浪汉", items: "破碗", rank: "E" } : { ...currentWorld.identities[Math.floor(Math.random() * currentWorld.identities.length)], rank: "E" };
+            }
+            document.getElementById('identity-result').innerHTML = `身份: ${selectedIdentity.name} <span class="rarity-${selectedIdentity.rank}">[${selectedIdentity.rank}]</span><br>物资: ${selectedIdentity.items}`;
+            document.getElementById('world-step-3').style.display = 'block';
+        }
+        function getWeightedTalent(list) {
+            let totalWeight = 0;
+            list.forEach(t => totalWeight += (rarityWeights[t.color] || 100));
+            let random = Math.random() * totalWeight;
+            for (let i = 0; i < list.length; i++) {
+                let weight = rarityWeights[list[i].color] || 100;
+                if (random < weight) { return list.splice(i, 1)[0]; }
+                random -= weight;
+            }
+            return list.splice(0, 1)[0];
+        }
+        function rollTalents() {
+            rollClickCount++;
+            const exclusivePoolDiv = document.getElementById('talent-pool-exclusive');
+            const commonPoolDiv = document.getElementById('talent-pool-common');
+            exclusivePoolDiv.innerHTML = ''; commonPoolDiv.innerHTML = '';
+            let pityRarity = null;
+            if(rollClickCount % 50 === 0) pityRarity = 'UR';
+            else if(rollClickCount % 20 === 0) pityRarity = 'SSS';
+            else if(rollClickCount % 10 === 0) pityRarity = 'SS';
+            else if(rollClickCount % 5 === 0) pityRarity = 'S';
+            let exclusiveBatch = [];
+            let exSlotsNeeded = 6;
+            let exclusiveSource = currentWorld.isCustom ? commonTalents.concat(worldDB.flatMap(w => w.talents)) : [...currentWorld.talents];
+            if (tempSelectedEx.length > 0) {
+                tempSelectedEx.forEach(t => {
+                    let idx = exclusiveSource.findIndex(src => src.name === t.name);
+                    if(idx !== -1) exclusiveSource.splice(idx, 1); // remove from source
+                    exclusiveBatch.push({talent: t, locked: true});
+                    exSlotsNeeded--;
+                });
+            }
+            for(let i = 0; i < exSlotsNeeded; i++) {
+                if(exclusiveSource.length > 0) {
+                    exclusiveBatch.push({talent: getWeightedTalent(exclusiveSource), locked: false});
+                }
+            }
+            if(pityRarity) {
+                let allExCandidates = currentWorld.isCustom ? commonTalents.concat(worldDB.flatMap(w => w.talents)) : currentWorld.talents;
+                let candidates = allExCandidates.filter(t => t.color === pityRarity && !tempSelectedEx.some(l => l.name === t.name));
+                if(candidates.length > 0) {
+                    let chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                    let unlockIndices = exclusiveBatch.map((item, i) => item.locked ? -1 : i).filter(i => i !== -1);
+                    if(unlockIndices.length > 0) {
+                        let replaceIdx = unlockIndices[Math.floor(Math.random() * unlockIndices.length)];
+                        exclusiveBatch[replaceIdx].talent = chosen;
+                    }
+                }
+            }
+            exclusiveBatch.forEach(item => {
+                const btn = createTalentButton(item.talent, 'exclusive');
+                if(item.locked) btn.style.borderColor = 'white';
+                exclusivePoolDiv.appendChild(btn);
+            });
+            let commonBatch = [];
+            let otherWorldPool = [];
+            if(currentWorld.isCustom) {
+                otherWorldPool = commonTalents.concat(worldDB.flatMap(w => w.talents));
+            } else {
+                otherWorldPool = worldDB.filter(w => w.name !== currentWorld.name).flatMap(w => w.talents);
+            }
+            let commonPool = [...commonTalents];
+            let otherSlotsNeeded = 9;
+            let commonSlotsNeeded = 3;
+            if (tempSelectedCom.length > 0) {
+                tempSelectedCom.forEach(t => {
+                    if (t.type === 'common') {
+                        let idx = commonPool.findIndex(c => c.name === t.name);
+                        if(idx !== -1) commonPool.splice(idx, 1);
+                        commonSlotsNeeded--;
+                    } else {
+                        let idx = otherWorldPool.findIndex(o => o.name === t.name);
+                        if(idx !== -1) otherWorldPool.splice(idx, 1);
+                        otherSlotsNeeded--;
+                    }
+                    commonBatch.push({talent: t, locked: true});
+                });
+            }
+            for(let i = 0; i < otherSlotsNeeded; i++) {
+                if(otherWorldPool.length > 0) commonBatch.push({talent: getWeightedTalent(otherWorldPool), locked: false});
+            }
+            for(let i = 0; i < commonSlotsNeeded; i++) {
+                if(commonPool.length > 0) commonBatch.push({talent: getWeightedTalent(commonPool), locked: false});
+            }
+            if(pityRarity) {
+                let allCommonCandidates = [];
+                if(currentWorld.isCustom) {
+                    allCommonCandidates = commonTalents.concat(worldDB.flatMap(w => w.talents));
+                } else {
+                    allCommonCandidates = worldDB.filter(w => w.name !== currentWorld.name).flatMap(w => w.talents).concat(commonTalents);
+                }
+                let candidates = allCommonCandidates.filter(t => t.color === pityRarity && !tempSelectedCom.some(l => l.name === t.name));
+                if(candidates.length > 0) {
+                    let chosen = candidates[Math.floor(Math.random() * candidates.length)];
+                    let unlockIndices = commonBatch.map((item, i) => item.locked ? -1 : i).filter(i => i !== -1);
+                    if(unlockIndices.length > 0) {
+                        let replaceIdx = unlockIndices[Math.floor(Math.random() * unlockIndices.length)];
+                        commonBatch[replaceIdx].talent = chosen;
+                    }
+                }
+            }
+            commonBatch.forEach(item => {
+                const btn = createTalentButton(item.talent, 'common');
+                if(item.locked) btn.style.borderColor = 'white';
+                commonPoolDiv.appendChild(btn);
+            });
+            if(pityRarity) __htmlFixerInlineAlert(`保底触发！已在双池中各生成一个 ${pityRarity} 级天赋！`);
+        }
+        function createTalentButton(t, type) {
+            const btn = document.createElement('button');
+            btn.className = `btn rarity-${t.color} talent-btn`;
+            let worldTag = '[通用]';
+            if (t.type === 'exclusive') {
+                const foundWorld = worldDB.find(w => w.talents.includes(t));
+                const wName = foundWorld ? foundWorld.name.split('.')[1] : '??';
+                worldTag = `[${wName}]`;
+            } else if (t.type === 'custom') {
+                worldTag = '[自定义]';
+            }
+            btn.innerHTML = `<div class="talent-header"><span>${worldTag} <b>${t.name}</b></span> <span style="font-size:0.8em">(${t.color})</span></div><div class="talent-desc">${t.desc}</div><div class="talent-bg-letter rarity-${t.color}">${t.color}</div>`;
+            btn.dataset.tname = t.name; btn.onclick = () => selectTalent(t, btn, type); return btn;
+        }
+        function selectTalent(t, btn, type) {
+            if(type === 'exclusive') {
+                const idx = tempSelectedEx.findIndex(x => x.name === t.name);
+                if(idx > -1) { tempSelectedEx.splice(idx, 1); btn.style.borderColor = `var(--border-color)`; }
+                else if(tempSelectedEx.length < 2) { tempSelectedEx.push(t); btn.style.borderColor = 'white'; }
+                else { __htmlFixerInlineAlert("本源天赋最多选择2个"); }
+            } else {
+                const idx = tempSelectedCom.findIndex(x => x.name === t.name);
+                if(idx > -1) { tempSelectedCom.splice(idx, 1); btn.style.borderColor = `var(--border-color)`; }
+                else if(tempSelectedCom.length < 3) { tempSelectedCom.push(t); btn.style.borderColor = 'white'; }
+                else { __htmlFixerInlineAlert("通用天赋最多选择3个"); }
+            }
+            refreshTalentSelection();
+        }
+        let tpIndex = null, tpScope = 'world', tpRarity = 'ALL', tpQuery = '', tpLimit = 120;
+        const tpPicked = new Set();
+        const tpRarityAlias = { '白色': 'C', '绿色': 'B', '蓝色': 'A', '紫色': 'S', '金色': 'SS', '红色': 'SSS', '灰色': 'D', '黑色': 'E' };
+        function tpRar(t) { return tpRarityAlias[t.color] || t.color; }
+        function tpBuildIndex() {
+            if (tpIndex) return;
+            tpIndex = [];
+            commonTalents.forEach(t => tpIndex.push({ t, w: '通用', world: null, text: (t.name + ' ' + t.desc + ' 通用').toLowerCase() }));
+            worldDB.forEach(w => {
+                const wn = w.name.split('.').slice(1).join('.') || w.name;
+                w.talents.forEach(t => tpIndex.push({ t, w: wn, world: w, text: (t.name + ' ' + t.desc + ' ' + w.name).toLowerCase() }));
+            });
+        }
+        function tpIsPicked(t) { return tempSelectedEx.includes(t) || tempSelectedCom.includes(t); }
+        function tpSlotOf(t) {
+            if (!currentWorld) return 'com';
+            if (currentWorld.isCustom) return tempSelectedEx.length < 2 ? 'ex' : 'com';
+            return (currentWorld.talents || []).includes(t) ? 'ex' : 'com';
+        }
+        function openTalentPicker() {
+            if (!currentWorld) { __htmlFixerInlineAlert('请先锚定位面'); return; }
+            tpBuildIndex();
+            const hasWorld = !currentWorld.isCustom;
+            document.getElementById('tp-scope-world').style.display = hasWorld ? '' : 'none';
+            if (!hasWorld && tpScope === 'world') tpScope = 'all';
+            document.getElementById('tp-world-name').innerText = currentWorld.name;
+            tpLimit = 120;
+            tpSyncButtons();
+            renderTalentPicker();
+            document.getElementById('talent-picker-modal').style.display = 'flex';
+        }
+        function closeTalentPicker() { document.getElementById('talent-picker-modal').style.display = 'none'; }
+        function tpSyncButtons() {
+            document.querySelectorAll('#tp-scope .btn').forEach(b => b.classList.toggle('active-filter', b.dataset.s === tpScope));
+            document.querySelectorAll('#tp-rarity .btn').forEach(b => b.classList.toggle('active-filter', b.dataset.r === tpRarity));
+        }
+        function tpSetScope(s) { tpScope = s; tpLimit = 120; tpSyncButtons(); renderTalentPicker(); document.getElementById('tp-list').scrollTop = 0; }
+        function tpSetRarity(r) { tpRarity = r; tpLimit = 120; tpSyncButtons(); renderTalentPicker(); document.getElementById('tp-list').scrollTop = 0; }
+        function tpSetQuery(v) { tpQuery = v.trim().toLowerCase(); tpLimit = 120; renderTalentPicker(); document.getElementById('tp-list').scrollTop = 0; }
+        function tpItemHTML(x) {
+            const t = x.t, on = tpIsPicked(t);
+            return `<div class="tp-head"><span>${on ? '✓ ' : ''}[${x.w}] <b>${t.name}</b></span><span class="tp-tag">${t.color}</span></div><div class="tp-desc">${t.desc}</div>`;
+        }
+        function renderTalentPicker() {
+            const list = document.getElementById('tp-list');
+            let src = tpIndex;
+            if (tpScope === 'world') src = src.filter(x => x.world === currentWorld);
+            else if (tpScope === 'other') src = src.filter(x => x.world !== currentWorld);
+            else src = src.filter(x => x.world === currentWorld).concat(src.filter(x => x.world !== currentWorld));
+            if (tpRarity !== 'ALL') src = src.filter(x => tpRar(x.t) === tpRarity);
+            if (tpQuery) { const qs = tpQuery.split(/\s+/); src = src.filter(x => qs.every(q => x.text.includes(q))); }
+            document.getElementById('tp-count').innerText = src.length;
+            const keep = list.scrollTop;
+            list.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            src.slice(0, tpLimit).forEach(x => {
+                const div = document.createElement('div');
+                div.className = 'tp-item rarity-' + tpRar(x.t) + (tpIsPicked(x.t) ? ' tp-picked' : '');
+                div.innerHTML = tpItemHTML(x);
+                div.onclick = () => pickTalent(x, div);
+                frag.appendChild(div);
+            });
+            if (!src.length) { const p = document.createElement('p'); p.style.cssText = 'color:#666; padding:10px;'; p.innerText = '没有符合条件的天赋。'; frag.appendChild(p); }
+            list.appendChild(frag);
+            list.scrollTop = keep;
+            const more = document.getElementById('tp-more');
+            more.style.display = src.length > tpLimit ? 'block' : 'none';
+            more.innerText = `再显示 ${Math.min(120, src.length - tpLimit)} 条（共 ${src.length} 条）`;
+            tpUpdateFoot();
+        }
+        function tpUpdateFoot() {
+            document.getElementById('tp-foot-text').innerText = `已选本源 ${tempSelectedEx.length}/2 · 异界与通用 ${tempSelectedCom.length}/3`;
+        }
+        function pickTalent(x, div) {
+            const t = x.t;
+            const arr = tempSelectedEx.includes(t) ? tempSelectedEx : (tempSelectedCom.includes(t) ? tempSelectedCom : null);
+            if (arr) { arr.splice(arr.indexOf(t), 1); tpPicked.delete(t); }
+            else {
+                if (tempSelectedEx.concat(tempSelectedCom).some(y => y.name === t.name)) { __htmlFixerInlineAlert('已经选了同名天赋'); return; }
+                if (tpSlotOf(t) === 'ex') {
+                    if (tempSelectedEx.length >= 2) { __htmlFixerInlineAlert('本源天赋最多选择2个，先在已选里点 ✕ 移除一个'); return; }
+                    tempSelectedEx.push(t);
+                } else {
+                    if (tempSelectedCom.length >= 3) { __htmlFixerInlineAlert('异界与通用天赋最多选择3个，先在已选里点 ✕ 移除一个'); return; }
+                    tempSelectedCom.push(t);
+                }
+                tpPicked.add(t);
+            }
+            div.classList.toggle('tp-picked', tpIsPicked(t));
+            div.innerHTML = tpItemHTML(x);
+            refreshTalentSelection();
+        }
+        function refreshTalentSelection() {
+            document.getElementById('count-exclusive').innerText = tempSelectedEx.length;
+            document.getElementById('count-common').innerText = tempSelectedCom.length;
+            const fill = (id, arr) => {
+                const el = document.getElementById(id);
+                el.innerHTML = '';
+                if (!arr.length) { el.innerText = '无'; return; }
+                arr.forEach(t => {
+                    const c = document.createElement('span');
+                    c.className = 'tp-chip rarity-' + tpRar(t);
+                    c.textContent = (tpPicked.has(t) ? '📌 ' : '') + t.name;
+                    const k = document.createElement('b');
+                    k.className = 'tp-x'; k.textContent = '✕';
+                    k.onclick = (e) => {
+                        e.stopPropagation();
+                        const i = arr.indexOf(t); if (i > -1) arr.splice(i, 1);
+                        tpPicked.delete(t);
+                        refreshTalentSelection();
+                        if (document.getElementById('talent-picker-modal').style.display === 'flex') renderTalentPicker();
+                    };
+                    c.appendChild(k); el.appendChild(c);
+                });
+            };
+            fill('selected-exclusive', tempSelectedEx);
+            fill('selected-common', tempSelectedCom);
+            const names = tempSelectedEx.concat(tempSelectedCom).map(y => y.name);
+            document.querySelectorAll('#talent-pool-exclusive .talent-btn, #talent-pool-common .talent-btn').forEach(b => {
+                if (names.includes(b.dataset.tname)) b.style.borderColor = 'white';
+                else if (b.style.borderColor === 'white') b.style.borderColor = 'var(--border-color)';
+            });
+            if (document.getElementById('tp-foot-text')) tpUpdateFoot();
+        }
+        function generateExportData() {
+            let finalText = `【玩家设定】\n姓名：${userData.name}\n性别：${userData.sex}\n年龄：${userData.age}\n外貌：${userData.appearance}\n性格：${userData.personality}\nXP：${userData.xp}\n其他：${userData.other}\n\n`;
+            finalText += `【开局模式】：${gameMode === 'new' ? '全新攻略者' : (gameMode === 'legacy' ? '继承攻略者' : '体验者')}\n`;
+            if(gameMode === 'legacy') {
+                finalText += `初始积分：${initialPoints}\n剩余积分：${playerPoints}\n继承物品：${document.getElementById('legacy-item').value}\n`;
+                finalText += `任务证明：${document.getElementById('legacy-proof').value}\n`;
+            }
+            if(currentWorld) {
+                finalText += `\n【世界信息】\n名称：${currentWorld.name}\n简介：${currentWorld.desc}\nS级代表：${currentWorld.boss}\n`;
+                if(selectedIdentity) { finalText += `\n【身份设定】\n身份：${selectedIdentity.name}\n等级：${selectedIdentity.rank}\n物资：${selectedIdentity.items}\n`; }
+                finalText += `\n【携带天赋】\n`;
+                let allSelectedTalents = []; allSelectedTalents = allSelectedTalents.concat(tempSelectedEx, tempSelectedCom, purchasedTalents);
+                allSelectedTalents.forEach(t => { const worldTag = t.type === 'custom' ? '[自定义]' : (t.type === 'exclusive' ? `[${worldDB.find(w=>w.talents.includes(t))?.name || '??'}]` : '[通用]'); const sourceTag = purchasedTalents.includes(t) ? '[商店]' : (tpPicked.has(t) ? '[指定]' : '[抽取]'); finalText += `${sourceTag}${worldTag} ${t.name} (${t.color}): ${t.desc}\n`; });
+            } document.getElementById('copy-area').value = finalText;
+        }
+        function copyData() { const copyText = document.getElementById("copy-area"); copyText.select(); copyText.setSelectionRange(0, 99999); document.execCommand("copy"); document.getElementById('modal-text').innerText = "数据已复制至剪贴板！\n请粘贴至对话框启动游戏。"; document.getElementById('msg-modal').style.display = 'block'; }
+    </script>
+<script>document.getElementById('open-chat').onclick = function () {
+  const text = document.getElementById('copy-area').value;
+  if (text.trim()) parent.postMessage({type:'xingjian-opening',text}, '*');
+};</script></body></html>

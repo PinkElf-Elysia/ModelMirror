@@ -385,7 +385,7 @@ footer a:hover{color:#666;}
 <div class="card">
 <div class="sep">命书总览</div>
 <div class="preview-box" id="pvBox"></div>
-<div style="text-align:center;margin-top:14px;"><button class="btn btn-p" onclick="copyPv()">复制命书</button></div>
+<div style="text-align:center;margin-top:14px;"><button class="btn btn-p" onclick="copyPv()">复制命书</button><button id="open-chat" hidden class="btn btn-p">以此档案进入独立聊天</button></div>
 </div>
 <div class="nav"><button class="btn btn-back" onclick="prev()">返回修改</button></div>
 </div>
@@ -666,5 +666,12 @@ function copyPv(){var text=document.getElementById('pvBox').textContent;if(navig
 function fallbackCopy(text){var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';document.body.appendChild(ta);ta.select();var copied=document.execCommand('copy');document.body.removeChild(ta);showMsg(copied?'命书已成功复制！':'请选中命书正文手动复制。');}
 function showMsg(msg){document.getElementById('modalTxt').textContent=msg;document.getElementById('modal').classList.add('show');}
 function closeModal(){document.getElementById('modal').classList.remove('show');}
+</script>
+<script>
+if(new URLSearchParams(location.search).get('chat')==='1' && window.parent!==window){
+ const button=document.getElementById('open-chat');
+ button.hidden=false;
+ button.onclick=()=>parent.postMessage({type:'ancient-opening',text:document.getElementById('pvBox').textContent},new URL(location.href).origin);
+}
 </script>
 </body></html>
