@@ -13,6 +13,7 @@ function openingSession(parent, operation, id) {
   const child = {id, name:operation.name, revision:0, created:new Date().toISOString(),
     runtime:parent.runtime, characterText:parent.characterText, world:parent.world, params:parent.params,
     mode:parent.mode, history:[], turns:[], requests:{}, messageOrigin:operation};
+  if (parent.importedTurns) child.importedTurns=structuredClone(parent.importedTurns);
   if (parent.cardId) child.cardId = parent.cardId;
   if (parent.modelState) child.modelState = initialModelState(first.model.selection);
   if (parent.historyWindow) child.historyWindow = initialHistoryState(first.contextPolicy?.historyConfig ?? first.historyPolicy.config);

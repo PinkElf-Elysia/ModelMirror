@@ -15,7 +15,10 @@ export function assembleSummaryRequest(s,input,policy,baseAssembly,state){
   if((active?.coveredThrough||0)!==Math.max(0,T-1))throw fail('SUMMARY_COVERAGE_GAP');
   const system={...original.messages[0]};
   if(active)system.content+=SUMMARY_WRAPPER.replace('{summary}',()=>active.effectiveText);
-  messages=[system,...structuredClone(s.history.slice(-2)),{role:'user',content:original.current}];
+  // Imported turns are outside the local summary's coverage. Retain the
+  // imported prefix selected by the history policy when replacing live history.
+  const imported=original.messages.slice(1,original.messages.length-1-selectedTurns.length*2);
+  messages=[system,...imported,...structuredClone(s.history.slice(-2)),{role:'user',content:original.current}];
   selectedTurns=T?[T]:[];
  }
  const context={format:1,policy:structuredClone(policy),mode:policy.mode,totalTurns:s.turns.length,selectedTurns,selectedRequestIds:selectedTurns.map(n=>s.turns[n-1].requestId),summaryVersionId:m2?snapshot.activeVersionId:null,coveredThrough:m2?(activeSummary(snapshot)?.coveredThrough||0):0,summarySnapshot:snapshot,historyConfig:structuredClone(s.historyWindow.config),sourceHash:sha(canonical(s.history)),requestHash:sha(canonical(messages))};
