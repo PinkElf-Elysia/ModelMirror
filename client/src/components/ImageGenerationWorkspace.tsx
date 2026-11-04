@@ -149,6 +149,8 @@ export default function ImageGenerationWorkspace({
   const costEstimate = useMemo(
     () => {
       if (!profile) return null;
+      // Riverflow settles dynamic processing charges after completion.
+      if (model.id === "sourceful/riverflow-v2.6-pro") return null;
       const pricing = profile.pricing?.length
         ? profile.pricing
         : model.id === "x-ai/grok-imagine-image-2.0"
@@ -186,6 +188,7 @@ export default function ImageGenerationWorkspace({
   );
   const tokenPricingLabel = useMemo(() => {
     if (!profile) return null;
+    if (model.id === "sourceful/riverflow-v2.6-pro") return null;
     const fallbackPricing =
       MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
       GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
@@ -420,6 +423,11 @@ export default function ImageGenerationWorkspace({
               </div>
             ) : null}
 
+            {model.id === "sourceful/riverflow-v2.6-pro" ? (
+              <p role="status" className="border-y border-white/10 py-4 text-sm leading-6 text-slate-300">
+                动态费用：按生成完成后的实际处理量结算，费用随尺寸、参考图和处理复杂度变化，提交前无法提供可靠固定报价。
+              </p>
+            ) : null}
             {!costEstimate && tokenPricingLabel ? (
               <div
                 aria-live="polite"

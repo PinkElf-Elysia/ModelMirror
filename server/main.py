@@ -3417,6 +3417,9 @@ class ChatRequest(BaseModel):
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
         "liquid/d1.1",
+        "morph/reflex",
+        "cloudflare/clairic",
+        "baseten/joey-1",
         "baseten/mammoth-1",
         "baseten/elephant-1",
         "~liquid/d1-latest",

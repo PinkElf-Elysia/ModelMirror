@@ -106,6 +106,14 @@ class AudioContract:
 
 
 OPENROUTER_AUDIO_CONTRACTS: dict[str, AudioContract] = {
+    "stealth/crouton-alpha": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=("wav",),
+        interaction_adapted=True,
+        verification_status="contract_verified",
+        planned_reason="本站仅开放 WAV 音频理解；未执行真实供应商调用。",
+    ),
     "google/gemini-4-argon": AudioContract(
         operations=("analyze_audio",),
         chat_modes=("direct_audio_input",),
