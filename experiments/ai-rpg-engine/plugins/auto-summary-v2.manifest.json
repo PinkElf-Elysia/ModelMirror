@@ -1,0 +1,33 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.rolling-summary",
+  "version": "2.0.0",
+  "name": "自动总结",
+  "description": "每轮生成小总结，每满二十条在下一轮前合成大总结。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god",
+    "cultivation"
+  ],
+  "capabilities": [
+    "ui.summary-action",
+    "session.summary.configure",
+    "session.summary.revise",
+    "session.summary.request"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.summary.configure",
+    "session.summary.revise",
+    "session.summary.request",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/auto-summary-v2.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "66828fb50d841a5fcfa43e129d4fc85b7ff5c27764071dcc59d9849fdcdccf37"
+}

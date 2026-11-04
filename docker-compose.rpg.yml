@@ -10,6 +10,10 @@ services:
     container_name: modelmirror-rpg
     environment:
       RPG_ENABLED: "true"
+      RPG_SUMMARY_V2_DIR: /data/auto-summary-v2
+      RPG_SUMMARY_V2_CALL_LIMIT: "${RPG_SUMMARY_V2_CALL_LIMIT:-0}"
+      RPG_CONTROL_URL: "${RPG_CONTROL_URL:-http://server:8000/}"
+      RPG_S2S_TOKEN: "${RPG_S2S_TOKEN:-}"
       RPG_CALL_LIMIT_PER_CARD: "${RPG_CALL_LIMIT_PER_CARD:-1}"
       RPG_PUBLIC_ORIGINS: "${RPG_PUBLIC_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
       RPG_CREDENTIAL_FILE: /run/secrets/rpg_provider_env
