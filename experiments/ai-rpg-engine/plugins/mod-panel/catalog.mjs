@@ -20,31 +20,40 @@ const entries = [
     "当玩家成为掌权者时，在财产与方位之间加入王朝状态，追踪国力、朝堂、外交与危机。",
     "afffece2f62a53ace7ed659c818cd28a4a641cd6ee6d58cc4d2d2bab91682480",
   ],
+  [
+    "rationality",
+    "防止绝望/保持理智/加强逻辑",
+    "减少人物绝望，减少轻易堕落和发情，增加人物保持理智能力，行为和思维更具逻辑性，提示词规则+思维链，具体效果自测",
+    "dfb6a63e69a7e14cd136c8c7f01dc3ba27885c914eb7f247dbfc6bc8b86bdca7",
+    "common",
+  ],
 ];
 let loaded;
 async function load() {
   return Promise.all(
-    entries.map(async ([slug, name, description, sha256]) => {
-      const bytes = await readFile(
-        new URL("./official/ancient/" + slug + ".md", import.meta.url),
-      );
-      if (createHash("sha256").update(bytes).digest("hex") !== sha256)
-        throw Error("MOD_RESOURCE_MISMATCH");
-      const text = bytes.toString("utf8");
-      return Object.freeze({
-        id: "ancient." + slug + ".v1",
-        card: "ancient",
-        name,
-        description,
-        version: "1.0.0",
-        language: "zh-Hans",
-        source: "官方示例",
-        released: "2026-11-04",
-        chars: [...text.trimEnd()].length,
-        sha256,
-        text,
-      });
-    }),
+    entries.map(
+      async ([slug, name, description, sha256, group = "ancient"]) => {
+        const bytes = await readFile(
+          new URL("./official/" + group + "/" + slug + ".md", import.meta.url),
+        );
+        if (createHash("sha256").update(bytes).digest("hex") !== sha256)
+          throw Error("MOD_RESOURCE_MISMATCH");
+        const text = bytes.toString("utf8");
+        return Object.freeze({
+          id: group + "." + slug + ".v1",
+          card: group === "common" ? "*" : group,
+          name,
+          description,
+          version: "1.0.0",
+          language: "zh-Hans",
+          source: "官方示例",
+          released: "2026-11-04",
+          chars: [...text.trimEnd()].length,
+          sha256,
+          text,
+        });
+      },
+    ),
   );
 }
 export const modCatalog = () =>
@@ -61,7 +70,7 @@ export async function resolveMods(card, ids) {
   )
     throw Error("MOD_SELECTION_INVALID");
   const list = (await modCatalog()).filter(
-    (m) => m.card === card && ids.includes(m.id),
+    (m) => (m.card === "*" || m.card === card) && ids.includes(m.id),
   );
   if (list.length !== ids.length) throw Error("MOD_SELECTION_INVALID");
   return list;

@@ -29,8 +29,18 @@ export function toggleMod(
   if (enabled) localStorage.setItem(k, "1");
   else localStorage.removeItem(k);
 }
-export function modRequest(session: string, url: string, options: RequestInit) {
-  const modIds = selectedMods("ancient", session);
+export function modRequest(
+  card: string,
+  session: string,
+  url: string,
+  options: RequestInit,
+  scope: string,
+) {
+  const modIds = selectedMods(card, session);
+  if (scope)
+    return import("./custom-config").then((module) =>
+      module.configRequest(scope, url, options, modIds),
+    );
   if (!modIds.length) return fetch(url, options);
   return fetch(url, {
     ...options,

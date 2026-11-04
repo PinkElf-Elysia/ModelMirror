@@ -13,7 +13,7 @@ test("bundled samples are card-specific and assemble whole documents in catalog 
   const all = await modCatalog();
   assert.deepEqual(
     all.map((m) => m.name),
-    ["实力系统", "世界观", "王朝管理"],
+    ["实力系统", "世界观", "王朝管理", "防止绝望/保持理智/加强逻辑"],
   );
   const messages = [
     { role: "system", content: "原卡" },
@@ -31,9 +31,20 @@ test("bundled samples are card-specific and assemble whole documents in catalog 
   for (const ids of [[all[0].id, all[0].id], ["../other"], []])
     await assert.rejects(resolveMods("ancient", ids));
   await assert.rejects(resolveMods("god", [all[0].id]));
+  for (const card of [
+    "earth",
+    "god",
+    "ancient",
+    "xingjian",
+    "cultivation",
+    "lord-of-mysteries",
+  ])
+    assert.deepEqual(await resolveMods(card, ["common.rationality.v1"]), [
+      all[3],
+    ]);
 });
 
-test("ancient archive sends all three official mods, one remaining mod, then none", async (t) => {
+test("ancient archive sends three dedicated mods plus a common mod, one remaining mod, then none", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "mod-panel-"));
   const seen = [];
   const model = "google/gemini-3.8-flash";
@@ -152,7 +163,7 @@ test("ancient archive sends all three official mods, one remaining mod, then non
             h,
           )
         ).status,
-        403,
+        400,
       );
       assert.equal(seen.length, 0);
     }
