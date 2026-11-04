@@ -1,0 +1,28 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.transcript",
+  "version": "1.0.0",
+  "name": "聊天记录",
+  "description": "导出 UTF-8 文本，或将记录导入为同卡片的新会话继续聊天。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god"
+  ],
+  "capabilities": [
+    "session.transcript.import",
+    "session.transcript.export"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.transcript.import",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/transcript.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "2190217423f05c18c8baff8061b40dfb9d7b78bf7cb3e6b92a5d91f910dfca0e"
+}

@@ -24,9 +24,10 @@ import {generateHistoryFixed,generateHistoryControlled} from './history-provider
 import {createControlledProvider} from './controlled-provider.mjs';
 import {previewFetch} from './message-preview.mjs';
 import {settleStoryFailure} from './story-failure.mjs';
+import {transcriptHttp} from './transcript.mjs';
 import {forkMessage,storyProgress} from './message-tools.mjs';
 import {createPluginService} from '../plugins/host.mjs';
-import {loadReviewedCatalog,MESSAGE_TOOLS_ID,canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
+import {loadReviewedCatalog,MESSAGE_TOOLS_ID,TRANSCRIPT_ID,canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 export function archiveChatOptions(env){
  const control=prefix=>env[prefix+'_ENABLED']==='true'
@@ -35,7 +36,7 @@ export function archiveChatOptions(env){
    ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT')
  }};
 }
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,ownArchiveDirectory=null}={}){
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,ownArchiveDirectory=null}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
@@ -65,6 +66,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  let plugins=null,pluginError=null;
  try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
+  if(transcript)catalog.push(await loadReviewedCatalog(TRANSCRIPT_ID));
   if(messageTools)catalog.push(await loadReviewedCatalog(MESSAGE_TOOLS_ID));
   return catalog;
  },lookupSession:async id=>{
@@ -117,7 +119,8 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
   try{
    const allowed=new Set(origins.length?origins:[`http://127.0.0.1:${server.address().port}`]);
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
-   if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!=='application/json'))return send(403,{error:'ORIGIN_REJECTED'});
+   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god)\/api\/sessions\/([a-zA-Z0-9-]+)\/transcript\/(import|export)$/);
+   if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!==(transfer?.[3]==='import'?'text/plain':'application/json')))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
    if (req.method === 'GET' && ['/rpg-app/ancient/', '/rpg-app/ancient/landscape.jpg'].includes(pathname)) {
     const image = pathname.endsWith('.jpg');
@@ -127,6 +130,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     return res.end(bytes);
    }
    if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
+   if(transfer&&transcript)return await transcriptHttp({req,res,send,match:transfer.slice(1),store:transfer[1]==='earth'?earth:godHost?.store,plugins});
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation)\/chat\/(.*)$/);
@@ -199,7 +203,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
      }
     }
 
-    const view=s=>({...projection(s),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:cardDisplay(t.raw,'earth')}))});
+    const view=s=>({...projection(s),...(s.importedTurns?{importedTurns:s.importedTurns}:{}),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:cardDisplay(t.raw,'earth')}))});
     if(memoryPalace&&await memoryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     if(rollingSummary&&await summaryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     const historyRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/history-window$/);
@@ -250,6 +254,6 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';
  if(!key&&process.env.RPG_CREDENTIAL_FILE){const env=await readFile(process.env.RPG_CREDENTIAL_FILE,'utf8');const line=env.split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');}
- await start({...archiveChatOptions(process.env),messageTools:process.env.RPG_MESSAGE_TOOLS_ENABLED!=='false',cultivationControl:process.env.RPG_CULTIVATION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:true,limit:Number(process.env.RPG_CULTIVATION_CALL_LIMIT||0)}:null,godPlugins:process.env.RPG_GOD_PLUGINS_ENABLED==='true',godBranches:process.env.RPG_GOD_BRANCHES_ENABLED==='true',godCard:process.env.RPG_GOD_CARD_ENABLED==='true',memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
+ await start({...archiveChatOptions(process.env),transcript:process.env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:process.env.RPG_MESSAGE_TOOLS_ENABLED!=='false',cultivationControl:process.env.RPG_CULTIVATION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:true,limit:Number(process.env.RPG_CULTIVATION_CALL_LIMIT||0)}:null,godPlugins:process.env.RPG_GOD_PLUGINS_ENABLED==='true',godBranches:process.env.RPG_GOD_BRANCHES_ENABLED==='true',godCard:process.env.RPG_GOD_CARD_ENABLED==='true',memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
  console.log('RPG service started; credentials are server-only; no automatic dispatch.');
 }
