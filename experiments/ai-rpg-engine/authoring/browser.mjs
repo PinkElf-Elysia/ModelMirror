@@ -22,6 +22,7 @@ const field = (label, id, value = '', extra = '') => '<label class="form-label" 
 let work = null, blank = null, busy = false, pending = null, conflict = false, database = null;
 let validation = null, uploadTarget = null, focusBeforeWrite = null, composing = false;
 let sessionPanel = null, playbackPanel = null;
+let draftWriteSettled = null;
 const busyButtons = new Map();
 const failureText = {
   NETWORK_READ_FAILED:'暂未读取到最新状态。已显示的记录和输入仍保留，请稍后刷新。',
@@ -88,9 +89,17 @@ window.addEventListener('pagehide',()=>{
   if(activePresentation?.token)fetch(apiRoot+'/presentations/release',{method:'POST',headers:{'Content-Type':'application/json','X-Authoring-Request':'1'},body:JSON.stringify({token:activePresentation.token}),keepalive:true}).catch(()=>{});
 });
 async function renderPreview(mode,createCG=false){
+  const generation=++previewGeneration;
+  const requestedWorkId=work?.id;
+  // A local save can reach disk before its receipt updates the editor revision.
+  while(draftWriteSettled){
+    await draftWriteSettled;
+    if(generation!==previewGeneration || work?.id!==requestedWorkId)return;
+    if(pending || conflict){notice(describe({code:conflict?'AUTHORING_REVISION_CONFLICT':'AUTHORING_OPERATION_PENDING'}));return;}
+  }
+  const revisionAtStart=work?.revision;
   playbackPanel?.hide();$('#preview-content').hidden=false;
   bgmMode=mode;syncChatBGM(false);
-  const generation=++previewGeneration;
   const previous=activePresentation;activePresentation=null;
   document.querySelectorAll('[data-preview]').forEach(element=>element.setAttribute('aria-pressed',String(element.dataset.preview===mode)));
   const root=$('#preview-content');
@@ -161,6 +170,9 @@ async function renderPreview(mode,createCG=false){
     $('#stop-script').onclick=()=>stopScript(activePresentation,'脚本已停止，当前画面和玩家输入保留。刷新预览可重新运行。');
   }catch(error){
     if(generation===previewGeneration){
+      if(error.code==='AUTHORING_REVISION_CONFLICT' && work?.id===requestedWorkId && !conflict && (draftWriteSettled || work?.revision!==revisionAtStart)){
+        error={code:'AUTHORING_PRESENTATION_STALE'};
+      }
       if(previous?.workId===work?.id){activePresentation=previous;stopScript(previous,'新预览未生成，保留上一份画面。'+describe(error));}
       else{$('#presentation-status').textContent='预览未生成，源码已保留。'+describe(error);releasePresentation(previous);}
       if(error.details?.diagnostic)$('#presentation-diagnostics').textContent=error.details.diagnostic;
@@ -563,6 +575,8 @@ async function mutate(path, fields, {creating=false, follow=false, preserve=fals
   const captured = currentDocument();
   const record = {operationId:body.operationId,workId:creating || follow ? null : work.id,sourceId:work?.id || null,document:fields.document || captured,revision:work?.revision ?? null,kind:path,at:new Date().toISOString()};
   setBusy(true);
+  let finishDraftWrite;
+  draftWriteSettled=new Promise(resolve=>{finishDraftWrite=resolve;});
   try {
     // Persist intent and unsaved source before any request is dispatched.
     await journal('put',record); pending = record;
@@ -598,7 +612,11 @@ async function mutate(path, fields, {creating=false, follow=false, preserve=fals
       else { pending = blockedWorkRecord(record,error.details); await journal('put',pending); }
     }
     throw error;
-  } finally { setBusy(false); }
+  } finally {
+    draftWriteSettled=null;
+    finishDraftWrite();
+    setBusy(false);
+  }
 }
 async function save(automatic=false) {
   if (automatic && (busy || pending || conflict || composing || !work || $('dialog[open]') || dialogueUI.editing())) return;
