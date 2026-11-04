@@ -14,7 +14,7 @@ const root = new URL('../', import.meta.url);
 const sourcePaths = [
   'authoring/runtime-binding.mjs', 'authoring/runtime-plugins.mjs', 'authoring/store.mjs',
   'authoring/contracts.mjs', 'authoring/metadata.mjs', 'authoring/gallery.mjs', 'authoring/dialogue.mjs',
-  'plugins/catalog.mjs', 'plugins/host.mjs', 'plugins/transcript.mjs', 'plugins/message-tools.mjs',
+  'plugins/catalog.mjs', 'plugins/host.mjs', 'plugins/transcript.mjs', 'plugins/message-tools.mjs', 'plugins/illustrations.mjs',
   ...['branch-save', 'model-selector', 'history-window', 'rolling-summary', 'memory-palace']
     .flatMap(name => ['plugins/' + name + '.mjs', 'plugins/' + name + '.manifest.json']),
 ];
