@@ -5,17 +5,25 @@ export async function configRequest(
   scope: string,
   url: string,
   options: RequestInit,
+  modIds: string[] = [],
 ) {
-  if (!localStorage.getItem("rpg-custom-config-used"))
-    return fetch(url, options);
-  const envelope = await (
-    await plugin()
-  ).prepare(scope, JSON.parse(String(options.body)));
-  if (!envelope) return fetch(url, options);
+  const request = JSON.parse(String(options.body));
+  const envelope = localStorage.getItem("rpg-custom-config-used")
+    ? await (await plugin()).prepare(scope, request)
+    : null;
+  if (!envelope && !modIds.length) return fetch(url, options);
   return fetch(url, {
     ...options,
-    headers: { ...options.headers, "X-Rpg-Custom-Config": "1" },
-    body: JSON.stringify(envelope),
+    headers: {
+      ...options.headers,
+      ...(envelope ? { "X-Rpg-Custom-Config": "1" } : {}),
+      ...(modIds.length ? { "X-Rpg-Mod-Panel": "1" } : {}),
+    },
+    body: JSON.stringify({
+      ...envelope,
+      request,
+      ...(modIds.length ? { modIds } : {}),
+    }),
   });
 }
 export function ConfigTools({ scope }: { scope: string }) {
@@ -100,7 +108,12 @@ export function useConfigView<T extends HTMLElement>(scope: string) {
   const ref = useRef<T>(null),
     rev = useRevision();
   useEffect(() => {
-    if (!scope || !ref.current || !localStorage.getItem("rpg-custom-config-used")) return;
+    if (
+      !scope ||
+      !ref.current ||
+      !localStorage.getItem("rpg-custom-config-used")
+    )
+      return;
     const el = ref.current,
       ctrl = new AbortController();
     plugin()

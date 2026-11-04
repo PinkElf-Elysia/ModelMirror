@@ -1,0 +1,171 @@
+dialog.rpg-mod-panel {
+  box-sizing: border-box;
+  width: min(1320px, 96vw);
+  max-width: 96vw;
+  max-height: 92dvh;
+  margin: auto;
+  padding: 20px 24px 14px;
+  border: 1px solid #d9dfe7;
+  border-radius: 12px;
+  background: #fcfdff;
+  color: #273549;
+  text-align: left;
+  font:
+    15px/1.55 system-ui,
+    "Microsoft YaHei",
+    sans-serif;
+  overflow: auto;
+}
+dialog.rpg-mod-panel::backdrop {
+  background: #19233466;
+}
+.rpg-mod-panel header,
+.rpg-mod-panel nav,
+.mod-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rpg-mod-panel header {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.rpg-mod-panel h2 {
+  font-size: 19px;
+  margin: 0;
+}
+.rpg-mod-panel button,
+.rpg-mod-panel select,
+.rpg-mod-panel input {
+  color: inherit;
+  background: #fff;
+  border: 1px solid #d6dce5;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font: inherit;
+}
+.rpg-mod-panel button:focus-visible,
+.rpg-mod-panel summary:focus-visible {
+  outline: 2px solid #2771cf;
+  outline-offset: 2px;
+}
+.rpg-mod-panel .mod-info {
+  background: #eaf2fa;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.mod-info summary {
+  cursor: pointer;
+  color: #526579;
+}
+.mod-info span,
+.rpg-mod-panel .mod-more {
+  color: #2166b7;
+}
+.rpg-mod-panel nav {
+  border-bottom: 1px solid #dfe5ed;
+  margin-top: 12px;
+}
+.rpg-mod-panel nav button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: none;
+}
+.rpg-mod-panel nav button[aria-pressed="true"] {
+  border-bottom-color: #3679d5;
+  color: #2166b7;
+}
+.mod-filters {
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.mod-filters input {
+  margin-left: auto;
+}
+.rpg-mod-panel .mod-action,
+.mod-filters button[aria-pressed="true"] {
+  color: white;
+  background: #3478c8;
+  border-color: #3478c8;
+}
+.rpg-mod-panel .mod-action.on {
+  background: #fff;
+  color: #245b99;
+}
+.rpg-mod-panel button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.mod-count,
+.mod-empty,
+.rpg-mod-panel small,
+.rpg-mod-panel footer {
+  color: #54677c;
+}
+.mod-scroll {
+  overflow-x: auto;
+}
+.rpg-mod-panel table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 690px;
+  text-align: left;
+}
+.rpg-mod-panel thead {
+  background: #dae7f7;
+}
+.rpg-mod-panel td,
+.rpg-mod-panel th {
+  padding: 12px;
+  border-bottom: 1px solid #e7ecf1;
+  vertical-align: top;
+}
+.rpg-mod-panel td p {
+  margin: 0;
+  max-width: 40em;
+}
+.rpg-mod-panel td:nth-child(3) {
+  width: 45%;
+}
+.rpg-mod-panel .mod-more {
+  border: none;
+  background: none;
+  padding: 4px 0;
+}
+.rpg-mod-panel small {
+  display: block;
+  font-size: 12px;
+  font-weight: normal;
+}
+.rpg-mod-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 280px;
+  overflow-y: auto;
+  background: #f2f5fa;
+  padding: 12px;
+  font-size: 13px;
+}
+.rpg-mod-panel footer {
+  margin-top: 12px;
+}
+.mod-empty {
+  padding: 25px;
+  text-align: center;
+}
+@media (max-width: 600px) {
+  dialog.rpg-mod-panel {
+    padding: 12px;
+  }
+  .mod-filters input {
+    width: 100%;
+  }
+  .rpg-mod-panel td,
+  .rpg-mod-panel th {
+    padding: 8px;
+  }
+  .rpg-mod-panel table {
+    min-width: 560px;
+  }
+}
