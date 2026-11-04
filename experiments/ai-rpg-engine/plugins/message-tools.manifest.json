@@ -1,0 +1,27 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.message-tools",
+  "version": "1.0.0",
+  "name": "消息工具",
+  "description": "切换实时显示、复制回复，并从指定回合编辑重发或重新生成。原对话保留。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god"
+  ],
+  "capabilities": [
+    "session.message.fork"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.message.fork",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/message-tools.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "1a46914fee62581ef97d8b3a717ce833fa5d93f4ae4b03970dee54048b0cb0d9"
+}

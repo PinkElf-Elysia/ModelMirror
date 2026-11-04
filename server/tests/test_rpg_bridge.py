@@ -263,11 +263,12 @@ def test_partial_output_is_kept_as_evidence_and_unknown_is_not_success(setup):
 def test_parent_app_registers_rpg_routes_and_default_disabled(monkeypatch):
     from server.main import app
     registered = [(r.path, set(r.methods or ())) for r in app.routes if r.path.startswith('/api/rpg/v1')]
-    assert registered == [('/api/rpg/v1/models', {'GET'}), ('/api/rpg/v1/chat/completions', {'POST'})]
+    assert registered == [('/api/rpg/v1/models', {'GET'}), ('/api/rpg/v1/progress/{session_id}/{request_id}', {'GET'}), ('/api/rpg/v1/chat/completions', {'POST'})]
     monkeypatch.delenv('RPG_S2S_ENABLED', raising=False)
     monkeypatch.delenv('RPG_S2S_TOKEN', raising=False)
     client = TestClient(app)
     assert client.get('/api/rpg/v1/models').status_code == 503
+    assert client.get('/api/rpg/v1/progress/example/example').status_code == 503
     assert client.post('/api/rpg/v1/chat/completions', content='{}').status_code == 503
 
 

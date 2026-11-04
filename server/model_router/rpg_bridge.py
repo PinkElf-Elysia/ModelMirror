@@ -12,6 +12,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from . import rpg_progress
 from .api import get_model_router_service
 from .chat_stable import ProviderChatStableService
 
@@ -206,6 +207,12 @@ def parse_sse(sse, model, evidence=None):
     return raw, actual, usage
 
 
+@router.get("/progress/{session_id}/{request_id}", dependencies=[Depends(require_service)])
+def story_progress(session_id: str, request_id: str):
+    preview = rpg_progress.active.get((session_id, request_id))
+    return JSONResponse({"text": preview.visible() if preview else ""}, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/chat/completions", dependencies=[Depends(require_service)])
 async def completion(request: Request, stable=Depends(get_stable), profile: str = "default"):
     value = await body(request, profile)
@@ -255,6 +262,9 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
     raw, sse, actual, usage, error, sent = "", "", None, None, None, False
     http_status = None
     parsed = {}
+    progress_key = (value["sessionId"], value["requestId"])
+    preview = rpg_progress.TextPreview(selected["model"], (dispatch.target.api_key, os.getenv("RPG_S2S_TOKEN")))
+    rpg_progress.active[progress_key] = preview
     try:
         async with asyncio.timeout(240), httpx.AsyncClient(**stable.transport.client_kwargs()) as client:
             outbound = stable.transport.build_authorized_stream_request(client, dispatch.target, dispatch.authorized, payload)
@@ -274,6 +284,7 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
                     if size > MAX_RESPONSE_BYTES:
                         raise ValueError("rpg_response_too_large")
                     chunks.append(chunk)
+                    preview.feed(chunk)
                 sse = b"".join(chunks).decode("utf-8", errors="strict")
                 raw, actual, usage = parse_sse(sse, selected["model"], parsed)
                 if await request.is_disconnected():
@@ -284,6 +295,8 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
         raw, actual = parsed.get("raw", ""), parsed.get("actual")
         allowed = {"rpg_selection_changed", "rpg_upstream_http", "rpg_response_too_large", "rpg_model_mismatch", "rpg_incomplete_output", "rpg_client_disconnected", "rpg_non_text_output", "rpg_incomplete_event", "rpg_provider_error", "rpg_event_after_done", "rpg_multiple_choices"}
         error = str(exc) if str(exc) in allowed else "rpg_transport_failed_or_unknown"
+    finally:
+        rpg_progress.active.pop(progress_key, None)
     secret = dispatch.target.api_key
     if secret and (secret in raw or secret in sse or secret in str(actual)):
         raw, sse, actual, error = "", "", None, "rpg_credential_echo_blocked"
