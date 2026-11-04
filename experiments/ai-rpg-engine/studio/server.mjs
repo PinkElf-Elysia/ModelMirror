@@ -1,3 +1,4 @@
+import {cultivationHttp} from '../cultivation-card/host.mjs';
 import {MemorySessionStore} from './memory-session-store.mjs';
 import {memoryHostTransport} from './memory-host.mjs';
 import {memoryHttp,memoryProjection} from './memory-http.mjs';
@@ -24,9 +25,10 @@ import {createControlledProvider} from './controlled-provider.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null}={}){
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
+ const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
  const providerOptions={directory:join(directory,'dispatches'),key,enabled,limit,fetcher};
  const provider=await createProvider(providerOptions);
  const controlOptions=modelControl?{...modelControl,directory:join(directory,'dispatches'),limit}:null;
@@ -64,9 +66,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!=='application/json'))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
-   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
+   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   if(pathname.startsWith('/rpg-app/cultivation/'))return await cultivationHttp({route:pathname.slice('/rpg-app/cultivation/'.length),method:req.method,data,res,send,runtime:cultivation});
    if(pathname==='/rpg-app/api/plugins'&&req.method==='GET')return plugins?send(200,await plugins.catalog()):send(503,{error:pluginError});
    const pluginAction=pathname.match(/^\/rpg-app\/api\/plugins\/([a-z0-9.-]+)\/(install|uninstall)$/);
    if(pluginAction&&req.method==='POST'){
@@ -136,6 +139,6 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';
  if(!key&&process.env.RPG_CREDENTIAL_FILE){const env=await readFile(process.env.RPG_CREDENTIAL_FILE,'utf8');const line=env.split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');}
- await start({godPlugins:process.env.RPG_GOD_PLUGINS_ENABLED==='true',godBranches:process.env.RPG_GOD_BRANCHES_ENABLED==='true',godCard:process.env.RPG_GOD_CARD_ENABLED==='true',memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
+ await start({cultivationControl:process.env.RPG_CULTIVATION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:true,limit:Number(process.env.RPG_CULTIVATION_CALL_LIMIT||0)}:null,godPlugins:process.env.RPG_GOD_PLUGINS_ENABLED==='true',godBranches:process.env.RPG_GOD_BRANCHES_ENABLED==='true',godCard:process.env.RPG_GOD_CARD_ENABLED==='true',memoryPalace:process.env.RPG_MEMORY_PALACE_ENABLED==='true',rollingSummary:process.env.RPG_ROLLING_SUMMARY_ENABLED==='true',historyWindow:process.env.RPG_HISTORY_WINDOW_ENABLED==='true',port:Number(process.env.PORT||18420),host:process.env.RPG_BIND||'127.0.0.1',directory:resolve(process.env.RPG_DATA_DIR||join(root,'.rpg04-work/studio')),key,enabled:process.env.RPG_ENABLED==='true',limit:Number(process.env.RPG_CALL_LIMIT_PER_CARD||1),origins:(process.env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),modelControl:process.env.RPG_MODEL_SELECTION_ENABLED==='true'?{baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:process.env.RPG_ENABLED==='true'}:null});
  console.log('RPG service started; credentials are server-only; no automatic dispatch.');
 }
