@@ -733,6 +733,10 @@ class VideoJobService:
             first_frame_content_type,
             first_frame_content,
         )
+        if model_id == "tbc/mischief-1" and frame_data_url is None:
+            raise MultimodalServiceError(
+                "first_frame_required", "该模型仅支持图生视频，请先提供首帧图片。", status_code=422
+            )
         last_frame_data_url = self._last_frame(
             last_frame_filename,
             last_frame_content_type,

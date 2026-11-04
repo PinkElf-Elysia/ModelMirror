@@ -976,6 +976,7 @@ export default function VideoGenerationWorkspace({
 
   const canSubmit =
     Boolean(profile) &&
+    (model.id !== "tbc/mischief-1" || Boolean(firstFrame)) &&
     catalogStatus !== "offline" &&
     catalogStatus !== "disabled" &&
     prompt.trim().length <= MAX_PROMPT_CHARS &&

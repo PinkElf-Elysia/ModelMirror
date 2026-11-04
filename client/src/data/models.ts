@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-10-29T06:55:22.078Z.
+﻿// Merged with OpenRouter model catalog on 2026-11-04T08:48:56.579Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -226,6 +226,367 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "tencent/hy4",
+    "canonical_slug": "tencent/hy4-20261104",
+    "name": "Tencent: Hy4",
+    "raw_description": "The official release of Hy4 delivers comprehensive and substantial improvements over Hy4 Preview, with particularly strong gains in agentic capabilities and performance across a wide range of long-horizon, real-world productivity...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.417,
+      "output": 1.2505
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools"
+    ],
+    "created": 1793766031,
+    "expiration_date": null,
+    "model_author": "Tencent",
+    "reasoning_declared": true
+  },
+  {
+    "id": "morph/reflex",
+    "canonical_slug": "morph/reflex-20261103",
+    "name": "Morph: Reflex",
+    "raw_description": "Morph's decision model. Answers typed choice, noul and score questions about a state. The state is prefix-cached across requests, so repeat questions on the same state bill at the cached-input...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1793741446,
+    "expiration_date": null,
+    "model_author": "Morph",
+    "note": "结构化决策专用入口，仅开放文字状态；图片状态尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "cohere/embed-5-fast",
+    "canonical_slug": "cohere/embed-5-fast-20261029",
+    "name": "Cohere: Embed 5 Fast",
+    "raw_description": "Embed 5 Fast is the lower-latency, cost-efficient tier of Cohere's Embed 5 family of multimodal embedding models (about 1B parameters). It embeds text, images, and interleaved text and image content...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Cohere",
+    "supported_parameters": [],
+    "created": 1793739025,
+    "expiration_date": null,
+    "model_author": "Cohere",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "cohere/embed-5-pro",
+    "canonical_slug": "cohere/embed-5-pro-20261029",
+    "name": "Cohere: Embed 5 Pro",
+    "raw_description": "Embed 5 Pro is the higher-accuracy tier of Cohere's Embed 5 family of multimodal embedding models (about 2.4B parameters). It embeds text, images, and interleaved text and image content into...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Cohere",
+    "supported_parameters": [],
+    "created": 1793739016,
+    "expiration_date": null,
+    "model_author": "Cohere",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "cohere/rerank-5-fast",
+    "canonical_slug": "cohere/rerank-5-fast-20261028",
+    "name": "Cohere: Rerank 5 Fast",
+    "raw_description": "Rerank 5 Fast is the low-latency tier of Cohere's Rerank 5 family of reranking models. It scores and reorders candidate documents against a query and is suited for high-throughput retrieval...",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Cohere",
+    "supported_parameters": [],
+    "created": 1793738329,
+    "expiration_date": null,
+    "model_author": "Cohere",
+    "note": "文字重排序专用入口；输入价格 $0.02/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
+  },
+  {
+    "id": "cohere/rerank-5-pro",
+    "canonical_slug": "cohere/rerank-5-pro-20261028",
+    "name": "Cohere: Rerank 5 Pro",
+    "raw_description": "Rerank 5 Pro is the higher-accuracy tier of Cohere's Rerank 5 family of reranking models. It scores and reorders candidate documents against a query and is suited for retrieval pipelines...",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Cohere",
+    "supported_parameters": [],
+    "created": 1793738320,
+    "expiration_date": null,
+    "model_author": "Cohere",
+    "note": "文字重排序专用入口；输入价格 $0.049999999999999996/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
+  },
+  {
+    "id": "cloudflare/clairic",
+    "canonical_slug": "cloudflare/clairic-20261029",
+    "name": "Cloudflare: Clairic",
+    "raw_description": "Clairic is Cloudflare's System One-style extraction model served on Workers AI. Given a text state and optional images plus a schema of typed fields, it extracts, computes, estimates, and forecasts...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1793737067,
+    "expiration_date": null,
+    "model_author": "Cloudflare",
+    "note": "结构化决策专用入口，仅开放文字状态；图片状态尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "moondream/parakeet-ultra",
+    "canonical_slug": "moondream/parakeet-ultra-20261102",
+    "name": "Moondream: Parakeet Ultra",
+    "raw_description": "Parakeet Ultra is Moondream's post-trained version of NVIDIA's Parakeet TDT 0.6B v3 speech-to-text model, with the same architecture, tokenizer, and 0.6B parameters. It lowers word error rate on the Open...",
+    "context_length": 0,
+    "pricing": {
+      "input": 16.666700000000002,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1793729150,
+    "expiration_date": null,
+    "model_author": "Moondream",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.060000120000000004
+    },
+    "note": "标准音频转写输入，仅返回文字；暂不开放时间戳参数，约 $0.06000012/小时，等待人工验证。"
+  },
+  {
+    "id": "stealth/crouton-alpha",
+    "canonical_slug": "stealth/crouton-alpha",
+    "name": "Crouton Alpha",
+    "raw_description": "Crouton Alpha is a lightweight model built for scalable coding, agentic, and multimodal workflows. It's ideal for executing agentic sub-tasks, tool use, and document analysis in high-volume, repeated work. Developers...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "file",
+      "audio"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1793669930,
+    "expiration_date": null,
+    "model_author": "Stealth",
+    "reasoning_declared": true
+  },
+  {
+    "id": "z-ai/glm-5.3-flashx-legal",
+    "canonical_slug": "z-ai/glm-5.3-flashx-legal-20261102",
+    "name": "Z.ai: GLM 5.3 FlashX Legal",
+    "raw_description": "GLM-5.3-FlashX-Legal (GLM-Legal) is Z.ai's legal-domain variant of GLM-5.3-FlashX, a native multimodal model that accepts text, image, and video input and produces text. It adds legal-domain mid-training and post-training with reinforcement...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.37,
+      "output": 1.25
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1793626154,
+    "expiration_date": null,
+    "model_author": "Z.ai",
+    "reasoning_declared": true
+  },
+  {
+    "id": "tbc/mischief-1",
+    "canonical_slug": "tbc/mischief-1-20261023",
+    "name": "TBC: mischief 1",
+    "raw_description": "TBC mischief 1 is the world's first neuron-derived video model from The Biological Computing Co. It supports image to video and is a fast and affordable way to bring ideas...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "max_tokens",
+      "temperature"
+    ],
+    "created": 1793319378,
+    "expiration_date": null,
+    "model_author": "Tbc",
+    "note": "仅图生视频：首帧必需，480p/720p、16:9、3/5 秒，无音频；最低 $0.005/输出秒，等待人工验证。"
+  },
+  {
+    "id": "baseten/joey-1",
+    "canonical_slug": "baseten/joey-1-20261029",
+    "name": "Baseten: Joey 1",
+    "raw_description": "Joey 1 is a 2B decision model from Base Labs, Baseten's research team, built on Qwen3.5-2B. Given a state (text or JSON) and typed questions (yes/no, multiple choice, or ordinal...",
+    "context_length": 16384,
+    "pricing": {
+      "input": 0.01,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1793301887,
+    "expiration_date": null,
+    "model_author": "Baseten",
+    "note": "结构化决策专用入口，仅开放文字状态；图片状态尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "sourceful/riverflow-v2.6-pro",
+    "canonical_slug": "sourceful/riverflow-v2.6-pro-20261029",
+    "name": "Sourceful: Riverflow V2.6 Pro",
+    "raw_description": "Riverflow 2.6 Pro is the flagship model of Sourceful's Riverflow 2.6 lineup, a unified text-to-image and image-to-image family that treats generation as a production workflow: an integrated reasoning model plans...",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "reasoning",
+      "reasoning_effort"
+    ],
+    "created": 1793289528,
+    "expiration_date": null,
+    "model_author": "Sourceful",
+    "reasoning_declared": true,
+    "note": "动态任务计价，最终费用按完成后的处理量结算，不能按固定每张报价；自定义尺寸、字体和评分扩展尚未适配。"
+  },
+  {
     "id": "nvidia/nemotron-3.5-transcribe",
     "canonical_slug": "nvidia/nemotron-3.5-transcribe-20261028",
     "name": "NVIDIA: Nemotron 3.5 Transcribe",
@@ -246,12 +607,12 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1793235111,
     "expiration_date": null,
     "model_author": "NVIDIA",
+    "note": "专用音频转写；约 $0.11988/小时。本站使用标准音频转写输入，仅返回文本；不开放说话人分离、翻译或提示词扩展，等待人工验证。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
       "usd": 0.11988
-    },
-    "note": "专用音频转写；约 $0.11988/小时。本站使用标准音频转写输入，仅返回文本；不开放说话人分离、翻译或提示词扩展，等待人工验证。"
+    }
   },
   {
     "id": "assemblyai/assemblyai-tts-1",
@@ -274,12 +635,12 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1793217672,
     "expiration_date": null,
     "model_author": "AssemblyAI",
+    "note": "专用文字转语音，11 个目录预设声线，$15/百万字符；不开放克隆或自定义语言参数，等待人工验证。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
       "usd": 15
-    },
-    "note": "专用文字转语音，11 个目录预设声线，$15/百万字符；不开放克隆或自定义语言参数，等待人工验证。"
+    }
   },
   {
     "id": "particle-ai/particle-1",
@@ -288,8 +649,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.25,
-      "output": 1
+      "input": 0.049999999999999996,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -613,9 +974,11 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "stop",
       "structured_outputs",
+      "temperature",
       "tool_choice",
       "tools",
-      "top_logprobs"
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1792778188,
     "expiration_date": null,
@@ -668,7 +1031,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "output": 0
     },
     "input_modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "output_modalities": [
       "decisions"
@@ -712,7 +1076,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "output": 0
     },
     "input_modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "output_modalities": [
       "decisions"
@@ -932,7 +1297,21 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.15,
-      "output": 0.6
+      "output": 0.6,
+      "time_overrides": [
+        {
+          "utc_start": 1500,
+          "utc_end": 100,
+          "input": 0.075,
+          "output": 0.3
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 1500,
+          "input": 0.15,
+          "output": 0.6
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -1429,7 +1808,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1792158337,
-    "expiration_date": null,
+    "expiration_date": 1794096000,
     "model_author": "Inception",
     "reasoning_declared": true
   },
@@ -2029,7 +2408,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs"
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1791912025,
     "expiration_date": null,
@@ -2364,7 +2744,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
       "min_p",
@@ -2891,8 +3270,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral Large 4 is a frontier multimodal (text and image input) model from Mistral AI built for reasoning, coding, and agentic workloads. It offers a 1M-token context window with up...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.3599999999999999,
-      "output": 4.18
+      "input": 0.7,
+      "output": 2.0999999999999996
     },
     "input_modalities": [
       "text",
@@ -3177,7 +3556,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
     "context_length": 65537,
     "pricing": {
-      "input": 0.24,
+      "input": 0.192,
       "output": 0
     },
     "input_modalities": [
@@ -3381,6 +3760,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Inception"
   },
   {
+    "id": "mongodb/rerank-3-lite",
+    "canonical_slug": "voyageai/rerank-3-lite-20260930",
+    "name": "VoyageAI by MongoDB: rerank-3-lite",
+    "raw_description": "rerank-3-lite is a reranker optimized for both latency and quality and a drop-in upgrade to rerank-2.5-lite, improving on it by 0.94% NDCG@10 on average across domain evaluations and by 1.86%...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790785569,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "文字重排序专用入口；输入价格 $0.02/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
+  },
+  {
     "id": "voyageai/rerank-3-lite",
     "canonical_slug": "voyageai/rerank-3-lite-20260930",
     "name": "VoyageAI by MongoDB: rerank-3-lite",
@@ -3402,6 +3804,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "Voyageai",
     "note": "通过 OpenRouter /api/v1/rerank 接收 query、documents 与可选 top_n，返回按 relevance_score 排序的结果；支持每个查询-文档对合计 32K Token，目录展示价为 $0.02/M 输入 Token。已完成静态契约适配，尚未执行真实调用。"
+  },
+  {
+    "id": "mongodb/rerank-3",
+    "canonical_slug": "voyageai/rerank-3-20260930",
+    "name": "VoyageAI by MongoDB: rerank-3",
+    "raw_description": "rerank-3 is a reranker optimized for quality and a drop-in upgrade to rerank-2.5, improving on it by 0.80% NDCG@10 on average across domain evaluations and by 3.35% on long-document evaluations,...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1790785501,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "文字重排序专用入口；输入价格 $0.049999999999999996/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
   },
   {
     "id": "voyageai/rerank-3",
@@ -4696,10 +5121,12 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "response_format",
       "seed",
+      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -4988,8 +5415,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.012100000000000001,
-      "output": 1.73
+      "input": 0.0333,
+      "output": 0.475
     },
     "input_modalities": [
       "text",
@@ -5633,7 +6060,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1788892137,
-    "expiration_date": null,
+    "expiration_date": 1794096000,
     "model_author": "Inception",
     "reasoning_declared": true
   },
@@ -6306,7 +6733,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.06,
-      "output": 0.15
+      "output": 0.25
     },
     "input_modalities": [
       "text"
@@ -6518,8 +6945,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0457,
-      "output": 0.0742
+      "input": 0.0269,
+      "output": 0.09960000000000001
     },
     "input_modalities": [
       "text",
@@ -6631,8 +7058,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0457,
-      "output": 0.0742
+      "input": 0.0269,
+      "output": 0.09960000000000001
     },
     "input_modalities": [
       "text",
@@ -7135,8 +7562,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0699,
-      "output": 1.4
+      "input": 0.08,
+      "output": 3.5999999999999996
     },
     "input_modalities": [
       "text"
@@ -7200,10 +7627,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "qwen/qwen3.8-27b-20260814",
     "name": "Qwen: Qwen3.8 27B",
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
-    "context_length": 1000000,
+    "context_length": 1024000,
     "pricing": {
-      "input": 0.039,
-      "output": 1.25
+      "input": 0.15,
+      "output": 1.875
     },
     "input_modalities": [
       "text",
@@ -7450,6 +7877,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "Google",
     "reasoning_declared": true
+  },
+  {
+    "id": "mongodb/voyage-code-4",
+    "canonical_slug": "voyageai/voyage-code-4-20260812",
+    "name": "VoyageAI by MongoDB: voyage-code-4",
+    "raw_description": "voyage-code-4 is a code embedding model from Voyage AI, a MongoDB company. It is designed for coding agents and code retrieval, with Matryoshka embeddings at 2048t voyage-code-4 here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1786636912,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
   },
   {
     "id": "voyageai/voyage-code-4",
@@ -7795,85 +8245,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.32,
-      "output": 3.9600000000000004,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 0,
-          "utc_days": [
-            "saturday",
-            "sunday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 1.32,
-          "output": 3.9600000000000004
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.66,
-          "output": 1.9800000000000002
-        }
-      ]
+      "input": 0.11499999999999999,
+      "output": 4.6
     },
     "input_modalities": [
       "text"
@@ -8065,7 +8438,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs"
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1786470519,
     "expiration_date": null,
@@ -8521,8 +8895,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0475,
-      "output": 0.1568
+      "input": 0.059,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -8567,8 +8941,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.119,
-      "output": 0.238
+      "input": 0.059,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -8723,7 +9097,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1785443117,
-    "expiration_date": null,
+    "expiration_date": 1793750400,
     "model_author": "Thinkingmachines",
     "reasoning_declared": true
   },
@@ -8964,6 +9338,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "mongodb/rerank-2.5-lite",
+    "canonical_slug": "voyageai/rerank-2.5-lite-20260727",
+    "name": "VoyageAI by MongoDB: rerank-2.5-lite",
+    "raw_description": "rerank-2.5-lite is a reranker optimized for both latency and quality, delivering a 7.16% improvement in retrieval accuracy over Cohere Rerank v3.5 across 93 datasets. It also outperformed Cohere Rerank v3.5...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188631,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "文字重排序专用入口；输入价格 $0.02/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
+  },
+  {
     "id": "voyageai/rerank-2.5-lite",
     "canonical_slug": "voyageai/rerank-2.5-lite-20260727",
     "name": "VoyageAI by MongoDB: rerank-2.5-lite",
@@ -8986,6 +9383,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Voyageai"
   },
   {
+    "id": "mongodb/rerank-2.5",
+    "canonical_slug": "voyageai/rerank-2.5-20260727",
+    "name": "VoyageAI by MongoDB: rerank-2.5",
+    "raw_description": "rerank-2.5 is a cutting-edge reranker optimized for quality, delivering a 7.94% improvement in retrieval accuracy over Cohere Rerank v3.5 across 93 datasets. It also outperformed Cohere Rerank v3.5 by 12.70%...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "rerank"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188630,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "文字重排序专用入口；输入价格 $0.049999999999999996/百万 Token，非免费，实际以供应商回执为准。未执行真实调用。"
+  },
+  {
     "id": "voyageai/rerank-2.5",
     "canonical_slug": "voyageai/rerank-2.5-20260727",
     "name": "VoyageAI by MongoDB: rerank-2.5",
@@ -9006,6 +9426,30 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1785188630,
     "expiration_date": null,
     "model_author": "Voyageai"
+  },
+  {
+    "id": "mongodb/voyage-multimodal-3.5",
+    "canonical_slug": "voyageai/voyage-multimodal-3.5-20260727",
+    "name": "VoyageAI by MongoDB: voyage-multimodal-3.5",
+    "raw_description": "voyage-multimodal-3.5 is a state-of-the-art multimodal embedding model capable of vectorizing not only text, images, and video individually, but also content that interleaves all three modalities. It delivers excellent performance for...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188629,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
   },
   {
     "id": "voyageai/voyage-multimodal-3.5",
@@ -9031,6 +9475,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Voyageai"
   },
   {
+    "id": "mongodb/voyage-4-lite",
+    "canonical_slug": "voyageai/voyage-4-lite-20260727",
+    "name": "VoyageAI by MongoDB: voyage-4-lite",
+    "raw_description": "voyage-4-lite is a lightweight, general-purpose embedding model optimized for low latency and cost. Enabled by Matryoshka learning and quantization-aware training, voyage-4-lite supports embeddings t voyage-4-lite here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188627,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
+  },
+  {
     "id": "voyageai/voyage-4-lite",
     "canonical_slug": "voyageai/voyage-4-lite-20260727",
     "name": "VoyageAI by MongoDB: voyage-4-lite",
@@ -9053,6 +9520,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Voyageai"
   },
   {
+    "id": "mongodb/voyage-4",
+    "canonical_slug": "voyageai/voyage-4-20260727",
+    "name": "VoyageAI by MongoDB: voyage-4",
+    "raw_description": "voyage-4 is a general-purpose (including multilingual) embedding model optimized for retrieval/search and AI applications. voyage-4 supports embedd about voyage-4 here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.06,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188626,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
+  },
+  {
     "id": "voyageai/voyage-4",
     "canonical_slug": "voyageai/voyage-4-20260727",
     "name": "VoyageAI by MongoDB: voyage-4",
@@ -9073,6 +9563,29 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1785188626,
     "expiration_date": null,
     "model_author": "Voyageai"
+  },
+  {
+    "id": "mongodb/voyage-4-large",
+    "canonical_slug": "voyageai/voyage-4-large-20260727",
+    "name": "VoyageAI by MongoDB: voyage-4-large",
+    "raw_description": "voyage-4-large is a state-of-the-art general-purpose and multilingual embedding optimized for retrieval quality. Enabled by Matryoshka learning and quantization-aware training, voyage-4-large supports embeddings  voyage-4-large here: [mongodb.com/products/platform/ai-search-and-retrieval/models](https://www.mongodb.com/products/platform/ai-search-and-retrieval/models?utm_source=openrouter&utm_medium=referral)",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1785188624,
+    "expiration_date": null,
+    "model_author": "Mongodb",
+    "note": "使用文字向量检索入口；图片和交错多模态向量输入尚未适配。未执行真实调用。"
   },
   {
     "id": "voyageai/voyage-4-large",
@@ -9717,7 +10230,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1784325956,
-    "expiration_date": null,
+    "expiration_date": 1793750400,
     "model_author": "Thinkingmachines",
     "reasoning_declared": true
   },
@@ -9748,9 +10261,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
-      "prediction",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -9766,7 +10280,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_k",
       "top_logprobs",
       "top_p",
-      "web_search_options"
+      "verbosity"
     ],
     "created": 1784311165,
     "expiration_date": null,
@@ -9801,8 +10315,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.192,
-      "output": 15
+      "input": 0.19999999999999998,
+      "output": 16
     },
     "input_modalities": [
       "text",
@@ -10385,10 +10899,12 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "response_format",
       "seed",
+      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -11023,7 +11539,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.006,
-      "output": 7
+      "output": 6.8
     },
     "input_modalities": [
       "text"
@@ -11126,8 +11642,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.56,
-      "output": 3.1
+      "input": 0.6,
+      "output": 3.5
     },
     "input_modalities": [
       "text",
@@ -11872,7 +12388,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Parakeet TDT 0.6B v3 is NVIDIA's 600M-parameter multilingual speech-to-text model built on the FastConformer-TDT architecture. Trained on the Granary dataset (670,000+ hours of audio), it supports automatic language detection across...",
     "context_length": 0,
     "pricing": {
-      "input": 25,
+      "input": 16.666700000000002,
       "output": 0
     },
     "input_modalities": [
@@ -13196,8 +13712,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.18239999999999998,
-      "output": 9.338799999999999
+      "input": 0.19,
+      "output": 8.940000000000001
     },
     "input_modalities": [
       "text",
@@ -13686,8 +14202,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 1.5999999999999999,
+      "output": 3.1999999999999997
     },
     "input_modalities": [
       "text"
@@ -14096,7 +14612,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "xiaomi/mimo-v2.5-20260422",
     "name": "Xiaomi: MiMo-V2.5",
     "raw_description": "MiMo-V2.5 is a native omnimodal model by Xiaomi. It delivers Pro-level agentic performance at roughly half the inference cost, while surpassing MiMo-V2-Omni in multimodal perception across image and video understanding...",
-    "context_length": 1050000,
+    "context_length": 1000000,
     "pricing": {
       "input": 0.39999999999999997,
       "output": 2
@@ -14118,7 +14634,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "presence_penalty",
       "reasoning",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
       "temperature",
@@ -14735,8 +15250,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.3
+      "input": 0.08399999999999999,
+      "output": 0.253
     },
     "input_modalities": [
       "image",
@@ -14833,6 +15348,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -15371,7 +15887,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1773836697,
-    "expiration_date": null,
+    "expiration_date": 1793836800,
     "model_author": "MiniMax",
     "reasoning_declared": true
   },
@@ -15886,7 +16402,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1772636275,
-    "expiration_date": null,
+    "expiration_date": 1794096000,
     "model_author": "Inception",
     "reasoning_declared": true
   },
@@ -16575,8 +17091,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.27,
+      "output": 0.95
     },
     "input_modalities": [
       "text"
@@ -17010,7 +17526,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1769177239,
-    "expiration_date": null,
+    "expiration_date": 1793836800,
     "model_author": "MiniMax"
   },
   {
@@ -17434,7 +17950,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1766454997,
-    "expiration_date": null,
+    "expiration_date": 1793836800,
     "model_author": "MiniMax",
     "reasoning_declared": true
   },
@@ -17445,8 +17961,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-4.7 is Z.ai’s latest flagship model, featuring upgrades in two key areas: enhanced programming capabilities and more stable multi-step reasoning/execution. It demonstrates significant improvements in executing complex agent tasks while...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.54,
-      "output": 1.9800000000000002
+      "input": 0.6,
+      "output": 2.2
     },
     "input_modalities": [
       "text"
@@ -17476,7 +17992,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1766378014,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -17600,7 +18116,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "presence_penalty",
       "reasoning",
@@ -17613,7 +18128,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1765731275,
@@ -18277,8 +18791,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3.2 is a large language model designed to harmonize high computational efficiency with strong reasoning and agentic tool-use performance. It introduces DeepSeek Sparse Attention (DSA), a fine-grained sparse attention mechanism...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.28,
-      "output": 0.42
+      "input": 0.26,
+      "output": 0.38
     },
     "input_modalities": [
       "text"
@@ -19384,7 +19898,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1761252093,
-    "expiration_date": null,
+    "expiration_date": 1793836800,
     "model_author": "MiniMax",
     "reasoning_declared": true
   },
@@ -20416,7 +20930,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "reasoning",
       "response_format",
-      "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -20525,7 +21038,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
+      "input": 0.09999999999999999,
       "output": 1.1
     },
     "input_modalities": [
@@ -20884,12 +21397,15 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
       "response_format",
+      "seed",
+      "stop",
       "structured_outputs",
       "temperature",
       "top_k",
@@ -21271,8 +21787,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.018,
-      "output": 0.09
+      "input": 0.03,
+      "output": 0.13
     },
     "input_modalities": [
       "text"
@@ -21428,8 +21944,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Coder-30B-A3B-Instruct is a 30.5B parameter Mixture-of-Experts (MoE) model with 128 experts (8 active per forward pass), designed for advanced code generation, repository-scale understanding, and agentic tool use. Built on the...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.07,
-      "output": 0.28
+      "input": 0.15,
+      "output": 0.6
     },
     "input_modalities": [
       "text"
@@ -21809,8 +22325,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-235B-A22B-Instruct-2507 is a multilingual, instruction-tuned mixture-of-experts language model based on the Qwen3-235B architecture, with 22B active parameters per forward pass. It is optimized for general-purpose text generation, including instruction following,...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.55
+      "input": 0.14,
+      "output": 0.7999999999999999
     },
     "input_modalities": [
       "text"
@@ -22854,6 +23370,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -22866,7 +23383,9 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
+      "top_a",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1745875945,
@@ -24180,7 +24699,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1736915462,
-    "expiration_date": null,
+    "expiration_date": 1793836800,
     "model_author": "MiniMax"
   },
   {
@@ -25008,8 +25527,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.33
+      "input": 0.0509,
+      "output": 0.335
     },
     "input_modalities": [
       "text"
@@ -25399,8 +25918,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Meta's latest class of model (Llama 3.1) launched with a variety of sizes & flavors. This 70B instruct-tuned version is optimized for high quality dialogue usecases. It has demonstrated strong...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 0.39999999999999997
+      "input": 0.72,
+      "output": 0.72
     },
     "input_modalities": [
       "text"
@@ -25410,24 +25929,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Llama3",
     "supported_parameters": [
-      "frequency_penalty",
-      "logit_bias",
       "max_tokens",
-      "min_p",
-      "presence_penalty",
-      "repetition_penalty",
-      "response_format",
-      "seed",
       "stop",
-      "structured_outputs",
       "temperature",
-      "tool_choice",
-      "tools",
       "top_k",
       "top_p"
     ],
     "created": 1721692800,
-    "expiration_date": 1793664000,
+    "expiration_date": null,
     "model_author": "Meta"
   },
   {
@@ -26128,7 +26637,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_completion_tokens",
-      "max_tokens",
       "presence_penalty",
       "response_format",
       "seed",
@@ -26836,6 +27344,52 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "x-ai/grok-4.7:batch",
+    "canonical_slug": "x-ai/grok-4.7-20260916",
+    "name": "SpaceXAI: Grok 4.7 (batch)",
+    "raw_description": "Grok 4.7 is SpaceXAI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
+    "context_length": 500000,
+    "pricing": {
+      "input": 1.5999999999999999,
+      "output": 4.8,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 3.1999999999999997,
+          "output": 9.6
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Grok",
+    "supported_parameters": [
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1790007541,
+    "expiration_date": null,
+    "model_author": "xAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "deepseek/deepseek-v4.1-flash:batch",
     "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
     "name": "DeepSeek: DeepSeek V4.1 Flash (batch)",
@@ -27164,6 +27718,52 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "created": 1786640581,
     "expiration_date": null,
     "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
+    "id": "x-ai/grok-4.6:batch",
+    "canonical_slug": "x-ai/grok-4.6-20260810",
+    "name": "SpaceXAI: Grok 4.6 (batch)",
+    "raw_description": "Grok 4.6 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
+    "context_length": 500000,
+    "pricing": {
+      "input": 1.5999999999999999,
+      "output": 4.8,
+      "overrides": [
+        {
+          "min_prompt_tokens": 200000,
+          "input": 3.1999999999999997,
+          "output": 9.6
+        }
+      ]
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "file"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Grok",
+    "supported_parameters": [
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786548957,
+    "expiration_date": null,
+    "model_author": "xAI",
     "reasoning_declared": true
   },
   {
@@ -29359,6 +29959,16 @@ const uncertainCatalogModelIds = new Set<string>([
   "switchpoint/router",
   "thedrummer/rocinante-12b",
   "unbiased/pareto",
+  "voyageai/rerank-2.5",
+  "voyageai/rerank-2.5-lite",
+  "voyageai/rerank-3",
+  "voyageai/rerank-3-lite",
+  "voyageai/voyage-4",
+  "voyageai/voyage-4-large",
+  "voyageai/voyage-4-lite",
+  "voyageai/voyage-code-4",
+  "voyageai/voyage-multimodal-3.5",
+  "x-ai/grok-imagine-image-quality",
   "xiaomi/mimo-v2-flash",
   "z-ai/glm-4-32b",
   "z-ai/glm-4.5-air:free",
@@ -29641,6 +30251,7 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
+  "tbc/mischief-1",
   "alibaba/wan-3.0",
   "alibaba/wan-3.0-prime",
   "black-forest-labs/flux-video-upscale",
@@ -29656,6 +30267,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "sourceful/riverflow-v2.6-pro",
   "inclusionai/ming-image-0.1-design",
   "inclusionai/ming-image-0.1-design-layer",
   "microsoft/mai-image-2.6",
@@ -30196,6 +30808,28 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "tencent/hy4",
+  "morph/reflex",
+  "cohere/embed-5-fast",
+  "cohere/embed-5-pro",
+  "cohere/rerank-5-fast",
+  "cohere/rerank-5-pro",
+  "cloudflare/clairic",
+  "moondream/parakeet-ultra",
+  "stealth/crouton-alpha",
+  "z-ai/glm-5.3-flashx-legal",
+  "tbc/mischief-1",
+  "baseten/joey-1",
+  "sourceful/riverflow-v2.6-pro",
+  "mongodb/rerank-3-lite",
+  "mongodb/rerank-3",
+  "mongodb/voyage-code-4",
+  "mongodb/rerank-2.5-lite",
+  "mongodb/rerank-2.5",
+  "mongodb/voyage-multimodal-3.5",
+  "mongodb/voyage-4-lite",
+  "mongodb/voyage-4",
+  "mongodb/voyage-4-large",
   "nvidia/nemotron-3.5-transcribe",
   "assemblyai/assemblyai-tts-1",
   "particle-ai/particle-1",
