@@ -27,7 +27,10 @@ export async function playTurn(session, input, {generate, save}) {
   const raw = await generate('story', number, messages);
   session.turns.push({input,current,raw,recall:recalled?.record ?? null});
   await save('story', number, session);
-  if (!session.plugin) return;
+  if (session.plugin) await updateTurnMemory(session,number,current,raw,{generate,save});
+}
+
+export async function updateTurnMemory(session,number,current,raw,{generate,save}) {
   const proposal = invoke({capability:'session.memory.request',session:{id:session.id}});
   if (proposal.kind !== 'memory-request' || proposal.sessionId !== session.id) throw Error('MEMORY_REQUEST_INVALID');
   const entries = session.entries.filter(e=>!e.deleted).map(e=>({id:e.id,version:e.version,...e.value,protected:e.protected}));

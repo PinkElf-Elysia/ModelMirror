@@ -8,7 +8,10 @@ async function post(path:string,body:unknown) {
   return await r.json() as Session;
 }
 
+import {Link,useNavigate} from 'react-router-dom';
+import {cultivationChatPath} from './CultivationChat';
 export default function CultivationStory({archive}:{archive:string}) {
+  const navigate=useNavigate();
   const [enabled,setEnabled]=useState(false),[busy,setBusy]=useState(false);
   const [session,setSession]=useState<Session|null>(null),[memory,setMemory]=useState(false);
   const [input,setInput]=useState(''),[error,setError]=useState('');
@@ -24,7 +27,7 @@ export default function CultivationStory({archive}:{archive:string}) {
     setBusy(true);setError('');
     try {
       const next=session?await post('/sessions/'+session.id+'/turns',{revision:session.revision,input}):await post('/sessions',{archive,memoryEnabled:memory});
-      localStorage.setItem(key,next.id);setSession(next);setInput('');
+      localStorage.setItem(key,next.id);setSession(next);setInput('');if(!session)navigate(cultivationChatPath('classic',next.id));
     } catch {
       setError('操作未完成。请核对会话和调用回执。');
       if(session)try{const r=await fetch(base+'/sessions/'+session.id);if(r.ok)setSession(await r.json());}catch{/* retain the last confirmed state */}
@@ -33,6 +36,7 @@ export default function CultivationStory({archive}:{archive:string}) {
   if(!enabled&&!session)return null;
   return <section className="mt-4 space-y-3 border-t border-zinc-600 py-3">
     <h2>Gemini 剧情会话</h2>
+    {session&&<Link className="underline" to={cultivationChatPath('classic',session.id)}>进入独立聊天页 →</Link>}
     {!session&&<label><input type="checkbox" checked={memory} onChange={e=>setMemory(e.target.checked)} /> 挂载记忆宫殿（每轮额外调用一次 Gemini）</label>}
     {session?.turns.map((turn,i)=><details key={i} open={i===session.turns.length-1}><summary>第 {i+1} 轮剧情</summary><p className="whitespace-pre-wrap">{turn.raw}</p></details>)}
     {session?.plugin&&<p>记忆宫殿 · {session.entries} 条记忆</p>}

@@ -13,6 +13,10 @@ export async function assembleOpening(archive) {
 }
 
 export async function cultivationHttp({ route, method, data, res, send, runtime=null }) {
+  if (route.startsWith('api/summary-v2/')) {
+    const {summaryV2Http}=await import('../studio/auto-summary-v2.mjs');
+    return summaryV2Http({route,method,data,send});
+  }
   if (method === 'GET' && route === 'api/status') return send(200, runtime ? await runtime.status() : {enabled:false,remaining:0});
   if (runtime && method === 'POST' && route === 'api/sessions') return send(201,await runtime.create(data));
   const session = route.match(/^api\/sessions\/([a-f0-9-]{36})(\/turns)?$/);
