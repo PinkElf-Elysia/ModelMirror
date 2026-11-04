@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>RPG 创作 · B0 交互原型</title>
+<link rel="stylesheet" href="./styles.css"><script type="module" src="./app.mjs"></script>
+</head>
+<body>
+<div class="prototype-note"><strong>B0 交互原型</strong><span>仅演示本页编辑与预览，不连接模型或正式存储。</span><button id="scope-button">本批说明</button></div>
+<header class="workspace-header">
+<div class="work-identity"><button class="icon-button" id="works-button" aria-label="作品管理"></button><div><strong id="work-title">雾港来信</strong><span id="save-status" role="status">示例作品 · 未保存</span></div></div>
+<div class="top-actions"><div class="menu-anchor"><button id="more-button" aria-haspopup="menu" aria-expanded="false">更多 ⌄</button><div id="more-menu" class="menu" role="menu" hidden></div></div><button id="gallery-button">创作图库</button><button id="export-button">导出配置</button><button id="save-button">保存</button><button class="primary" id="publish-button">本地发布</button><button id="preview-button" class="preview-toggle" aria-expanded="false">预览</button></div>
+</header>
+<main class="workspace">
+<section class="edit-pane" aria-label="作品编辑">
+<nav class="tabs" role="tablist" aria-label="创作设置"><button id="tab-basic" role="tab" aria-selected="true" aria-controls="panel-basic" data-tab="basic">基础设置</button><button id="tab-world" role="tab" aria-selected="false" aria-controls="panel-world" data-tab="world" tabindex="-1">世界书设置</button><button id="tab-other" role="tab" aria-selected="false" aria-controls="panel-other" data-tab="other" tabindex="-1">其他设置</button></nav>
+<div class="edit-scroll" id="edit-scroll"><section id="panel-basic" role="tabpanel" aria-labelledby="tab-basic"></section><section id="panel-world" role="tabpanel" aria-labelledby="tab-world" hidden></section><section id="panel-other" role="tabpanel" aria-labelledby="tab-other" hidden></section></div>
+</section>
+<aside class="preview-pane" aria-label="调试与预览">
+<header class="preview-header"><strong>调试与预览</strong><div><button id="model-button" class="model-button">添加模型</button><button id="refresh-preview">刷新</button><button id="close-preview" class="icon-button" aria-label="关闭预览">×</button></div></header>
+<nav class="preview-tabs" aria-label="预览内容"><button data-preview="opening" aria-pressed="true">开局页面</button><button data-preview="reply" aria-pressed="false">回复样例</button><button data-preview="assembly" aria-pressed="false">装配说明</button></nav>
+<div class="preview-scroll" id="preview-content"></div>
+<div class="composer"><label class="sr-only" for="player-input">玩家输入</label><textarea id="player-input" rows="2" placeholder="开局内容将填入这里，由你决定何时发送。"></textarea><footer><span id="input-count">0 字</span><button id="mock-send" title="仅回放固定样例，不调用模型">样例回放 ▷</button></footer></div>
+<p class="preview-footnote">固定样例演示；真实模型调试在后续批次接入。</p>
+</aside>
+</main>
+<dialog id="dialog" aria-labelledby="dialog-title"><form id="dialog-form"><header><h2 id="dialog-title"></h2><button type="button" class="icon-button" id="dialog-close" aria-label="关闭弹窗">×</button></header><div id="dialog-body"></div><footer id="dialog-actions"></footer></form></dialog>
+<div id="toast" class="toast" role="status" hidden></div>
+<input id="image-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+<input id="audio-file" type="file" accept="audio/mpeg" hidden>
+<input id="json-file" type="file" accept="application/json,.json" hidden>
+</body>
+</html>

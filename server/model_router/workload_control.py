@@ -25,6 +25,7 @@ from .call_context import ProviderCallContext, ProviderCallContextError
 from .call_context_storage import ProviderContextStore
 from .qualifications import qualification_admin_summary
 from .egress import AuthorizedProviderTarget, ProviderEgressError
+from .openrouter_errors import read_openrouter_error_code
 from .provider_catalog import ProviderCatalogService
 from .provider_chat import ProviderChatTarget, ProviderChatTransport
 from .provider_operations import (
@@ -581,9 +582,6 @@ MAX_WORKLOAD_UNARY_RESPONSE_BYTES = 1024 * 1024
 MAX_WORKLOAD_SSE_EVENT_BYTES = 256 * 1024
 MAX_WORKLOAD_STREAM_BYTES = 4 * 1024 * 1024
 WORKLOAD_RESPONSE_CHUNK_BYTES = 64 * 1024
-MAX_OPENROUTER_ERROR_ENVELOPE_BYTES = 16 * 1024
-OPENROUTER_ERROR_ENVELOPE_CHUNK_BYTES = 4 * 1024
-OPENROUTER_ERROR_ENVELOPE_TIMEOUT_SECONDS = 1.0
 R8D_AUDIO_CERTIFICATION_TOTAL_TIMEOUT_SECONDS = 60.0
 R8D_AUDIO_CERTIFICATION_CLOSE_TIMEOUT_SECONDS = 1.0
 R8D_AUDIO_CERTIFICATION_KNOWN_ERROR_SETTLE_SECONDS = 0.1
@@ -3383,8 +3381,8 @@ class ProviderWorkloadCertificationService:
                 in {"chat_audio_input", "chat_audio_output"}
                 and payload.adapter_contract == "openrouter_chat_audio_v1"
             ):
-                diagnostic = await self._read_openrouter_error_type_warning(
-                    response
+                diagnostic = await read_openrouter_error_code(
+                    response, OPENROUTER_ERROR_TYPE_WARNINGS
                 )
                 if diagnostic is not None:
                     evidence.warning_codes.append(diagnostic)
@@ -3409,98 +3407,6 @@ class ProviderWorkloadCertificationService:
             raise _WorkloadCertificationFailure("provider_workload_model_mismatch")
         evidence.checks["multimodal_adapter_verified"] = True
         return generation_id
-
-    @staticmethod
-    async def _read_openrouter_error_type_warning(
-        response: httpx.Response,
-    ) -> str | None:
-        """Read one bounded OpenRouter error subtype without retaining its body."""
-
-        media_type = response.headers.get("content-type", "").partition(";")[0]
-        media_type = media_type.strip().lower()
-        if media_type != "application/json" and not media_type.endswith("+json"):
-            return None
-        content_encoding = response.headers.get("content-encoding")
-        if (
-            content_encoding is not None
-            and content_encoding.strip().lower() != "identity"
-        ):
-            return None
-
-        declared_length = response.headers.get("content-length")
-        if declared_length is not None:
-            if (
-                not declared_length.isascii()
-                or not declared_length.isdigit()
-                or len(declared_length)
-                > len(str(MAX_OPENROUTER_ERROR_ENVELOPE_BYTES))
-            ):
-                return None
-            parsed_length = int(declared_length)
-            if parsed_length > MAX_OPENROUTER_ERROR_ENVELOPE_BYTES:
-                return None
-
-        chunks: list[bytes] = []
-        total_bytes = 0
-        try:
-            async with asyncio.timeout(
-                OPENROUTER_ERROR_ENVELOPE_TIMEOUT_SECONDS
-            ):
-                async for chunk in response.aiter_bytes(
-                    chunk_size=OPENROUTER_ERROR_ENVELOPE_CHUNK_BYTES
-                ):
-                    total_bytes += len(chunk)
-                    if total_bytes > MAX_OPENROUTER_ERROR_ENVELOPE_BYTES:
-                        return None
-                    chunks.append(chunk)
-        except asyncio.CancelledError:
-            # The HTTP 400 is already determinate. Optional subtype collection
-            # must not downgrade it to an uncertain dispatched result.
-            return None
-        except (TimeoutError, httpx.HTTPError):
-            return None
-
-        def reject_duplicate_keys(
-            pairs: list[tuple[str, object]],
-        ) -> dict[str, object]:
-            parsed: dict[str, object] = {}
-            for key, value in pairs:
-                if key in parsed:
-                    raise ValueError("duplicate JSON object key")
-                parsed[key] = value
-            return parsed
-
-        try:
-            raw = b"".join(chunks).decode("utf-8", errors="strict")
-            payload = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
-        except (
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            RecursionError,
-            TypeError,
-            ValueError,
-        ):
-            return None
-        if not isinstance(payload, dict):
-            return None
-        error = payload.get("error")
-        if not isinstance(error, dict):
-            return None
-        status_code = error.get("code")
-        if (
-            isinstance(status_code, bool)
-            or not isinstance(status_code, int)
-            or status_code != response.status_code
-            or not isinstance(error.get("message"), str)
-        ):
-            return None
-        metadata = error.get("metadata")
-        if not isinstance(metadata, dict):
-            return None
-        error_type = metadata.get("error_type")
-        if not isinstance(error_type, str):
-            return None
-        return OPENROUTER_ERROR_TYPE_WARNINGS.get(error_type)
 
     @staticmethod
     def _r8d_request_payload(

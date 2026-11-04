@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>创作指南 · RPG 工作台</title><link rel="stylesheet" href="/creator-experience.css"></head>
+<body class="guide-page"><header class="guide-top"><strong>RPG · 创作指南</strong><a href="/">打开工作台</a></header>
+<div class="guide-layout"><nav class="guide-nav" aria-label="指南目录">
+<a href="#start">做出第一张卡</a><a href="#prompt">提示词放在哪里</a><a href="#writing">组织世界与角色</a><a href="#editor">18 项编辑工具</a><a href="#opening">可交互的开局</a><a href="#worldbook">世界书与概率</a><a href="#assets">图库与资源引用</a><a href="#display">回复样式与 CG</a><a href="#enhance">开场与对话辅助</a><a href="#test">模型与会话插件</a><a href="#versions">保存、发布与导出</a><a href="#troubleshoot">问题排查</a><a href="#rebuild">完整卡片重建</a><a href="#limits">当前能力</a></nav>
+<main><p class="guide-kicker">从设定到可以游玩的作品</p><h1>做出你的第一张角色卡</h1><p class="guide-lead">先让人物和开局成立，再添加世界书、图片与互动。每个示例都对应工作台中的字段，可以直接用于本地练习。</p><div class="guide-callout">保存、刷新预览和发布本地版本都不会调用模型。只有点击发送才进入调试；标有“离线演练”的入口使用固定回复，不产生模型费用。</div>
+<section aria-labelledby="start"><h2 id="start">从空白作品开始</h2><ol class="steps">
+<li><strong>新建作品</strong>点左上角文件夹图标 → 作品管理 → 新建空白作品，填写名称。基础设置中选择语言、男性向或女性向；标签与封面可以稍后补充。</li>
+<li><strong>写最小设定</strong>在基础设置的“提示词”填入下方示例。前后置词可以留空。</li></ol>
+<pre><code id="example-system"># 世界
+雾港的灯塔昨夜熄灭，港口仍在正常生活。
+# 角色
+守塔人林舟谨慎、惜字如金。玩家是一位携带旧地图的旅人。
+# 主持规则
+描写玩家行动造成的可见变化。不要替玩家作出重大决定。
+未证实的消息保留为说法，约定保留为计划。
+# 回复要求
+使用第二人称。先写现场，再给出人物反应，最后留下可继续行动的线索。</code></pre>
+<ol class="steps" start="3"><li><strong>做一个开局</strong>在其他设置 → 开场白 → 编辑，添加“我站在雾港灯塔下，向守塔人展示旧地图。”并保存。右侧“开场与指令”可以选择它填入输入框。</li><li><strong>保存并发布本地版本</strong>点顶部保存，再打开作品版本 → 发布当前草稿 → 发布版本。校验失败时按字段提示修正。</li><li><strong>建立调试会话</strong>点右侧添加模型，选择作品版本，再选择剧情模型和它支持的参数。检查输入、模式和额度后手动发送。离线回复只用来检查流程，不能证明提示词效果。</li></ol>
+<p>手机上点顶部“预览”进入右侧工作区；关闭预览或按 Esc 返回编辑。离开前确认作品名称下显示“已保存”。</p></section>
+<section aria-labelledby="prompt"><h2 id="prompt">每段文字应该放在哪里</h2><table><thead><tr><th>字段</th><th>放什么</th><th>发送方式</th></tr></thead><tbody>
+<tr><td>名称、标签、简介</td><td>题材、玩法概述和整理信息</td><td>不自动加入模型请求</td></tr><tr><td>详细介绍 / 开局页面</td><td>玩家看到的介绍、角色表单、选择按钮</td><td>页面不自动成为提示词；采用开局文字后才进入输入框</td></tr><tr><td>提示词</td><td>世界观、角色、规则与回复格式</td><td>作为系统提示词 system</td></tr><tr><td>前置词 / 后置词</td><td>每轮都需要的短要求</td><td>各装配一次，位于本轮 user 输入前后</td></tr><tr><td>世界书</td><td>按关键词出现的具体设定</td><td>命中后加入选定的提示词、前置词或后置词</td></tr><tr><td>内置 CSS</td><td>模型回复的颜色、布局与动效</td><td>只影响显示</td></tr></tbody></table>
+<p>示例：主提示词写“守塔人不知道信件作者”；前置词写玩家固定身份；后置词写“保留悬念，不替玩家决定”。玩家输入“我询问信件的来源”。不要把完整角色设定只写进简介，也不要把同一条要求在三个字段反复复制。</p><p>历史中的玩家输入不重复包裹前后置词。摘要和记忆属于启用插件后附加的历史资料；它们与作者设定分别保留。</p></section>
+<section aria-labelledby="writing"><h2 id="writing">让世界与角色容易执行</h2><ul><li><strong>世界：</strong>写清时间、地点、主要矛盾和日常规则。把只在特定地区用到的长设定移到世界书。</li><li><strong>角色：</strong>除外貌和性格外，补充知道什么、想要什么、与玩家的关系、说话方式。用一个短对话展示语气。</li><li><strong>玩法：</strong>说明行动会造成什么变化，以及哪些选择必须留给玩家。状态数值若由模型描述，不能当作已经接入确定性的规则引擎。</li><li><strong>输出：</strong>写明人称、场景重点、段落结构和大致篇幅。增加输出 token 上限只提高可用容量，不保证回复变长。</li></ul><p>用 Markdown 标题划分世界、人物、规则、示例，保留有意义的空行。调试时每轮只改变一个要求，保留输入和原始回复，区分设定遗漏、模型内容与显示问题。</p></section>
+<section aria-labelledby="editor"><h2 id="editor">18 项工具怎么使用</h2><p>编辑框保存的是源码。工具在当前选区或光标处插入文本；它们不会把提示词转换成另一份富文本，也不会自动删空行。</p><table><thead><tr><th>工具</th><th>操作与结果</th></tr></thead><tbody>
+<tr><td>标题</td><td>打开 H1–H6 菜单，选择级别；在光标前插入标题位置。</td></tr><tr><td>加粗、斜体、下划线、删除线</td><td>先选文字再点击。未选择时插入成对标记，继续在中间输入。</td></tr><tr><td>无序列表、有序列表、引用</td><td>为选中的行添加标记；长段落先按行整理。</td></tr><tr><td>换行</td><td>插入换行标记，用于需要明确断行的位置。</td></tr><tr><td>行内代码、代码块</td><td>区分一句中的代码与多行示例；示例中的标签不会因此变成可执行脚本。</td></tr><tr><td>表格</td><td>在格子菜单选择行列；之后直接编辑生成的源码。</td></tr><tr><td>图片、链接</td><td>在弹窗中填写或选择资源，确认才插入；取消 / Esc 保留原文。</td></tr><tr><td>清空</td><td>需要确认，取消保留文字。清空后仍可撤销。</td></tr><tr><td>撤销、重做</td><td>恢复本编辑框的文本操作；没有可恢复记录时按钮禁用。</td></tr><tr><td>全屏</td><td>展开当前编辑框，Esc 退出。适合长提示词与开局源码。</td></tr></tbody></table>
+<p>中文输入法组词期间先完成输入，再点击工具。Ctrl / ⌘ + S 保存作品；弹窗尚在编辑时先确认或取消该弹窗。</p></section>
+<section aria-labelledby="opening"><h2 id="opening">让玩家填写角色与开局</h2><p>把下面的小表单粘贴到基础设置 → 详细介绍 / 开局页面。点右侧开局页面 → 刷新，然后修改文字并点“使用这个开局”。工作台会显示待采用的内容；确认后填入输入框，仍由玩家发送。</p>
+<pre><code id="example-opening">&lt;section class="harbor-opening"&gt;
+  &lt;h1&gt;雾港来信&lt;/h1&gt;
+  &lt;p&gt;你带着一张旧地图，来到灯塔门前。&lt;/p&gt;
+  &lt;label for="opening-text"&gt;你的开局&lt;/label&gt;
+  &lt;textarea id="opening-text"&gt;我是旅人林岚。我向守塔人展示旧地图。&lt;/textarea&gt;
+  &lt;button data-rpg-input-from="opening-text"&gt;使用这个开局&lt;/button&gt;
+  &lt;details&gt;&lt;summary&gt;查看背景&lt;/summary&gt;&lt;p&gt;灯塔昨夜熄灭了。&lt;/p&gt;&lt;/details&gt;
+&lt;/section&gt;</code></pre>
+<p>已有完整 HTML/CSS/JS 时，可以直接放入详细介绍；也可展开“独立开局源码”分别编辑。独立 HTML 非空时优先使用，不会与详细介绍拼成两个开局。</p>
+<details><summary>编写开局脚本与复制按钮</summary><p>作者脚本可操作受限 DOM、表单、折叠与随机选项。宿主不向它开放网络、凭据、本地存储或模型调用。脚本错误会在预览诊断中说明。</p><p><code>rpg.setInput(text)</code>、<code>rpg.saveDraft(text)</code>、<code>rpg.copyText(text)</code>提出文字交接，由玩家按钮触发并在工作台采用。静态按钮也可使用 <code>data-rpg-input</code>、<code>data-rpg-copy</code> 和相应的 <code>-from</code> 属性引用表单元素。</p><p>异步复制在玩家确认成功后才继续；取消应保留表单。预览最多运行十分钟，过期后手动刷新。模型回复中的脚本始终不执行。</p></details></section>
+<section aria-labelledby="worldbook"><h2 id="worldbook">按关键词补充设定</h2><ol><li>打开世界书设置 → 新增，给条目取名“灯塔”。输入关键词“灯塔”，按回车或添加。</li><li>选择用户和 AI、格式“或”、影响范围“提示词”。正文写“旧灯塔有一扇蓝色小门，守塔人保留着昨日的访客记录”。</li><li>在输入中提到灯塔，再核对匹配结果。没有命中时不应携带这条资料。</li></ol>
+<table><thead><tr><th>参数</th><th>本地约定</th></tr></thead><tbody><tr><td>插入顺序</td><td>0–9999，小数值在前；同序按列表顺序，最后以稳定标识兜底。</td></tr><tr><td>扫描深度</td><td>0 只看本轮输入。1–20 额外看相应数量的完整历史回合，再按用户 / AI 过滤；独立于实际发送窗口。</td></tr><tr><td>与 / 或</td><td>“或”命中一个关键词即可；“与”需全部关键词出现，可分布在扫描范围内。字面匹配不区分大小写。</td></tr><tr><td>正则</td><td>在隔离环境限时匹配；非法表达式或超时会报告问题，不执行源码。</td></tr><tr><td>触发概率</td><td>关键词匹配后，决定条目本次是否生效。100 表示总是生效。</td></tr><tr><td>概率正文</td><td>条目生效后按权重选一份正文。0 权重不参与；全为 0 时不能发布。</td></tr></tbody></table>
+<h3>练习：三种天气</h3><p>把正文切到“概率”，添加晴天、阴天、雨天，权重都填 1。点归一化得到 33.34、33.33、33.33，合计 100.00%；可撤销。权重决定三份正文的相对机会，与上方触发概率分开计算。</p><p>先装配前后置词及其世界书，再匹配主提示词世界书，不递归触发，不扫描 M2/M3 注入的数据。同一发送操作固定匹配和抽签结果，恢复不重新抽取。以上算法是本地约定，不声称与原站内部实现一致。</p></section>
+<section aria-labelledby="assets"><h2 id="assets">图片、音乐与资源引用</h2><p>打开创作图库上传图片、命名和分组；封面、桌面背景、手机背景与 CG 可复用图库图片。关闭“使用图库图片”后也可从本机选择。背景音乐上传 MP3，播放器支持播放、暂停与循环；浏览器可能要求先手动点击播放。</p><p>在源码中使用资源别名，例如 <code>&lt;img src="asset://harbor" alt="雾港码头"&gt;</code>。别名必须对应当前作品的资源。可在更多 → 作品资源清单中核对别名、文件和缺失引用。</p>
+<details><summary>已有代码引用外部图片怎么办</summary><p>先把有权使用的图片保存到本地图库并关联到作品。在更多 → 查看 / 编辑配置 JSON 中，设置 <code>settings.presentation.imageMappings</code>；不要在提示词中填本机绝对文件路径。</p><pre><code>"presentation": {
+  "scope": "standard",
+  "imageMappings": [
+    {"source": "https://example.invalid/harbor.png", "alias": "harbor"}
+  ]
+}</code></pre><p>这是字段片段，不是完整作品包；合并到已有配置，保留其他字段。source 必须与源码 URL 精确一致，alias 必须是已上传资源。通用作品用 standard；依赖原站容器选择器的已有样式可使用 afengy 兼容作用域。预览不直接联网取图。</p></details></section>
+<section aria-labelledby="display"><h2 id="display">回复样式、折叠和普通 CG</h2><p>模型回复可显示 Markdown、HTML/CSS 和静态 SVG。把结构示例写进主提示词，把样式放进其他设置 → 内置 CSS。用同一份完整原文在右侧“样式回放”检查，避免把内容缺失误判成样式丢失。</p>
+<pre><code id="example-reply">&lt;section class="harbor-reply"&gt;
+  &lt;h2&gt;灯塔门前&lt;/h2&gt;
+  &lt;p&gt;守塔人接过地图，指向码头的方向。&lt;/p&gt;
+  &lt;details&gt;&lt;summary&gt;场景信息&lt;/summary&gt;&lt;p&gt;清晨，海雾尚未散去。&lt;/p&gt;&lt;/details&gt;
+&lt;/section&gt;</code></pre>
+<pre><code id="example-css">.harbor-reply { color: #22394d; background: #eef4fa; padding: 20px; }
+.harbor-reply p { line-height: 1.9; }
+.harbor-reply summary { cursor: pointer; padding: 12px 0; }</code></pre>
+<p>纯 CSS 可实现弹幕、翻面与图片展开；回复不执行 JavaScript。样式不会修改模型原文或污染工作台。检查关闭美化、短回复、长回复和手机宽度时是否仍可阅读。</p>
+<h3>普通 CG 练习</h3><ol><li>其他设置 → CG → 新增，关键词填“码头”，区域映射选择聊天，选一张本地图片。</li><li>选择概率图片时给各图片设置权重；切到背景图片时，命中会切换聊天背景。</li><li>粘贴包含“码头”的完整回复，点生成本轮 CG 回放。刷新复用已有选图，不能用刷新反复抽图。</li></ol><p>实际对话在完整回复保存后记录 CG 结果，刷新和分支回放复用它。手动样式回放与正式对话分开；临时回放记录保留十分钟，过期或重启需明确重新生成。普通 CG 没有收藏解锁与画廊。</p></section>
+<section aria-labelledby="enhance"><h2 id="enhance">开场、预设对话与快捷指令</h2><ul><li><strong>开场白：</strong>为不同路线提供可选开局，在页内编辑后保存。</li><li><strong>预设对话：</strong>保存提问、回答与可选开场白，供开局使用。折叠前确认当前内容。</li><li><strong>快捷指令：</strong>最多十项，把常用行动与短命令配对。选择后填入输入框，仍由玩家发送。</li><li><strong>下一步建议：</strong>开启后，把完整回复中的建议列表变成按钮，不需要额外模型调用。</li></ul>
+<pre><code id="example-suggestions">&lt;suggested_questions&gt;
+1. 展开旧地图
+2. 询问守塔人昨夜的情况
+3. 前往码头
+&lt;/suggested_questions&gt;</code></pre>
+<p>屏蔽词在发送前检查当前输入。显示正则只修改展示副本；摘要、记忆与世界书仍读原始历史。先用一个命中和一个不命中样例检查替换，非法或超时规则不能以部分结果冒充成功。</p></section>
+<section aria-labelledby="test"><h2 id="test">模型、参数与五个会话插件</h2><p>选择模型后，只显示其实际支持的参数。温度与 Top P 调整输出变化程度；最大回复长度决定允许的上限；它们都不能保证某一种文风或篇幅。不支持的参数不会被悄悄忽略。</p><p>剧情、摘要、记忆各自选择模型。切换剧情模型不会连带更换另两项，也不会自动认证模型。模型暂不可用时，先核对控制面目录与资格。</p>
+<table><thead><tr><th>插件</th><th>用途与启用要点</th></tr></thead><tbody><tr><td>模型选择器</td><td>管理会话的剧情模型与参数。</td></tr><tr><td>历史窗口 M1</td><td>限制携带的历史回合。作品默认记忆长度是建议，采用时需会话授权。</td></tr><tr><td>自动总结 M2</td><td>较早历史变成摘要，保留最近一回合原文。</td></tr><tr><td>记忆宫殿 M3</td><td>从原始剧情整理可编辑条目，按关键词召回。人工条目默认保护。</td></tr><tr><td>分支存档</td><td>从已完成的回合另开路线，继承当时快照，不继承后来的修订或会话授权。</td></tr></tbody></table>
+<h3>让每轮都记得你的回复要求</h3><ol><li>在“会话调试”展开“持续要求”，填写需长期保持的视角、篇幅或功能开关。</li><li>点“保存要求”。之后每轮会携带当前内容；保存本身不调用模型。</li><li>需要改变时在这里更新。聊天输入不会自动改写此处；取消或 Esc 放弃尚未保存的编辑。</li></ol><p>持续要求属于玩家要求，进入 user 消息，不修改作者主提示词。历史窗口裁掉早期对话后它仍会携带；已发送的请求与分支保留当时版本。清空后保存可停止携带。最多 8000 字；遇到冲突先刷新核对，遇到结果待核对先恢复原操作。</p><p>插件安装与会话启用是两步。先在会话插件中检查安装状态，再明确启用；M2/M3 要先选择各自模型。共同启用时后台按 M2 → M3 整理，下一轮等待完成。</p><p>发送前核对本次预计调用上限和剩余额度，包含剧情及已启用插件的独立调用。创建作品、复制、发布和分支不会增加额度。模型真实质量仍需单独真实调试并人工审阅。</p></section>
+<section aria-labelledby="versions"><h2 id="versions">保存、发布与导出</h2><p><strong>保存</strong>更新草稿。<strong>自动保存</strong>默认关闭，启用后每三分钟保存；编辑弹窗打开、内容冲突或结果待核对时暂停。</p><p><strong>作品版本 → 发布当前草稿</strong>生成不可变的本地版本。更改草稿后需要发布新版本，并为新版本创建会话；已有会话继续使用原版本。这里的发布不会公开到外部网站。</p><p><strong>导出配置</strong>下载结构化配置；<strong>更多 → 导出完整作品包</strong>包含资源，适合备份和迁移到另一份本地库。导出已保存内容，未保存修改要先保存，或使用“导出本页草稿备份”。</p><p>导入先展示校验问题，再选择新作品或替换当前草稿并确认。失败不覆盖原作品，未知字段会明确报告；不要把报错字段随意删除来强行导入。</p></section>
+<section aria-labelledby="troubleshoot"><h2 id="troubleshoot">遇到问题，先看哪里</h2><details><summary>改了提示词，回复却没有变化</summary><p>检查内容是否写在提示词而非简介；保存后发布新版本，再在模型设置中选用新版本。旧会话保留旧版本是正常行为。离线演练无论如何修改提示词都使用固定回复。</p></details><details><summary>图片丢失、CSS 不生效或折叠不动</summary><p>先查看完整原文是否包含对应标签；检查资源别名、精确 URL 映射与作用域。开局 CSS 和回复内置 CSS 用在不同地方。展开预览诊断；不要依靠模型脚本实现回复中的交互。</p></details><details><summary>世界书或 CG 没有触发</summary><p>核对启用状态、扫描角色、关键词、与 / 或、扫描深度、触发概率及权重。CG 需要完整回复；正则不能以错误或超时结果继续。比较实际命中记录与原文，不用“看起来没变”代替核对。</p></details><details><summary>显示“结果待核对”，能再发一次吗</summary><p>先点恢复原操作或核对原操作。恢复查询原请求，不换编号重发。未确认结果仍保留记录并阻止重复派发；明确失败后再按提示处理。</p></details><details><summary>显示“剧情请求未发出”，但额度减少了</summary><p>这是发送前已确认失败，输入仍保留。打开“对话与记录”，在“未完成的剧情请求”中查看原因；展开“请求详情”可核对派发状态、诊断和原始输入。DNS 或连接预检错误需要先检查运行服务的网络设置，刷新页面只读取状态，不会重新发送。较早的记录可能只保留通用预检失败，页面不会替旧记录补写原因。</p><p>如果看到“模型服务拒绝了这次剧情请求（HTTP 403）”，打开请求详情核对状态。服务商给出具体原因时，页面会显示权限不足、内容策略、模型拒绝或安全规则。只有状态码时，请按发生时间到服务商的请求记录中排查。</p><p>本地额度按提交计数，失败、取消和结果未确认的提交仍计入；未提交的后台任务会释放预留。供应商派发状态与本地计数分别记录，请勿把本地计数视为供应商生成次数或账单。记录中的“额度如何计数”可查看当前数值。</p></details><details><summary>另一个标签保存了修改</summary><p>先导出本页草稿备份，再选择载入服务器版本。直接重复保存不会强行覆盖另一标签。不要在尚未备份时刷新丢弃编辑。</p></details></section>
+<section aria-labelledby="rebuild"><h2 id="rebuild">完整卡片重建前的检查</h2><p>从空白作品重建时，按以下顺序录入已有授权资源。每一步都在创作界面完成，不需要改仓库、数据库或补卡片 ID。</p><ol><li>整理主提示词、每轮前后置词、开局 HTML/CSS/JS、回复 CSS、图片和音乐。保留它们原来的职责。</li><li>填基本资料，粘贴开局源码与提示词，上传媒体并建立别名；外链用精确映射。</li><li>补世界书、开场白、预设与快捷指令。已有 God 卡的补充输出要求放在后置词，主提示词保持冻结。</li><li>在桌面与手机预览表单、折叠、复制和文字交接；取消后不改变输入。</li><li>用同一份完整历史原文回放弹幕、翻面、图片展开、CG 和关闭美化的情况。</li><li>保存、刷新、发布本地版本、导出完整包，再通过界面导入到新的本地库。核对文本、资源、插件策略与装配内容。</li></ol><p>这些步骤是重建验收路径，并不表示两张完整卡片已经重建通过。新增功能仍要用独立小作品验证，真实模型效果另行调试。</p></section>
+<section aria-labelledby="limits"><h2 id="limits">当前能力与后续扩展</h2><p>作品、资源、世界书、开局脚本、回复样式、对话辅助、普通 CG、音乐、模型参数与五插件已经接入离线运行与恢复链路。实际入口标明执行模式；离线通过不等于真实 Provider 通过。</p><details><summary>单独规划的创作插件</summary><p>特殊 CG 解锁、收藏画廊与剧情回顾；变量数据骨架、模板和自动状态更新；多模型并行对照；定时发布与跨平台卡片转换。</p><p>HTML 状态栏可以显示文本和样式，但不等于变量状态引擎；普通 CG 也不包含解锁记录。</p></details></section>
+<footer class="guide-footer">教程结合已实操的<a href="https://afengy.cash/zh/forum/post/6ddfb5c8-16f4-4f50-bc9e-cfe347d098ed" target="_blank" rel="noopener noreferrer">原站创作指南</a>主题与本地实现独立编写。世界书算法、隔离环境、版本和调用规则以本地说明为准。已去除平台运营、激励、分发及账号规则。更新于 2026-10-29。</footer>
+</main></div></body></html>

@@ -204,6 +204,14 @@ class ProviderChatStableService:
             required_capabilities=("chat_text",), scoped_gateway="rpg_scoped",
         )
 
+    async def begin_rpg_authoring_certified(self, model_id: str, connection_id: str) -> ProviderChatStablePreflight:
+        """Pin the author's exact route; never substitute another connection."""
+        return await self._begin(
+            model_id, "chat_text", scoped_certified=True,
+            required_capabilities=("chat_text",), scoped_gateway="rpg_scoped",
+            required_connection_id=connection_id,
+        )
+
     async def _begin(
         self,
         model_id: str,
@@ -212,6 +220,7 @@ class ProviderChatStableService:
         scoped_certified: bool,
         required_capabilities: tuple[ProviderChatCapability, ...],
         scoped_gateway: str = "ai_research_scoped",
+        required_connection_id: str | None = None,
     ) -> ProviderChatStablePreflight:
         if not self.control.feature_enabled():
             return ProviderChatStablePreflight(intercepted=False)
@@ -295,6 +304,8 @@ class ProviderChatStableService:
 
         failures: list[str] = []
         for position, connection_id in enumerate(route_ids):
+            if required_connection_id is not None and connection_id != required_connection_id:
+                continue
             (
                 connection,
                 api_key,

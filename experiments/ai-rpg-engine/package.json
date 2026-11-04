@@ -40,16 +40,22 @@
     "verify:rpg04": "node scripts/verify-rpg04.mjs",
     "typecheck": "npm --prefix ui run typecheck",
     "build": "npm --prefix ui run build",
+    "test:authoring": "node --test --test-concurrency=4 authoring/*.test.mjs authoring-prototype/*.test.mjs",
     "test:ui": "npm --prefix ui run test:ui",
     "test:ui-host": "node --test tests/ui-host*.test.mjs",
     "verify:rpg05": "node scripts/verify-rpg05.mjs",
-    "rpg:ui": "node ui-host/cli.mjs"
+    "rpg:ui": "node ui-host/cli.mjs",
+    "rpg:authoring": "node authoring/server.mjs --creator",
+    "rpg:authoring:controlled": "node authoring/controlled-workbench.mjs"
   },
   "dependencies": {
-    "ajv": "8.20.0",
-    "parse5": "8.0.1",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "acorn": "8.18.0",
-    "yauzl": "3.4.0",
-    "fflate": "0.8.3"
+    "ajv": "8.20.0",
+    "fflate": "0.8.3",
+    "marked": "18.1.1",
+    "parse5": "8.0.1",
+    "quickjs-emscripten-core": "0.32.0",
+    "yauzl": "3.4.0"
   }
 }

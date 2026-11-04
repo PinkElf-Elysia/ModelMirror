@@ -1,0 +1,56 @@
+// Repeatable, strictly local fixtures for interactive authoring acceptance.
+// No URL, credentials, callbacks producing replies, or live-provider path.
+import {SessionRecords} from './session-storage.mjs';
+import {canonical,keys,isId,sha256,fail} from './contracts.mjs';
+const token=Symbol(),digest=value=>sha256(canonical(value));
+const kinds=['story','summary','compression'];
+function result(value){
+  canonical(value);keys(value,['status','text','finishReason']);
+  if(!['completed','failed'].includes(value.status)||typeof value.text!=='string'||!value.text.isWellFormed()||[...value.text].length>200000||
+    !(value.status==='completed'?['stop','length'].includes(value.finishReason):value.finishReason==='fixture_failure'))fail('OFFLINE_FIXTURE_INVALID');
+  return structuredClone(value);
+}
+function requestValue(value){
+  const r=structuredClone(value);canonical(r);
+  if(!isId(r.id)||!isId(r.operationId))fail('OFFLINE_OPERATION_INVALID');
+  const kind=r.kind??'story';if(!kinds.includes(kind))fail('OFFLINE_FIXTURE_INVALID');return {r,kind};
+}
+function validateRecord(value,request){
+  keys(value,['state','requestHash','receipt']);const r=value.receipt;keys(r,['kind','requestId','requestHash','result','sha256']);
+  const {sha256:hash,...body}=r;
+  if(!['accepted','completed'].includes(value.state)||value.requestHash!==digest(request)||r.kind!=='offline-fixture'||r.requestId!==request.id||r.requestHash!==value.requestHash||hash!==digest(body))fail('OFFLINE_RECEIPT_MISMATCH');
+  result(r.result);return value;
+}
+export class ScenarioFixtureProvider {
+  #records;#replies;#fault;#queue=Promise.resolve();#calls=0;#closed=false;
+  constructor(key,records,replies,fault){if(key!==token)fail('OFFLINE_HOST_REQUIRED');this.#records=records;this.#replies=replies;this.#fault=fault;}
+  static async open(directory,{replies,recoverDeadOwner=false,fault=async()=>{}}){
+    canonical(replies);keys(replies,kinds);const frozen=Object.fromEntries(kinds.map(k=>[k,result(replies[k])]));
+    if(typeof fault!=='function')fail('OFFLINE_HOST_REQUIRED');
+    const records=await SessionRecords.open(directory,{recoverDeadOwner,scope:'authoring-scenario-fixtures'});
+    try{await records.reconcile();return Object.freeze(new ScenarioFixtureProvider(token,records,frozen,fault));}
+    catch(error){await records.close();throw error;}
+  }
+  get dispatchCount(){return this.#calls;}
+  preflight(operationId){if(this.#closed)fail('OFFLINE_HOST_CLOSED');if(!isId(operationId))fail('OFFLINE_OPERATION_INVALID');}
+  #serial(fn){if(this.#closed)fail('OFFLINE_HOST_CLOSED');const p=this.#queue.then(fn);this.#queue=p.catch(()=>{});return p;}
+  lookup(value){const {r}=requestValue(value);return this.#serial(async()=>{
+    await this.#records.reconcile();const found=await this.#records.get(r.id);if(!found)return null;
+    const record=validateRecord(found.data,r);return record.state==='completed'?structuredClone(record.receipt):null;
+  });}
+  dispatch(value){const {r,kind}=requestValue(value);return this.#serial(async()=>{
+    this.preflight(r.operationId);if(await this.#records.get(r.id))fail('OFFLINE_FIXTURE_ALREADY_DISPATCHED');
+    const body={kind:'offline-fixture',requestId:r.id,requestHash:digest(r),result:this.#replies[kind]};
+    const record={state:'accepted',requestHash:body.requestHash,receipt:{...body,sha256:digest(body)}};
+    let saved=await this.#records.put(r.id,null,record);this.#calls++;
+    await this.#fault('afterAccepted',structuredClone(r));record.state='completed';
+    saved=await this.#records.put(r.id,saved.hash,record);await this.#fault('afterReceipt',structuredClone(r));return structuredClone(saved.data.receipt);
+  });}
+  async close(){await this.#queue;this.#closed=true;await this.#records.close();}
+}
+const count=Object.getOwnPropertyDescriptor(ScenarioFixtureProvider.prototype,'dispatchCount').get;
+const methods=Object.fromEntries(['preflight','dispatch','lookup'].map(k=>[k,ScenarioFixtureProvider.prototype[k]]));
+export function scenarioFixturePort(value){
+  try{count.call(value);}catch{return null;}
+  return Object.freeze(Object.fromEntries(Object.entries(methods).map(([k,fn])=>[k,fn.bind(value)])));
+}

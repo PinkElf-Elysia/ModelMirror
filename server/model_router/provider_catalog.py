@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
@@ -106,6 +107,121 @@ def _declared_operations(record: dict[str, object]) -> set[str]:
     }
 
 
+TEXT_PARAMETER_CAPABILITIES_FORMAT = "modelmirror.text-parameter-capabilities/1"
+TEXT_PARAMETER_LIMITS = {"temperature": (0, 2), "topP": (0, 1), "maxOutputTokens": (1, 1_000_000)}
+TEXT_PARAMETER_WIRE_NAMES = {"temperature": ("temperature",), "topP": ("top_p",),
+                             "maxOutputTokens": ("max_tokens", "max_completion_tokens")}
+
+
+def text_parameter_policy(value: object) -> dict:
+    """Validate the explicit catalog extension; never infer bounds from a model ID.
+
+    This is provider-declared compatibility evidence, not certification of every
+    value in the range. Unknown fields/versions fail closed, including functions.
+    """
+    def exact(obj, names):
+        if not isinstance(obj, dict) or set(obj) != set(names):
+            raise ValueError("parameter_capabilities_invalid")
+
+    exact(value, ("kind", "fields", "exclusive"))
+    if value["kind"] not in ("fixed", "editable"):
+        raise ValueError("parameter_capabilities_invalid")
+    fields = value["fields"]
+    if (not isinstance(fields, dict) or "maxOutputTokens" not in fields
+            or not set(fields) <= set(TEXT_PARAMETER_LIMITS)):
+        raise ValueError("parameter_capabilities_invalid")
+    clean = {}
+    for key, field in fields.items():
+        exact(field, ("minimum", "maximum", "defaultValue", "required", "wireName"))
+        low, high = TEXT_PARAMETER_LIMITS[key]
+        numbers = [field[n] for n in ("minimum", "maximum", "defaultValue")]
+        if (type(field["required"]) is not bool or field["wireName"] not in TEXT_PARAMETER_WIRE_NAMES[key]
+                or any(type(n) not in (int, float) or not low <= n <= high or not math.isfinite(n) for n in numbers)):
+            raise ValueError("parameter_capabilities_invalid")
+        minimum, maximum, default = numbers
+        if not minimum <= default <= maximum:
+            raise ValueError("parameter_capabilities_invalid")
+        if key == "maxOutputTokens" and (not field["required"] or any(int(n) != n for n in numbers)):
+            raise ValueError("parameter_capabilities_invalid")
+        if value["kind"] == "fixed" and (not field["required"] or minimum != maximum):
+            raise ValueError("parameter_capabilities_invalid")
+        clean[key] = {**field, **{k: int(field[k]) if int(field[k]) == field[k] else field[k]
+                               for k in ("minimum", "maximum", "defaultValue")}}
+    groups = value["exclusive"]
+    if not isinstance(groups, list) or len(groups) > 3:
+        raise ValueError("parameter_capabilities_invalid")
+    seen = set()
+    for group in groups:
+        if (not isinstance(group, list) or not 2 <= len(group) <= 3
+                or any(not isinstance(k, str) or k not in fields for k in group)
+                or len(set(group)) != len(group) or tuple(sorted(group)) in seen
+                or sum(fields[k]["required"] for k in group) > 1):
+            raise ValueError("parameter_capabilities_invalid")
+        seen.add(tuple(sorted(group)))
+    return {"kind": value["kind"], "fields": clean, "exclusive": [list(g) for g in groups]}
+
+
+def _parameter_capabilities(record: dict) -> dict:
+    """Invalid declarations remain explicitly invalid, not an absent/fixed fallback."""
+    try:
+        declaration = record["parameter_capabilities"]
+        if (not isinstance(declaration, dict) or set(declaration) != {"format", "policy"}
+                or declaration["format"] != TEXT_PARAMETER_CAPABILITIES_FORMAT):
+            raise ValueError("parameter_capabilities_invalid")
+        policy = text_parameter_policy(declaration["policy"])
+        supported = record.get("supported_parameters")
+        if (not isinstance(supported, list) or any(not isinstance(x, str) for x in supported)
+                or any(f["wireName"] not in supported for f in policy["fields"].values())):
+            raise ValueError("parameter_capabilities_invalid")
+        output = record.get("max_output_tokens")
+        if type(output) is not int or policy["fields"]["maxOutputTokens"]["maximum"] > output:
+            raise ValueError("parameter_capabilities_invalid")
+        return {"status": "declared", "format": TEXT_PARAMETER_CAPABILITIES_FORMAT, "policy": policy}
+    except (ValueError, TypeError, KeyError, OverflowError):
+        return {"status": "invalid"}
+
+
+def _openrouter_parameters(record: dict, connection: RouterConnection) -> tuple[dict, str | None]:
+    """Adapt the official standard catalog, without guessing from model names.
+
+    Supported fields and output limit come from /models. Numeric ranges come
+    from the documented API, not a claim that every value was certified. The
+    editor defaults are local suggestions; execution still validates the exact
+    choice and requires parameter support with provider fallback disabled.
+    """
+    if ("top_provider" not in record
+            or getattr(connection, "kind", None) != "openrouter"
+            or str(getattr(connection, "base_url", "")).rstrip("/") != "https://openrouter.ai/api/v1"):
+        return record, None
+    result = dict(record)
+    top = record.get("top_provider")
+    maximum = top.get("max_completion_tokens") if isinstance(top, dict) else None
+    supported = record.get("supported_parameters")
+    valid = (type(maximum) is int and 0 < maximum <= TEXT_PARAMETER_LIMITS["maxOutputTokens"][1]
+             and ("max_output_tokens" not in record
+                  or (type(record["max_output_tokens"]) is int and record["max_output_tokens"] == maximum))
+             and isinstance(supported, list) and all(isinstance(p, str) for p in supported)
+             and "max_tokens" in supported)
+    if valid:
+        result["max_output_tokens"] = maximum
+    # Never heal invalid or contradictory explicit provider declarations.
+    if not valid:
+        result["parameter_capabilities"] = {"format": "invalid"}
+        return result, None
+    if "parameter_capabilities" in record:
+        return result, None
+    fields = {"maxOutputTokens": {"minimum": 1, "maximum": maximum,
+              "defaultValue": min(4096, maximum), "required": True, "wireName": "max_tokens"}}
+    for key, wire in (("temperature", "temperature"), ("topP", "top_p")):
+        if wire in supported:
+            low, high = TEXT_PARAMETER_LIMITS[key]
+            fields[key] = {"minimum": low, "maximum": high, "defaultValue": 1,
+                           "required": False, "wireName": wire}
+    result["parameter_capabilities"] = {"format": TEXT_PARAMETER_CAPABILITIES_FORMAT,
+        "policy": {"kind": "editable", "fields": fields, "exclusive": []}}
+    return result, "openrouter-models-and-documented-api-ranges/1"
+
+
 def normalize_provider_catalog(
     records: Iterable[dict[str, object]],
     *,
@@ -118,6 +234,7 @@ def normalize_provider_catalog(
         model_id = _clean_model_id(record.get("id"))
         if model_id is None:
             continue
+        record, parameter_source = _openrouter_parameters(record, connection)
         declared = _declared_operations(record)
         operation_catalog = str(record.get("_catalog_operation") or "").strip()
         if operation_catalog in KNOWN_OPERATIONS:
@@ -138,8 +255,12 @@ def normalize_provider_catalog(
         parameters = record.get("supported_parameters")
         if isinstance(parameters, list) and all(isinstance(p, str) for p in parameters):
             metadata["supported_parameters"] = sorted(
-                set(parameters) & {"temperature", "top_p", "max_tokens"}
+                set(parameters) & {"temperature", "top_p", "max_tokens", "max_completion_tokens"}
             )
+        if "parameter_capabilities" in record:
+            metadata["parameter_capabilities"] = _parameter_capabilities(record)
+        if parameter_source is not None:
+            metadata["parameter_capabilities_source"] = parameter_source
         if model_id not in normalized:
             normalized[model_id] = {
                 "model_id": model_id,
@@ -149,8 +270,19 @@ def normalize_provider_catalog(
                     "declared" if declared else "capabilities_unclassified"
                 ),
             }
-        elif declared:
-            normalized[model_id]["capability_state"] = "declared"
+        else:
+            if declared:
+                normalized[model_id]["capability_state"] = "declared"
+            previous = normalized[model_id]["metadata"]
+            ambiguous = False
+            for key in ("context_length", "max_output_tokens", "supported_parameters", "parameter_capabilities", "parameter_capabilities_source"):
+                if key in metadata:
+                    if key in previous and metadata[key] != previous[key]:
+                        ambiguous = True
+                    elif key not in previous:
+                        previous[key] = metadata[key]
+            if ambiguous:
+                previous["parameter_capabilities"] = {"status": "invalid"}
         pricing = _reported_pricing(record, observed_at)
         operation_sources: dict[str, str] = {
             operation: "provider_declared" for operation in declared
