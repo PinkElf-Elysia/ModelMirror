@@ -1,0 +1,39 @@
+name: RPG authoring
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rpg-authoring.yml"
+      - "experiments/ai-rpg-engine/authoring/**"
+      - "experiments/ai-rpg-engine/authoring-prototype/**"
+      - "experiments/ai-rpg-engine/plugins/**"
+      - "experiments/ai-rpg-engine/studio/**"
+      - "experiments/ai-rpg-engine/package*.json"
+      - "server/model_router/rpg*.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpg-authoring-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Offline authoring contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: experiments/ai-rpg-engine
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: experiments/ai-rpg-engine/package-lock.json
+      - run: npm ci
+      - run: npm run test:authoring
