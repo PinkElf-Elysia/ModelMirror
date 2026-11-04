@@ -1,3 +1,4 @@
+import {configFetch} from '../plugins/custom-config/host.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import {mkdir,readFile,writeFile,rename,stat} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -143,7 +144,7 @@ async function configuredHost(card){
     const manifest=JSON.parse(await readFile(new URL('../plugins/auto-summary-v2.manifest.json',import.meta.url),'utf8'));
     const artifact=await readFile(new URL('../plugins/auto-summary-v2.mjs',import.meta.url));
     if(manifest.id!=='rpg.rolling-summary'||manifest.version!=='2.0.0'||!manifest.compatibleCards.includes(card)||manifest.artifactSha256!==createHash('sha256').update(artifact).digest('hex'))throw fail('SUMMARY_RELEASE_INVALID',503);
-    const options={directory:join(directory,'dispatches'),baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:true,limit,cardId:card,modelPolicy:{cardId:card,parametersFor,sameParameters}};
+    const options={fetcher:configFetch,directory:join(directory,'dispatches'),baseURL:process.env.RPG_CONTROL_URL,serviceToken:process.env.RPG_S2S_TOKEN,enabled:true,limit,cardId:card,modelPolicy:{cardId:card,parametersFor,sameParameters}};
     if(card==='god'){
       const {godRealPolicy,GOD_REAL_PARAMETER_PROFILE,GOD_REAL_MODEL}=await import('../god-card/lib/real-profile.mjs');
       Object.assign(options,{modelPolicy:godRealPolicy,parameterProfile:GOD_REAL_PARAMETER_PROFILE,catalogModels:[GOD_REAL_MODEL]});

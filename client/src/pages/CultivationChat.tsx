@@ -1,3 +1,4 @@
+import {ConfigTools,ConfigText,configRequest,useConfigView} from './RpgCustomConfig';
 import {createElement, memo, useEffect, useRef, useState, type ReactNode} from 'react';
 import {Link, useParams} from 'react-router-dom';
 import Markdown from 'react-markdown';
@@ -44,11 +45,12 @@ export default function CultivationChat(){
   },[url,valid]);
   useEffect(()=>{list.current?.scrollTo({top:list.current.scrollHeight})},[session?.turns.length]);
   const opening=session && (session.sequence??session.turns.length)===0;
+  const configScope='cultivation:'+(summary?'summary':'classic')+':'+id;const configView=useConfigView<HTMLElement>(configScope);
   async function send(){
     if(!session||pending.current||session.blocked||(!opening&&!draft.trim()))return;
     pending.current=true;setBusy(true);setError('');
     try{
-      const res=await fetch(url+(summary?'':'/turns'),{method:'POST',headers:{'Content-Type':'application/json'},
+      const res=await configRequest(configScope,url+(summary?'':'/turns'),{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({...(summary?{action:'send'}:{}),revision:session.revision,input:draft})});
       if(!res.ok)throw Error();
       setSession(await res.json());setDraft('');
@@ -59,8 +61,8 @@ export default function CultivationChat(){
   }
   const archive=session?.turns[0]?.input||'',name=archive.match(/姓名[：:]\s*([^（(\r\n]+)/)?.[1]?.trim();
   const scene=archive.match(/【当前处境·开局场景】\s*([^\r\n]+)/)?.[1];
-  return <main className="cv-chat">
-    <header className="cv-host"><Link to="/rpg">← 返回 RPG</Link><strong>超级修仙大世界</strong><Link to="/rpg/cultivation">角色与存档</Link></header>
+  return <main ref={configView} className="cv-chat">
+    <header className="cv-host"><Link to="/rpg">← 返回 RPG</Link><strong>超级修仙大世界</strong><Link to="/rpg/cultivation">角色与存档</Link><ConfigTools scope={configScope}/></header>
     <div className="cv-scroll" ref={list}><div className="cv-column">
       <header className="cv-title"><span>三界修真 · 修行手记</span><h1>{name?name+'的修行记':'修仙对话'}</h1>{scene&&<p>{scene}</p>}</header>
       {session&&<details className="cv-memory"><summary>会话记忆</summary><p>自动总结{session.enabled?'已启用':'未启用'} · 记忆宫殿{(session.memory||session.plugin)?'已启用':'未启用'}</p>
@@ -69,8 +71,8 @@ export default function CultivationChat(){
       {!valid?<p role="alert">会话地址无效。</p>:!session&&!error?<p>正在读取会话…</p>:null}
       {opening&&<p>角色档案已就绪。点击下方「发送开局」开始剧情。</p>}
       {session?.turns.map((t,i)=><article className="cv-turn" key={i}>
-        <div className="cv-player">{i===0?<details><summary>{name||'角色'} · 开局档案</summary><p>{t.input}</p></details>:<p>{t.input}</p>}</div>
-        <section className="cv-story"><h2>第 {i+1} 轮 · 剧情</h2><StoryText raw={t.raw}/></section>
+        <div className="cv-player">{i===0?<details><summary>{name||'角色'} · 开局档案</summary><p><ConfigText scope={configScope} role="user" source={t.input}>{t.input}</ConfigText></p></details>:<p><ConfigText scope={configScope} role="user" source={t.input}>{t.input}</ConfigText></p>}</div>
+        <section className="cv-story"><h2>第 {i+1} 轮 · 剧情</h2><ConfigText scope={configScope} role="assistant" source={t.raw}><StoryText raw={t.raw}/></ConfigText></section>
       </article>)}
     </div></div>
     <footer>{(error||session?.blocked)&&<p role="alert">{error||'本轮已有未结清的请求。'}</p>}

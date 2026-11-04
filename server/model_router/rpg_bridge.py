@@ -122,12 +122,13 @@ async def body(request, profile="default"):
     data = bytearray()
     async for chunk in request.stream():
         data.extend(chunk)
-        if len(data) > MAX_REQUEST_BYTES:
+        if len(data) > (2 * MAX_REQUEST_BYTES + 1024 if request.headers.get("X-Rpg-Effective-Messages") == "1" else MAX_REQUEST_BYTES):
             raise HTTPException(413, "rpg_request_too_large")
     try:
         value = json.loads(data)
     except (ValueError, UnicodeError):
         raise HTTPException(422, "rpg_request_invalid") from None
+    custom = value.pop("customStoryMessages", None) if isinstance(value, dict) else None
     fields = {"sessionId", "requestId", "selectionId", "selectionRevision", "messages", "parameters"}
     if not isinstance(value, dict) or set(value) != fields:
         raise HTTPException(422, "rpg_request_invalid")
@@ -146,17 +147,35 @@ async def body(request, profile="default"):
         if (not isinstance(message, dict) or set(message) != {"role", "content"} or
                 message["role"] != role or not isinstance(message["content"], str)):
             raise HTTPException(422, "rpg_messages_invalid")
+    if custom is not None:
+        if max(len(json.dumps({**value, "messages": items}, ensure_ascii=False, separators=(",", ":")).encode()) for items in (custom, messages)) > MAX_REQUEST_BYTES:
+            raise HTTPException(413, "rpg_request_too_large")
+        if not isinstance(custom, list) or len(custom) < 2 or len(custom) > len(messages) + 1:
+            raise HTTPException(422, "rpg_custom_story_invalid")
+        for i, item in enumerate(custom):
+            role = "system" if i == 0 else ("user" if i % 2 else "assistant")
+            if (not isinstance(item, dict) or set(item) != {"role", "content"} or
+                    item["role"] != role or not isinstance(item["content"], str)):
+                raise HTTPException(422, "rpg_custom_story_invalid")
+        if not custom[0]["content"].startswith(messages[0]["content"]):
+            raise HTTPException(422, "rpg_custom_system_invalid")
+        request.state.rpg_custom_story = custom
+    elif len(data) > MAX_REQUEST_BYTES:
+        raise HTTPException(413, "rpg_request_too_large")
     return value
 
 
-def claim(stable, value):
+def claim(stable, value, effective=None):
     """An incomplete claim is intentionally never replayable, including after restart."""
     folder = stable.repository.storage_dir / "rpg-bridge-requests"
     folder.mkdir(parents=True, exist_ok=True)
     identity = digest([stable.router_service.tenant_id, value["sessionId"], value["requestId"]])
     try:
         with (folder / (identity + ".json")).open("x", encoding="utf-8") as output:
-            json.dump({"requestHash": digest(value), "status": "claimed-no-replay"}, output)
+            record = {"requestHash": digest(value), "status": "claimed-no-replay"}
+            if effective is not None:
+                record["effectiveRequestHash"] = digest({**value, "messages": effective})
+            json.dump(record, output)
             output.flush()
             os.fsync(output.fileno())
     except FileExistsError:
@@ -223,10 +242,12 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
         raise HTTPException(422, "rpg_parameters_mismatch")
     # Conservative byte-based admission estimate, not an exact model tokenizer.
     # Never truncate history to make a request fit.
-    estimated = sum(len(m["content"].encode()) + 32 for m in value["messages"]) + 256
+    custom = getattr(request.state, "rpg_custom_story", None)
+    messages = value["messages"] if custom is None else custom
+    estimated = sum(len(m["content"].encode()) + 32 for m in messages) + 256
     if estimated + selected["parameters"]["max_tokens"] > selected["contextLength"]:
         raise HTTPException(409, "rpg_context_capacity_exceeded")
-    claim(stable, value)
+    claim(stable, value, custom)
     preflight = await stable.begin_rpg_certified(selected["model"])
     dispatch = preflight.dispatch
     if not dispatch:
@@ -247,7 +268,7 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
             dispatch.connection_fingerprint != qualification["connection_fingerprint"]):
         stable.fail_undispatched(dispatch, error_code="rpg_selection_changed")
         raise HTTPException(409, "rpg_selection_changed")
-    payload = {"model": selected["model"], "messages": value["messages"], **selected["parameters"],
+    payload = {"model": selected["model"], "messages": messages, **selected["parameters"],
                "stream": True, "stream_options": {"include_usage": True}}
     if dispatch.target.provider_kind == "openrouter":
         provider = {"allow_fallbacks": False, "require_parameters": True}
@@ -323,4 +344,6 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
                "usage": usage, "error": error, "retries": 0, "requestHash": digest(value),
                "rawHash": hashlib.sha256(raw.encode()).hexdigest(), "sseHash": hashlib.sha256(sse.encode()).hexdigest(),
                "status": "failed_or_unknown" if error else "complete"}
+    if custom is not None:
+        receipt["effectiveRequestHash"] = digest({**value, "messages": messages})
     return JSONResponse({"raw": raw, "sse": sse, "receipt": receipt}, status_code=502 if error else 200)

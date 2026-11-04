@@ -1,3 +1,4 @@
+import {ConfigTools,ConfigText,configRequest,useConfigView} from './RpgCustomConfig';
 import {useEffect,useState} from 'react';
 type Turn={id:number;input:string;raw:string;small:string};
 type Save={id:string;memory:boolean;entryCount:number;sequence:number;revision:number;enabled:boolean;model:string;blocked:boolean;covered:number;large:string;turns:Turn[]};
@@ -28,10 +29,12 @@ export default function AutoSummarySession({card}:{card:string}) {
     load().catch(e=>{if(!ctrl.signal.aborted)setError(e.message)});
     return ()=>ctrl.abort();
   },[open,base,key]);
+  const configScope=card+':summary:'+(s?.id??'');const configView=useConfigView<HTMLDetailsElement>(configScope);
   async function act(action:string,extra:Record<string,unknown>={}){
     setBusy(true);setError('');
     try{
-      const r=await fetch(base+'sessions'+(s?'/'+s.id:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s?{action,revision:s.revision,...extra}:{archive,world,model,memory})});
+      const request=s&&['send','refresh'].includes(action)?(url:string,opt:RequestInit)=>configRequest(configScope,url,opt):fetch;
+      const r=await request(base+'sessions'+(s?'/'+s.id:''),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(s?{action,revision:s.revision,...extra}:{archive,world,model,memory})});
       if(!r.ok)throw Error((await r.json()).error||'操作失败');
       const value:Save=await r.json();localStorage.setItem(key,value.id);const ids=Array.from(new Set([value.id,...saved]));localStorage.setItem(key+'.saves',JSON.stringify(ids));setSaved(ids);show(value);setEditor(null);if(action==='send')setInput('');if(card==='cultivation'&&action==='create')navigate(cultivationChatPath('summary',value.id));
     }catch(e){
@@ -41,9 +44,10 @@ export default function AutoSummarySession({card}:{card:string}) {
   }
   const locked=busy||!!s?.blocked;
   const modelSelect=<label>自动总结模型 <select value={model} onChange={e=>setModel(e.target.value)}><option value="">默认（剧情模型）</option>{models.map(m=><option key={m.model} value={m.model}>{m.name}</option>)}</select></label>;
-  return <details className="rounded border border-zinc-600 px-4 py-3" onToggle={e=>setOpen(e.currentTarget.open)}>
+  return <details ref={configView} className="rounded border border-zinc-600 px-4 py-3" onToggle={e=>setOpen(e.currentTarget.open)}>
     <summary className="cursor-pointer">自动总结 · 分轮记忆会话</summary>
     {open&&<div className="mt-3 space-y-3">
+      {s&&<ConfigTools scope={configScope}/>}
       {s&&card==='cultivation'&&<Link className="inline-block rounded bg-emerald-800 px-4 py-2 text-white" to={cultivationChatPath('summary',s.id)}>进入独立聊天页 →</Link>}
       <p>每轮结束后生成小总结。每积满 20 条，下一轮开始前再生成大总结。每次生成都会调用模型。</p>
       {!s&&saved.length>0&&<label>恢复已存会话 <select defaultValue="" onChange={async e=>{const id=e.target.value;if(!id)return;try{const r=await fetch(base+'sessions/'+id);if(!r.ok)throw Error();show(await r.json());localStorage.setItem(key,id);}catch{setError('恢复失败')}}}><option value="">选择会话</option>{saved.map(id=><option key={id} value={id}>{id.slice(0,8)}</option>)}</select></label>}
@@ -58,7 +62,7 @@ export default function AutoSummarySession({card}:{card:string}) {
         <h3>大总结内容</h3><p className="whitespace-pre-wrap">{s.large||'尚未生成大总结'}</p>
         {s.covered>0&&<div><button onClick={()=>act('large')}>重新生成大总结</button> · <button onClick={()=>setEditor({action:'edit-large',text:s.large})}>编辑大总结</button></div>}
         <h3>最近 5 条小总结</h3>{s.turns.filter(t=>t.small).slice(-5).map(t=><details key={t.id}><summary>第 {t.id} 轮 · {t.small.slice(0,32)}</summary><p className="whitespace-pre-wrap">{t.small}</p><button onClick={()=>act('small',{turn:t.id})} disabled={!s.enabled}>重新生成小总结</button> · <button onClick={()=>setEditor({action:'edit-small',turn:t.id,text:t.small})}>编辑小总结</button></details>)}
-        <details><summary>查看剧情记录</summary>{s.turns.map(t=><details key={t.id}><summary>第 {t.id} 轮</summary><p className="whitespace-pre-wrap">{t.raw}</p><button onClick={()=>setEditor({action:'edit-reply',turn:t.id,text:t.raw})}>编辑回复</button> · <button onClick={()=>act('refresh',{turn:t.id})}>刷新回复</button> · <button onClick={()=>{if(window.confirm('删除本轮及对应小总结？已有大总结会保留。'))void act('delete',{turn:t.id})}}>删除本轮</button></details>)}</details>
+        <details><summary>查看剧情记录</summary>{s.turns.map(t=><details key={t.id}><summary>第 {t.id} 轮</summary><p className="whitespace-pre-wrap"><ConfigText scope={configScope} role="assistant" source={t.raw}>{t.raw}</ConfigText></p><button onClick={()=>setEditor({action:'edit-reply',turn:t.id,text:t.raw})}>编辑回复</button> · <button onClick={()=>act('refresh',{turn:t.id})}>刷新回复</button> · <button onClick={()=>{if(window.confirm('删除本轮及对应小总结？已有大总结会保留。'))void act('delete',{turn:t.id})}}>删除本轮</button></details>)}</details>
         {editor&&<div><textarea aria-label="编辑内容" value={editor.text} onChange={e=>setEditor({...editor,text:e.target.value})} className="block w-full rounded bg-zinc-900 p-2"/><button onClick={()=>setEditor(null)}>取消</button> · <button onClick={()=>act(editor.action,{text:editor.text,turn:editor.turn})}>保存编辑</button></div>}
         <label className="block">下一步行动<textarea value={input} onChange={e=>setInput(e.target.value)} disabled={!s.sequence&&card!=='earth'} className="block w-full rounded bg-zinc-900 p-2"/></label>
         <button disabled={!input.trim()&&(s.sequence>0||card==='earth')} onClick={()=>act('send',{input})}>发送{s.turns.length?'行动':'开局'}</button>

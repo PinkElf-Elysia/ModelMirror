@@ -1,3 +1,4 @@
+import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
 // Linux container entrypoint. Keep the session-fingerprinted host files unchanged.
 import {mkdir,open,lstat,link,unlink,readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
@@ -50,20 +51,23 @@ async function run(env){
   const directory=resolve(env.RPG_DATA_DIR||'/data');
   const lease=await ownDirectory(join(directory,'plugins'));
   const yes=k=>env[k]==='true',limit=Number(env.RPG_CALL_LIMIT_PER_CARD||1);
-  const control={baseURL:env.RPG_CONTROL_URL,serviceToken:env.RPG_S2S_TOKEN,enabled:yes('RPG_ENABLED')};
+  const control={fetcher:configFetch,baseURL:env.RPG_CONTROL_URL,serviceToken:env.RPG_S2S_TOKEN,enabled:yes('RPG_ENABLED')};
   let key=env.OPENROUTER_API_KEY||'';
   if(!key&&env.RPG_CREDENTIAL_FILE){
     const line=(await readFile(env.RPG_CREDENTIAL_FILE,'utf8')).split(/\r?\n/).find(x=>/^OPENROUTER_API_KEY\s*=/.test(x));
     key=(line?.slice(line.indexOf('=')+1)||'').trim().replace(/^['"]|['"]$/g,'');
   }
   const {start,archiveChatOptions}=await import('./server.mjs');
-  const {server,plugins,god}=await start({...archiveChatOptions(env),ownArchiveDirectory:ownDirectory,directory,key,limit,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
+  const archiveOptions=archiveChatOptions(env);
+  if(archiveOptions.archiveControls.cultivation)archiveOptions.archiveControls.cultivation.fetcher=configFetch;
+  const {server,plugins,god}=await start({...archiveOptions,ownArchiveDirectory:ownDirectory,directory,key,limit,fetcher:configFetch,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',
     godCard:yes('RPG_GOD_CARD_ENABLED'),godBranches:yes('RPG_GOD_BRANCHES_ENABLED'),godPlugins:yes('RPG_GOD_PLUGINS_ENABLED'),
     historyWindow:yes('RPG_HISTORY_WINDOW_ENABLED'),rollingSummary:yes('RPG_ROLLING_SUMMARY_ENABLED'),memoryPalace:yes('RPG_MEMORY_PALACE_ENABLED'),
     modelControl:yes('RPG_MODEL_SELECTION_ENABLED')?control:null,godControl:yes('RPG_GOD_REAL_ENABLED')?{...control,limit}:null,
     cultivationControl:yes('RPG_CULTIVATION_ENABLED')?{...control,enabled:true,limit:Number(env.RPG_CULTIVATION_CALL_LIMIT||0)}:null});
+  installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();
   if(yes('RPG_GOD_REAL_ENABLED')){

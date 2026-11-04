@@ -1,0 +1,282 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  --blue: #377bd1;
+  --soft: #f6f6f8;
+  --line: #e0e3e6;
+  margin: 0;
+  color: #292d32;
+  background: #fcfdfd;
+  font:
+    15px/1.5 system-ui,
+    "Microsoft YaHei",
+    sans-serif;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+h1 {
+  font-size: 23px;
+  margin: 0;
+}
+h2 {
+  font-size: 17px;
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+button,
+summary {
+  cursor: pointer;
+}
+button {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 7px 14px;
+}
+button:hover {
+  border-color: var(--blue);
+}
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.heading,
+nav,
+.bottom {
+  padding: 14px clamp(16px, 3.5vw, 36px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.heading {
+  justify-content: space-between;
+}
+.heading button {
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  background: #61666b;
+  color: white;
+}
+.bottom {
+  border-top: 1px solid var(--line);
+  background: #fff;
+  justify-content: flex-end;
+}
+.bottom button {
+  min-width: 100px;
+}
+.bottom output {
+  margin-right: auto;
+  color: #90430d;
+}
+nav {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+nav button {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  border-bottom: 2px solid transparent;
+}
+nav button[aria-selected="true"] {
+  color: var(--blue);
+  border-color: var(--blue);
+}
+main {
+  overflow: auto;
+  flex: 1;
+  padding: 16px clamp(16px, 3.5vw, 36px) 36px;
+  scrollbar-gutter: stable;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.actions button,
+.primary {
+  background: var(--blue);
+  color: #fff;
+  border-color: transparent;
+}
+.actions .danger {
+  background: #bb443b;
+}
+.hint {
+  color: #6a7078;
+  font-size: 14px;
+}
+.editor {
+  margin: 10px 0 18px;
+}
+.editor > p {
+  margin: 0 0 8px;
+}
+.editorbox {
+  border: 1px solid #eceef0;
+  border-radius: 12px;
+  background: var(--soft);
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+  padding: 5px;
+}
+.toolbar button {
+  border: 0;
+  background: none;
+  padding: 4px 7px;
+}
+.toolbar button:last-child {
+  margin-left: auto;
+}
+.editorbox textarea {
+  height: clamp(190px, 34vh, 530px);
+  border: 0;
+  border-radius: 0;
+}
+.editorbox output {
+  display: block;
+  padding: 4px 12px;
+  color: #777;
+}
+.full-editor {
+  position: fixed;
+  inset: 12px;
+  background: white;
+  z-index: 30;
+  padding: 12px;
+  overflow: auto;
+}
+.full-editor textarea {
+  height: 65vh;
+}
+textarea,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  padding: 10px;
+  border-radius: 8px;
+}
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+}
+label {
+  display: block;
+  margin: 10px 0;
+}
+.wide {
+  width: 100%;
+  color: var(--blue);
+}
+.script {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+.script header,
+.line {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.script header button {
+  margin-left: auto;
+}
+.script input[type="text"] {
+  width: 100%;
+}
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.imagepick {
+  display: grid;
+  place-items: center;
+  border: 1px dashed #b6bec7;
+  background: var(--soft);
+  max-width: 100%;
+  width: 300px;
+  aspect-ratio: 16/9;
+  background-size: cover;
+  background-position: center;
+}
+.imagepick.mobile {
+  width: 150px;
+  aspect-ratio: 9/16;
+}
+.imagepick span {
+  background: #fffe;
+  border-radius: 8px;
+  padding: 8px;
+}
+.imagepick input {
+  max-width: 100%;
+}
+#popup {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  width: min(580px, 94vw);
+  max-height: 82vh;
+  overflow: auto;
+}
+#popup::backdrop {
+  background: #10182970;
+}
+#popup footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+#popup textarea {
+  min-height: 180px;
+}
+#status:empty {
+  display: none;
+}
+@media (max-width: 550px) {
+  .bottom {
+    flex-wrap: wrap;
+    padding: 10px;
+  }
+  .bottom output {
+    flex-basis: 100%;
+  }
+  .bottom button {
+    flex: 1;
+  }
+  .actions button {
+    padding: 6px 9px;
+  }
+  .images {
+    display: block;
+  }
+  .heading {
+    padding-top: 10px;
+  }
+  .editorbox textarea {
+    height: 170px;
+  }
+}
