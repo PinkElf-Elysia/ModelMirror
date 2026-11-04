@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'"
+    />
+    <title>自定义配置</title>
+    <link rel="stylesheet" href="worldbook-ui.css" />
+    <link rel="stylesheet" href="editor.css" />
+  </head>
+  <body>
+    <header class="heading">
+      <h1>自定义配置</h1>
+      <button id="exit" aria-label="关闭">×</button>
+    </header>
+    <nav aria-label="配置范围">
+      <button data-scope="global">全局配置</button
+      ><button data-scope="session">会话配置</button>
+    </nav>
+    <main>
+      <section class="actions">
+        <button id="paste">导入配置</button><button id="export">导出配置</button
+        ><button id="upload">导入 JSON 文件</button
+        ><button id="help">自定义配置教程</button
+        ><button id="clear" class="danger">清空自定义配置</button
+        ><input type="file" id="file" accept=".json,application/json" hidden />
+      </section>
+      <p class="hint">
+        为防止误删，提示词、前置词、后置词或世界书内容中至少保留一个字符。清空只影响当前草稿。
+      </p>
+      <div id="prompts"></div>
+      <div id="book"></div>
+      <h2>正则脚本</h2>
+      <p class="hint">
+        将匹配到的文字替换为指定内容。替换文本留空即可删除匹配内容。
+      </p>
+      <details>
+        <summary>JavaScript 正则表达式 · 示例</summary>
+        <p>
+          模式 <code>第(\d+)日</code>，替换为
+          <code>第 $1 天</code>。勾选「仅渲染」只改变屏幕上的文字。
+        </p>
+      </details>
+      <div id="rules"></div>
+      <button id="addRule" class="wide">＋ 添加脚本</button
+      ><label
+        >内置 CSS<textarea
+          id="css"
+          placeholder=".story { color: #40536a; }"
+        ></textarea></label
+      ><label><input type="checkbox" id="usePrefill" /> 启用预填充</label>
+      <p class="hint">
+        填写 AI 回答的开头。模型需要支持以 assistant 消息结尾。
+      </p>
+      <textarea
+        id="prefill"
+        aria-label="预填充"
+        placeholder="输入 AI 回复的开头"
+      ></textarea>
+      <section id="appearance">
+        <h2>显示与记忆</h2>
+        <label><input type="checkbox" id="showAvatar" /> 显示头像</label
+        ><label
+          ><input type="checkbox" id="showBackground" /> 显示背景图片</label
+        ><label
+          >记忆设定（保留的历史回合）<input
+            type="number"
+            min="0"
+            max="200"
+            id="depth"
+        /></label>
+        <div class="images"></div>
+      </section>
+    </main>
+    <footer class="bottom">
+      <output aria-live="polite" id="status"></output
+      ><button id="cancel">取消</button
+      ><button id="save" class="primary">保存</button>
+    </footer>
+    <dialog id="popup">
+      <h2></h2>
+      <div></div>
+      <footer></footer>
+    </dialog>
+    <script type="module" src="editor.mjs"></script>
+  </body>
+</html>
