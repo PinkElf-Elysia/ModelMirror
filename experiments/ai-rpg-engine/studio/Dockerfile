@@ -35,4 +35,4 @@ ENV RPG_BIND=0.0.0.0 PORT=18420 RPG_DATA_DIR=/data
 RUN mkdir /data && chown node:node /data
 USER node
 EXPOSE 18420
-CMD ["node","studio/server.mjs"]
+CMD ["node","studio/container-host.mjs"]
