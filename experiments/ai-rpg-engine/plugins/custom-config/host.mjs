@@ -5,6 +5,11 @@ import { Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { canonical } from "../catalog.mjs";
 import { validate } from "./public/config.mjs";
+import {
+  assembleMods,
+  modCatalog,
+  resolveMods,
+} from "../mod-panel/catalog.mjs";
 import { project } from "./node-job.mjs";
 const context = new AsyncLocalStorage();
 const digest = (v) => createHash("sha256").update(canonical(v)).digest("hex");
@@ -22,7 +27,7 @@ const publicFiles = new Set([
   "worldbook-ui.css",
 ]);
 const allowedPath =
-  /^\/rpg-app\/(?:(earth|god|cultivation\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/send|cultivation\/api\/(?:sessions\/([a-f0-9-]{36})\/turns|summary-v2\/(earth|god|cultivation)\/sessions\/([a-f0-9-]{36})))$/;
+  /^\/rpg-app\/(?:(earth|god|cultivation\/chat|ancient\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/send|cultivation\/api\/(?:sessions\/([a-f0-9-]{36})\/turns|summary-v2\/(earth|god|cultivation)\/sessions\/([a-f0-9-]{36})))$/;
 function reply(res, status, msg) {
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -62,10 +67,27 @@ export function installCustomConfig(server, origins, directory) {
       }
       return;
     }
-    if (!req.headers["x-rpg-custom-config"]) return pass(req, res);
+    if (req.method === "GET" && path === "/rpg-app/mod-panel/catalog") {
+      try {
+        const items = await modCatalog();
+        res.writeHead(200, {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-cache",
+        });
+        res.end(JSON.stringify({ items }));
+      } catch {
+        reply(res, 503, "MOD_CATALOG_UNAVAILABLE");
+      }
+      return;
+    }
+    const modRequest = req.headers["x-rpg-mod-panel"] !== undefined;
+    const configRequest = req.headers["x-rpg-custom-config"] !== undefined;
+    if (!modRequest && !configRequest) return pass(req, res);
     const match = allowedPath.exec(path);
     if (
       !match ||
+      (modRequest && configRequest) ||
+      modRequest !== (match?.[1] === "ancient/chat") ||
       req.method !== "POST" ||
       req.headers["content-type"] !== "application/json" ||
       req.headers["sec-fetch-site"] === "cross-site" ||
@@ -80,12 +102,20 @@ export function installCustomConfig(server, origins, directory) {
         if (size > 16 * 1024 * 1024) return reply(res, 413, "CONFIG_TOO_LARGE");
         chunks.push(chunk);
       }
-      const { profiles, request } = JSON.parse(
-        Buffer.concat(chunks).toString(),
-      );
+      const envelope = JSON.parse(Buffer.concat(chunks).toString());
+      const { request } = envelope;
+      const profiles = modRequest ? [] : envelope.profiles;
+      const mods = modRequest
+        ? await resolveMods("ancient", envelope.modIds)
+        : [];
+      if (
+        modRequest &&
+        Object.keys(envelope).sort().join(",") !== "modIds,request"
+      )
+        throw Error("MOD_REQUEST_INVALID");
       if (
         !Array.isArray(profiles) ||
-        profiles.length < 1 ||
+        (!modRequest && profiles.length < 1) ||
         profiles.length > 2 ||
         !request ||
         typeof request !== "object"
@@ -141,6 +171,7 @@ export function installCustomConfig(server, origins, directory) {
           ids,
           memories,
           profiles,
+          mods,
           seed: parseInt(
             digest([sessionId, key ?? request.revision]).slice(0, 8),
             16,
@@ -170,12 +201,14 @@ export async function configFetch(url, options = {}, fetcher = fetch) {
     ctx.profiles.some((c) => c.rules.some((r) => r.enabled && !r.renderOnly));
   if (body.sessionId && !ctx.ids.has(body.requestId) && !memory)
     return fetcher(url, options);
-  const messages = await project({
-    kind: memory ? "memory-source" : "story",
-    configs: ctx.profiles,
-    seed: ctx.seed,
-    messages: body.messages,
-  });
+  const messages = ctx.mods.length
+    ? assembleMods(body.messages, ctx.mods)
+    : await project({
+        kind: memory ? "memory-source" : "story",
+        configs: ctx.profiles,
+        seed: ctx.seed,
+        messages: body.messages,
+      });
   // The card's original request hash and the effective provider input are recorded
   // separately by the authenticated bridge. Auxiliary requests retain their own policy.
   const adapted = body.sessionId
