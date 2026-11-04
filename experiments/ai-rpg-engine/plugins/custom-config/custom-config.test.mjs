@@ -115,7 +115,11 @@ test("seven chat routes scope configuration to a single story; auxiliaries, reco
   t.after(() => server.close());
   const base = "http://127.0.0.1:" + server.address().port;
   for (const [path, request, storyId] of [
-    ["/cultivation/chat/api/sessions/" + id + "/send",{operationId:key},hash({id,key,stageId:"story"})],
+    [
+      "/cultivation/chat/api/sessions/" + id + "/send",
+      { operationId: key },
+      hash({ id, key, stageId: "story" }),
+    ],
     [
       "/earth/api/sessions/" + id + "/send",
       { operationId: key },
@@ -152,6 +156,25 @@ test("seven chat routes scope configuration to a single story; auxiliaries, reco
     await r.text();
     assert.equal(seen.at(-2).customStoryMessages.at(-1).content, "开头");
     assert.equal(seen.at(-1).customStoryMessages, undefined);
+    if (path.endsWith("/send")) {
+      const combined = await fetch(base + "/rpg-app" + path, {
+        ...req,
+        headers: { ...req.headers, "X-Rpg-Mod-Panel": "1" },
+        body: JSON.stringify({
+          profiles: fixture(),
+          modIds: ["common.rationality.v1"],
+          request,
+        }),
+      });
+      assert.equal(combined.status, 200);
+      await combined.text();
+      assert.match(
+        seen.at(-2).customStoryMessages[0].content,
+        /角色核心行为逻辑框架/,
+      );
+      assert.equal(seen.at(-2).customStoryMessages.at(-1).content, "开头");
+      assert.equal(seen.at(-1).customStoryMessages, undefined);
+    }
     const forbidden = await fetch(base + "/rpg-app" + path, {
       ...req,
       headers: { ...req.headers, Origin: "https://other.invalid" },

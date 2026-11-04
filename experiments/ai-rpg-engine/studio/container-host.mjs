@@ -59,7 +59,7 @@ async function run(env){
   }
   const {start,archiveChatOptions}=await import('./server.mjs');
   const archiveOptions=archiveChatOptions(env);
-  if(archiveOptions.archiveControls.cultivation)archiveOptions.archiveControls.cultivation.fetcher=configFetch;
+  for(const route of [archiveOptions.xingjianControl,...Object.values(archiveOptions.archiveControls)])if(route)route.fetcher=configFetch;
   const {server,plugins,god}=await start({...archiveOptions,ownArchiveDirectory:ownDirectory,directory,key,limit,fetcher:configFetch,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
     transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',
