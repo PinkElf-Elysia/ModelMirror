@@ -59,6 +59,7 @@ async function run(env){
   const {start,archiveChatOptions}=await import('./server.mjs');
   const {server,plugins,god}=await start({...archiveChatOptions(env),ownArchiveDirectory:ownDirectory,directory,key,limit,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
+    transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',
     godCard:yes('RPG_GOD_CARD_ENABLED'),godBranches:yes('RPG_GOD_BRANCHES_ENABLED'),godPlugins:yes('RPG_GOD_PLUGINS_ENABLED'),
     historyWindow:yes('RPG_HISTORY_WINDOW_ENABLED'),rollingSummary:yes('RPG_ROLLING_SUMMARY_ENABLED'),memoryPalace:yes('RPG_MEMORY_PALACE_ENABLED'),
