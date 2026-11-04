@@ -829,7 +829,7 @@ body{font-size:12px;}
 <div class="tab-content" id="tab-archive">
 <h2 class="section-title">📋 档案预览</h2>
 <div class="preview-box" id="preview-box">尚未生成档案...</div>
-<button class="copy-btn" onclick="copyArchive()">📋 复制档案</button>
+<button class="copy-btn" onclick="copyArchive()">📋 复制档案</button><button id="open-chat" hidden class="copy-btn">以此档案进入独立聊天</button>
 <div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button></div>
 </div>
 </div>
@@ -2863,6 +2863,13 @@ document.body.removeChild(ta);
 /* 初始化 */
 initRaceOptions();
 updateWorldFields();
+</script>
+<script>
+if(new URLSearchParams(location.search).get('chat')==='1' && window.parent!==window){
+ const button=document.getElementById('open-chat');
+ button.hidden=false;
+ button.onclick=()=>parent.postMessage({type:'cultivation-opening',text:document.getElementById('preview-box').textContent},new URL(location.href).origin);
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,8 @@
+.xingjian-shell{min-height:100dvh;background:#030509;color:#c7edf1;font:15px/1.5 system-ui,sans-serif}
+.xingjian-shell nav,.xingjian-shell section{display:flex;align-items:center;flex-wrap:wrap;gap:.6rem;padding:.65rem 1rem;border-bottom:1px solid #213f47}
+.xingjian-shell nav strong{margin-right:auto;letter-spacing:.12em;color:#e4fdff}
+.xingjian-shell button,.xingjian-shell a{min-height:36px;padding:.35rem .75rem;border:1px solid #37626c;background:#102026;color:#c7edf1;border-radius:3px;cursor:pointer;text-decoration:none}
+.xingjian-shell button:disabled{opacity:.6;cursor:default}
+.xingjian-shell :focus-visible{outline:2px solid #70e4ef;outline-offset:2px}
+.xingjian-shell details{width:100%}.xingjian-shell pre{max-height:12rem;overflow:auto}
+.xingjian-shell iframe{display:block;background:#000}

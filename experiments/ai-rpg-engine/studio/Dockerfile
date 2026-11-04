@@ -15,6 +15,10 @@ COPY ancient-card ./ancient-card
 COPY god-card/lib ./god-card/lib
 COPY god-card/resources ./god-card/resources
 COPY cultivation-card ./cultivation-card
+COPY xingjian-card ./xingjian-card
+COPY lord-of-mysteries-card/public ./lord-of-mysteries-card/public
+COPY lord-of-mysteries-card/resources ./lord-of-mysteries-card/resources
+COPY lord-of-mysteries-card/assembly.mjs ./lord-of-mysteries-card/assembly.mjs
 COPY studio ./studio
 COPY ui/package.json ui/package-lock.json ./ui/
 RUN npm ci --prefix ui
@@ -26,7 +30,7 @@ RUN npm ci --prefix card-replica
 COPY card-replica/src ./card-replica/src
 COPY card-replica/lib ./card-replica/lib
 COPY card-replica/resources ./card-replica/resources
-COPY card-replica/index.html card-replica/tsconfig.json ./card-replica/
+COPY card-replica/index.html card-replica/god.html card-replica/vite.config.mjs card-replica/tsconfig.json ./card-replica/
 RUN npm run build --prefix card-replica -- --base=/rpg-app/earth/
 FROM node:24.18.0-alpine
 WORKDIR /app

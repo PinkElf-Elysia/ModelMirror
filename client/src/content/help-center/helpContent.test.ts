@@ -103,7 +103,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
-    expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("a29da8a5");
+    expect(helpArticles.find((article) => article.slug === "play-rpg-cards")?.verifiedCommit).toBe("550c09df");
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);
