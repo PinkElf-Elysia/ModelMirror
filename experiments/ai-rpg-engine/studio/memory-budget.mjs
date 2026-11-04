@@ -8,7 +8,7 @@ const validLease=lease=>lease&&identity(lease.groupId)&&Number.isInteger(lease.i
 const exists=async p=>{try{return JSON.parse(await readFile(p,'utf8'));}catch(e){if(e.code==='ENOENT')return null;throw e;}};
 // Shared slot names also fence older transports. Released evidence is moved, never erased.
 export async function createMemoryBudget({directory,limit=0,cardId='earth',budgetExemptions=[]}){
- if(!['earth','god'].includes(cardId))throw fail('CONTROL_CARD_INCOMPATIBLE');
+ if(!['earth','god','ancient'].includes(cardId))throw fail('CONTROL_CARD_INCOMPATIBLE');
  if(!Number.isSafeInteger(limit)||limit<0||limit>100)throw fail('INVALID_BUDGET');
  const folder=resolve(directory,cardId),groups=join(folder,'m3-reservations');await mkdir(groups,{recursive:true});
  // Explicit server-side administrative authorization only; never infer refunds

@@ -36,7 +36,7 @@ export async function createControlledProvider({directory, baseURL, serviceToken
   if(cardId!=='earth'&&!modelPolicy)throw fail('CONTROL_MODEL_POLICY_REQUIRED');
   if(modelPolicy&&(modelPolicy.cardId!==cardId||typeof modelPolicy.parametersFor!=='function'||typeof modelPolicy.sameParameters!=='function'))throw fail('CONTROL_MODEL_POLICY_INVALID');
   const parametersFor=modelPolicy?.parametersFor||earthParametersFor,sameParameters=modelPolicy?.sameParameters||earthSameParameters;
-  if(!['earth','god','cultivation','lord-of-mysteries'].includes(cardId)) throw fail('CONTROL_CARD_INCOMPATIBLE');
+  if(!['earth','god','cultivation','lord-of-mysteries','ancient'].includes(cardId)) throw fail('CONTROL_CARD_INCOMPATIBLE');
   if(!Number.isInteger(limit)||limit<0||limit>100) throw fail('INVALID_BUDGET');
   let endpoint;
   if(baseURL) {
