@@ -1,0 +1,5 @@
+.picture-dialog{width:min(34rem,94vw);max-height:88dvh;overflow:auto}.picture-dialog form,.picture-dialog label{display:grid;gap:.55rem}.picture-dialog form{gap:.9rem}.picture-dialog textarea,.picture-dialog select{font:inherit;color-scheme:light;color:#263441;background:#fff;border:1px solid #8391a0;border-radius:.6rem;padding:.6rem;width:100%;box-sizing:border-box}.picture-dialog small,.rpg-picture figcaption{font-size:.85rem}.picture-dialog footer,.picture-options{display:flex;flex-wrap:wrap;gap:.7rem}.picture-dialog footer{justify-content:flex-end}.picture-options label{flex:1 1 8rem}.rpg-picture{margin:.6rem 0;overflow-wrap:anywhere}.rpg-picture img{max-width:100%;max-height:28rem;object-fit:contain;border-radius:.6rem}.rpg-picture p{white-space:pre-wrap}
+
+.picture-dialog textarea::placeholder{color:#59697a;opacity:1}
+.picture-dialog select option{color:#263441;background:#fff}
+.picture-dialog :is(textarea,select):focus-visible{outline:2px solid #295ab6;outline-offset:2px}
