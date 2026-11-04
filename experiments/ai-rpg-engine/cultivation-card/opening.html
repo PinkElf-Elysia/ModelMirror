@@ -1,0 +1,2868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>三界修真档案构建系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+
+:root{
+--dai:#5B6B80;--dai-deep:#3D4A5C;--dai-soft:#8896A8;
+--peach:#E8A5AD;--peach-deep:#C97E88;--peach-soft:#F5D9DE;--peach-pale:#FBEEF0;
+--gold:#B8A176;--gold-deep:#8A7548;
+--mist:#EDE8DC;--mist-warm:#F5F1E8;--mist-pale:#F9F6EE;
+--ink:#3A3532;--ink-mid:#5A5450;--ink-soft:#7A7570;
+--jade:#7B9483;--jade-soft:#A8BFAF;
+--tier-mythic:#C9A876;--tier-legendary:#9E7BAF;--tier-epic:#7B9CB8;--tier-rare:#8FAE96;--tier-common:#A8A29A;
+}
+body{font-family:'Noto Serif SC',serif;background-color:#1a1a1e;background-image:url('assets/6a4c790e3f3dcc5752c8c97c.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden;font-size:13px;}
+.main-container{min-height:100vh;position:relative;}
+.main-container::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(30,30,40,0.35),rgba(60,60,80,0.15) 50%,rgba(30,30,40,0.4));pointer-events:none;z-index:1;}
+.petals-container{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:hidden;}
+.petal{position:absolute;width:10px;height:10px;background:radial-gradient(ellipse at 30% 30%,#F8D8DC 0%,#E8B4BC 55%,#D48A94 100%);border-radius:150% 0 150% 0;opacity:0.75;box-shadow:0 0 4px rgba(212,138,148,0.35);}
+@keyframes petalFall{0%{transform:translateY(-10vh) translateX(0) rotate(0);opacity:0;}10%{opacity:0.8;}90%{opacity:0.75;}100%{transform:translateY(110vh) translateX(var(--drift)) rotate(720deg);opacity:0;}}
+.content-wrapper{position:relative;z-index:2;max-width:1020px;margin:0 auto;padding:18px 16px 60px;}
+.main-title{text-align:center;padding:32px 20px 26px;background:linear-gradient(135deg,rgba(245,241,232,0.92),rgba(237,232,220,0.88));backdrop-filter:blur(12px);border:1px solid rgba(91,107,128,0.3);border-radius:8px;margin-bottom:18px;position:relative;box-shadow:0 4px 20px rgba(30,30,40,0.4);}
+.main-title::before,.main-title::after{content:'';position:absolute;top:50%;width:80px;height:1px;background:linear-gradient(to right,transparent,var(--peach-deep),transparent);}
+.main-title::before{left:24px;transform:translateY(-50%);}
+.main-title::after{right:24px;transform:translateY(-50%);}
+.main-title h1{font-family:'Ma Shan Zheng','Noto Serif SC',serif;font-size:clamp(26px,4.5vw,38px);font-weight:900;letter-spacing:6px;color:var(--dai-deep);text-shadow:1px 1px 0 rgba(212,138,148,0.25);}
+.main-title .subtitle{margin-top:10px;font-size:10px;letter-spacing:4px;color:var(--ink-soft);font-weight:400;}
+.main-title .seal{margin-top:12px;display:inline-block;padding:5px 16px;border:1px solid var(--peach-deep);color:var(--peach-deep);font-size:11px;letter-spacing:3px;font-weight:600;background:rgba(232,165,173,0.08);border-radius:3px;font-family:'Ma Shan Zheng',serif;}
+.tab-nav{display:flex;gap:0;margin-bottom:16px;overflow-x:auto;background:rgba(240,235,225,0.9);backdrop-filter:blur(10px);border:1px solid rgba(91,107,128,0.28);border-radius:6px;box-shadow:0 3px 14px rgba(30,30,40,0.35);}
+.tab-nav::-webkit-scrollbar{height:3px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--peach-deep);border-radius:2px;}
+.tab-btn{flex:1;min-width:88px;padding:12px 6px;background:transparent;border:none;border-right:1px solid rgba(91,107,128,0.15);font-family:inherit;font-size:clamp(11px,1.8vw,12.5px);font-weight:600;cursor:pointer;transition:all .25s;white-space:nowrap;color:var(--ink);position:relative;letter-spacing:1px;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(232,165,173,0.12);color:var(--peach-deep);}
+.tab-btn.active{background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;box-shadow:inset 0 -2px 0 rgba(0,0,0,0.15);text-shadow:1px 1px 2px rgba(0,0,0,0.25);}
+.tab-btn.completed::after{content:'✓';position:absolute;top:4px;right:6px;font-size:10px;color:var(--peach-deep);font-weight:900;}
+.tab-btn.active.completed::after{color:#fff;}
+.tab-content{display:none;background:linear-gradient(135deg,rgba(249,246,238,0.95),rgba(245,241,232,0.9));backdrop-filter:blur(12px);border:1px solid rgba(91,107,128,0.28);border-radius:6px;padding:24px;box-shadow:0 4px 16px rgba(30,30,40,0.4);position:relative;}
+.tab-content.active{display:block;animation:slideIn .3s ease;}
+.tab-content::before{content:'';position:absolute;top:10px;right:10px;width:24px;height:24px;border-top:2px solid rgba(201,126,136,0.4);border-right:2px solid rgba(201,126,136,0.4);border-top-right-radius:6px;}
+.tab-content::after{content:'';position:absolute;bottom:10px;left:10px;width:24px;height:24px;border-bottom:2px solid rgba(201,126,136,0.4);border-left:2px solid rgba(201,126,136,0.4);border-bottom-left-radius:6px;}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'Ma Shan Zheng',serif;font-size:clamp(20px,3.6vw,26px);font-weight:900;margin-bottom:18px;padding-bottom:10px;border-bottom:2px solid var(--peach-deep);display:inline-block;color:var(--dai-deep);letter-spacing:2px;position:relative;}
+.section-title::after{content:'';position:absolute;right:-18px;top:50%;width:14px;height:2px;background:var(--peach-deep);transform:translateY(-50%) rotate(-30deg);}
+.sub-section-title{font-size:15px;font-weight:700;color:var(--dai-deep);margin:22px 0 12px;padding-left:12px;border-left:4px solid var(--peach-deep);letter-spacing:1px;}
+.divider-ornament{margin:32px 0 22px;text-align:center;display:flex;align-items:center;justify-content:center;gap:14px;}
+.divider-ornament::before,.divider-ornament::after{content:'';flex:1;height:1px;background:linear-gradient(to right,transparent,rgba(91,107,128,0.5) 40%,rgba(91,107,128,0.5) 60%,transparent);max-width:220px;}
+.divider-ornament .diamond{color:var(--peach-deep);font-size:12px;letter-spacing:5px;}
+.info-box,.intro-box{background:linear-gradient(135deg,rgba(255,255,255,0.9),rgba(245,241,232,0.85));border:1px solid rgba(91,107,128,0.22);border-left:4px solid var(--dai);border-radius:5px;padding:18px 20px;margin-bottom:14px;position:relative;box-shadow:0 2px 8px rgba(30,30,40,0.14);}
+.info-box::before,.intro-box::before{content:'档案';position:absolute;top:-10px;left:18px;background:var(--mist-warm);padding:2px 12px;font-size:10px;color:var(--peach-deep);letter-spacing:2px;border:1px solid var(--peach-deep);font-weight:700;border-radius:2px;}
+.intro-box::before{content:'序章';}
+.info-box.warning{border-left-color:var(--peach-deep);}
+.info-box.warning::before{content:'警示';}
+.info-box.mystery{border-left-color:var(--dai-soft);}
+.info-box.mystery::before{content:'隐秘';color:var(--dai-deep);border-color:var(--dai);}
+.info-box h3{font-size:13.5px;color:var(--peach-deep);margin-bottom:11px;font-weight:700;letter-spacing:1px;}
+.info-box > p,.info-box > ul > li{font-size:12.5px;line-height:1.85;color:var(--ink-mid);}
+.info-box > ul{list-style:none;padding-left:0;}
+.info-box > ul > li{padding-left:18px;position:relative;margin-bottom:6px;}
+.info-box > ul > li::before{content:'◇';position:absolute;left:0;color:var(--peach-deep);font-size:11px;}
+.info-box .highlight,.intro-box .highlight{color:var(--peach-deep);font-weight:700;}
+.info-box strong,.intro-box strong{color:var(--dai-deep);}
+.intro-box{padding:22px;font-size:13.5px;line-height:2;}
+.intro-box p{margin-bottom:8px;color:var(--ink-mid);}
+.intro-box .verse{text-align:center;font-family:'Ma Shan Zheng',serif;font-size:18px;color:var(--dai-deep);letter-spacing:3px;margin:12px 0;line-height:1.8;}
+.intro-box .question{margin-top:16px;font-size:16px;font-weight:700;color:var(--peach-deep);letter-spacing:1px;text-align:center;font-family:'Ma Shan Zheng',serif;}
+.sub-tab-nav{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+.sub-tab-btn{padding:8px 20px;background:rgba(255,255,255,0.85);border:1px solid rgba(91,107,128,0.28);border-radius:20px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:all .25s;color:var(--ink);letter-spacing:1px;}
+.sub-tab-btn:hover{background:rgba(232,165,173,0.15);border-color:var(--peach);color:var(--peach-deep);}
+.sub-tab-btn.active{background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;border-color:var(--peach-deep);box-shadow:0 2px 8px rgba(201,126,136,0.35);text-shadow:1px 1px 2px rgba(0,0,0,0.2);}
+.sub-tab-content{display:none;}
+.sub-tab-content.active{display:block;animation:slideIn .3s ease;}
+.realm-list{list-style:none;padding-left:0;margin:2px 0;}
+.realm-list li{padding:10px 0 10px 20px;border-bottom:1px dashed rgba(91,107,128,0.18);position:relative;}
+.realm-list li:last-child{border-bottom:none;}
+.realm-list li::before{content:'◈';position:absolute;left:0;top:12px;color:var(--peach-deep);font-size:11px;}
+.realm-header{display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap;}
+.realm-name{font-weight:700;color:var(--dai-deep);font-size:13.5px;letter-spacing:1px;}
+.realm-name .sub{display:block;font-size:11px;color:var(--peach-deep);font-weight:600;margin-top:1px;}
+.realm-lifespan{font-size:11px;color:var(--peach-deep);font-weight:600;padding:1px 8px;background:rgba(232,165,173,0.12);border:1px solid rgba(232,165,173,0.4);border-radius:3px;}
+.realm-desc{font-size:12px;line-height:1.85;color:var(--ink-mid);}
+.realm-desc strong{color:var(--dai-deep);}
+.realm-desc .highlight{color:var(--peach-deep);font-weight:700;}
+.law-item{background:rgba(255,255,255,0.88);border:1px solid rgba(91,107,128,0.22);border-left:3px solid var(--peach-deep);border-radius:4px;padding:12px 16px;margin-bottom:10px;transition:all .22s;}
+.law-item:hover{transform:translateX(2px);box-shadow:0 3px 10px rgba(91,107,128,0.18);}
+.law-item h4{font-size:13px;color:var(--peach-deep);margin-bottom:6px;font-weight:700;letter-spacing:1px;}
+.law-item p{font-size:12px;line-height:1.85;color:var(--ink-mid);}
+.law-item strong{color:var(--dai-deep);}
+.law-item .highlight{color:var(--peach-deep);font-weight:700;}
+.realm-badge{display:inline-block;padding:2px 10px;font-size:11px;font-weight:700;border-radius:3px;letter-spacing:2px;margin-right:6px;color:#fff;text-shadow:1px 1px 1px rgba(0,0,0,0.25);}
+.realm-badge.fan{background:var(--jade);}
+.realm-badge.xian{background:var(--dai);}
+.realm-badge.shen{background:var(--peach-deep);}
+.section-intro{color:var(--ink-mid);font-size:12.5px;margin-bottom:12px;line-height:1.85;padding:10px 14px;background:rgba(232,165,173,0.08);border-left:3px solid var(--peach-deep);border-radius:3px;}
+.section-intro strong{color:var(--dai-deep);}
+.section-intro .highlight{color:var(--peach-deep);font-weight:700;}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:26px;padding-top:18px;border-top:1px dashed rgba(91,107,128,0.3);gap:10px;}
+.nav-btn{padding:10px 24px;font-size:13px;font-weight:700;font-family:inherit;border:1px solid rgba(91,107,128,0.32);border-radius:4px;cursor:pointer;transition:all .25s;letter-spacing:1px;}
+.nav-btn.prev{background:rgba(255,255,255,0.9);color:var(--ink);}
+.nav-btn.next{background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;border-color:var(--peach-deep);box-shadow:0 3px 10px rgba(201,126,136,0.3);text-shadow:1px 1px 2px rgba(0,0,0,0.2);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn.prev:hover{border-color:var(--peach);}
+.nav-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.world-intro{padding:16px 20px;background:linear-gradient(135deg,rgba(255,255,255,0.9),rgba(245,241,232,0.85));border:1px solid rgba(91,107,128,0.22);border-left:4px solid var(--peach-deep);border-radius:5px;margin-bottom:16px;font-size:12.5px;line-height:1.9;color:var(--ink-mid);}
+.world-intro strong{color:var(--dai-deep);}
+.region-block{margin-bottom:24px;background:rgba(255,255,255,0.92);border:1px solid rgba(91,107,128,0.25);border-radius:6px;overflow:hidden;box-shadow:0 3px 10px rgba(30,30,40,0.15);}
+.region-image-wrap{position:relative;background:linear-gradient(135deg,var(--dai-deep),var(--dai));display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.region-image{display:block;width:100%;height:auto;max-height:280px;object-fit:cover;transition:transform .4s;}
+.region-image:hover{transform:scale(1.02);}
+.region-image-fallback{width:100%;height:180px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.5);font-size:11px;letter-spacing:2px;position:relative;}
+.region-image-fallback::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 30% 40%,rgba(232,165,173,0.15),transparent 60%);}
+.region-emoji{font-size:56px;opacity:0.55;}
+.region-caption{position:absolute;bottom:8px;right:12px;color:rgba(255,255,255,0.55);font-size:10px;letter-spacing:2px;font-family:'Ma Shan Zheng',serif;background:rgba(0,0,0,0.3);padding:2px 8px;border-radius:2px;}
+.region-body{padding:18px 20px;}
+.region-title{font-family:'Ma Shan Zheng',serif;font-size:20px;color:var(--dai-deep);font-weight:700;letter-spacing:2px;margin-bottom:4px;}
+.region-tag{display:inline-block;font-size:11px;color:var(--peach-deep);background:rgba(232,165,173,0.12);border:1px solid rgba(232,165,173,0.4);padding:2px 10px;border-radius:3px;margin-bottom:12px;letter-spacing:1px;font-weight:600;}
+.region-field{margin-bottom:10px;font-size:12px;line-height:1.85;}
+.region-field-name{display:inline-block;color:var(--peach-deep);font-weight:700;margin-right:6px;letter-spacing:1px;}
+.region-field-text{color:var(--ink-mid);}
+.region-field-text strong{color:var(--dai-deep);}
+.region-field-text .highlight{color:var(--peach-deep);font-weight:700;}
+.search-box{position:relative;margin-bottom:16px;}
+.search-box input{width:100%;padding:11px 16px 11px 38px;font-size:12.5px;font-family:inherit;border:1px solid rgba(91,107,128,0.3);background:rgba(255,255,255,0.94);color:var(--ink);letter-spacing:1px;transition:all .22s;border-radius:5px;}
+.search-box input:focus{outline:none;border-color:var(--peach-deep);box-shadow:0 0 0 3px rgba(232,165,173,0.18);}
+.search-box::before{content:'🔍';position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:14px;}
+.search-results{background:rgba(255,255,255,0.98);border:1px solid var(--peach-deep);margin-top:-1px;max-height:340px;overflow-y:auto;padding:8px;display:none;border-radius:0 0 5px 5px;box-shadow:0 6px 18px rgba(30,30,40,0.25);}
+.search-results.visible{display:block;}
+.search-result-item{padding:8px 10px;border-bottom:1px dashed rgba(91,107,128,0.15);cursor:pointer;transition:all .18s;font-size:12px;border-radius:3px;}
+.search-result-item:last-child{border-bottom:none;}
+.search-result-item:hover{background:rgba(232,165,173,0.1);}
+.search-result-item strong{color:var(--peach-deep);}
+.search-result-item .meta{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+.faction-group-title{font-size:14px;color:var(--dai-deep);font-weight:700;margin:16px 0 10px;padding-left:10px;border-left:3px solid var(--peach-deep);letter-spacing:1px;}
+.faction-card{background:rgba(255,255,255,0.92);border:1px solid rgba(91,107,128,0.22);border-radius:5px;margin-bottom:8px;overflow:hidden;transition:all .22s;}
+.faction-card:hover{border-color:var(--peach);}
+.faction-header{padding:11px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(135deg,rgba(245,241,232,0.6),rgba(237,232,220,0.4));user-select:none;}
+.faction-header:hover{background:linear-gradient(135deg,rgba(232,165,173,0.1),rgba(232,165,173,0.05));}
+.faction-name{font-size:13px;font-weight:700;color:var(--dai-deep);flex:1;letter-spacing:1px;}
+.faction-tag{font-size:10px;padding:2px 7px;background:rgba(232,165,173,0.15);color:var(--peach-deep);border:1px solid rgba(232,165,173,0.4);border-radius:2px;font-weight:600;letter-spacing:1px;}
+.faction-toggle{font-size:12px;color:var(--peach-deep);transition:transform .22s;}
+.faction-card.open .faction-toggle{transform:rotate(180deg);}
+.faction-body{display:none;padding:12px 16px;border-top:1px dashed rgba(91,107,128,0.18);background:rgba(255,255,255,0.6);}
+.faction-card.open .faction-body{display:block;animation:slideIn .22s ease;}
+.faction-desc{font-size:12px;line-height:1.85;color:var(--ink-mid);margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed rgba(91,107,128,0.14);}
+.faction-desc strong{color:var(--dai-deep);}
+.npc-list{display:grid;grid-template-columns:1fr;gap:5px;}
+.npc-item{padding:7px 10px;background:rgba(255,255,255,0.88);border-left:2px solid var(--dai);border-radius:3px;font-size:11.5px;line-height:1.7;transition:all .18s;}
+.npc-item:hover{border-left-color:var(--peach-deep);background:rgba(232,165,173,0.06);}
+.npc-item .npc-name{font-weight:700;color:var(--dai-deep);}
+.npc-item .npc-meta{color:var(--peach-deep);font-size:10.5px;font-weight:600;margin:0 4px;}
+.npc-item .npc-desc{color:var(--ink-mid);}
+.form-section{margin-bottom:20px;}
+.form-section h3{font-size:14px;margin-bottom:12px;padding-left:10px;border-left:4px solid var(--peach-deep);color:var(--dai-deep);font-weight:700;letter-spacing:1px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px;}
+.form-group{margin-bottom:12px;}
+.form-group label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;color:var(--dai-deep);letter-spacing:1px;}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:9px 11px;border:1px solid rgba(91,107,128,0.3);background:rgba(255,255,255,0.94);font-family:inherit;font-size:12.5px;color:var(--ink);transition:all .2s;border-radius:4px;}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--peach-deep);box-shadow:0 0 0 3px rgba(232,165,173,0.18);}
+.form-group textarea{min-height:80px;resize:vertical;line-height:1.7;}
+.form-group .hint{font-size:11px;color:var(--ink-soft);margin-top:3px;font-style:italic;}
+.form-group .field-hide{display:none;}
+.form-group.field-show .field-hide{display:block;margin-top:10px;}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:5px;padding:8px 14px;background:rgba(255,255,255,0.92);border:1px solid rgba(91,107,128,0.25);border-radius:4px;cursor:pointer;font-size:12px;transition:all .2s;font-weight:600;}
+.radio-group label:hover{background:rgba(232,165,173,0.1);border-color:var(--peach-deep);}
+.radio-group input{accent-color:var(--peach-deep);width:14px;height:14px;}
+.radio-group input:checked + span{color:var(--peach-deep);font-weight:700;}
+.check-group{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;}
+.check-group label{display:flex;align-items:center;gap:6px;padding:8px 10px;background:rgba(255,255,255,0.92);border:1px solid rgba(91,107,128,0.25);border-radius:4px;cursor:pointer;font-size:11.5px;transition:all .2s;}
+.check-group label:hover{background:rgba(232,165,173,0.08);border-color:var(--peach);}
+.check-group input{accent-color:var(--peach-deep);width:14px;height:14px;flex-shrink:0;}
+.check-group input:checked + span{color:var(--peach-deep);font-weight:700;}
+.roll-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px;align-items:start;}
+.roll-section{padding:18px;background:linear-gradient(135deg,rgba(255,255,255,0.9),rgba(245,241,232,0.85));border:1px solid rgba(91,107,128,0.25);border-radius:6px;box-shadow:0 3px 10px rgba(30,30,40,0.14);}
+.roll-section h3{
+    font-size:20px;
+    color:var(--dai-deep);
+    font-weight:900;
+    letter-spacing:4px;
+    text-align:center;
+    font-family:'Ma Shan Zheng',serif;
+    margin-bottom:12px;
+    padding-bottom:10px;
+    position:relative;
+}
+.roll-section h3::after{
+    content:'';
+    position:absolute;
+    bottom:0;
+    left:50%;
+    transform:translateX(-50%);
+    width:60px;
+    height:1px;
+    background:linear-gradient(to right,transparent,var(--peach-deep),transparent);
+}
+.roll-section .roll-hint{
+    font-size:12px;
+    color:var(--ink-mid);
+    text-align:center;
+    line-height:1.9;
+    letter-spacing:1px;
+    margin-bottom:16px;
+    font-style:italic;
+}
+.roll-section .roll-hint strong{
+    display:inline-block;
+    margin-top:6px;
+    padding:3px 14px;
+    font-size:10.5px;
+    color:var(--peach-deep);
+    background:rgba(232,165,173,0.12);
+    border:1px dashed rgba(201,126,136,0.45);
+    border-radius:20px;
+    letter-spacing:3px;
+    font-weight:700;
+    font-style:normal;
+}
+.roll-btn{display:block;width:100%;padding:12px 28px;font-size:14px;font-weight:700;font-family:inherit;background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;border:none;border-radius:4px;cursor:pointer;transition:all .3s;box-shadow:0 4px 14px rgba(201,126,136,0.4);letter-spacing:2px;text-shadow:1px 1px 2px rgba(0,0,0,0.25);}
+.roll-btn.gongfa-btn{background:linear-gradient(135deg,var(--gold),var(--gold-deep));box-shadow:0 4px 14px rgba(184,161,118,0.4);}
+.roll-btn.fabao-btn{background:linear-gradient(135deg,var(--dai),var(--dai-deep));box-shadow:0 4px 14px rgba(91,107,128,0.4);}
+.roll-btn:hover{transform:translateY(-2px);}
+.roll-btn:disabled{opacity:.6;cursor:not-allowed;transform:none;}
+.roll-btn.rolling{animation:shake .4s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px) rotate(-1.5deg);}75%{transform:translateX(4px) rotate(1.5deg);}}
+.pool{display:none;margin-top:16px;}
+.pool.visible{display:block;}
+.pool-counter{font-size:11.5px;color:var(--ink-soft);margin-bottom:10px;text-align:center;}
+.pool-list{display:grid;gap:8px;max-height:460px;overflow-y:auto;padding:10px;background:rgba(240,235,225,0.5);border:1px solid rgba(91,107,128,0.22);border-radius:4px;}
+.pool-list::-webkit-scrollbar{width:6px;}
+.pool-list::-webkit-scrollbar-thumb{background:var(--peach-deep);border-radius:3px;}
+.pool-item{display:flex;align-items:flex-start;padding:10px 12px;background:rgba(255,255,255,0.94);border:1px solid var(--tier-common);border-left:4px solid var(--tier-common);border-radius:4px;cursor:pointer;transition:all .2s;}
+.pool-item:hover{border-color:var(--peach);}
+.pool-item.selected{border-width:2px;border-left-width:5px;box-shadow:0 3px 10px rgba(232,165,173,0.35);}
+.pool-item.mythic{border-color:var(--tier-mythic);border-left-color:var(--tier-mythic);background:linear-gradient(135deg,#FDF8EA,#FFFCF3);}
+/* ============ 神话卡·金光脉动特效 ============ */
+.pool-item.mythic{
+    box-shadow:
+        0 0 12px rgba(201,168,118,0.5),
+        0 0 24px rgba(201,168,118,0.25),
+        inset 0 0 12px rgba(255,236,179,0.15) !important;
+    animation:mythicPulse 2.4s ease-in-out infinite;
+    position:relative;
+    overflow:hidden;
+}
+.pool-item.mythic::after{
+    content:'';
+    position:absolute;
+    top:-50%;
+    left:-50%;
+    width:200%;
+    height:200%;
+    background:linear-gradient(115deg,
+        transparent 30%,
+        rgba(255,236,179,0.25) 45%,
+        rgba(255,215,0,0.35) 50%,
+        rgba(255,236,179,0.25) 55%,
+        transparent 70%);
+    animation:mythicShine 4s ease-in-out infinite;
+    pointer-events:none;
+    z-index:0;
+}
+.pool-item.mythic .pool-info{position:relative;z-index:1;}
+.pool-item.mythic input{position:relative;z-index:1;}
+.pool-item.mythic .pool-name{
+    color:#8A6D2B !important;
+    text-shadow:0 0 6px rgba(255,215,0,0.4);
+}
+.pool-item.mythic .pool-badge.mythic{
+    background:linear-gradient(135deg,#FFD700,#D4A017) !important;
+    box-shadow:0 0 8px rgba(255,215,0,0.7);
+    animation:mythicBadgeGlow 1.8s ease-in-out infinite;
+}
+.pool-item.mythic.selected{
+    box-shadow:
+        0 0 18px rgba(255,215,0,0.7),
+        0 0 36px rgba(255,215,0,0.35),
+        inset 0 0 15px rgba(255,236,179,0.25) !important;
+}
+@keyframes mythicPulse{
+    0%,100%{
+        box-shadow:
+            0 0 12px rgba(201,168,118,0.5),
+            0 0 24px rgba(201,168,118,0.25),
+            inset 0 0 12px rgba(255,236,179,0.15);
+    }
+    50%{
+        box-shadow:
+            0 0 20px rgba(255,215,0,0.65),
+            0 0 40px rgba(255,215,0,0.35),
+            inset 0 0 18px rgba(255,236,179,0.3);
+    }
+}
+@keyframes mythicShine{
+    0%,100%{transform:translateX(-100%) translateY(-100%) rotate(0deg);}
+    50%{transform:translateX(0%) translateY(0%) rotate(0deg);}
+}
+@keyframes mythicBadgeGlow{
+    0%,100%{
+        box-shadow:0 0 8px rgba(255,215,0,0.7);
+        filter:brightness(1);
+    }
+    50%{
+        box-shadow:0 0 14px rgba(255,215,0,1),0 0 20px rgba(255,180,0,0.5);
+        filter:brightness(1.15);
+    }
+}
+/* 减少动画偏好 */
+@media (prefers-reduced-motion:reduce){
+    .pool-item.mythic,
+    .pool-item.mythic::after,
+    .pool-item.mythic .pool-badge.mythic{
+        animation:none !important;
+    }
+}
+/* ============ 传说卡·紫光呼吸特效 ============ */
+.pool-item.legendary{
+    box-shadow:
+        0 0 10px rgba(158,123,175,0.45),
+        0 0 20px rgba(158,123,175,0.2),
+        inset 0 0 10px rgba(200,170,220,0.12) !important;
+    animation:legendaryPulse 3s ease-in-out infinite;
+    position:relative;
+    overflow:hidden;
+}
+.pool-item.legendary::after{
+    content:'';
+    position:absolute;
+    top:-50%;
+    left:-50%;
+    width:200%;
+    height:200%;
+    background:linear-gradient(115deg,
+        transparent 35%,
+        rgba(200,170,220,0.18) 48%,
+        rgba(158,123,175,0.28) 50%,
+        rgba(200,170,220,0.18) 52%,
+        transparent 65%);
+    animation:legendaryShine 5s ease-in-out infinite;
+    pointer-events:none;
+    z-index:0;
+}
+.pool-item.legendary .pool-info{position:relative;z-index:1;}
+.pool-item.legendary input{position:relative;z-index:1;}
+.pool-item.legendary .pool-name{
+    color:#6B4B85 !important;
+    text-shadow:0 0 5px rgba(158,123,175,0.35);
+}
+.pool-item.legendary .pool-badge.legendary{
+    background:linear-gradient(135deg,#B18CC9,#7B5A9E) !important;
+    box-shadow:0 0 7px rgba(158,123,175,0.65);
+    animation:legendaryBadgeGlow 2.2s ease-in-out infinite;
+}
+.pool-item.legendary.selected{
+    box-shadow:
+        0 0 16px rgba(158,123,175,0.6),
+        0 0 30px rgba(158,123,175,0.28),
+        inset 0 0 12px rgba(200,170,220,0.22) !important;
+}
+@keyframes legendaryPulse{
+    0%,100%{
+        box-shadow:
+            0 0 10px rgba(158,123,175,0.45),
+            0 0 20px rgba(158,123,175,0.2),
+            inset 0 0 10px rgba(200,170,220,0.12);
+    }
+    50%{
+        box-shadow:
+            0 0 16px rgba(158,123,175,0.6),
+            0 0 32px rgba(158,123,175,0.3),
+            inset 0 0 15px rgba(200,170,220,0.25);
+    }
+}
+@keyframes legendaryShine{
+    0%,100%{transform:translateX(-100%) translateY(-100%) rotate(0deg);}
+    50%{transform:translateX(0%) translateY(0%) rotate(0deg);}
+}
+@keyframes legendaryBadgeGlow{
+    0%,100%{
+        box-shadow:0 0 7px rgba(158,123,175,0.65);
+        filter:brightness(1);
+    }
+    50%{
+        box-shadow:0 0 12px rgba(158,123,175,0.95),0 0 18px rgba(130,90,160,0.45);
+        filter:brightness(1.1);
+    }
+}
+/* 减少动画偏好 · 补充传说 */
+@media (prefers-reduced-motion:reduce){
+    .pool-item.legendary,
+    .pool-item.legendary::after,
+    .pool-item.legendary .pool-badge.legendary{
+        animation:none !important;
+    }
+}
+.pool-item.legendary{border-color:var(--tier-legendary);border-left-color:var(--tier-legendary);background:linear-gradient(135deg,#F4EDF8,#FBF7FC);}
+.pool-item.epic{border-color:var(--tier-epic);border-left-color:var(--tier-epic);background:linear-gradient(135deg,#EDF3F8,#F7FAFC);}
+.pool-item.rare{border-color:var(--tier-rare);border-left-color:var(--tier-rare);background:linear-gradient(135deg,#EEF5F0,#F8FBF9);}
+.pool-item.crossover{position:relative;}
+.pool-item.crossover::before{content:'异';position:absolute;top:4px;right:6px;width:18px;height:18px;background:var(--peach-deep);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;text-shadow:1px 1px 1px rgba(0,0,0,0.25);}
+.pool-item input{margin-right:10px;margin-top:2px;width:16px;height:16px;accent-color:var(--peach-deep);flex-shrink:0;}
+.pool-info{flex:1;min-width:0;}
+.pool-name{font-weight:700;font-size:12.5px;margin-bottom:4px;display:flex;align-items:center;gap:6px;color:var(--dai-deep);flex-wrap:wrap;word-break:break-word;}
+.pool-badge{font-size:9.5px;padding:1px 7px;border-radius:8px;color:#fff;font-weight:700;text-shadow:1px 1px 1px rgba(0,0,0,0.25);letter-spacing:1px;}
+.pool-badge.mythic{background:var(--tier-mythic);}
+.pool-badge.legendary{background:var(--tier-legendary);}
+.pool-badge.epic{background:var(--tier-epic);}
+.pool-badge.rare{background:var(--tier-rare);}
+.pool-badge.common{background:var(--tier-common);}
+.pool-badge.world-fan{background:var(--jade);}
+.pool-badge.world-xian{background:var(--dai);}
+.pool-badge.world-shen{background:var(--peach-deep);}
+.pool-badge.type-gongfa{background:#8B6F47;}
+.pool-badge.type-fabao{background:#5F7AA0;}
+.pool-badge.type-const{background:#8B6E8B;}
+.pool-desc{font-size:11.5px;color:var(--ink-mid);line-height:1.7;}
+.pool-effect{font-size:11px;color:var(--peach-deep);margin-top:3px;font-style:italic;font-weight:600;line-height:1.6;}
+.preview-box{padding:20px;font-size:12px;line-height:1.95;white-space:pre-wrap;word-break:break-word;max-height:560px;overflow-y:auto;margin-bottom:16px;font-family:'Courier New','Noto Serif SC',monospace;background:rgba(255,255,255,0.94);border:1px solid rgba(91,107,128,0.25);border-left:4px solid var(--peach-deep);border-radius:5px;color:var(--ink);}
+.preview-box::-webkit-scrollbar{width:6px;}
+.preview-box::-webkit-scrollbar-thumb{background:var(--peach-deep);border-radius:3px;}
+.copy-btn{display:block;width:100%;max-width:300px;margin:0 auto;padding:13px 30px;font-size:14px;font-weight:700;font-family:inherit;background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;border:none;border-radius:4px;cursor:pointer;transition:all .3s;box-shadow:0 4px 14px rgba(201,126,136,0.35);letter-spacing:2px;text-shadow:1px 1px 2px rgba(0,0,0,0.25);}
+.copy-btn:hover{transform:translateY(-2px);}
+footer{text-align:center;padding:18px;background:rgba(20,25,35,0.9);color:var(--mist-warm);font-size:11px;position:relative;z-index:2;letter-spacing:2px;font-family:'Ma Shan Zheng',serif;}
+@media(max-width:640px){
+body{font-size:12px;}
+.content-wrapper{padding:10px 8px;}
+.tab-content{padding:16px 14px;}
+.main-title{padding:22px 14px 18px;}
+.main-title::before,.main-title::after{display:none;}
+.form-row{grid-template-columns:1fr;}
+.nav-buttons{flex-direction:column;gap:8px;}
+.nav-btn{width:100%;}
+.roll-grid{grid-template-columns:1fr;}
+.check-group{grid-template-columns:repeat(2,1fr);}
+.region-image-fallback{height:140px;}
+.region-emoji{font-size:44px;}
+.region-title{font-size:17px;}
+.section-title{font-size:19px;}
+.intro-box .verse{font-size:15px;}
+}
+.world-map-wrap{margin-bottom:18px;background:rgba(255,255,255,0.92);border:1px solid rgba(91,107,128,0.25);border-radius:6px;overflow:hidden;box-shadow:0 3px 10px rgba(30,30,40,0.15);position:relative;}
+.world-map-wrap img{display:block;width:100%;height:auto;max-height:420px;object-fit:cover;}
+.world-map-fallback{width:100%;height:220px;background:linear-gradient(135deg,var(--dai-deep),var(--dai));display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:13px;letter-spacing:3px;font-family:'Ma Shan Zheng',serif;position:relative;}
+.world-map-fallback::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(232,165,173,0.15),transparent 65%);}
+.world-map-caption{position:absolute;bottom:10px;right:14px;background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.85);padding:3px 12px;border-radius:3px;font-size:11px;letter-spacing:2px;font-family:'Ma Shan Zheng',serif;}
+/* ============ 自定义增补区 ============ */
+.custom-section{display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px;}
+.custom-group{background:linear-gradient(135deg,rgba(255,255,255,0.9),rgba(245,241,232,0.85));border:1px solid rgba(91,107,128,0.25);border-radius:6px;padding:16px 18px;box-shadow:0 3px 10px rgba(30,30,40,0.14);}
+.custom-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed rgba(91,107,128,0.25);}
+.custom-header h3{font-family:'Ma Shan Zheng',serif;font-size:18px;color:var(--dai-deep);font-weight:900;letter-spacing:3px;margin:0;}
+.add-btn{padding:6px 16px;font-family:inherit;font-size:12px;font-weight:700;background:linear-gradient(135deg,var(--peach),var(--peach-deep));color:#fff;border:none;border-radius:20px;cursor:pointer;transition:all .22s;letter-spacing:1px;box-shadow:0 2px 8px rgba(201,126,136,0.3);text-shadow:1px 1px 2px rgba(0,0,0,0.2);}
+.add-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(201,126,136,0.45);}
+.custom-list{display:flex;flex-direction:column;gap:10px;}
+.custom-empty{padding:18px;text-align:center;font-size:12px;color:var(--ink-soft);font-style:italic;border:1px dashed rgba(91,107,128,0.28);border-radius:5px;background:rgba(255,255,255,0.4);}
+.custom-item{padding:12px 14px;background:rgba(255,255,255,0.92);border:1px solid var(--tier-rare);border-left:4px solid var(--tier-rare);border-radius:5px;transition:border-color .22s;position:relative;}
+.custom-item.mythic{border-color:var(--tier-mythic);border-left-color:var(--tier-mythic);background:linear-gradient(135deg,#FDF8EA,#FFFCF3);}
+.custom-item.legendary{border-color:var(--tier-legendary);border-left-color:var(--tier-legendary);background:linear-gradient(135deg,#F4EDF8,#FBF7FC);}
+.custom-item.epic{border-color:var(--tier-epic);border-left-color:var(--tier-epic);background:linear-gradient(135deg,#EDF3F8,#F7FAFC);}
+.custom-item.rare{border-color:var(--tier-rare);border-left-color:var(--tier-rare);background:linear-gradient(135deg,#EEF5F0,#F8FBF9);}
+.custom-item.common{border-color:var(--tier-common);border-left-color:var(--tier-common);}
+.custom-item-header{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.custom-item-header .custom-name{flex:1;min-width:160px;padding:6px 10px;font-family:inherit;font-size:13px;font-weight:700;color:var(--dai-deep);border:1px solid rgba(91,107,128,0.25);background:rgba(255,255,255,0.95);border-radius:4px;transition:all .2s;}
+.custom-item-header .custom-name:focus{outline:none;border-color:var(--peach-deep);box-shadow:0 0 0 2px rgba(232,165,173,0.18);}
+.custom-item-header .custom-rarity{padding:6px 10px;font-family:inherit;font-size:12px;font-weight:600;color:var(--ink);border:1px solid rgba(91,107,128,0.25);background:rgba(255,255,255,0.95);border-radius:4px;cursor:pointer;}
+.custom-item-header .custom-rarity:focus{outline:none;border-color:var(--peach-deep);}
+.remove-btn{width:26px;height:26px;padding:0;font-size:16px;font-weight:900;background:rgba(232,165,173,0.15);color:var(--peach-deep);border:1px solid rgba(201,126,136,0.4);border-radius:50%;cursor:pointer;transition:all .2s;line-height:1;flex-shrink:0;}
+.remove-btn:hover{background:var(--peach-deep);color:#fff;transform:rotate(90deg);}
+.custom-item textarea{width:100%;padding:7px 10px;margin-bottom:6px;font-family:inherit;font-size:12px;line-height:1.7;color:var(--ink-mid);border:1px solid rgba(91,107,128,0.22);background:rgba(255,255,255,0.9);border-radius:4px;resize:vertical;min-height:44px;transition:all .2s;}
+.custom-item textarea:last-child{margin-bottom:0;}
+.custom-item textarea:focus{outline:none;border-color:var(--peach-deep);box-shadow:0 0 0 2px rgba(232,165,173,0.18);}
+.custom-item textarea.custom-effect{color:var(--peach-deep);font-style:italic;font-weight:600;}
+@media(min-width:720px){.custom-section{grid-template-columns:repeat(3,1fr);}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<div class="petals-container" id="petals-container"></div>
+<div class="main-container">
+<div class="content-wrapper">
+<div class="main-title">
+<h1>三界修真</h1>
+<div class="subtitle">CULTIVATION CHRONICLES · 凡 · 仙 · 神</div>
+<div class="seal">桃李春风 · 一剑长歌</div>
+</div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="overview">📜 三界总纲</button>
+<button class="tab-btn" data-tab="fan">🌿 凡界</button>
+<button class="tab-btn" data-tab="xian">☁️ 仙界</button>
+<button class="tab-btn" data-tab="shen">✨ 神界</button>
+<button class="tab-btn" data-tab="character">🎭 角色</button>
+<button class="tab-btn" data-tab="roll">🎲 命途造化</button>
+<button class="tab-btn" data-tab="archive">📋 档案</button>
+</div>
+<div class="tab-content active" id="tab-overview">
+<h2 class="section-title">三界总纲</h2>
+<div class="intro-box">
+<div class="verse">天地玄黄，宇宙洪荒。<br>凡有仙途，仙有神道。</div>
+<p>凡界在下，草木有情、蜉蝣有梦；灵石为币，御剑为途。修士九境之上，若能渡过五色神雷，方可破碎虚空，飞升仙界。</p>
+<p>仙界在中，天道有缺、道果易逸；洪荒残岛周期漂现，机缘与劫数并生。修至仙帝，需以自身道果补天——万古无人可成。</p>
+<p>神界在上，秩序薄如气泡；紫霄宫居中，四方神系分据。众神庄严华美，暗处道音杂异——从仙帝证道而来的新神，是这个循环里唯一的<span class="highlight">变数</span>。</p>
+<p class="question">你要从哪一界的哪一处，落笔写你的第一行？</p>
+</div>
+<div class="sub-tab-nav">
+<button class="sub-tab-btn active" data-subtab="ov-fan">🌿 凡界法则</button>
+<button class="sub-tab-btn" data-subtab="ov-xian">☁️ 仙界法则</button>
+<button class="sub-tab-btn" data-subtab="ov-shen">✨ 神界法则</button>
+</div>
+<div class="sub-tab-content active" id="subtab-ov-fan">
+<div class="info-box"><h3><span class="realm-badge fan">凡</span>凡界九境</h3>
+<ul class="realm-list">
+<li><div class="realm-header"><span class="realm-name">凡人</span><span class="realm-lifespan">寿元 60-80 年</span></div><div class="realm-desc">尚未觉醒灵根或未入宗门者，即天地凡俗。<span class="highlight">凡界九成九为凡人。</span>百人中未必出一个有灵根者。</div></li>
+<li><div class="realm-header"><span class="realm-name">炼气期</span><span class="realm-lifespan">寿元 100 年</span></div><div class="realm-desc"><strong>1-13层</strong>，引气入体入门，无天劫。<span class="highlight">九成修士终生卡此境寿尽而亡</span>，能突破至筑基者已是万里挑一。</div></li>
+<li><div class="realm-header"><span class="realm-name">筑基期</span><span class="realm-lifespan">寿元 200 年</span></div><div class="realm-desc">可御器低速飞行，无天劫。<span class="highlight">七成筑基修士熬不过 200 年寿元瓶颈</span>，服筑基丹方能稳固道基。</div></li>
+<li><div class="realm-header"><span class="realm-name">金丹期</span><span class="realm-lifespan">寿元 500 年</span></div><div class="realm-desc">御剑飞行日行数千里，<strong>金丹品质决定成长上限</strong>，突破渡 <strong>3 道紫雷</strong>。金丹分下/中/上/极品/完美（金丹九转）五档。凡俗眼中已是<span class="highlight">千里挑一的大人物</span>。</div></li>
+<li><div class="realm-header"><span class="realm-name">元婴期</span><span class="realm-lifespan">寿元 1000 年</span></div><div class="realm-desc">凭空飞行日行万里，<strong>凝聚元神可神识探查与攻击</strong>，突破渡 <strong>6 道紫金雷</strong>。凡俗难见，是各大宗门中层核心战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">化神期</span><span class="realm-lifespan">寿元 2000 年</span></div><div class="realm-desc">掌握短距离瞬移，<strong>神识覆盖大幅扩张</strong>，可远程隔空杀敌，突破渡 <strong>9 道金雷</strong>。宗门长老级坐镇一方。</div></li>
+<li><div class="realm-header"><span class="realm-name">炼虚期</span><span class="realm-lifespan">寿元 5000 年</span></div><div class="realm-desc">掌握<strong>空间挪移之术</strong>，可短距扭曲空间遁走，突破渡 <strong>18 道金红雷</strong>。宗门太上级人物。</div></li>
+<li><div class="realm-header"><span class="realm-name">合体期</span><span class="realm-lifespan">寿元 8000 年</span></div><div class="realm-desc">可<strong>跨域虚空穿梭</strong>，一日可走万里之遥，突破渡 <strong>36 道血红雷</strong>。顶级宗门宗主级镇宗战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">大乘期</span><span class="realm-lifespan">寿元 1 万年</span></div><div class="realm-desc">可<strong>徒手撕裂空间</strong>，一念可镇一域，突破渡 <strong>54 道黑红雷</strong>。凡界顶点战力，全界屈指可数。</div></li>
+<li><div class="realm-header"><span class="realm-name">渡劫期</span><span class="realm-lifespan">寿元 2 万年</span></div><div class="realm-desc">飞升前最终筹备阶段，渡 <strong>81 道五色神雷</strong>，成功则<span class="highlight">飞升仙界直入人仙初期</span>。凡界最强，与天道近。</div></li>
+</ul></div>
+<div class="info-box"><h3>金丹五档</h3><ul>
+<li><strong>下品金丹</strong>：终生难破元婴</li>
+<li><strong>中品金丹</strong>：最高可至元婴初期</li>
+<li><strong>上品金丹</strong>：有望元婴圆满</li>
+<li><strong>极品金丹</strong>：可冲击化神及以上</li>
+<li><strong>完美金丹（金丹九转）</strong>：万中无一，丹身附道纹，理论上可冲击渡劫飞升</li>
+</ul><p style="margin-top:8px;">灵根品质决定金丹品质上限，废灵根最高仅能凝结中品，天灵根方可冲击完美金丹。</p></div>
+<div class="info-box warning"><h3>渡劫失败惩罚</h3><ul>
+<li><strong>小败</strong>：跌回突破前境界，温养道基百年方可再冲</li>
+<li><strong>大败</strong>：境界跌落一阶，永久道伤，终生突破概率减半</li>
+<li><strong>惨败</strong>：肉身元神俱被雷劫湮灭，魂飞魄散</li>
+</ul></div>
+<div class="info-box"><h3>凡界物价参考</h3><ul>
+<li>1 下品灵石 ≈ 1 两金 ≈ 平民三口宽裕活 1 年</li>
+<li>低阶疗伤丹 10 下品 · 普通铁剑法器 50 下品</li>
+<li>筑基丹 100 中品（约 1 万下品，平民十辈子赚不到）</li>
+<li>顶级宗门练气弟子月例仅 3 下品，上品灵石低阶修士终生难见</li>
+</ul></div>
+</div>
+<div class="sub-tab-content" id="subtab-ov-xian">
+<div class="section-intro">仙界修行以法则感悟为核心，进阶考验为<strong>道劫</strong>（法则反噬+心劫）。仙帝为理论天花板，万古无人可常规修成，<span class="highlight">仙王为现存战力顶点</span>。</div>
+<div class="info-box"><h3><span class="realm-badge xian">仙</span>仙界九境</h3>
+<ul class="realm-list">
+<li><div class="realm-header"><span class="realm-name">人仙</span><span class="realm-lifespan">寿元 10 万年</span></div><div class="realm-desc">凡躯蜕为仙躯，<strong>滴血可重生</strong>；瞬息破碎虚空跨越万里，一念引仙力覆山填海。<span class="highlight">飞升者初始境界，仙界底层战力。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">地仙</span><span class="realm-lifespan">寿元 20 万年</span></div><div class="realm-desc">仙力裹挟<strong>法则丝缕</strong>，术法自带天地加持；可开辟洞府级专属仙域。宗门骨干、小势力核心战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">天仙</span><span class="realm-lifespan">寿元 50 万年</span></div><div class="realm-desc">凝练<strong>完整法则碎片</strong>，仙域成型可攻可守；神识覆盖一洲之地，可自主跨洲挪移。宗门中层主力、一方战将。</div></li>
+<li><div class="realm-header"><span class="realm-name">真仙</span><span class="realm-lifespan">寿元 100 万年</span></div><div class="realm-desc">执掌 <strong>1-3 条完整低阶法则</strong>，仙域扩至十万里，可演化一方小天地。宗门长老、一城之主，仙界中坚战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">玄仙</span><span class="realm-lifespan">寿元 200 万年</span></div><div class="realm-desc">融合多法则衍生<strong>高阶法则</strong>，道基孕育道种；仙域可扭曲空间，困杀同阶如探囊取物。宗门太上、一洲镇守，仙界高层战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">金仙</span><span class="realm-lifespan">寿元 500 万年</span></div><div class="realm-desc">法则凝为<strong>道果</strong>，紫府开辟本源小世界雏形，可占据私人浮岛；<span class="highlight">斩善尸断尘念，道心无漏</span>。宗门宗主、神国主神，一方霸主。</div></li>
+<li><div class="realm-header"><span class="realm-name">仙君</span><span class="realm-lifespan">寿元 1000 万年</span></div><div class="realm-desc">执掌<strong>一方法则权柄</strong>，仙域内可修改局部天地规则；本源小世界衍生完整山川地貌；斩恶尸消嗔念，权柄不偏。万仙盟核心成员，仙界顶层战力。</div></li>
+<li><div class="realm-header"><span class="realm-name">仙王</span><span class="realm-lifespan">寿元 5000 万年</span></div><div class="realm-desc">法则升华为大道，<strong>言出法随，一念定生死</strong>；本源小世界演化完整生态与天道；斩自我尸破我执。<span class="highlight">仙界现存顶点，万古难出，多沉睡避世。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">仙帝</span><span class="realm-lifespan">寿元理论无限</span></div><div class="realm-desc">融<strong>大道本源</strong>，与天道合一，可开天辟地重定世界规则。<span class="highlight">仅存于上古传说，为终局证道目标，万古无人可常规修成。</span></div></li>
+</ul></div>
+<div class="info-box"><h3>凡→仙 飞升衔接</h3><p>渡劫成功直入<strong>人仙初期</strong>。凡界金丹品质决定仙基上限，完美金丹飞升者道基自带道纹。凡界功法法宝需重炼适配仙力，威力上限仅抵天仙级。</p></div>
+<div class="info-box mystery"><h3>核心背景 · 天道残缺</h3><p>仙界是上古洪荒破碎后由残存天道碎片与圣人道果拼凑而成的<strong>半完整世界</strong>。境界越高，道果逸散越快，卡瓶颈越久。</p><p style="margin-top:6px;"><span class="highlight">坐忘堕化</span>：道果逸散终局。从遗忘凡尘、淡漠七情始，最终沦为只知掠夺仙元的堕仙。</p></div>
+<div class="info-box"><h3>洪荒残岛</h3><p>洪荒碎块随混沌潮汐周期性飘入仙界。顶级残岛以<strong>蓬莱、瀛洲、方丈</strong>三仙山为尊。伴生洪荒煞气，加速道果逸散。</p></div>
+</div>
+<div class="sub-tab-content" id="subtab-ov-shen">
+<div class="section-intro">神界法则密度为仙界<strong>亿万倍</strong>。真源神天生即在此位；仙界证道飞升者为新神（大罗金仙），<span class="highlight">百不存一</span>。</div>
+<div class="info-box"><h3><span class="realm-badge shen">神</span>神界位格</h3>
+<ul class="realm-list">
+<li><div class="realm-header"><span class="realm-name">神仆 / 侍者</span></div><div class="realm-desc">真源神以本源创造，<strong>无独立自我</strong>，为神之意志延伸。神附其上时，一个目光可压碎新神道果。<span class="highlight">神在则在，神陨则散。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">大罗金仙<span class="sub">新神 / 伪圣</span></span></div><div class="realm-desc">仙界仙帝飞升幸存者，<span class="highlight">百不存一</span>。在仙界是与天道合一的传说，在神界是神仆都不拿正眼看的蝼蚁。能在混沌中切割小世界自保、一念生灭仙界级世界；但在圣人面前抬头资格都无。<strong>有力量无本源，不在剧本中，为最大变数。</strong></div></li>
+<li><div class="realm-header"><span class="realm-name">混元金仙<span class="sub">准圣 / 从神 / 天使长</span></span></div><div class="realm-desc">各神系普通神祗。<strong>一念造灭一方大世界</strong>，可开神国、创生命、改因果、溯过去未来；但在圣人面前依旧是蝼蚁。</div></li>
+<li><div class="realm-header"><span class="realm-name">混元大罗金仙<span class="sub">圣人 / 主神 / 炽天使</span></span></div><div class="realm-desc">各神系核心。一念生灭世界，<strong>言出法随——我说即法则</strong>。可独立开辟神系疆域、穿梭时间线、重定地水火风、创造完整轮回。<span class="highlight">圣人之下皆蝼蚁不是比喻，是事实——一个眼神可让混元金仙道果崩碎。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">合道境<span class="sub">天道 / 神王 / 天主</span></span></div><div class="realm-desc">鸿钧、宙斯、上帝、奥丁。<strong>一眼生灭三千世界，一个念头让无数宇宙生灭</strong>。不需要言、不需要看，存在即法则，意志即天道运行，因果自他们而出。他们不是"最强的神"——<span class="highlight">他们就是神系本身。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">大道境<span class="sub">盘古</span></span></div><div class="realm-desc">唯一。不是合道，<strong>是道本身</strong>。呼吸即宇宙生灭，心跳即时间长河。当年以一斧从混沌中开天辟地、撑开秩序气泡，力竭身陨——<span class="highlight">唯一能正面对抗外神、从混沌中劈出秩序的存在。</span></div></li>
+<li><div class="realm-header"><span class="realm-name">外神<span class="sub">位格体系外</span></span></div><div class="realm-desc"><strong>混沌意志，秩序反面</strong>。不可名状、不可正面击杀——"战斗"概念对其不适用，其"在"本身即溶解秩序、扭曲权能。阿撒托斯为混沌核心，盲目痴梦时混沌有界，若苏醒则秩序瓦解。<span class="highlight">新神为唯一不被混沌预写之变数。</span></div></li>
+</ul></div>
+<div class="info-box warning"><h3>核心铁律</h3><ul>
+<li><strong>真名法则</strong>：真源神真名即本源核心。新神无真名，故不受真名诅咒。</li>
+<li><strong>外神侵蚀</strong>：外神侵蚀权能概念本身。<span class="highlight">认知即诅咒</span>。</li>
+<li><strong>伪装法则</strong>：新神必须饮尽神浆、笑对诡异。谁先露恐惧就被"请下去休息"。</li>
+<li><strong>时间线重启</strong>：合道境保留记忆，其下全忘。<strong>新神、外神、盘古尸身不受影响。</strong></li>
+</ul></div>
+<div class="info-box mystery"><h3>新神三途</h3><p>被收为从神（失自由）、逃入边境三小国、或被"净化"（抹杀）。<strong>无真神主动救新神</strong>。</p><p style="margin-top:6px;">三小国：<span class="highlight">剑神山</span>、<span class="highlight">苟天阁</span>、<span class="highlight">半疯庵</span>。</p></div>
+</div>
+<div class="divider-ornament"><span class="diamond">◈ ◈ ◈</span></div>
+<h3 class="sub-section-title">三界共通铁律</h3>
+<div class="law-item"><h4>一 · 本源统一</h4><p>天地灵气为一切超凡力量之根基，分金木水火土五行本源，演化风雷冰光暗等衍生属性。三界灵气浓度层级不同，但五行本源逻辑完全统一。</p></div>
+<div class="law-item"><h4>二 · 资质铁则</h4><p><strong>灵根</strong>（凡）/ <strong>仙根</strong>（仙）/ <strong>神根</strong>（神）为吸纳灵气核心资质。纯度：<strong>天级 &gt; 真级 &gt; 伪级 &gt; 废级</strong>。</p></div>
+<div class="law-item"><h4>三 · 晋升铁则</h4><p>凡界金丹、仙界金仙、神界神君及以上突破，均需<strong>渡对应劫罚</strong>。强行拔升必留本源隐患。</p></div>
+<div class="law-item"><h4>四 · 阶位压制</h4><p>大阶位之间存在<strong>天然灵气压制</strong>。质变大阶鸿沟无法以数量、技巧、外物弥补。</p></div>
+<div class="law-item"><h4>五 · 流派兼容</h4><p>正统可兼修辅助，但<strong>主辅阶位差距不得超过两大阶</strong>。邪道与正统强行兼修必导致灵气冲突。</p></div>
+<div class="law-item"><h4>六 · 阵营底线</h4><p>对抗上古邪魔、外魔入侵、外神污染等存亡大事上保有统一底线。<span class="highlight">通魔助纣者全界共诛。</span></p></div>
+<div class="nav-buttons"><button class="nav-btn prev" disabled>← 上一步</button><button class="nav-btn next" onclick="nextTab()">进入三界 →</button></div>
+</div>
+<div class="tab-content" id="tab-fan">
+<h2 class="section-title">🌿 凡界 · 五域山河</h2>
+<div class="sub-tab-nav">
+<button class="sub-tab-btn active" data-subtab="fan-map">🗺️ 势力版图</button>
+<button class="sub-tab-btn" data-subtab="fan-npc">👥 宗门人物志</button>
+</div>
+<div class="sub-tab-content active" id="subtab-fan-map">
+<div class="world-map-wrap">
+<img src="assets/6a4c75a63f3dcc5752c8c543.jpg" alt="凡界总图" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+<div class="world-map-fallback" style="display:none;">凡 界 总 图 · 待 配 图</div>
+<div class="world-map-caption">🗺️ 凡界总图</div>
+</div>
+<div class="world-intro">凡界大陆五域鼎立：<strong>东域</strong>玄门正道、<strong>西荒</strong>妖族横行、<strong>南疆</strong>百族巫蛊、<strong>北海</strong>魔道邪修、<strong>中州</strong>丹器阵符。灵气浓度自中州向外递减，秩序由顶级宗门联合维护。</div>
+<div id="fan-regions"></div>
+</div>
+<div class="sub-tab-content" id="subtab-fan-npc">
+<div class="search-box"><input type="text" id="search-fan" placeholder="搜索凡界人物、势力、地名..."/><div class="search-results" id="search-results-fan"></div></div>
+<div id="fan-factions"></div>
+</div>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button><button class="nav-btn next" onclick="nextTab()">下一步 →</button></div>
+</div>
+<div class="tab-content" id="tab-xian">
+<h2 class="section-title">☁️ 仙界 · 四洲天穹</h2>
+<div class="sub-tab-nav">
+<button class="sub-tab-btn active" data-subtab="xian-map">🗺️ 势力版图</button>
+<button class="sub-tab-btn" data-subtab="xian-npc">👥 宗门人物志</button>
+</div>
+<div class="sub-tab-content active" id="subtab-xian-map">
+<div class="world-map-wrap">
+<img src="assets/6a4c768a3f3dcc5752c8c6c7.jpg" alt="仙界总图" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+<div class="world-map-fallback" style="display:none;">仙 界 总 图 · 待 配 图</div>
+<div class="world-map-caption">🗺️ 仙界总图</div>
+</div>
+<div class="world-intro">仙界四方分立：<strong>东胜洲</strong>玄门起步、<strong>西牛贺洲</strong>多神谍战、<strong>南赡部洲</strong>妖国血脉、<strong>北俱芦洲</strong>巫战擂台、<strong>中央天洲</strong>万仙盟核心。<strong>注意！！</strong>西方众神仅一人为真身投影，其余都是诡异化身！！</div>
+<div id="xian-regions"></div>
+</div>
+<div class="sub-tab-content" id="subtab-xian-npc">
+<div class="search-box"><input type="text" id="search-xian" placeholder="搜索仙界人物、势力、地名..."/><div class="search-results" id="search-results-xian"></div></div>
+<div id="xian-factions"></div>
+</div>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button><button class="nav-btn next" onclick="nextTab()">下一步 →</button></div>
+</div>
+<div class="tab-content" id="tab-shen">
+<h2 class="section-title">✨ 神界 · 秩序气泡</h2>
+<div class="sub-tab-nav">
+<button class="sub-tab-btn active" data-subtab="shen-map">🗺️ 势力版图</button>
+<button class="sub-tab-btn" data-subtab="shen-npc">👥 神系人物志</button>
+</div>
+<div class="sub-tab-content active" id="subtab-shen-map">
+<div class="world-map-wrap">
+<img src="assets/6a4c77a03f3dcc5752c8c7f5.jpg" alt="神界总图" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+<div class="world-map-fallback" style="display:none;">神 界 总 图 · 待 配 图</div>
+<div class="world-map-caption">🗺️ 神界总图</div>
+</div>
+<div class="world-intro"><strong>紫霄宫</strong>居中重启锚点。四方神域：<strong>东方洪荒</strong>三清六圣、<strong>西方奥林匹斯</strong>希腊众神、<strong>北方阿斯加德</strong>北欧诸神、<strong>南方至高天</strong>天使军团。<strong>混沌间隙</strong>藏边境三小国。</div>
+<div id="shen-regions"></div>
+</div>
+<div class="sub-tab-content" id="subtab-shen-npc">
+<div class="search-box"><input type="text" id="search-shen" placeholder="搜索神界人物、势力、地名..."/><div class="search-results" id="search-results-shen"></div></div>
+<div id="shen-factions"></div>
+</div>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button><button class="nav-btn next" onclick="nextTab()">下一步 →</button></div>
+</div>
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">🎭 角色创建</h2>
+<div class="info-box"><h3>说明</h3><p>凡/仙/神三界任选起点，各字段联动。境界、灵根、势力选项会根据出身界自动切换。灵根可<strong>多选</strong>。</p></div>
+<div class="form-section"><h3>基础信息</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="c-name" placeholder="输入姓名"/></div>
+<div class="form-group"><label>道号 / 绰号</label><input type="text" id="c-daoname" placeholder="可留空"/></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>年龄</label><input type="text" id="c-age" placeholder="凡人几十岁 / 仙人几百年 / 新神跨越纪元"/></div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+<label><input type="radio" name="gender" value="女"><span>女</span></label>
+<label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+</div></div>
+</div>
+<div class="form-row">
+    <div class="form-group"><label>种族 / 血脉</label>
+        <select id="c-race" onchange="onRaceChange()"></select>
+        <input type="text" id="c-race-custom" placeholder="填写自定义种族，如：远古神鲸血脉 / 幽冥花妖..." style="display:none;margin-top:8px;"/>
+        <div class="hint" id="c-race-hint">与出身界独立，血脉不因所在界而变</div>
+    </div>
+    <div class="form-group"><label>血脉补充</label>
+        <input type="text" id="c-race-detail" placeholder="如：九尾天狐第七代 / 应龙旁支 / 血脉未觉醒..."/>
+    </div>
+</div>
+<div class="form-group"><label>外貌描述</label><textarea id="c-appear" placeholder="容貌、衣着、气度、标志物..."></textarea></div>
+<div class="form-group"><label>性格特质</label><textarea id="c-personality" placeholder="冷静、孤傲、机变、豪烈、装疯..."></textarea></div>
+<div class="form-group"><label>日常爱好</label><input type="text" id="c-hobby" placeholder="种花、酿酒、下棋、扫地、装神仆..."/></div>
+</div>
+<div class="form-section"><h3>出身与位置</h3>
+<div class="form-row">
+<div class="form-group"><label>出身界</label>
+<select id="c-birthworld" onchange="updateWorldFields()">
+<option value="fan">凡界</option>
+<option value="xian">仙界</option>
+<option value="shen">神界（新神）</option>
+</select></div>
+<div class="form-group"><label>当前所在界</label>
+<select id="c-currentworld" onchange="updateRegionOnly()">
+<option value="fan">凡界</option>
+<option value="xian">仙界</option>
+<option value="shen">神界</option>
+</select>
+<div class="hint">可与出身界不同（凡人被抓到仙界、新神潜回仙界...）</div></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>所在区域</label><select id="c-region"></select></div>
+<div class="form-group"><label>具体地点</label><input type="text" id="c-location" placeholder="城池 / 宗门 / 洞府 / 野外..."/></div>
+</div></div>
+<div class="form-section"><h3>境界与资质</h3>
+<div class="form-row">
+<div class="form-group"><label>境界</label><select id="c-realm" onchange="onRealmChange()"></select></div>
+<div class="form-group"><label>境界说明</label><input type="text" id="c-realm-note" placeholder="如：金丹中期上品、新飞升人仙、新神初醒"/></div>
+</div>
+<div class="form-group" id="wish-sect-group" style="display:none;"><label>心仪宗门 / 意向门派 <span class="hint" style="display:inline;">凡人未修行时可填</span></label>
+<select id="c-wish-sect"></select></div>
+<div class="form-group"><label>灵根 / 仙根 / 神根 <span class="hint" style="display:inline;">可多选</span></label>
+<div class="check-group" id="root-group"></div></div>
+<div class="form-row">
+<div class="form-group"><label>资质纯度</label>
+<select id="c-root-purity" onchange="onPurityChange()">
+<option value="天级">天级</option>
+<option value="真级">真级</option>
+<option value="伪级">伪级</option>
+<option value="废级">废级</option>
+<option value="自定义">自定义...</option>
+</select>
+<input type="text" id="c-root-purity-custom" placeholder="填写自定义等级，如：混沌级 / 太初级 / 无极级..." style="display:none;margin-top:8px;"/>
+<div class="hint" id="c-root-purity-hint" style="display:none;">自定义等级会覆盖上方选项显示在档案中</div>
+</div>
+<div class="form-group"><label>资质补充说明</label><input type="text" id="c-root-attr" placeholder="如：混沌体 / 剑体 / 天生道基..."/></div></div>
+</div>
+<div class="form-section"><h3>身份与势力</h3>
+<div class="form-row">
+<div class="form-group"><label>身份类型</label>
+<select id="c-identity">
+<option>宗门弟子</option><option>宗门核心</option><option>宗门长老</option>
+<option>世家子弟</option><option>散修</option><option>邪修</option>
+<option>凡人官员/王族</option><option>普通凡人</option>
+<option>飞升者</option><option>新神</option><option>神仆</option>
+<option>原著角色</option><option>自定义</option>
+</select></div>
+<div class="form-group"><label>所属势力</label><select id="c-faction"></select></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>势力内地位</label><input type="text" id="c-position" placeholder="外门弟子 / 核心弟子 / 长老 / 客卿 / 叛徒..."/></div>
+<div class="form-group"><label>师承</label><input type="text" id="c-master" placeholder="师父姓名，或留空"/></div>
+</div>
+<div class="form-group"><label>入道 / 成道契机</label>
+<select id="c-reason">
+<option>家族传承</option><option>意外觉醒</option><option>被迫卷入</option>
+<option>主动寻求</option><option>组织招募</option><option>飞升幸存</option>
+<option>目睹真相</option><option>天生神格</option><option>自定义</option>
+</select></div>
+<div class="form-group"><label>契机补充</label><input type="text" id="c-reason-custom" placeholder="填写具体经过（自定义时必填）"/></div>
+</div>
+<div class="form-section"><h3>关系羁绊</h3>
+<div class="form-row">
+<div class="form-group"><label>挚友 / 道侣</label><input type="text" id="c-friend" placeholder="姓名（可从人物志中挑选）"/></div>
+<div class="form-group"><label>仇敌 / 宿敌</label><input type="text" id="c-enemy" placeholder="姓名"/></div>
+</div></div>
+<div class="form-section"><h3>背景与开局</h3>
+<div class="form-group"><label>背景故事</label><textarea id="c-bg" placeholder="身世来历、关键经历..."></textarea></div>
+<div class="form-group"><label>当前处境 / 开局场景</label><textarea id="c-scene" placeholder="故事开始时你在哪、发生什么..."></textarea></div>
+</div>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button><button class="nav-btn next" onclick="nextTab()">下一步 →</button></div>
+</div>
+<div class="tab-content" id="tab-roll">
+<h2 class="section-title">🎲 命途 · 造化</h2>
+<div class="info-box"><h3>抽取规则</h3><ul>
+<li><strong>命途 8 选 3</strong>：奇遇 / 体质 / 身世 / 因果 混抽，按稀有度出</li>
+<li><strong>功法 5 选 2</strong>：修炼路数，稀有度决定规格</li>
+<li><strong>法宝 5 选 2</strong>：随身宝物，稀有度决定规格</li>
+<li>命途稀有度会加权后续抽卡——抽到神话命途，后面开出神话功法/法宝的概率显著提升</li>
+<li>三个抽取互相独立，可以只抽一部分</li>
+</ul></div>
+<div class="roll-grid">
+    <div class="roll-section destiny-side">
+        <h3>🃏 命途抽取</h3>
+<p class="roll-hint">命运的纸牌正在洗牌<br><strong>抽 8 选 3</strong></p>
+        <button class="roll-btn" id="btn-destiny" onclick="rollDestiny()">🎲 抽取命途</button>
+        <div class="pool" id="pool-destiny">
+            <p class="pool-counter">已选：<span id="destiny-count">0</span>/3</p>
+            <div class="pool-list" id="destiny-list"></div>
+        </div>
+    </div>
+    <div class="roll-section gongfa-side">
+        <h3>📖 功法抽取</h3>
+<p class="roll-hint">古卷正在自行翻页<br><strong>抽 5 选 2</strong></p>
+        <button class="roll-btn gongfa-btn" id="btn-gongfa" onclick="rollGongfa()">📖 抽取功法</button>
+        <div class="pool" id="pool-gongfa">
+            <p class="pool-counter">已选：<span id="gongfa-count">0</span>/2</p>
+            <div class="pool-list" id="gongfa-list"></div>
+        </div>
+    </div>
+    <div class="roll-section fabao-side">
+        <h3>⚔️ 法宝抽取</h3>
+<p class="roll-hint">宝匣正在无风自开<br><strong>抽 5 选 2</strong></p>
+        <button class="roll-btn fabao-btn" id="btn-fabao" onclick="rollFabao()">⚔️ 抽取法宝</button>
+        <div class="pool" id="pool-fabao">
+            <p class="pool-counter">已选：<span id="fabao-count">0</span>/2</p>
+            <div class="pool-list" id="fabao-list"></div>
+        </div>
+    </div>
+</div>
+<div class="divider-ornament"><span class="diamond">◈ 自 定 义 增 补 ◈</span></div>
+<div class="info-box"><h3>说明</h3><p>抽卡结果之外，可手动补充<span class="highlight">自定义功法</span>、<span class="highlight">自定义天赋</span>与<span class="highlight">准备栏</span>（丹药、令牌、随身物…）。点击 <strong>+ 添加</strong> 新增条目，右上角 <strong>×</strong> 删除。所有条目会写入最终档案。</p></div>
+<div class="custom-section">
+    <div class="custom-group">
+        <div class="custom-header">
+            <h3>📖 自定义功法</h3>
+            <button class="add-btn" onclick="addCustomItem('gongfa')">+ 添加</button>
+        </div>
+        <div class="custom-list" id="custom-gongfa-list"></div>
+    </div>
+    <div class="custom-group">
+        <div class="custom-header">
+            <h3>✨ 自定义天赋</h3>
+            <button class="add-btn" onclick="addCustomItem('talent')">+ 添加</button>
+        </div>
+        <div class="custom-list" id="custom-talent-list"></div>
+    </div>
+    <div class="custom-group">
+        <div class="custom-header">
+            <h3>🎒 准 备 栏</h3>
+            <button class="add-btn" onclick="addCustomItem('prep')">+ 添加</button>
+        </div>
+        <div class="custom-list" id="custom-prep-list"></div>
+    </div>
+</div>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button><button class="nav-btn next" onclick="nextTab()">下一步 →</button></div>
+</div>
+<div class="tab-content" id="tab-archive">
+<h2 class="section-title">📋 档案预览</h2>
+<div class="preview-box" id="preview-box">尚未生成档案...</div>
+<button class="copy-btn" onclick="copyArchive()">📋 复制档案</button>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button></div>
+</div>
+</div>
+</div>
+<footer>三界修真档案构建系统 · 桃李春风 · 一剑长歌</footer>
+<script>
+/* 桃花飘落 - 密度减半 */
+function createPetal(){
+const c=document.getElementById('petals-container');
+const p=document.createElement('div');
+p.className='petal';
+const x=Math.random()*100,drift=(Math.random()-0.5)*40,dur=10+Math.random()*6,delay=Math.random()*2,size=8+Math.random()*8,rot=Math.random()*360;
+p.style.left=x+'vw';p.style.width=size+'px';p.style.height=size+'px';
+p.style.setProperty('--drift',drift+'vw');
+p.style.animation=`petalFall ${dur}s linear ${delay}s`;
+p.style.transform=`rotate(${rot}deg)`;
+c.appendChild(p);
+setTimeout(()=>p.remove(),(dur+delay)*1000);
+}
+for(let i=0;i<10;i++)setTimeout(createPetal,i*700);
+setInterval(createPetal,900);
+/* Tab切换 */
+document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',function(){switchTab(this.dataset.tab);}));
+function switchTab(t){
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+document.querySelector(`.tab-btn[data-tab="${t}"]`).classList.add('active');
+document.getElementById(`tab-${t}`).classList.add('active');
+if(t==='archive')generateArchive();
+window.scrollTo({top:0,behavior:'smooth'});
+}
+const tabOrder=['overview','fan','xian','shen','character','roll','archive'];
+function nextTab(){const c=document.querySelector('.tab-btn.active').dataset.tab,i=tabOrder.indexOf(c);if(i<tabOrder.length-1)switchTab(tabOrder[i+1]);}
+function prevTab(){const c=document.querySelector('.tab-btn.active').dataset.tab,i=tabOrder.indexOf(c);if(i>0)switchTab(tabOrder[i-1]);}
+document.querySelectorAll('.sub-tab-btn').forEach(b=>b.addEventListener('click',function(){
+const t=this.dataset.subtab,p=this.closest('.tab-content');
+p.querySelectorAll('.sub-tab-btn').forEach(x=>x.classList.remove('active'));
+p.querySelectorAll('.sub-tab-content').forEach(x=>x.classList.remove('active'));
+this.classList.add('active');
+document.getElementById('subtab-'+t).classList.add('active');
+}));
+/* ============ 凡界数据 ============ */
+const fanRegions=[
+{id:'east',name:'东域',emoji:'🌸',tag:'玄门正道 · 剑修圣地',img:'assets/6a4c75d23f3dcc5752c8c5a6.jpg',
+geo:'凡界大陆东部，东濒无尽浅海，西接中州东境，南隔十万大山余脉与南疆相望，北凭天堑山脉与北海分界；境内青云山脉南北纵贯为主干灵脉，十余条支脉覆盖全境。',
+feat:'以平原、丘陵为主，气候温润四季分明，灵气浓度仅次于中州，盛产木系、金系灵材，正道传承鼎盛秩序森严，邪修仅北境边境零散出没，是低阶修士起步的最优区域。以大周王朝、大秦王朝、大汉王朝、炎凰王朝四大王朝为核心，分别依附青云宗、万法宗、天剑宗（除了炎凰王朝，唯一女帝王朝），各王朝设年度仙选选拔资质少年入宗。',
+cities:'天机城（全界情报核心，常驻金丹元婴）、万宝城（东域商贸中心，常驻筑基至金丹）、散修城（散修聚居地鱼龙混杂）、北境黑石镇（正邪交界黑市，违禁灵材与情报交易枢纽）',
+danger:'低危（炼气-筑基）：迷雾森林外围、零散散修洞府、青纹狼/灵木蛇；中危（筑基-金丹）：青云秘境（十年一开，青云宗掌）、剑冢秘境（五十年一开，天剑宗掌）、死亡沼泽外围、剑齿虎/青云鹰；高危（化神期）：上古仙府（百年一开，无主）、迷雾森林核心、死亡沼泽深处、碧眼金睛兽；极危（合体以上）：上古战场遗迹东翼，残留上古仙神威压与禁制，暗藏仙道本源伏笔。',
+factions:[
+{name:'大周王朝',tag:'凡人王朝',desc:'东域正道王朝，依附青云宗，都洛安，设年度仙选送资质少年入宗，治下民生安稳，百姓多会粗浅吐纳，是低阶修士常见出身地。',npcs:[
+{n:'姬昌',l:'筑基期·周帝',d:'仁厚明君，与青云宗世代交好'},
+{n:'姬灵月',l:'练气期·朝阳公主',d:'路痴，偷拜入百花谷'},
+{n:'魏庸',l:'筑基期·丞相',d:'奸相，暗通黑巫教'},
+{n:'秦虎',l:'筑基期·镇国大将军',d:'与楚锋是过命兄弟'},
+{n:'苏福',l:'练气期·太监总管',d:'皇帝心腹，帮公主打掩护'},
+{n:'姬文渊',l:'筑基期·太子',d:'贤明温和，既定储君'}]},
+{name:'大秦王朝',tag:'凡人王朝',desc:'东域正道王朝，依附万法宗，都咸阳，境内灵脉密布农商繁盛，替宗门管凡俗资源、送弟子，换宗门庇护。',npcs:[
+{n:'嬴昭',l:'筑基期·秦帝',d:'守成之君，保境安民'},
+{n:'嬴彻',l:'金丹期·太子',d:'野心勃勃，图谋万法宗传承'},
+{n:'秦沐岚',l:'金丹期·镇国女将',d:'守边境暗恋林风'},
+{n:'李司臣',l:'筑基期·丞相',d:'老谋深算，为太子谋夺传承'},
+{n:'赵高德',l:'练气期·太监总管',d:'黑巫教暗桩'},
+{n:'嬴珠',l:'筑基期·公主',d:'丹道天才，蹲丹鼎宗求拜师'}]},
+{name:'大汉王朝',tag:'凡人王朝',desc:'东域正道王朝，依附天剑宗，都武安，民风彪悍尚武，境内多金系矿脉，替宗门送矿石、炼体弟子，边境设岗防邪修。',npcs:[
+{n:'刘武',l:'筑基期·汉帝',d:'行伍出身，与天剑宗渊源极深'},
+{n:'刘猛',l:'筑基期·太子',d:'愣头青，想拜凌霄为师'},
+{n:'卫峰',l:'金丹期·镇国大将军',d:'金震山师兄'},
+{n:'陈宫',l:'筑基期·丞相',d:'文臣，反对太子一味崇武'},
+{n:'刘燕',l:'筑基期·公主',d:'炼体天才，倾心金虎'},
+{n:'张唐',l:'筑基期·廷尉',d:'抓邪修不手软，人称活阎王'}]},
+{name:'炎凰王朝',tag:'凡人王朝',desc:'东域南境半独立王朝，与三宗定盟，都炎安，火凤血脉传承，为南境抗黑巫教屏障，尚武治下清明，是入南疆历练必经补给地。',npcs:[
+{n:'李灼华',l:'化神初期·女帝',d:'前代皇帝长女，红发女阎王，铁血护短，南境定海神针'},
+{n:'李妮妮',l:'元婴后期·大公主',d:'前代皇帝第二女，乐子人，提鞭斩邪，女帝左膀右臂'},
+{n:'李知焰',l:'金丹中期·三公主',d:'前代皇帝第三女，白切黑智囊，掌全国暗卫情报'},
+{n:'李燎野',l:'金丹初期·四皇子/少将军',d:'前代皇帝第四子，热血少年，掌镇南营守南疆'},
+{n:'李星燃',l:'筑基后期·五皇子',d:'前代皇帝第五子。天赋卓绝，全皇室团宠'},
+{n:'顾怀安',l:'筑基后期·丞相',d:'三朝老臣，刚直能臣'},
+{n:'叶红药',l:'筑基后期·太医令',d:'南境名医，擅治蛊毒火伤'},
+{n:'烈烽',l:'筑基大圆满·镇南营副将',d:'忠勇寡言，四皇子过命兄弟'},
+{n:'赤鸾',l:'筑基中期·火凤卫统领',d:'女帝亲随，冷脸忠仆'},
+{n:'安世',l:'炼气大圆满·太监总管',d:'帝心腹，常帮皇子公主打掩护'},
+{n:'骆秋',l:'筑基后期·武贡院教席',d:'退役边军，授武严格'},
+{n:'火媚笙',l:'筑基初期·火家嫡女',d:'栖凤楼主，掌南境情报线'},
+{n:'红榴',l:'炼气中期·烤肉摊主',d:'爽朗热情，灵烤肉一绝'}]},
+{name:'青云宗',tag:'顶级宗门',desc:'东域正道之首，剑修圣地，总部青云山主峰，镇宗诛仙剑阵可困杀合体，弟子多走剑修路线，战力强横，是东域秩序维护者。',npcs:[
+{n:'顾剑尘',l:'合体期·宗主',d:'剑修，与苏凌薇有百年旧情嘴硬心软'},
+{n:'萧若雪',l:'金丹期·圣女',d:'冷艳出尘'},
+{n:'晏青玄',l:'合体期·大长老',d:'爱喝酒，天天劝师弟去道歉'},
+{n:'楚锋',l:'元婴期·刑罚长老',d:'铁面无私，见邪修就打'},
+{n:'林风',l:'金丹期·核心弟子',d:'热血剑修，重情重义'},
+{n:'赵珩',l:'筑基期·核心弟子',d:'凌霄小跟班，常随凌霄行事'},
+{n:'墨石',l:'筑基期·铸剑师',d:'脾气怪，只给顺眼的人铸剑'},
+{n:'周通',l:'筑基期·守山弟子',d:'话多爱八卦，宗门事没他不知道的'},
+{n:'李清愁',l:'元婴后期·副宗主、琴道首座',d:'外观三十许温婉女修，琴棋书画皆通，掌宗门礼仪与对外交流'},
+{n:'墨铸',l:'元婴期·铸剑堂长老',d:'铸剑半生脾气古怪，只给品性端正的弟子铸剑'},
+{n:'风清扬',l:'化神期·藏经阁长老',d:'白发老者，常年在藏经阁酣睡，从不阻拦弟子翻杂书'},
+{n:'苏小小',l:'筑基期·内门弟子',d:'消息灵通，是宗门里的包打听'}]},
+{name:'天剑宗',tag:'顶级宗门',desc:'东域纯剑宗门，攻伐冠绝东域，扎根剑峰山脉，镇宗上古天剑，弟子以剑为尊常年在外斩妖除邪，与青云宗有切磋也有竞争。',npcs:[
+{n:'萧惊寒',l:'合体期·宗主',d:'萧惊渊亲弟，得传天剑，对兄长心怀愧疚'},
+{n:'苏问剑',l:'合体期·大长老',d:'剑痴，只管练剑不管俗事'},
+{n:'韩厉',l:'元婴期·刑罚长老',d:'金震山师兄，刚正不阿'},
+{n:'凌霄',l:'金丹期·圣子',d:'狂傲，追苏清鸢不得，性格骄纵好胜'},
+{n:'林屿',l:'金丹期·核心弟子',d:'稳重，天天劝凌霄别找事'},
+{n:'铁寻',l:'筑基期·铸剑翁',d:'铸的剑削铁如泥'},
+{n:'苏剑心',l:'练气期·守剑童',d:'天生剑心，能听剑说话，人称剑童'},
+{n:'陆承宇',l:'化神期·内门大师兄',d:'性格端方，掌年轻弟子演武，是唯一能约束凌霄的人'},
+{n:'韩紫霜',l:'化神后期·执法长老',d:'外观二十七八冷艳女修，实际七百岁，冰系剑修，掌宗门刑律'},
+{n:'苏粹',l:'化神期·传功长老',d:'白发男修，性格跳脱爱开玩笑，常化身普通弟子和晚辈练手，是年轻弟子最亲近的长老'},
+{n:'赵铁衣',l:'金丹期·外门教习',d:'行伍出身，教外门弟子基础剑法与战阵配合，严厉但护短'}]},
+{name:'万法宗',tag:'顶级宗门',desc:'东域术法第一宗，总部大秦腹地，镇宗万法塔藏百部地阶功法，兼修术法丹阵，弟子体系庞杂，传承最丰富。',npcs:[
+{n:'沈清砚',l:'合体期·宗主',d:'百年首位女宗主，清冷'},
+{n:'陆明衍',l:'元婴期·术法长老',d:'术法疯子，教的弟子个个炸街'},
+{n:'周符生',l:'元婴期·符箓长老',d:'画符不拘一格，脚画的符都好用'},
+{n:'阮灵溪',l:'筑基期·核心弟子',d:'古灵精怪'},
+{n:'莫寻',l:'化神期·藏书阁管事',d:'退隐邪修，欠沈清砚人情养老'},
+{n:'吴福',l:'练气期·杂役管事',d:'勤恳，管全宗杂役，人称老吴'},
+{n:'周清玄',l:'符箓峰首座',d:'外观三十岁清冷道姑，实际六百岁，符道大家，掌符箓传承与符纸制作'},
+{n:'陈玄礼',l:'隐世长老',d:'外观四十岁儒雅书生，实际渡劫期，常年闭关悟五行大道，不插手俗务'},
+{n:'王算盘',l:'筑基期·账房执事',d:'管全宗钱粮灵材，抠门到极致，谁支灵石都要打欠条'},
+{n:'宁潇潇',l:'金丹期·内门大师姐',d:'性格飒爽护短，是内门弟子的主心骨'}]},
+{name:'凡人宗',tag:'二流宗门',desc:'东域北境全女修二流宗门，立宗三百年，位于天堑山脉南麓，弟子皆得异梦传承（全体曾经都梦到平行世界遇韩立前的修炼经历，与韩立无任何关联），功法精妙，门规松散极护短，不参与宗门纷争。',npcs:[
+{n:'温青',l:'元婴后期·宗主',d:'修元磁神光，对危险感知极强，天星传承'},
+{n:'宝花',l:'元婴中期·隐世祖师',d:'先天灵花化形，百花功法大成，常年闭死关'},
+{n:'凛冰凤',l:'元婴中期·护宗长老',d:'天凤血脉妖修，冰法通玄，掌护宗大阵'},
+{n:'南宫婉',l:'金丹后期·执法长老',d:'冰灵根，修素女轮回功，清冷持正掌刑罚'},
+{n:'元瑶',l:'金丹中期·内门长老',d:'天生媚骨，重情护短，擅丹道与媚术'},
+{n:'宋玉',l:'金丹中期·核心首席',d:'天灵根剑修，年轻一代战力第一人'},
+{n:'紫灵',l:'金丹初期·执事长老',d:'八面玲珑，掌宗门对外往来与俗务'},
+{n:'凌玉灵',l:'金丹初期·执事长老',d:'星宫传承，擅经营，管宗门库房与任务'},
+{n:'银月',l:'金丹初期·护山妖修',d:'雪狼化形，性格跳脱，掌灵脉药园'},
+{n:'乐上师',l:'金丹初期·核心弟子',d:'慕兰法传承，擅五行召唤与大范围法术'},
+{n:'林银屏',l:'金丹初期·核心弟子',d:'天兰圣女传承，擅咒术与精神攻击'},
+{n:'钟卫娘',l:'筑基后期·内门弟子',d:'雷属性剑修，飒爽直率，最爱打抱不平'},
+{n:'慕沛灵',l:'筑基后期·内门弟子',d:'温婉细心，协管宗门药园，丹术出众'},
+{n:'梅凝',l:'筑基中期·内门弟子',d:'通玉凤髓之体，冰系资质，性格坚韧'},
+{n:'菡云芝',l:'筑基初期·内门弟子',d:'御灵修士，温柔可亲，擅驯养低阶灵宠'}]},
+{name:'青木门',tag:'二流宗门',desc:'依附青云宗，专精灵药培育，掌东域最大灵田，为青云宗供灵药，是东域低阶灵材主要供应商。',npcs:[
+{n:'木玄清',l:'元婴期·门主',d:'青云宗外门出身，擅种灵药'},
+{n:'木灵韵',l:'金丹期·少门主',d:'木系天才，与苏清鸢是好友'},
+{n:'木丰年',l:'金丹期·灵田长老',d:'掌东域最大灵田'},{n:'林清禾',l:'筑基期·灵植执事',d:'青木门灵植堂执事，专管灵药培育，木系术法精湛，种出的灵药成活率比旁人高三成'},{n:'石砚',l:'筑基期·守库弟子',d:'青木门守库弟子，为人木讷寡言但记性极好，库房里的灵材摆放位置记得分毫不差，从未出过差错'},{n:'苏晚晴',l:'练气期·外门管事',d:'青木门外门管事，负责外门弟子日常杂务与月例发放，做事爽利公道，外门弟子都服她'}]},
+{name:'金刀门',tag:'二流宗门',desc:'依附天剑宗，主修金系刀法，掌天剑山脉多条低阶矿脉，弟子多为炼体刀修，替天剑宗守矿脉、清山野邪修。',npcs:[
+{n:'金震山',l:'元婴期·门主',d:'天剑宗外门出身，擅金系刀法'},
+{n:'金虎',l:'金丹期·少门主',d:'刀法刚猛，与李虎是拜把子兄弟'},
+{n:'金满仓',l:'金丹期·矿脉长老',d:'掌低阶矿脉'},
+{n:'金烈',l:'元婴期·门主',d:'关西大汉，一把金刀打遍西荒罕有对手'},
+{n:'金磊',l:'金丹期·少门主',d:'性格憨厚正直，刀法刚猛'},
+{n:'金三娘',l:'金丹期·执法长老',d:'门主的妹妹，外观三十岁爽利女修，性格泼辣，门中弟子都敬她'},
+{n:'王铁刀',l:'筑基期·外门教习',d:'行伍出身，教弟子基础刀法'},
+{n:'金小钗',l:'筑基期·小弟子',d:'门主的女儿，性格爽利，常跟着长辈在矿脉历练'},{n:'厉峰',l:'筑基期·执法弟子',d:'金刀门执法弟子，刀法刚正不阿，专管门内弟子违规犯戒之事，铁面无私从不徇私'},{n:'段铸',l:'筑基期·铸刀师',d:'金刀门铸刀师，打了二十年刀，铸出的金刀锋利耐用，门内弟子都以能拿到他打的刀为荣'},{n:'叶樱',l:'练气期·带教弟子',d:'金刀门带教弟子，负责教新入门弟子基础刀法，性格耐心细致，是新弟子最亲近的师姐'}]},
+{name:'玄水派',tag:'二流宗门',desc:'依附万法宗，主修水系术法，掌东域近海商路与渔场，弟子多护商、清海妖，兼营海上贸易。',npcs:[
+{n:'水云湄',l:'元婴期·门主',d:'万法宗外门出身，掌海商路'},
+{n:'水凌波',l:'金丹期·少门主',d:'水性极好，常年带队护商'},
+{n:'水千帆',l:'金丹期·商路长老',d:'掌海上贸易'},{n:'江潮生',l:'筑基期·护船队头',d:'玄水派护船队头，在东域近海跑了三十年商，水性极好，什么海况都见过，护商从未出过事'},{n:'沈湄',l:'筑基期·账房',d:'玄水派账房先生，管着全派海上贸易的账目，算盘打得极精，从来没有算错过一笔账'},{n:'顾珩',l:'练气期·引航弟子',d:'玄水派引航弟子，能观星象辨海流，跟着江潮生跑船，是年轻一辈里最好的引航员'}]},
+{name:'清音阁',tag:'二流宗门',desc:'东域二流中立宗门，凡界唯一正统音修传承，以音入道，琴音既可疗伤安魂，也可震敌杀神；门规宽松，弟子多擅琴棋书画，中立不参与正邪纷争。',npcs:[
+{n:'清玄仙子',l:'化神期·阁主',d:'外观二十七八白衣女修，琴音可救人可伤敌，是东域音波功法第一人'},
+{n:'师旷',l:'元婴期·副阁主',d:'盲眼老者，听声辨位知人心，琴音通神'},
+{n:'苏暮雨',l:'元婴期·乐律长老',d:'外观二十六七清冷女修，擅琵琶，一曲《十面埋伏》可引音波化形'},
+{n:'弄玉',l:'金丹期·圣女',d:'擅洞箫，箫声可安百兽可扰敌神'},
+{n:'伯牙',l:'元婴期·长老',d:'白发老者，擅古琴，琴音只合道韵，唯心境契合者能懂'},
+{n:'清风',l:'金丹期·传乐师',d:'温润青年，教弟子基础乐理，脾气温和'},
+{n:'弦歌',l:'筑基期·乐师',d:'教弟子古琴，琴艺精湛，常代表宗门赴风雅集会'},
+{n:'弄笙',l:'金丹期·真传弟子',d:'擅笙，常与弄玉合奏'},
+{n:'小蛮',l:'筑基期·战舞师',d:'擅战舞，舞动时音波随招式流转'},
+{n:'红牙',l:'筑基期·板师',d:'十五岁少女，打板节奏精准，常为小蛮伴奏'}
+]},
+{name:'合欢宗',tag:'灰色宗门',desc:'踞东域南境三不管地带，旁门势力主修双修魅惑之术，兼营风月与情报生意，守不害人性命的门规，为正道默许的灰色势力。',npcs:[
+{n:'柳烟柔',l:'元婴期·宗主',d:'当年捡回胡月婵养大，知道她身世'},
+{n:'胡月婵',l:'元婴期·少主',d:'狐族血脉，喜欢调戏可爱的人族'},
+{n:'红绡',l:'金丹期·情报管事',d:'掌风月场消息网'},
+{n:'云雨裳',l:'化神期·副宗主',d:'外观二十三四明艳女修，擅魅功制敌，掌宗门情报与对外交流'},
+{n:'白怜',l:'金丹期·圣女',d:'外观清淡，擅魅功，是年轻一辈魅术造诣最高的弟子'},
+{n:'玉罗刹',l:'元婴期·刑堂长老',d:'外观二十八九冷艳女修，专惩叛门弟子，手段果决'},
+{n:'柳清正',l:'金丹期·长老',d:'容貌俊朗，修定心诀对魅术免疫，掌弟子心性考核'},
+{n:'陶夭',l:'筑基期·入门弟子',d:'刚入宗还不会高阶魅功，性格跳脱常被师姐捉弄'},{n:'柳寒烟',l:'金丹期·刑律长老',d:'合欢宗刑律长老，外观二十七八冷艳女修，专管门内刑律，犯了门规的弟子落到她手里从来没有好下场'},{n:'苏眉',l:'筑基期·头牌琴师',d:'合欢宗头牌琴师，弹得一手好古琴，琴音既能安魂也能惑心，卖艺不卖身，是风月场里的清倌人'},{n:'红笺',l:'练气期·传信弟子',d:'合欢宗传信弟子，轻功极好，专管传递消息，脚程快，从来没有耽误过信期'}]},
+{name:'苏家',tag:'修仙家族',desc:'大周耕读家族，依附青云宗，金丹家主坐镇，掌一郡资源赋税，子弟可优先参加青云宗外门选，旁支出身的苏尘为退婚流角色。',npcs:[
+{n:'苏振邦',l:'金丹期·家主',d:'老顽固，想和青云宗联姻'},
+{n:'苏尘',l:'筑基期·公子',d:'三十年河东三十年河西愣头青，玩家可选择的好队友，热血吐槽役角色'},
+{n:'苏清沅',l:'筑基期·小姐',d:'想拜林风为师'},
+{n:'苏明远',l:'筑基期·账房',d:'抠门管全族账目'},{n:'苏振山',l:'筑基期·护族队头',d:'苏家护族队头领，一身功夫硬朗，负责苏家的安全，护族队在他带领下从来没有出过事'},{n:'苏清瑶',l:'筑基期·族学先生',d:'苏家族学先生，负责教苏家子弟读书认字和基础修炼功法，学识渊博，苏家子弟都很尊敬她'},{n:'苏富',l:'练气期·管家',d:'苏家大管家，管着苏家所有的内务，做事稳妥，把苏家打理得井井有条，是家主最信任的人'}]},
+{name:'王家',tag:'修仙家族',desc:'大秦商贾家族，依附万法宗，金丹家主坐镇，掌数县与小灵矿，垄断东域低阶符箓生意，子弟多走术法辅助路线。',npcs:[
+{n:'王万钱',l:'金丹期·家主',d:'商人出身，垄断东域符箓生意'},
+{n:'王嫣然',l:'筑基后期·王家大小姐',d:'万法宗符道天才，独立要强，亲赴苏家退婚'},
+{n:'王景明',l:'筑基期·少爷',d:'纨绔，曾被胡月婵骗光灵石'},
+{n:'王厚德',l:'筑基期·账房',d:'管所有商铺账目丝毫不差'},{n:'王万金',l:'筑基期·商铺管事',d:'王家商铺管事，负责王家所有商铺的经营，做生意精明能干，王家的生意在他手里越做越大'},{n:'王清然',l:'筑基期·符师',d:'王家符师，擅长画各种低阶符箓，画出来的符箓质量好价格公道，很多修士都喜欢买他画的符'},{n:'王顺',l:'练气期·管家',d:'王家大管家，管着王家所有的内务，做事勤快细心，把王家打理得妥妥帖帖'}]},
+{name:'李家',tag:'修仙家族',desc:'大汉军户家族，依附天剑宗，金丹家主坐镇，掌边境数县与猎妖队，擅炼体刀法，替宗门守边境、清低阶邪修。',npcs:[
+{n:'李刚',l:'金丹期·家主',d:'武将出身，与金震山是亲家'},
+{n:'李虎',l:'筑基期·少爷',d:'愣头青，一心想拜入天剑宗'},
+{n:'李猎',l:'练气期·猎妖队长',d:'带队伍猎妖兽经验丰富'},{n:'李铁',l:'筑基期·护族队头',d:'李家护族队头领，行伍出身，一身硬功夫，负责李家的安全，边境的邪修马匪都怕他'},{n:'李绣',l:'筑基期·族医',d:'李家族医，医术高明，族里人不管是受了伤还是生了病，她都能治好，心地善良，还经常免费给附近的百姓看病'},{n:'李石',l:'练气期·兵器管事',d:'李家兵器管事，负责管理李家的兵器库和兵器打造，打造出来的兵器锋利耐用，李家子弟的兵器都是他负责打造的'}]},
+{name:'天机城',tag:'超然城池',desc:'东域情报核心，天机楼总部所在，有化神楼主镇城，规矩森严禁私斗，是打探消息首选地。',npcs:[
+{n:'苏砚秋',l:'化神期·城主',d:'天机楼长老掌全城事'},
+{n:'卫凛',l:'金丹期·城卫统领',d:'严禁城内私斗'},
+{n:'莫半玄',l:'化神期·算卦先生',d:'外号瞎半仙，墨知算化身专坑灵石'},
+{n:'苏雀',l:'练气期·情报贩子',d:'卖市井小情报'},{n:'苏默',l:'筑基期·客栈老板',d:'天机城客栈老板，为人精明，客栈里人来人往消息灵通，是天机楼的暗线，很多消息都是从他这里传出去的'},{n:'苏青笺',l:'练气期·书局管事',d:'天机城书局管事，负责卖书和印书，书局里什么书都有，甚至还有很多宗门的秘闻笔记，很多修士都喜欢来他这里买书'}]},
+{name:'万宝城',tag:'超然城池',desc:'东域商贸核心，万宝阁东域总号，有金丹修士任城主，商铺林立物价便宜，是低阶修士采购核心商埠。',npcs:[
+{n:'金景明',l:'金丹期·城主',d:'金万源徒弟'},
+{n:'周戎',l:'金丹期·城卫统领',d:'掌城防治安'},
+{n:'金晓声',l:'金丹期·拍卖师',d:'外号金小嘴，主持日常小拍'},
+{n:'林茂',l:'筑基期·灵材商',d:'收售低阶灵材'},{n:'金万利',l:'筑基期·灵石行管事',d:'万宝城灵石行管事，负责灵石的兑换和存储，童叟无欺，从来不会克扣灵石分量，很多修士都喜欢把灵石存在他这里'},{n:'林绣',l:'练气期·裁缝铺老板',d:'万宝城裁缝铺老板，做的法衣款式好看还耐用，能在法衣上绣简单的防御阵，很多女修都喜欢找她做法衣'}]},
+{name:'散修城',tag:'超然城池',desc:'东域散修核心聚居地，散修联盟总部，有元婴修士镇城，规则宽松不看出身，设自由坊市、任务大厅，是底层散修赚资源的主要场所。',npcs:[
+{n:'云舒',l:'元婴期·城主',d:'云散人徒弟，护着散修不被大势力欺负'},
+{n:'赵铮',l:'金丹期·城卫统领',d:'管治安，只禁杀人抢东西'},
+{n:'任平生',l:'金丹期·任务发布人',d:'对接低阶历练、送信、采药任务'},
+{n:'苟不言',l:'筑基期·常驻散修',d:'蹲角落见人就劝"修仙不如苟着"'},{n:'李存义',l:'筑基期·医馆老板',d:'散修城医馆老板，医术高明，给散修看病收费便宜，遇到没钱的散修还会免费给治，是散修城里最受尊敬的人'},{n:'王铁生',l:'练气期·铁匠铺老板',d:'散修城铁匠铺老板，打了一辈子铁，打造的低阶法器结实耐用价格便宜，散修们都喜欢找他打兵器'}]},
+{name:'青牛村 / 青牛镇',tag:'村镇',desc:'青云山脚下的凡人新手村与集镇，村民多为青云宗种灵田、采草药，半数人会粗浅吐纳，是青云宗仙选主要取材地，新手修士经典开局点。',npcs:[
+{n:'王德顺',l:'凡人·青牛村里正',d:'人称王老实，老实巴交管村事'},
+{n:'王虎',l:'凡人·猎户',d:'发低阶猎野兔、采草药的新手任务'},
+{n:'王牧',l:'凡人·牧童',d:'小名阿牛，小时候见过林风，常给村里小孩讲仙人故事'},
+{n:'张正德',l:'凡人·青牛镇镇长',d:'为人公道，不欺负外来新手'},
+{n:'任重',l:'凡人·任务发布人',d:'发低阶猎妖、采药、送信的新手任务'},
+{n:'李逢春',l:'凡人·悦来客栈老板',d:'消息灵通，爱讲修真界八卦，住店免费送瓜子'},{n:'刘桂英',l:'凡人·茶摊老板',d:'青牛村茶摊老板，刘婶，在村口开了个茶摊，给过往的行人和修士提供茶水，茶水里加了清热的草药，夏天喝特别舒服，人很热心'},{n:'周木生',l:'练气三层·木匠',d:'青牛村木匠，手艺极好，村里的家具农具都是他做的，还会做简单的木剑木盾给村里的孩子玩，人很老实'},{n:'王小荷',l:'凡人·采药姑娘',d:'青牛村采药姑娘，经常在青云山外围采草药，认识很多草药，采了草药要么卖给镇上的药铺，要么送给村里的穷人，心地善良'},{n:'李存仁',l:'练气后期·镇医',d:'青牛镇镇医，医术不错，镇上的人不管是受了伤还是生了病都找他看，收费便宜，遇到穷人还免费给治，是镇上的好人'},{n:'王福来',l:'练气中期·丹铺老板',d:'青牛镇丹铺老板，卖的低阶疗伤药、补气药质量好价格公道，从来不会卖假药，刚入门的修士都喜欢来他这里买丹药'},{n:'张魁',l:'练气三层·屠户',d:'青牛镇屠户，长得五大三粗但人很善良，卖肉从来不缺斤短两，遇到穷人还会多给点肉，镇上的人都喜欢买他的肉'}]},
+{name:'白石村 / 白石镇',tag:'村镇',desc:'天剑矿脉旁的矿村与集镇，村民多为天剑矿挖低阶矿、猎山边小妖兽，民风彪悍，金刀门势力范围，是天剑宗外门弟子主要来源地。',npcs:[
+{n:'石万山',l:'凡人·白石村里正',d:'人称石老，不克扣矿工工钱'},
+{n:'张石',l:'凡人·矿工头',d:'发挖矿、运矿的新手任务'},
+{n:'石岩',l:'凡人·少年',d:'小名石头，力大无穷，一心想拜入天剑宗'},
+{n:'金振邦',l:'练气期·白石镇镇长',d:'金刀门外门弟子，公正不护短'},
+{n:'金永年',l:'练气期·矿场管事',d:'发挖矿、收矿任务，不拖欠工钱'},
+{n:'石聚财',l:'凡人·矿石收购商',d:'秤不准但收价比别家高两成'},{n:'李翠',l:'凡人·厨娘',d:'白石村厨娘，李婶，做饭特别好吃，村里谁家有红白喜事都请她去做饭，做的红烧肉十里八乡都有名'},{n:'赵铁山',l:'练气三层·铁匠',d:'白石村铁匠，打了一辈子铁，打的农具和菜刀特别好用，还会打简单的铁剑给村里想修仙的孩子，人很实在'},{n:'石丫丫',l:'凡人·缝补姑娘',d:'白石村缝补姑娘，手特别巧，衣服破了她都能补得跟新的一样，还会绣好看的花，村里的人都喜欢找她缝补衣服'},{n:'韩铁生',l:'练气后期·铁匠',d:'白石镇铁匠，打铁手艺极好，打的低阶法器结实耐用，天剑门外门弟子都喜欢找他打兵器，人也爽快'},{n:'钱玉娘',l:'练气中期·客栈老板',d:'白石镇客栈老板，钱婶，客栈收拾得干净，饭菜也好吃，价格还便宜，过往的商队和修士都喜欢住她家的客栈'},{n:'孙春和',l:'练气三层·镇医',d:'白石镇镇医，是个老郎中，擅长治跌打损伤和矿上的伤，矿工们受了伤都找他看，医术不错收费也便宜'}]},
+{name:'黑石镇',tag:'村镇',desc:'东域北境正邪交界黑市，紧邻天堑山脉，明面上做普通商队生意，暗地流通禁材、邪修情报，鱼龙混杂。',npcs:[
+{n:'墨尘',l:'金丹期·镇长',d:'外号黑镇，中立不问正邪，只保镇内不闹出人命'},
+{n:'苏三娘',l:'筑基期·黑市老板娘',d:'外号黑三娘，天机楼暗桩'},
+{n:'影五',l:'筑基期·情报贩子',d:'卖邪修动向、邪窟位置的低阶情报'},{n:'墨云生',l:'练气后期·镇医',d:'黑石镇镇医，医术高明，不管是正道邪道，只要是病人他都给治，在黑石镇这种鱼龙混杂的地方很受尊敬'},{n:'王半城',l:'练气中期·当铺老板',d:'黑石镇当铺老板，眼光很准，什么东西都能当，价格公道，不会故意压价，急着用钱的人都喜欢去他的当铺当东西'},{n:'刘三醉',l:'练气三层·酒馆老板',d:'黑石镇酒馆老板，酿的酒味道够劲，三教九流的人都来他这里喝酒，消息灵通，想打听消息来他这里准没错'}]}
+]},
+{id:'west',name:'西荒',emoji:'🐺',tag:'妖族横行 · 御兽为尊',img:'assets/6a4c75e63f3dcc5752c8c5ba.jpg',
+geo:'凡界大陆西部，东接中州西境，西连无尽沙海，南邻南疆北界，北隔冰原带与北海相望；境内十万大山横亘东西为核心灵脉，山外为广袤蛮荒戈壁，是妖族与人类势力的天然缓冲带。',
+feat:'以山地、戈壁、荒漠为主，气候干旱昼夜温差大，灵气浓度由十万大山核心向边缘递减；盛产土系、兽系灵材与高阶妖兽血脉，妖族传承源远流长，人类势力多沿山脉边缘分布，整体秩序松散，弱肉强食规则盛行。',
+cities:'妖王城（十万大山核心妖族主城，仅四阶以上化形妖族可入）、兽宗城（人类兽宗驻地，西荒人类修士最大聚居地）、黄沙镇（东麓人妖混居缓冲带）、石堡镇（戈壁要道核心）',
+danger:'低危（炼气-筑基）：十万大山外围猎场、戈壁零散妖兽巢穴、铁甲犀（土系二阶）/沙地毒蝎（一阶）；中危（筑基-金丹）：妖兽秘境常年开放外围、大地巨熊（土系三阶）/六翅毒蝎（四阶）；高危（化神-炼虚）：十万大山核心区、上古妖庭遗址外围、蛮荒巨象（六阶妖王级）；极危（合体以上）：上古妖庭遗址核心、妖帝陵寝、九头狮（八阶，身负上古妖帝血脉），为西荒终极剧情伏笔。',
+factions:[
+{name:'大荒王朝',tag:'凡人王朝',desc:'西荒唯一人族王朝民间俗称兽国，依附兽宗，都猎城，全民尚武善猎，半数凡人有粗浅练气与御兽功底，世代依附兽宗生存。',npcs:[
+{n:'烈山',l:'凡人·荒帝',d:'猎人出身，豪爽仁厚'},
+{n:'烈阳',l:'筑基期·太子',d:'憨厚，能徒手搏三阶妖兽，追青丘儿'},
+{n:'熊阔海',l:'筑基期·大将军',d:'兽宗外门，能生撕虎豹'},
+{n:'巫贤',l:'筑基期·国师',d:'会祝由术，与巫神殿有旧'},
+{n:'烈月',l:'筑基期·公主',d:'御兽天才，契约雪狐'},
+{n:'石敢',l:'筑基期·丞相',d:'石家旁支，管内政民生'}]},
+{name:'兽宗',tag:'顶级宗门',desc:'西荒人类第一宗，御兽圣地，扎根十万大山东麓，凡界御兽流派核心宗门，镇宗万兽图可统御海量妖兽，与妖王殿划界互不侵犯。',npcs:[
+{n:'万兽生',l:'合体期·宗主',d:'御兽宗师，身边跟八阶哮天犬，与胡媚儿是忘年交'},
+{n:'白泽',l:'化神期·大长老',d:'白泽遗脉，能和所有妖兽沟通，只做朋友不契约'},
+{n:'柳御风',l:'金丹期·核心弟子',d:'御兽天才，契约五阶胖橘灵猫'},
+{n:'王驯',l:'筑基期·驯兽头',d:'脾气爆，驯不服就打'},
+{n:'黄阿福',l:'练气期·喂兽童',d:'所有妖兽都跟他亲，人称阿黄'},
+{n:'图千秋',l:'化神期·守图人',d:'守万兽图不轻易现身，人称图老'}]},
+{name:'妖王殿',tag:'妖族最高机构',desc:'西荒妖族最高统领机构，总部十万大山核心，七阶妖圣主事，下辖八大妖部，掌妖庭遗迹与高阶妖兽血脉，与兽宗互市制衡。',npcs:[
+{n:'胡媚儿',l:'七阶妖圣·殿主',d:'九尾狐圣，萧玄天旧情人，寻子女百年'},
+{n:'熊罴',l:'七阶妖圣·八大部首领',d:'熊族憨厚，天天劝胡媚儿再找'},
+{n:'青丘儿',l:'六阶妖王·狐族小公主',d:'调皮，天天溜去找烈阳玩'},
+{n:'狮镇山',l:'八阶妖尊·主战派',d:'狮族，想打人类被压了几百年，和韩奎是酒友'},
+{n:'柳青青',l:'六阶妖王·蛇族',d:'护短，谁欺负蛇族就毒死谁，人称蛇婆婆'},
+{n:'鹏万里',l:'六阶妖王·鹏族',d:'掌飞妖部队，速度全妖界第一'},
+{n:'月柔',l:'五阶·兔妖',d:'胡媚儿侍女，软萌胆小，人称小月'}]},
+{name:'御兽门',tag:'二流宗门',desc:'依附兽宗，专精低阶妖兽培育与契约，掌东麓最大妖兽驯养场，是兽宗外围人才储备地。',npcs:[
+{n:'御千秋',l:'元婴期·门主',d:'兽宗外门出身，擅驯低阶妖兽'},
+{n:'御灵',l:'金丹期·少门主',d:'契约胖橘灵猫'},
+{n:'御山',l:'金丹期·驯养长老',d:'掌驯兽场'},{n:'于乘风',l:'筑基期·护队',d:'御兽门护队弟子，契约了一只追风雕，专管商队空中预警，能提前发现妖兽和马匪'},{n:'余小棠',l:'筑基期·饲育弟子',d:'御兽门饲育弟子，最喜欢小妖兽，再凶的幼兽到她手里都能被驯得服服帖帖'},{n:'于驰',l:'练气期·兽行管事',d:'御兽门兽行管事，负责驯化妖兽的买卖交易，童叟无欺，卖出去的妖兽都打过疫苗不咬人'}]},
+{name:'蛮荒堂',tag:'散修势力',desc:'西荒散修组成的势力，盘踞戈壁要道，靠护商、开矿为生，规则松散实力为尊，是西荒灰色地带代表。',npcs:[
+{n:'莽天',l:'元婴期·堂主',d:'散修出身，护商开矿不抢穷人'},
+{n:'莽天骄',l:'金丹期·少堂主',d:'力大无穷，与石青瑶是闺蜜，人称莽妞'},
+{n:'莽通',l:'金丹期·商队长老',d:'掌商队护送'},{n:'孟铁',l:'筑基期·护商队头',d:'蛮荒堂护商队头，一身横练功夫，在戈壁跑了二十年商，马匪见了他都要绕着走'},{n:'苏青',l:'筑基期·采买管事',d:'蛮荒堂采买管事，负责商队物资采购，能说会道，买东西从来不会买贵，还能跟商贩砍价砍到对方哭'},{n:'石路',l:'练气期·探路弟子',d:'蛮荒堂探路弟子，熟悉戈壁每一条路，能提前发现沙暴和流沙，是商队的活地图'}]},
+{name:'黑风寨',tag:'邪修马帮',desc:'西荒邪修马帮，流窜戈壁边境，专抢奸商邪修，成员多为被冤落草的散修，被正道通缉，躲在戈壁避围剿。',npcs:[
+{n:'燕横',l:'元婴期·寨主',d:'外号黑风，被冤落草，只抢奸商邪修'},
+{n:'燕归',l:'金丹期·二当家',d:'原正道弟子，跟着燕横落草'},
+{n:'燕云驰',l:'筑基期·三当家',d:'轻功天下第一，偷过萧惊渊的酒，人称燕三变'},{n:'齐七',l:'筑基期·哨探头',d:'黑风寨哨探头，轻功极好，能在戈壁上连续奔行三天三夜不休息，打探消息从来没有失过手'},{n:'楚红绡',l:'筑基期·后勤管事',d:'黑风寨后勤管事，管着寨子里的衣食住行，虽然是女流之辈，但寨里的大老爷们都听她的'},{n:'李小乙',l:'练气期·神射手',d:'黑风寨神射手，一手箭法百发百中，能在百步之外射下马匪的眼睛，是寨子里的第一神箭手'}]},
+{name:'万蛊部',tag:'二流宗门',desc:'南疆百族分支，盘踞十万大山西南，专精蛊虫控兽的偏门术法，与万蛊门有血脉渊源。',npcs:[
+{n:'蛊千丈',l:'元婴期·部首领',d:'蛊玉娘亲弟，擅以蛊御兽'},
+{n:'蛊灵',l:'筑基期·小巫师',d:'养的蛊只治病不伤人'},
+{n:'蛊山',l:'金丹期·蛊兽长老',d:'掌蛊兽驯养'},{n:'古长寿',l:'金丹期·养蛊老人',d:'万蛊部养蛊老人，养了一辈子蛊，手里有好几只罕见的灵蛊，能治百病，部里的人都尊称他一声古爷爷'},{n:'古南',l:'筑基期·放蛊弟子',d:'万蛊部放蛊弟子，擅长用小蛊防身，从来不拿蛊害人，只用蛊教训那些为非作歹的坏人'},{n:'古月',l:'练气期·采蛊女',d:'万蛊部采蛊女，常年在十万大山里采蛊，熟悉山里的每一种蛊虫，能分辨哪些蛊有毒哪些蛊能治病'}]},
+{name:'炎阳宗',tag:'二流宗门',desc:'西荒二流火修宗门，刚正火修代表，不参与邪修劫掠，以火入道，擅地火炼丹、火法攻敌；弟子性格火爆直爽，是西荒南境商路的实际守护者之一。',npcs:[
+{n:'炎烈',l:'化神期·宗主',d:'脾气火爆的老者，一言不合便召地火御敌，因功法属性与冰魄宫常年有演武交流'},
+{n:'火燎原',l:'元婴期·副宗主',d:'红脸膛中年汉子，性格稳重，掌宗门日常'},
+{n:'朱玉娘',l:'元婴期·丹火长老',d:'外观三十岁爽利女修，专以地火炼丹，丹术极高'},
+{n:'火灵儿',l:'金丹期·圣女',d:'常穿红衣，性格爽利直接，是年轻一辈火法造诣最高的弟子'},
+{n:'烈杉',l:'元婴期·长老',d:'外观四十岁红脸大汉，性格刚直，爱打抱不平'},
+{n:'雷火',l:'金丹期·执法长老',d:'黑脸壮汉，弟子犯错就用火球罚站，但从不伤人'},
+{n:'火头陀',l:'金丹期·外门教习',d:'烧得一手好菜，管全宗膳食'},
+{n:'焱飞',l:'金丹期·大弟子',d:'性格跳脱，常带师弟练火，多次点着建筑被罚面壁'},
+{n:'烈小宝',l:'筑基期·入门弟子',d:'年纪最小，总控制不好火候常被罚'},
+{n:'炭头',l:'筑基期·烧火童子',d:'十五岁黑瘦少年，管地火房，控火技术极好'}
+]},
+{name:'石家',tag:'修仙家族',desc:'西荒猎户家族，依附兽宗，金丹家主坐镇，掌黄沙镇周边集镇与小矿脉，做妖兽材料生意。',npcs:[
+{n:'石敢当',l:'金丹期·家主',d:'猎户出身，与金震山是拜把子兄弟'},
+{n:'石青瑶',l:'筑基期·小姐',d:'假小子，能徒手撕一阶妖兽，人称石丫'},
+{n:'石通',l:'筑基期·商队管事',d:'掌家族商队从没出过事'},{n:'石敢为',l:'筑基期·护商队头',d:'石家护商队头领，在西荒跑了一辈子商，经验丰富，护商从来没有出过事，马匪见了他都躲着走'},{n:'石青岩',l:'筑基期·兽材管事',d:'石家兽材管事，负责妖兽材料的收购和买卖，对各种妖兽材料了如指掌，从来不会看走眼'},{n:'石磨',l:'练气期·管家',d:'石家大管家，管着石家所有的内务，虽然名字叫石磨，但人一点都不木讷，做事精明能干'}]},
+{name:'赵家',tag:'修仙家族',desc:'西荒商路家族，中立不依附大势力，金丹家主坐镇，掌石堡镇与戈壁商路，少爷赵小宝为躲灾都能捡上古传承的欧皇。',npcs:[
+{n:'赵钱',l:'金丹期·家主',d:'老商队头子，走戈壁从没翻过车'},
+{n:'赵小宝',l:'筑基期·少爷',d:'胆子极小永远躲在商队最后·欧皇'},
+{n:'赵路',l:'练气期·过路费管事',d:'认钱不认人收过路费'},{n:'赵万里',l:'筑基期·商队头',d:'赵家商队头领，走戈壁商路走了三十年，从来没有迷过路，也从来没有被马匪劫过，是西荒有名的商队头'},{n:'赵锦',l:'筑基期·账房',d:'赵家账房先生，管着赵家所有商队的账目，算盘打得极精，从来没有算错过一笔账'},{n:'赵顺',l:'练气期·客栈管事',d:'赵家石堡镇客栈管事，把客栈打理得干干净净，饭菜也好吃，过往的商队都喜欢住他家的客栈'}]},
+{name:'妖王城',tag:'超然城池',desc:'十万大山核心妖族主城，有七阶熊妖圣镇城，人类持邀请才可进入，流通妖族专属妖果、兽材、传承。',npcs:[
+{n:'熊罴',l:'七阶熊族妖圣·城主',d:'憨厚公正，不欺负来交易的人类'},
+{n:'虎啸风',l:'六阶虎妖·城卫统领',d:'管妖族治安，打架最积极'},
+{n:'胡九思',l:'六阶狐妖·妖市管事',d:'管集市交易，从不缺斤短两'},
+{n:'象知年',l:'七阶象妖·传承长老',d:'管妖族传承，记性极好'},{n:'兔小月',l:'五阶兔妖·小吃摊老板',d:'妖王城小吃摊老板，做的胡萝卜糕和灵果点心特别好吃，不管是妖族还是人类修士都喜欢吃她做的点心，软萌可爱，大家都喜欢她'},{n:'鹏小飞',l:'五阶鹏妖·快递员',d:'妖王城快递员，速度极快，专门帮人送东西传消息，一天就能飞遍整个西荒，从来没有送错过东西，是妖王城最快的快递员'}]},
+{name:'兽宗城',tag:'超然城池',desc:'兽宗驻地，西荒人类御兽师核心聚集地，有元婴修士镇城，城内以御兽产业为核心，有驯兽场、妖兽角斗场。',npcs:[
+{n:'万归藏',l:'元婴期·城主',d:'万兽生师弟，管城内大小事'},
+{n:'柳川',l:'金丹期·城卫统领',d:'带驯化妖兽巡逻，禁妖兽伤人'},
+{n:'孟奇',l:'练气期·兽卵商铺老板',d:'卖的驯化妖兽都打过疫苗不咬人'},
+{n:'角天野',l:'练气期·角斗场管事',d:'办低阶妖兽角斗给新人练手'},{n:'黄万治',l:'筑基期·妖医馆老板',d:'兽宗城妖医馆老板，擅长给妖兽看病，不管是妖兽受了伤还是生了病，他都能治好，很多御兽师都专门来找他给妖兽看病'},{n:'柳如烟',l:'练气期·客栈老板',d:'兽宗城客栈老板，客栈收拾得干净，饭菜也好吃，还专门给妖兽准备了住处和兽粮，御兽师们都喜欢住她家的客栈'}]},
+{name:'黄沙村 / 黄沙镇',tag:'村镇',desc:'十万大山脚下的凡人村与东麓人妖互市缓冲镇，兽宗和妖王殿共同管理，人妖平等交易，御兽流修士经典开局点。',npcs:[
+{n:'沙万里',l:'凡人·黄沙村里正',d:'人称沙老，熟戈壁路，外来人进村都会提醒沙暴时间'},
+{n:'沙震天',l:'凡人·老猎人',d:'外号沙猎，闭着眼都能走十万大山外围'},
+{n:'沙小黄',l:'凡人·猎人儿子',d:'小名阿黄，能和低阶妖兽说话'},
+{n:'黄守义',l:'练气期·黄沙镇镇长',d:'兽宗妖王殿共任，人妖都给面子'},
+{n:'御长风',l:'练气期·御兽工会管事',d:'发驯兽、找丢失妖兽的低阶任务'},
+{n:'孟聚财',l:'练气期·妖兽材料收购商',d:'童叟无欺，收的妖丹价比别家高'},{n:'马秀莲',l:'凡人·厨娘',d:'黄沙村厨娘，马婶，做的羊肉泡馍特别好吃，过往的商队都喜欢在她这里吃碗热乎的再走，人很热心'},{n:'杨木成',l:'练气三层·木匠',d:'黄沙村木匠，手艺好，做的车轱辘和骆驼鞍子特别结实，商队的车坏了都找他修，人很老实'},{n:'沙小满',l:'凡人·采药姑娘',d:'黄沙村采药姑娘，在十万大山外围采草药，认识很多沙漠里的草药，采了药卖给镇上的药铺换钱补贴家用，很勤快的姑娘'},{n:'万春',l:'练气后期·妖医馆老板',d:'黄沙镇妖医馆老板，擅长给妖兽看病，御兽师的妖兽受了伤都找他治，医术不错，还卖低阶的妖兽伤药'},{n:'黄玉茹',l:'练气中期·客栈老板',d:'黄沙镇客栈老板，黄婶，客栈专门给商队和御兽师准备了大院子拴妖兽和骆驼，饭菜分量足，商队都喜欢住她家'},{n:'孟良',l:'练气三层·兽粮铺老板',d:'黄沙镇兽粮铺老板，卖的兽粮质量好价格公道，还配了妖兽喜欢的各种口味，御兽师们都喜欢来他这里买兽粮'}]},
+{name:'石堡村 / 石堡镇',tag:'村镇',desc:'戈壁边缘的石制堡垒村与要道核心补给镇，村民靠护商、挖戈壁低阶矿为生，蛮荒堂与赵家共同管控。',npcs:[
+{n:'石垒',l:'练气期·石堡村堡主',d:'石家弟子，带村民护堡，邪修马匪来了第一个上'},
+{n:'石勇',l:'练气期·猎手头领',d:'人称石叔，带商队走外围戈壁从没出过事'},
+{n:'沙行远',l:'凡人·戈壁向导',d:'能提前闻出沙暴味'},
+{n:'石镇山',l:'练气期·石堡镇镇长',d:'蛮荒堂赵家共任，不劫正经商队'},
+{n:'赵万金',l:'练气期·商队管事',d:'发护镖、送物资的低阶任务'},
+{n:'戈行',l:'凡人·戈壁老向导',d:'带商队穿戈壁从没迷过路'},{n:'王秀',l:'练气三层·村医',d:'石堡村村医，会看简单的头疼脑热和沙漠里的常见病，村里人生了病都找她看，遇到重病她会帮忙送到镇上去，很热心'},{n:'周铁',l:'练气三层·铁匠',d:'石堡村铁匠，打的马蹄铁和兵器特别结实，商队的马掌坏了都找他打，人很实在，收费便宜'},{n:'石大壮',l:'凡人·少年帮工',d:'石堡村少年帮工，力气大，人也勤快，商队来了他帮忙搬东西卸货，赚点钱补贴家用，是个懂事的孩子'},{n:'石春山',l:'练气后期·镇医',d:'石堡镇镇医，在戈壁上当了几十年医生，什么沙漠病都见过，医术高明，过往商队有人中暑生病都找他治'},{n:'赵全有',l:'练气中期·杂货铺老板',d:'石堡镇杂货铺老板，杂货铺里什么都有，从水囊干粮到绳索火把，商队需要的东西他这里都能买到，价格公道'},{n:'路长远',l:'练气三层·驼队老板',d:'石堡镇驼队老板，养了几十峰骆驼，专门跑戈壁运输，熟悉戈壁的每一条路，运货又快又稳，从来没有出过事'}]}
+]},
+{id:'south',name:'南疆',emoji:'🐍',tag:'百族巫蛊 · 瘴气丛林',img:'assets/6a4c75fa3f3dcc5752c8c5ea.jpg',
+geo:'凡界大陆南部，北接东域、中州南境，南连无尽毒海，东濒浅海群岛，西邻西荒十万大山南麓；境内瘴气沼泽密布，原始雨林绵延，多条毒河贯穿全境。',
+feat:'以热带雨林、沼泽、山地为主，气候炎热潮湿多雨，灵气混杂瘴气与毒属性，寻常修士难以长期驻留；盛产毒系、木系、巫系灵材与异毒虫兽，蛊道、巫道传承独树一帜，百族各有专属秘术，对外来修士排斥性较强。',
+cities:'百族圣城（百族盟驻地，仅本土修士与受邀者可入）、南都城（南诏都城，丹鼎宗分坛所在，外来修士核心补给点）、绿溪镇（瘴气沼泽入口缓冲镇，外来修士进南疆第一站）',
+danger:'低危（炼气-筑基）：瘴气沼泽外围、原始雨林边缘、碧磷蛇（毒系一阶）/毒雾蟾蜍（二阶）；中危（筑基-金丹）：蛊毒秘境外围、毒雾山谷、千足蛊虫（三阶）/六翼毒蝶（四阶）；高危（化神-炼虚）：百族禁地外围、蛊毒秘境核心、原始雨林深处、万毒蛊王（六阶）；极危（合体以上）：百族禁地核心、上古巫神遗迹、九头毒蛟（七阶上古异种），暗藏南疆灵脉异变伏笔。',
+factions:[
+{name:'南诏王朝',tag:'凡人王朝',desc:'南疆唯一人族王朝俗称南国，依附丹鼎宗南疆分坛，都大理，百姓多懂基础蛊术巫医，是外来修士进南疆的第一补给站。',npcs:[
+{n:'段和誉',l:'凡人·南诏王',d:'温和文弱，通医理爱百姓'},
+{n:'段灵蛊',l:'筑基期·公主',d:'调皮，会基础蛊术整人'},
+{n:'高泰明',l:'筑基期·丞相',d:'协调汉苗矛盾，与百族盟交好'},
+{n:'段正严',l:'筑基期·王爷',d:'风流，年轻时与合欢宗有旧'},
+{n:'古笃诚',l:'筑基期·大将军',d:'守边境防黑巫教'},
+{n:'褚万里',l:'筑基期·太医',d:'随丹鼎宗学过医，医术冠绝南诏'}]},
+{name:'百族盟',tag:'南疆最高机构',desc:'南疆百族联合机构，苗、巫、蛊三族共主，掌核心秘境禁地，以守护本土传承为宗旨，与丹鼎宗分坛合作。',npcs:[
+{n:'苗千壑',l:'合体期·盟主',d:'苗首，公正护着所有部落'},
+{n:'巫祀',l:'合体期·巫首',d:'常年蒙眼，能预知未来'},
+{n:'蛊天娇',l:'合体期·蛊首',d:'蛊玉娘祖母，最疼小辈，人称蛊婆婆'},
+{n:'石青',l:'金丹期·对外使者',d:'能说会道，常年在各宗门协调'},
+{n:'苗阿花',l:'筑基期·苗族圣女',d:'下情蛊专治负心汉'},
+{n:'巫小语',l:'筑基期·巫女',d:'能通亡语，话少安静'}]},
+{name:'丹鼎宗南疆分坛',tag:'正道据点',desc:'正道在南疆唯一据点，扎根南诏，专精毒丹与解毒丹炼制，既是丹鼎宗资源采集分支，也是正道深入南疆的前哨。',npcs:[
+{n:'柳素',l:'元婴期·坛主',d:'常年在南疆研究毒丹解毒丹，医术通神'},
+{n:'青黛',l:'金丹期·副坛主',d:'柳素弟子，解毒高手'},
+{n:'沈芷',l:'练气期·药童',d:'认全南疆毒草，认药比长老强，人称阿草'},
+{n:'木森',l:'筑基期·采购管事',d:'与木家交好，常年收灵草'},
+{n:'何济',l:'筑基期·驻点医师',d:'免费给百姓看病'},
+{n:'卢洪',l:'筑基期·丹炉管事',d:'管了三十年丹炉没灭过火，人称卢老'}]},
+{name:'万蛊门',tag:'二流宗门',desc:'蛊族核心分支，专精蛊虫培育操控，掌南疆最大蛊虫谷，弟子用蛊作战、下毒、治病，手段诡异。',npcs:[
+{n:'巫罗',l:'化神期·门主',d:'远古巫神炼尸者'},
+{n:'蛊玉娘',l:'元婴期·门主',d:'护短，专整欺负门下的人，蛊天娇孙女'},
+{n:'蛊小仙',l:'金丹期·少门主',d:'养蝴蝶蛊整人不害命'},
+{n:'蛊养',l:'金丹期·养蛊长老',d:'掌蛊虫谷'},{n:'顾延年',l:'筑基期·蛊医',d:'万蛊门蛊医，擅长用蛊治病，不管是中了什么蛊毒，他看一眼就能知道是什么蛊，对症下药手到病除'},{n:'古离',l:'金丹期·刑堂长老',d:'万蛊门刑堂长老，手段狠辣，专门处置门内叛徒和用蛊害人的恶徒，是南疆邪修最害怕的人之一'}]},
+{name:'巫神殿',tag:'二流宗门',desc:'巫族传承宗门，专精巫祝、诅咒、祭祀，盘踞雨林深处，传上古巫道残卷。',npcs:[
+{n:'巫辰',l:'元婴期·殿主',d:'蒙眼能预知未来，巫祀亲传弟子'},
+{n:'巫小语',l:'筑基期·巫女',d:'能通亡语'},
+{n:'巫祭',l:'金丹期·祭祀长老',d:'掌祭祀仪式'},{n:'巫照',l:'金丹期·护殿武士头',d:'巫神殿护殿武士头领，一身巫武双修的功夫，力大无穷，专管神殿安全，外人想闯神殿先过他这一关'},{n:'巫清辞',l:'筑基期·占卜巫女',d:'巫神殿占卜巫女，能通过祭祀占卜吉凶，预言十次有九次准，是殿里最厉害的占卜师'},{n:'巫阿石',l:'练气期·祭祀执事',d:'巫神殿祭祀执事，负责准备祭祀用品和主持小型祭祀仪式，做事认真仔细，从来没有在祭祀上出过错'}]},
+{name:'御兽宗',tag:'二流宗门',desc:'南疆二流宗门，百族盟下属御兽传承，以御兽入道，擅驯化妖兽、与妖兽沟通，从不滥杀野生妖兽；弟子多和契约妖兽相伴长大，是十万大山外围的守护者。',npcs:[
+{n:'兽王',l:'化神期·宗主',d:'大胡子壮汉，能与万兽沟通，坐骑是八阶黑虎'},
+{n:'鹤千秋',l:'元婴期·副宗主',d:'骑鹤的清瘦老者，擅御飞禽，掌飞禽传讯网'},
+{n:'苏湄',l:'元婴期·灵兽园管事',d:'外观三十岁温婉女修，专管幼兽，再凶的异兽在她面前都很温顺'},
+{n:'凤九歌',l:'元婴期·长老',d:'外观二十五岁红衣女修，能御百鸟，坐骑是七阶火凤凰'},
+{n:'犬九',l:'金丹期·外门教习',d:'养了一群灵犬，嗅觉极灵，寻人从无差错'},
+{n:'马老六',l:'筑基期·马房管事',d:'养了一辈子坐骑，宗里弟子的坐骑都是他训的'},
+{n:'熊大力',l:'金丹期·大弟子',d:'两米高的壮汉，坐骑是六阶黑熊，力大无穷'},
+{n:'鹰千里',l:'金丹期·真传弟子',d:'沉默寡言，坐骑是七阶金雕，负责侦查传信'},
+{n:'蝶衣',l:'筑基期·小弟子',d:'能御蝴蝶，外表柔弱，蝶粉可迷倒金丹修士'},
+{n:'鹿萌',l:'筑基期·二师姐',d:'十六岁软萌少女，契约九色鹿，能治异兽伤势'}
+]},
+{name:'药王谷',tag:'二流宗门',desc:'南疆二流中立医道宗门，和丹鼎宗是同脉分支，以医入道，擅治百毒、救死扶伤；门规仁和，看病不分正邪、不问身份，是全界都给几分薄面的宗门。',npcs:[
+{n:'孙思邈',l:'化神期·谷主',d:'白发老者，医道通神可活死人肉白骨，看病不分正邪'},
+{n:'张太初',l:'元婴期·副谷主',d:'道骨仙风的老道，擅炼辟谷丹与养生丹，已活一千二百岁'},
+{n:'叶沉香',l:'元婴期·长老',d:'外观三十岁温婉女修，擅妇科儿科，常下山义诊'},
+{n:'顾青黛',l:'元婴期·制药长老',d:'外观二十八岁温婉女修，专制膏丹丸散，药效极佳'},
+{n:'李时针',l:'金丹期·针灸长老',d:'瘦老头，一针可救濒死之人，也可一针制敌'},
+{n:'王不留',l:'金丹期·采药执事',d:'背药篓的黑脸汉子，常年在深山采药，认遍天下草药'},
+{n:'秦九味',l:'金丹期·大弟子',d:'年轻郎中，开药只用九味，人称九味神医，看病先看品行'},
+{n:'叶小棠',l:'筑基期·药童',d:'十二岁少年，认遍草药，谁偷药第一时间就能发现'},
+{n:'白芝',l:'筑基期·小医女',d:'温柔善良，常下山免费给百姓看病'},
+{n:'阿芍',l:'筑基期·煎药童子',d:'十五岁少女，煎药从不糊，火候掌握比长老还准'}
+]},
+{name:'百草堂',tag:'中立势力',desc:'中立丹道势力，兼修解毒炼毒，游走各部落做生意，弟子擅认南疆毒草灵药，炼的解毒丹冠绝南疆。',npcs:[
+{n:'苏百草',l:'元婴期·堂主',d:'老好人，救所有人不分正邪，人称百草先生'},
+{n:'苏灵草',l:'筑基期·堂主孙女',d:'善良心软，常救落难散修'},
+{n:'药采',l:'金丹期·采药长老',d:'采灵药毒草'},{n:'苏问药',l:'金丹期·坐堂医师',d:'百草堂坐堂医师，医术通神，不管是受了多重的伤还是中了多厉害的毒，他都能治，看病不分正邪，只要是病人他都救'},{n:'苏叶',l:'筑基期·炮药弟子',d:'百草堂炮药弟子，擅长炮制各种药材，经他手炮制的药材药效比旁人高两成，是堂里炮药手艺最好的弟子'},{n:'苏行',l:'练气期·采药弟子',d:'百草堂采药弟子，常年在南疆山里采药，认遍了南疆的所有草药，再偏僻的地方他都能找到需要的药材'}]},
+{name:'黑巫教',tag:'邪修势力',desc:'南疆邪修势力，专修血祭阴蛊，被百族盟赶到禁地边缘，常抓凡人和修士血祭炼蛊，暗通北海魔道。',npcs:[
+{n:'巫玄',l:'元婴期·教主',d:'反派，想召外神降世'},
+{n:'苏傀',l:'筑基期·教中童子',d:'活死人无痛觉，人称傀童'},
+{n:'巫血',l:'金丹期·血祭长老',d:'掌血祭仪式'},
+{n:'巫冥',l:'化神期·教主',d:'阴恻恻的老巫师，修炼血祭巫法，想炼长生巫药'},
+{n:'苏墨',l:'教中童子',d:'外形永远十五岁，是教主炼的傀儡，无痛觉只执行命令'},
+{n:'巫婆婆',l:'元婴期·长老',d:'外观七十岁老妇，擅养蛊，是南疆百姓最忌惮的邪修'},
+{n:'黑木',l:'金丹期·大弟子',d:'行事狠辣，但对同门小弟子极为照顾'},
+{n:'石小满',l:'筑基期·入门弟子',d:'是教中捡回的孤儿，本性不坏，常偷偷放走被抓的百姓'},{n:'吴行',l:'金丹期·暗探头',d:'黑巫教暗探头领，擅长易容和跟踪，能变成各种身份打探消息，正道抓了他很多年都没抓到'},{n:'吴骨',l:'筑基期·炼傀师',d:'黑巫教炼傀师，擅长炼制低阶尸傀，他炼的尸傀听话不反噬，是教里最好的炼傀师'},{n:'吴鸦',l:'练气期·传信弟子',d:'黑巫教传信弟子，养了一群乌鸦传信，速度快还隐蔽，正道从来截不到他传的消息'}]},
+{name:'蓝家',tag:'修仙家族',desc:'南诏向导家族，依附丹鼎宗南疆分坛，金丹家主坐镇，掌边境贸易与低阶灵材收购，兼做向导生意。',npcs:[
+{n:'蓝寻',l:'金丹期·家主',d:'外号活地图，当向导从没迷过路'},
+{n:'蓝苗',l:'筑基期·小姐',d:'中护生蛊长不大，实际八十岁能沟通蛊虫'},
+{n:'蓝导',l:'筑基期·向导管事',d:'掌向导队'},{n:'蓝路生',l:'筑基期·向导头',d:'蓝家向导头领，在南疆雨林里当了四十年向导，闭着眼都能走出雨林，是南疆最有名的向导，从来没有带错过路'},{n:'蓝草',l:'筑基期·药材管事',d:'蓝家药材管事，负责收购和买卖南疆的各种药材，认遍了南疆的所有草药，对药材的价格和品质了如指掌'},{n:'蓝解',l:'练气期·解蛊师',d:'蓝家解蛊师，擅长解各种蛊毒，普通的蛊毒他随手就能解，是南疆有名的解蛊师，很多中了蛊的人都来找他解蛊'}]},
+{name:'木家',tag:'修仙家族',desc:'南诏药农家族，掌北部平原多座灵草园，种灵草炮制药材供丹鼎宗，小姐木小草为先天木灵体、百花谷遗珠。',npcs:[
+{n:'木老根',l:'金丹期·家主',d:'药农出身，种了一辈子灵草'},
+{n:'木小草',l:'筑基期·小姐',d:'木家小姐，梦中柳神助道。种的灵草药性比别人高三成·未来木神传承者'},
+{n:'木田',l:'筑基期·灵田管事',d:'掌灵草园从没误过农时'},{n:'木林',l:'筑基期·护林队头',d:'木家护林队头领，负责守护木家的灵草园，防止有人偷灵草和妖兽破坏，护林队在他带领下灵草园从来没有被偷过'},{n:'木花',l:'筑基期·灵草医师',d:'木家灵草医师，擅长给灵草看病除虫，灵草生了病长了虫，她一治就好，灵草园里的灵草长得比别家的都好'},{n:'木根',l:'练气期·送药管事',d:'木家送药管事，负责给丹鼎宗和各大药铺送灵草，腿脚勤快，送药从来没有耽误过时间，也从来没有送错过货'}]},
+{name:'百族圣城',tag:'超然城池',desc:'百族盟总部，南疆雨林核心，有合体期大巫镇城，仅本土族民和受邀者可进入。',npcs:[
+{n:'苗千壑',l:'合体期·城主',d:'百族盟盟主，公正护着所有部落'},
+{n:'苗铮',l:'金丹期·城卫统领',d:'苗族勇士出身，禁外来人欺负本地族人'},
+{n:'石青',l:'金丹期·市坊管事',d:'对外协调交易，会说汉话苗话巫话'},
+{n:'巫祝年',l:'元婴期·祭祀堂管事',d:'管百族祭祀，会基础祝福术'},{n:'苗药',l:'金丹期·巫医',d:'百族圣城巫医，医术通神，擅长用巫药和蛊虫治病，不管是多重的病多厉害的蛊毒，他都能治，是百族最受尊敬的巫医'},{n:'蓝彩依',l:'练气期·绣坊老板',d:'百族圣城绣坊老板，绣工极好，绣出来的百苗绣活灵活现，还能在衣服上绣驱虫驱蛊的纹样，百族的姑娘都喜欢她绣的东西'}]},
+{name:'南都城',tag:'超然城池',desc:'南诏都城，丹鼎宗南疆分坛所在，进南疆核心补给站，城内卖解毒丹、瘴气符、防蛊香囊。',npcs:[
+{n:'段和誉',l:'凡人·城主',d:'南诏王，温和不坑外来人'},
+{n:'古笃诚',l:'筑基期·城卫统领',d:'守城门防黑巫教混进来'},
+{n:'叶济',l:'筑基期·解毒铺老板',d:'百草堂弟子，卖的解毒丹货真价实'},
+{n:'蓝千山',l:'筑基期·向导中介',d:'靠谱向导都在他这登记，不宰客'},{n:'褚回春',l:'筑基期·医馆老板',d:'南都城医馆老板，医术高明，擅长解南疆的各种蛊毒和瘴气之毒，外来修士进南疆中了蛊都来找他治'},{n:'蓝玉',l:'练气期·符铺老板',d:'南都城符铺老板，卖的驱瘴符、防蛊符质量好价格公道，外来修士进南疆前都会来他这里买符箓'}]},
+{name:'绿溪村 / 绿溪镇',tag:'村镇',desc:'瘴气沼泽边缘的凡人村与北部入口缓冲镇，外来修士进瘴气沼泽的前哨与南疆最安全的边境集镇。',npcs:[
+{n:'溪清源',l:'凡人·绿溪村里正',d:'人称溪老，会基础驱瘴法，外来人进村先给一碗驱瘴汤'},
+{n:'叶百草',l:'凡人·采药老人',d:'人称药老，认全南疆外围毒草，免费给人解小毒'},
+{n:'蓝荞',l:'凡人·村女',d:'小名阿荞，养益蛊救人，给块糖就帮人解蛊毒'},
+{n:'柳绿',l:'练气期·绿溪镇镇长',d:'百族盟丹鼎宗共任，公道不宰客'},
+{n:'苏清',l:'练气期·解毒铺老板',d:'百草堂弟子，卖的解毒丹货真价实不坑新手'},
+{n:'周小符',l:'练气期·阵法师',d:'维护镇里的防瘴大阵，修阵要酒不要钱'},{n:'林晚',l:'凡人·厨娘',d:'绿溪村厨娘，林婶，做的竹筒饭和菌汤特别好吃，外来的修士进村她都会给盛一碗热汤驱瘴气，人特别好'},{n:'叶茂',l:'练气三层·木匠',d:'绿溪村木匠，手艺好，做的竹楼竹家具特别结实，还会做简单的竹排，村里人都找他做活'},{n:'林小绿',l:'凡人·采药姑娘',d:'绿溪村采药姑娘，从小在瘴气林边长大，认识很多解毒的草药，经常采了解毒药给村里人预防瘴气，很善良的姑娘'},{n:'蓝路远',l:'练气后期·向导头',d:'绿溪镇向导头领，蓝路生的弟弟，也是南疆有名的向导，进雨林找他带路绝对不会迷路，还能避开毒瘴和毒虫'},{n:'柳玉娘',l:'练气中期·客栈老板',d:'绿溪镇客栈老板，柳婶，客栈里天天熏着驱瘴的艾草，还给客人准备免费的驱瘴汤，外来修士进南疆都喜欢住她家'},{n:'周万全',l:'练气三层·杂货铺老板',d:'绿溪镇杂货铺老板，卖的驱瘴丹、解毒药、防蛊香囊都是真货，从来不卖假货坑外来修士，名声很好'}]},
+{name:'苗寨村',tag:'村镇',desc:'原始雨林入口的苗族寨子，属百族盟外围部落，村民掌握粗浅巫蛊之术。',npcs:[
+{n:'苗万山',l:'凡人·寨老',d:'百族盟外围管事，不欺负外来人，进寨先喝拦路酒'},
+{n:'苗彩',l:'凡人·寨女',d:'小名阿彩，会巫医兼向导，要糖吃才肯带路'},
+{n:'苗玉珍',l:'凡人·蛊婆',d:'养小蛊虫护寨，她养的小蛊最爱偷客人的糖吃'},{n:'苗山根',l:'练气三层·猎人向导',d:'苗寨村猎人向导，从小在雨林里打猎，熟悉雨林里的每一条路，还会说汉话苗话，外来修士进雨林都喜欢找他当向导'},{n:'盘阿妹',l:'凡人·厨娘',d:'苗寨村厨娘，做的酸汤鱼和糯米饭特别好吃，客人来了她都会拿出最好的米酒和饭菜招待，很热情'},{n:'苗阿牛',l:'凡人·少年猎人',d:'苗寨村少年猎人，年纪不大但胆子大，箭法也好，能自己一个人在雨林外围打猎，是寨子里最勇敢的少年'}]}
+]},
+{id:'north',name:'北海',emoji:'💀',tag:'魔道邪修 · 血煞之地',img:'assets/6a4c760f3f3dcc5752c8c60e.jpg',
+geo:'凡界大陆北部，南隔天堑山脉与东域、西荒相望，北连极地冰原，东西两侧接无尽深海；境内血海、幽冥之地、修罗战场三大险地横贯东西。',
+feat:'以冰原、冻土、暗谷为主，气候严寒常年低温，灵气混杂阴气、煞气与血煞之气，正道修士长期驻留会损伤道心；盛产阴系、血系、煞系灵材与邪道妖兽，魔道传承完整且分支众多，整体秩序混乱，弱肉强食为唯一规则，邪修之间仇杀、劫掠频发。',
+cities:'血城（血魔宫驻地，常驻元婴至化神）、鬼城（鬼王宗驻地，幽冥入口，阴魂尸傀遍布）、黑市城（北海中立交易中心）、血色渡口（正邪交界枢纽）',
+danger:'低危（炼气-筑基）：血海边缘、幽冥外围、冰魂狼（阴系一阶）/血影蝠（血系二阶）；中危（筑基-金丹）：血海秘境（二十年一开）、幽冥秘境、阴骨尸煞（三阶）/血纹魔鲨（四阶）；高危（化神-炼虚）：血海核心、幽冥深处、修罗战场外围、血海魔蛟（六阶邪王级）；极危（合体以上）：修罗战场核心、上古魔神祭坛、修罗战魂（七阶上古魔神残魂），暗藏上古魔神夺舍机密终极伏笔。',
+factions:[
+{name:'赤玄王朝',tag:'魔道王朝',desc:'北海魔道王朝俗称血魂国，依附血魔宫，都血安，王室为血魔宫外门信徒，横征暴敛收血食供修士修炼。',npcs:[
+{n:'卫戾',l:'筑基期·赤玄帝',d:'残暴嗜杀，横征暴敛'},
+{n:'卫荣',l:'练气期·太子',d:'比其父更残暴，强抢民女'},
+{n:'卫玲珑',l:'金丹期·公主',d:'白切黑，暗通正道想推翻暴政'},
+{n:'卫屠',l:'金丹期·大将军',d:'卫氏族长，四处收血食'},
+{n:'魏衍',l:'练气期·太监总管',d:'邪修，为皇帝炼血丹'},
+{n:'白灵月',l:'筑基期·贵妃',d:'白家嫡女，合欢宗暗桩，传宫中消息'}]},
+{name:'幽泉王朝',tag:'魔道王朝',desc:'北海魔道王朝俗称幽都鬼国，依附鬼王宗，都酆都，境内阴魂尸傀遍布，百姓多为鬼修眷属，死后常被炼为阴兵。',npcs:[
+{n:'阎昭',l:'金丹期·幽泉帝',d:'鬼修，想炼尸求长生'},
+{n:'阎珩',l:'筑基期·太子',d:'恋尸成癖，鬼骨堂弟子'},
+{n:'阎清衣',l:'筑基期·公主',d:'鬼修，想学苟道'},
+{n:'温筹',l:'金丹期·丞相',d:'鬼修世家，养小鬼偷情报'},
+{n:'阴仲',l:'筑基期·大将军',d:'统阴兵守边境'},
+{n:'孟素',l:'练气期·老嬷嬷',d:'鬼王宗暗线，灌失宠妃嫔忘魂汤'}]},
+{name:'煞武王朝',tag:'魔道王朝',desc:'北海魔道王朝俗称修罗战邦，依附修罗殿，都武威，全民皆兵以杀为尊，常年为修罗殿送战士、血祭祭品。',npcs:[
+{n:'戚烈',l:'筑基期·煞武帝',d:'武夫，只会打仗想扩张'},
+{n:'戚锋',l:'筑基期·太子',d:'战争狂，与厉锋是酒友'},
+{n:'戚惊鸿',l:'筑基期·公主',d:'刀修天才，倾心林屿'},
+{n:'铁山',l:'筑基期·大将军',d:'修罗旧部，练兵狂人'},
+{n:'文晏',l:'筑基期·丞相',d:'文臣，管后勤天天被骂'},
+{n:'武安邦',l:'筑基期·先锋官',d:'打仗永远冲第一个'}]},
+{name:'血魔宫',tag:'顶级魔宗',desc:'北海魔道第一宗，主修血海吞天诀可吞人修为速升，盘踞血海核心，靠血晶矿与血道传承为根基，宫主大乘期。',npcs:[
+{n:'萧惊渊',l:'大乘期·宫主',d:'萧惊寒亲兄，因父亲偏心入魔，养大萧无殇'},
+{n:'卫衣',l:'化神期·大长老',d:'当年跟着萧惊渊出萧家的家将，忠心耿耿'},
+{n:'萧无殇',l:'元婴期·少宫主',d:'萧玄天胡媚儿亲子，被萧惊渊养大，暗查身世'},
+{n:'池墨',l:'化神期·血池守者',d:'无宫主令谁都不能进血池'},
+{n:'影七',l:'筑基期·暗卫统领',d:'正道暗桩，被萧无殇发现留着解闷'},
+{n:'魏玄',l:'金丹期·执法长老',d:'掌血牢刑狱，手段残忍'},
+{n:'月珑',l:'化神期·情报长老',d:'外观二十岁女修，实际一千岁，九尾天狐血脉，掌宗门情报网'},
+{n:'血无痕',l:'元婴期·暗卫统领',d:'来无影去无踪，除宫主外无人见过真容'},
+{n:'月无心',l:'元婴期·执法长老',d:'外观二十五岁冷艳女修，掌刑律与血池秩序，铁面无私'},
+{n:'阿七',l:'金丹期·血池执事',d:'代号血奴，天生不能言语，只执行宫主指令'}]},
+{name:'鬼王宗',tag:'顶级魔宗',desc:'北海鬼修宗门，主修御尸之术，宗主合体期，总部幽冥入口，掌海量阴魂尸傀，擅诅咒群战。',npcs:[
+{n:'阎幽',l:'合体期·宗主',d:'阴沉寡言，炼尸技术天下第一'},
+{n:'阎玉',l:'化神期·大长老',d:'恋尸成癖，收了几百具俊男美女尸傀'},
+{n:'苏冥',l:'练气期·守墓童',d:'活了上千年永远小孩样，人称阿冥'},
+{n:'阴屠',l:'金丹期·阴兵统领',d:'带阴兵守幽冥入口'},
+{n:'尸玄',l:'金丹期·尸傀管事',d:'炼尸手艺极好'},
+{n:'苏含烟',l:'金丹期·核心弟子',d:'外号鬼娘子，白切黑，下手狠'}]},
+{name:'修罗殿',tag:'顶级魔宗',desc:'北海杀道宗门，主修杀戮之道，单体攻伐极强，殿主合体期，盘踞修罗战场，弟子以战养战，接全界暗杀死斗任务。',npcs:[
+{n:'谢玄衣',l:'合体期·殿主',d:'杀道枭雄，自创修罗殿'},
+{n:'厉锋',l:'元婴期·少殿主',d:'嗜杀好战，和凌霄是死敌见面就打'},
+{n:'韩奎',l:'化神期·先锋长老',d:'武痴，天天想打仗，和狮镇山是酒友'},
+{n:'罗杀',l:'元婴期·亲卫舵主',d:'只认任务不认人，暗杀从无失手'},
+{n:'厉尘',l:'元婴期·试炼长老',d:'掌弟子生死试炼'},
+{n:'战英',l:'金丹期·修罗场管事',d:'管生死角斗场'},
+{n:'谢无衣',l:'化神期·首席长老',d:'外观二十七八冷峻男子，杀道大家，出手从不用第二招'},
+{n:'血蔷薇',l:'元婴期·杀手堂首座',d:'外观二十四五明艳女修，专惩违反杀道规矩的弟子，是殿内第一女杀手'},
+{n:'战狂',l:'金丹期·外门教习',d:'作战悍不畏死，是年轻弟子的陪练'},
+{n:'鬼见愁',l:'化神期·刑罚长老',d:'相貌凶神恶煞实则心善，常偷偷放过心性不坏、过不了试炼的弟子'}]},
+{name:'血煞门',tag:'二流宗门',desc:'依附血魔宫，专精血煞术法，掌血海边缘多条血晶矿脉，负责采矿、抓血食供总部。',npcs:[
+{n:'卫煞',l:'元婴期·门主',d:'萧惊渊旧部，掌血晶矿'},
+{n:'卫金山',l:'金丹期·矿脉长老',d:'掌血晶开采'},
+{n:'影九',l:'筑基期·暗桩管事',d:'安插在正道的眼线'},{n:'魏狂',l:'金丹期·执法队长',d:'血煞门执法队长，性格残暴，专管门内刑罚，犯了门规的弟子落到他手里生不如死'},{n:'魏红',l:'筑基期·血丹师',d:'血煞门血丹师，擅长炼制血丹，虽然修炼的是邪门功法，但炼出来的血丹药效确实不错，很多邪修都抢着买'},{n:'魏冲',l:'练气期·矿场监工',d:'血煞门矿场监工，管着血晶矿的矿工，虽然是邪修，但从来不随便打骂矿工，只要好好干活就不会为难人'}]},
+{name:'鬼骨堂',tag:'二流宗门',desc:'依附鬼王宗，专精尸傀炼制阴魂操控，盘踞幽冥外围，负责收尸炼低阶尸傀。',npcs:[
+{n:'阎骨',l:'元婴期·堂主',d:'外号玉面尸君，恋尸成癖'},
+{n:'阎承骨',l:'筑基期·弟子',d:'把尸傀当朋友，人称阎小骨'},
+{n:'尸炼',l:'金丹期·炼尸长老',d:'掌尸傀炼制'},{n:'严十娘',l:'金丹期·养尸老人',d:'鬼骨堂养尸老人，养了一辈子尸，手里有好几具厉害的金尸，炼尸手艺天下一绝，看起来是个和蔼的老婆婆，实则下手狠辣'},{n:'严小影',l:'筑基期·阴魂师',d:'鬼骨堂阴魂师，擅长操控低阶阴魂，能让阴魂帮她打探消息，是堂里最好的阴魂师'},{n:'严七',l:'练气期·守墓人',d:'鬼骨堂守墓人，管着乱葬岗的墓地，沉默寡言，整天待在墓地里，从来没有人见他笑过'}]},
+{name:'修罗分舵',tag:'外围机构',desc:'修罗殿外围机构，设在黑市城，负责发杀戮悬赏、收底层邪修，是邪修赚资源的核心渠道。',npcs:[
+{n:'罗杀',l:'元婴期·舵主',d:'谢玄衣亲卫，只认任务不认人'},
+{n:'罗锋',l:'筑基期·杀手',d:'杀人前留三秒遗言讲体面'},
+{n:'任杀',l:'金丹期·任务长老',d:'掌任务发布'},{n:'陆峰',l:'金丹期·杀手教头',d:'修罗分舵杀手教头，负责训练新杀手，一身杀人的本事出神入化，训练出来的杀手个个都是顶尖的'},{n:'罗裳',l:'筑基期·任务对接',d:'修罗分舵任务对接人，负责对接杀手任务，八面玲珑，从来不会泄露买家和杀手的信息'},{n:'陆烈',l:'练气期·刑堂弟子',d:'修罗分舵刑堂弟子，负责处置任务失败的杀手，手段狠辣，是分舵里人人都怕的煞星'}]},
+{name:'暗影阁北海分部',tag:'跨域组织',desc:'跨域暗杀组织分支，扎根黑市城，接高难度暗杀单，成员擅隐匿刺杀。',npcs:[
+{n:'影杀',l:'元婴期·分部首领',d:'易容术天下第一'},
+{n:'影三',l:'筑基期·杀手',d:'潜伏探情报'},
+{n:'单通',l:'金丹期·接单长老',d:'对接暗杀订单'},{n:'易千面',l:'金丹期·易容师',d:'暗影阁易容师，易容术天下第一，能变成任何人的样子，连亲妈都认不出来，是暗影阁的宝贝'},{n:'苏隐娘',l:'筑基期·女杀手',d:'暗影阁女杀手，擅长用毒和刺杀，出手从来没有失过手，是北海最有名的女杀手'},{n:'陈九',l:'练气期·情报员',d:'暗影阁情报员，在黑市城开了个小茶馆做掩护，专门收集北海的各种情报，消息灵通得很'}]},
+{name:'卫家',tag:'魔道家族',desc:'赤玄恶族，血魔宫外围狗腿，金丹家主坐镇，掌境内凡人城镇与低阶血晶矿，替宗门收血食管凡人。',npcs:[
+{n:'卫屠',l:'金丹期·家主',d:'赤玄大将军，帮血魔宫收血食'},
+{n:'卫虎',l:'筑基期·少爷',d:'四处抓血食无恶不作'},
+{n:'卫收',l:'筑基期·血食管事',d:'下村收血食'},{n:'卫龙',l:'筑基期·护族队头',d:'卫家护族队头领，性格残暴，负责卫家的安全和收血食，手段狠辣，附近的百姓都怕他'},{n:'卫红',l:'筑基期·血丹师',d:'卫家血丹师，擅长炼制低阶血丹，虽然是邪修，但炼出来的血丹质量还不错，很多低阶邪修都买她的血丹'},{n:'卫苟',l:'练气期·监工头',d:'卫家矿场监工头，管着血晶矿的矿工，为人刻薄，经常打骂矿工，是矿工们最恨的人'}]},
+{name:'阎家',tag:'魔道家族',desc:'幽泉阴族，鬼王宗外围狗腿，掌境内阴魂资源与乱葬岗，练粗浅御鬼术。',npcs:[
+{n:'阎算',l:'金丹期·家主',d:'养小鬼偷东西'},
+{n:'阎童',l:'筑基期·小公子',d:'养小鬼整人促狭'},
+{n:'阎尸',l:'练气期·收尸管事',d:'收尸供鬼王宗炼傀'},{n:'阎九思',l:'筑基期·阴魂师',d:'阎家阴魂师，擅长操控低阶阴魂，能让阴魂帮他打探消息和偷东西，是阎家最有天赋的阴魂师'},{n:'严姑',l:'筑基期·炼尸师',d:'阎家炼尸师，严十娘的徒弟，炼尸手艺不错，能炼出听话的低阶尸傀，是阎家最好的炼尸师'},{n:'阎小',l:'练气期·守墓人',d:'阎家守墓人，管着阎家的乱葬岗，胆子极大，晚上一个人在墓地里待着也不害怕'}]},
+{name:'戚家',tag:'魔道家族',desc:'煞武武人家族，修罗殿外围狗腿，掌境内武场与兵源，世代练杀戮刀法。',npcs:[
+{n:'戚战',l:'金丹期·家主',d:'武夫出身，连自己名字都写不利索'},
+{n:'戚兵',l:'筑基期·小将军',d:'负责练兵送修罗殿'},
+{n:'戚征',l:'练气期·征兵管事',d:'抓壮丁'},{n:'戚猛',l:'筑基期·练兵头',d:'戚家练兵头领，负责训练戚家的私兵，训练出来的士兵个个骁勇善战，是修罗殿最喜欢的兵源'},{n:'戚红',l:'筑基期·军医',d:'戚家军医，擅长治疗刀伤箭伤，戚家士兵打仗受了伤都是她治，医术不错，救活了很多士兵'},{n:'戚刀',l:'练气期·兵器管事',d:'戚家兵器管事，负责打造和管理戚家的兵器，打造出来的刀锋利耐用，戚家士兵的刀都是他负责打造的'}]},
+{name:'血城',tag:'超然城池',desc:'血魔宫驻地，北海血道核心主城，城内以实力为尊，卖血晶、血丹，有生死角斗场。',npcs:[
+{n:'卫苍',l:'化神期·城主',d:'卫衣师弟，欠账不还直接扔角斗场'},
+{n:'卫戮',l:'金丹期·城卫统领',d:'杀人不偿命但欠账必追'},
+{n:'魏鑫',l:'金丹期·血晶商铺老板',d:'卖的血晶纯度够不掺假'},
+{n:'厉决',l:'金丹期·角斗场管事',d:'办生死角斗，赢了拿血晶输了丢命'},{n:'卫济世',l:'筑基期·医馆老板',d:'血城医馆老板，虽然是卫家旁支，但心地善良，给人看病不分正邪，只要是病人他都救，在血城这种地方很难得'},{n:'魏红绡',l:'练气期·酒馆老板',d:'血城酒馆老板，酿的血酒味道极好，是血城里最有名的酒馆，三教九流的人都来她这里喝酒，消息也很灵通'}]},
+{name:'鬼城',tag:'超然城池',desc:'鬼王宗驻地，幽冥入口鬼道主城，阴气森森，主营尸傀、阴魂、鬼器交易。',npcs:[
+{n:'阎玄',l:'化神期·城主',d:'阎玉师兄，禁阴魂随便害人'},
+{n:'阴厉',l:'金丹期·城卫统领',d:'统带低阶尸傀巡逻'},
+{n:'阎九',l:'金丹期·尸傀商铺老板',d:'卖的低阶尸傀听话不反噬'},
+{n:'阴罗',l:'金丹期·阴魂商铺老板',d:'卖炼鬼用的低阶阴魂'},{n:'严十娘',l:'金丹期·棺材铺老板',d:'鬼城棺材铺老板，就是鬼骨堂的那个养尸老人，明面上开棺材铺卖棺材，暗地里卖低阶尸傀，是鬼城里有名的老人'},{n:'张灯',l:'练气期·引路者',d:'鬼城引路者，专门给刚来鬼城的人引路，熟悉鬼城的每一条路，还能提醒客人哪些地方不能去，避免客人得罪鬼修'}]},
+{name:'黑市城',tag:'超然城池',desc:'北海中立交易中心，无严格规矩，只禁砸店抢货，禁材、暗杀单、隐秘情报都可交易。',npcs:[
+{n:'墨无面',l:'元婴期·城主',d:'中立不问世事，谁砸店打谁'},
+{n:'墨煞',l:'筑基期·城卫统领',d:'只管砸店不管打架'},
+{n:'魏七',l:'筑基期·禁材商铺老板',d:'卖的禁材都是真货，不钓鱼'},
+{n:'影九',l:'筑基期·暗杀中介',d:'对接暗影阁订单，不泄露买家信息'},{n:'墨予',l:'筑基期·当铺老板',d:'黑市城当铺老板，眼光极准，不管什么东西到他手里都能看出真假和价值，童叟无欺，从来不会故意压价，是黑市里少有的实在人'},{n:'刘醉翁',l:'练气期·酒馆老板',d:'黑市城酒馆老板，酿的酒味道极好，黑市的人都喜欢来他这里喝酒，他这里消息最灵通，想打听消息来他这里准没错'}]},
+{name:'血砂村 / 血色渡口',tag:'村镇',desc:'天堑山脉北侧的凡人村与南北跨天堑核心水路枢纽，明面商队渡口，暗地邪修偷渡、禁品运输核心渠道。',npcs:[
+{n:'卫守义',l:'凡人·血砂村里正',d:'排第六，人称卫老六，卫家旁支，不主动害人性命'},
+{n:'沈冰渔',l:'凡人·渔夫',d:'正道暗桩，以打渔为掩护给正道递消息'},
+{n:'卫路',l:'凡人·向导',d:'外号血导，认灵石不认人，不坑买命钱'},
+{n:'江横波',l:'金丹期·摆渡人',d:'外号渡厄翁，渡人过天堑只收灵石，不分正邪'},
+{n:'墨奎',l:'筑基期·黑店老板',d:'外号墨黑心，卖情报，饭贵但不下蒙汗药害人'},
+{n:'卫守',l:'筑基期·渡口守卫',d:'血煞门弟子，收过路费，给够钱就放行不刁难'},{n:'沈三娘',l:'凡人·渔娘',d:'血砂村渔娘，在血河边打渔为生，做的鱼特别好吃，还会提醒过往的人血河里什么地方危险，是个热心肠'},{n:'卫铁山',l:'练气三层·铁匠',d:'血砂村铁匠，是卫家旁支，但人不坏，打的菜刀和船钉特别结实，渡口的船坏了都找他修，不随便欺负人'},{n:'沈冰雁',l:'凡人·采莲姑娘',d:'血砂村采莲姑娘，在血河边的水洼里采莲蓬和菱角，长得清秀，唱歌也好听，是血砂村最好看的姑娘'},{n:'墨三娘',l:'练气中期·黑店厨娘',d:'血色渡口黑店厨娘，做饭特别好吃，虽然是黑店但从来不害人性命，只劫那些为富不仁的奸商和恶徒，是个有原则的人'},{n:'卫大奎',l:'练气三层·脚夫',d:'血色渡口脚夫，力气大，专门帮人搬货扛东西，人老实，给钱就干活，从来不会偷客人的东西'},{n:'江小鱼',l:'凡人·撑船少年',d:'血色渡口撑船少年，从小在水边长大，水性极好，撑船又稳又快，很多人过河都喜欢坐他的船'}]},
+{name:'冰原村 / 黑冰镇',tag:'村镇',desc:'极地冰原边缘的凡人村与冰原边缘的黑市集镇，是低阶邪修的核心聚居地，邪道新手经典开局点。',npcs:[
+{n:'阎冰',l:'凡人·冰原村里正',d:'阎家旁支，不主动欺负外乡人'},
+{n:'阎猎',l:'凡人·冰原猎人',d:'熟冰原路，发猎冰原雪兔、冰狼的低阶任务'},
+{n:'白莲',l:'凡人·冰莲商人',d:'收冰原灵草、冰莲，价格公道'},
+{n:'戚黑',l:'练气期·黑冰镇镇长',d:'戚家旁支，管镇事，不害普通百姓'},
+{n:'胡醉',l:'练气期·酒馆老板',d:'消息灵通，实际是散修联盟暗桩'},
+{n:'任绝',l:'练气期·任务发布人',d:'发低阶杀坏种、送密信任务，不接滥杀'},{n:'张翠花',l:'凡人·厨娘',d:'冰原村厨娘，张婶，做的炖羊肉和热汤面特别好吃，冰天雪地里来一碗热乎的特别舒服，过往的猎人都喜欢在她这里吃碗热的'},{n:'严厚生',l:'练气三层·皮匠',d:'冰原村皮匠，做的皮袄皮靴特别暖和，还能防冰原的寒气，猎人们都喜欢找他做皮货，手艺极好'},{n:'阎铁蛋',l:'凡人·少年帮工',d:'冰原村少年帮工，力气大，不怕冷，经常帮猎人们看猎物搬东西，赚点钱补贴家用，是个懂事的孩子'},{n:'胡济世',l:'练气后期·镇医',d:'黑冰镇镇医，医术高明，擅长治冰原上的冻伤和寒毒，不管是邪修还是猎人，只要是病人他都给治，在黑冰镇很受尊敬'},{n:'戚万货',l:'练气中期·杂货铺老板',d:'黑冰镇杂货铺老板，杂货铺里什么都有，从烈酒皮袄到火折子伤药，冰原上需要的东西他这里都有，价格公道'},{n:'冷锋',l:'练气三层·猎人',d:'黑冰镇猎人，箭法极好，专门猎冰原上的雪狼和冰兔，胆子大，敢一个人进冰原深处打猎，是镇上最好的猎人'}]}
+]},
+{id:'center',name:'中州',emoji:'⛩️',tag:'丹器阵符 · 仙气盈门',img:'assets/6a4c76233f3dcc5752c8c633.jpg',
+geo:'凡界大陆中心，四方分别衔接东域、西荒、南疆、北海四境，是凡界主干灵脉的交汇核心；境内地势平坦，灵脉密集，仙城与宗门林立，是全界修真文明的中心。',
+feat:'以平原、灵丘、仙湖为主，气候宜人四季如春，灵气浓度为凡界之最，核心区域灵气近乎液化；盛产全属性高阶灵材、天材地宝，丹道、器道、阵道等辅助流派传承冠绝全界，整体秩序由顶级宗门联合维护，规则森严，严禁私斗与越阶袭杀。',
+cities:'玄天城（玄天宗驻地，全界第一仙城，常驻化神至合体）、天丹城（炼丹师公会总部，全界丹道核心）、天器城（炼器师协会总部，全界器道核心）、万商城（万宝阁总部，全界商贸中心）、仙缘镇（玄天宗山脚下缓冲集镇）',
+danger:'低危（炼气-筑基）：外围灵丘、小型宗门秘境、灵云鹤（一阶灵禽）/丹火狐（二阶）；中危（筑基-金丹）：丹道秘境（三十年一开）、器道秘境、玄甲灵龟（三阶土系防御）/七彩鸾鸟（四阶上古瑞兽血脉）；高危（化神-炼虚）：上古战场中部、墨玉麒麟（六阶上古异种）；极危（合体-渡劫）：上古战场核心、上古仙宗遗址、五爪金龙（七阶真龙血脉），残留仙道本源与真仙级威压，暗藏飞升通道与仙界伏笔，凡界终极剧情核心舞台。',
+factions:[
+{name:'大靖王朝',tag:'凡人王朝',desc:'中州正道王朝，依附玄天宗，都靖安，仙选严格，资质好的可直接入玄天宗外门。',npcs:[
+{n:'靖安',l:'筑基期·靖帝',d:'仁厚明君，玄天宗坚定支持者'},
+{n:'靖轩',l:'金丹期·太子',d:'贤明，与楚梦瑶有婚约不强求'},
+{n:'楚湘云',l:'筑基期·皇后',d:'楚梦瑶亲姑姑，与玄天宗关系极深'},
+{n:'林擎',l:'金丹期·大将军',d:'林墨父亲，掌京城防务'},
+{n:'文彦博',l:'筑基期·丞相',d:'文臣，把内政打理得井井有条'},
+{n:'靖柔',l:'筑基期·公主',d:'符修天才，与阮灵溪是好友'}]},
+{name:'大雍王朝',tag:'凡人王朝',desc:'中州正道王朝，依附丹鼎宗，都药都，境内多灵草园丹坊，百姓世代种灵草供丹鼎宗。',npcs:[
+{n:'雍和',l:'筑基期·雍帝',d:'药农出身，温和爱民通药性'},
+{n:'雍灵',l:'筑基期·公主',d:'丹痴，蹲丹鼎宗求拜师'},
+{n:'朱陶',l:'筑基期·丞相',d:'商人出身号陶朱公，与万宝阁交好'},
+{n:'宋辰',l:'筑基期·太医院院正',d:'丹鼎宗外门，医术极高'},
+{n:'雍平',l:'筑基期·太子',d:'温和稳重，给丹鼎宗划上等灵田'},
+{n:'白灵雪',l:'筑基期·贵妃',d:'白家嫡女，帮白家卖养颜丹，极受宠'}]},
+{name:'大宁王朝',tag:'凡人王朝',desc:'中州正道王朝，依附器宗，都天工，境内多矿脉炼器坊，百姓多为矿工、炼器学徒。',npcs:[
+{n:'宁安',l:'筑基期·宁帝',d:'手巧，会做小机关，与器宗关系好'},
+{n:'宁巧',l:'筑基期·太子',d:'机关痴，做的机关比鲁家弟子还巧'},
+{n:'鲁雄',l:'筑基期·丞相',d:'鲁家子弟，管全国矿脉对接器宗'},
+{n:'石铁山',l:'筑基期·大将军',d:'矿工出身，一锤砸扁三阶妖兽，小名铁蛋'},
+{n:'宁悦',l:'筑基期·公主',d:'爱做首饰，与鲁巧是好友'},
+{n:'张衡之',l:'筑基期·工部尚书',d:'管全国工坊，与器宗合作造飞舟'}]},
+{name:'玄天宗',tag:'凡界第一宗',desc:'凡界第一宗，正道领袖，宗主大乘期，镇宗玄天镜可窥探天机、镇压一方，总部玄天城，掌全界正道秩序，是凡界修炼顶点。',npcs:[
+{n:'萧玄天',l:'大乘期·宗主',d:'正道领袖，年轻时和胡媚儿相恋，寻子女百年'},
+{n:'凌虚真人',l:'合体期·执法长老',d:'古板严厉，唯独对楚梦瑶网开一面'},
+{n:'墨知算',l:'化神期·传功长老',d:'爱算卦十卦九不准，坑完就跑，人称墨算先生'},
+{n:'楚梦瑶',l:'金丹期·圣女',d:'冰山美人，一心向道，对婚约无兴趣'},
+{n:'林墨',l:'金丹期·核心弟子',d:'憨厚，常被凌霄当枪使'},
+{n:'墨松',l:'渡劫期·守山者',d:'表面练气凡人，实际渡劫期隐世，闲来看门'},
+{n:'陈砚豆',l:'练气期·外门弟子',d:'仙缘村出身，灵根极好被收为徒孙，人称阿豆'},
+{n:'柳青衣',l:'化神期·丹道长老',d:'外观三十许女修，实际八百岁，丹术通神，性格温和，掌宗门丹房与丹道弟子授业'},
+{n:'沈藏锋',l:'化神期·藏剑峰首座',d:'剑修，沉默寡言，把守剑冢三百年不出，掌剑修传承与剑狱'},
+{n:'云鹤真人',l:'化神期·戒律院首座',d:'白发道姑，外观四十余岁，铁面无私，专查犯戒弟子'},
+{n:'墨长风',l:'筑基圆满·外门执事长老',d:'管外门杂务与弟子日常，性格随和爱酒，常为新弟子通融难处'}]},
+{name:'太虚宗',tag:'顶级宗门',desc:'中州阵道宗门，精空间术法与阵道，镇宗太虚镜可穿梭空间，掌凡界绝大多数跨域传送阵，地位超然。',npcs:[
+{n:'虚尘子',l:'合体期·宗主',d:'空间道大师，掌所有跨域传送阵'},
+{n:'姬无命',l:'炼虚期·副宗主',d:'冷面执事'},
+{n:'虚明',l:'合体期·大长老',d:'阵道宗师，布下所有跨域传送阵'},
+{n:'虚清',l:'金丹期·圣女',d:'空间天赋高，能短距瞬移，欣赏稳重之人'},
+{n:'虚竹',l:'金丹期·核心弟子',d:'阵道天才，与阵小衍是好友'},
+{n:'阵玄',l:'元婴期·传送管事',d:'管中州传送阵，认灵石不认人'},
+{n:'镜玄',l:'化神期·守镜人',d:'守太虚镜能穿梭空间'},
+{n:'玉机子',l:'渡劫期·太上长老',d:'外观四十岁老道，常年闭关，早察觉宗门暗流一直暗中制衡'},
+{n:'洛神仙子',l:'元婴期·真传首座',d:'清冷出尘，常年守藏经阁整理上古空间典籍，不参与权力纷争'},
+{n:'算天',l:'元婴期·天机长老',d:'卜算十卦九准，因早年泄天机瞎了一目，不轻易为人卜算'}]},
+{name:'百花谷',tag:'顶级宗门',desc:'中州全女修宗门，专精木系术法与丹道辅助，弟子多走治疗辅助路线，人脉遍布全界。',npcs:[
+{n:'苏凌薇',l:'合体期·谷主',d:'温柔坚韧，百年前与顾剑尘决裂至今未嫁'},
+{n:'花无媱',l:'化神期·大长老',d:'毒舌护短，天天骂顾剑尘没良心，人称花婆婆'},
+{n:'苏清鸢',l:'金丹期·圣女',d:'苏凌薇弟子，温柔聪慧'},
+{n:'花灵',l:'筑基期·核心弟子',d:'活泼，和青丘儿是好友，常偷溜出谷'},
+{n:'冷竹',l:'筑基期·护卫统领',d:'冷面，男修进谷要搜三遍身'},
+{n:'花莳',l:'练气期·浇花童',d:'能和花沟通，种的药比别人好三倍，人称小花'},
+{n:'药婆婆',l:'元婴期·药园管事',d:'外观六十岁老妇，实际一千岁，种了一辈子灵花异草，连毒花冰莲都能种活'},
+{n:'青莞',l:'筑基期·医女',d:'医术精湛，常下山给百姓义诊'},
+{n:'梅三娘',l:'元婴期·刑堂长老',d:'外观三十岁冷艳女修，专惩犯戒闯山者，出手果决'},
+{n:'桃叶',l:'筑基期·外门执事',d:'管新弟子入门引导，性格温和耐心'}]},
+{name:'丹鼎宗',tag:'凡界丹道圣地',desc:'凡界丹道第一圣地，总部天丹城，宗主九品丹师合体期，掌最顶尖丹道传承，垄断高阶丹方灵草。',npcs:[
+{n:'丹辰子',l:'合体期·宗主',d:'九品丹师丹痴，天天和丹云子比炼丹'},
+{n:'白青崖',l:'化神期·大长老',d:'白家家主，炼了一辈子中阶丹从不出错'},
+{n:'叶丹',l:'练气期·丹童',d:'过目不忘，能背全天下丹方，人称阿丹'},
+{n:'苏柏元',l:'元婴期·丹道长老',d:'掌丹徒考核，严格不苛刻'},
+{n:'叶归农',l:'元婴期·百草园管事',d:'管全宗顶级灵草'},
+{n:'赤烈',l:'化神期·守火人',d:'守丹火几百年没灭，人称火老'},
+{n:'苏药王',l:'化神期·太上长老',d:'外观五十岁慈祥老妇，丹术通神，所炼丹药连魔道都重金求购，一心研丹不问俗务'},
+{n:'卢鼎',l:'金丹期·外门丹堂执事',d:'管外门丹炉与低阶丹药发放，性格憨厚，常给刻苦的弟子塞疗伤药'},
+{n:'柳含烟',l:'金丹期·真传弟子',d:'专攻战丹炼制，性格冷傲'}]},
+{name:'器宗',tag:'凡界器道圣地',desc:'凡界器道第一圣地，总部天器城，宗主九品器师合体期，掌最顶级炼器大阵与矿脉，各宗镇宗之宝多出自此。',npcs:[
+{n:'器尘子',l:'合体期·宗主',d:'九品器师器痴，天天和铸岳山比炼器'},
+{n:'鲁公输',l:'化神期·大长老',d:'鲁家家主，打了一辈子中阶法器结实耐用'},
+{n:'韩锻',l:'金丹期·核心弟子',d:'炼器天才，打的法器带瑕疵但威力奇大'},
+{n:'墨衍',l:'元婴期·炼器长老',d:'掌器徒考核，公平公正'},
+{n:'石坚',l:'元婴期·矿脉管事',d:'管全宗顶级矿脉'},
+{n:'霍焱',l:'练气期·淬火童',d:'控火天赋异禀，火比别人旺三倍，人称火童'},
+{n:'鲁天工',l:'化神期·首席炼器大长老',d:'外观六十岁老者，手艺精绝能在发丝上刻阵，是凡界公认第一炼器师'},
+{n:'沈铁锤',l:'元婴期·铸器长老',d:'满脸横肉的大汉，打铁三百年，所铸法器坚固耐用从无损坏'},
+{n:'小玲珑',l:'金丹期·大师姐',d:'外观十五六岁少女，最擅长做精巧机关法器，造的小飞舟速度冠绝同阶'},
+{n:'墨斗',l:'筑基期·外门材料执事',d:'管材料库，谁领材料都要登记，少一点都要追查'}]},
+{name:'冰魄宫',tag:'二流宗门',desc:'中州二流隐世宗门，冰修传承，常年封山不参与中州纷争，以冰入道，擅冰法防御、冰封敌踪；门规清冷，弟子寡言少语，仅在每十年中州大比时出山。',npcs:[
+{n:'冰夷',l:'化神期·宫主',d:'外观三十岁冰系女修，先天寒冰道体，宗门宫殿由万年玄冰筑成'},
+{n:'冰凝',l:'元婴期·副宫主',d:'外观二十五岁女修，性格冷峻，掌宗门日常与弟子考核'},
+{n:'寒江雪',l:'元婴期·刑堂长老',d:'白衣中年，掌冰牢，刑罚公允'},
+{n:'雪千寻',l:'金丹期·真传弟子',d:'性格冷冽，一心修冰系大道'},
+{n:'霜华',l:'元婴期·长老',d:'外观二十五岁白衣女修，性格相对温和，掌新弟子入门教导'},
+{n:'凌风道长',l:'金丹期·传功长老',d:'白发老道，教冰系基础功法，外冷内热常给弟子开小灶'},
+{n:'冰璃',l:'金丹期·大师姐',d:'外冷内热，常给闭关的小弟子带灵食'},
+{n:'冷石',l:'筑基期·外门执事',d:'寡言少语，管物资发放与山门排班'},
+{n:'冻千秋',l:'筑基期·守山弟子',d:'高大壮汉，值守时整天不动如冰雕'},
+{n:'雪团',l:'筑基期·入门弟子',d:'十五岁少女，性格活泼，是宗里唯一常笑的人'}
+]},
+{name:'白家',tag:'丹道世家',desc:'丹鼎宗附属世家，专精中阶丹药炼制，掌多座灵草园，出的基础丹药遍布全界。',npcs:[
+{n:'白青崖',l:'化神期·家主',d:'丹鼎宗大长老，靠养颜丹发家'},
+{n:'白灵汐',l:'金丹期·小姐',d:'丹道天才'},
+{n:'白砚',l:'金丹期·炼丹管事',d:'掌家族丹房'},{n:'白明远',l:'金丹期·外务管事',d:'丹道白家和外务管事，负责白家对外的生意往来，八面玲珑，跟各大宗门都能说上话'},{n:'白苏',l:'筑基期·丹方管理员',d:'丹道白家丹方管理员，管着白家所有的丹方，过目不忘，所有丹方都记在脑子里，从来不会记错'},{n:'白小棠',l:'练气期·丹童',d:'丹道白家丹童，负责给炼丹师打下手，控火天赋极好，很多炼丹师都喜欢让她帮忙打下手'}]},
+{name:'鲁家',tag:'器道世家',desc:'器宗附属世家，专精中阶法器炼制，掌多座矿脉，是器宗核心外围供应商。',npcs:[
+{n:'鲁公输',l:'化神期·家主',d:'器宗大长老，打了一辈子中阶法器'},
+{n:'鲁巧',l:'金丹期·少爷',d:'专做奇形怪状但好用的法器'},
+{n:'鲁铁',l:'金丹期·打铁管事',d:'掌家族铁匠铺'},{n:'鲁般',l:'金丹期·外务管事',d:'器道鲁家外务管事，负责鲁家对外的生意往来，为人精明，做生意从来不会吃亏'},{n:'鲁小班',l:'筑基期·机关师',d:'器道鲁家机关师，最擅长做各种精巧的机关暗器，做出来的机关连元婴期修士都能伤到'},{n:'鲁锤',l:'练气期·打铁学徒',d:'器道鲁家打铁学徒，虽然年纪小但力气大，打铁肯吃苦，是鲁家年轻一辈里最有天赋的打铁学徒'}]},
+{name:'阵法师公会中州分会',tag:'超然机构',desc:'阵法师官方行会总部，专精阵法布设、售卖、修复，接从护山大阵到传讯阵的各类订单。',npcs:[
+{n:'阵玄翁',l:'化神期·分会长',d:'爱摆阵整人'},
+{n:'阵小衍',l:'金丹期·弟子',d:'能画地成阵，与虚竹是好友'},
+{n:'阵售',l:'金丹期·售阵长老',d:'卖阵法盘'},{n:'陈青衍',l:'金丹期·修阵师傅',d:'阵法师公会修阵师傅，擅长修复各种损坏的阵法，再破的阵法到他手里都能修好，是公会里最好的修阵师'},{n:'林灵素',l:'筑基期·阵盘师',d:'阵法师公会阵盘师，擅长制作各种低阶阵盘，做出来的阵盘质量好价格公道，很多低阶修士都喜欢买她做的阵盘'},{n:'赵风',l:'练气期·测阵弟子',d:'阵法师公会测阵弟子，负责测试新做出来的阵盘和阵法，心思细腻，能发现阵法里最细微的问题'}]},
+{name:'醉仙楼总部',tag:'超然机构',desc:'全界最大风雅场所兼情报副中心，明面上是修士饮酒论道，暗地卖公开情报。',npcs:[
+{n:'笑红尘',l:'化神期·楼主',d:'笑面虎，曾和苏凌薇并称双美'},
+{n:'苏怜卿',l:'筑基期·头牌',d:'歌者，真实身份是暗影阁杀手'},
+{n:'金算',l:'筑基期·账房',d:'掌情报售卖，人称金算盘'},{n:'李酒仙',l:'金丹期·酒道供奉',d:'醉仙楼酒道供奉，一辈子爱酒如命，尝遍天下美酒，能一口尝出酒的年份和产地，是醉仙楼的活招牌'},{n:'苏筱筱',l:'筑基期·舞姬',d:'醉仙楼头牌舞姬，跳得一手好舞，舞姿曼妙，很多修士专门来醉仙楼就是为了看她跳舞'},{n:'石满',l:'练气期·酒窖管事',d:'醉仙楼酒窖管事，管着醉仙楼所有的藏酒，对每一种酒的存放位置和年份都了如指掌，从来不会拿错酒'},{n:'沈轻拢',l:'筑基期·琵琶供奉',d:'一手琵琶技惊中州，弹《十面埋伏》能让低阶修士心神震动，性格清冷，只给懂音律的客人弹奏'},{n:'温玉落',l:'筑基期·棋待诏',d:'围棋国手水平，专门陪客人对弈，性子淡泊，客人能赢她便免全桌酒钱，从未有人能让三子以上胜她'},{n:'墨知春',l:'练气后期·书画娘子',d:'写得一手好瘦金体，画的仕女图在中州能卖上百中品灵石，性格文静，平日就在雅间帮客人题字作画'},{n:'曲流觞',l:'筑基期·酒博士',d:'懂天下万种名酒，会调几十种特制灵酒，能一口尝出酒的年份、产地，性格爽利，酒量不比楼里的李酒仙差'},{n:'花解语',l:'练气中期·花事娘子',d:'负责楼里所有插花、熏香布置，她收拾的雅间自带静心花香，手巧，还会做安神香包送给熟客'},{n:'顾晚盏',l:'练气中期·茶博士',d:'泡茶手艺冠绝中州，能把最普通的灵茶泡出灵韵，水温、茶量控制得分毫不差，话少手稳，从来没洒过一滴茶'},{n:'柳逢迎',l:'练气后期·知客娘子',d:'在门口迎送客人、安排雅间，八面玲珑，来过一次的客人她都能记住名字和喜好，从来不得罪任何客人'},{n:'宋时鲜',l:'练气后期·掌勺厨娘',d:'做的灵食下酒菜是醉仙楼一绝，尤其是醉蟹、糟灵鱼，不少修士专门为了吃她做的菜跨半座城来，性格泼辣，厨房她说一不二'}]},
+{name:'天道盟外围据点',tag:'隐藏势力',desc:'隐藏势力天道盟的明面据点，以二流商人为掩护，暗地收集各宗情报安插棋子。',npcs:[
+{n:'天机子',l:'化神期·负责人',d:'神秘，布下全局棋子'},
+{n:'青玄',l:'筑基期·道童',d:'活了上千年'},
+{n:'天情',l:'金丹期·情报长老',d:'收集各宗秘闻'},{n:'诸葛明',l:'金丹期·谋士',d:'天道盟谋士，足智多谋，擅长布局谋划，天道盟很多大行动都是他策划的'},{n:'林默',l:'筑基期·暗探头',d:'天道盟暗探头领，擅长隐藏身份打探消息，在中州潜伏了很多年，从来没有暴露过身份'},{n:'苏巧云',l:'练气期·机关师',d:'天道盟机关师，擅长制作各种机关消息和暗道，据点里的机关都是她设计的，外人闯进来必死无疑'}]},
+{name:'天机楼总舵',tag:'超然机构',desc:'全界第一情报组织总舵，各域有分楼暗桩，只认灵石不站队，卖从家长里短到宗门秘闻的各类情报。',npcs:[
+{n:'苏玄机',l:'渡劫期·总楼主',d:'没人见过真容，知晓天下所有秘密'},
+{n:'苏雀',l:'练气期·情报员',d:'外号小雀儿，爱传市井八卦'},
+{n:'苏情',l:'金丹期·售卖管事',d:'明码标价卖情报'},
+{n:'苏文',l:'筑基期·记录员',d:'整理归档所有情报'},
+{n:'卫峥',l:'筑基期·楼卫统领',d:'守天机楼安全'},
+{n:'玄机子',l:'化神期·中州分楼主',d:'常年戴斗笠遮面，无人见过真容，掌中州情报网'},
+{n:'青墨',l:'道童',d:'外形永远十二岁，吃了天道莲子长不大，已跟随分楼主一千二百年，掌分楼密档'},
+{n:'李半仙',l:'金丹期·市井情报员',d:'在集市摆摊算命，十卦九准只收一文钱，实为基层眼线'},
+{n:'听风',l:'元婴期·情报长老',d:'外观二十岁清俊男子，掌情报传递网络'},
+{n:'弄月',l:'金丹期·行动执事',d:'专司处理叛徒与泄密事件，出手前给人留三句话时间'}]},
+{name:'散修联盟',tag:'超然机构',desc:'全界散修联合组织，总部东域散修城，不参与正邪纷争，提供任务发布、资源交易、纠纷调解服务。',npcs:[
+{n:'云散人',l:'大乘期·盟主',d:'老好人，护着天下所有散修'},
+{n:'苟不言',l:'筑基期·散修代表',d:'苟道鼻祖，从不接危险任务'},
+{n:'李运隆',l:'练气期·散修代表',d:'运气逆天走路捡功法，字来福，人称李来福'},
+{n:'任平生',l:'金丹期·任务管事',d:'掌任务大厅'},
+{n:'易方',l:'金丹期·交易管事',d:'掌自由交易市场'},
+{n:'和光',l:'元婴期·调解长老',d:'调解散修矛盾'}]},
+{name:'万宝阁总部',tag:'超然机构',desc:'全界最大连锁商阁，总部中州万商城，各域核心城有分号，货真价实童叟无欺。',npcs:[
+{n:'金满堂',l:'大乘期·总阁主',d:'认灵石不认人，从不卖假货'},
+{n:'金万源',l:'元婴期·东域掌柜',d:'为人爽快，常给熟客打折'},
+{n:'金巧舌',l:'金丹期·拍卖师',d:'能把废铁吹成极品灵宝'},
+{n:'金衍',l:'化神期·拍卖管事',d:'掌年度大拍'},
+{n:'金鉴',l:'元婴期·鉴宝师',d:'鉴宝从不出错'},
+{n:'金广存',l:'筑基期·库管',d:'掌所有货物仓储'},
+{n:'金万两',l:'化神期·中州总号大掌柜',d:'富态商人，和气生财，正道魔道都给几分薄面'},
+{n:'金不换',l:'金丹期·少东家',d:'外观二十多岁纨绔子弟，实则心思缜密，常年微服查各分号'},
+{n:'钱如流',l:'筑基期·账房先生',d:'瘦肖机敏，算账从无差错'},
+{n:'苏锦',l:'金丹期·东域分号掌柜',d:'外观三十岁女修，八面玲珑，消息灵通'}]},
+{name:'炼丹师公会总部',tag:'超然机构',desc:'炼丹师官方行会总部，负责丹师等级认证、丹方交流、行业规范制定，认证丹师全界认可。',npcs:[
+{n:'丹云子',l:'大乘期·会长',d:'九品丹师，天天和丹辰子比炼丹'},
+{n:'丹痴翁',l:'化神期·长老',d:'炼丹成魔，为一炉丹能蹲三个月'},
+{n:'林砚',l:'金丹期·考核管事',d:'掌丹师评级'},
+{n:'陈方',l:'元婴期·丹方管事',d:'掌丹方交流收录'},
+{n:'霍炎',l:'筑基期·丹火管事',d:'掌公共丹炉火'},
+{n:'叶灵草',l:'练气期·药童',d:'背得下全天下丹方，人称草儿'}]},
+{name:'炼器师协会总部',tag:'超然机构',desc:'炼器师官方行会，与炼丹师公会并称两大辅助协会，负责器师等级认证、器谱交流、行业标准制定。',npcs:[
+{n:'铸岳山',l:'大乘期·会长',d:'九品器师，天天和器尘子比炼器'},
+{n:'铁玄翁',l:'化神期·长老',d:'隐世高手，平时打凡铁练手'},
+{n:'钟千锤',l:'金丹期·弟子',d:'睡觉都抱铁锤，旧称锤千锻'},
+{n:'石考',l:'金丹期·考核管事',d:'掌器师评级'},
+{n:'器谱',l:'元婴期·管事',d:'掌器谱交流收录'},
+{n:'霍三火',l:'筑基期·淬火管事',d:'掌公共淬火池，人称火三'}]},
+{name:'玄天城',tag:'超然城池',desc:'玄天宗驻地，全界第一仙城，规矩极严，有跨域总传送阵。',npcs:[
+{n:'凌虚真人',l:'合体期·城主',d:'玄天宗执法长老，犯了规矩不管背景直接抓'},
+{n:'楚峰',l:'元婴期·城卫统领',d:'禁城内私斗乱飞'},
+{n:'虚通',l:'元婴期·传送阵管事',d:'管跨域传送，认灵石不认人'},
+{n:'苏醉',l:'金丹期·醉仙楼分号掌柜',d:'笑红尘徒弟，卖酒也卖消息'},{n:'张景岳',l:'金丹期·医馆老板',d:'玄天城医馆老板，是中州有名的神医，医术通神，连玄天宗的长老都找他看病，可惜他每天只看十个病人，排队都排到几个月后了'},{n:'李万贯',l:'筑基期·灵石行管事',d:'玄天城灵石行管事，负责灵石的兑换和存储，背后是万宝阁，实力雄厚，信誉极好，很多大宗门都把灵石存在他这里'}]},
+{name:'天丹城',tag:'超然城池',desc:'炼丹师公会总部所在，凡界丹道圣地，城内药香弥漫，定期办丹道大比。',npcs:[
+{n:'丹云子',l:'大乘期·城主',d:'炼丹师公会会长，偶尔会蹲在路边看小药童辨药'},
+{n:'白擎',l:'元婴期·城卫统领',d:'禁居民区炸炉，炸了罚扫一个月丹房'},
+{n:'沈百草',l:'金丹期·丹药商铺老板',d:'卖的低阶丹药从不缺斤短两'},
+{n:'林砚',l:'金丹期·考核点管事',d:'管丹师评级，公平不徇私'},{n:'沈辰',l:'筑基期·丹火管事',d:'天丹城公共丹房的丹火管事，负责管理公共丹火，丹火控制得极好，还能帮炼丹师调整丹火温度，很多低阶炼丹师都喜欢来公共丹房炼丹'},{n:'叶春娘',l:'练气期·小吃摊老板',d:'天丹城小吃摊老板，做的灵食小吃味道极好，尤其是丹液豆花，炼丹师们炼丹累了都喜欢来她这里吃碗豆花休息一下'}]},
+{name:'天器城',tag:'超然城池',desc:'炼器师协会总部所在，凡界器道圣地，城内打铁声日夜不停，可定制高阶法器。',npcs:[
+{n:'铸岳山',l:'大乘期·城主',d:'炼器师协会会长，偶尔会帮小铁匠修锤子'},
+{n:'铁铮',l:'元婴期·城卫统领',d:'禁居民区失火，走水罚打三个月铁'},
+{n:'韩兵',l:'金丹期·法器商铺老板',d:'卖的低阶法器结实耐用'},
+{n:'石锻',l:'金丹期·考核点管事',d:'管器师评级，只看手艺不看背景'},{n:'王砺',l:'筑基期·淬火池管事',d:'天器城公共淬火池管事，负责管理公共淬火池，对淬火的水温水质控制得极好，炼器师们淬火都喜欢找他帮忙，淬出来的法器质量更好'},{n:'王秀娘',l:'练气期·小吃摊老板',d:'天器城小吃摊老板，做的肉夹馍和灵米粥味道极好，炼器师们打铁累了都喜欢来她这里吃点东西垫垫肚子'}]},
+{name:'万商城',tag:'超然城池',desc:'万宝阁全界总部，凡界商贸中心，城内金碧辉煌，年度大拍时各势力都会派人参加。',npcs:[
+{n:'金满堂',l:'大乘期·城主',d:'万宝阁总阁主，从不卖假货，坑人直接逐出城'},
+{n:'金钺',l:'元婴期·城卫统领',d:'禁抢拍品，抢了永久禁入万宝阁'},
+{n:'金衍',l:'化神期·拍卖场管事',d:'管年度大拍'},
+{n:'金鉴',l:'元婴期·鉴宝中心管事',d:'免费鉴宝，从不看走眼'},{n:'金多福',l:'元婴期·贵宾接待',d:'万宝阁贵宾接待，是金家的老人，见多识广，专门接待各大宗门的高层和大客户，八面玲珑，从来不会得罪客人'},{n:'金小蝶',l:'筑基期·拍卖侍女',d:'万宝阁拍卖侍女，长得漂亮，记性也好，能记住所有拍品的信息，主持小拍卖会的时候口齿伶俐，很受客人喜欢'}]},
+{name:'仙缘村 / 仙缘镇',tag:'村镇',desc:'玄天宗山脚下凡人村与缓冲集镇，村民世代为宗门打理灵田处理杂务，孩童自幼接触基础修仙知识，仙选通过率极高。',npcs:[
+{n:'苏缘',l:'金丹期·仙缘村里正',d:'外号仙老，玄天宗外围管事，管仙选初选，不埋没好苗子'},
+{n:'张存根',l:'凡人·村中老者',d:'人称张老根，见过很多修士，爱给小孩讲仙门故事'},
+{n:'陈砚豆',l:'练气期·少年',d:'小名阿豆，后来被萧玄天亲自收为徒孙'},
+{n:'宋知远',l:'筑基期·仙缘镇镇长',d:'玄天宗派驻执事，公道不刁难求仙的普通人'},
+{n:'张砚',l:'筑基期·接引道人',d:'玄天宗外门执事，负责接引求仙新人，不收贿赂'},
+{n:'苟不言',l:'筑基期·常驻散修',d:'天天蹲客栈角落，见人就劝"修仙不如苟着，活着最重要"'},{n:'张桂兰',l:'凡人·厨娘',d:'仙缘村厨娘，张婶，做饭特别好吃，村里的孩子都喜欢吃她做的饭，谁家有事她都主动帮忙，是村里有名的热心人'},{n:'苏巧生',l:'练气三层·木匠',d:'仙缘村木匠，手艺极好，做的家具农具都特别结实，还会做简单的木剑给村里想修仙的孩子，人很老实'},{n:'陈仙儿',l:'凡人·指路姑娘',d:'仙缘村指路姑娘，经常在村口待着，给来求仙的人指路，还会告诉他们求仙的注意事项，很多来求仙的人都受过她的帮助'},{n:'张太楚',l:'练气后期·镇医',d:'仙缘镇镇医，是药王谷出来的弟子，医术高明，来求仙的人水土不服或者生了病都找他看，收费便宜，遇到穷人还免费给治'},{n:'王书文',l:'练气中期·书铺老板',d:'仙缘镇书铺老板，卖各种基础修炼功法和修仙入门的书，都是正版，从来不卖假功法坑刚来的求仙者，名声很好'},{n:'李三娘',l:'练气三层·客栈老板',d:'仙缘镇客栈老板，李婶，客栈便宜干净，还能给刚来的求仙者讲玄天宗仙选的注意事项，很多求仙者刚来都住她家'}]},
+{name:'丹炉村',tag:'村镇',desc:'天丹城周边的村子，村民世代为丹鼎宗种植灵草、炮制基础药材，村内家家有简易丹炉。',npcs:[
+{n:'苏丹',l:'凡人·里正',d:'外号丹老，丹鼎宗外围管事，管灵田上交，不克扣药农工钱'},
+{n:'叶农',l:'凡人·药农',d:'种了一辈子灵草，认全低阶灵草，免费教小孩认药'},
+{n:'青砚',l:'练气期·送药童子',d:'定期给丹鼎宗送灵草，人称青丹，常给村里小孩带丹房剩的糖丸'},{n:'叶秋娘',l:'凡人·厨娘',d:'丹炉村厨娘，叶婶，做饭特别好吃，尤其是做的灵米糕，丹鼎宗的弟子都喜欢吃她做的饭，人很勤快'},{n:'苏竹',l:'练气三层·篾匠',d:'丹炉村篾匠，手特别巧，编的药篓、簸箕、竹筛特别结实好用，丹鼎宗晒药制药都喜欢用他编的竹器'},{n:'叶丹红',l:'凡人·炮药姑娘',d:'丹炉村炮药姑娘，从小跟着长辈炮制药材，炮制药材的手艺极好，很多药农采了药材都找她帮忙炮制，手很巧'}]}
+]}
+];
+/* ============ 仙界数据 ============ */
+const xianRegions=[
+{id:'donsheng',name:'东胜洲',emoji:'⚔️',tag:'玄门道统 · 新人起步',img:'assets/6a4c76b63f3dcc5752c8c702.jpg',
+geo:'仙界东部，东濒混沌之海、直抵混沌边境（外魔漏出方向之一），西接中央天洲东境，南隔万妖谷余脉与南赡部洲相望，北凭寒渊云带与北俱芦洲分界；境内青冥仙脉纵贯南北为主干灵脉，云海浮岛沿脉罗列。',
+feat:'以浮空灵峰、云海仙原为主，仙气浓郁仅次于中央天洲，盛产金系、木系法则灵材（利剑修、丹修）；玄门道统鼎盛、秩序森严，是刚飞升玄门弟子的首要落脚地，堕仙与外魔仅东境混沌边界零星出没，是新人仙起步的最优区域。设「东华渡仙台」，凡界东域飞升者多由此接引落地。',
+cities:'东华仙城（第一主城、分盟所在，常驻天仙至玄仙）、云浮城（散仙聚居地，鱼龙混杂）、青冥剑城（太玄剑宗坐镇的剑修之城）',
+danger:'低危（人仙-地仙）：云海外围、废弃浮岛、迷失散仙残念、失控低阶护山符傀儡；中危（天仙-真仙）：青冥秘境、上古剑冢、无主凶剑之灵、走火入魔剑修残魂；高危（玄仙-金仙）：上古仙府遗迹、混沌边界浅层、守陵傀儡、初代堕仙、漏入低阶外魔；极危（仙君以上）：混沌深处、蓬莱残岛现世点、上古剑灵、道陨魔主、外魔精锐。',
+factions:[
+{name:'太玄剑宗',tag:'玄门三宗',desc:'东胜洲剑修祖庭，纯剑修圣地，镇宗太玄剑阵，凡界东域剑修飞升之归处，攻伐冠绝东胜洲。',npcs:[
+{n:'叶青冥',l:'仙君·宗主',d:'刚正护短'},
+{n:'剑无归',l:'仙君圆满·太上老祖',d:'凡界诛仙剑阵创阵祖师·凡界锚点，剑冢清修暗恋月瑶'},
+{n:'秋叶白',l:'金仙·大长老',d:'剑痴'},
+{n:'楚长风',l:'玄仙·刑罚长老',d:'铁面斩堕仙'},
+{n:'云无咎',l:'金仙·讲道长老',d:'温润授业'},
+{n:'江离',l:'真仙·圣子',d:'狂傲要强'},
+{n:'苏雪衣',l:'玄仙·圣女',d:'冷面剑心，被瑶池惦记'},
+{n:'韩霜',l:'真仙·核心弟子',d:'专劝江离'},
+{n:'寒铁子',l:'玄仙·铸剑仙师',d:'只给剑心纯正者铸剑'},
+{n:'阿听',l:'地仙·守剑童',d:'天生剑心能听剑语'},
+{n:'墨白',l:'玄仙·承剑楼管事',d:'掌全宗剑器登记'},
+{n:'钱多多',l:'人仙·守山知客',d:'八卦精'},
+{n:'石罡',l:'真仙·斩魔堂主',d:'热心糙汉'},
+{n:'沈砚',l:'人仙·新飞升弟子',d:'凡界飞升不久尚未定位'}]},
+{name:'太清道宫',tag:'玄门三宗',desc:'东胜洲丹符道法祖庭，玄门道法、丹道、符箓传承最全，藏天阶仙法百余部，是东胜洲丹药、仙符的供应核心。',npcs:[
+{n:'玄微真人',l:'仙君·宗主',d:'仙风道骨爱打机锋'},
+{n:'云鼎子',l:'仙君·太上老祖',d:'凡界丹道传奇飞升·凡界锚点，痴丹如命'},
+{n:'火云子',l:'金仙·丹道大长老',d:'九品丹仙'},
+{n:'周天罡',l:'玄仙·符箓长老',d:'画符不拘一格'},
+{n:'明镜真人',l:'玄仙·道法长老',d:'讲道最耐心'},
+{n:'陆青云',l:'真仙·圣子',d:'道法天才略呆'},
+{n:'白芷',l:'玄仙·圣女',d:'医丹双修'},
+{n:'赤炎',l:'玄仙·守火人',d:'守宗门丹火千年不熄'},
+{n:'小药',l:'地仙·丹童',d:'背全丹方'},
+{n:'叶归元',l:'玄仙·药园管事',d:'掌全宗仙药灵田'},
+{n:'墨玄',l:'金仙·玄览楼管事',d:'凡界退隐散修养老'},
+{n:'青禾',l:'真仙·核心弟子',d:'画符鬼才'},
+{n:'老吴',l:'人仙·杂役管事',d:'勤恳管全宗杂役'},
+{n:'云袖',l:'人仙·新飞升弟子',d:'凡界女修，正学画符'}]},
+{name:'瑶池宫',tag:'玄门三宗',desc:'东胜洲全女修·风雅灰色圣地，剑丹乐舞魅皆备兼修合欢双修，明面是仙界第一风雅之地，暗中兼营风月与情报，为万仙盟默许的灰色势力。',npcs:[
+{n:'云裳',l:'仙君·宫主',d:'风华绝代笑里藏刀，掌情报网'},
+{n:'月瑶仙子',l:'仙君·太上老祖',d:'凡界女修传奇飞升·凡界锚点，与剑无归万年旧情'},
+{n:'霜岚',l:'金仙·大长老',d:'冷艳护短'},
+{n:'芍药',l:'玄仙·丹道长老',d:'驻颜丹圣手'},
+{n:'绕梁',l:'玄仙·乐修长老',d:'一曲摄魂'},
+{n:'苏媚',l:'玄仙·魅术长老',d:'合欢正统只勾魂不害命'},
+{n:'语嫣',l:'真仙·圣女',d:'清冷向道·宫中异类'},
+{n:'巧笑',l:'玄仙·情报堂主',d:'掌宫内情报网'},
+{n:'冷月',l:'真仙·护卫统领',d:'搜身三遍才让男修进宫'},
+{n:'云袖儿',l:'真仙·核心弟子',d:'舞修爱闹'},
+{n:'琴心',l:'玄仙·琴师',d:'琴声可安神魂'},
+{n:'露儿',l:'人仙·药童',d:'采瑶池露'},
+{n:'阿箬',l:'地仙·迎仙知客',d:'迎接飞升者第一面'},
+{n:'沁雪',l:'人仙·新飞升弟子',d:'凡界女修新入宗'}]}
+]},
+{id:'xiniu',name:'西牛贺洲',emoji:'⛪',tag:'多神系混居 · 谍战边境',img:'assets/6a4c76d23f3dcc5752c8c718.jpg',
+geo:'仙界西部，东接中央天洲西境，西抵混沌缝隙（外魔入侵主方向），南邻南赡部洲，北接北俱芦洲冰原荒古；境内神国林立、佛光神辉交织，是仙界信仰之力最浓、教义摩擦最烈之地。瀛洲残岛现世于此洲外。',
+feat:'以圣山、神域、佛土为主，仙气中夹杂信仰之力与神性辉光；越近混沌缝隙魔气越重，边境常年拉锯。不产法则灵材，却盛产信仰结晶、神格碎片，是"以信仰抗坐忘"的核心试验场。',
+cities:'须弥山佛城、奥林匹斯-阿萨神域、伊甸天国城（三分鼎立）、边境圣战城（三方与外魔的拉锯前线，也是谍战交汇点）',
+danger:'低危（人仙-地仙）：神域外围、废弃佛窟、迷途信徒执念残影、佛窟心魔幻影；中危（天仙-真仙）：混沌缝隙浅层、异教禁地、魔化英灵战士、失控狂信徒；高危（玄仙-金仙）：堕落神殿、被污染圣物之地、堕天使、着魔高阶神职、被信仰污染的伪神；极危（仙君以上）：混沌缝隙深处、瀛洲残岛现世点、外魔主力、被吞噬神格的"空壳神"、伪神本尊。',
+factions:[
+{name:'须弥佛国',tag:'三大势力',desc:'东方佛修圣地，庄严偏执——认定唯有皈依其正法方能免于坐忘，异见皆是"未渡之魔"，以金刚、明王愤怒相行审判镇压。表面慈悲，实则独断。',npcs:[
+{n:'法观相',l:'仙君·佛主',d:'金身佛陀，慈悲皮相下极端偏执'},
+{n:'苦禅',l:'仙君圆满·太上古佛',d:'凡界佛门祖师飞升·凡界锚点，痛心闭关'},
+{n:'不空',l:'金仙·明王殿首座',d:'审判急先锋'},
+{n:'慧海',l:'金仙·罗汉堂首座',d:'横练金身憨直'},
+{n:'观照',l:'玄仙·说法尊者',d:'暗庇无辜'},
+{n:'戒嗔',l:'玄仙·戒律院院首',d:'冷硬教条'},
+{n:'悟真',l:'真仙·佛子',d:'起疑道之心·暗线'},
+{n:'妙音',l:'真仙·佛女',d:'梵唱驱污染'},
+{n:'智广',l:'金仙·罗汉双尊之一',d:'与智深斗嘴活宝'},
+{n:'智深',l:'金仙·罗汉双尊之二',d:'与智广斗嘴活宝'},
+{n:'慧觉',l:'玄仙·藏经楼首座',d:'反对烧异端书'},
+{n:'扫尘',l:'?·守池老僧',d:'隐世高人身份成谜'},
+{n:'净心',l:'地仙·小沙弥',d:'慧根深'},
+{n:'行痴',l:'真仙·苦行头陀',d:'游走除魔'},
+{n:'慧明',l:'天仙·接引知客',d:'迎新入门'},
+{n:'释尘',l:'人仙·新飞升弟子',d:'凡界佛修新入'}]},
+{name:'万神殿',tag:'三大势力',desc:'域外降临的武神神系，内分奥林匹斯诸神与北欧阿萨神族两派，以神格立身、靠信仰供奉，尚武务实，两派明争暗斗却一致抱团抗衡东西方。',npcs:[
+{n:'宙斯',l:'仙君·奥林匹斯主神',d:'霸道风流·争共主'},
+{n:'波塞冬',l:'玄仙',d:'掌海暴躁'},
+{n:'哈迪斯',l:'金仙',d:'掌幽冥孤僻讲理'},
+{n:'阿瑞斯',l:'金仙·战神',d:'嗜战·与血战盟惺惺相惜'},
+{n:'雅典娜',l:'金仙·智慧女神',d:'谋略定海神针'},
+{n:'赫尔墨斯',l:'真仙·神使',d:'最灵通的腿'},
+{n:'阿波罗',l:'真仙·太阳神',d:'才华自恋'},
+{n:'阿佛洛狄忒',l:'玄仙·爱与美',d:'与瑶池云裳织情报网'},
+{n:'奥丁',l:'仙君·阿萨主神',d:'独眼深谋·被诸神黄昏预言所压'},
+{n:'托尔',l:'金仙·雷神',d:'豪爽好战酒量第一'},
+{n:'洛基',l:'玄仙·诡神',d:'搅屎棍·暗线枢纽·通天堂神国'},
+{n:'布伦希尔德',l:'真仙·女武神统领',d:'冷艳'},
+{n:'海姆达尔',l:'金仙·守桥者',d:'尽忠'},
+{n:'赫菲斯托斯',l:'金仙·锻神',d:'跛足臭脾气好手艺'},
+{n:'姜战',l:'真仙·英灵之首',d:'凡界飞升武修·凡界锚点'},
+{n:'阿喀琉斯',l:'天仙·半神新锐',d:'刚成神不久'}]},
+{name:'天堂神国',tag:'三大势力',desc:'【神国乱】反派，西方唯一神·上帝之国，炽天使不可名状，以"救赎恩典"温柔收割道果——越虔诚越坐忘。',npcs:[
+{n:'上帝',l:'?·唯一神',d:'从未现身，本质疑为寂灭渊触须·全神国最大恐怖'},
+{n:'格里高利',l:'仙君·大主教',d:'虔诚疯狂·【神国乱】主使'},
+{n:'梅塔特隆',l:'仙君圆满·炽天使长',d:'六翼不可名状近无人性'},
+{n:'米迦勒',l:'金仙·战斗大天使',d:'炎剑利刃'},
+{n:'加百列',l:'金仙·传令大天使',d:'传教网总指挥'},
+{n:'拉斐尔',l:'玄仙·治愈大天使',d:'救赎池主理·渡人坐忘而不自觉'},
+{n:'乌列尔',l:'金仙·审判大天使',d:'火焰审判冷酷'},
+{n:'维克托',l:'玄仙·首席枢机',d:'权术未必真信'},
+{n:'塞西莉亚',l:'真仙·圣女',d:'最虔诚却最先起疑'},
+{n:'多米尼克',l:'玄仙·传教士团长',d:'前线蛊惑者'},
+{n:'托马斯',l:'天仙·忏悔修士',d:'听出不对劲'},
+{n:'路西法',l:'?·堕天使',d:'识破真相愤而堕落·清醒反抗者·玩家盟友'},
+{n:'安洁',l:'真仙·觉醒修女',d:'暗中联络外部'},
+{n:'陈松',l:'天仙·迷途羔羊',d:'凡界修士被蛊惑皈依·凡界锚点·悲剧警示'}]}
+]},
+{id:'nanshan',name:'南赡部洲',emoji:'🐉',tag:'妖国十万山 · 血脉丛林',img:'assets/6a4c76e93f3dcc5752c8c72b.jpg',
+geo:'仙界南部，北接中央天洲南境，东邻东胜洲，西接西牛贺洲，南抵万妖谷（先天妖脉源头）；境内十万灵山绵延，灵根仙果、先天血脉富集，是妖修与先天仙兽的家园。方丈残岛现世于此洲外。',
+feat:'以灵山、火渊、寒泽、雨林为主，地脉属性驳杂、各具其能；仙气浓郁、生机鼎盛，是仙界唯一以血脉传承为主、而非法则修行为主的区域。妖皇烛照沉睡，几大妖部共治。',
+cities:'万妖主城（妖朝共主之地）、天狐月华城、龙渊禁地（云梦龙渊）、万妖谷（先天妖脉源头，也是南境接壤混沌的险地）',
+danger:'低危（人仙-地仙）：外围灵山、灵果林、误食灵果暴走的野性仙兽；中危（天仙-真仙）：血脉试炼地、火渊寒泽、返祖失控的部族妖（暴走的凤/狐/鹏）；高危（玄仙-金仙）：上古妖庭遗址、凶兽部荒煞地、饕餮穷奇等返祖凶兽、被煞气侵蚀的堕妖；极危（仙君以上）：万妖谷深处、方丈残岛现世点、沉睡的上古妖神残躯、妖族坐忘所化的混沌妖魔。',
+factions:[
+{name:'万妖朝妖皇',tag:'共主·仙王级',desc:'烛照，上古烛龙血脉，为镇噬渊力竭沉睡百万年，睁眼为昼闭眼为夜。',npcs:[
+{n:'烛照',l:'仙王级·妖皇',d:'上古烛龙血脉，为镇噬渊力竭沉睡百万年'}]},
+{name:'青丘月华城',tag:'天狐一族',desc:'情报风月，掌南赡部洲情报与风月，与东胜洲瑶池宫暗通款曲。',npcs:[
+{n:'涂山颜',l:'仙君·青丘之主',d:'九尾天狐绝色掌情报·三媚之一'},
+{n:'玄狐君',l:'仙君·太上长老',d:'凡界狐族传奇飞升·凡界锚点'},
+{n:'涂山月',l:'玄仙·长老',d:'守家管内务'},
+{n:'苏媱',l:'玄仙·魅术长老',d:'与瑶池苏媚同源'},
+{n:'幻姬',l:'玄仙·幻术长老',d:'困金仙'},
+{n:'狐九',l:'玄仙·暗探首领',d:'掌狐族情报'},
+{n:'小绯',l:'天仙·小公主',d:'古灵精怪'},
+{n:'阿朱',l:'天仙·炼药狐',d:'制媚药'},
+{n:'银守夜',l:'真仙·护卫统领',d:'银发狐族卫队之首'},
+{n:'财狐',l:'地仙·账房',d:'抠门'}]},
+{name:'炎寒岭',tag:'凤凰一族',desc:'朱雀血脉，据梧桐火山与寒渊两地，涅槃重生、火冰双绝。',npcs:[
+{n:'凰昭',l:'仙君·岭主',d:'火凤凰炽烈一点就着'},
+{n:'凰夙',l:'玄仙·冰凤凰',d:'孪生妹·全族刹车'},
+{n:'赤羽',l:'玄仙·朱雀长老',d:'劝架专业户'},
+{n:'焱祖',l:'金仙·涅槃祭司',d:'掌圣火'},
+{n:'青鸾',l:'真仙·少主',d:'骄矜嘴硬心软'},
+{n:'霜翎',l:'玄仙·寒渊守将',d:'守冰凤祖地'},
+{n:'鸣岐',l:'真仙·青鸾侍卫',d:'闷声暗恋'},
+{n:'凰离',l:'天仙·幼子',d:'血脉未醒'},
+{n:'炎奴',l:'天仙·守火将',d:'守圣火不熄'}]},
+{name:'北溟风渊',tag:'鲲鹏一族',desc:'北溟血脉，大鹏金翅、鲲鹏坐镇，速度与虚空穿梭天下无双，是妖朝斥候与突袭主力。',npcs:[
+{n:'鹏九霄',l:'仙君·渊主',d:'鲲鹏速度天下第一'},
+{n:'迦楼',l:'真仙·大鹏少主',d:'好胜爱冒进'},
+{n:'鲲溟',l:'玄仙·长老',d:'与鹏九霄双生一体'},
+{n:'迦叶',l:'金仙·金翅老将',d:'护犊'},
+{n:'云翎',l:'天仙·迦楼堂妹',d:'比哥哥快'},
+{n:'风隼',l:'玄仙·斥候统领',d:'眼尖'},
+{n:'疾风',l:'天仙·传讯官',d:'妖朝的腿'},
+{n:'溟渊',l:'玄仙·长老',d:'沉默潜行'},
+{n:'阿霄',l:'地仙·雏鹏',d:'未成年小鹏'}]},
+{name:'瑞泽祥林',tag:'祥瑞一族',desc:'麒麟、白泽、貔貅、重明鸟等仁兽祥瑞，血脉高贵、通晓术数，多任妖朝祭司与谋主，妖皇沉睡后由麒麟麟渊摄政。',npcs:[
+{n:'麟渊',l:'仙君·林主',d:'麒麟睿智仁厚·妖皇沉睡后摄政'},
+{n:'知微',l:'金仙·白泽长老',d:'活字典'},
+{n:'龟蒙',l:'金仙·神龟长老',d:'善卜卦慢性子'},
+{n:'金睛',l:'玄仙·貔貅长老',d:'守宝库贪财'},
+{n:'重明',l:'玄仙·重明鸟大祭司',d:'双瞳辟邪'},
+{n:'执正',l:'玄仙·獬豸律法长老',d:'铁面执法'},
+{n:'麟昭',l:'真仙·少主',d:'继承人压力大'},
+{n:'录微',l:'天仙·白泽弟子',d:'修撰典籍'},
+{n:'灵犀',l:'天仙·重明鸟部下',d:'通灵'}]},
+{name:'南境荒煞地',tag:'凶兽一族',desc:'饕餮、穷奇、梼杌等上古四凶血脉，嗜杀好战、最易堕化，盘踞南境荒煞地，与外魔、坐忘线暗中勾连，是妖国内部最大隐患。',npcs:[
+{n:'梼煞',l:'仙君·地主',d:'梼杌血脉顽凶·暗通外魔聆道者图谋夺权'},
+{n:'饕血',l:'玄仙·饕餮血脉',d:'贪食打手'},
+{n:'穷戾',l:'玄仙·穷奇血脉',d:'助恶嗜杀'},
+{n:'浑敦',l:'玄仙·浑敦血脉',d:'无面诡异·半坐忘'},
+{n:'蛊雕',l:'玄仙·蛊雕血脉',d:'阴险毒士·牵线外魔'},
+{n:'噬神骨',l:'真仙·饕餮猛将',d:'只知杀戮'},
+{n:'迷烈魂',l:'真仙',d:'被道音侵染·堕化活证据'},
+{n:'幼獍',l:'天仙·穷奇幼崽',d:'可救可堕·玩家抉择钩子'}]},
+{name:'云梦龙渊',tag:'龙族独立',desc:'九爪真龙一族独居，血脉天下最贵、性极高傲，超然于妖朝之外，不争不抢、等闲不出，是南赡部洲压箱底的终极底牌。',npcs:[
+{n:'敖霄',l:'仙君圆满近仙王·龙君',d:'九爪真龙高傲超然'},
+{n:'敖沧',l:'仙君·太上龙祖',d:'知上古秘辛近沉睡'},
+{n:'沧漪',l:'玄仙·龙妃',d:'唯一劝得动敖霄'},
+{n:'敖应',l:'金仙·应龙长老',d:'行云布雨主事'},
+{n:'敖雪',l:'玄仙·龙女',d:'骄傲清冷'},
+{n:'敖烈',l:'真仙·龙子',d:'坐不住想出去闯'},
+{n:'螭吻',l:'玄仙·蛟族旁支',d:'渴望化龙'},
+{n:'敖钧',l:'真仙·龙卫统领',d:'忠诚守渊'},
+{n:'敖阙',l:'金仙·守珠长老',d:'守龙渊定海珠'},
+{n:'敖雷',l:'天仙·敖烈堂弟',d:'跟屁虫'}]},
+{name:'南境忘道墟',tag:'失道禁地',desc:'仙界第一绝地，失道仙人本能聚集，无主无制，仙门远避百里，入者九死一生',npcs:[
+{n:'玄天宸',l:'仙帝·墟心坐忘者',d:'半疯守道，帝韵压境'},
+{n:'商绝',l:'仙王·东崖剑主',d:'断剑疯仙，万剑穿心'},
+{n:'妘瑶',l:'仙王·南崖火主',d:'火道失道，焚仙火不熄'},
+{n:'墨绝非',l:'仙王·西崖阵主',d:'阵道疯仙，入阵无生'},
+{n:'刘归真',l:'仙王·裂隙守将',d:'战仙失道，近者即杀'},
+{n:'澹海棠',l:'仙王·北崖钓者',d:'冥水失道，拖人沉水'},
+{n:'顾皖持',l:'仙王·西崖霜主',d:'霜剑失道，近者冰封'},
+{n:'沈飞翔',l:'仙君·乱骨坡游荡',d:'原藏道首座，吸人道则'},
+{n:'楚归天',l:'仙君·墟边游荡',d:'游侠失道，常出墟屠人'},
+{n:'宁冥',l:'仙君·乱骨坡游荡',d:'原守碑人，疯癫无常'},
+{n:'苏坡烈',l:'仙君·乱骨坡游荡',d:'丹道失道，塞人毒丹'},
+{n:'谢刃强',l:'玄仙·墟口游荡',d:'原执法校尉，见人即砍'},
+{n:'素微海',l:'玄仙·藏剑谷游荡',d:'药童失道，撒毒粉烂道'},
+{n:'江二拾',l:'真仙·藏剑谷游荡',d:'新飞升剑修，捡剑捅人'},
+{n:'李绝望',l:'天仙·墟外围游荡',d:'酒仙失道，喷酒乱神'}]},
+{name:'南境险地',tag:'域外凶兽',desc:'不属妖朝、各占险地，含万妖谷、噬渊、缚狼冰牢；三头"北欧终末系"暗中呼应仙王级世界之蛇。',npcs:[
+{n:'耶梦加得',l:'仙王级·世界之蛇',d:'盘踞噬渊·连妖皇都要镇压·直连寂灭渊'},
+{n:'芬里尔',l:'仙君·巨狼',d:'缚狼冰牢·通洛基盼终末'},
+{n:'尼德霍格',l:'仙君·噬根毒龙',d:'地底啃世界树根·最阴隐患'},
+{n:'格里芬',l:'玄仙·狮鹫王',d:'归化妖朝客卿'},
+{n:'海德拉',l:'玄仙·九头蛇',d:'毒沼·斩头再生'},
+{n:'刻耳柏洛斯',l:'玄仙·地狱三头犬',d:'守亡者遗冢'},
+{n:'塞壬',l:'玄仙·海妖',d:'歌声惑人'},
+{n:'美杜莎',l:'玄仙·蛇发女妖',d:'石化独居'}]}
+]},
+{id:'beiju',name:'北俱芦洲',emoji:'🗡️',tag:'巫战之地 · 擂台死斗',img:'assets/6a4c77053f3dcc5752c8c745.jpg',
+geo:'仙界北部，南接中央天洲北境，东邻东胜洲，西接西牛贺洲，北抵冰原荒古（直连寂灭渊）；境内荒原、战场、冰渊纵横，尚武成风、弱肉强食。祖巫冢碎块现世于此洲外。',
+feat:'以荒原、雪岭、古战场为主，仙气中夹杂荒古煞气与祖巫血气，寻常仙人久留伤道心；盛产战体宝材、祖巫遗蜕，是仙界唯一以炼体、血脉、杀伐立身的野性之地。',
+cities:'太荒巫城、血战盟总斗场血战城、冰原前哨（北境最后一道抵御荒古与寂灭渊污染的防线）',
+danger:'低危（人仙-地仙）：外围荒原、不散荒古战魂、低阶残兵；中危（天仙-真仙）：古战场外围、血战斗场、嗜血成魔战修、初阶坐忘仙；高危（玄仙-金仙）：祖巫冢外围、荒古深处、祖巫遗蜕所化血肉傀儡、成群坐忘仙；极危（仙君以上）：寂灭渊、祖巫冢核心、聆道者祭司、坐忘古仙、道音低语具象化的"无面低语者"、沉睡之物的梦影。',
+factions:[
+{name:'太荒巫部',tag:'两强割据',desc:'融祖巫血脉的体修/战修道统，敬祖巫、靠血脉返祖变强，掌北境秩序一极，与南赡部洲妖族血脉隐有渊源，肉身最强却挡不住遗忘。',npcs:[
+{n:'桓岳',l:'仙君·大巫王',d:'帝江血脉共主·顶天立地'},
+{n:'巫长庚',l:'仙君·太上大巫',d:'凡界巫族飞升·凡界锚点，通祖巫残魂'},
+{n:'桓野',l:'玄仙·第一战神',d:'断头仍战·刑天再世'},
+{n:'后娴',l:'玄仙·后土血脉大巫',d:'母神般温慈'},
+{n:'共渊',l:'玄仙·共工血脉大巫',d:'暴烈刚猛'},
+{n:'祝彤',l:'金仙·祝融血脉大巫',d:'火爆战将'},
+{n:'句芜',l:'玄仙·句芒血脉巫医',d:'疗伤圣手'},
+{n:'蓐商',l:'金仙·蓐收血脉大巫',d:'执刑冷硬'},
+{n:'巫允',l:'金仙·大祭司',d:'最先察觉残魂被污染·暗线'},
+{n:'桓稚',l:'真仙·少主',d:'急于证明'},
+{n:'句苗',l:'天仙·年轻女巫',d:'学巫医'},
+{n:'蓐石',l:'天仙·守冢老巨人',d:'世代守祖巫冢'}]},
+{name:'血战盟',tag:'两强割据',desc:'以杀证道战修联盟，不看出身只认战力，信奉"杀伐即道、血债铸基"，靠生死斗场与斩杀战功排位晋阶。杀到尽头即坐忘的酷烈悖论。',npcs:[
+{n:'江枕戈',l:'仙君·盟主',d:'绰号不败·困惑杀道尽头·坐忘边缘'},
+{n:'司徒寂',l:'仙君·太上',d:'凡界杀道前辈飞升·凡界锚点·半坐忘警示'},
+{n:'慕容霜',l:'玄仙·副盟主',d:'红枪血练'},
+{n:'樊崇',l:'玄仙·战将',d:'巨斧断岳'},
+{n:'柳知秋',l:'玄仙·暗杀部主',d:'无声'},
+{n:'孟破军',l:'真仙·刀修',d:'狂刀嗜战·坐忘预备役'},
+{n:'裴衍',l:'玄仙·生死擂擂主',d:'一言定生死'},
+{n:'贾胥',l:'玄仙·悬赏堂主',d:'市侩守信'},
+{n:'苏怀仁',l:'天仙·战医',d:'唯一不杀人者·全盟护着'},
+{n:'秦少羽',l:'天仙·新晋战修',d:'热血苗子'}]},
+{name:'寂灭渊·聆道者',tag:'诡异之地',desc:'冰原荒古最深处，沉睡着无数纪元前第一个彻底坐忘、融入天地的不可名状之存在，是坐忘堕化最古老的源头。渊周盘踞聆道者，独立于一切势力。',npcs:[
+{n:'克苏鲁',l:'外神·BOSS层',d:'渊底旧日支配者·投影为可战BOSS'},
+{n:'奈亚拉托提普',l:'外神·BOSS层',d:'千面无脸使者·可戴任意NPC脸登场'},
+{n:'犹格·索托斯',l:'外神·BOSS层',d:'门与钥匙·破封/裂隙/传送出岔的源头'},
+{n:'莎布·尼古拉斯',l:'外神·BOSS层',d:'千仔之母·外魔繁衍无尽之源'},
+{n:'哈斯塔',l:'外神·BOSS层',d:'黄衣之王·疯狂谵妄·另一条诡异支线'},
+{n:'阿撒托斯',l:'外神·BOSS层',d:'终极痴愚之神·世界死亡开关'},
+{n:'应子澄',l:'仙君·大祭司',d:'忘尘·实为奈亚拉托提普办事'},
+{n:'白清晏',l:'玄仙·先知',d:'呓语者·拜哈斯塔'},
+{n:'温言',l:'玄仙·传道者',d:'引渡人·手法同上帝'},
+{n:'纪渊',l:'玄仙·执刑',d:'噬名者·抹除叛徒姓名'},
+{n:'闻怀瑾',l:'玄仙·守禁书',d:'守秘者·记诵谵语而疯'},
+{n:'祁昀',l:'真仙·叛教者',d:'拼命自证我叫祁昀·清醒逃亡者·玩家盟友'},
+{n:'商苍梧',l:'仙王·上古坐忘',d:'无神智梦游即毁灭'},
+{n:'无面众',l:'?·被同化群体',d:'无面无名仆从'}]}
+]},
+{id:'zhongyang',name:'中央天洲',emoji:'☯️',tag:'万仙盟核心 · 权力交易',img:'assets/6a4c77153f3dcc5752c8c759.jpg',
+geo:'仙界正中，四方衔接东胜、西牛、南赡、北俱四洲，是仙界主干仙脉交汇核心，也是全仙界道统、秩序与交易中心。',
+feat:'以仙原、灵湖、浮空神城为主，仙气浓郁为仙界之最，核心近乎液化；盛产全属性高阶仙材，丹、器、阵、符四道传承冠绝仙界，秩序森严，严禁私斗越阶。',
+cities:'万仙城（仙界第一主城、总盟所在，常驻玄仙至仙君）、道枢城（四大公会总本山）、万宝城（全界商贸中心）',
+danger:'极安全，唯封仙碑周边随主线【异兆生】震动加剧而渐危——异动时渗出被封印的外魔残念、碑体崩解出的紊乱道种所化邪灵；上古仙宗遗址深藏洲心地脉，暗藏仙界起源与鸿钧封印的真相。',
+factions:[
+{name:'万仙盟总盟',tag:'秩序中枢',desc:'仙界最高秩序机构·玩家总部，统御四洲分盟，掌全仙界跨世界传送阵与仙晶命脉；封仙碑即立于总盟核心。主战/维稳/野心三派角力。',npcs:[
+{n:'元穹',l:'仙王·盟主',d:'太衍道君·封锁封仙碑真相·知情最多·忠奸难辨'},
+{n:'秦昭虚',l:'仙王·太上长老',d:'凡界中州传奇飞升·凡界锚点，知鸿钧旧因'},
+{n:'裴仲玄',l:'仙君·左执事',d:'主战派之首'},
+{n:'上官晚',l:'仙君·右执事',d:'维稳派·盟主心腹'},
+{n:'司空烈',l:'仙君·执法殿主',d:'铁面缉堕仙'},
+{n:'韩擎',l:'玄仙·执法副使',d:'一根筋正直'},
+{n:'卫长歌',l:'仙君·守碑长老',d:'察觉碑动却被压声'},
+{n:'姬无邪',l:'仙君·传送阵总掌',d:'认令牌不认人·命脉人物'},
+{n:'楼半城',l:'仙君·天衍楼楼主',d:'情报笑面虎'},
+{n:'钱通宝',l:'玄仙·万宝阁总阁主',d:'天下第一商'},
+{n:'云璃',l:'真仙·圣女',d:'清冷被拉拢'},
+{n:'叶知白',l:'玄仙·年轻执事',d:'卷入派斗·玩家接头人'},
+{n:'苏问',l:'天仙·聚仙台接引使',d:'新人第一个见的脸'}]},
+{name:'太丹阁',tag:'四大公会',desc:'丹道公会，超然于盟主之外，握封仙碑阵眼之一。',npcs:[
+{n:'葛鼎',l:'仙君·阁主',d:'丹君痴丹'},
+{n:'葛清宁',l:'金仙·副阁主',d:'持家'},
+{n:'陶知微',l:'玄仙·长老',d:'净化丹抢手'},
+{n:'柳夭',l:'玄仙·首席仙丹师',d:'嗜赌欠债'},
+{n:'三味',l:'天仙·守炉老仙',d:'守炉数万年'},
+{n:'阿黄',l:'地仙·药童',d:'活地图'}]},
+{name:'天工阁',tag:'四大公会',desc:'器道公会，仙器宗师聚集地。',npcs:[
+{n:'鲁问',l:'仙君·阁主',d:'器君仙器宗师'},
+{n:'鲁班',l:'真仙·少阁主',d:'机关一绝'},
+{n:'欧治',l:'金仙·铸器长老',d:'专铸重器'},
+{n:'秦淬',l:'玄仙·首席仙器师',d:'与寒铁子较劲'},
+{n:'石矿君',l:'玄仙·矿料管事',d:'抠边角料'}]},
+{name:'衍阵阁',tag:'四大公会',desc:'阵道公会，维护封仙碑阵眼·命脉人物。',npcs:[
+{n:'公孙玑',l:'仙君·阁主',d:'阵君·维护封仙碑阵眼·命脉人物'},
+{n:'公孙钤',l:'金仙·副阁主',d:'主外交际'},
+{n:'殷罗',l:'玄仙·长老',d:'专破阵'},
+{n:'卜衍',l:'真仙·首席仙阵师',d:'与龟蒙棋友'},
+{n:'图奴',l:'天仙·藏阵图管事',d:'认路不清'}]},
+{name:'符箓阁',tag:'四大公会',desc:'符道公会，掌传送符阵·命脉人物。',npcs:[
+{n:'温朗',l:'仙君·阁主',d:'符君·掌传送符阵·命脉人物'},
+{n:'温故',l:'真仙·少阁主',d:'讲章法'},
+{n:'周篆',l:'玄仙·长老',d:'醉画上品·与周天罡本家'},
+{n:'纸鸢',l:'玄仙·首席仙符师',d:'飞符传讯·与疾风比快'},
+{n:'墨点',l:'地仙·符童',d:'歪打正着'}]},
+{name:'道枢城公共',tag:'公共',desc:'道枢城为四阁所在，四阁和事佬管城事。',npcs:[
+{n:'管城',l:'仙君·城主',d:'四阁和事佬'},
+{n:'钱串子',l:'玄仙·万宝阁道枢分号掌柜',d:'钱通宝之侄'}]}
+]}
+];
+/* ============ 神界数据 ============ */
+const shenRegions=[
+{id:'zixiao',name:'紫霄宫',emoji:'🔮',tag:'中枢 · 重启锚点',img:'assets/6a4c77cb3f3dcc5752c8c823.jpg',
+geo:'三十三天之上、混沌正中的唯一"定点"，不属四方神系，鸿钧独居，万神朝宗。',
+feat:'紫霄云海翻涌，海中浮历代重启残骸——破碎神国、断裂至宝、被遗忘的神名碎片。道音从宫传出时三千世界同时生灭，音中偶杂一个不属于任何语言的音节，闻者道心颤栗。宫外时间不向前走，是永恒的"讲道前一刻"。',
+cities:'紫霄宫正殿（讲道处，九蒲团分置）、分宝岩（藏先天至宝，重启后重分）、紫霄云海、重启秘室（鸿钧独掌，锁着第一次重启前的"某个东西"）',
+danger:'低危：云海残骸中偶有失控道则碎片化兽；高危：正殿莲台之下，极细黑线延入混沌——鸿钧合的天道里外神根须已扎入；极危：重启秘室，连三清不得入。鸿钧是最早发现"床底下有东西"的神，合道那一刻便知退不出来。',
+factions:[
+{name:'紫霄三尊',tag:'中枢',desc:'鸿钧独居紫霄宫，昊天玉帝掌天庭，瑶池金母掌女仙与蟠桃。他每次讲道第一句都一样，语气却一次比一次疲惫。',npcs:[
+{n:'鸿钧',l:'合道境·道祖',d:'紫袍老道，掌造化玉牒与重启权柄，最清醒也最疲惫，他合的"道"里已长了别的东西，重启是饮鸩止渴'},
+{n:'昊天',l:'混元大罗·玉帝',d:'昔年紫霄宫守门童子，后为天庭之主，刻板忠直，对重启一无所知，最"正常"也最易被冒充'},
+{n:'瑶池金母',l:'混元大罗',d:'掌女仙与蟠桃，温柔端庄，少数察觉鸿钧"不对"但选择沉默者'}]}
+]},
+{id:'honghuang',name:'东方·洪荒仙域',emoji:'🐢',tag:'三清六圣 · 盘古遗泽',img:'assets/6a4c77e23f3dcc5752c8c837.jpg',
+geo:'神界东方，西接紫霄宫，东抵混沌深处，南连奥林匹斯，北望阿斯加德。',
+feat:'三十三天层叠，下有九幽轮回，中列三山五岳、天河奔流、日月巡天。盘古尸身沉睡于最深处不周山残骸，山体即其脊骨，呼吸间仙域扩张收缩。仙雾为大道显化，一口抵仙界万年修；雾中偶伸非仙之手。',
+cities:'三十三天兜率宫（老子）、昆仑山玉虚宫（元始）、金鳌岛碧游宫（通天）、娲皇宫、伏羲画卦台、凌霄殿、盘古殿、幽都轮回、血海、五庄观、不周山残骸',
+danger:'低危：三十三天外围、天河畔道则碎片化兽；中危：九幽深处亡魂重复上轮死状、血海异浮；高危：不周山下盘古气息可压碎圣人道果，旁有外神触须与盘古脊骨纠缠；极危：盘古殿深处十二都天神煞阵封着外神碎片。六圣法相皆已开始扭曲，通天斩触须而无人见，后土沉默中以轮回硬抗污染，伏羲的卦象每一卦都被外神篡改。',
+factions:[
+{name:'六圣',tag:'混元大罗金仙·圣人',desc:'洪荒六圣，法相皆已开始扭曲。',npcs:[
+{n:'老子',l:'圣人·太清',d:'骑青牛掌人教，无为看开，但其青牛最近开始说非道之话'},
+{n:'元始天尊',l:'圣人·玉清',d:'掌阐教，十二金仙之师，盘古幡边缘裂纹中有物窥视'},
+{n:'通天教主',l:'圣人·上清',d:'掌截教性烈刚直，诛四剑最近偶自主鸣响斩向空无——他在斩外神触须'},
+{n:'女娲',l:'圣人',d:'掌造化造人，温婉慈悲，山河社稷图中渐生非她所绘之灵'},
+{n:'接引',l:'圣人·西方',d:'立佛国于洪荒西陲，面慈目藏算'},
+{n:'准提',l:'圣人·西方',d:'佛光中偶有触手影'}]},
+{name:'准圣',tag:'混元金仙',desc:'洪荒准圣，各具位格，是六圣之下最强战力。',npcs:[
+{n:'伏羲',l:'准圣巅峰·女娲之兄',d:'八卦之祖，掌先天易数与天机，可窥见"循环"真相·但他算的每一卦都不同——外神在改他的卦'},
+{n:'帝俊',l:'准圣·妖皇',d:'居天庭凌霄殿掌日月，兄弟同心'},
+{n:'太一',l:'准圣·妖皇',d:'与帝俊同心，太阳真火最近烧出非火之色'},
+{n:'帝江',l:'准圣·祖巫',d:'盘古精血所化，十二祖巫之首'},
+{n:'共工',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'祝融',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'蓐收',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'句芒',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'玄冥',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'强良',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'奢比尸',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'天吴',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'弇兹',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'烛九阴',l:'准圣·祖巫',d:'十二祖巫'},
+{n:'后土',l:'准圣·祖巫',d:'身化轮回居幽都，最慈悲最沉默，轮回中传非亡者之语'},
+{n:'镇元子',l:'准圣·地仙之祖',d:'居五庄观掌人参果，与世无争，因不听课反无侵蚀痕迹'},
+{n:'鲲鹏',l:'准圣·妖师',d:'居北溟速度最快，反复横跳各方，无人知其立场'},
+{n:'冥河老祖',l:'准圣·血河之主',d:'居血海掌元屠阿鼻，血海最近浮非血之物'},
+{n:'燃灯道人',l:'准圣·过去佛',d:'阐教副教主后入释，狡猾老到谁都不得罪'}]},
+{name:'大罗金仙',tag:'大罗金仙',desc:'洪荒仙界高层，三清门下与老一辈大罗。',npcs:[
+{n:'多宝道人',l:'大罗·通天首徒',d:'后为如来，通天最信任者'},
+{n:'赵公明',l:'大罗·截教外门',d:'骑黑虎掌定海珠，性烈重义，三霄之兄'},
+{n:'云霄',l:'大罗·三霄娘娘',d:'掌九曲黄河阵，最稳'},
+{n:'琼霄',l:'大罗·三霄娘娘',d:'最烈'},
+{n:'碧霄',l:'大罗·三霄娘娘',d:'最娇'},
+{n:'广成子',l:'大罗·十二金仙',d:'元始门下'},
+{n:'赤精子',l:'大罗·十二金仙',d:'元始门下'},
+{n:'玉鼎真人',l:'大罗·十二金仙',d:'元始门下'},
+{n:'太乙真人',l:'大罗·十二金仙',d:'元始门下'},
+{n:'文殊广法',l:'大罗·十二金仙',d:'元始门下'},
+{n:'普贤真人',l:'大罗·十二金仙',d:'元始门下'},
+{n:'慈航道人',l:'大罗·十二金仙',d:'元始门下'},
+{n:'惧留孙',l:'大罗·十二金仙',d:'元始门下'},
+{n:'道行天尊',l:'大罗·十二金仙',d:'元始门下'},
+{n:'清虚道德真君',l:'大罗·十二金仙',d:'元始门下'},
+{n:'灵宝大法师',l:'大罗·十二金仙',d:'元始门下'},
+{n:'黄龙真人',l:'大罗·十二金仙',d:'元始门下·每重启皆最菜之谐星'},
+{n:'红云老祖',l:'大罗·老好人',d:'昔让座成圣被鲲鹏所算，每次重启第一个被殃及的谐星'}]},
+{name:'大道境',tag:'超越合道',desc:'唯一的存在。',npcs:[
+{n:'盘古',l:'大道境',d:'超道级，尸身沉睡不周山，为终极伏笔。若苏醒可再开天地，代价是现有一切归于混沌后重开'}]}
+]},
+{id:'aolinpisi',name:'西方·奥林匹斯神域',emoji:'⚡',tag:'宙斯 · 希腊众神',img:'assets/6a4c77f23f3dcc5752c8c842.jpg',
+geo:'神界西方，东接洪荒，西抵塔尔塔罗斯，南望至高天，北连阿斯加德。',
+feat:'奥林匹斯山拔于混沌直入星河，山顶金宫巍峨，雷霆永照；山下英雄乐园，橄榄葡萄遍生，宴饮不歇。金宫倒影于杯中酒面时偶映空殿；宙斯雷霆劈处大地多一眼状焦痕。',
+cities:'宙斯雷霆殿、赫拉神殿、雅典娜卫城、阿波罗太阳殿、赫菲斯托斯锻造炉、高加索山（普罗米修斯受刑处）、冥府、塔尔塔罗斯深渊',
+danger:'低危：乐园外围锻造炉"失败品"暴走；中危：冥府死者重复上轮死状、狄俄尼索斯宴异状、高加索山普罗米修斯的鹰最近不是宙斯派的；高危：塔尔塔罗斯提丰吐息可毒圣人，深渊与混沌边界已模糊，传来非提丰之吼；极危：雷霆殿深处雷中已生眼。普罗米修斯被锁不是因为盗火，是因为他在第一次重启前看到了什么。',
+factions:[
+{name:'神王',tag:'合道境',desc:'众神之王。',npcs:[
+{n:'宙斯',l:'合道境·众神之王',d:'掌雷霆天空，公牛与鹰为记，原典级神王威严+乐子人+泰迪属性，变公牛/天鹅/金雨/美女偷情男女通吃，寻欢作乐是他对抗虚无的方式，雷中已生眼他自己不敢多看'}]},
+{name:'主神',tag:'混元大罗金仙',desc:'奥林匹斯十二主神。',npcs:[
+{n:'赫拉',l:'主神·天后',d:'宙斯之妻掌婚姻，嫉妒心强，唯一敢扇宙斯耳光者，孔雀尾羽上最近多了一只眼'},
+{n:'波塞冬',l:'主神·海神',d:'三叉戟掌海洋，暴躁，与宙斯争权但关键时刻站兄'},
+{n:'哈迪斯',l:'主神·冥王',d:'孤僻最讲理，冥府最近多了非死者'},
+{n:'得墨忒耳',l:'主神·农业女神',d:'掌丰收四季，爱女被抢后每年秋冬恸哭，最温柔最记仇'},
+{n:'赫斯提亚',l:'主神·灶神',d:'掌家灶圣火，三处女神之一，温柔不参与争斗，最被忽视也最不能惹，她的火最近烧出蓝色'},
+{n:'雅典娜',l:'主神·智慧女神',d:'自宙斯头颅跃出，掌智战，帕提农之主，奥林匹斯定海神针，其猫头鹰总盯一个方向'},
+{n:'阿波罗',l:'主神·太阳神',d:'掌光明音乐预言，才华自恋，太阳车最近多绕一圈——非他所驾'},
+{n:'阿尔忒弥斯',l:'主神·月神',d:'掌狩猎月亮，三处女神之一，冷傲野性，林中最近多了非她养的兽'},
+{n:'阿瑞斯',l:'主神·战神',d:'掌战争暴力，嗜杀鲁莽，与托尔酒肉朋友'},
+{n:'阿佛洛狄忒',l:'主神·爱与美神',d:'绝色，与弗蕾亚跨神系"同行"，情人名单绕山三圈'},
+{n:'赫菲斯托斯',l:'主神·锻造火神',d:'跛足，手艺盖世，被戴绿帽也不气——他知更多秘密'},
+{n:'赫尔墨斯',l:'主神·神使',d:'飞翼凉鞋跑遍神界，最灵通的腿'}]},
+{name:'次神',tag:'混元金仙',desc:'奥林匹斯次神级。',npcs:[
+{n:'普罗米修斯',l:'次神·先觉者',d:'提坦神，盗天火予人被宙斯锁高加索山，每日被鹰啄肝，希腊系唯一知道"为什么每次醒来肝都是新长出来的"的神——他记得碎片，但被锁链锁住说不出'},
+{n:'狄俄尼索斯',l:'次神·酒神',d:'掌狂欢葡萄酒，其宴越饮越像仪式，侵蚀最明显却似享受'},
+{n:'潘',l:'次神·牧神',d:'羊人，掌荒野牧群，好色吵闹，笛声最近能唤人不该忆之事'},
+{n:'赫拉克勒斯',l:'次神·大力神',d:'宙斯私生子，十二试炼成神，力大憨直，神界最能打的"人"'},
+{n:'珀耳塞福涅',l:'次神·冥后',d:'得墨忒耳之女，被哈迪斯抢为后，温柔下藏冥后冷酷'}]},
+{name:'纯粹存在',tag:'超混元大罗',desc:'唯一不被污染、不参与剧本、不接受重启的纯粹存在。',npcs:[
+{n:'提丰',l:'超主神·怪物之父',d:'百头蛇龙身高摩天，曾割宙斯筋脉，被镇塔尔塔罗斯，唯一不被污染不参与剧本不接受重启的纯粹存在，每醒直奔宙斯干架，众神烦他又暗羡其纯粹'}]}
+]},
+{id:'asijiade',name:'北方·阿斯加德神域',emoji:'❄️',tag:'奥丁 · 阿萨与瓦尼尔',img:'assets/6a4c78023f3dcc5752c8c844.jpg',
+geo:'神界北方，南接洪荒，西临奥林匹斯，东北抵混沌与尼福尔海姆雾域。',
+feat:'金宫格拉兹海姆立混沌中，彩虹桥比弗罗斯特横跨雾域，世界树尤克特拉希尔扎根混沌枝撑九界。瓦尔哈拉英灵殿战死者日夜宴饮比武为黄昏备战。树根被非尼德霍格之物啃食；英灵偶如卡带重复同一动作。',
+cities:'金宫（格拉兹海姆）、瓦尔哈拉、智慧泉、彩虹桥瞭望台、命运纺织处、赫尔海姆、尼福尔海姆雾域',
+danger:'低危：金宫外围、瓦尔哈拉醉酒英灵误伤；中危：世界树中层尼德霍格啃根处渗黑血、命运线中现新线；高危：赫尔海姆死者混前几轮神尸、雾域日月偶停；极危：金宫密室奥丁独见的"黄昏之后"。洛基是神界最大的X因素，他的"乱"可能是唯一不按剧本走的变量。',
+factions:[
+{name:'神王',tag:'合道境',desc:'众神之王。',npcs:[
+{n:'奥丁',l:'合道境·众神之王',d:'独眼，掌冈格尼尔枪、八足天马斯莱普尼尔、双鸦福金雾宁，以一眼换智慧泉水，被诸神黄昏预言压了无数重启，最悲观最隐忍——他看到的黄昏之后是外神的笑'}]},
+{name:'主神',tag:'混元大罗金仙',desc:'阿斯加德主神与瓦尼尔并入之神。',npcs:[
+{n:'弗丽嘉',l:'主神·天后',d:'奥丁之妻，织云彩，预知未来从不说破，唯一能让奥丁卸甲者'},
+{n:'托尔',l:'主神·雷神',d:'妙尔尼尔锤，力量最大酒量第一，与阿瑞斯酒友，每重启与耶梦加得同归于尽'},
+{n:'提尔',l:'主神·战神',d:'独臂，被芬里尔咬断右手，最公正'},
+{n:'巴德尔',l:'主神·光明神',d:'俊美无敌，万物立誓不伤唯漏mistletoe，每重启死于霍德尔——洛基的剧本'},
+{n:'洛基',l:'主神·诡计之神',d:'奥丁结义兄弟，混乱制造者，耶梦加得/芬里尔/海拉之父，每重启"搞事"，唯一自由出入各方不被疑者'},
+{n:'海姆达尔',l:'主神·彩虹桥守护者',d:'眼观九界耳听草长，加拉尔号角为黄昏信号，最忠'},
+{n:'弗雷',l:'主神·丰饶之神',d:'瓦尼尔族，夏阳与胜利之剑，以剑换巨人女为妻，黄昏无剑而战'},
+{n:'弗蕾亚',l:'主神·爱与战神',d:'瓦尼尔族，弗雷之妹，战死者半归她半归奥丁，美而善战，与阿佛洛狄忒"同行"'},
+{n:'海拉',l:'主神·死亡女神',d:'洛基之女，居赫尔海姆，半荣半朽，对父又爱又恨'},
+{n:'尼奥尔德',l:'主神·海神',d:'瓦尼尔族，弗雷弗蕾亚之父，掌夏与海风'}]},
+{name:'次神',tag:'混元金仙',desc:'阿斯加德次神与瓦尼尔次神。',npcs:[
+{n:'西芙',l:'次神·土地收获女神',d:'托尔之妻，金发被偷后矮人重铸，温柔'},
+{n:'霍德尔',l:'次神·黑暗神',d:'盲神，每重启被利用杀巴德尔，醒后最痛苦'},
+{n:'布拉吉',l:'次神·诗歌神',d:'雄辩，伊敦之夫'},
+{n:'伊敦',l:'次神·青春女神',d:'掌金苹果，神之青春源'},
+{n:'凡赛堤',l:'次神·真理正义神',d:'巴德尔之子，最公正仲裁者'},
+{n:'乌勒尔',l:'次神·冬猎神',d:'掌弓与雪，沉默'},
+{n:'密米尔',l:'次神·智慧巨人',d:'守智慧泉被斩后奥丁存其首，每重启请教，最近所言渐非预言'},
+{n:'乌尔德',l:'次神·诺伦',d:'过去女神'},
+{n:'薇儿丹蒂',l:'次神·诺伦',d:'现在女神'},
+{n:'诗蔻蒂',l:'次神·诺伦',d:'未来女神·最近纺出非命之新线——即玩家'},
+{n:'布伦希尔德',l:'次神·女武神首',d:'冷艳忠勇，引战死者入瓦尔哈拉'},
+{n:'安格尔波达',l:'次神·巨人女',d:'洛基之妻，三怪之母，居约顿海姆'},
+{n:'西格恩',l:'次神·洛基之妻',d:'洛基受罚时持碗接毒液，忠'},
+{n:'斯库尔',l:'次神·追日狼',d:'所追日月偶"停一下"'},
+{n:'哈提',l:'次神·逐月狼',d:'与斯库尔为姐妹'}]},
+{name:'超主神级',tag:'仙王级/大罗',desc:'洛基之子·世界之骨架，与啃根毒龙。',npcs:[
+{n:'耶梦加得',l:'超主神·世界之蛇',d:'洛基之子，本体绕神界中庭，黄昏与托尔同归，仙界南境为其投影'},
+{n:'芬里尔',l:'超主神·巨狼',d:'洛基之子，被缚神界地底，黄昏吞奥丁，北俱芦洲缚狼冰牢为其投影'},
+{n:'尼德霍格',l:'大罗·毒龙',d:'啃世界树根，仙界南境为其投影，树根最近有别物共啃'}]}
+]},
+{id:'zhigaotian',name:'至高天·光之天国',emoji:'☨',tag:'上帝 · 天使军团',img:'assets/6a4c78163f3dcc5752c8c85b.jpg',
+geo:'神界南方，北接奥林匹斯，东连洪荒，西南为光与混沌交界之"深渊"。',
+feat:'九层天叠嶂而上，最顶为上帝御座，光从御座流出充满天国，天使环绕唱诗，生命树与生命水河流淌。天国无夜因光永不熄——光中极细黑线蠕动，不察以为光纹；最外层天光中影子非人形；赞美诗倒放为异语。',
+cities:'御座大殿（无人敢直视）、七层天堂、伊甸园（生命树所在）、生命水河、火湖（路西法及堕天使坠落处）、天使军营、天国档案殿（梅塔特隆掌）',
+danger:'低危：外层天、军营偶有失控天使（光中多了不该有之物）；中危：中层天唱诗特定音节震道果、生命树果偶结非果之物、拉结尔的书库最近多了几本非他所写的书；高危：内层天近御座光强可灼瞎圣人感知，炽天使六翼中偶多一对非翼之物；极危：御座之前——上帝全知故他知一切，他不敢动；火湖最深处路西法坠处有物在等，别西卜身边的苍蝇最近长了太多眼睛。上帝沉默非威是惧，"说"本身即引注视。梅塔特隆知道得太多正在被某种东西"看"。火湖不是地狱，是天国唯一敢说真话的地方——但真话会让人疯。',
+factions:[
+{name:'天主',tag:'合道境',desc:'唯一真神。',npcs:[
+{n:'上帝/YHWH',l:'合道境·唯一真神',d:'全知全能，超越时空，掌创造与光，知一切包括自己正被何物注视，知重启无用，从未离御座——非不想是不敢，沉默是威也是牢'}]},
+{name:'炽天使',tag:'混元大罗金仙',desc:'天主之下六炽天使。',npcs:[
+{n:'米迦勒',l:'炽天使长·战斗',d:'执炎剑，天使军团总帅，最锋锐之刃，忠不疑'},
+{n:'加百列',l:'炽天使长·传令',d:'掌神旨传布与启示，温柔而坚定，神之信使'},
+{n:'拉斐尔',l:'炽天使长·治愈',d:'掌治愈守护与旅途，天国最温柔者——其治愈者最近偶"忘事"'},
+{n:'乌列尔',l:'炽天使长·审判',d:'掌火焰审判与冥界，冷厉无偏'},
+{n:'梅塔特隆',l:'炽天使·天国书记',d:'以诺升天所化，号"小耶和华"，最接近上帝者，掌天国档案与智慧——也因此最先发现光中的黑线'},
+{n:'路西法',l:'?·晨星前炽天使长',d:'曾为最高天使，因拒臣服或识真相坠火湖，天国最大叛徒——亦可能是唯一清醒者，火湖之主'}]},
+{name:'次阶天使',tag:'混元金仙',desc:'次阶天使群，各司其职。',npcs:[
+{n:'约菲尔',l:'智天使长',d:'掌智慧启示与美，守护伊甸园与生命树，温柔的启迪者'},
+{n:'拉结尔',l:'智天使',d:'掌秘境与天使奥秘，据说知天地间一切秘密，连外神的存在他都在古籍中读过——所以他最近不敢开口'},
+{n:'沙利叶',l:'座天使·月之天使',d:'七天使之一，掌死亡与灵魂，亦正亦邪，其眼可见亡者归途'},
+{n:'雷米尔',l:'座天使·希望天使',d:'七天使之一，掌复活与异象，能听见重启前的残响'},
+{n:'卡麦尔',l:'能天使长·战神天使',d:'掌天军征伐与审判，和米迦勒一正一副，性烈如火'},
+{n:'拉贵尔',l:'权天使长·天使监察者',d:'七天使之一，掌公义复仇，监察天使是否堕落——他最近盯梅塔特隆盯得很紧'},
+{n:'亚兹拉尔',l:'次阶·死亡天使',d:'掌灵魂收割，沉默寡言，每个神的归期他都记在卷上'},
+{n:'阿撒兹勒',l:'次阶·看守天使首领',d:'前炽天使级，堕落前掌守望人间，火湖第二人，沉默而暴烈'},
+{n:'别西卜',l:'次阶·鬼王苍蝇之王',d:'堕天使三巨头之一，掌疾病与腐化，最接近外神气息的堕者'}]}
+]},
+{id:'jianxi',name:'混沌间隙·边境三小国',emoji:'🏝️',tag:'新神苟活 · 变数据点',img:'assets/6a4c78253f3dcc5752c8c86d.jpg',
+geo:'环四方神之无主混沌，以及混沌之外不可名状之地。三小国立于神界最边缘近仙界通道处。',
+feat:'混沌间隙无方向无时间无法则，神入亦可能迷失，飘上古神战残骸、被忘神尸、外神触须。三小国各以剑域/大阵/佛国苟存。外神之境无地理。三小国为剧本外据点，外神触须探不入因新神存在本在剧本外——合道境真神默允三国存在甚至暗护，它们是最后变数。',
+cities:'剑神山（叶孤城剑域）、苟天阁（孙不言大阵）、半疯庵（了因佛国）、外神之境（不可达）',
+danger:'混沌间隙全为高危，外神触须可瞬间污染圣人；三小国为唯一安全区亦仅相对；外神之境为极危，入则无还——无神往之，往者未归，或归而非故人。',
+factions:[
+{name:'剑神山',tag:'边境三小国',desc:'新神苟活据点之一，叶孤城以绝对剑域切混沌。',npcs:[
+{n:'叶孤城',l:'新神·大罗金仙',d:'以绝对剑域切混沌，新神中顶尖近混元金仙，沉默寡言一剑破万法'},
+{n:'红衣',l:'新神·大罗金仙',d:'热心，接引新飞升者'},
+{n:'墨渊',l:'新神·大罗金仙',d:'剑痴，天天找真神比剑'},
+{n:'阿拾',l:'新神·大罗金仙',d:'玩家同期，话多怕死'}]},
+{name:'苟天阁',tag:'边境三小国',desc:'孙不言阵道双绝，大阵可遮真名呼召。',npcs:[
+{n:'孙不言',l:'新神·大罗金仙',d:'阵道双绝，大阵可遮真名呼召，新神中顶尖近混元金仙，从不离阵'},
+{n:'周全',l:'新神·大罗金仙',d:'情报头子卖消息不站队'},
+{n:'阵小乙',l:'新神·大罗金仙',d:'维护外阵，话少手稳'}]},
+{name:'半疯庵',tag:'边境三小国',desc:'了因佛道双修半疯半醒，佛国可净化污染代价是理智。',npcs:[
+{n:'了因',l:'新神·大罗金仙',d:'佛道双修半疯半醒，新神中顶尖近混元金仙，佛国可净化污染代价是理智'},
+{n:'痴和尚',l:'新神·大罗金仙',d:'疯僧，话皆预言但听则污染'},
+{n:'净无',l:'新神·大罗金仙',d:'了因弟子，唯一全醒者，负责翻译解毒，温柔而眼神疲惫'}]},
+{name:'外神',tag:'位格外·不可名状',desc:'位格体系外，混沌意志，秩序反面。不可名状、不可正面击杀。',npcs:[
+{n:'阿撒托斯',l:'外神',d:'混沌最深处盲痴而梦，整个神界或为其梦中一粟'},
+{n:'奈亚拉托提普',l:'外神',d:'千面行于各处，可能是你身边任一神'},
+{n:'犹格·索托斯',l:'外神',d:'为一切门后之门'},
+{n:'莎布·尼古拉斯',l:'外神',d:'于黑暗中无尽繁衍'},
+{n:'哈斯特',l:'外神',d:'着黄衣待于卡尔克萨'},
+{n:'克苏鲁',l:'外神',d:'沉于混沌之海，梦语可穿神壁'}]}
+]}
+];
+/* ============ 功法池 · 稀有度扁平版 ============ */
+const gongfaPool={
+mythic:[
+{n:'一气化三清',d:'道门至高大神通，神话级元神分化之术',e:'化出太清、玉清、上清三尊独立化身，每尊都拥有本体100%实力，各掌丹道、法道、杀伐道专长，可独立修炼、证道、结因果，三身联手可敌天道，合体可凝盘古真身开天辟地，哪怕只剩一缕残气都能瞬间重凝三身，无任何损耗'},
+{n:'剑开天门',d:'全身修为寿元凝于一剑，威力超三个大境界',e:'剑出后肉身元神俱灭连轮回都入不了'},
+{n:'剑来正经',d:'《剑来》陈平安核心剑道功法',e:'心中有剑则草木竹石皆可为剑,一剑可开天,一剑定规矩,剑出即道理,万法低头'},
+{n:'他化自在大法',d:'《完美世界》荒天帝终极帝法,时间因果律天花板',e:'可化古今未来所有强者为己用,借过去未来自身战力,一滴血即可穿越时间救场,他化万古自在逍遥'},
+{n:'吞天魔功/不灭天功',d:'《遮天》狠人大帝所创红尘仙功',e:'吞他人本源体质为己用,蜕凡体成就混沌神胎,活四世红尘为仙,不为成仙只为在红尘中等你回来'},
+{n:'琦玉修炼法',d:'原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成',e:'突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真'},
+{n:'一念花开君临天下',d:'千万朵大道之花绽放，花开即无敌',e:'时间静止空间凝固，敌人在花雨中慢慢道消'},
+{n:'轮回身',d:'九条命死一次轮回一次保留记忆',e:'九世合一直证顶点，但九世都要经历爱别离怨憎会求不得'},
+{n:'时光倒卷',d:'时间法则终极神通可让时光倒流',e:'倒流一炷香自己老一万年'},
+{n:'以力证道',d:'盘古正宗一力破万法',e:'一拳时间线碎因果断，整个上界都知道你是变量'}
+],
+legendary:[
+{n:'天魔解体大法',d:'燃烧道基寿元换取力量，实力暴涨十倍',e:'一炷香后法力尽失变废人'},
+{n:'言出法随',d:'借用天道之力，说风来风就来',e:'不能说假话，说三次假话没了'},
+{n:'他化自在天',d:'魔功终极版，化别人道则为己用',e:'用多了变成别人道则的容器'},
+{n:'不可名状',d:'外神之力，别人看你 san 值狂掉',e:'用七次你变成外神的一部分'},
+{n:'重启免疫',d:'时间线重启保留全部记忆',e:'看着熟悉的人一次次死一次次忘记你'}
+],
+epic:[
+{n:'九转玄功',d:'顶级炼体功法每转灵力凝练一倍',e:'九转硬抗雷劫肉身成圣'},
+{n:'两仪微尘阵',d:'阵道传承',e:'完整阵可困杀大乘期修士'},
+{n:'大衍诀',d:'神识功法专修元神',e:'元神出窍千里杀人'},
+{n:'御兽宗心印',d:'御兽功法可与妖兽平等契约',e:'最高同时御使八阶妖尊'},
+{n:'万劫不磨心经',d:'专门对抗心魔与法则侵蚀',e:'延缓道果逸散，探险必修'},
+{n:'造化天功',d:'点石成金生死人肉白骨',e:'大成可凭空创造小世界'},
+{n:'混沌吞天道',d:'魔功吞噬一切灵力法则道果',e:'速度逆天，吞多化魔物'},
+{n:'时间道则',d:'法则功法可加速减速时间倒流',e:'修成必成顶阶，最稀有的法则之一'},
+{n:'装正常大法',d:'新神入门第一功法',e:'教你众神琼筵上笑对诡异，学不会活不过三天'},
+{n:'开天诀',d:'盘古传承以力证道',e:'可重演开天辟地，每代最后一步失踪'}
+],
+rare:[
+{n:'烈火诀',d:'火属性攻击极强',e:'可熔金断铁放火龙焰，突破易走火入魔'},
+{n:'玄水真解',d:'水属性攻守兼备',e:'可化水幕凝冰锥，高深处呼风唤雨'},
+{n:'太上感应篇',d:'道修功法主修心性',e:'元神最凝练结婴概率最高，战斗力偏弱'},
+{n:'青元剑诀',d:'共十三层',e:'剑影分光术分化百道剑影，大庚剑阵可困杀元婴'},
+{n:'金刚不坏',d:'体修功法经九次雷劫淬炼肉身',e:'大成硬抗法宝徒手撕灵器'},
+{n:'血神经',d:'魔道功法以精血修炼',e:'血影遁逃吸血补身，被禁的邪功'},
+{n:'斩三尸证道诀',d:'斩善恶自我三尸',e:'斩尽可证顶阶道果'},
+{n:'八九玄功',d:'炼体功法七十二变',e:'化万物避三灾，大成七十二条性命'},
+{n:'坐忘禅',d:'旁门功法主动封印记忆情感',e:'以无情应物反而不被侵蚀'},
+{n:'剑域',d:'剑意为域，域内我即法则',e:'新神苟活功法之一'},
+{n:'苟天阵经',d:'瞒天过海大阵',e:'唯一能安心睡觉的地方'},
+{n:'半疯禅',d:'半醒半醉半疯癫',e:'认知外神而不被污染'},
+{n:'无名道',d:'不立道号不证真名',e:'不受真名法则束缚'}
+],
+common:[
+{n:'长春功',d:'散修最易得的入门功法',e:'木属性温和不伤身，修至筑基后期'},
+{n:'五鬼搬运术',d:'旁门法术役使五鬼搬运财物',e:'五弊三缺'},
+{n:'升仙诀',d:'飞升者人手一部',e:'转化凡界灵力为仙力'},
+{n:'星河万象诀',d:'引星河之力入体',e:'可化星辰巨人作战'},
+{n:'大梦心经',d:'佛道功法梦中修炼',e:'一梦千年修炼速度十倍，容易永眠不醒'},
+{n:'三灾九难经',d:'主动引灾劫淬炼仙躯',e:'九成九死在灾劫下'}
+]
+};
+/* ============ 法宝池 · 稀有度扁平版 ============ */
+const fabaoPool={
+mythic:[
+{n:'开天神斧',d:'混沌至宝,盘古开天伴生至宝',e:'攻击力天道第一,可劈碎混沌斩断因果,开天辟地无物不破,一斧可碎星河宇宙'},
+ {n:'混沌钟(东皇钟)',d:'三大先天至宝之一,东皇太一证道至宝',e:'镇压鸿蒙世界,可定地水火风禁锢时空,万法不侵,钟声一响万仙俯首'},
+ {n:'盘古幡',d:'三大先天至宝之一,盘古斧斧刃所化',e:'可撕裂混沌开辟天地,破尽万法,招展间出无尽剑气,圣人都不敢硬接'},
+ {n:'太极图',d:'三大先天至宝之一,太上老君证道至宝',e:'可定地水火风,化阴阳世界,包罗万象,卷进去任你是仙佛都逃不出来'},
+ {n:'造化玉碟',d:'混沌至宝,鸿钧老祖证道之物',e:'记载三千大道,持之可悟尽天下功法,万法皆通,大道主动现身讲道'},
+ {n:'混沌珠',d:'混沌至宝,盘古伴生至宝',e:'内含一方混沌世界,可躲天劫避因果,珠内你就是天道,万法不侵'},
+ {n:'诛仙剑阵(四剑+图)',d:'天道第一杀器,通天教主镇教至宝',e:'非四圣联手不可破,剑气可斩仙斩佛斩圣人,杀气直冲三十三天'},
+ {n:'天地玄黄玲珑宝塔',d:'先天第一功德至宝,太上老君防身至宝',e:'悬在头顶万法不侵立于不败之地,任你什么法宝都打不破,邪祟不侵'},
+ {n:'十二品创世青莲',d:'混沌至宝,孕育盘古的开天灵根',e:'防御无双可孕育万物,站在莲台上圣人都伤不到你,莲瓣所化皆是顶级灵宝'},
+ {n:'弑神枪',d:'混沌至宝,魔祖罗睺伴生至宝',e:'先天第一杀器,专破圣人元神仙佛金身,煞气所过之处仙佛避退,可弑神杀圣'},
+ {n:'河图洛书',d:'先天至宝,妖皇帝俊伴生至宝',e:'可演周天星斗大阵,推演天机算尽过去未来,布下大阵可困杀圣人'},
+ {n:'六魂幡',d:'通天教主最终杀器,先天至宝',e:'幡上写名即遭天谴,任你是圣人,拜幡之后也会魂飞魄散'},
+ {n:'青萍剑',d:'通天教主证道宝剑,先天至宝',e:'混沌青竹所化,斩仙诛神万法不沾,剑出可破万法'},
+ {n:'三宝玉如意',d:'元始天尊证道至宝',e:'先天金玉所化,可攻可守,一击可碎金仙元神,圣人之下挨之即死'},
+ {n:'鸿蒙量天尺',d:'先天功德至宝',e:'量天测地,尺出带无量功德,打神打仙,被打者业力加身无法反击'},
+ {n:'灭世大磨',d:'混沌至宝,盘古开天遗留',e:'可磨碎万物重归混沌,任你是仙佛圣人,进了磨盘都化为混沌元气'},
+ {n:'地书(山海经)',d:'先天至宝,镇元子伴生至宝',e:'大地胎膜所化,可镇大地山川,持之可借整个大地之力,万法不侵'},
+ {n:'红绣球',d:'女娲娘娘先天至宝',e:'先天红线所化,绣球一打任你是圣人都躲不开,中者姻缘加身,道心不稳直接道消'},
+ {n:'招妖幡',d:'女娲娘娘先天至宝',e:'幡动可招天下万妖,所有妖族见幡如见女娲,听你号令万妖来朝'},
+ {n:'十二品功德金莲',d:'先天灵宝,接引道人座下莲台',e:'西方教镇教之宝,莲台一开万佛朝宗,防御无双可渡化众生,邪祟不侵'},
+ {n:'十二品业火红莲',d:'先天灵宝,冥河教主座下莲台',e:'红莲业火所化,可烧尽业力,业火沾身仙佛都要化为飞灰,攻防一体'},
+ {n:'十二品灭世黑莲',d:'先天灵宝,魔祖罗睺座下莲台',e:'灭世黑莲所化,可吸万物煞气,黑莲一转灭世灭法,万魔臣服'},
+ {n:'十二品净世白莲',d:'先天灵宝,鸿钧老祖座下莲台',e:'净世白光所化,可净化一切邪祟,白光过处万法归寂,净化万物'},
+ {n:'先天五方旗',d:'五面先天防御至宝合组',e:'戊己杏黄旗、青莲宝色旗、离地焰光旗、素色云界旗、玄元控水旗齐聚,展开后万法不侵,圣人都破不了防'},
+{n:'无面者面具',d:'戴上是任何人，可伪装成任何存在',e:'合道境认不出你是谁，唯一禁忌是不能照镜子'},
+{n:'真实之眼',d:'战死顶阶存在的左眼所化',e:'看破一切伪装谎言剧本，看一眼少一分人性，七眼必疯'},
+{n:'命运剪刀',d:'命运三女神之剪，剪断线改命运',e:'剪七次你从剧本上消失'}
+],
+legendary:[
+{n:'十二都天神煞旗',d:'魔门镇教魔宝，以十二位大能生魂祭炼',e:'可凝盘古虚影，用多必遭天谴'},
+{n:'三生镜',d:'青铜古镜照见三生三世',e:'突破前照可避九成心劫，每次折寿十年'},
+{n:'落宝金钱',d:'生翼铜钱专落天下法宝',e:'一天三次三次后法力尽失'},
+{n:'业火红莲',d:'十二品莲台烧道果业力烧心中执念',e:'端坐可入无余涅槃万劫不磨'},
+{n:'弑神枪',d:'混沌第一缕杀戮之气所化',e:'专伤元神道果，持久沦为兵器傀儡'},
+{n:'提丰的骨头',d:'纯粹凶物脱落指骨，完全不被外神污染',e:'弹开外神注视，骨头会不停骂脏话'}
+],
+epic:[
+{n:'九龙神火罩',d:'上古传承至宝藏九条火灵龙脉',e:'化神期十死无生'},
+{n:'太虚神行舟',d:'顶级飞舟可容百人',e:'缩地成寸日行十万里'},
+{n:'两仪分光剑',d:'一黑一白双剑合璧',e:'演化两仪微尘阵，剑修梦寐以求'},
+{n:'五行挪移符',d:'一次性符箓捏碎瞬移千里',e:'顶级逃命底牌'},
+{n:'补天丹炉',d:'八品丹师标志',e:'提升成丹率三成，传说可炼九品登仙丹'},
+{n:'锁妖塔',d:'七层塔身镇压八阶以下妖物',e:'每层自成空间'},
+{n:'诛仙剑阵图',d:'四剑一图组成太古第一杀阵',e:'可绞杀顶阶，最凶杀伐至宝'},
+{n:'河图洛书',d:'推演大道至宝',e:'可提前万年勘破劫数'},
+{n:'渡厄金舟',d:'混沌乱流中航行',e:'抗煞气侵蚀，探险顶级宝具'},
+{n:'道种舍利',d:'坐忘者坐化后道果结晶',e:'服下获完整法则感悟，有概率继承执念堕邪'},
+{n:'封仙碑残片',d:'先天至宝碎片',e:'屏蔽天道感知，突破不引道劫'}
+],
+rare:[
+{n:'万魂幡',d:'邪道法宝以生魂精血祭炼',e:'涌万千阴魂撕咬敌神魂，非大毅力持之必反噬'},
+{n:'紫电神锤',d:'一锤引九天紫霄神雷',e:'执法队制式武器'},
+{n:'三生石',d:'照见前世今生来世',e:'破幻术破伪装找出破绽'},
+{n:'神枪碎片',d:'某位神王神枪的碎片',e:'掷出必中穿透一切防御，用一次被主人感知'},
+{n:'盘古斧碎片',d:'开天斧散落碎片',e:'暂时劈开混沌壁障'},
+{n:'纳戒·须弥',d:'内蕴百丈空间的顶级储物戒',e:'可装活物，装的东西越多越沉'},
+{n:'万里传音玉',d:'一对玉简可跨界传讯',e:'另一半在谁手上就能找到谁'},
+{n:'避劫金舟',d:'渡劫时可躲入舟内避雷',e:'一次性，用完化灰'}
+],
+common:[
+{n:'青锋剑',d:'散修入门标配',e:'斩铁如泥自带微弱疗伤'},
+{n:'玄铁重刀',d:'刀重七十二斤',e:'附带破甲劲气'},
+{n:'子母同心环',d:'一对三寸金环',e:'子环飞出百里追敌'},
+{n:'赤焰飞行旗',d:'朱雀离火纹',e:'注灵力化三丈火翼腾空'},
+{n:'玄冰盾',d:'万年玄冰核心',e:'展开三丈冰幕硬接元婴全力一击'},
+{n:'破魔仙剑',d:'飞升仙人制式长剑',e:'对魔气阴邪额外伤害'},
+{n:'流云仙袖',d:'素白云袖藏空间褶皱',e:'挥袖放九天罡风'},
+{n:'定魂珠',d:'鸽眼乳白宝珠',e:'稳固道基抵御心劫'},
+{n:'六根清净竹',d:'半疯庵镇庵神物',e:'屏蔽外神窥视'},
+{n:'讲道玉符',d:'紫霄级讲道入场符',e:'持之入紫霄听道，神仆从神不得出手'},
+{n:'无名剑丸',d:'无真名剑丸',e:'不受真名法则束缚，可斩神仆'},
+{n:'无名面具',d:'新神社区传承',e:'戴上连合道境都看不出你是新神，戴上就不能摘'}
+]
+};
+/* ============ 命途池 · 稀有度扁平版 ============ */
+const destinyPool={
+mythic:[
+{n:'混沌体',d:'万古独一，容纳一切属性无排斥',e:'走任何路都是天才，寿元漫长，各方大能视你为活药引'},
+{n:'至尊骨',d:'天生一副镇压万古的至尊之骨',e:'骨鸣可慑同阶低头，成长上限直逼道之尽头'},
+{n:'举道随行体',d:'行住坐卧大道主动给你拉满异象，半分灵力不耗',e:'走路步步生金莲涌道泉，喝水自带龙吟琼浆特效，打哈欠都吐云化鹤，摔一跤都炸惊雷当背景板，所有人默认你是隐世大佬'},
+{n:'言出法随·特效版',d:'你吹的任何牛逼，天地自动给你配对应特效圆场',e:'说“一剑斩天”天上自动劈大剑影劈山，说“水倒流”河水自动倒三秒，说“在座都是垃圾”自动刮黑风，所有人都以为你要放大招'},
+{n:'先天圣体道胎',d:'荒古圣体+先天道胎融合的至强帝体，无始大帝同款',e:'肉身同阶无敌，道则亲和拉满，证道无瓶颈无晚年诅咒，横推一切禁区异象，仙路尽头谁为峰一见无始道成空'},
+{n:'重瞳天瞳',d:'天生双瞳的上古重瞳者，完美世界经典“重瞳本是无敌路”',e:'一眼破万法，一眼看穿虚妄未来，瞳内自带小世界，可演化万物轮回，同阶没人能接你一眼'},
+{n:'太阳真体',d:'太阳星本源孕育的至阳神体，太阳圣皇同款',e:'掌太阳真火，万邪不侵，光照处阴邪尽散，一拳出大日横空，至阳之力烧尽一切邪术'},
+{n:'太阴仙体',d:'太阴星本源孕育的至阴仙体，太阴古皇同款',e:'掌太阴玄水，神魂不朽，可隐于虚空，寒气冻碎道则，与太阳真体双修可直接衍化混沌体'},
+{n:'诛仙剑体',d:'天生承载诛仙四剑剑意的至凶剑体',e:'剑意自带诛仙杀气，出鞘必见血，可分化四柄杀剑，斩仙斩魔斩佛斩圣，同阶剑修没人敢接你一剑'},
+{n:'六道轮回体',d:'身具六道轮回本源的特殊体质',e:'可开轮回神眼，送人入轮回，召唤六道虚影作战，能回溯前世今生，一掌出轮回盘转，磨灭一切神魂'},
+{n:'太古神魔体',d:'太古神魔血脉觉醒的至强战体',e:'兼具神的伟力与魔的霸道，肉身扛天法术免疫，越战越勇，狂化时可法天象地，一拳碎山河'},
+{n:'剑心通明·至臻',d:'天生剑修的极致，剑心澄澈无一丝杂念',e:'剑道进境远超常人，可自创绝学，但受不了半点心魔'},
+{n:'天凰神体',d:'天凰本源孕育的不死仙体',e:'浴火重生比涅槃身更强，掌南明离火，神魂不灭火种不灭，羽翼一扇焚尽八荒，走到哪都自带祥瑞'},
+{n:'天命所归',d:'天道于你降生时留下一线气运',e:'致命危机总有转机，但每次逆转都在偷偷透支寿元'},
+{n:'至尊仙胎蛊',d:'蛊界第一九转仙蛊伴生，天生仙尊之资',e:'出生即仙胎，无需渡劫自动成仙，道痕天生圆满，万蛊臣服，炼道天赋万古第一'},
+{n:'紫气东来三万里',d:'你出生那日紫气盖顶三日不散',e:'气运浓郁到肉眼可见，走到哪都被抢着收徒，也被抢着灭口'},
+{n:'吞天蜃体',d:'你的胃能消化一切灵物，包括法宝与妖丹',e:'吞什么补什么，但饿起来会连人一起吞'},
+{n:'因果免疫',d:'你欠下的因果会自动转嫁给最近的敌人',e:'占尽便宜，但真正的宿敌也会因此定位到你'},
+{n:'不在剧本上',d:'你不在时间线因果命运里，任何存在都算不到你',e:'合道境都不知道你下一步要做什么，改剧本反被排斥'},
+{n:'无名者',d:'你没有真名，任何法则都锁不住你',e:'不受真名诅咒、召唤术、因果锁，但也无法被任何契约保护'},
+{n:'开天残念',d:'你的元神里嵌着一缕开天劈地时的太初真气',e:'一力破万法，但那缕真气不断催促你去"再开一次"'}
+],
+legendary:[
+{n:'剑体',d:'天生适合剑修，剑心通明',e:'剑道进境远超常人，见剑就懂'},
+{n:'丹体',d:'体内经脉如天然丹炉',e:'服丹药效倍增，炼丹易成，天生丹修胚子'},
+{n:'龙凤体',d:'血脉带龙凤气息',e:'威压妖族低头，气运惊人'},
+{n:'雷电之体',d:'雷电亲和度极高',e:'可硬抗雷劫，雷系功法事半功倍'},
+{n:'冰玄之体',d:'天生极寒，气吐成霜',e:'寒冰法则事半功倍，但情感偏冷淡'},
+{n:'火灵之体',d:'体内自燃真火',e:'火系无双，但脾气也如烈火'},
+{n:'雷劫亲子',d:'你渡劫时雷劫比别人少一半，且能吸收雷力反哺',e:'突破快，但走到哪都下雨'},
+{n:'药引之身',d:'你的血肉可代替上古灵材入药',e:'炼丹辅修神效，被丹修盯上就跑不掉'},
+{n:'万毒不侵',d:'你自幼服百毒长大，肉身自成解毒炉',e:'一切毒物对你无效，但也吃不出味道'},
+{n:'夺舍幸存者',d:'你曾被人夺舍，最终反噬对方并吸收其修为',e:'脑中住着另一段记忆，偶尔用它的口吻说话'},
+{n:'气运掠夺者',d:'你近身时对方气运会向你倾斜',e:'跟着天命之子混就是白嫖，但会被主角针对'},
+{n:'血脉返祖·上古凶兽',d:'你身上流着上古凶兽的血',e:'化形时可爆发妖神之力，越用越难变回人形'},
+{n:'血脉觉醒·上古仙种',d:'你体内沉睡的血脉被激活',e:'血脉之力惊人，被视作"上古复辟之兆"'},
+{n:'半坐忘归来',d:'你曾坐忘过又莫名清醒回来',e:'道心异常坚韧，但会被寂灭渊永久标记'},
+{n:'一梦千年',d:'你每次入梦都在另一个世界修炼百年',e:'现实一夜梦中百年，越来越分不清哪个是真的'},
+{n:'因果剑心',d:'你的剑不斩人斩因果',e:'能杀不该杀之人，代价是自己也在因果上留印'},
+{n:'剑冢啸主',d:'你身上带着一柄不认主的凶剑',e:'战力翻倍，但剑越用越"活"'},
+{n:'谐星护体',d:'某位大罗级"最菜"的存在收你为兄弟',e:'滑稽但意外好用的护身符，杀你的人都懒得开手'},
+{n:'卦象里的新名字',d:'先天卦象里出现了一个从未存在过的名字，正是你',e:'合道境都注意到你，一举一动都会被推演'},
+{n:'先觉者共鸣',d:'某位被永镇之罪神与你隐隐共振',e:'知道一些不该知道的碎片，也听得见镣铐里的悲鸣'},
+{n:'诡神青眼',d:'某位喜欢搅局的主神对你玩味中带欣赏',e:'搅局中受益，也随时被出卖'},
+{n:'冥河记名',d:'冥府生死簿上有你的名字，但反复写反复擦',e:'你死不透，但每复活一次冥王都盯你更紧'},
+{n:'万年蟠桃食客',d:'机缘吃到万年蟠桃',e:'寿元大增，但妖界视你为宿敌'}
+],
+epic:[
+{n:'木灵之体',d:'先天木灵体',e:'草木自生自愈，天生亲近生灵'},
+{n:'金刚体',d:'肉身天生强横',e:'防御无双，不惧钝器'},
+{n:'先天灵眼',d:'能看破幻术识灵材品级',e:'走到哪都是鉴宝师，被商队争抢'},
+{n:'噬灵体',d:'能吞噬他人灵力为己用',e:'战力叠加恐怖，被邪修觊觎'},
+{n:'九幽玄阴体',d:'极阴之躯',e:'鬼修至宝，走到哪阴气浓郁'},
+{n:'退婚流',d:'幼时被指婚的对象因你灵根废除退婚，你偏要争这口气',e:'心性坚韧，越挫越勇'},
+{n:'家族弃子',d:'你被主家丢到偏远庄园自生自灭',e:'资源匮乏但无人拘束，走野路子成才'},
+{n:'秘境幸存者',d:'你从一场十死无生的秘境里独自爬出来',e:'带回一件说不清来路的东西，也带回了噩梦'},
+{n:'师父跑路',d:'你被一位大能收了徒，第二天他就飞升 / 兵解 / 失踪了',e:'留下一堆看不懂的传承和一个空头名分'},
+{n:'仇门孤儿',d:'满门被灭时你是唯一活口，被仇人抱去养大',e:'身世是随时会爆的雷'},
+{n:'药人',d:'你自小被人当作药炉喂养，体内积存百种灵药药力',e:'一朝觉醒战力飙升，情感却近乎麻木'},
+{n:'替身局',d:'你和某位天骄容貌九分相似，从小被当作备胎培养',e:'一旦对方陨落你就要顶上，反之则被抹除'},
+{n:'魔头转世',d:'前世你是一方魔头，今生投胎为凡',e:'记忆偶尔苏醒，杀性偶尔上涌'},
+{n:'落难公子/小姐',d:'你原是大家族嫡系，一夜之间家破人亡沦落底层',e:'见过顶层也吃过底层的苦，最难被拿捏'},
+{n:'签约天骄',d:'你自幼与某位天骄结拜/联姻/血契，命运共振',e:'对方强你就强，对方陨你重伤'},
+{n:'上古仙府唯一继承',d:'你机缘巧合成为上古仙府的主人',e:'获传承与神通，成为祭品级追杀目标'},
+{n:'宗门圣子/圣女',d:'你是顶级宗门重点培养对象',e:'资源无忧，一举一动全宗关注'},
+{n:'洪荒残岛探客',d:'你曾深入一座周期漂现的洪荒残岛并活着回来',e:'获上古传承或先天灵材，道果逸散速度加倍'},
+{n:'御兽名家',d:'你契约多头高阶妖兽',e:'战力多元，妖朝有点交情'},
+{n:'战修新锐',d:'你在某死斗擂台上打出了名号',e:'实战经验丰富，但每一场都在往魔道边缘滑'}
+],
+rare:[
+{n:'散修出身',d:'你从没进过大宗门，一身修为全靠自己摸索',e:'路数杂而野，遇到正统会格格不入'},
+{n:'商队护卫',d:'你以护商起家一路积累资源',e:'见多识广，武艺扎实，人脉遍布各州'},
+{n:'医道传人',d:'你精通医术兼修丹道',e:'走到哪都被求药，走到哪也都欠人情'},
+{n:'黑市常客',d:'你与黑市多方势力交好',e:'消息灵通，能弄到禁品，被正道盯梢'},
+{n:'受伤逃亡中',d:'开局你就是伤员，追兵在半日路程外',e:'必须尽快找到落脚点，运气好能被人救'},
+{n:'欠债之身',d:'你身负一笔高利贷，债主是某个不好惹的势力',e:'必须定期上贡，越拖越贵'},
+{n:'背井离乡',d:'你为了某个目的离开了家乡，回不去了',e:'一个人在外闯荡，心里有块地方永远空着'},
+{n:'旁支子弟',d:'你出身修仙家族但只是不入眼的旁支',e:'资源少但也没人管，自由度高'},
+{n:'半路出家',d:'你原是凡俗读书人/武夫/工匠，中途才接触修真',e:'起步晚，但带来一身跨界的看家本事'},
+{n:'洞府主',d:'你在某处灵峰开了一处洞府',e:'私产殷实，但孤立无援'},
+{n:'医仙',d:'你专精解毒疗伤',e:'走到哪都被欢迎，也不知不觉知道太多秘密'},
+{n:'情报贩',d:'你以买卖消息为生',e:'知得多也危险多'},
+{n:'跑船仙人',d:'你在浮岛/城池之间跑船运货',e:'见识广路子多，但常年在路上'},
+{n:'混沌拾荒者',d:'你在无主之地捡战场残骸糊口',e:'穷但能捡到怪东西'}
+],
+common:[
+{n:'凡俗豪族',d:'你出身凡俗世家，衣食无忧',e:'家中有钱有势，但进修真圈啥也不是'},
+{n:'练气修士',d:'你是最普通的练气修士',e:'一切靠自己'},
+{n:'村镇少年',d:'你从一个再普通不过的小村子走出来',e:'见识浅但心性淳朴，最经得住诱惑'},
+{n:'落魄书生',d:'原是读书人，功名未得偶入修仙',e:'起步艰难，但笔杆子和心思在修真界罕见'},
+{n:'孤儿出身',d:'你从小无父无母，被村里凑着养大',e:'谁都不欠，也谁都不能靠'},
+{n:'门派记名弟子',d:'你是宗门外围记名，连内门都进不去',e:'只学基础，触不到核心传承'},
+{n:'跑腿弟子',d:'你在宗门里主要工作是送信、扫地、看门',e:'消息灵通，但没人把你当人物'},
+{n:'佃户/长工',d:'你在别人的灵田上劳作换生计',e:'活着不难，突破无望'},
+{n:'酒馆常客',d:'你日常混在酒馆听八卦',e:'消息比修为长得快'},
+{n:'装凡人',d:'你干脆假装自己没修行一路装到今天',e:'伪装术天下第一，一朝穿帮就地送命'}
+]
+};
+/* ============ 各界灵根/仙根/神根选项（多选） ============ */
+const rootOptions={
+fan:['金灵根','木灵根','水灵根','火灵根','土灵根','冰灵根（变异）','雷灵根（变异）','风灵根（变异）','光灵根（变异）','暗灵根（变异）','空间灵根（变异）','时间灵根（变异）','混沌灵根（传说）'],
+xian:['金仙根','木仙根','水仙根','火仙根','土仙根','雷仙根（变异）','冰仙根（变异）','空间仙根（变异）','时间仙根（变异）','混沌仙根（传说）','法则亲和'],
+shen:['无名神格（新神专属）','伪神格','神仆胚胎','外神污染残留','五行神根','法则神根']
+};
+/* ============ 种族选项 · 三界通用（血脉精修版） ============ */
+const raceList=[
+    /* — 常见 — */
+    '人族','半妖','半神','半魔','转生者','轮回者',
+    /* — 龙族分支 — */
+    '真龙一族','蛟龙血脉','应龙血脉','烛龙血脉',
+    '螭吻血脉','敖氏龙族旁支','蛟（未化龙）',
+    /* — 凤/朱雀分支 — */
+    '凤凰一族','朱雀血脉','青鸾血脉','冰凤血脉','涅槃凤凰血脉',
+    /* — 鲲鹏/大 — */
+    '鲲鹏血脉','大鹏金翅血脉','北溟鲲血脉',
+    /* — 麒麟/祥瑞仁兽 — */
+    '麒麟血脉','白泽血脉','貔貅血脉','獬豸血脉',
+    '重明鸟血脉','毕方血脉','鲛人血脉','狮鹫血脉',
+    /* — 妖族·九大主脉 — */
+    '妖族·狐（含九尾/天狐）','妖族·狼（含雪狼/魔狼）',
+    '妖族·虎（含白虎/黑虎）','妖族·豹狮',
+    '妖族·熊罴','妖族·猿猴（含灵猴/通臂）',
+    '妖族·灵鹿（含九色鹿）','妖族·青牛血脉',
+    '妖族·天马血脉',
+    /* — 妖族·水族 — */
+    '妖族·灵蛇（含白蛇/蟒）','妖族·玄武血脉',
+    '妖族·鲛人','妖族·灵龟',
+    /* — 妖族·飞禽 — */
+    '妖族·灵鹤','妖族·鹰隼',
+    '妖族·九头鸟','妖族·孔雀明王血脉',
+    /* — 妖族·灵植/山精 — */
+    '妖族·灵植（花/木/藤/芝）','妖族·山精','妖族·水怪','妖族·石灵',
+    '妖族·其他',
+    /* — 上古四凶（单列） — */
+    '饕餮血脉','穷奇血脉','梼杌血脉','浑敦血脉',
+    '蛊雕血脉','旱魃血脉',
+    /* — 十二祖巫 — */
+    '祖巫·帝江血脉','祖巫·共工血脉','祖巫·祝融血脉',
+    '祖巫·蓐收血脉','祖巫·句芒血脉','祖巫·玄冥血脉',
+    '祖巫·强良血脉','祖巫·奢比尸血脉','祖巫·天吴血脉',
+    '祖巫·弇兹血脉','祖巫·烛九阴血脉','祖巫·后土血脉',
+    /* — 巫/蛊/苗 — */
+    '巫族','苗族','蛊族','傀儡师血脉','萨满血脉',
+    /* — 鬼/尸/血/魔 — */
+    '鬼族','厉鬼','幽魂','魂修',
+    '尸族','血尸','僵尸','傀儡尸',
+    '血族','血魔','吸血鬼血脉',
+    '魔族','天魔','心魔化身',
+    /* — 洪荒圣人体系 — */
+    '洪荒圣人血脉','洪荒准圣血脉','洪荒大罗血脉',
+    '三清弟子后裔','女娲后裔','西方教后裔',
+    '妖师鲲鹏血脉','冥河血脉','镇元子血脉',
+    /* — 希腊神系 — */
+    '希腊·奥林匹斯主神血脉','希腊·宙斯血脉','希腊·波塞冬血脉',
+    '希腊·哈迪斯血脉','希腊·雅典娜血脉','希腊·阿波罗血脉',
+    '希腊·阿瑞斯血脉','希腊·赫尔墨斯血脉',
+    '希腊·狄俄尼索斯血脉','希腊·赫拉克勒斯血脉',
+    '泰坦血脉','普罗米修斯血脉','提丰血脉',
+    '塞壬血脉','美杜莎/戈耳工血脉','人马血脉',
+    /* — 北欧神系 — */
+    '北欧·阿萨主神血脉','北欧·瓦尼尔主神血脉',
+    '北欧·奥丁血脉','北欧·托尔血脉','北欧·洛基血脉',
+    '北欧·弗雷/弗蕾亚血脉','北欧·女武神血脉',
+    '约顿巨人','霜巨人','火巨人·苏尔特尔血脉',
+    '耶梦加得血脉','芬里尔血脉','海拉血脉','矮人族',
+    /* — 天国天使体系 — */
+    '炽天使','智天使','座天使','主天使','力天使',
+    '能天使','权天使','大天使','普通天使',
+    '堕天使','看守者血脉','火湖之子',
+    '梅塔特隆血脉','路西法血脉','别西卜血脉','阿撒兹勒血脉',
+    '以诺后裔','拿非利人（天使人族混血）',
+    /* — 外神污染系 — */
+    '外神眷属','外神污染者','深潜者血脉',
+    '克苏鲁眷属','奈亚拉托提普面孔','犹格眷族',
+    '莎布·尼古拉斯之子','哈斯塔黄衣信徒血脉',
+    /* — 特殊/兜底 — */
+    '上古遗种','神话遗族','混血（多族）',
+    '身世不明','血脉未觉醒','血脉沉睡者','自定义'
+];
+/* ============ 各界境界（凡界加"凡人"） ============ */
+const realmsByWorld={
+fan:['凡人（未入修行）','炼气期','筑基期','金丹期·下品','金丹期·中品','金丹期·上品','金丹期·极品','金丹九转·完美','元婴期','化神期','炼虚期','合体期','大乘期','渡劫期'],
+xian:['人仙','地仙','天仙','真仙','玄仙','金仙','仙君','仙王','仙帝（传说）'],
+shen:['神仆/侍者','新神（大罗金仙）','混元金仙（准圣）','混元大罗金仙（圣人）','合道境','大道境','外神（体系外）']
+};
+/* ============ 势力汇总（按界收集） ============ */
+function collectFactions(regions){
+const list=[];
+regions.forEach(r=>{
+r.factions.forEach(f=>list.push({v:f.name,t:f.name+' · '+r.name}));
+});
+list.push({v:'散修/无门无派',t:'散修/无门无派'});
+list.push({v:'自定义',t:'自定义（在下方补充）'});
+return list;
+}
+const factionsByWorld={
+fan:collectFactions(fanRegions),
+xian:collectFactions(xianRegions),
+shen:collectFactions(shenRegions)
+};
+const regionsByWorld={
+fan:fanRegions.map(r=>({v:r.id,t:r.name})),
+xian:xianRegions.map(r=>({v:r.id,t:r.name})),
+shen:shenRegions.map(r=>({v:r.id,t:r.name}))
+};
+/* ============ 渲染 · 版图 & 人物志 ============ */
+function renderRegions(worldKey,regions){
+const container=document.getElementById(worldKey+'-regions');
+container.innerHTML=regions.map(r=>{
+const imgHtml=r.img?`<img src="${r.img}" alt="${r.name}" class="region-image">`:`<div class="region-image-fallback"><span class="region-emoji">${r.emoji}</span></div>`;
+return `<div class="region-block">
+<div class="region-image-wrap">${imgHtml}<div class="region-caption">${r.emoji} ${r.name}</div></div>
+<div class="region-body">
+<div class="region-title">${r.name}</div>
+<span class="region-tag">${r.tag}</span>
+<div class="region-field"><span class="region-field-name">◇ 地理边界</span><span class="region-field-text">${r.geo}</span></div>
+<div class="region-field"><span class="region-field-name">◇ 地貌特征</span><span class="region-field-text">${r.feat}</span></div>
+<div class="region-field"><span class="region-field-name">◇ 核心城池</span><span class="region-field-text">${r.cities}</span></div>
+<div class="region-field"><span class="region-field-name">◇ 危险区域</span><span class="region-field-text">${r.danger}</span></div>
+</div>
+</div>`;
+}).join('');
+}
+function renderFactions(worldKey,regions){
+const container=document.getElementById(worldKey+'-factions');
+container.innerHTML=regions.map(r=>{
+return `<h3 class="faction-group-title">${r.emoji} ${r.name} · ${r.tag}</h3>
+${r.factions.map(f=>`
+<div class="faction-card" data-faction="${f.name}">
+<div class="faction-header" onclick="toggleFaction(this)">
+<span class="faction-name">${f.name}</span>
+<span class="faction-tag">${f.tag}</span>
+<span class="faction-toggle">▼</span>
+</div>
+<div class="faction-body">
+<div class="faction-desc">${f.desc}</div>
+<div class="npc-list">
+${f.npcs.map(n=>`<div class="npc-item" data-search="${n.n} ${n.l} ${n.d} ${f.name}">
+<span class="npc-name">${n.n}</span><span class="npc-meta">【${n.l}】</span>
+<span class="npc-desc">${n.d}</span></div>`).join('')}
+</div>
+</div>
+</div>`).join('')}`;
+}).join('');
+}
+function toggleFaction(el){el.parentElement.classList.toggle('open');}
+renderRegions('fan',fanRegions);renderRegions('xian',xianRegions);renderRegions('shen',shenRegions);
+renderFactions('fan',fanRegions);renderFactions('xian',xianRegions);renderFactions('shen',shenRegions);
+/* ============ 搜索 ============ */
+function buildIdx(regions){
+const arr=[];
+regions.forEach(r=>{
+r.factions.forEach(f=>{
+f.npcs.forEach(n=>arr.push({name:n.n,meta:`${n.l} · ${f.name} · ${r.name}`,desc:n.d,region:r.id,faction:f.name}));
+arr.push({name:f.name,meta:`势力 · ${r.name} · ${f.tag}`,desc:f.desc,region:r.id,faction:f.name});
+});
+arr.push({name:r.name,meta:`区域 · ${r.tag}`,desc:r.feat,region:r.id});
+});
+return arr;
+}
+const searchIdx={fan:buildIdx(fanRegions),xian:buildIdx(xianRegions),shen:buildIdx(shenRegions)};
+function setupSearch(w){
+const input=document.getElementById('search-'+w),res=document.getElementById('search-results-'+w);
+input.addEventListener('input',function(){
+    const q=this.value.trim().toLowerCase();
+    if(!q){res.classList.remove('visible');res.innerHTML='';return;}
+    const all=searchIdx[w];
+    const nameHits=[],metaHits=[],descHits=[];
+    all.forEach(i=>{       if(i.name.toLowerCase().includes(q))nameHits.push(i);
+        else if(i.meta.toLowerCase().includes(q))metaHits.push(i);
+        else if(i.desc.toLowerCase().includes(q))descHits.push(i);
+    });
+    const total=nameHits.length+metaHits.length+descHits.length;
+    const LIMIT=50;
+    const m=[...nameHits,...metaHits,...descHits].slice(0,LIMIT);
+    if(m.length===0){
+        res.innerHTML='<div class="search-result-item"><em style="color:var(--ink-soft);">未找到匹配结果</em></div>';
+    }else{
+        res.innerHTML=m.map(i=>`<div class="search-result-item" onclick="jumpTo('${w}','${i.region}','${(i.faction||'').replace(/'/g,"\\'")}')">
+            <strong>${i.name}</strong><span style="color:var(--ink-soft);"> — ${i.meta}</span>
+            <div class="meta">${i.desc}</div></div>`).join('');
+        if(total>LIMIT){
+            res.innerHTML+=`<div class="search-result-item" style="text-align:center;color:var(--ink-soft);font-size:11px;"><em>还有 ${total-LIMIT} 条结果未显示，请输入更精确的关键词</em></div>`;
+        }
+    }
+    res.classList.add('visible');
+});
+document.addEventListener('click',e=>{if(!input.contains(e.target)&&!res.contains(e.target))res.classList.remove('visible');});
+}
+setupSearch('fan');setupSearch('xian');setupSearch('shen');
+function jumpTo(w,rid,fname){
+document.getElementById('search-results-'+w).classList.remove('visible');
+document.getElementById('search-'+w).value='';
+setTimeout(()=>{
+if(fname){
+const card=document.querySelector(`#${w}-factions .faction-card[data-faction="${fname.replace(/"/g,'\\"')}"]`);
+if(card){card.classList.add('open');card.scrollIntoView({behavior:'smooth',block:'center'});}
+}
+},80);
+}
+function initRaceOptions(){
+    document.getElementById('c-race').innerHTML='<option value="">— 未定 —</option>'+
+        raceList.map(r=>`<option value="${r}">${r}</option>`).join('');
+}
+/* ============ 角色创建 · 界联动 ============ */
+function updateWorldFields(){
+const birth=document.getElementById('c-birthworld').value;
+document.getElementById('c-currentworld').value=birth;
+// 境界
+const realmSel=document.getElementById('c-realm');
+realmSel.innerHTML=realmsByWorld[birth].map(r=>`<option value="${r}">${r}</option>`).join('');
+// 灵根多选
+const rootGroup=document.getElementById('root-group');
+rootGroup.innerHTML=rootOptions[birth].map((r,i)=>`<label><input type="checkbox" name="root" value="${r}"><span>${r}</span></label>`).join('');
+// 区域
+document.getElementById('c-region').innerHTML=regionsByWorld[birth].map(r=>`<option value="${r.v}">${r.t}</option>`).join('');
+// 势力
+document.getElementById('c-faction').innerHTML=factionsByWorld[birth].map(f=>`<option value="${f.v}">${f.t}</option>`).join('');
+// 心仪宗门
+updateWishSect();
+onRealmChange();
+}
+function onRaceChange(){
+    const sel=document.getElementById('c-race').value;
+    const custom=document.getElementById('c-race-custom');
+    const hint=document.getElementById('c-race-hint');
+    if(sel==='自定义'){
+        custom.style.display='block';
+        hint.textContent='自定义种族会覆盖上方选项显示在档案中';
+        custom.focus();
+    }else{
+        custom.style.display='none';
+        hint.textContent='与出身界独立，血脉不因所在界而变';
+    }
+}
+function onPurityChange(){
+    const sel=document.getElementById('c-root-purity').value;
+    const custom=document.getElementById('c-root-purity-custom');
+    const hint=document.getElementById('c-root-purity-hint');
+    if(sel==='自定义'){
+        custom.style.display='block';
+        hint.style.display='block';
+        custom.focus();
+    }else{
+        custom.style.display='none';
+        hint.style.display='none';
+    }
+}
+function updateRegionOnly(){
+const cur=document.getElementById('c-currentworld').value;
+document.getElementById('c-region').innerHTML=regionsByWorld[cur].map(r=>`<option value="${r.v}">${r.t}</option>`).join('');
+}
+function updateWishSect(){
+const birth=document.getElementById('c-birthworld').value;
+const wishSel=document.getElementById('c-wish-sect');
+const opts=factionsByWorld[birth].filter(f=>f.v!=='散修/无门无派'&&f.v!=='自定义');
+wishSel.innerHTML='<option value="">— 未定 —</option>'+opts.map(f=>`<option value="${f.v}">${f.t}</option>`).join('');
+}
+function onRealmChange(){
+const realm=document.getElementById('c-realm').value;
+const wrap=document.getElementById('wish-sect-group');
+if(realm.includes('凡人')){wrap.style.display='block';}else{wrap.style.display='none';}
+}
+/* ============ Tab7 · Roll ============ */
+const state={
+rolledDestiny:[],selectedDestiny:[],
+    rolledGongfa:[],selectedGongfa:[],
+    rolledFabao:[],selectedFabao:[],
+    customGongfa:[],customTalent:[],customPrep:[]
+};
+function rollDestiny(){
+    const btn=document.getElementById('btn-destiny');
+    btn.classList.add('rolling');btn.disabled=true;
+    setTimeout(()=>{
+        state.rolledDestiny=[];state.selectedDestiny=[];
+        for(let i=0;i<8;i++){
+            const r=Math.random()*100;
+            let rarity;
+            if(r<6)rarity='mythic';
+            else if(r<20)rarity='legendary';
+            else if(r<42)rarity='epic';
+            else if(r<72)rarity='rare';
+            else rarity='common';
+            const pool=destinyPool[rarity];
+            let entry,tries=0;
+            do{entry=pool[Math.floor(Math.random()*pool.length)];tries++;}while(state.rolledDestiny.some(d=>d.n===entry.n)&&tries<50);
+            state.rolledDestiny.push({...entry,rarity});
+        }
+        renderDestinyList();
+        btn.classList.remove('rolling');btn.disabled=false;
+        document.getElementById('pool-destiny').classList.add('visible');
+    },1000);
+}
+function renderDestinyList(){
+    const list=document.getElementById('destiny-list');
+    const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+    const sorted=[...state.rolledDestiny].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+    document.getElementById('destiny-count').textContent='0';
+    const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+    list.innerHTML='';
+    sorted.forEach((d,idx)=>{
+        const el=document.createElement('div');
+        el.className=`pool-item ${d.rarity}`;
+        el.innerHTML=`<input type="checkbox" id="d-${idx}"/>
+            <div class="pool-info">
+                <div class="pool-name">${d.n}
+                    <span class="pool-badge ${d.rarity}">${rn[d.rarity]}</span>
+                </div>
+                <div class="pool-desc">${d.d}</div>
+                <div class="pool-effect">效果：${d.e}</div>
+            </div>`;
+        const cb=el.querySelector('input');
+        el.addEventListener('click',e=>{if(e.target!==cb)cb.click();});
+        cb.addEventListener('change',()=>{
+            if(cb.checked){
+                if(state.selectedDestiny.length>=3){cb.checked=false;alert('最多选 3 条命途');return;}
+                state.selectedDestiny.push(d);el.classList.add('selected');
+            }else{
+                state.selectedDestiny=state.selectedDestiny.filter(x=>x.n!==d.n);
+                el.classList.remove('selected');
+            }
+            document.getElementById('destiny-count').textContent=state.selectedDestiny.length;
+        });
+        list.appendChild(el);
+    });
+}
+/* 通用抽取器 · 功法/法宝共用 */
+function rollFrom(pool,count){
+    const arr=[];
+    for(let i=0;i<count;i++){
+        const r=Math.random()*100;
+        const sd=state.selectedDestiny;
+        const has=x=>sd.some(d=>d.rarity===x);
+        let rarity;
+        if(has('mythic')){
+            if(r<22)rarity='mythic';
+            else if(r<48)rarity='legendary';
+            else if(r<74)rarity='epic';
+            else if(r<92)rarity='rare';
+            else rarity='common';
+        }else if(has('legendary')){
+            if(r<8)rarity='mythic';
+            else if(r<32)rarity='legendary';
+            else if(r<62)rarity='epic';
+            else if(r<86)rarity='rare';
+            else rarity='common';
+        }else if(has('epic')||has('rare')){
+            if(r<3)rarity='legendary';
+            else if(r<25)rarity='epic';
+            else if(r<65)rarity='rare';
+            else rarity='common';
+        }else if(sd.length>0){
+            if(r<2)rarity='legendary';
+            else if(r<15)rarity='epic';
+            else if(r<50)rarity='rare';
+            else rarity='common';
+        }else{
+            if(r<10)rarity='mythic';
+            else if(r<30)rarity='legendary';
+            else if(r<58)rarity='epic';
+            else if(r<82)rarity='rare';
+            else rarity='common';
+        }
+        const p=pool[rarity];
+        let g,tries=0;
+        do{g=p[Math.floor(Math.random()*p.length)];tries++;}while(arr.some(x=>x.n===g.n)&&tries<50);
+        arr.push({...g,rarity});
+    }
+    return arr;
+}
+function rollGongfa(){
+    const btn=document.getElementById('btn-gongfa');
+    btn.classList.add('rolling');btn.disabled=true;
+    setTimeout(()=>{
+        state.rolledGongfa=rollFrom(gongfaPool,5);
+        state.selectedGongfa=[];
+        renderPickList('gongfa','功法',state.rolledGongfa,state.selectedGongfa,2);
+        btn.classList.remove('rolling');btn.disabled=false;
+        document.getElementById('pool-gongfa').classList.add('visible');
+    },1000);
+}
+function rollFabao(){
+    const btn=document.getElementById('btn-fabao');
+    btn.classList.add('rolling');btn.disabled=true;
+    setTimeout(()=>{
+        state.rolledFabao=rollFrom(fabaoPool,5);
+        state.selectedFabao=[];
+        renderPickList('fabao','法宝',state.rolledFabao,state.selectedFabao,2);
+        btn.classList.remove('rolling');btn.disabled=false;
+        document.getElementById('pool-fabao').classList.add('visible');
+    },1000);
+}
+function renderPickList(key,label,rolled,selected,max){
+    const list=document.getElementById(key+'-list');
+    const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+    const sorted=[...rolled].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+    document.getElementById(key+'-count').textContent='0';
+    const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+    list.innerHTML='';
+    sorted.forEach((g,idx)=>{
+        const el=document.createElement('div');
+        el.className=`pool-item ${g.rarity}`;
+        el.innerHTML=`<input type="checkbox" id="${key}-${idx}"/>
+            <div class="pool-info">
+                <div class="pool-name">${g.n}
+                    <span class="pool-badge ${g.rarity}">${rn[g.rarity]}</span>
+                </div>
+                <div class="pool-desc">${g.d}</div>
+                <div class="pool-effect">效果：${g.e}</div>
+            </div>`;
+        const cb=el.querySelector('input');
+        el.addEventListener('click',e=>{if(e.target!==cb)cb.click();});
+        cb.addEventListener('change',()=>{
+            if(cb.checked){
+                if(selected.length>=max){cb.checked=false;alert(`最多选 ${max} 件${label}`);return;}
+                selected.push(g);el.classList.add('selected');
+            }else{
+                const i=selected.findIndex(x=>x.n===g.n);
+                if(i>-1)selected.splice(i,1);
+                el.classList.remove('selected');
+            }
+            document.getElementById(key+'-count').textContent=selected.length;
+        });
+        list.appendChild(el);
+    });
+}
+/* ============ 自定义增补 ============ */
+let customIdCounter=0;
+const customConfig={
+    gongfa:{label:'功法',key:'customGongfa',ph:{n:'如：太上忘情诀',d:'功法背景 / 流派 / 来源...',e:'具体效果与代价...'}},
+    talent:{label:'天赋',key:'customTalent',ph:{n:'如：先天剑心',d:'天赋描述...',e:'具体效果...'}},
+    prep:{label:'准备物品',key:'customPrep',ph:{n:'如：疗伤丹×10 / 传送符×3',d:'物品描述 / 来源...',e:'用途 / 触发方式...'}}
+};
+function escapeAttr(s){return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function escapeText(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function addCustomItem(type){
+    const id='cst-'+(++customIdCounter);
+    state[customConfig[type].key].push({id,n:'',rarity:'rare',d:'',e:''});
+    renderCustomList(type);
+}
+function removeCustomItem(type,id){
+    const arr=state[customConfig[type].key];
+    const i=arr.findIndex(x=>x.id===id);
+    if(i>-1)arr.splice(i,1);
+    renderCustomList(type);
+}
+function updateCustomItem(type,id,field,value){
+    const item=state[customConfig[type].key].find(x=>x.id===id);
+    if(item)item[field]=value;
+}
+function onCustomRarityChange(type,id,rarity){
+    updateCustomItem(type,id,'rarity',rarity);
+    const el=document.querySelector(`#custom-${type}-list .custom-item[data-id="${id}"]`);
+    if(el)el.className='custom-item '+rarity;
+}
+function renderCustomList(type){
+    const cfg=customConfig[type];
+    const list=document.getElementById('custom-'+type+'-list');
+    const items=state[cfg.key];
+    if(items.length===0){
+        list.innerHTML=`<div class="custom-empty">暂无自定义${cfg.label}，点击 + 添加</div>`;
+        return;
+    }
+    list.innerHTML=items.map(item=>`
+        <div class="custom-item ${item.rarity}" data-id="${item.id}">
+            <div class="custom-item-header">
+                <input type="text" class="custom-name" value="${escapeAttr(item.n)}" placeholder="${cfg.ph.n}" oninput="updateCustomItem('${type}','${item.id}','n',this.value)"/>
+                <select class="custom-rarity" onchange="onCustomRarityChange('${type}','${item.id}',this.value)">
+                    <option value="mythic" ${item.rarity==='mythic'?'selected':''}>神话</option>
+                    <option value="legendary" ${item.rarity==='legendary'?'selected':''}>传说</option>
+                    <option value="epic" ${item.rarity==='epic'?'selected':''}>史诗</option>
+                    <option value="rare" ${item.rarity==='rare'?'selected':''}>稀有</option>
+                    <option value="common" ${item.rarity==='common'?'selected':''}>普通</option>
+                </select>
+                <button class="remove-btn" title="删除" onclick="removeCustomItem('${type}','${item.id}')">×</button>
+            </div>
+            <textarea class="custom-desc" placeholder="描述：${cfg.ph.d}" oninput="updateCustomItem('${type}','${item.id}','d',this.value)">${escapeText(item.d)}</textarea>
+            <textarea class="custom-effect" placeholder="效果：${cfg.ph.e}" oninput="updateCustomItem('${type}','${item.id}','e',this.value)">${escapeText(item.e)}</textarea>
+        </div>
+    `).join('');
+}
+/* 初始占位渲染 */
+['gongfa','talent','prep'].forEach(renderCustomList);
+/* ============ Tab8 · 档案生成 ============ */
+function val(id){return (document.getElementById(id).value||'').trim();}
+function rd(name){const e=document.querySelector(`input[name="${name}"]:checked`);return e?e.value:'';}
+function generateArchive(){
+const wn={fan:'凡界',xian:'仙界',shen:'神界'};
+const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+const regionName=id=>{
+const all=[...fanRegions,...xianRegions,...shenRegions];
+const r=all.find(x=>x.id===id);return r?r.name:id;
+};
+const roots=Array.from(document.querySelectorAll('input[name="root"]:checked')).map(x=>x.value);
+let s='';
+s+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+s+='       三 界 修 真 · 个 人 档 案\n';
+s+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n';
+s+='【基础信息】\n';
+s+=`姓名：${val('c-name')||'无名'}${val('c-daoname')?'（'+val('c-daoname')+'）':''}\n`;
+s+=`性别：${rd('gender')}    年龄：${val('c-age')||'未知'}\n`;
+if(val('c-appear'))s+=`外貌：${val('c-appear')}\n`;
+if(val('c-personality'))s+=`性格：${val('c-personality')}\n`;
+if(val('c-hobby'))s+=`爱好：${val('c-hobby')}\n`;
+const race=val('c-race')==='自定义'?(val('c-race-custom')||'自定义'):val('c-race');
+if(race)s+=`种族：${race}${val('c-race-detail')?' · '+val('c-race-detail'):''}\n`;
+s+='\n【出身与位置】\n';
+s+=`出身界：${wn[val('c-birthworld')]}\n`;
+s+=`当前所在界：${wn[val('c-currentworld')]}\n`;
+s+=`所在区域：${regionName(val('c-region'))}\n`;
+if(val('c-location'))s+=`具体地点：${val('c-location')}\n`;
+s+='\n【境界与资质】\n';
+s+=`境界：${val('c-realm')}${val('c-realm-note')?'（'+val('c-realm-note')+'）':''}\n`;
+if(val('c-realm').includes('凡人')&&val('c-wish-sect'))s+=`心仪宗门：${val('c-wish-sect')}\n`;
+if(roots.length){
+    const purity=val('c-root-purity')==='自定义'?(val('c-root-purity-custom')||'自定义'):val('c-root-purity');
+    s+=`灵根：${purity} · ${roots.join('、')}\n`;
+}
+if(val('c-root-attr'))s+=`资质补充：${val('c-root-attr')}\n`;
+s+='\n【身份与势力】\n';
+s+=`身份类型：${val('c-identity')}\n`;
+if(val('c-faction'))s+=`所属势力：${val('c-faction')}\n`;
+if(val('c-position'))s+=`势力内地位：${val('c-position')}\n`;
+if(val('c-master'))s+=`师承：${val('c-master')}\n`;
+s+=`入道契机：${val('c-reason')}${val('c-reason-custom')?' · '+val('c-reason-custom'):''}\n`;
+if(val('c-friend')||val('c-enemy')){
+s+='\n【关系羁绊】\n';
+if(val('c-friend'))s+=`挚友/道侣：${val('c-friend')}\n`;
+if(val('c-enemy'))s+=`仇敌：${val('c-enemy')}\n`;
+}
+if(state.selectedDestiny.length>0){
+    s+=`\n【命途】（${state.selectedDestiny.length}/3）\n`;
+    state.selectedDestiny.forEach((d,i)=>{
+        s+=`${i+1}. [${rn[d.rarity]}] ${d.n}\n   ${d.d}\n   效果：${d.e}\n`;
+    });
+}
+if(state.selectedGongfa.length>0){
+    s+=`\n【功法】（${state.selectedGongfa.length}/2）\n`;
+    state.selectedGongfa.forEach((g,i)=>{
+        s+=`${i+1}. [${rn[g.rarity]}] ${g.n}\n   ${g.d}\n   效果：${g.e}\n`;
+    });
+}
+if(state.selectedFabao.length>0){
+    s+=`\n【法宝】（${state.selectedFabao.length}/2）\n`;
+    state.selectedFabao.forEach((g,i)=>{
+        s+=`${i+1}. [${rn[g.rarity]}] ${g.n}\n   ${g.d}\n   效果：${g.e}\n`;
+    });
+}
+const rnMap={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+function dumpCustom(label,arr){
+    const valid=arr.filter(x=>x.n&&x.n.trim());
+    if(valid.length===0)return '';
+    let out=`\n【${label}】（${valid.length}）\n`;
+    valid.forEach((g,i)=>{
+        out+=`${i+1}. [${rnMap[g.rarity]}] ${g.n}\n`;
+        if(g.d)out+=`   ${g.d}\n`;
+        if(g.e)out+=`   效果：${g.e}\n`;
+    });
+    return out;
+}
+s+=dumpCustom('自定义功法',state.customGongfa);
+s+=dumpCustom('自定义天赋',state.customTalent);
+s+=dumpCustom('准备栏',state.customPrep);
+if(val('c-bg'))s+='\n【背景故事】\n'+val('c-bg')+'\n';
+if(val('c-scene'))s+='\n【当前处境·开局场景】\n'+val('c-scene')+'\n';
+s+='\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n';
+s+='      桃 李 春 风  ·  一 剑 长 歌\n';
+s+='━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+document.getElementById('preview-box').textContent=s;
+}
+function copyArchive(){
+const text=document.getElementById('preview-box').textContent;
+const btn=document.querySelector('.copy-btn');
+const ok=()=>{const t=btn.textContent;btn.textContent='✅ 已复制';btn.style.background='#7B9483';setTimeout(()=>{btn.textContent=t;btn.style.background='';},1800);};
+const fail=()=>{const t=btn.textContent;btn.textContent='❌ 请手动复制';setTimeout(()=>btn.textContent=t,1800);};
+if(navigator.clipboard){navigator.clipboard.writeText(text).then(ok).catch(()=>{
+const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();
+try{document.execCommand('copy')?ok():fail();}catch(e){fail();}
+document.body.removeChild(ta);
+});}else{fail();}
+}
+/* 初始化 */
+initRaceOptions();
+updateWorldFields();
+</script>
+</body>
+</html>
