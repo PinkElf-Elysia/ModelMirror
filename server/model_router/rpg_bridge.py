@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse
 from . import rpg_progress
 from .api import get_model_router_service
 from .chat_stable import ProviderChatStableService
+from .provider_catalog import text_parameter_policy, TEXT_PARAMETER_CAPABILITIES_FORMAT
 
 router = APIRouter(prefix="/api/rpg/v1", tags=["rpg-service"])
 PARAMETERS = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 16384}
@@ -48,6 +50,11 @@ def require_service(request: Request):
 
 def get_stable(_=Depends(require_service)):
     return ProviderChatStableService(get_model_router_service())
+
+
+def get_authoring_stable(stable=Depends(get_stable)):
+    from .rpg_authoring_route import enabled, AuthoringStableService
+    return AuthoringStableService(stable.router_service, transport=stable.transport) if enabled() else stable
 
 
 def json_object(value):
@@ -347,3 +354,203 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
     if custom is not None:
         receipt["effectiveRequestHash"] = digest({**value, "messages": messages})
     return JSONResponse({"raw": raw, "sse": sse, "receipt": receipt}, status_code=502 if error else 200)
+
+
+AUTHORING_CATALOG_FORMAT = "modelmirror.rpg.control-model-catalog/1"
+AUTHORING_CATALOG_SOURCE = "control-plane-cache"
+AUTHORING_CATALOG_LIMIT = 1000
+
+
+def _authoring_policy(meta, model):
+    declaration = meta.get("parameter_capabilities")
+    if "parameter_capabilities" in meta:
+        try:
+            if (not isinstance(declaration, dict) or set(declaration) != {"status", "format", "policy"}
+                    or declaration["status"] != "declared" or declaration["format"] != TEXT_PARAMETER_CAPABILITIES_FORMAT):
+                raise ValueError("invalid")
+            policy = text_parameter_policy(declaration["policy"])
+            supported = meta.get("supported_parameters")
+            if (not isinstance(supported, list) or any(f["wireName"] not in supported for f in policy["fields"].values())
+                    or type(meta.get("max_output_tokens")) is not int
+                    or policy["fields"]["maxOutputTokens"]["maximum"] > meta["max_output_tokens"]):
+                raise ValueError("invalid")
+            return policy, "provider-declared"
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return None, "invalid"
+    # An old fixed profile is evidence only for those exact values, not a range.
+    fixed = parameters_for(model)
+    supported = meta.get("supported_parameters")
+    if not isinstance(supported, list) or any(k not in supported for k in fixed):
+        return None, "unknown"
+    names = {"temperature": "temperature", "top_p": "topP", "max_tokens": "maxOutputTokens"}
+    fields = {names[k]: {"minimum": n, "maximum": n, "defaultValue": n, "required": True, "wireName": k}
+              for k, n in fixed.items()}
+    return {"kind": "fixed", "fields": fields, "exclusive": []}, "legacy-fixed"
+
+
+def _authoring_observed_metadata(stable, policy, connection, row, meta):
+    """Use a bounded operator-captured OpenRouter record without editing the shared catalog."""
+    if "parameter_capabilities" in meta or not hasattr(policy, "authoring_model_ids"):
+        return meta
+    capture = os.getenv("RPG_AUTHORING_OPENROUTER_OBSERVATION", "")
+    if not capture or len(capture) > 16384:
+        return meta
+    try:
+        from datetime import UTC, datetime, timedelta
+        from .provider_catalog import normalize_provider_catalog
+        observation = json.loads(capture, object_pairs_hook=_unique_json_object)
+        expected = {"connectionId", "connectionFingerprint", "refreshId", "url", "readAt", "model"}
+        if not isinstance(observation, dict) or set(observation) != expected:
+            return meta
+        raw = observation["model"]
+        if (observation["url"] != "https://openrouter.ai/api/v1/models" or observation["connectionId"] != connection
+                or observation["connectionFingerprint"] != policy.state["connectionFingerprint"]
+                or observation["refreshId"] != row["last_refresh_id"]
+                or set(raw) != {"id", "context_length", "top_provider", "supported_parameters"}
+                or raw["id"] != row["model_id"]):
+            return meta
+        age = datetime.now(UTC) - datetime.fromisoformat(observation["readAt"])
+        if not timedelta(0) <= age < timedelta(days=7):
+            return meta
+        target = stable.repository.get_connection(stable.router_service.tenant_id, connection)
+        if target.kind != "openrouter" or str(target.base_url).rstrip("/") != "https://openrouter.ai/api/v1":
+            return meta
+        rows, _, count, truncated = normalize_provider_catalog([raw], connection=target, observed_at=observation["readAt"])
+        if count != 1 or truncated:
+            return meta
+        verified = rows[0]["metadata"]
+        if (verified.get("parameter_capabilities_source") != "openrouter-models-and-documented-api-ranges/1"
+                or any(meta.get(k) != verified.get(k) for k in ("context_length", "max_output_tokens","supported_parameters"))):
+            return meta
+        return {**meta, "parameter_capabilities": verified["parameter_capabilities"],
+                "parameter_capabilities_source": verified["parameter_capabilities_source"]}
+    except (TypeError, ValueError, OverflowError, KeyError, RecursionError):
+        return meta
+
+
+def authoring_catalog(stable):
+    """Read cached evidence only. Each connection/model is a distinct selection.
+
+    Availability is a catalog admission snapshot, never a dispatch/budget permit.
+    Unlike legacy catalog(), this does not advance a control-policy gate epoch.
+    """
+    policy = stable.control.peek_policy()
+    tenant = stable.router_service.tenant_id
+    items = []
+    seen = set()
+    for connection in stable.control.route_candidates(policy, "chat_text"):
+        offset = 0
+        while True:
+            rows = stable.repository.list_catalog_models(tenant, connection_id=connection, status="active", limit=500, offset=offset)
+            for row in rows:
+                model = row["model_id"]
+                if hasattr(policy, "authoring_model_ids") and model not in policy.authoring_model_ids:
+                    continue
+                if (connection, model) in seen or len(items) >= AUTHORING_CATALOG_LIMIT:
+                    raise HTTPException(503, "rpg_authoring_catalog_limit_or_duplicate")
+                seen.add((connection, model))
+                meta = json_object(row.get("metadata_json"))
+                name = meta.get("name") or model
+                if any(not isinstance(s, str) or not s.strip() or any(0xD800 <= ord(c) <= 0xDFFF for c in s)
+                       or len(s.encode("utf-16-le")) > 400 for s in (model, name)):
+                    raise HTTPException(503, "rpg_authoring_catalog_invalid")
+                admitted, error = stable.control.route_admission(policy, model, scoped_certified=True)
+                qualification, reason = (None, error)
+                if admitted and error is None:
+                    # Most discovered models have no exact certification. Avoid
+                    # decrypting route credentials repeatedly for those rows.
+                    if stable.repository.get_latest_chat_certification(tenant, connection, model, "chat_text") is None:
+                        reason = "provider_chat_capability_certification_required"
+                    else:
+                        qualification, reason = stable.control.current_qualification(connection_id=connection, model_id=model,
+                                                                                     capability="chat_text", require_exact_model=True)
+                meta = _authoring_observed_metadata(stable, policy, connection, row, meta)
+                parameters, evidence = _authoring_policy(meta, model)
+                context, output = meta.get("context_length"), meta.get("max_output_tokens")
+                context = context if type(context) is int and 0 < context <= 100_000_000 else None
+                output = output if type(output) is int and 0 < output <= 1_000_000 else None
+                compatible = bool(parameters and context and output and parameters["fields"]["maxOutputTokens"]["maximum"] <= output
+                                  and parameters["fields"]["maxOutputTokens"]["minimum"] < context)
+                binding = {"tenant": tenant, "connection": connection, "model": model, "policy": policy.policy_fingerprint,
+                           "admitted": bool(admitted and error is None), "qualification": qualification, "reason": reason,
+                           "refresh": row.get("last_refresh_id"), "metadata": meta, "parameterPolicy": parameters}
+                items.append({"selectionId": digest(["authoring", tenant, connection, model]), "selectionRevision": digest(binding),
+                              "modelId": model, "name": name, "available": bool(admitted and not error and qualification and compatible),
+                              "contextLength": context, "maxOutputTokens": output, "parameterPolicy": parameters,
+                              "parameterEvidence": evidence})
+            if len(rows) < 500:
+                break
+            offset += len(rows)
+    result = {"format": AUTHORING_CATALOG_FORMAT, "source": AUTHORING_CATALOG_SOURCE,
+              "catalogId": "rpg-" + digest([tenant, "authoring-models-v1"]), "models": items}
+    return {**result, "revision": digest(result)}
+
+
+@router.get("/authoring/models", dependencies=[Depends(require_service)])
+def authoring_models(stable=Depends(get_authoring_stable)):
+    return JSONResponse(authoring_catalog(stable), headers={"Cache-Control": "no-store"})
+
+
+def _unique_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value or key in ("__proto__", "constructor", "prototype"):
+            raise ValueError("duplicate_or_reserved_key")
+        value[key] = item
+    return value
+
+
+def authoring_parameters(entry, parameters):
+    if not entry["available"]:
+        raise HTTPException(409, "rpg_authoring_selection_unavailable")
+    fields = entry["parameterPolicy"]["fields"]
+    if not isinstance(parameters, dict) or not set(parameters) <= set(fields):
+        raise HTTPException(422, "rpg_authoring_parameter_unsupported")
+    for key, value in parameters.items():
+        field = fields[key]
+        if (type(value) not in (int, float) or not field["minimum"] <= value <= field["maximum"]
+                or not math.isfinite(value)
+                or (key == "maxOutputTokens" and int(value) != value)):
+            raise HTTPException(422, "rpg_authoring_parameter_range")
+    if any(f["required"] and key not in parameters for key, f in fields.items()):
+        raise HTTPException(422, "rpg_authoring_parameter_required")
+    if any(sum(key in parameters for key in group) > 1 for group in entry["parameterPolicy"]["exclusive"]):
+        raise HTTPException(422, "rpg_authoring_parameter_conflict")
+    return {fields[key]["wireName"]: value for key, value in parameters.items()}
+
+
+@router.post("/authoring/parameters/validate", dependencies=[Depends(require_service)])
+async def validate_authoring_parameters(request: Request, stable=Depends(get_authoring_stable)):
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > 16 * 1024:
+            raise HTTPException(413, "rpg_authoring_request_too_large")
+    try:
+        value = json.loads(data, object_pairs_hook=_unique_json_object,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError("non_finite")))
+        if (not isinstance(value, dict) or set(value) != {"catalogRevision", "selectionId", "selectionRevision", "parameters"}
+                or any(not isinstance(value[k], str) or not re.fullmatch(r"[a-f0-9]{64}", value[k])
+                       for k in ("catalogRevision", "selectionId", "selectionRevision"))):
+            raise ValueError("invalid")
+    except (ValueError, UnicodeError, RecursionError):
+        raise HTTPException(422, "rpg_authoring_request_invalid") from None
+    current = authoring_catalog(stable)
+    if value["catalogRevision"] != current["revision"]:
+        raise HTTPException(409, "rpg_authoring_catalog_changed")
+    entry = next((e for e in current["models"] if e["selectionId"] == value["selectionId"]), None)
+    if not entry or entry["selectionRevision"] != value["selectionRevision"]:
+        raise HTTPException(409, "rpg_authoring_selection_changed")
+    wire = authoring_parameters(entry, value["parameters"])
+    return JSONResponse({"format": "modelmirror.rpg.parameter-check/1", "catalogRevision": current["revision"],
+                         "selectionId": entry["selectionId"], "selectionRevision": entry["selectionRevision"],
+                         "wireParameters": wire, "dispatched": False}, headers={"Cache-Control": "no-store"})
+
+
+# Separate durable authoring protocol; legacy card endpoints retain their contract.
+from .rpg_authoring_execution import register_authoring_execution
+register_authoring_execution(router, require_service, get_authoring_stable, authoring_catalog,
+                             authoring_parameters, _unique_json_object, digest)
+
+from .rpg_authoring_route import register_route_api
+register_route_api(router, require_service, get_stable, _unique_json_object)

@@ -56,6 +56,15 @@ def test_catalog_retains_only_bounded_declared_compatibility_no_inference():
     assert metadata["model/exact"] == {"context_length":128000,"max_output_tokens":32768,"supported_parameters":["max_tokens","temperature","top_p"]}
     assert metadata["model/missing"] == metadata["model/invalid"] == {}
 
+@pytest.mark.parametrize("identity", [{}, {"kind": "openrouter"}, {"base_url": "https://openrouter.ai/api/v1"}])
+def test_partial_connection_identity_cannot_grant_openrouter_capabilities(identity):
+    record = {"id": "model/exact", "supported_parameters": ["max_tokens"],
+              "top_provider": {"max_completion_tokens": 8192}}
+    models, _, _, _ = normalize_provider_catalog(
+        [record], connection=SimpleNamespace(scopes=["chat"], **identity), observed_at="2026-09-19T00:00:00Z")
+    assert models[0]["metadata"] == {"supported_parameters": ["max_tokens"]}
+
+
 @pytest.mark.asyncio
 async def test_scoped_outbox_cannot_relabel_another_workload(tmp_path, monkeypatch):
     import json

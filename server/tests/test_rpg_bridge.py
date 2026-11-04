@@ -1,5 +1,9 @@
 """Offline RPG bridge acceptance. All provider traffic uses httpx.MockTransport."""
 import json
+import copy
+import sqlite3
+import subprocess
+from pathlib import Path
 from dataclasses import replace
 
 import httpx
@@ -263,13 +267,18 @@ def test_partial_output_is_kept_as_evidence_and_unknown_is_not_success(setup):
 def test_parent_app_registers_rpg_routes_and_default_disabled(monkeypatch):
     from server.main import app
     registered = [(r.path, set(r.methods or ())) for r in app.routes if r.path.startswith('/api/rpg/v1')]
-    assert registered == [('/api/rpg/v1/models', {'GET'}), ('/api/rpg/v1/progress/{session_id}/{request_id}', {'GET'}), ('/api/rpg/v1/chat/completions', {'POST'})]
+    assert registered == [('/api/rpg/v1/models', {'GET'}), ('/api/rpg/v1/progress/{session_id}/{request_id}', {'GET'}), ('/api/rpg/v1/chat/completions', {'POST'}),
+                          ('/api/rpg/v1/authoring/models', {'GET'}), ('/api/rpg/v1/authoring/parameters/validate', {'POST'}),
+                          ('/api/rpg/v1/authoring/tasks', {'POST'}), ('/api/rpg/v1/authoring/tasks/{session_id}/{request_id}', {'GET'}),
+                          ('/api/rpg/v1/authoring/route', {'GET'}), ('/api/rpg/v1/authoring/route', {'PUT'})]
     monkeypatch.delenv('RPG_S2S_ENABLED', raising=False)
     monkeypatch.delenv('RPG_S2S_TOKEN', raising=False)
     client = TestClient(app)
     assert client.get('/api/rpg/v1/models').status_code == 503
     assert client.get('/api/rpg/v1/progress/example/example').status_code == 503
     assert client.post('/api/rpg/v1/chat/completions', content='{}').status_code == 503
+    assert client.get('/api/rpg/v1/authoring/route').status_code == 503
+    assert client.put('/api/rpg/v1/authoring/route', content='{}').status_code == 503
 
 
 def test_luna_exception_is_exact_and_does_not_change_other_models():
@@ -304,3 +313,275 @@ def test_endpoint_tag_is_pinned_on_openrouter_wire(setup, monkeypatch):
     result = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=payload(client))
     assert result.status_code == 200
     assert captured[0]["provider"] == {"allow_fallbacks": False, "require_parameters": True, "only": ["test-provider/endpoint"], "order": ["test-provider/endpoint"]}
+
+
+# B6-D: real router/repository, synthetic qualification, no provider dispatch.
+AUTHORING_MODELS = "/api/rpg/v1/authoring/models"
+AUTHORING_VALIDATE = "/api/rpg/v1/authoring/parameters/validate"
+
+
+def _declared_parameters(meta, *, token_only=False, exclusive=False):
+    from server.model_router.provider_catalog import TEXT_PARAMETER_CAPABILITIES_FORMAT, _parameter_capabilities
+    field = lambda low, high, default, required, wire: dict(minimum=low, maximum=high, defaultValue=default, required=required, wireName=wire)
+    fields = {"maxOutputTokens": field(1, 32768, 4096, True, "max_completion_tokens" if token_only else "max_tokens")}
+    if not token_only:
+        fields.update(temperature=field(0, 2, 0.7, False, "temperature"), topP=field(0, 1, 0.8, False, "top_p"))
+    meta["supported_parameters"] = [f["wireName"] for f in fields.values()]
+    raw = {**meta, "parameter_capabilities": {"format": TEXT_PARAMETER_CAPABILITIES_FORMAT,
+           "policy": {"kind": "editable", "fields": fields, "exclusive": [["temperature", "topP"]] if exclusive else []}}}
+    meta["parameter_capabilities"] = _parameter_capabilities(raw)
+    return raw
+
+
+def _authoring_selection(client, parameters=None):
+    response = client.get(AUTHORING_MODELS, headers=HEADERS)
+    assert response.status_code == 200, response.text
+    catalog = response.json()
+    entry = next(e for e in catalog["models"] if e["available"])
+    return catalog, {"catalogRevision": catalog["revision"], "selectionId": entry["selectionId"],
+                     "selectionRevision": entry["selectionRevision"], "parameters": parameters or {"maxOutputTokens": 4096}}
+
+
+def test_authoring_legacy_fixed_and_unknown_are_not_editable(setup):
+    client, stable, repo, meta, captured, _ = setup
+    old = client.get("/api/rpg/v1/models", headers=HEADERS).json()
+    c, value = _authoring_selection(client, {"temperature": .7, "topP": .8, "maxOutputTokens": 16384})
+    e = c["models"][0]
+    assert e["parameterEvidence"] == "legacy-fixed" and e["parameterPolicy"]["kind"] == "fixed"
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).json()["wireParameters"] == bridge.PARAMETERS
+    value["parameters"]["temperature"] = .8
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).status_code == 422
+    assert client.get("/api/rpg/v1/models", headers=HEADERS).json() == old
+    meta.pop("supported_parameters")
+    unknown = client.get(AUTHORING_MODELS, headers=HEADERS).json()["models"][0]
+    assert not unknown["available"] and unknown["parameterPolicy"] is None and unknown["parameterEvidence"] == "unknown"
+    assert not captured
+
+
+def test_authoring_catalog_and_parameter_check_are_read_only(setup, monkeypatch):
+    client, stable, repo, meta, captured, _ = setup
+    _declared_parameters(meta)
+    def dump():
+        with sqlite3.connect(repo.database_path) as database:
+            return list(database.iterdump())
+    before = dump()
+    monkeypatch.setattr(stable.control, "get_policy", lambda: pytest.fail("catalog must not advance gate epochs"))
+    monkeypatch.setattr(stable, "begin_rpg_certified", lambda *_: pytest.fail("must not begin a run"))
+    c, value = _authoring_selection(client)
+    response = client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value)
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json()["wireParameters"] == {"max_tokens": 4096} and response.json()["dispatched"] is False
+    assert c["source"] == "control-plane-cache" and c["models"][0]["parameterEvidence"] == "provider-declared"
+    assert dump() == before and not captured
+    assert not (repo.storage_dir / "rpg-bridge-requests").exists()
+    for forbidden in ("api_key", "base_url", "_binding", "connection_id", TOKEN, "secret"):
+        assert forbidden not in json.dumps(c)
+
+
+@pytest.mark.parametrize("headers,status", [({},401),({**HEADERS,"Origin":"http://localhost"},403),({**HEADERS,"Sec-Fetch-Site":"same-origin"},403)])
+def test_authoring_auth_before_evidence(setup, monkeypatch, headers, status):
+    client, stable, _, _, captured, _ = setup
+    monkeypatch.setattr(stable.control, "peek_policy", lambda: pytest.fail("evidence accessed before auth"))
+    assert client.get(AUTHORING_MODELS, headers=headers).status_code == status
+    assert client.post(AUTHORING_VALIDATE, headers=headers, content=b"{}").status_code == status
+    assert not captured
+
+
+@pytest.mark.parametrize("params,diagnostic", [({"temperature":2.1,"maxOutputTokens":1},"range"),
+    ({"topP":-1,"maxOutputTokens":1},"range"),({"maxOutputTokens":1.2},"range"),({"maxOutputTokens":True},"range"),
+    ({"maxOutputTokens":32769},"range"),({"maxOutputTokens":10**1000},"range"),({"temperature":.5},"required"),({"maxOutputTokens":1,"top_p":.8},"unsupported"),
+    ({"maxOutputTokens":1,"providerUrl":"https://untrusted.invalid"},"unsupported"),
+    ({"maxOutputTokens":1,"temperature":.7,"topP":.8},"conflict")])
+def test_authoring_parameter_rejections_no_dispatch(setup, params, diagnostic):
+    client, _, _, meta, captured, _ = setup; _declared_parameters(meta, exclusive=True)
+    _, value = _authoring_selection(client); value["parameters"] = params
+    response = client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value)
+    assert response.status_code == 422 and response.json()["detail"] == "rpg_authoring_parameter_" + diagnostic
+    assert not captured
+
+
+def test_authoring_token_only_bounds_and_mapping(setup):
+    client, _, _, meta, captured, _ = setup; _declared_parameters(meta, token_only=True)
+    for count in (1, 32768):
+        _, value = _authoring_selection(client, {"maxOutputTokens": count})
+        assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).json()["wireParameters"] == {"max_completion_tokens": count}
+    value["parameters"]["temperature"] = .7
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).status_code == 422
+    assert not captured
+
+
+def test_authoring_same_model_routes_qualification_policy_and_metadata_drift(setup, monkeypatch):
+    client, stable, repo, meta, captured, _ = setup; _declared_parameters(meta)
+    policy = stable.control.peek_policy(); routes = stable.control.route_candidates(policy, "chat_text")
+    _qualify_scoped_model(repo, routes[1])
+    c, value = _authoring_selection(client)
+    assert len(c["models"]) == 2 and all(e["available"] for e in c["models"])
+    assert len({e["selectionId"] for e in c["models"]}) == 2
+    original = stable.control.current_qualification
+    def qualification(**kwargs):
+        if kwargs["connection_id"] == routes[0]: return None, "test_revoked"
+        return original(**kwargs)
+    monkeypatch.setattr(stable.control, "current_qualification", qualification)
+    current = client.get(AUTHORING_MODELS, headers=HEADERS).json()
+    assert [e["available"] for e in current["models"]] == [False, True]
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).status_code == 409
+    c, value = _authoring_selection(client)
+    meta["parameter_capabilities"]["policy"]["fields"]["maxOutputTokens"]["maximum"] = 20000
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).status_code == 409
+    monkeypatch.setenv("MODEL_CONTROL_CHAT_ENABLED", "false")
+    assert all(not e["available"] for e in client.get(AUTHORING_MODELS, headers=HEADERS).json()["models"])
+    assert not captured
+
+
+@pytest.mark.parametrize("bad", [b'{"catalogRevision":"x","catalogRevision":"y"}', b'{"parameters":{"maxOutputTokens":NaN}}', b'{"providerUrl":"x"}', b'{'*1200])
+def test_authoring_malformed_requests_fail_closed(setup, bad):
+    client, _, _, _, captured, _ = setup
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, content=bad).status_code == 422
+    assert client.post(AUTHORING_VALIDATE, headers=HEADERS, content=b'x'*16385).status_code == 413
+    assert not captured
+
+
+def test_authoring_normalization_preserves_valid_and_rejects_ambiguous_evidence(setup):
+    from server.model_router.provider_catalog import normalize_provider_catalog
+    _, stable, repo, meta, _, _ = setup
+    connection = repo.get_connection("local", stable.control.route_candidates(stable.control.peek_policy(), "chat_text")[0])
+    raw = {"id": "synthetic", **_declared_parameters(meta, token_only=True)}
+    def normalize(records):
+        return normalize_provider_catalog(records, connection=connection, observed_at="2026-10-20T00:00:00Z")[0][0]["metadata"]
+    result = normalize([raw])
+    assert normalize([{"id":"synthetic"},raw])["parameter_capabilities"] == result["parameter_capabilities"]
+    assert result["supported_parameters"] == ["max_completion_tokens"]
+    assert result["parameter_capabilities"]["status"] == "declared"
+    for change in ("version", "unknown", "nan", "wire", "output", "supported", "required", "exclusive"):
+        bad = copy.deepcopy(raw); p = bad["parameter_capabilities"]["policy"]
+        if change == "version": bad["parameter_capabilities"]["format"] = "future"
+        if change == "unknown": p["secret"] = "do-not-retain"
+        if change == "nan": p["fields"]["maxOutputTokens"]["maximum"] = float("nan")
+        if change == "wire": p["fields"]["maxOutputTokens"]["wireName"] = "arbitrary"
+        if change == "output": bad["max_output_tokens"] = 1
+        if change == "supported": bad["supported_parameters"] = []
+        if change == "required": p["fields"]["maxOutputTokens"]["required"] = False
+        if change == "exclusive": p["exclusive"] = [["maxOutputTokens","maxOutputTokens"]]
+        assert normalize([bad])["parameter_capabilities"] == {"status":"invalid"}
+    conflict = copy.deepcopy(raw); conflict["parameter_capabilities"]["policy"]["fields"]["maxOutputTokens"]["maximum"] = 16000
+    assert normalize([raw, conflict])["parameter_capabilities"] == {"status":"invalid"}
+
+
+def test_authoring_invalid_declaration_never_falls_back_to_fixed(setup):
+    client, _, _, meta, captured, _ = setup
+    for declaration in ({"status":"invalid"}, {}, None):
+        meta["parameter_capabilities"] = declaration
+        e = client.get(AUTHORING_MODELS, headers=HEADERS).json()["models"][0]
+        assert not e["available"] and e["parameterPolicy"] is None and e["parameterEvidence"] == "invalid"
+    assert not captured
+
+
+def test_authoring_actual_api_projection_drives_node_offline_session(setup, tmp_path):
+    client, _, _, meta, captured, _ = setup; _declared_parameters(meta, token_only=True)
+    c, value = _authoring_selection(client)
+    checked = client.post(AUTHORING_VALIDATE, headers=HEADERS, json=value).json()
+    script = r"""
+      import http from 'node:http';
+      import {AuthoringStore} from './authoring/store.mjs';
+      import {blankDocument} from './authoring/contracts.mjs';
+      import {openPublishedRuntime} from './authoring/runtime-binding.mjs';
+      import {ControlPlaneModelControl} from './authoring/model-control.mjs';
+      import {OfflineSessionHost,OfflineFixtureProvider} from './authoring/offline-session.mjs';
+      const input=JSON.parse(await new Promise(r=>{let s='';process.stdin.on('data',b=>s+=b);process.stdin.on('end',()=>r(s));}));
+      const requests=[];
+      const server=http.createServer(async(req,res)=>{let body='';for await(const b of req)body+=b;requests.push({url:req.url,method:req.method,body:body?JSON.parse(body):null});res.setHeader('content-type','application/json');res.end(JSON.stringify(req.method==='GET'?input.catalog:input.checked));});
+      await new Promise(r=>server.listen(0,'127.0.0.1',r));
+      const control=new ControlPlaneModelControl({origin:'http://127.0.0.1:'+server.address().port,serviceToken:'synthetic-authoring-token-000000000000'});
+      const store=await AuthoringStore.open(input.dir+'/works');let host,provider;
+      try {
+        await control.refresh();const selected=control.select(input.selection);await control.validate(selected);
+        const document=blankDocument();document.metadata.name='cross-language';document.metadata.audience='male';document.sources.system='Frozen system';
+        const w=await store.create({operationId:'work',expectedRevision:null,document});
+        const v=await store.publish(w.workId,{operationId:'publish',expectedRevision:0});
+        provider=await OfflineFixtureProvider.open(input.dir+'/provider',{replies:{one:{status:'completed',text:'raw reply',finishReason:'stop'}}});
+        host=await OfflineSessionHost.open({directory:input.dir+'/sessions',resolveRuntime:r=>openPublishedRuntime(store,r),provider,modelControl:control});
+        const state=(await host.create({operationId:'session',expectedRevision:null,reference:{workId:w.workId,versionId:v.result.versionId},openingText:'opening',presetId:null})).session;
+        await host.configureModel({sessionId:state.id,operationId:'choose',expectedRevision:0,expectedModelRevision:0,purpose:'story',choice:input.selection});
+        const result=await host.send({sessionId:state.id,operationId:'one',expectedRevision:1,expectedModelRevision:1,input:'opening'});
+        console.log(JSON.stringify({state:result.operation.state,request:result.operation.request,requests,fixtureDispatches:provider.dispatchCount}));
+      }finally{await host?.close();await provider?.close();await store.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+    """
+    module = Path(__file__).resolve().parents[2] / "experiments/ai-rpg-engine"
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=module,
+        input=json.dumps({"catalog":c,"selection":value,"checked":checked,"dir":str(tmp_path / "node")}),
+        text=True, encoding="utf-8", capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    evidence = json.loads(result.stdout)
+    assert evidence["state"] == "completed" and evidence["fixtureDispatches"] == 1
+    assert evidence["request"]["model"] == SCOPED_MODEL_ID
+    assert evidence["request"]["parameters"] == {"max_completion_tokens":4096}
+    assert evidence["request"]["modelConfiguration"]["choice"]["source"] == "control-plane-cache"
+    assert [r["url"] for r in evidence["requests"]] == [AUTHORING_MODELS, AUTHORING_VALIDATE]
+    assert evidence["requests"][1]["body"] == value and not captured
+    (tmp_path / "cross-language-evidence.json").write_text(json.dumps(evidence,ensure_ascii=False,indent=2),encoding="utf-8")
+
+
+def test_authoring_catalog_capacity_and_missing_output_block_without_guessing(setup, monkeypatch):
+    client, stable, repo, meta, captured, _ = setup; _declared_parameters(meta)
+    meta["max_output_tokens"] = None
+    entry = client.get(AUTHORING_MODELS, headers=HEADERS).json()["models"][0]
+    assert not entry["available"] and entry["parameterEvidence"] == "invalid"
+    monkeypatch.setattr(bridge, "AUTHORING_CATALOG_LIMIT", 0)
+    assert client.get(AUTHORING_MODELS, headers=HEADERS).status_code == 503
+    assert not captured
+
+
+def test_authoring_policy_route_removal_invalidates_snapshot(setup, monkeypatch):
+    client, stable, _, meta, captured, _ = setup; _declared_parameters(meta)
+    _, value = _authoring_selection(client)
+    policy = stable.control.peek_policy()
+    monkeypatch.setattr(stable.control,"peek_policy",lambda:policy.model_copy(update={"routes":[],"policy_fingerprint":"changed"}))
+    assert client.get(AUTHORING_MODELS,headers=HEADERS).json()["models"] == []
+    assert client.post(AUTHORING_VALIDATE,headers=HEADERS,json=value).status_code == 409
+    assert not captured
+
+
+@pytest.mark.asyncio
+async def test_authoring_provider_extension_survives_actual_catalog_cache(tmp_path):
+    from server.tests.test_provider_catalog_service import _service as catalog_service
+    meta = {"context_length":128000,"max_output_tokens":32768}
+    raw = {"id":"provider/declared-example", **_declared_parameters(meta, token_only=True)}
+    service, repository, connection, requests = catalog_service(tmp_path, lambda _:httpx.Response(200,json={"data":[raw]}))
+    result = await service.refresh_connection(connection)
+    assert result.status == "succeeded" and len(requests) == 1 and requests[0].method == "GET"
+    row = repository.list_catalog_models("local",connection_id=connection)[0]
+    stored = json.loads(row["metadata_json"])
+    assert stored["parameter_capabilities"] == meta["parameter_capabilities"]
+    assert stored["supported_parameters"] == ["max_completion_tokens"]
+    assert repository.get_latest_chat_certification("local",connection,raw["id"],"chat_text") is None
+    assert repository.list_chat_control_receipts("local")["runs"] == []
+
+
+def test_authoring_disabled_gate_and_unsupported_public_name(setup, monkeypatch):
+    client, _, _, meta, captured, _ = setup
+    monkeypatch.setenv("RPG_S2S_ENABLED","false")
+    assert client.get(AUTHORING_MODELS,headers=HEADERS).status_code == 503
+    assert client.post(AUTHORING_VALIDATE,headers=HEADERS,json={}).status_code == 503
+    monkeypatch.setenv("RPG_S2S_ENABLED","true")
+    meta["name"] = "\U0001F680" * 101
+    assert client.get(AUTHORING_MODELS,headers=HEADERS).status_code == 503
+    assert not captured
+
+
+def test_authoring_uncertified_models_do_not_enter_credential_qualification_loop(setup, monkeypatch):
+    client, stable, repo, meta, captured, _ = setup; _declared_parameters(meta)
+    listing = repo.list_catalog_models
+    def list_with_uncertified(*args, **kwargs):
+        rows = listing(*args, **kwargs)
+        if rows and not kwargs.get("model_id"):
+            rows.append({**rows[0],"model_id":"provider/uncertified"})
+        return rows
+    qualification = stable.control.current_qualification
+    def checked(**kwargs):
+        assert kwargs["model_id"] != "provider/uncertified"
+        return qualification(**kwargs)
+    monkeypatch.setattr(repo,"list_catalog_models",list_with_uncertified)
+    monkeypatch.setattr(stable.control,"current_qualification",checked)
+    entries = client.get(AUTHORING_MODELS,headers=HEADERS).json()["models"]
+    assert len(entries) == 2 and entries[0]["available"] and not entries[1]["available"]
+    assert not captured

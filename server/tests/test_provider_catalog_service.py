@@ -700,3 +700,37 @@ def test_explicit_price_requires_currency_and_unit(tmp_path: Path) -> None:
         "status": "reported",
         "billing_authoritative": False,
     }
+
+
+def test_openrouter_standard_parameter_metadata(tmp_path):
+    service, repo, cid, _ = _service(tmp_path, lambda _: Response(200), kind="openrouter", base_url="https://openrouter.ai/api/v1")
+    connection = repo.get_connection("local", cid)
+    raw = {"id": "provider/arbitrary-text-model", "context_length": 100000,
+           "top_provider": {"max_completion_tokens": 65536},
+           "supported_parameters": ["temperature", "top_p", "max_tokens", "tools"]}
+    def metadata(value, conn=connection):
+        return normalize_provider_catalog([value], connection=conn, observed_at="2026-10-25T00:00:00Z")[0][0]["metadata"]
+    meta = metadata(raw)
+    assert meta["max_output_tokens"] == 65536
+    assert meta["parameter_capabilities_source"] == "openrouter-models-and-documented-api-ranges/1"
+    policy = meta["parameter_capabilities"]["policy"]
+    assert policy["kind"] == "editable" and policy["exclusive"] == []
+    assert policy["fields"]["temperature"] == {"minimum": 0, "maximum": 2, "defaultValue": 1, "required": False, "wireName": "temperature"}
+    assert policy["fields"]["maxOutputTokens"]["maximum"] == 65536
+    assert set(policy["fields"]) == {"temperature", "topP", "maxOutputTokens"}
+    from server.model_router.rpg_bridge import _authoring_policy
+    assert _authoring_policy(meta, raw["id"]) == (policy, "provider-declared")
+    reduced = metadata({**raw, "supported_parameters": ["max_tokens"]})
+    assert set(reduced["parameter_capabilities"]["policy"]["fields"]) == {"maxOutputTokens"}
+    for invalid in [None, 0, True, 1000001, "65536"]:
+        assert metadata({**raw, "top_provider": {"max_completion_tokens": invalid}})["parameter_capabilities"] == {"status": "invalid"}
+    assert metadata({**raw, "supported_parameters": ["temperature"]})["parameter_capabilities"] == {"status": "invalid"}
+    assert metadata({**raw, "max_output_tokens": 32768})["parameter_capabilities"] == {"status": "invalid"}
+    assert metadata({**raw, "parameter_capabilities": {"format": "invalid"}})["parameter_capabilities"] == {"status": "invalid"}
+    assert "parameter_capabilities" not in metadata(raw, connection.model_copy(update={"base_url": "https://proxy.example/v1"}))
+    assert "parameter_capabilities" not in metadata(raw, connection.model_copy(update={"kind": "newapi"}))
+    assert "parameter_capabilities" not in metadata({"id": "provider/unknown"})
+    conflict = {**raw, "top_provider": {"max_completion_tokens": 32768}}
+    records = normalize_provider_catalog([raw, conflict], connection=connection, observed_at="now")[0]
+    assert records[0]["metadata"]["parameter_capabilities"] == {"status": "invalid"}
+    repo.close()

@@ -71,5 +71,4 @@ function App(){
  {(modal==='create'||showHistory)&&<Chat.Create character={characterText(c)} world={c.world} params={params} historyOnly={showHistory} close={()=>{setModal('');setShowHistory(false);}} opened={id=>{setSession(id);setModal('');setShowHistory(false);}}/>}
  </>;
 }
-import {Xingjian} from './xingjian';
-createRoot(document.getElementById('root')!).render(/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries)\/chat\/)/.test(location.pathname)?<Xingjian/>:<App/>);
+createRoot(document.getElementById('root')!).render(<App/>);

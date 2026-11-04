@@ -143,7 +143,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     const route=chatRoute?chatRoute[2]:pathname.slice('/rpg-app/xingjian/'.length);
     if(req.method==='GET' && ((!chatRoute&&route==='card')||route==='')){
      const isSetup=route==='card';
-     const bytes=isSetup?await (await import('../xingjian-card/setup.mjs')).renderSetup():await readFile(join(cardDist||join(root,'card-replica/dist'),'index.html'));
+     // These pages share the Earth bundle. Its chunks must resolve through the
+     // static asset route even when the document itself is nested under /chat/.
+     const bytes=isSetup?await (await import('../xingjian-card/setup.mjs')).renderSetup():
+      (await readFile(join(cardDist||join(root,'card-replica/dist'),'index.html'),'utf8')).replace(/(src|href)="\.\/assets\//g,'$1="/rpg-app/earth/assets/');
      res.setHeader('Content-Security-Policy',isSetup?"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; frame-ancestors 'self'":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'self'");
      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(bytes);
     }
