@@ -92,12 +92,13 @@ export const MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID: Record<
 };
 
 // Verified against OpenRouter's dedicated Images endpoint profiles on
-// 2026-09-08. Both tiers currently publish the same token rates.
+// 2026-09-08 for 2.5, and the dedicated 2.6 endpoint profiles on this refresh.
+// Both generations currently publish the same dedicated image token rates.
 export const GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID: Record<
   string,
   ImagePricingItem[]
 > = Object.fromEntries(
-  ["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst"].map(
+  ["openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst", "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst"].map(
     (modelId) => [
       modelId,
       [
