@@ -49,6 +49,8 @@ describe("help center content catalog", () => {
       "review-elevenlabs-batch",
       "play-god-card",
       "play-rpg-cards",
+      "create-rpg-cg-gallery",
+      "create-rpg-variable-panel",
       "branch-rpg-story",
       "choose-rpg-model",
       "use-rpg-memory-palace",
@@ -84,7 +86,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     const visionGuide = helpArticles.find((article) => article.slug === "review-vision-image-decisions");
     expect(visionGuide?.verifiedCommit).toBe("ae2493e2");
     expect(visionGuide?.content).toContain("必须提供 1–4 张参考图");
@@ -107,6 +109,8 @@ describe("help center content catalog", () => {
     expect(rpgGuide?.verifiedCommit).toBe("56e47104");
     expect(rpgGuide?.content).toContain("导出完整作品包");
     expect(searchHelpContent("创作工作台").some((item) => item.id === "play-rpg-cards")).toBe(true);
+    expect(searchHelpContent("CG 画廊").some((item) => item.id === "create-rpg-cg-gallery")).toBe(true);
+    expect(searchHelpContent("数据骨架").some((item) => item.id === "create-rpg-variable-panel")).toBe(true);
     const modelServingArticle = helpArticles.find((article) => article.slug === "check-availability-cost-data");
     expect(modelServingArticle?.verifiedCommit).toBe(modelServingReviewBaseline.commit);
     expect(modelServingArticle?.verifiedDate).toBe(modelServingReviewBaseline.date);

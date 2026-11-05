@@ -1,3 +1,4 @@
+import {panelDefinition} from './variable-panel.mjs';
 import {emptyRequirements} from './requirements.mjs';
 import {CONTROLLED_BRANCH_FORMAT,isControlledSession} from './controlled-receipt.mjs';
 import {canonical,sha256} from './contracts.mjs';
@@ -20,6 +21,7 @@ export function createBranchSession(checkpoint,runtime,executionHash){
   create:{operationId:createId(checkpoint),requestHash:branchCreateHash(checkpoint)},binding,executionHash,
   allowanceId:source.allowanceId,presetId:source.presetId,examples:structuredClone(source.examples),draft:'',origin,
   requirements:emptyRequirements(source.settings.requirements),runs:[],operations:[],turns:originTurns(origin),models:emptyModelState(),history:emptyHistoryState(source.settings.history),memoryEdits:[]};
+ const panel=panelDefinition(runtime.configuration().document.settings.variablePanel);if(panel)s.variablePanel=panel;
  s.summary=initialJointSummary(s);s.memory=initialMemoryJobs(s);
  return validateJointSession(s,executionHash);
 }

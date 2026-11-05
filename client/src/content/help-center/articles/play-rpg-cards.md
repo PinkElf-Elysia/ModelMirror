@@ -56,4 +56,4 @@
 
 ## 下一步
 
-尝试 [从故事中创建另一条路线](/help/branch-rpg-story)，或阅读 [费用与数据说明](/help/check-availability-cost-data)。
+创作者可以继续[添加可解锁插图](/help/create-rpg-cg-gallery)或[设计变量面板](/help/create-rpg-variable-panel)。玩家可以尝试 [从故事中创建另一条路线](/help/branch-rpg-story)，或阅读 [费用与数据说明](/help/check-availability-cost-data)。

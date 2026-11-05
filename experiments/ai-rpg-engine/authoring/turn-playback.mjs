@@ -1,3 +1,5 @@
+import {prepareVariablePanel} from './variable-render.mjs';
+import {panelSnapshot,panelVisibleReply} from './variable-panel.mjs';
 import {randomBytes} from 'node:crypto';
 import {keys,canonical,sha256,fail,AuthoringError} from './contracts.mjs';
 import {checkSession} from './joint-session-state.mjs';
@@ -38,6 +40,52 @@ export class TurnPlayback {
    sourceHash:record?.sourceHash??null,resultHash:record?.result?digest(record.result):null,
    recovery:{operationId:turnDisplayId(sessionId,turnNumber),expectedRevision:source.session.revision}};
  }
+ async gallery(sessionId){
+  checkSession(sessionId);
+  const {session}=await this.#host.read(sessionId);
+  const {workId,versionId}=session.binding;
+  const runtime=requirePublishedRuntime(await this.#resolve({workId,versionId}));
+  runtime.requireBinding(session.binding);await runtime.verify();
+  const {document}=runtime.configuration(),cg=document.enhancements.cg;
+  const titles=new Map(cg.categories.map(group=>[group.id,group.name]));
+  const entries=cg.entries.filter(entry=>entry.enabled&&entry.special?.enabled);
+  const unlocks=new Map(),wanted=new Set(entries.map(e=>e.id));
+  let checkedTurns=0;
+  if(entries.length&&session.turns.length){
+    await this.#journal.visitThrough(sessionId,session.turns.length,record=>{
+      const turn=session.turns[record.source.turnNumber-1];
+      this.#checkRecord(record,{session,turn,runtime});
+      if(record.state==='prepared')return;
+      checkedTurns=turn.number;
+      if(record.state!=='ready')return;
+      const plan=record.result.plan;
+      const images=plan.background.action==='set'?[...plan.chat,plan.background.image]:plan.chat;
+      for(const image of images){
+        if(!wanted.has(image.entryId)||unlocks.has(image.entryId))continue;
+        unlocks.set(image.entryId,{
+          turnNumber:turn.number,
+          imageUrl:base+'/works/'+workId+'/assets/'+encodeURIComponent(image.alias)+'?hash='+image.sha256+'&version='+versionId,
+        });
+      }
+    });
+  }
+  // Only project a locked card's public title and hint. First-hit evidence is
+  // the immutable display record; opening the gallery never creates a record.
+  const cards=entries.map(entry=>{
+    const unlock=unlocks.get(entry.id);
+    return {
+      group:entry.categoryId===null?'默认':titles.get(entry.categoryId),
+      groupId:entry.categoryId,
+      name:unlock?(entry.name||'特殊CG'):entry.special.showNameWhenLocked&&entry.name?entry.name:'神秘CG',
+      hint:!unlock&&entry.special.hintEnabled?entry.special.hint:null,
+      unlock:unlock??null,
+    };
+  });
+  const groupOrder=[null,...cg.categories.map(group=>group.id)];
+  cards.sort((a,b)=>groupOrder.indexOf(a.groupId)-groupOrder.indexOf(b.groupId));
+  return {sessionId,versionId,title:document.metadata.name,cards,unlocked:unlocks.size,
+    waitingForTurn:entries.length&&checkedTurns<session.turns.length?checkedTurns+1:null};
+ }
  async inheritBranch(sessionId){
   const {session:s}=await this.#host.read(sessionId);if(!s.origin)fail('BRANCH_DISPLAY_ORIGIN_INVALID');
   const results=[];for(let turn=1;turn<=s.origin.turn;turn++){const r=await this.#journal.capture(s,turn);results.push({turnNumber:turn,state:r.record.state,replayed:r.replayed});}
@@ -73,7 +121,7 @@ export class TurnPlayback {
    binding:{sessionId:s.id,turnNumber:t.number,role:input.role,workId:s.binding.workId,versionId:s.binding.versionId,configurationHash:runtime.descriptor.configurationHash,rawHash:t.rawHash,displayId:record.id},
    suggestions:input.role==='assistant'&&document.enhancements.suggestions,presentation:document.settings.presentation};
   if(input.role==='assistant'&&record.state==='ready')render.cgView=turnDisplayView(record,input.device);
-  if(document.enhancements.displayRules.length)render.displayProjection=await projectDisplayRules(projectSuggestions(html,render.suggestions).display,document.enhancements.displayRules,{role:input.role});
+  if(document.enhancements.displayRules.length||input.role==='assistant'&&t.variablePanel)render.displayProjection=await projectDisplayRules(input.role==='assistant'?panelVisibleReply(projectSuggestions(html,render.suggestions).display,t.variablePanel):html,document.enhancements.displayRules,{role:input.role});
   const discovery=await compilePresentationBounded(render),resources=[];
   for(const alias of discovery.manifest.requestedAliases){
    if(!record.source.assets.some(a=>a.alias===alias))continue;
@@ -89,7 +137,18 @@ export class TurnPlayback {
    display:{id:record.id,state:record.state,resultHash:digest(record.result)},
    bgm:bgm?{asset:bgm,autoplay:record.result.bgmAutoplay,url:base+'/works/'+s.binding.workId+'/assets/'+encodeURIComponent(bgm.alias)+'?hash='+bgm.sha256+'&version='+s.binding.versionId}:null};
  }
+ async panel(input){
+  keys(input,['sessionId','turnNumber']);
+  const {session:s}=await this.#host.read(input.sessionId);
+  if(!s.variablePanel||!Number.isInteger(input.turnNumber)||input.turnNumber<0||input.turnNumber>s.turns.length)fail('PANEL_TURN_INVALID');
+  const runtime=await this.#resolve({workId:s.binding.workId,versionId:s.binding.versionId});runtime.requireBinding(s.binding);await runtime.verify();const config=runtime.configuration();
+  const prior={...s,turns:s.turns.slice(0,input.turnNumber)},result=prior.turns.at(-1)?.variablePanel;
+  return prepareVariablePanel({config:config.document.settings.variablePanel,snapshot:panelSnapshot(prior),binding:{sessionId:s.id,turnNumber:input.turnNumber,versionId:s.binding.versionId},origin:this.#origin(),cache:this.#cache,assets:config.assets,readAsset:alias=>runtime.asset(alias),status:result?.status??'initial',diagnostic:result?.diagnostic??null});
+ }
  async handle(method,route,body){
+  if(method==='POST'&&route==='panel')return this.panel(body);
+  const gallery=/^gallery\/(session-[a-f0-9]{64})$/.exec(route);
+  if(method==='GET'&&gallery)return this.gallery(gallery[1]);
   const found=/^status\/(session-[a-f0-9]{64})\/([1-9][0-9]{0,3})$/.exec(route);
   if(method==='GET'&&found)return this.status(found[1],Number(found[2]));
   if(method==='POST'&&route==='prepare')return this.prepare(body);

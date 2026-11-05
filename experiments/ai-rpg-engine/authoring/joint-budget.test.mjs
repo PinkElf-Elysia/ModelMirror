@@ -69,3 +69,13 @@ test('host budget port rejects forged objects and ignores replaced instance meth
  assert.equal(Object.isFrozen(port),true);assert.equal((await port.claim(r)).dispatch,true);assert.equal((await port.claim(r)).dispatch,false);
  assert.equal((await port.status()).used,1);assert.equal(overrides,0);
 });
+
+
+test('confirmed non-dispatch settles unknown without spending or erasing its original identity',async t=>{
+ const f=await fixture(t,{limit:2}),{group:g}=await f.budget.reserve(plan({summary:false})),r=request(g,'story');await f.budget.claim(r);await f.budget.uncertain(g.id,'story');
+ const result={...r,status:'not_dispatched',resultHash:sha256('durable control rejection')};await f.budget.settle(result);await f.budget.settle(result);
+ await reject(()=>f.budget.claim(request(g,'memory-after')),'JOINT_STAGE_BLOCKED');await f.budget.releaseUnused(g.id);await f.reopen();
+ assert.equal((await f.budget.status()).used,0);assert.equal((await f.budget.status()).remaining,2);assert.equal((await f.budget.claim(r)).dispatch,false);
+ const saved=(await f.budget.read(g.id)).stages[0];assert.equal(saved.requestId,r.requestId);assert.equal(saved.resultHash,result.resultHash);
+ await reject(()=>f.budget.settle({...result,status:'completed'}),'JOINT_RESULT_COLLISION');await reject(()=>f.budget.settle({...result,resultHash:sha256('changed')}),'JOINT_RESULT_COLLISION');
+});

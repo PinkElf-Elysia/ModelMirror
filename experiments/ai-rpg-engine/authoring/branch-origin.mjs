@@ -24,7 +24,7 @@ export function validateBranchOrigin(value){
  keys(s.binding,['format','workId','versionId','runtimeHash','openingHash','resourceHash','openingText']);
  if(!isId(s.allowanceId)||!Array.isArray(s.turns)||s.turns.length!==value.turn||!Array.isArray(s.examples))fail('BRANCH_ORIGIN_INVALID');
  for(const [i,t]of s.turns.entries()){
-  keys(t,['id','number','user','userMessage','assistant','rawHash','messagesHash']);
+  keys(t,['id','number','user','userMessage','assistant','rawHash','messagesHash',...(Object.hasOwn(t,'variablePanel')?['variablePanel']:[])]);
   if(t.id!=='turn-'+(i+1)||t.number!==i+1||['user','userMessage','assistant'].some(k=>typeof t[k]!=='string'||!t[k].isWellFormed())||t.rawHash!==sha256(t.assistant)||!isHash(t.messagesHash))fail('BRANCH_ORIGIN_INVALID');
  }
  keys(s.settings,['history','modelSuggestions',...(Object.hasOwn(s.settings,'requirements')?['requirements']:[])]);if(Object.hasOwn(s.settings,'requirements'))checkRequirementsText(s.settings.requirements);if(!validConfig(s.settings.history))fail('BRANCH_ORIGIN_INVALID');

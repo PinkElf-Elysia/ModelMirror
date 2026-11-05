@@ -1,3 +1,5 @@
+import {prepareVariablePanel} from './variable-render.mjs';
+import {panelDefinition,initialPanelSnapshot} from './variable-panel.mjs';
 import {BranchCheckpoints} from './branch-storage.mjs';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
@@ -221,14 +223,23 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
           '/browser.mjs': [resolve(here, 'browser.mjs'), 'text/javascript; charset=utf-8'],
           '/browser-api.mjs': [resolve(here, 'browser-api.mjs'), 'text/javascript; charset=utf-8'],
         };
+        for(const name of ['variable-panel-ui.mjs','variable-frame-ui.mjs','variable-panel-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(creatorExperience)for(const name of ['creator-guide.html','creator-experience.css'])files['/'+name]=[resolve(here,name),name.endsWith('.html')?'text/html; charset=utf-8':'text/css; charset=utf-8'];
         if(summaryUI)for(const name of ['session-ui.mjs','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
-        if(turnPlayback)for(const name of ['playback-ui.mjs','playback-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
+        if(turnPlayback)for(const name of ['playback-ui.mjs','playback-ui.css','special-cg-ui.mjs'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(jointApi)for(const name of ['joint-ui.mjs','joint-client.mjs','joint-ui.css','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if (!files[path]) fail('AUTHORING_ROUTE_NOT_FOUND');
         return send(await readFile(files[path][0]), 200, files[path][1]);
       }
       if (!path.startsWith(api + '/')) fail('AUTHORING_ROUTE_NOT_FOUND');
+      if(path===api+'/variable-panel/preview'&&req.method==='POST'){
+        const body=payloadFields(await jsonBody(req,1024*1024),['workId','expectedRevision','config']);
+        const current=await store.read(body.workId);if(current.revision!==body.expectedRevision)fail('AUTHORING_REVISION_CONFLICT');
+        const definition=panelDefinition({...body.config,enabled:true});
+        const value=await prepareVariablePanel({config:body.config,snapshot:initialPanelSnapshot(definition),binding:{workId:current.id,revision:current.revision},origin,cache:presentations,assets:current.assets,readAsset:alias=>store.getAsset(current.id,alias)});
+        if((await store.read(current.id)).revision!==current.revision){presentations.release(value.token);fail('AUTHORING_REVISION_CONFLICT');}
+        return send(value);
+      }
       if(path===api+'/joint'&&req.method==='GET'){query(url,[]);return send({enabled:jointApi!==null,realProvider:sessionHost?.readiness?.realProvider===true,...(turnPlayback?{turnPlayback:true}:{})});}
       if(path.startsWith(api+'/joint/')){
         if(!jointApi)fail('AUTHORING_ROUTE_NOT_FOUND');query(url,[]);

@@ -1,3 +1,4 @@
+import {panelTurn,validatePanelTurns} from './variable-panel.mjs';
 import {validateRequirements,requirementsAt} from './requirements.mjs';
 import {CONTROLLED_MODE,CONTROLLED_SESSION_FORMAT,CONTROLLED_BRANCH_FORMAT,isControlledSession,validateControlledReceipt} from './controlled-receipt.mjs';
 import {checkSessionOrigin,originTurns,summaryOriginRevision,memoryOriginRevision} from './branch-origin.mjs';
@@ -43,7 +44,7 @@ export function storyReceipt(receipt,request){
  return receipt;
 }
 export const turnValue=(op,number)=>({id:'turn-'+number,number,operationId:op.operationId,requestId:op.request.id,complete:true,user:op.request.rawInput,
- userMessage:op.request.memoryContext.requirementsSnapshot?.text?op.request.worldbook.assembly.user:op.request.messages.at(-1).content,assistant:op.receipt.result.text,rawHash:sha256(op.receipt.result.text),messagesHash:op.request.messagesHash});
+ userMessage:op.request.memoryContext.variablePanelSnapshot||op.request.memoryContext.requirementsSnapshot?.text?op.request.worldbook.assembly.user:op.request.messages.at(-1).content,assistant:op.receipt.result.text,rawHash:sha256(op.receipt.result.text),messagesHash:op.request.messagesHash,...panelTurn(op)});
 export function jointPlan(s,operationId,kind,authorization){
  return planJointCalls({sessionId:s.id,operationId,kind,completedTurns:s.turns.length,summaryCoveredThrough:s.summary.snapshot.versions.at(-1)?.coveredThrough??0,
   memoryProcessedThrough:s.memory.snapshot.processedThrough,authorization,sourceHash:summaryRawHash(s.turns),
@@ -67,7 +68,7 @@ function revisionsAt(s,revision){
  return {summary,memory};
 }
 export function validateJointSession(s,executionHash){
- canonical(s);keys(s,['format','id','revision','createdAt','updatedAt','create','binding','executionHash','allowanceId','presetId','examples','draft','runs','operations','turns','models','history','summary','memory','memoryEdits',...(Object.hasOwn(s,'requirements')?['requirements']:[]),...(Object.hasOwn(s,'origin')?['origin']:[])]);
+ canonical(s);keys(s,['format','id','revision','createdAt','updatedAt','create','binding','executionHash','allowanceId','presetId','examples','draft','runs','operations','turns','models','history','summary','memory','memoryEdits',...(Object.hasOwn(s,'requirements')?['requirements']:[]),...(Object.hasOwn(s,'origin')?['origin']:[]),...(Object.hasOwn(s,'variablePanel')?['variablePanel']:[])]);
  keys(s.create,['operationId','requestHash']);checkSession(s.id);
  const origin=checkSessionOrigin(s),controlled=isControlledSession(s);
  const format=controlled?(origin?CONTROLLED_BRANCH_FORMAT:CONTROLLED_SESSION_FORMAT):(origin?BRANCH_SESSION_FORMAT:JOINT_SESSION_FORMAT);
@@ -126,7 +127,7 @@ export function validateJointSession(s,executionHash){
   else {if(!op.receipt||outcomeState(op.receipt.result)!==op.state)fail('JOINT_STORY_CORRUPT');if(op.state==='completed')turns.push(turnValue(op,turns.length+1));}
  }
  if(storyPending>1||!same(turns,s.turns))fail('JOINT_STORY_CORRUPT');
- validateJointSummary(s);validateMemoryJobs(s);
+ validatePanelTurns(s);validateJointSummary(s);validateMemoryJobs(s);
  const manual=s.memory.snapshot.versions.filter(v=>v.kind==='manual');
  if(s.memoryEdits.length!==manual.length)fail('JOINT_MEMORY_EDITS_CORRUPT');
  for(const [index,i]of s.memoryEdits.entries()){

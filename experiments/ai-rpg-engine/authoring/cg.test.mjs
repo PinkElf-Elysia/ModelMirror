@@ -174,6 +174,7 @@ test('保存重复操作、冲突、不可变发布和跨目录导入保留CG字
   const f=await fixture(t),g=await fixture(t),d=document();d.enhancements.cg.defaults={roles:['assistant'],rule:'and',target:'background'};d.enhancements.cg.categories=[{id:'places',name:'地点'}];d.enhancements.cg.entries[0].categoryId='places';
   const id=(await f.call('/works',{operationId:'create',expectedRevision:null,document:d})).value.workId;
   assert.equal((await f.call('/works/'+id+'/assets',{operationId:'asset',expectedRevision:0,alias:'lamp',fileName:'灯塔.png',mediaType:'image/png',base64:png.toString('base64')})).status,200);
+  d.enhancements.cg.entries[0].special={enabled:true,showNameWhenLocked:false,hintEnabled:true,hint:'雾散时登上灯塔。'};
   d.enhancements.cg.entries[0].mode='weighted';d.enhancements.cg.entries[0].images[0].weight=1e300;
   const save={operationId:'save',expectedRevision:1,document:d};assert.equal((await f.call('/works/'+id+'/save',save)).status,200);assert.equal((await f.call('/works/'+id+'/save',save)).value.replayed,true);assert.equal((await f.call('/works/'+id+'/save',{...save,operationId:'conflict'})).status,409);
   const version=(await f.call('/works/'+id+'/publish',{operationId:'publish',expectedRevision:2})).value.result.versionId;

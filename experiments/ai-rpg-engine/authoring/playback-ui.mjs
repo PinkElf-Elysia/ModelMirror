@@ -1,3 +1,5 @@
+import {mountVariableFrame,panelProblem} from './variable-frame-ui.mjs';
+import {createSpecialCGGallery} from './special-cg-ui.mjs';
 import {mountChatBGM} from './chat-bgm.mjs';
 const endpoint='/joint/playback';
 export const playbackPollDelay=view=>view?.busy?2500:null;
@@ -19,16 +21,18 @@ export function createPlaybackFrames({api,changed}){
  let generation=0,key=null,frames=[],pending=null;
  const release=rows=>Promise.allSettled(rows.filter(Boolean).map(frame=>api('/presentations/release',{token:frame.token})));
  const clear=()=>{generation++;key=null;const old=frames;frames=[];pending=null;void release(old);};
- return {clear,get frames(){return frames;},load(nextKey,request){
+ return {clear,get frames(){return frames;},load(nextKey,request,{panel=false}={}){
   if(key===nextKey)return pending||Promise.resolve();
   clear();key=nextKey;const gen=generation;changed({loading:true,frames:[],error:null});
   const task=(async()=>{
-   const rows=await Promise.allSettled(['user','assistant'].map(role=>api(endpoint+'/prepare',{...request,role})));
+   const tasks=['user','assistant'].map(role=>api(endpoint+'/prepare',{...request,role}));
+   if(panel)tasks.push(api(endpoint+'/panel',{sessionId:request.sessionId,turnNumber:request.turnNumber}));
+   const rows=await Promise.allSettled(tasks);
    const successes=rows.filter(r=>r.status==='fulfilled').map(r=>r.value);
    if(gen!==generation){await release(successes);return;}
-   const failed=rows.find(r=>r.status==='rejected');
+   const failed=rows.slice(0,2).find(r=>r.status==='rejected');
    if(failed){await release(successes);if(gen===generation)changed({loading:false,frames:[],error:failed.reason});return;}
-   frames=successes;changed({loading:false,frames,error:null});
+   frames=successes;changed({loading:false,frames,error:null,panelError:rows[2]?.status==='rejected'?rows[2].reason:null});
   })();pending=task;return task.finally(()=>{if(gen===generation)pending=null;});
  }};
 }
@@ -37,23 +41,29 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
  const pane=document.querySelector('.preview-pane'),tabs=document.querySelector('.preview-tabs');
  const trigger=document.createElement('button');trigger.type='button';trigger.textContent='实际对话';trigger.setAttribute('aria-pressed','false');trigger.setAttribute('aria-controls','turn-playback');tabs.prepend(trigger);
  const root=document.createElement('section');root.id='turn-playback';root.className='playback-view';root.hidden=true;root.setAttribute('aria-label','已保存的对话');
- root.innerHTML='<nav class="playback-toolbar" aria-label="对话回合"><strong data-turn-label>实际对话</strong><button type="button" data-prev aria-label="上一回合">←</button><button type="button" data-next aria-label="下一回合">→</button><button type="button" data-latest>最新</button><button type="button" data-refresh>刷新显示</button></nav><p class="playback-state" role="status"></p><div class="playback-recovery" hidden><button type="button" data-recover>恢复本轮展示</button></div><div class="playback-bgm-host"><div data-music></div></div><div class="playback-scroll"></div>';
+ root.innerHTML='<nav class="playback-toolbar" aria-label="对话回合"><strong data-turn-label>实际对话</strong><button type="button" data-prev aria-label="上一回合">←</button><button type="button" data-next aria-label="下一回合">→</button><button type="button" data-latest>最新</button><button type="button" data-refresh>刷新显示</button><button type="button" data-special-gallery>CG 画廊</button></nav><p class="playback-state" role="status"></p><div class="playback-recovery" hidden><button type="button" data-recover>恢复本轮展示</button></div><div class="playback-bgm-host"><div data-music></div></div><div class="playback-scroll"></div>';
  document.querySelector('#preview-content').after(root);
  const $=s=>root.querySelector(s),music=mountChatBGM($('[data-music]'));
+ let panelCleanup=null;
  let active=false,workId=null,sessionId=null,view=null,selected=0,follow=true,timer=null,loading=false,generation=0,currentKey=null,displayStatus=null,track=null,recovering=false,dead=false,frameIssue=null,refreshAgain=false,forceAgain=false;
  const visible=()=>active&&!document.hidden&&getComputedStyle(pane).display!=='none';
  const device=()=>innerWidth<=600?'mobile':'desktop';
  const setStatus=(text,warning=false)=>{$('.playback-state').textContent=text;$('.playback-state').dataset.warning=String(warning);};
  const schedule=()=>{clearTimeout(timer);const delay=playbackPollDelay(view);if(visible()&&!dead&&delay!==null)timer=setTimeout(()=>refresh(),delay);};
  const manager=createPlaybackFrames({api,changed:renderFrames});
+ const gallery=createSpecialCGGallery({api,getSession:()=>view?.session,notice});
+ $('[data-special-gallery]').onclick=()=>void gallery.open();
  function renderFrames(state){
   if(!active||!currentKey)return;
   const hosts=[...root.querySelectorAll('[data-frame]')];
   if(state.loading){frameIssue=null;for(const host of hosts){host.innerHTML='<p class="playback-placeholder">正在载入这一回合…</p>';}return;}
   if(state.error){frameIssue=problem(state.error);setStatus(frameIssue,true);diagnostics(state.error.code);for(const host of hosts)host.innerHTML='<p class="playback-placeholder">暂未载入展示，可在下方查看完整原文。</p>';return;}
-  state.frames.forEach((p,i)=>{
+  state.frames.slice(0,2).forEach((p,i)=>{
    const frame=document.createElement('iframe');frame.title=i?'本轮剧情':'本轮玩家输入';frame.setAttribute('sandbox','allow-scripts');frame.referrerPolicy='no-referrer';frame.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'");frame.src=p.frameUrl;hosts[i].replaceChildren(frame);
   });
+  panelCleanup?.();panelCleanup=null;
+  const panelHost=$('[data-variable-frame]');
+  if(panelHost){panelHost.replaceChildren();panelHost.parentElement.hidden=!state.frames[2]&&!state.panelError;if(state.frames[2])panelCleanup=mountVariableFrame(panelHost,state.frames[2],{notice});else if(state.panelError)panelHost.textContent=panelProblem(state.panelError.code);}
   const assistant=state.frames[1],bgm=assistant.bgm;
   track=bgm?{key:sessionId+'|'+bgm.asset.sha256,name:bgm.asset.fileName||bgm.asset.alias,url:bgm.url,autoplay:bgm.autoplay,error:null}:null;
   music.update(track,{active:visible(),enter:true});
@@ -69,13 +79,14 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
  function prepareTurn(turn){
   const key=sessionId+'|'+turn.number;
   if(currentKey===key)return;
-  currentKey=key;manager.clear();frameIssue=null;track=null;music.update(null,{active:false});
+  currentKey=key;panelCleanup?.();panelCleanup=null;manager.clear();frameIssue=null;track=null;music.update(null,{active:false});
   const bgmHost=$('.playback-bgm-host');root.insertBefore(bgmHost,$('.playback-scroll'));
-  $('.playback-scroll').innerHTML='<article class="playback-message" data-role="user"><details><summary>玩家输入</summary><div data-frame></div></details></article><article class="playback-message" data-role="assistant"><h3>剧情</h3><div data-frame></div><div data-choices class="playback-choices" aria-label="下一步建议"></div><div class="playback-extras"><details class="playback-tools"><summary>查看完整原文</summary><h4>玩家输入</h4><pre class="playback-raw" data-raw-user></pre><h4>AI 回复</h4><pre class="playback-raw" data-raw-assistant></pre></details><details class="playback-tools"><summary>展示详情</summary><pre class="playback-raw" data-diagnostics></pre></details></div></article>';
+  $('.playback-scroll').innerHTML='<article class="playback-message" data-role="user"><details><summary>玩家输入</summary><div data-frame></div></details></article><article class="playback-message" data-role="assistant"><h3>剧情</h3><div data-frame></div><section class="playback-variable" hidden><h3>变量面板</h3><div data-variable-frame></div></section><div data-choices class="playback-choices" aria-label="下一步建议"></div><div class="playback-extras"><details class="playback-tools"><summary>查看完整原文</summary><h4>玩家输入</h4><pre class="playback-raw" data-raw-user></pre><h4>AI 回复</h4><pre class="playback-raw" data-raw-assistant></pre></details><details class="playback-tools"><summary>展示详情</summary><pre class="playback-raw" data-diagnostics></pre></details></div></article>';
   $('[data-raw-user]').textContent=turn.user;$('[data-raw-assistant]').textContent=turn.assistant;$('.playback-scroll').prepend($('.playback-bgm-host'));$('.playback-scroll').scrollTop=0;
  }
- function empty(text){const bgmHost=$('.playback-bgm-host');root.insertBefore(bgmHost,$('.playback-scroll'));currentKey=null;frameIssue=null;manager.clear();track=null;music.update(null,{active:false});$('.playback-scroll').innerHTML='<p class="playback-empty">'+esc(text)+'</p>';$('[data-recover]').parentElement.hidden=true;}
+ function empty(text){panelCleanup?.();panelCleanup=null;const bgmHost=$('.playback-bgm-host');root.insertBefore(bgmHost,$('.playback-scroll'));currentKey=null;frameIssue=null;manager.clear();track=null;music.update(null,{active:false});$('.playback-scroll').innerHTML='<p class="playback-empty">'+esc(text)+'</p>';$('[data-recover]').parentElement.hidden=true;}
  function navigation(){
+  $('[data-special-gallery]').disabled=!view?.session;
   const count=view?.session.turns.length||0;$('[data-turn-label]').textContent=count?'第 '+selected+' / '+count+' 回合':'实际对话';
   $('[data-prev]').disabled=selected<=1;$('[data-next]').disabled=selected>=count;$('[data-latest]').disabled=!count||selected===count;
  }
@@ -84,8 +95,8 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
   try{
    if(!w){empty('新建或打开作品后，在此查看已保存的剧情。');return;}
    const id=playbackSessionId(localStorage,w);
-   if(!id){view=null;sessionId=null;empty('先选择作品版本和模型，发送开局后，完整对话会保存在这里。');navigation();return;}
-   if(id!==sessionId){view=null;empty('正在读取已保存的会话…');navigation();}
+   if(!id){gallery.close();view=null;sessionId=null;empty('先选择作品版本和模型，发送开局后，完整对话会保存在这里。');navigation();return;}
+   if(id!==sessionId){gallery.close();view=null;empty('正在读取已保存的会话…');navigation();}
    const next=await api('/joint/sessions/'+id);
    if(gen!==generation||w!==getWork()?.id||!active)return;
    if(next.session.binding.workId!==w)throw {code:'TURN_DISPLAY_SOURCE_CONFLICT'};
@@ -100,7 +111,7 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
    const canRecover=['missing','prepared'].includes(status.state);$('.playback-recovery').hidden=!canRecover;$('[data-recover]').disabled=recovering;
    if(canRecover){manager.clear();setStatus('剧情已保存，展示结果待核对。恢复只处理展示，不重新发送。',true);diagnostics(status.diagnostic||status.state);return;}
    if(force){frameIssue=null;manager.clear();}else if(frameIssue)setStatus(frameIssue,true);
-   await manager.load(currentKey+'|'+device()+'|'+status.resultHash,{sessionId:id,turnNumber:turn.number,device:device()});
+   await manager.load(currentKey+'|'+device()+'|'+status.resultHash,{sessionId:id,turnNumber:turn.number,device:device()},{panel:!!view.session.variablePanel});
   }catch(e){if(gen===generation){setStatus(problem(e),true);diagnostics(e.code);}}
   finally{loading=false;if(refreshAgain){const forced=forceAgain;refreshAgain=false;forceAgain=false;void refresh(forced);}else schedule();}
  }
@@ -111,7 +122,7 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
   catch(e){if(gen===generation){setStatus(problem(e),true);diagnostics(e.code);}}
   finally{recovering=false;if(gen===generation)$('[data-recover]').disabled=false;}
  }
- function hide(){active=false;generation++;clearTimeout(timer);trigger.setAttribute('aria-pressed','false');root.hidden=true;manager.clear();currentKey=null;music.destroy();}
+ function hide(){panelCleanup?.();panelCleanup=null;gallery.close();active=false;generation++;clearTimeout(timer);trigger.setAttribute('aria-pressed','false');root.hidden=true;manager.clear();currentKey=null;music.destroy();}
  trigger.onclick=()=>{active=true;activate();root.hidden=false;trigger.setAttribute('aria-pressed','true');void refresh();};
  $('[data-prev]').onclick=()=>{if(selected>1){follow=false;selected--;generation++;void refresh();}};
  $('[data-next]').onclick=()=>{if(selected<(view?.session.turns.length||0)){selected++;follow=selected===view.session.turns.length;generation++;void refresh();}};
@@ -120,8 +131,8 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
  const visibility=()=>{music.update(track,{active:visible(),enter:false});if(visible())void refresh();else clearTimeout(timer);};
  const observer=new MutationObserver(visibility);observer.observe(pane,{attributes:true,attributeFilter:['class']});
  document.addEventListener('visibilitychange',visibility);window.addEventListener('resize',visibility);window.addEventListener('pageshow',e=>{if(e.persisted){dead=false;visibility();}});window.addEventListener('storage',e=>{if(e.key===sessionKey(workId)){generation++;void refresh();}});
- window.addEventListener('authoring-session-changed',()=>{generation++;void refresh();});
+ window.addEventListener('authoring-session-changed',()=>{gallery.close();generation++;void refresh();});
  window.addEventListener('authoring-turn-saved',event=>{if(!savedTurnMatches(event.detail,getWork()?.id,localStorage))return;follow=true;generation++;active=true;activate();root.hidden=false;trigger.setAttribute('aria-pressed','true');void refresh();});
  window.addEventListener('pagehide',()=>{dead=true;clearTimeout(timer);music.destroy();for(const frame of manager.frames)fetch('/rpg-app/api/authoring/presentations/release',{method:'POST',headers:{'Content-Type':'application/json','X-Authoring-Request':'1'},body:JSON.stringify({token:frame.token}),keepalive:true}).catch(()=>{});manager.clear();});
- return {initialize(){navigation();},hide,workChanged(){const id=getWork()?.id;if(id!==workId){workId=id;view=null;sessionId=null;selected=0;follow=true;generation++;empty('正在读取作品的会话…');}if(active)void refresh();}};
+ return {initialize(){navigation();},hide,workChanged(){const id=getWork()?.id;if(id!==workId){gallery.close();workId=id;view=null;sessionId=null;selected=0;follow=true;generation++;empty('正在读取作品的会话…');}if(active)void refresh();}};
 }

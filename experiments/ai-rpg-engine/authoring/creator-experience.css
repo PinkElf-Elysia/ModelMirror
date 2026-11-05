@@ -208,7 +208,7 @@ body[data-experience="creator"] {
   [data-experience="creator"] .preview-pane.open #close-preview {display:inline-grid}
   [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .joint-panel {grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center}
   [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .runtime-overview {grid-column:1;grid-row:1}
-  [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .runtime-actions {grid-column:2;grid-row:1}
+  [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .joint-panel > .runtime-primary-actions {grid-column:2;grid-row:1}
   [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .joint-budget {grid-column:3;grid-row:1}
   [data-experience="creator"] .preview-pane.open:has(.playback-view:not([hidden])) .runtime-heading {grid-column:4;grid-row:1}
 }

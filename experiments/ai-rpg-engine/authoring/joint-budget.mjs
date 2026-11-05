@@ -5,9 +5,9 @@ export const JOINT_BUDGET_FORMAT='modelmirror.rpg.authored-joint-budget/1';
 const budgetToken=Symbol(),budgets=new WeakSet();
 const digest=v=>sha256(canonical(v)),same=(a,b)=>canonical(a)===canonical(b),clone=v=>structuredClone(v);
 const integer=n=>Number.isSafeInteger(n)&&n>=0;
-const active=['dispatching','unknown'],finished=['completed','failed','cancelled'],states=['reserved','released',...active,...finished];
+const active=['dispatching','unknown'],finished=['completed','failed','cancelled','not_dispatched'],states=['reserved','released',...active,...finished];
 const idFor=(allowanceId,plan)=>'group-'+digest({allowanceId,sessionId:plan.input.sessionId,operationId:plan.input.operationId});
-const counters=s=>{let used=0,reserved=0;for(const g of s.groups)for(const t of g.stages){if(t.state==='reserved')reserved++;else if(t.state!=='released')used++;}return {limit:s.limit,used,reserved,remaining:s.limit-used-reserved};};
+const counters=s=>{let used=0,reserved=0;for(const g of s.groups)for(const t of g.stages){if(t.state==='reserved')reserved++;else if(!['released','not_dispatched'].includes(t.state))used++;}return {limit:s.limit,used,reserved,remaining:s.limit-used-reserved};};
 function validate(s){
  canonical(s);keys(s,['format','allowanceId','limit','revision','groups']);
  if(s.format!==JOINT_BUDGET_FORMAT||!isId(s.allowanceId)||!integer(s.limit)||s.limit>100000||!integer(s.revision)||!Array.isArray(s.groups)||s.groups.length>1000)fail('JOINT_BUDGET_CORRUPT');

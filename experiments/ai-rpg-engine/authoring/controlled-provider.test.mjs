@@ -48,3 +48,17 @@ test('reject nonloopback endpoints and invalid credentials before opening storag
  await assert.rejects(()=>ControlledProvider.open({directory,origin:'http://127.0.0.1:1',serviceToken:'short'}),{code:'CONTROL_CREDENTIAL_REQUIRED'});
  assert.equal(controlledProviderPort({dispatch(){}}),null);
 });
+
+
+test('readiness checks execution gate without creating tasks or allowing absence replay',async t=>{
+ const f=await fixture(t);assert.equal((await controlledProviderPort(f.provider).ready()).executionEnabled,true);assert.equal(f.calls.length,0);
+ const closed=await fixture(t,{ready:false});await assert.rejects(()=>closed.provider.ready(),{code:'CONTROL_EXECUTION_DISABLED'});assert.equal(closed.calls.length,0);
+ for(const options of [{readinessStatus:503},{readinessValue:{executionEnabled:true}},{readinessValue:{format:'modelmirror.rpg.authoring-readiness/1',executionEnabled:true,dispatched:true}}]){
+  const broken=await fixture(t,options);await assert.rejects(()=>broken.provider.ready(),{code:'CONTROL_READINESS_UNAVAILABLE'});assert.equal(broken.calls.length,0);
+ }
+});
+test('undispatched terminal rejection preserves identity and is recovered without POST',async t=>{
+ const f=await fixture(t,{status:'failed',dispatched:false});const r=await f.provider.dispatch(f.request);
+ assert.equal(r.control.dispatched,false);assert.equal(r.result.status,'failed');assert.equal(r.control.error,'rpg_authoring_execution_disabled');
+ await f.reopen();assert.deepEqual(await f.provider.lookup(f.request),r);await assert.rejects(()=>f.provider.dispatch(f.request),{code:'CONTROL_REQUEST_ALREADY_CLAIMED'});assert.equal(f.calls.length,1);
+});

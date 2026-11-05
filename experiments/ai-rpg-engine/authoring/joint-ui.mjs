@@ -5,7 +5,7 @@ import {pendingOperation as pendingModelOperation} from './model-ui.mjs';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const names={model:'模型选择',history:'历史窗口',summary:'自动总结',memory:'记忆宫殿',branch:'分支存档'};
 const states={idle:'尚未更新',prepared:'等待处理',running:'处理中',dispatching:'处理中',compression_dispatching:'正在压缩',compression_unknown:'压缩结果待核对',unknown:'结果待核对',applied:'已更新',completed:'已完成',paused:'已暂停',not_dispatched:'未派发',rejected:'内容未通过校验',revoked:'授权已撤销',stale:'旧结果未采用',blocked:'已暂停'};
-const errors={NETWORK_READ_FAILED:'暂未读取到最新状态。原配置与输入仍保留，请稍后刷新。',REQUIREMENTS_TEXT_LIMIT:'持续要求最多 8000 字，请缩短后保存。',REQUIREMENTS_CAPACITY:'持续要求的修订记录已满，本次未保存。已有要求与记录仍保留。',REQUIREMENTS_REVISION_CONFLICT:'持续要求已在其他页面修改。请刷新并核对，你的编辑仍保留。',REQUIREMENTS_POLICY_CONFLICT:'会话设置已变化。请刷新核对后再保存。',JOINT_STATE_REFRESH_FAILED:'操作已记录，但页面状态尚未刷新。请刷新会话状态，不必重复操作。',BRANCH_POINT_UNSETTLED:'这轮尚未收束，请核对原操作后再创建分支。',BRANCH_LINEAGE_INVALID:'分支来源记录不完整，请保留记录并核对。',MEMORY_MODEL_REQUIRED:'请先选择记忆模型。',SUMMARY_MODEL_REQUIRED:'请先选择摘要模型。',MODEL_SELECTION_REQUIRED:'请先选择剧情模型。',
+const errors={CONTROL_EXECUTION_DISABLED:'模型调试服务尚未开启，本次请求未发送、未占用额度。请联系本地维护者开启后再发送。',CONTROL_READINESS_UNAVAILABLE:'暂时无法确认模型服务是否可用。本次请求未发送、未占用额度，请稍后检查连接。',NETWORK_READ_FAILED:'暂未读取到最新状态。原配置与输入仍保留，请稍后刷新。',REQUIREMENTS_TEXT_LIMIT:'持续要求最多 8000 字，请缩短后保存。',REQUIREMENTS_CAPACITY:'持续要求的修订记录已满，本次未保存。已有要求与记录仍保留。',REQUIREMENTS_REVISION_CONFLICT:'持续要求已在其他页面修改。请刷新并核对，你的编辑仍保留。',REQUIREMENTS_POLICY_CONFLICT:'会话设置已变化。请刷新核对后再保存。',JOINT_STATE_REFRESH_FAILED:'操作已记录，但页面状态尚未刷新。请刷新会话状态，不必重复操作。',BRANCH_POINT_UNSETTLED:'这轮尚未收束，请核对原操作后再创建分支。',BRANCH_LINEAGE_INVALID:'分支来源记录不完整，请保留记录并核对。',MEMORY_MODEL_REQUIRED:'请先选择记忆模型。',SUMMARY_MODEL_REQUIRED:'请先选择摘要模型。',MODEL_SELECTION_REQUIRED:'请先选择剧情模型。',
  JOINT_BUDGET_EXHAUSTED:'剩余额度不足以完成本次剧情及后台整理。',JOINT_NO_TASKS:'当前没有需要补齐的回合。',OFFLINE_OPENING_MISMATCH:'首轮请使用本会话开局。',
  OFFLINE_REVISION_CONFLICT:'会话已更新，输入已保留。请刷新后核对。',MEMORY_REVISION_CONFLICT:'记忆已在其它位置更新，请核对后再保存。',MEMORY_POLICY_CONFLICT:'会话插件设置已变化，请刷新后核对。',
  JOINT_RESULT_PENDING:'有操作待核对，请先恢复原记录。',JOINT_SETTINGS_RESULT_UNKNOWN:'设置结果尚未确认，请恢复原记录。',JOINT_SETTINGS_RESULT_PENDING:'有插件设置待核对，请先恢复原记录。',
@@ -13,6 +13,7 @@ const errors={NETWORK_READ_FAILED:'暂未读取到最新状态。原配置与输
  OFFLINE_FILES_CHANGED_RESTART_REQUIRED:'会话对应的运行版本已变化，请保留原记录。'};
 const errorText=e=>errors[e?.code]||'操作未完成，原记录与输入已保留。';
 const preflightMessages={
+ rpg_authoring_execution_disabled:'模型调试服务已关闭，本次未占用调用额度。请开启服务后再发送。',
  rpg_authoring_dns_failed:'无法解析模型服务地址。请检查服务端 DNS 设置后再发送。',
  rpg_authoring_address_blocked:'模型地址解析到了受保护网络。请核对连接地址和 DNS 设置。',
  rpg_authoring_preflight_timeout:'连接预检超时。请检查服务端网络与 DNS 后再发送。',
@@ -77,7 +78,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
   if(!view){panel.insertAdjacentHTML('beforeend','<p>'+(reading?'正在读取已保存的会话…':'选择作品版本和剧情模型后，即可开始。')+'</p><button type="button" data-models>配置模型与会话</button>');panel.querySelector('[data-models]').onclick=()=>openModels();}
   else{
    document.querySelector('#model-button').textContent=view.session.models.current.story?.entry.name||'添加模型';
-   panel.insertAdjacentHTML('beforeend','<div class="runtime-overview"><span>'+esc(sessionPolicyText(view))+(view.effectivePolicy.authorization.memory.enabled?' · 关键词记忆':'')+'</span><span>'+view.session.turns.length+' 回合</span></div><div class="runtime-actions"><button type="button" data-plugins>会话插件</button><button type="button" data-memory>记忆条目</button><button type="button" data-records>对话与记录</button>'+(!view.session.turns.length?'<button type="button" data-opening>填入本会话开局</button>':'')+'</div><p class="joint-budget">本地额度剩余 '+view.budget.remaining+' 次'+(view.budget.reserved?' · 正在预留 '+view.budget.reserved+' 次':'')+(estimate?' · 本次最多 '+estimate.plan.maximumCalls+' 次':'')+'</p>');
+   panel.insertAdjacentHTML('beforeend','<div class="runtime-overview"><span>'+esc(sessionPolicyText(view))+(view.effectivePolicy.authorization.memory.enabled?' · 关键词记忆':'')+'</span><span>'+view.session.turns.length+' 回合</span></div><div class="runtime-actions runtime-primary-actions"><button type="button" data-plugins>会话插件</button><button type="button" data-memory>记忆条目</button><button type="button" data-records>对话与记录</button>'+(!view.session.turns.length?'<button type="button" data-opening>填入本会话开局</button>':'')+'</div><p class="joint-budget">本地额度剩余 '+view.budget.remaining+' 次'+(view.budget.reserved?' · 正在预留 '+view.budget.reserved+' 次':'')+(estimate?' · 本次最多 '+estimate.plan.maximumCalls+' 次':'')+'</p>');
    panel.querySelector('[data-plugins]').onclick=()=>open('plugins');panel.querySelector('[data-memory]').onclick=()=>open('memory');panel.querySelector('[data-records]').onclick=()=>open('records');
    const opening=panel.querySelector('[data-opening]');if(opening)opening.onclick=()=>{setInput(view.session.binding.openingText);input.focus();quote();};
    if(view.busy)panel.insertAdjacentHTML('beforeend','<p role="status">正在处理，已完成的剧情会先保存…</p>');

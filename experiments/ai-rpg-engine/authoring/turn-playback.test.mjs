@@ -33,6 +33,7 @@ async function fixture(t,options={}){
  const doc=blankDocument();doc.metadata.name='不可变回放样例';doc.metadata.audience='female';doc.sources.system='AUTHOR';doc.sources.prefix='PRE';doc.sources.suffix='POST';doc.sources.outputCss='details { color: #123456; }';
  doc.enhancements.suggestions=true;doc.enhancements.displayRules=[{id:'display-only',name:'仅显示替换',enabled:true,pattern:'蓝信',replacement:'展柜',flags:'g',scope:'assistant'}];
  doc.enhancements.cg.entries=options.many?Array.from({length:33},(_,i)=>cgEntry({id:'many-'+i,mode:'regular',images:[{alias:'a',weight:100}]})):[cgEntry(),cgEntry({id:'background',target:'background',mode:'regular',images:[{alias:'b',weight:100}]})];
+ if(options.cg)doc.enhancements.cg=structuredClone(options.cg);
  doc.settings.media.desktop='a';doc.settings.media.mobile='b';doc.settings.media.bgm='music';doc.settings.bgmAutoplay=false;
  const w=await ok('/works',{operationId:'work',expectedRevision:null,document:doc});
  for(const [i,alias]of ['a','b','music'].entries())await ok('/works/'+w.workId+'/assets',{operationId:'asset-'+alias,expectedRevision:i,alias,fileName:alias+(i===2?'.mp3':'.png'),mediaType:i===2?'audio/mpeg':'image/png',base64:(i===2?Buffer.concat([Buffer.from('ID3'),Buffer.alloc(10)]):png).toString('base64')});
@@ -114,4 +115,56 @@ test('disabled playback preserves old send contract and unknown story has no fab
  const old=await fixture(t,{disabled:true});const r=await old.send();assert.equal(r.display,undefined);assert.equal((await old.req(pb+'/status/'+id+'/1')).status,404);
  const f=await fixture(t,{providerFault:(phase)=>{if(phase==='afterAccepted')throw Error('unknown');}});await f.send();assert.equal((await f.view()).session.turns.length,0);assert.equal(f.seeds,0);
  await rejects(f,pb+'/prepare',{sessionId:id,turnNumber:1,role:'assistant',device:'desktop'},'AUTHORING_CG_COMPLETE_TURN_REQUIRED');assert.equal(f.provider.dispatchCount,1);
+});
+
+test('特殊 CG 画廊只从已落盘的版本和回合取首次命中，锁定项不泄露素材或剧情',async t=>{
+ const special={enabled:true,showNameWhenLocked:false,hintEnabled:true,hint:'去北岸看那束光。'};
+ const rows=[cgEntry({id:'beacon',name:'铜灯',mode:'weighted',keywords:['蓝信','继续散步'],special}),
+   cgEntry({id:'map',name:'地图背面的文字',mode:'regular',keywords:['未出现的口令'],special:{...special,hintEnabled:false}}),
+   cgEntry({id:'ordinary',name:'普通海图',mode:'regular'})];
+ const f=await fixture(t,{cg:{categories:[],entries:rows}});
+ const gallery=()=>f.ok(pb+'/gallery/'+id);
+ const before=await gallery();
+ assert.equal(before.unlocked,0);assert.equal(before.cards.length,2);
+ assert.deepEqual(before.cards[0],{group:'默认',groupId:null,name:'神秘CG',hint:special.hint,unlock:null});
+ assert.doesNotMatch(JSON.stringify(before.cards),/地图背面|imageUrl|铜灯|普通海图|未出现的口令/);
+ await f.server.sessionHost.send(await f.intent());await f.server.sessionHost.waitForIdle(id);
+ const missing=await gallery();assert.equal(missing.waitingForTurn,1);assert.equal(missing.unlocked,0);assert.equal(f.seeds,0);
+ await f.ok(pb+'/recover',await f.recovery());const after=await gallery();
+ assert.equal(after.unlocked,1);assert.equal(after.cards[0].name,'铜灯');assert.equal(after.cards[0].unlock.turnNumber,1);
+ assert.equal((await fetch(f.server.origin+after.cards[0].unlock.imageUrl)).status,200);
+ const first=await f.prepare(),second=await f.prepare();assert.equal(first.manifest.renderHash,second.manifest.renderHash);
+ assert.match((await f.frame(first)).text,/aria-label="放大CG插图"/);assert.equal(first.manifest.authorScriptsExecuted,false);
+ await f.send('two');assert.deepEqual(await gallery(),after);
+ const independent=await f.ok('/model-settings/sessions',{operationId:'another-story',expectedRevision:null,
+    reference:{workId:f.workId,versionId:f.versionId},openingText:'另一段故事',presetId:null});
+ assert.equal((await f.ok(pb+'/gallery/'+independent.session.id)).unlocked,0);
+ await f.reopen();assert.deepEqual(await gallery(),after);assert.equal(f.provider.dispatchCount,0);
+ assert.equal((await f.view()).session.turns[0].assistant,raw);
+});
+
+test('分支画廊继承分支点前的实图与触发回合，父路线后续命中保持锁定',async t=>{
+ const special={enabled:true,showNameWhenLocked:true,hintEnabled:false,hint:''};
+ const f=await fixture(t,{cg:{categories:[],entries:[
+   cgEntry({id:'early',name:'晨潮',mode:'weighted',special}),
+   cgEntry({id:'late',name:'晚潮',mode:'regular',keywords:['继续散步'],special}),
+ ]}});
+ await f.send();await f.send('two');
+ for(const action of ['install','enable']){
+   const s=await f.ok('/joint/settings/'+id);
+   await f.ok('/joint/settings/change',{purpose:'branch',action,sessionId:id,operationId:randomUUID(),expectedRevision:s.sessionRevision,
+     expectedModelRevision:s.modelRevision,expectedHistoryRevision:s.historyRevision,expectedSummaryRevision:s.summaryRevision,
+     expectedMemoryRevision:s.memoryRevision,expectedContextPolicyRevision:s.effectivePolicy.revision,expectedRegistryRevision:s.registryRevision,
+     ...(action==='enable'?{permissions:s.plugins.branch.permissions}:{})});
+ }
+ const v=await f.view();
+ const parent=await f.ok(pb+'/gallery/'+id);
+ assert.deepEqual(parent.cards.map(c=>c.unlock.turnNumber),[1,2]);
+ const fork=await f.ok('/joint/branch',{sessionId:id,operationId:'fork-gallery',expectedRevision:v.session.revision,
+   expectedSummaryRevision:v.session.summary.snapshot.revision,expectedMemoryRevision:v.session.memory.snapshot.revision,
+   expectedContextPolicyRevision:v.effectivePolicy.revision,turn:1,name:'启航日'});
+ const child=await f.ok(pb+'/gallery/'+fork.session.id);
+ assert.equal(child.unlocked,1);assert.deepEqual(child.cards[0].unlock,parent.cards[0].unlock);
+ assert.deepEqual(child.cards[1],{group:'默认',groupId:null,name:'晚潮',hint:null,unlock:null});
+ assert.equal(f.provider.dispatchCount,2);
 });

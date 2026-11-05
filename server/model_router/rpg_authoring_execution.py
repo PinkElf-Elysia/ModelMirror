@@ -34,6 +34,10 @@ _HASH = re.compile(r"[a-f0-9]{64}\Z")
 _tasks: set[asyncio.Task] = set()
 
 
+def _execution_enabled():
+    return os.getenv("RPG_AUTHORING_EXECUTION_ENABLED", "").lower() == "true"
+
+
 def _hash(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -176,6 +180,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         upstream_http_error = None
         status = "failed"
         try:
+            if not _execution_enabled():
+                raise ValueError("rpg_authoring_execution_disabled")
             selected, connection = selection(stable, value)
             wire = parameters(selected, value["parameters"])
             estimate = sum(len(m["content"].encode()) + 32 for m in value["messages"]) + 256
@@ -215,6 +221,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
             async with asyncio.timeout(240), httpx.AsyncClient(**stable.transport.client_kwargs()) as client:
                 outbound = stable.transport.build_authorized_stream_request(client, dispatch.target, dispatch.authorized, payload)
                 selection(stable, value)
+                if not _execution_enabled():
+                    raise ValueError("rpg_authoring_execution_disabled")
                 stable.mark_dispatched(dispatch)
                 sent = True
                 response = await stable.transport.send_authorized_stream(client, outbound)
@@ -267,7 +275,7 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                     code = "rpg_authoring_preflight_timeout"
                 elif isinstance(exc, httpx.HTTPError):
                     code = "rpg_authoring_preflight_network"
-            allowed = {"rpg_authoring_selection_changed", "rpg_authoring_context_capacity", "rpg_authoring_route_unavailable",
+            allowed = {"rpg_authoring_execution_disabled", "rpg_authoring_selection_changed", "rpg_authoring_context_capacity", "rpg_authoring_route_unavailable",
                        "rpg_authoring_endpoint_invalid", "rpg_authoring_upstream_http", "rpg_authoring_response_capacity",
                        "rpg_authoring_invalid_output", "rpg_authoring_non_text_output", "rpg_authoring_model_mismatch",
                        "rpg_authoring_provider_error", "rpg_authoring_result_unknown", "rpg_authoring_parameter_unsupported",
@@ -313,6 +321,13 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         _persist(result_path, result)
         return result
 
+    @router.get("/authoring/readiness", dependencies=[Depends(auth)])
+    def readiness():
+        # Read-only gate projection; this does not qualify a model or reserve credit.
+        return JSONResponse({"format": "modelmirror.rpg.authoring-readiness/1",
+                             "executionEnabled": _execution_enabled(), "dispatched": False},
+                            headers={"Cache-Control": "no-store"})
+
     @router.post("/authoring/tasks", dependencies=[Depends(auth)])
     async def start(request: Request, stable=Depends(get_stable)):
         value = await _body(request, unique)
@@ -320,8 +335,6 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         prior = _lookup(stable, value["sessionId"], value["requestId"], request_hash)
         if prior["status"] != "absent":
             return JSONResponse(prior, headers={"Cache-Control": "no-store"})
-        if os.getenv("RPG_AUTHORING_EXECUTION_ENABLED", "").lower() != "true":
-            raise HTTPException(503, "rpg_authoring_execution_disabled")
         claim, result = _paths(stable, value["sessionId"], value["requestId"])
         claim.parent.mkdir(parents=True, exist_ok=True)
         try:
