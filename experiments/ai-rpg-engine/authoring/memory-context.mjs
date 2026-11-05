@@ -1,3 +1,4 @@
+import {panelSnapshot,withPanelInput} from './variable-panel.mjs';
 import {requirementsAt,requirementsSnapshot,withRequirements} from './requirements.mjs';
 import {canonical,keys,isHash,sha256,fail,LIMITS} from './contracts.mjs';
 import {validateAuthoringMemory,requireMemoryAuthorization} from './memory-state.mjs';
@@ -17,7 +18,7 @@ export function memoryContextPolicy(session,summary,memory,{authorization,histor
  const reason=base.reason||(authorization.memory.enabled&&!session.models.current.memory?'MEMORY_MODEL_REQUIRED':null);
  const body={format:MEMORY_CONTEXT_FORMAT,sessionId:session.id,bindingHash:summaryBindingHash(session),basePolicyRevision:base.revision,
   memoryRevision:memory.revision,memoryHash:memory.sha256,memoryModelHash:session.models.current.memory?.sha256??null,
-  authorization:clone(authorization),historyConfig:clone(historyConfig),...(session.requirements?{requirementsHash:digest(requirementsSnapshot(requirementsAt(session.requirements,session.revision)))}:{}),mode:base.mode,canAssemble:reason===null,reason,runtimeReady:false,billedCalls:0};
+  authorization:clone(authorization),historyConfig:clone(historyConfig),...(session.requirements?{requirementsHash:digest(requirementsSnapshot(requirementsAt(session.requirements,session.revision)))}:{}),...(session.variablePanel?{variablePanelHash:digest(panelSnapshot(session))}:{}),mode:base.mode,canAssemble:reason===null,reason,runtimeReady:false,billedCalls:0};
  return {...body,revision:digest(body)};
 }
 export function assembleMemoryContext({session,summary,memory,authorization,historyConfig,base,input,expectedPolicyRevision}){
@@ -30,16 +31,18 @@ export function assembleMemoryContext({session,summary,memory,authorization,hist
  const messages=clone(lower.messages);
  if(recall.entries.length)messages[0].content+=MEMORY_WRAPPER.replace('{entries}',()=>JSON.stringify(recall.entries));
  messages.at(-1).content=withRequirements(messages.at(-1).content,session.requirements);
+ const variablePanelSnapshot=session.variablePanel?{definition:clone(session.variablePanel),state:panelSnapshot(session)}:null;
+ messages.at(-1).content=withPanelInput(messages.at(-1).content,variablePanelSnapshot);
  if(messages.reduce((sum,m)=>sum+[...m.content].length,0)>2000000)fail('MEMORY_CONTEXT_CAPACITY');
  const body={format:MEMORY_CONTEXT_FORMAT,sessionId:session.id,bindingHash:summaryBindingHash(session),sessionRevision:session.revision,
   completedTurns:session.turns.length,...(session.requirements?{requirementsSnapshot:requirementsSnapshot(session.requirements)}:{}),sourceHash:summaryRawHash(session.turns),models:clone(session.models),summarySnapshot:clone(summary),memorySnapshot:clone(memory),
-  policy,baseEvidence:lower.evidence,rawInputHash:sha256(input),recall:clone(recall.record),baseHash:digest(base),messagesHash:digest(messages)};
+  ...(variablePanelSnapshot?{variablePanelSnapshot}:{}),policy,baseEvidence:lower.evidence,rawInputHash:sha256(input),recall:clone(recall.record),baseHash:digest(base),messagesHash:digest(messages)};
  const evidence={...body,sha256:digest(body)};
  if(Buffer.byteLength(canonical(evidence))>LIMITS.recordBytes)fail('MEMORY_CONTEXT_CAPACITY');
  return {messages,evidence};
 }
 export function replayMemoryContext(session,base,input,evidence){
- canonical(evidence);keys(evidence,['format','sessionId','bindingHash','sessionRevision','completedTurns','sourceHash','models','summarySnapshot','memorySnapshot','policy','baseEvidence','rawInputHash','recall','baseHash','messagesHash','sha256',...(Object.hasOwn(evidence,'requirementsSnapshot')?['requirementsSnapshot']:[])]);
+ canonical(evidence);keys(evidence,['format','sessionId','bindingHash','sessionRevision','completedTurns','sourceHash','models','summarySnapshot','memorySnapshot','policy','baseEvidence','rawInputHash','recall','baseHash','messagesHash','sha256',...(Object.hasOwn(evidence,'requirementsSnapshot')?['requirementsSnapshot']:[]),...(Object.hasOwn(evidence,'variablePanelSnapshot')?['variablePanelSnapshot']:[])]);
  const {sha256:hash,...body}=evidence;
  if(evidence.format!==MEMORY_CONTEXT_FORMAT||hash!==digest(body)||evidence.sessionId!==session.id||evidence.bindingHash!==summaryBindingHash(session)||
   !Number.isSafeInteger(evidence.completedTurns)||evidence.completedTurns<0||evidence.completedTurns>session.turns.length||

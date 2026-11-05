@@ -141,6 +141,24 @@ function bootstrap(config, installDisplayPlatform) {
     const element=document.getElementById(id);
     return element?('value' in element?element.value:element.textContent):null;
   };
+  if(config.panel){
+    let sequence=0,pending=null;
+    const copy=event=>{
+      const target=event.target.closest?.('[data-panel-copy],[data-panel-copy-from]');
+      if(!target||!event.isTrusted||event.type==='keydown'&&!['Enter',' '].includes(event.key))return;
+      event.preventDefault();
+      const value=target.hasAttribute('data-panel-copy')?target.getAttribute('data-panel-copy'):content(target.getAttribute('data-panel-copy-from'));
+      if(typeof value!=='string'||value.length>65536)return;
+      pending={id:++sequence,target};send('panel-copy',{id:sequence,text:value});
+    };
+    document.addEventListener('click',copy);document.addEventListener('keydown',copy);
+    window.addEventListener('message',event=>{
+      const m=event.data;
+      if(event.source!==parent||event.origin!==config.origin||m?.protocol!==config.protocol||m.token!==config.token||m.type!=='panel-copied'||m.payload?.id!==pending?.id)return;
+      const target=pending.target;pending=null;
+      if(m.payload.ok){target.setAttribute('data-copied','');setTimeout(()=>target.removeAttribute('data-copied'),1600);}
+    });
+  }
   let last=0;
   document.addEventListener('click',event=>{
     const target=event.target.closest('a,button,[data-rpg-input],[data-rpg-input-from],[data-rpg-copy],[data-rpg-copy-from],[data-rpg-draft]');
@@ -174,14 +192,38 @@ function bootstrap(config, installDisplayPlatform) {
   if(config.execution){platform.apply(config.platform);scheduled=!!config.platform?.scheduled;schedule();}
 }
 
-/** Pure display compiler. Its inputs and raw source hashes never become model history. */
-export function compilePresentation({mode,html,css='',authorJs='',resources=[],binding={},origin,token,execution=null,platform=null,suggestions=false,displayProjection=null,cgView=null,presentation={scope:'standard',imageMappings:[]}}) {
+function installSpecialCGZoom(appendedImages) {
+  // The host appended exactly this many figures immediately before its own script.
+  // Never attach listeners to a lookalike button in author or model markup.
+  let figure = document.currentScript.previousElementSibling;
+  for (let i = 0; i < appendedImages && figure; i++, figure = figure.previousElementSibling) {
+    const trigger = figure.firstElementChild;
+    if (figure.tagName !== 'FIGURE' || !trigger?.matches('button.host-cg-magnify')) continue;
+    trigger.addEventListener('click', () => {
+      const original = trigger.querySelector('img');
+      if (!original) return;
+      const dialog = document.createElement('dialog');
+      dialog.className = 'host-cg-full';
+      dialog.setAttribute('aria-label', original.alt || 'CG插图');
+      const copy = original.cloneNode(false);
+      copy.removeAttribute('style');
+      const close = document.createElement('button');
+      close.type = 'button'; close.textContent = '关闭';
+      close.onclick = () => dialog.close();
+      dialog.addEventListener('close', () => { dialog.remove(); trigger.focus(); }, {once:true});
+      dialog.append(copy, close); document.body.append(dialog); dialog.showModal();
+    });
+  }
+}
+/** The display compiler uses copies. Raw model history is immutable. */
+export function compilePresentation({mode,html,css='',authorJs='',resources=[],binding={},origin,token,execution=null,platform=null,suggestions=false,displayProjection=null,cgView=null,panel=false,presentation={scope:'standard',imageMappings:[]}}) {
   if(!['opening','reply'].includes(mode))fail('AUTHORING_PRESENTATION_MODE');
   if(!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)||!/^[a-f0-9]{48}$/.test(token))fail('AUTHORING_PRESENTATION_BINDING');
   text(html,'/html');text(css,'/css');text(authorJs,'/authorJs');
   presentation=validatePresentation(presentation);
   if(platform){if(!execution)fail('AUTHORING_PRESENTATION_BINDING');validatePlatform(platform);platform=structuredClone(platform);}
   if(execution&&(mode!=='opening'||!/^[a-f0-9]{64}$/.test(execution.sourceHash)||!/^[a-f0-9]{64}$/.test(execution.stateHash)||!Number.isInteger(execution.sequence)))fail('AUTHORING_PRESENTATION_BINDING');
+  if(typeof panel!=='boolean'||panel&&(mode!=='reply'||execution||authorJs))fail('AUTHORING_PRESENTATION_MODE');
   if(cgView&&mode!=='reply')fail('AUTHORING_PRESENTATION_MODE');
   const diagnostics=new Map(),used=new Map(),requested=new Set();
   const imageMappings=new Map(presentation.imageMappings.map(item=>[item.source,item.alias]));
@@ -296,7 +338,7 @@ export function compilePresentation({mode,html,css='',authorJs='',resources=[],b
       else{used.set(alias,{alias,sha256:asset.sha256,mediaType:asset.mediaType});command[3]='data:audio/mpeg;base64,'+asset.bytes.toString('base64');}
     }
   }
-  const script='('+bootstrap.toString()+')('+jsonScript({protocol:PRESENTATION.format,token,origin,mode,inputCharacters:PRESENTATION.inputCharacters,execution:!!execution,sequence:execution?.sequence||0,platform})+',('+installDisplayPlatform.toString()+'));';
+  let script='('+bootstrap.toString()+')('+jsonScript({protocol:PRESENTATION.format,token,origin,mode,panel,inputCharacters:PRESENTATION.inputCharacters,execution:!!execution,sequence:execution?.sequence||0,platform})+',('+installDisplayPlatform.toString()+'));';
   const nonce=randomBytes(18).toString('base64');
   const markdownBase='.markdown-body{line-height:1.6}.markdown-body p{margin:0 0 1em}.markdown-body pre{padding:12px;overflow:auto;background:#f6f8fa;border-radius:6px}.markdown-body code{font-family:ui-monospace,monospace}.markdown-body table{border-collapse:collapse}.markdown-body td,.markdown-body th{padding:6px 10px;border:1px solid #d0d7de}.markdown-body blockquote{margin-left:0;padding-left:1em;border-left:3px solid #d0d7de}.markdown-body svg{vertical-align:middle}';
   const scopeBase=presentation.scope==='afengy'?'#installedBuiltInCss{overflow:hidden}#installedBuiltInCss *,#installedBuiltInCss *::before,#installedBuiltInCss *::after{box-sizing:border-box}#customized-answer-content{padding:12px 16px;font-size:14px;box-sizing:border-box;width:100%;position:relative;display:inline-block}#customized-answer-content .markdown-body{line-height:1.5}#customized-answer-content .markdown-body img{display:block;height:auto;vertical-align:middle;border:0;border-radius:10px;margin:8px 0;box-shadow:0 2px 4px -2px #1018280f,0 4px 8px -2px #1018281a}':'';
@@ -320,8 +362,14 @@ export function compilePresentation({mode,html,css='',authorJs='',resources=[],b
     // display replacements, keyword matching, or the stored raw reply.
     bodyHtml+=cgView.plan.chat.map(image=>{
       const url=imageUrl(image);
-      return '<figure data-cg-entry="'+escape(image.entryId)+'" style="display:block!important;position:relative!important;margin:16px 0!important;text-align:center!important">'+(url?'<img src="'+url+'" alt="'+escape(image.label||'CG插图')+'" style="display:block!important;position:static!important;width:auto!important;max-width:100%!important;height:auto!important;max-height:70vh!important;object-fit:contain!important;margin:auto!important">':'<span data-resource-missing>缺少 CG 本地资源</span>')+'</figure>';
+      const picture=url?'<img src="'+url+'" alt="'+escape(image.label||'CG插图')+'" style="display:block!important;position:static!important;width:auto!important;max-width:100%!important;height:auto!important;max-height:70vh!important;object-fit:contain!important;margin:auto!important">':'<span data-resource-missing>缺少 CG 本地资源</span>';
+      const content=url&&image.special?'<button type="button" class="host-cg-magnify" aria-label="放大CG插图">'+picture+'<span aria-hidden="true"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7"/><path d="M10 7v6m-3-3h6m2.5 5.5L22 22"/></svg></span></button>':picture;
+      return '<figure data-cg-entry="'+escape(image.entryId)+'" style="display:block!important;position:relative!important;margin:16px 0!important;text-align:center!important">'+content+'</figure>';
     }).join('');
+  }
+  if(cgView?.plan.chat.some(image=>image.special)){
+    script+='('+installSpecialCGZoom.toString()+')('+cgView.plan.chat.length+');';
+    styleText+='\nfigure[data-cg-entry] > .host-cg-magnify{border:0;padding:0;position:relative;max-width:100%;background:transparent;cursor:zoom-in}figure[data-cg-entry] > .host-cg-magnify > span{position:absolute;inset:0;display:grid;place-items:center;color:white;background:#18182660;font:36px sans-serif;opacity:0}figure[data-cg-entry] > .host-cg-magnify:is(:hover,:focus-visible) > span{opacity:1}.host-cg-full{box-sizing:border-box;max-width:96vw;max-height:96vh;border:0;border-radius:10px;padding:9px;background:#20202a}.host-cg-full::backdrop{background:#13121bd9}.host-cg-full img{display:block!important;width:auto!important;height:auto!important;max-width:88vw!important;max-height:81vh!important;object-fit:contain!important}.host-cg-full button{display:block;margin:6px auto 0;color:white;background:#424151;border:0;border-radius:5px;padding:5px 16px}';
   }
   const frame='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>作品隔离预览</title><style>'+styleText+'</style></head><body'+bodyAttributes.map(a=>' '+a.name+'="'+escape(a.value)+'"').join('')+'>'+bodyHtml+'<script nonce="'+nonce+'">'+script+'</script></body></html>';
   if(Buffer.byteLength(frame)>PRESENTATION.frameBytes)fail('AUTHORING_PRESENTATION_SIZE','/frame');

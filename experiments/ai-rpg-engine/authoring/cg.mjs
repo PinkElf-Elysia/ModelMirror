@@ -91,7 +91,7 @@ export function buildCGPlan(request) {
     const selected=entry.mode==='regular' ? 0 : chooseCGImage(entry.images,draws.get(entry.id));
     decision.status='selected'; decision.imageIndex=selected; decision.draw=entry.mode==='weighted'?draws.get(entry.id):null;
     const asset=byAlias.get(entry.images[selected].alias);
-    selections.push({entryId:entry.id,index,imageIndex:selected,target:entry.target,label:entry.name,alias:asset.alias,sha256:asset.sha256,mediaType:asset.mediaType,size:asset.size});
+    selections.push({entryId:entry.id,index,imageIndex:selected,target:entry.target,label:entry.name,...(entry.special?.enabled?{special:true}:{}),alias:asset.alias,sha256:asset.sha256,mediaType:asset.mediaType,size:asset.size});
   }
   const chat=selections.filter(image=>image.target==='chat'), background=selections.findLast(image=>image.target==='background')||null;
   for (const image of selections) if (image.target==='background' && image!==background) {

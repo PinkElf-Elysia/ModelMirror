@@ -53,7 +53,7 @@ function inheritedState(s){
  const summary=s.summary.snapshot.versions.at(-1),memory=s.memory.snapshot;
  const {sessionId:ignored,...binding}=s.binding;
  return {binding:clone(binding),allowanceId:s.allowanceId,presetId:s.presetId,examples:clone(s.examples),
-  turns:s.turns.map(({id,number,user,userMessage,assistant,rawHash,messagesHash})=>({id,number,user,userMessage,assistant,rawHash,messagesHash})),
+  turns:s.turns.map(({id,number,user,userMessage,assistant,rawHash,messagesHash,variablePanel})=>({id,number,user,userMessage,assistant,rawHash,messagesHash,...(variablePanel?{variablePanel:clone(variablePanel)}:{})})),
   settings:{history:clone(s.history.config),modelSuggestions:clone(s.models.current),...(s.requirements?{requirements:s.requirements.text}:{})},
   summary:{text:summary?.effectiveText??null,coveredThrough:summary?.coveredThrough??0,sourceHash:summaryRawHash(s.turns.slice(0,summary?.coveredThrough??0)),versionId:summary?.id??null},
   memory:{entries:clone(memory.entries),processedThrough:memory.processedThrough,sourceHash:summaryRawHash(s.turns.slice(0,memory.processedThrough)),versionId:memory.versions.at(-1)?.id??null}};

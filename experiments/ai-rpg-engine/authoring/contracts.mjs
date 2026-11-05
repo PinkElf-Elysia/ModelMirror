@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {validatePanelConfiguration, panelIssues} from './variable-panel.mjs';
 import {metadataIssues} from './metadata.mjs';
 import {dialogueIssues, openingOptions} from './dialogue.mjs';
 
@@ -186,8 +187,9 @@ export function validateDocument(value) {
   text(m.language, 40, '/metadata/language'); text(m.audience, 80, '/metadata/audience');
   keys(value.sources, Object.keys(blankDocument().sources), '/sources');
   for (const [key, source] of Object.entries(value.sources)) text(source, 2000000, '/sources/' + key);
-  const s = value.settings; keys(s, ['autosave', 'orders', 'media', 'defaultMemory', ...(s && Object.hasOwn(s, 'presentation') ? ['presentation'] : []), ...(s && Object.hasOwn(s, 'bgmAutoplay') ? ['bgmAutoplay'] : [])], '/settings'); bool(s.autosave, '/settings/autosave');
+  const s = value.settings; keys(s, ['autosave', 'orders', 'media', 'defaultMemory', ...(s && Object.hasOwn(s, 'presentation') ? ['presentation'] : []), ...(s && Object.hasOwn(s, 'bgmAutoplay') ? ['bgmAutoplay'] : []), ...(s && Object.hasOwn(s,'variablePanel')?['variablePanel']:[])], '/settings'); bool(s.autosave, '/settings/autosave');
   if (Object.hasOwn(s, 'presentation')) validatePresentation(s.presentation);
+  if (Object.hasOwn(s,'variablePanel')) validatePanelConfiguration(s.variablePanel);
   if (Object.hasOwn(s, 'bgmAutoplay')) bool(s.bgmAutoplay, '/settings/bgmAutoplay');
   keys(s.orders, ['system', 'prefix', 'suffix'], '/settings/orders');
   for (const [key, order] of Object.entries(s.orders)) number(order, 0, 9999, '/settings/orders/' + key);
@@ -260,7 +262,14 @@ export function validateCG(value) {
   }
   categories(value.categories, p + '/categories');
   entries(value.entries, 2000, p + '/entries', (cg, q) => {
-    keys(cg, ['id', 'name', 'enabled', 'categoryId', 'roles', 'rule', 'keywords', 'target', 'mode', 'images'], q);
+    const hasSpecial = Object.hasOwn(cg, 'special');
+    keys(cg, ['id', 'name', 'enabled', 'categoryId', 'roles', 'rule', 'keywords', 'target', 'mode', 'images', ...(hasSpecial ? ['special'] : [])], q);
+    if (hasSpecial) {
+      const special = cg.special, path = q + '/special';
+      keys(special, ['enabled', 'showNameWhenLocked', 'hintEnabled', 'hint'], path);
+      for (const field of ['enabled', 'showNameWhenLocked', 'hintEnabled']) bool(special[field], path + '/' + field);
+      text(special.hint, 2000, path + '/hint');
+    }
     text(cg.name, 120, q + '/name'); bool(cg.enabled, q + '/enabled'); match(cg, q, false);
     if (cg.categoryId !== null) id(cg.categoryId, q + '/categoryId');
     texts(cg.keywords, 200, 2000, q + '/keywords');
@@ -270,6 +279,8 @@ export function validateCG(value) {
       number(image.weight, 0, Number.MAX_VALUE, r + '/weight', false);
     });
   });
+  if (value.entries.filter(entry => entry.special?.enabled).length > 20)
+    fail('AUTHORING_SPECIAL_CG_LIMIT', p + '/entries');
   categoryRefs(value.entries, value.categories, p);
   return structuredClone(value);
 }
@@ -331,7 +342,9 @@ export function capabilityDeclaration(document) {
       ...(document.settings.presentation ? ['versioned-output-presentation'] : []),
       ...(document.worldbook.entries.length ? ['author-worldbook'] : []),
       ...(document.enhancements.cg.entries.length ? ['ordinary-cg'] : []),
+      ...(document.enhancements.cg.entries.some(e => e.enabled && e.special?.enabled) ? ['special-cg-gallery'] : []),
       ...(document.settings.media.bgm ? ['background-audio'] : []),
+      ...(document.settings.variablePanel?.enabled ? ['variable-panel-state'] : []),
       ...(document.enhancements.displayRules.length ? ['display-regex'] : []),
       ...(document.enhancements.suggestions ? ['suggested-inputs'] : []),
       ...(document.enhancements.shortcuts.length ? ['quick-replies'] : []),
@@ -351,6 +364,7 @@ export function publicationIssues(document, assets) {
   const issues = [], aliases = new Map(assets.map(asset => [asset.alias, asset]));
   const issue = (code, path) => issues.push({code, path});
   if (!document.metadata.name.trim()) issue('AUTHORING_NAME_REQUIRED', '/metadata/name');
+  for(const item of panelIssues(document.settings.variablePanel)) issue(item.code,item.path);
   if (!document.sources.system.trim()) issue('AUTHORING_SYSTEM_REQUIRED', '/sources/system');
   issues.push(...metadataIssues(document.metadata, {publication:true}));
   issues.push(...dialogueIssues(document.enhancements));

@@ -74,15 +74,19 @@ export class TurnDisplayJournal {
   return new TurnDisplayJournal(await SessionRecords.open(directory,{recoverDeadOwner,fault:storageFault,scope:'authored-turn-display'}),{resolveRuntime,resolveBranchSource,seed,fault});
  }
  #serial(action){if(this.#closed)fail('TURN_DISPLAY_CLOSED');const p=this.#queue.then(action);this.#queue=p.catch(()=>{});return p;}
- async #read(sessionId,turn,visited=new Set()){
+ async #read(sessionId,turn,visited=new Set(),visit=null){
   const key=turnDisplayId(sessionId,turn);if(visited.has(key)||visited.size>=32)fail('TURN_DISPLAY_ORIGIN_INVALID');
   const chain=new Set([...visited,key]);
   let previous=null,last=null;
   for(let n=1;n<=turn;n++){
    const found=await this.#records.get(turnDisplayId(sessionId,n));
-   if(!found){if(n===turn)return null;fail('TURN_DISPLAY_PREVIOUS_REQUIRED');}
+   if(!found){if(visit||n===turn)return null;fail('TURN_DISPLAY_PREVIOUS_REQUIRED');}
    const o=found.data.origin,original=o?(await this.#read(o.sessionId,o.turn,chain))?.data:null;
    validate(found.data,previous,original);if(found.data.source.sessionId!==sessionId||found.data.source.turnNumber!==n)fail('TURN_DISPLAY_RECORD_INVALID');
+   if(visit){
+     visit(found.data);
+     if(found.data.state==='prepared')return found;
+   }
    previous=found.data;last=found;
   }
   return last;
@@ -128,6 +132,13 @@ export class TurnDisplayJournal {
    validate(data,previous);const stored=await this.#records.put(id,null,data);await this.#fault('afterPrepared',clone(data));
    return {record:await this.#finish(stored,previous),replayed:false};
   });
+ }
+ // Visit only this route's verified prefix, stopping at the first unsettled display.
+ // The callback is internal to the host and is never supplied by the browser.
+ visitThrough(sessionId,turn,visit){
+  checkSession(sessionId);turnCheck(turn);
+  if(typeof visit!=='function')fail('TURN_DISPLAY_HOST_REQUIRED');
+  return this.#serial(async()=>{await this.#read(sessionId,turn,new Set(),visit);});
  }
  read(sessionId,turn){checkSession(sessionId);turnCheck(turn);return this.#serial(async()=>clone((await this.#read(sessionId,turn))?.data??null));}
  recover(sessionId,turn){checkSession(sessionId);turnCheck(turn);return this.#serial(async()=>{

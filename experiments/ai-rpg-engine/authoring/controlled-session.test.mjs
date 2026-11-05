@@ -96,3 +96,17 @@ test('disabling, uninstalling and reinstalling each plugin preserves calls and g
  for(const p of plugins){await f.change('disable',p);await f.change('uninstall',p);await f.change('install',p);assert.equal(await f.enabled(p),false);}
  assert.equal((await f.read()).budget.used,before);assert.equal(f.calls.length,2);
 });
+
+
+test('disabled readiness rejects before task creation, reservation and transport',async t=>{
+ const f=await fixture(t,{ready:false});const before=await f.read();await assert.rejects(()=>f.send(),{code:'CONTROL_EXECUTION_DISABLED'});
+ const after=await f.read();assert.equal(after.session.revision,before.session.revision);assert.equal(after.session.operations.length,0);assert.equal(after.session.runs.length,0);assert.equal(after.budget.used,0);assert.equal(after.budget.reserved,0);assert.equal(f.calls.length,0);
+ const s=after.session;await assert.rejects(()=>f.host.estimate({sessionId:f.id,operationId:'estimate',expectedRevision:s.revision,expectedModelRevision:s.models.revision,expectedContextPolicyRevision:after.effectivePolicy.revision,expectedSummaryRevision:s.summary.snapshot.revision,expectedMemoryRevision:s.memory.snapshot.revision,kind:'send',input:'Opening'}),{code:'CONTROL_EXECUTION_DISABLED'});assert.equal(f.calls.length,0);
+});
+for(const lost of [false,true])test('gate closing after readiness releases confirmed undispatched slot; lost='+lost,async t=>{
+ const f=await fixture(t,{status:'failed',dispatched:false,dropAfterStored:lost});const {intent}=await f.send();
+ if(lost){assert.equal((await f.read()).status,'unknown');assert.equal((await f.read()).budget.used,1);await f.reopen();await f.recover();}
+ const v=await f.read();assert.equal(v.session.turns.length,0);assert.equal(v.session.operations[0].state,'failed');assert.equal(v.session.operations[0].receipt.control.dispatched,false);
+ assert.equal(v.budget.used,0);assert.equal(v.budget.reserved,0);assert.equal(v.budget.remaining,30);assert.equal(f.calls.length,1);
+ await f.reopen();assert.equal((await f.host.send(intent)).replayed,true);assert.equal((await f.read()).budget.used,0);assert.equal(f.calls.length,1);
+});

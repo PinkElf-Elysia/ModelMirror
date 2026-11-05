@@ -8,6 +8,8 @@ import {createWorldbookUI} from './worldbook-ui.mjs';
 import {createDialogueUI} from './dialogue-ui.mjs';
 import {createInputAssistanceUI} from './input-assistance-ui.mjs';
 import {createDisplayRegexUI} from './display-regex-ui.mjs';
+import {createVariablePanelUI} from './variable-panel-ui.mjs';
+import {panelMessages} from './variable-frame-ui.mjs';
 import {createCGUI} from './cg-ui.mjs';
 import {LANGUAGES, AUDIENCES, TAG_LIMIT, TAG_CHAR_LIMIT, tagKey, tagIssue, tagCatalog, metadataIssues, METADATA_MESSAGES} from './metadata.mjs';
 
@@ -33,11 +35,12 @@ const failureText = {
   AUTHORING_CG_REPLAY_PARENT:'上一份背景回放已过期或属于不同配置。重新生成时会从作品默认背景开始。',
   AUTHORING_CG_REPLAY_RESOURCE:'选中图片缺失或内容已变化，整份新画面未应用。请核对本地图库。',
   AUTHORING_CG_REPLAY_CAPACITY:'离线 CG 回放缓存已达上限，未自动删除或重新抽图。',
+  AUTHORING_SPECIAL_CG_LIMIT:'每部作品最多设置 20 个特殊 CG，请减少标记后重试。',
   AUTHORING_CG_OUTPUT_CAPACITY:'本轮 CG 超过32张或8 MiB，未截断或丢弃选图。',
   AUTHORING_CG_KEYWORDS:'CG需要至少一个非空关键词。未完成草稿仍可保留。',
   AUTHORING_CG_IMAGE_REQUIRED:'CG需要至少一张有效图片。',
   AUTHORING_WEIGHT_TOTAL_ZERO:'概率权重总和不能为零。',
-  ...METADATA_MESSAGES,
+  ...METADATA_MESSAGES,...panelMessages,
   AUTHORING_DIALOGUE_AMBIGUOUS:'旧开场白与新开场白列表不能同时非空，请保留希望使用的版本。',
   AUTHORING_DIALOGUE_INCOMPLETE:'预设对话尚未完整，请检查标题、提问、回答及字数。',
   AUTHORING_SHORTCUT_INCOMPLETE:'快捷命令和内容不能为空，分别最多15字与100字。旧原文仍保留。',
@@ -321,9 +324,11 @@ function toView(doc) {
   assistanceUI.load(doc.enhancements);
   regexUI.load(doc.enhancements.displayRules,work?.id||'blank');
   cgUI.load(doc.enhancements.cg,work?.id||'blank');
+  variableUI.load(doc.settings.variablePanel);
   const audio = work.assets.find(a => a.alias === doc.settings.media.bgm);
   return {
     schema:doc.format, name:doc.metadata.name, tags:clone(doc.metadata.tags), language:doc.metadata.language, audience:doc.metadata.audience,
+    panelInstructions:doc.settings.variablePanel?.instructions??'',
     autosave:doc.settings.autosave, orders:clone(doc.settings.orders),
     intro:doc.sources.introduction, description:doc.sources.description, system:doc.sources.system,
     prefix:doc.sources.prefix, suffix:doc.sources.suffix, css:doc.sources.outputCss,
@@ -347,6 +352,7 @@ function currentDocument() {
   Object.assign(doc.enhancements,assistanceUI.read());
   doc.enhancements.displayRules=regexUI.read();
   doc.enhancements.cg=cgUI.read();
+  const panel=variableUI.read();if(panel)doc.settings.variablePanel=panel;
   doc.settings.autosave = view.autosave; doc.settings.orders = clone(view.orders);
   for (const key of ['cover','desktop','mobile']) doc.settings.media[key] = view[key];
   // Missing audio references are retained so publication reports them instead of silently deleting them.
@@ -362,6 +368,7 @@ function afterBasic() {
   $('#panel-basic').insertAdjacentHTML('beforeend',
     '<details class="help-disclosure"><summary>独立开局源码字段</summary><p class="hint">HTML 非空时替代详细介绍进入开局预览；CSS 随展示快照隔离。JavaScript 在独立引擎内运行，支持受限 DOM 与表单；点击刷新执行，不会发送剧情请求。</p>' +
     editor.editor('startupHtml','开局 HTML') + editor.editor('startupCss','开局 CSS') + editor.editor('startupJs','开局 JavaScript') + '</details>');
+  const panelRoot=document.createElement('section');panelRoot.id='variable-panel-editor';$('#panel-basic').append(panelRoot);variableUI.render(panelRoot);
   $('#name').maxLength = 120;
   $('[data-target="cover"].upload-box').closest('.field').outerHTML = media.field('封面','cover');
   media.bindFields();
@@ -877,7 +884,7 @@ function reloadServer() {
   },'放弃本页修改并载入','取消');
 }
 function scope() {
-  if(creatorMode)return editor.openDialog('功能与帮助','<p>保存作品、编辑源码和资源，使用预览检查开局与回复样式。</p><p>'+ (document.body.dataset.execution==='controlled'?'点击发送才调用所选模型；保存、预览与发布不调用模型。':'当前入口为离线演练，发送使用固定样例。') +'模型配置不会自动启用插件。</p><p><a href="/creator-guide.html" target="_blank" rel="noopener">打开创作指南</a></p><details><summary>后续扩展</summary><p>特殊 CG 收藏、变量状态面板和并行模型对照将分别立项。</p></details>',null,undefined,'关闭');
+  if(creatorMode)return editor.openDialog('功能与帮助','<p>保存作品、编辑源码和资源，使用预览检查开局与回复样式。</p><p>'+ (document.body.dataset.execution==='controlled'?'点击发送才调用所选模型；保存、预览与发布不调用模型。':'当前入口为离线演练，发送使用固定样例。') +'模型配置不会自动启用插件。</p><p><a href="/creator-guide.html" target="_blank" rel="noopener">打开创作指南</a></p><details><summary>后续扩展</summary><p>已发布作品支持 CG 画廊与变量面板。扩展参数选择与并行模型对照另行验收。</p></details>',null,undefined,'关闭');
   editor.openDialog('本批能力','<p>已接线：标签管理、五种语言、男性向／女性向、空白作品、草稿保存与刷新恢复、资源清单、分组图库与媒体选用、配置 / 完整包导入导出、作品复制、不可变版本数据封存、原操作核对。</p>' +
     '<p>图库删图/删组尚待原站交互核验，本批没有删除入口。聊天音乐自动播放在 B5 接入；媒体字段只试听。</p>' +
     '<p>B3 世界书编辑已验收。B4-B 在隔离展示上接入作者脚本引擎、DOM 与表单事件；脚本和声明式桥接均只提出开局候选，由你采用或取消。</p>' +
@@ -896,6 +903,8 @@ function menu(action) {
   if (!handlers[action]) return false;
   $('#more-menu').hidden = true; run(handlers[action]); return true;
 }
+const variableUI=createVariablePanelUI({editor,api,getWork:()=>work,notice});
+const panelStyle=document.createElement('link');panelStyle.rel='stylesheet';panelStyle.href='/variable-panel-ui.css';document.head.append(panelStyle);
 const worldUI = createWorldbookUI({changed:() => editor.dirty(),api,toast:notice});
 const cgUI=createCGUI({changed:()=>editor.dirty(),toast:notice,describe,assets:()=>work?.assets||[],assetUrl,gallery:ticket=>gallery(ticket),upload:uploadEditorImage});
 const regexUI=createDisplayRegexUI({changed:()=>editor.dirty(),toast:notice});
@@ -957,7 +966,7 @@ editor.connect({
   upload:(file,target) => run(() => prepareUpload(file,target)),
   uploadEditorImage:file => uploadEditorImage(file).catch(error=>{problem(error);return null;}),
   menu,
-  changed() { validation = null;syncChatBGM(false); },
+  changed() { validation = null;variableUI.invalidate();syncChatBGM(false); },
 });
 if(creatorMode){
  $('#publish-button').textContent='作品版本';

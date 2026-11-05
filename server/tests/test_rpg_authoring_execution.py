@@ -37,12 +37,48 @@ def test_closed_by_default_and_auth_first(setup, monkeypatch):
     client, _, repo, _, captured, _ = setup
     value = task(setup)
     monkeypatch.delenv("RPG_AUTHORING_EXECUTION_ENABLED", raising=False)
-    assert client.post(PATH, headers=HEADERS, json=value).status_code == 503
+    result = client.post(PATH, headers=HEADERS, json=value)
+    assert result.status_code == 200
+    assert result.json()["receipt"]["dispatched"] is False
+    assert result.json()["receipt"]["error"] == "rpg_authoring_execution_disabled"
     assert client.post(PATH, json=value).status_code == 401
     assert client.post(PATH, headers={**HEADERS, "Origin": "http://localhost"}, json=value).status_code == 403
-    assert lookup(client, value).json()["status"] == "absent"
-    assert not list(repo.storage_dir.glob("rpg-authoring-tasks/*"))
+    assert lookup(client, value).json() == result.json()
+    assert len(list(repo.storage_dir.glob("rpg-authoring-tasks/*.result.json"))) == 1
     assert captured == []
+
+
+def test_disabled_execution_is_a_durable_failure_and_cannot_replay_when_enabled(setup, monkeypatch):
+    client, _, _, _, captured, _ = setup
+    value = task(setup)
+    monkeypatch.setenv("RPG_AUTHORING_EXECUTION_ENABLED", "false")
+    result = client.post(PATH, headers=HEADERS, json=value)
+    assert result.status_code == 200
+    body = result.json()
+    assert body["status"] == "failed"
+    assert body["receipt"]["dispatched"] is False
+    assert body["receipt"]["error"] == "rpg_authoring_execution_disabled"
+    assert body["receipt"]["runId"] is None and body["receipt"]["attemptId"] is None
+    assert body["raw"] == body["sse"] == ""
+    assert lookup(client, value).json() == body
+    enabled(monkeypatch)
+    assert client.post(PATH, headers=HEADERS, json=value).json() == body
+    assert captured == []
+
+
+def test_readiness_is_authenticated_non_dispatching_and_uncached(setup, monkeypatch):
+    client, _, repo, _, captured, _ = setup
+    path = "/api/rpg/v1/authoring/readiness"
+    monkeypatch.delenv("RPG_AUTHORING_EXECUTION_ENABLED", raising=False)
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers={**HEADERS, "Origin": "http://localhost"}).status_code == 403
+    response = client.get(path, headers=HEADERS)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"format": "modelmirror.rpg.authoring-readiness/1", "executionEnabled": False, "dispatched": False}
+    enabled(monkeypatch)
+    assert client.get(path, headers=HEADERS).json()["executionEnabled"] is True
+    assert not list(repo.storage_dir.glob("rpg-authoring-tasks/*")) and captured == []
 
 
 def test_exact_payload_receipt_restart_and_duplicate(setup, monkeypatch):
@@ -409,3 +445,31 @@ def test_authoring_forbidden_receipt_is_safe_and_not_replayed(setup, monkeypatch
     assert lookup(client, value).json() == result
     assert client.post(PATH, json=value, headers=HEADERS).json() == result
     assert len(captured) == 1 and completions == [("hard_failure", True)]
+
+
+def test_gate_closed_during_preflight_never_reaches_transport(setup, monkeypatch):
+    client, stable, _, _, captured, _ = setup
+    value = task(setup); enabled(monkeypatch)
+    original = stable.begin_rpg_authoring_certified
+    async def close_gate(*args):
+        result = await original(*args)
+        monkeypatch.setenv("RPG_AUTHORING_EXECUTION_ENABLED", "false")
+        return result
+    monkeypatch.setattr(stable, "begin_rpg_authoring_certified", close_gate)
+    body = client.post(PATH, headers=HEADERS, json=value).json()
+    assert body["status"] == "failed" and body["receipt"]["dispatched"] is False
+    assert body["receipt"]["error"] == "rpg_authoring_execution_disabled"
+    assert lookup(client, value).json() == body and captured == []
+
+
+def test_disabled_failure_with_lost_persistence_remains_unknown(setup, monkeypatch):
+    client, _, _, _, captured, _ = setup
+    value = task(setup)
+    monkeypatch.setenv("RPG_AUTHORING_EXECUTION_ENABLED", "false")
+    def failed_save(*_):
+        raise OSError("synthetic disk failure")
+    monkeypatch.setattr(tasks, "_persist", failed_save)
+    assert client.post(PATH, headers=HEADERS, json=value).json()["status"] == "unknown"
+    enabled(monkeypatch)
+    assert client.post(PATH, headers=HEADERS, json=value).json()["status"] == "unknown"
+    assert captured == []

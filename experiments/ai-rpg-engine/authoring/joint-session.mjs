@@ -1,4 +1,5 @@
 import {emptyRequirements,requirementsIntent,REQUIREMENTS_CHANGES} from './requirements.mjs';
+import {panelDefinition} from './variable-panel.mjs';
 import {controlledProviderPort} from './controlled-provider.mjs';
 import {CONTROLLED_MODE,CONTROLLED_SESSION_FORMAT,isControlledSession} from './controlled-receipt.mjs';
 import {MODEL_PLUGIN,commitPluginModel,checkPluginCatalog} from './model-plugin.mjs';
@@ -29,7 +30,7 @@ import {JOINT_MODE,JOINT_SESSION_FORMAT,JOINT_LIMITS,digest,same,clone,integer,r
  validateJointSession,jointPlan,assertJointIdFree,pauseReason,runPending,STORY_PENDING,outcomeState,storyReceipt,turnValue} from './joint-session-state.mjs';
 export {JOINT_MODE,JOINT_SESSION_FORMAT};
 const timestamp=()=>new Date().toISOString(),sample=()=>randomBytes(6).readUIntBE(0,6)/281474976710656;
-const paths=['requirements.mjs','controlled-provider.mjs','controlled-receipt.mjs','model-plugin.mjs','branch-origin.mjs','branch-checkpoint.mjs','branch-storage.mjs','branch-session.mjs','joint-fixture.mjs','joint-session.mjs','joint-session-state.mjs','joint-summary.mjs','joint-plan.mjs','joint-budget.mjs','memory-state.mjs','memory-jobs.mjs','memory-context.mjs',
+const paths=['../package-lock.json','variable-panel.mjs','variable-template-syntax.mjs','requirements.mjs','controlled-provider.mjs','controlled-receipt.mjs','model-plugin.mjs','branch-origin.mjs','branch-checkpoint.mjs','branch-storage.mjs','branch-session.mjs','joint-fixture.mjs','joint-session.mjs','joint-session-state.mjs','joint-summary.mjs','joint-plan.mjs','joint-budget.mjs','memory-state.mjs','memory-jobs.mjs','memory-context.mjs',
  'summary-state.mjs','summary-context.mjs','summary-jobs.mjs','history-control.mjs','model-control.mjs','session-storage.mjs','runtime-binding.mjs','runtime-plugins.mjs',
  'contracts.mjs','offline-session.mjs','worldbook.mjs','worldbook-regex.mjs','input-assistance.mjs','dialogue.mjs','../plugins/host.mjs','../plugins/memory-palace.mjs','../plugins/history-window.mjs','../plugins/rolling-summary.mjs'];
 const artifacts=async()=>Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha256(await readFile(new URL(p,import.meta.url)))])));
@@ -92,7 +93,9 @@ export class JointSessionHost {
    const checkpoint=await this.#branches.read(r.data.origin.checkpointId);
    if(!checkpoint||!same(branchOrigin(checkpoint),r.data.origin)||r.data.id!==branchChildId(checkpoint)||r.data.create.requestHash!==branchCreateHash(checkpoint))fail('BRANCH_ORIGIN_UNVERIFIED');
   }
-  const runtime=await this.#runtime(r.data.binding),p=dialoguePreview(runtime.configuration().document.enhancements,r.data.presetId);
+  const runtime=await this.#runtime(r.data.binding);
+  if(!same(r.data.variablePanel??null,panelDefinition(runtime.configuration().document.settings.variablePanel)))fail('PANEL_STATE_MISMATCH');
+  const p=dialoguePreview(runtime.configuration().document.enhancements,r.data.presetId);
   if(p.presetId!==r.data.presetId||!same(p.messages,r.data.examples))fail('JOINT_SESSION_CORRUPT');
   return {...r,runtime};
  }
@@ -112,6 +115,7 @@ export class JointSessionHost {
    if(p.presetId!==input.presetId)fail('OFFLINE_PRESET_INVALID');
    const s={format:this.#mode===CONTROLLED_MODE?CONTROLLED_SESSION_FORMAT:JOINT_SESSION_FORMAT,id,revision:0,createdAt:timestamp(),updatedAt:timestamp(),create:{operationId:input.operationId,requestHash:hash},binding,executionHash,
     allowanceId:this.#allowance,presetId:p.presetId,examples:p.messages,draft:input.openingText,requirements:emptyRequirements(),runs:[],operations:[],turns:[],models:emptyModelState(),history:emptyHistoryState()};
+   const panel=panelDefinition(runtime.configuration().document.settings.variablePanel);if(panel)s.variablePanel=panel;
    s.summary=initialJointSummary(s);s.memory=initialMemoryJobs(s);s.memoryEdits=[];validateJointSession(s,executionHash);await this.#records.put(id,null,s);return {session:clone(s),replayed:false};
   });
  }
@@ -248,7 +252,7 @@ export class JointSessionHost {
    return this.#history.pluginService.guardMemoryTask(s.id,a,async()=>{const result=reviseMemory(s,s.memory.snapshot,edit);s.memory.snapshot=result.state;s.memoryEdits.push(clone(input));r=await this.#save(r);return {revision:r.data.revision,...result};});
   });
  }
- estimate(input){input=jointIntent(input);return this.#run(async()=>{await this.#refreshControl();const r=await this.#load(input.sessionId),a=await this.#history.authorization(input.sessionId);await this.#branchUnused(r.data,input.operationId);this.#checkIntent(r.data,input,a);return {plan:jointPlan(r.data,input.operationId,input.kind,a),budget:await this.#budget.status()};});}
+ estimate(input){input=jointIntent(input);return this.#run(async()=>{await this.#refreshControl();const r=await this.#load(input.sessionId),a=await this.#history.authorization(input.sessionId);await this.#branchUnused(r.data,input.operationId);this.#checkIntent(r.data,input,a);if(this.#mode===CONTROLLED_MODE)await this.#provider.ready();return {plan:jointPlan(r.data,input.operationId,input.kind,a),budget:await this.#budget.status()};});}
  #checkIntent(s,i,a){
   this.#idle(s);assertJointIdFree(s,i.operationId);
   if(s.revision!==i.expectedRevision)fail('OFFLINE_REVISION_CONFLICT');if(s.models.revision!==i.expectedModelRevision)fail('MODEL_REVISION_CONFLICT');
@@ -273,7 +277,7 @@ export class JointSessionHost {
    try{
     let r=await this.#load(input.sessionId),s=r.data;const prior=s.runs.find(x=>x.operationId===input.operationId);
     if(prior){if(prior.intentHash!==digest(input))fail('OFFLINE_OPERATION_COLLISION');return this.#reply(r,prior.operationId,true);}
-    await this.#refreshControl();const a=await this.#history.authorization(s.id);await this.#branchUnused(s,input.operationId);this.#checkIntent(s,input,a);
+    await this.#refreshControl();const a=await this.#history.authorization(s.id);await this.#branchUnused(s,input.operationId);this.#checkIntent(s,input,a);if(this.#mode===CONTROLLED_MODE)await this.#provider.ready();
     if(input.kind==='send'){const c=checkPlayerInput(input.input,r.runtime.configuration().document.enhancements.blockedWords);if(!c.allowed)fail(c.issue?'OFFLINE_INPUT_CAPACITY':'OFFLINE_INPUT_BLOCKED');}
     const plan=jointPlan(s,input.operationId,input.kind,a);if(!plan.stages.length)fail('JOINT_NO_TASKS');
     const run={operationId:input.operationId,intent:input,intentHash:digest(input),plan,groupId:jointGroupId(this.#allowance,plan),historyRevision:s.history.revision,
@@ -379,7 +383,7 @@ export class JointSessionHost {
   const s=r.data,run=readRun(r,id),item=itemFor(s,run,stage),request=requestFor(item,stage),compressed=stage.startsWith('compression');
   if(receipt?.kind!==(this.#mode===CONTROLLED_MODE?'control-plane':'offline-fixture'))fail('JOINT_RECEIPT_ORIGIN_MISMATCH');
   storyReceipt(receipt,request);
-  await this.#budget.settle({groupId:run.groupId,stageId:stage,requestId:request.id,requestHash:digest(request),status:receipt.result.status==='failed'?'failed':'completed',resultHash:receipt.sha256});
+  await this.#budget.settle({groupId:run.groupId,stageId:stage,requestId:request.id,requestHash:digest(request),status:receipt.result.status==='failed'?(receipt.kind==='control-plane'&&receipt.control.dispatched===false?'not_dispatched':'failed'):'completed',resultHash:receipt.sha256});
   item[compressed?'compressionReceipt':'receipt']=clone(receipt);
   if(stage==='story'){
    item.state=outcomeState(receipt.result);item.diagnostic=null;

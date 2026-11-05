@@ -10,3 +10,10 @@
 .cg-menu,.cg-dialog[open]{animation:cg-appear 150ms ease-out}
 @keyframes cg-appear{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.cg-menu,.cg-dialog[open]{animation:none}.cg-editor input[role=switch],.cg-editor input[role=switch]::before{transition:none}}
+.cg-special{margin:18px 0 4px;padding:16px;background:var(--surface-muted,#f7f7f9);border-radius:10px}
+.cg-special-toggle{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.cg-special-toggle small{display:block;margin-top:5px;color:#626878;font-size:.84rem}
+.cg-special-fields{display:grid;gap:12px;margin-top:15px}
+.cg-special-fields label:not(.cg-special-toggle):not(.cg-special-check){display:grid;gap:6px}
+.cg-special-fields input[type=text]{width:100%;box-sizing:border-box}
+.cg-special-check{display:flex;align-items:center;gap:7px;font-size:.9rem}

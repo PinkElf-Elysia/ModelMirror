@@ -38,7 +38,7 @@ export function requireSummarySession(session) {
   validateModelState(session.models,session.id,session.revision,modelBinding);
   const ids = new Set(); let characters = 0;
   for (const [i,t] of session.turns.entries()) {
-    keys(t,['id','number','operationId','requestId','complete','user','userMessage','assistant','rawHash','messagesHash']);
+    keys(t,['id','number','operationId','requestId','complete','user','userMessage','assistant','rawHash','messagesHash',...(session.variablePanel&&modelBinding&&Object.hasOwn(t,'variablePanel')?['variablePanel']:[])]);
     if (t.id !== 'turn-'+(i+1) || t.number !== i+1 || t.complete !== true ||
         !isId(t.operationId) || !isId(t.requestId) || ids.has(t.requestId) || ids.has(t.operationId) ||
         ![t.user,t.userMessage,t.assistant].every(text) || t.rawHash !== sha256(t.assistant) || !isHash(t.messagesHash)) fail('SUMMARY_HISTORY_INVALID');

@@ -9,7 +9,7 @@ export class ControlledProvider {
  #records;#origin;#token;#timeout;#closed=false;#queue=Promise.resolve();#calls=0;
  constructor(key,records,options){
   if(key!==token)fail('CONTROL_PROVIDER_REQUIRED');this.#records=records;this.#origin=options.origin;this.#token=options.serviceToken;this.#timeout=options.timeoutMs;
-  ports.set(this,Object.freeze({mode:CONTROLLED_MODE,...Object.fromEntries(['preflight','dispatch','lookup'].map(k=>[k,this[k].bind(this)]))}));Object.freeze(this);
+  ports.set(this,Object.freeze({mode:CONTROLLED_MODE,...Object.fromEntries(['preflight','ready','dispatch','lookup'].map(k=>[k,this[k].bind(this)]))}));Object.freeze(this);
  }
  static async open({directory,origin,serviceToken,timeoutMs=250000,recoverDeadOwner=false,storageFault}){
   if(typeof origin!=='string'||!/^http:\/\/(127\.0\.0\.1|\[::1\]):[1-9][0-9]{0,4}$/.test(origin))fail('CONTROL_ENDPOINT_INVALID');
@@ -29,10 +29,17 @@ export class ControlledProvider {
   if(record.receipt&&!same(controlReceipt(record.evidence,request),record.receipt))fail('CONTROL_RECEIPT_MISMATCH');
   return record;
  }
- async #http(path,payload){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),this.#timeout);let response;
+ async ready(){
+  if(this.#closed)fail('CONTROL_PROVIDER_CLOSED');let value;
+  try{value=await this.#http('',null,'readiness');keys(value,['format','executionEnabled','dispatched']);
+   if(value.format!=='modelmirror.rpg.authoring-readiness/1'||typeof value.executionEnabled!=='boolean'||value.dispatched!==false)fail('CONTROL_READINESS_UNAVAILABLE');
+  }catch{fail('CONTROL_READINESS_UNAVAILABLE');}
+  if(!value.executionEnabled)fail('CONTROL_EXECUTION_DISABLED');return value;
+ }
+ async #http(path,payload,resource='tasks'){
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),resource==='readiness'?Math.min(this.#timeout,10000):this.#timeout);let response;
   try{
-   response=await fetch(this.#origin+'/api/rpg/v1/authoring/tasks'+path,{method:payload?'POST':'GET',redirect:'error',signal:controller.signal,
+   response=await fetch(this.#origin+'/api/rpg/v1/authoring/'+resource+path,{method:payload?'POST':'GET',redirect:'error',signal:controller.signal,
     headers:{authorization:'Bearer '+this.#token,accept:'application/json',...(payload?{'content-type':'application/json'}:{})},...(payload?{body:canonical(payload)}:{})});
    if(!response.ok||!/^application\/json(?:;|$)/i.test(response.headers.get('content-type')??''))fail('CONTROL_RESULT_UNKNOWN');
    const reader=response.body?.getReader();if(!reader)fail('CONTROL_RESULT_UNKNOWN');const chunks=[];let size=0;
