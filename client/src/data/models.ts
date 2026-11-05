@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-11-04T08:48:56.579Z.
+﻿// Merged with OpenRouter model catalog on 2026-11-05T02:03:43.732Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -226,6 +226,103 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "openai/gpt-image-2.6-sunburst",
+    "canonical_slug": "openai/gpt-image-2.6-sunburst-20261104",
+    "name": "OpenAI: GPT Image 2.6 Sunburst",
+    "raw_description": "GPT Image 2.6 Sunburst is OpenAI's image generation and editing model optimized for detail: dense compositions, text-heavy layouts, and edits that keep details consistent from one edit to the next...",
+    "context_length": 400000,
+    "pricing": {
+      "input": 8,
+      "output": 8
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "aspect_ratio",
+      "output_format",
+      "quality",
+      "background",
+      "n",
+      "input_references",
+      "output_compression"
+    ],
+    "created": 1793835357,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "note": "专用图片生成/编辑入口，最多 10 张输出、16 张参考图；按图片端点 Token 费率计价，文本/图片输入/图片输出分别为 $5/$8/$30 每百万 Token。生成前不能可靠估算总价；未执行真实调用。"
+  },
+  {
+    "id": "openai/gpt-image-2.6-flare",
+    "canonical_slug": "openai/gpt-image-2.6-flare-20261104",
+    "name": "OpenAI: GPT Image 2.6 Flare",
+    "raw_description": "GPT Image 2.6 Flare is OpenAI's image generation and editing model optimized for speed: fast iteration and interactive text-to-image and image-to-image workflows, generating about 50% faster than GPT Image 2.5....",
+    "context_length": 400000,
+    "pricing": {
+      "input": 8,
+      "output": 8
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "aspect_ratio",
+      "output_format",
+      "quality",
+      "background",
+      "n",
+      "input_references",
+      "output_compression"
+    ],
+    "created": 1793835351,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "note": "专用图片生成/编辑入口，最多 10 张输出、16 张参考图；按图片端点 Token 费率计价，文本/图片输入/图片输出分别为 $5/$8/$30 每百万 Token。生成前不能可靠估算总价；未执行真实调用。"
+  },
+  {
+    "id": "ricursiveai/ripple-65b-preview",
+    "canonical_slug": "ricursiveai/ripple-65b-preview-20261104",
+    "name": "ricursiveAI/Ripple-65B-Preview",
+    "raw_description": "Ripple-65B-Preview by ricursiveAI, a 65B model with native tool calling, served in BF16.",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 0.6
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "logprobs",
+      "max_tokens",
+      "response_format",
+      "seed",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1793818990,
+    "expiration_date": null,
+    "model_author": "Ricursiveai",
+    "reasoning_declared": true
+  },
+  {
     "id": "tencent/hy4",
     "canonical_slug": "tencent/hy4-20261104",
     "name": "Tencent: Hy4",
@@ -292,7 +389,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Embed 5 Fast is the lower-latency, cost-efficient tier of Cohere's Embed 5 family of multimodal embedding models (about 1B parameters). It embeds text, images, and interleaved text and image content...",
     "context_length": 128000,
     "pricing": {
-      "input": 0.12,
+      "input": 0.08,
       "output": 0
     },
     "input_modalities": [
@@ -424,12 +521,12 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1793729150,
     "expiration_date": null,
     "model_author": "Moondream",
+    "note": "标准音频转写输入，仅返回文字；暂不开放时间戳参数，约 $0.06000012/小时，等待人工验证。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
       "usd": 0.060000120000000004
-    },
-    "note": "标准音频转写输入，仅返回文字；暂不开放时间戳参数，约 $0.06000012/小时，等待人工验证。"
+    }
   },
   {
     "id": "stealth/crouton-alpha",
@@ -966,17 +1063,22 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
       "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_logprobs",
       "top_p"
     ],
@@ -5067,6 +5169,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -5080,6 +5183,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1790021259,
@@ -5415,8 +5519,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0333,
-      "output": 0.475
+      "input": 0.006,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -6945,8 +7049,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0269,
-      "output": 0.09960000000000001
+      "input": 0.0285,
+      "output": 0.0923
     },
     "input_modalities": [
       "text",
@@ -7058,8 +7162,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0269,
-      "output": 0.09960000000000001
+      "input": 0.15,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -7562,8 +7666,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.08,
-      "output": 3.5999999999999996
+      "input": 0.0699,
+      "output": 1.4
     },
     "input_modalities": [
       "text"
@@ -8169,10 +8273,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -10315,7 +10417,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3 is a 2.8T parameter open-weight multimodal reasoning model from Moonshot AI. It is suited for complex coding, knowledge work, and long-horizon agentic workflows, and is particularly strong at...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.19999999999999998,
+      "input": 0.192,
       "output": 16
     },
     "input_modalities": [
@@ -13712,8 +13814,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.19,
-      "output": 8.940000000000001
+      "input": 0.18239999999999998,
+      "output": 9.7471
     },
     "input_modalities": [
       "text",
@@ -15250,8 +15352,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.08399999999999999,
-      "output": 0.253
+      "input": 0.03,
+      "output": 0.091
     },
     "input_modalities": [
       "image",
@@ -21531,7 +21633,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1754922288,
-    "expiration_date": 1798675200,
+    "expiration_date": null,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -21711,8 +21813,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.012,
+      "output": 0.043000000000000003
     },
     "input_modalities": [
       "text"
@@ -21787,8 +21889,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.03,
-      "output": 0.13
+      "input": 0.018,
+      "output": 0.09
     },
     "input_modalities": [
       "text"
@@ -23641,8 +23743,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 4 Maverick 17B Instruct (128E) is a high-capacity multimodal language model from Meta, built on a mixture-of-experts (MoE) architecture with 128 experts and 17 billion active parameters per forward...",
     "context_length": 524288,
     "pricing": {
-      "input": 0.1875,
-      "output": 0.6525
+      "input": 0.35,
+      "output": 1
     },
     "input_modalities": [
       "text",
@@ -24919,8 +25021,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.32
+      "input": 0.19999999999999998,
+      "output": 0.52
     },
     "input_modalities": [
       "text"
@@ -30267,6 +30369,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst",
   "sourceful/riverflow-v2.6-pro",
   "inclusionai/ming-image-0.1-design",
   "inclusionai/ming-image-0.1-design-layer",
@@ -30799,8 +30902,8 @@ const CLAUDE_FABLE_5_1_MODEL_ID = "anthropic/claude-fable-5.1";
 const CLAUDE_OPUS_5_MODEL_ID = "anthropic/claude-opus-5";
 const GPT_6_ASTRA_MODEL_ID = "openai/gpt-6-astra";
 const GPT_5_6_SOL_MODEL_ID = "openai/gpt-5.6-sol";
-const GPT_IMAGE_2_5_FLARE_MODEL_ID = "openai/gpt-image-2.5-flare";
-const GPT_IMAGE_2_5_SUNBURST_MODEL_ID = "openai/gpt-image-2.5-sunburst";
+const GPT_IMAGE_2_6_FLARE_MODEL_ID = "openai/gpt-image-2.6-flare";
+const GPT_IMAGE_2_6_SUNBURST_MODEL_ID = "openai/gpt-image-2.6-sunburst";
 const MID_CATALOG_MODEL_IDS = [
   "sakana/sakana-namazu",
   "upstage/solar-pro4",
@@ -30808,6 +30911,7 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "ricursiveai/ripple-65b-preview", "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst",
   "tencent/hy4",
   "morph/reflex",
   "cohere/embed-5-fast",
@@ -31063,8 +31167,8 @@ const reservedCatalogModelIds = new Set([
   CLAUDE_OPUS_5_MODEL_ID,
   GPT_6_ASTRA_MODEL_ID,
   GPT_5_6_SOL_MODEL_ID,
-  GPT_IMAGE_2_5_FLARE_MODEL_ID,
-  GPT_IMAGE_2_5_SUNBURST_MODEL_ID,
+  GPT_IMAGE_2_6_FLARE_MODEL_ID,
+  GPT_IMAGE_2_6_SUNBURST_MODEL_ID,
   ...MID_CATALOG_MODEL_IDS,
   ...LATEST_REFRESH_MODEL_IDS,
 ]);
@@ -31089,11 +31193,11 @@ const gpt6AstraModel = sortedCatalogModels.find(
 const gpt56SolModel = sortedCatalogModels.find(
   (model) => model.id === GPT_5_6_SOL_MODEL_ID,
 );
-const gptImage25FlareModel = sortedCatalogModels.find(
-  (model) => model.id === GPT_IMAGE_2_5_FLARE_MODEL_ID,
+const gptImage26FlareModel = sortedCatalogModels.find(
+  (model) => model.id === GPT_IMAGE_2_6_FLARE_MODEL_ID,
 );
-const gptImage25SunburstModel = sortedCatalogModels.find(
-  (model) => model.id === GPT_IMAGE_2_5_SUNBURST_MODEL_ID,
+const gptImage26SunburstModel = sortedCatalogModels.find(
+  (model) => model.id === GPT_IMAGE_2_6_SUNBURST_MODEL_ID,
 );
 const midCatalogModels = MID_CATALOG_MODEL_IDS.map((modelId) =>
   sortedCatalogModels.find((model) => model.id === modelId),
@@ -31122,8 +31226,8 @@ const primaryCatalogModels: Model[] = [
   ...(seedance25Model ? [seedance25Model] : []),
   ...DIRECT_OPENAI_AUDIO_MODELS,
   ...frontRowModel("moonshotai/kimi-k3.1-pro"),
-  ...(gptImage25FlareModel ? [gptImage25FlareModel] : []),
-  ...(gptImage25SunburstModel ? [gptImage25SunburstModel] : []),
+  ...(gptImage26FlareModel ? [gptImage26FlareModel] : []),
+  ...(gptImage26SunburstModel ? [gptImage26SunburstModel] : []),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
   ...normallyOrderedCatalogModels,
