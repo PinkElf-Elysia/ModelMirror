@@ -22,6 +22,9 @@ COPY xingjian-card ./xingjian-card
 COPY lord-of-mysteries-card/public ./lord-of-mysteries-card/public
 COPY lord-of-mysteries-card/resources ./lord-of-mysteries-card/resources
 COPY lord-of-mysteries-card/assembly.mjs ./lord-of-mysteries-card/assembly.mjs
+COPY dragon-raja-card/public ./dragon-raja-card/public
+COPY dragon-raja-card/resources ./dragon-raja-card/resources
+COPY dragon-raja-card/assembly.mjs ./dragon-raja-card/assembly.mjs
 COPY studio ./studio
 COPY ui/package.json ui/package-lock.json ./ui/
 RUN npm ci --prefix ui

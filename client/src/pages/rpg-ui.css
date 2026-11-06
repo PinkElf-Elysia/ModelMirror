@@ -11,3 +11,12 @@
 @media(max-width:760px){.rpg-platform-nav{height:auto;min-height:64px;padding:14px 18px;gap:20px;flex-wrap:wrap}.rpg-platform-nav nav{gap:20px}.rpg-platform-nav nav a{padding:8px 0;font-size:13px}.rpg-leave{display:none}.rpg-content{padding:32px 18px}.rpg-heading{align-items:flex-start;flex-direction:column;gap:14px}.rpg-heading h1{font-size:32px}.rpg-worlds{gap:14px;grid-template-columns:1fr 1fr}.rpg-world{grid-column:span 1;padding:20px;min-height:260px}.rpg-world--cover{grid-column:1/-1;min-height:310px}.rpg-world--rpg05{grid-column:1/-1;min-height:215px}.rpg-world--rpg05>div{display:block}.rpg-world-foot{align-items:flex-start;flex-direction:column;gap:8px}.rpg-world h2{font-size:24px}.rpg-world p{font-size:13px}.rpg-world--cover .rpg-world-foot,.rpg-world--rpg05 .rpg-world-foot{flex-direction:row;align-items:center;gap:14px}.rpg-plugin-grid,.rpg-tool-links{grid-template-columns:1fr}.rpg-filterbar{gap:16px;align-items:flex-start}.rpg-filterbar label{flex-wrap:wrap}.rpg-embed-heading{padding:8px 16px;gap:12px}.rpg-platform--embedded .rpg-platform-nav{height:auto;min-height:52px;gap:15px}.rpg-platform--embedded .rpg-platform-nav a{padding:4px 0}.rpg-platform--embedded .rpg-brand span{display:none}.rpg-embed-links{font-size:12px;gap:10px}}
 @media(prefers-reduced-motion:no-preference){.rpg-platform :is(a,button){transition:background-color .16s,border-color .16s,color .16s}}
 @media(max-width:760px){.rpg-platform--reader .rpg-platform-nav{display:none}.rpg-platform--reader{height:100dvh}}
+
+/* New releases share one row; entries remain driven by the card registry. */
+.rpg-new-worlds{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.rpg-new-worlds .rpg-world{grid-column:auto;min-height:300px;padding:30px}
+.rpg-new-worlds .rpg-world h2{font-size:30px;text-wrap:balance}
+.rpg-new-worlds .rpg-world-foot{max-width:520px}
+.rpg-world-new{display:inline-block;margin-right:12px;padding:2px 9px;border-radius:4px;background:#d5e5f4;color:#17344d;font-size:12px;font-weight:600}
+.rpg-new-worlds .rpg-world-foot a{min-height:44px;display:inline-flex;align-items:center;font-weight:600}
+@media(max-width:760px){.rpg-new-worlds{grid-template-columns:1fr}.rpg-new-worlds .rpg-world{padding:24px;min-height:290px}.rpg-new-worlds .rpg-world-foot{flex-direction:row;align-items:center;gap:14px}.rpg-section-title{gap:14px;flex-wrap:wrap}}

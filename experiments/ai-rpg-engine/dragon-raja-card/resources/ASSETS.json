@@ -1,0 +1,16 @@
+[
+  {
+    "url": "https://pic1.imgdb.cn/i/033tWWMPR7NS0cfegeyqjl.jpg",
+    "file": "background.jpg",
+    "bytes": 258798,
+    "sha256": "88f73ab19e12ced48b8fb4aa9bd1df3506d1aff73700757b3a9c6a689dcf8b28",
+    "mediaType": "image/jpeg"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/i/034guMnbxhFSw3MFp8O9Zd.gif",
+    "file": "awakening.gif",
+    "bytes": 3586265,
+    "sha256": "84991eabfa17ca893350a242ce27d10f5cca7b26809a7e7b5763b144f32e5451",
+    "mediaType": "image/gif"
+  }
+]

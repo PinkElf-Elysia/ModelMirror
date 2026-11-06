@@ -1,0 +1,2586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>龙族大世界 · 建卡</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Noto+Serif+SC:wght@600;900&family=Cormorant+Garamond:ital,wght@0,500;0,700;1,500;1,600&display=swap');
+:root{
+  --paper-cream:#FAF6EE;
+  --paper-warm:#F5F1E8;
+  --paper-mist:#EFE9DC;
+  --paper-dust:#E5DECD;
+  --gold-primary:#B8925A;
+  --gold-soft:#D4B378;
+  --gold-pale:#E8D5A8;
+  --gold-deep:#8F6F42;
+  --rose-blood:#C97064;
+  --rose-deep:#A85248;
+  --rose-pale:#E5A69A;
+  --mist-blue:#7A97A5;
+  --mist-light:#A8BFCA;
+  --mist-pale:#D0DFE5;
+  --ink-warm:#3D3833;
+  --ink-soft:#6B625A;
+  --ink-mute:#9A9088;
+  --tier-mythic:#B8925A;
+  --tier-legendary:#A85248;
+  --tier-epic:#6B7A8F;
+  --tier-rare:#8BA888;
+  --tier-common:#9A9088;
+  --shadow-soft:rgba(61,56,51,0.12);
+  --shadow-mid:rgba(61,56,51,0.22);
+  --shadow-strong:rgba(61,56,51,0.4);
+}
+body{
+  font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
+  background-color:#2a2823;
+  background-image:url('https://pic1.imgdb.cn/i/033tWWMPR7NS0cfegeyqjl.jpg');
+  background-size:cover;
+  background-position:center;
+  background-attachment:fixed;
+  color:var(--ink-warm);
+  min-height:100vh;
+  overflow-x:hidden;
+  line-height:1.65;
+}
+.main-container{min-height:100vh;position:relative;}
+.main-container::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:rgba(245,241,232,0.32);
+  backdrop-filter:blur(2px);
+  pointer-events:none;
+  z-index:1;
+}
+.content-wrapper{
+  position:relative;
+  z-index:2;
+  max-width:1020px;
+  margin:0 auto;
+  padding:24px 20px 80px;
+}
+.main-title{
+  text-align:center;
+  padding:30px 24px 24px;
+  background:rgba(250,246,238,0.94);
+  backdrop-filter:blur(16px);
+  border:1px solid rgba(184,146,90,0.35);
+  border-radius:8px;
+  margin-bottom:24px;
+  position:relative;
+  box-shadow:0 8px 32px var(--shadow-mid),inset 0 0 60px rgba(184,146,90,0.05);
+}
+.main-title .title-en{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11px;
+  letter-spacing:5px;
+  color:var(--gold-primary);
+  margin-bottom:10px;
+  font-weight:500;
+}
+.main-title h1{
+  font-family:'Noto Serif SC',serif;
+  font-size:clamp(22px,3.6vw,30px);
+  font-weight:900;
+  letter-spacing:6px;
+  color:var(--ink-warm);
+  margin-bottom:10px;
+}
+.main-title .subtitle{
+  font-size:11.5px;
+  letter-spacing:3px;
+  color:var(--ink-soft);
+  font-weight:400;
+  margin-bottom:13px;
+}
+.main-title .motto{
+  display:inline-block;
+  padding:6px 20px;
+  border-top:1px solid var(--gold-primary);
+  border-bottom:1px solid var(--gold-primary);
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11.5px;
+  letter-spacing:3px;
+  color:var(--gold-primary);
+}
+.tab-nav{
+  display:flex;
+  gap:0;
+  margin-bottom:20px;
+  overflow-x:auto;
+  background:rgba(250,246,238,0.9);
+  backdrop-filter:blur(12px);
+  border:1px solid rgba(184,146,90,0.28);
+  border-radius:8px;
+  box-shadow:0 4px 20px var(--shadow-soft);
+}
+.tab-nav::-webkit-scrollbar{height:4px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--gold-soft);border-radius:3px;}
+.tab-btn{
+  flex:1;
+  min-width:100px;
+  padding:15px 8px;
+  background:transparent;
+  border:none;
+  border-right:1px solid rgba(184,146,90,0.15);
+  font-family:inherit;
+  font-size:clamp(11px,2vw,13px);
+  font-weight:600;
+  cursor:pointer;
+  transition:all .3s ease;
+  white-space:nowrap;
+  color:var(--ink-soft);
+  position:relative;
+  letter-spacing:1px;
+}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(184,146,90,0.08);color:var(--ink-warm);}
+.tab-btn.active{
+  background:linear-gradient(180deg,var(--gold-soft),var(--gold-primary));
+  color:#fff;
+  font-weight:700;
+  box-shadow:inset 0 -3px 0 var(--gold-deep);
+  text-shadow:0 1px 2px rgba(0,0,0,0.2);
+}
+.tab-btn.completed::after{
+  content:'✓';
+  position:absolute;
+  top:5px;right:8px;
+  font-size:11px;
+  color:var(--rose-blood);
+  font-weight:900;
+}
+.tab-btn.active.completed::after{color:#fff;}
+.tab-content{
+  display:none;
+  background:rgba(250,246,238,0.9);
+  backdrop-filter:blur(16px);
+  border:1px solid rgba(184,146,90,0.3);
+  border-radius:8px;
+  padding:32px;
+  box-shadow:0 6px 24px var(--shadow-mid),inset 0 0 40px rgba(184,146,90,0.04);
+  position:relative;
+}
+.tab-content.active{display:block;animation:fadeUp .4s cubic-bezier(.22,.61,.36,1) forwards;}
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(10px);}
+  to{opacity:1;transform:translateY(0);}
+}
+.section-title{
+  font-family:'Noto Serif SC',serif;
+  font-size:clamp(20px,4vw,26px);
+  font-weight:900;
+  margin-bottom:8px;
+  color:var(--ink-warm);
+  letter-spacing:2px;
+}
+.section-title-en{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:13px;
+  letter-spacing:4px;
+  color:var(--gold-primary);
+  margin-bottom:22px;
+  padding-bottom:14px;
+  border-bottom:1px solid rgba(184,146,90,0.35);
+  position:relative;
+}
+.section-title-en::after{
+  content:'';
+  position:absolute;
+  bottom:-1px;left:0;
+  width:60px;
+  height:2px;
+  background:var(--gold-primary);
+}
+.info-box,.intro-box{
+  background:rgba(255,252,246,0.95);
+  border:1px solid rgba(184,146,90,0.25);
+  border-radius:6px;
+  padding:22px 24px;
+  margin-bottom:16px;
+  position:relative;
+  box-shadow:0 2px 10px var(--shadow-soft);
+}
+.info-box::before,.intro-box::before{
+  content:'';
+  position:absolute;
+  top:0;left:0;
+  width:3px;height:100%;
+  background:linear-gradient(180deg,var(--gold-primary),var(--rose-blood));
+  border-radius:3px 0 0 3px;
+}
+.intro-box{
+  line-height:2;
+  font-size:15px;
+  color:var(--ink-warm);
+  margin-bottom:22px;
+}
+.intro-box p{margin-bottom:10px;}
+.intro-box .highlight{color:var(--rose-deep);font-weight:700;}
+.intro-box .question{
+  margin-top:18px;
+  font-size:18px;
+  font-weight:700;
+  color:var(--ink-warm);
+  font-family:'Noto Serif SC',serif;
+  letter-spacing:1px;
+}
+.info-box h3{
+  font-size:15px;
+  margin-bottom:6px;
+  color:var(--rose-deep);
+  font-weight:700;
+  letter-spacing:1px;
+}
+.info-box .box-en{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11px;
+  color:var(--gold-primary);
+  letter-spacing:3px;
+  margin-bottom:12px;
+  display:block;
+}
+.info-box p,.info-box li{
+  font-size:13.5px;
+  line-height:1.85;
+  color:var(--ink-soft);
+}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{
+  padding-left:18px;
+  position:relative;
+  margin-bottom:6px;
+}
+.info-box li::before{
+  content:'◇';
+  position:absolute;
+  left:0;
+  color:var(--gold-primary);
+  font-size:11px;
+  top:6px;
+}
+.info-box li strong{color:var(--ink-warm);}
+.info-box p+p{margin-top:8px;}
+.intro-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:16px;
+  margin-bottom:16px;
+}
+.intro-grid .info-box{margin-bottom:0;}
+.timeline-section{margin-bottom:32px;}
+.timeline-title{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  font-weight:900;
+  padding:15px 20px;
+  background:linear-gradient(135deg,rgba(255,252,246,0.98),rgba(245,241,232,0.92));
+  color:var(--ink-warm);
+  margin-bottom:14px;
+  border:1px solid rgba(184,146,90,0.28);
+  border-left:3px solid var(--gold-primary);
+  border-radius:8px;
+  letter-spacing:2px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  box-shadow:0 2px 8px var(--shadow-soft);
+  transition:all .3s ease;
+}
+.timeline-title:hover{
+  border-color:var(--gold-primary);
+  box-shadow:0 4px 14px var(--shadow-mid);
+  transform:translateY(-1px);
+}
+.tl-group.open .timeline-title{
+  border-left-color:var(--rose-blood);
+  background:linear-gradient(135deg,rgba(201,112,100,0.07),rgba(184,146,90,0.05));
+  margin-bottom:0;
+  border-radius:8px 8px 0 0;
+  border-bottom:1px dashed rgba(184,146,90,0.35);
+}
+.timeline-title .timeline-en{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:12px;
+  color:var(--gold-primary);
+  letter-spacing:3px;
+  font-weight:500;
+}
+.chapter-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:14px;
+}
+.chapter-card{
+  background:rgba(255,252,246,0.96);
+  border:1px solid rgba(184,146,90,0.25);
+  border-radius:6px;
+  padding:18px;
+  cursor:pointer;
+  transition:all .3s ease;
+  position:relative;
+  box-shadow:0 2px 8px var(--shadow-soft);
+}
+.chapter-card:hover{
+  transform:translateY(-3px);
+  box-shadow:0 8px 20px var(--shadow-mid);
+  border-color:var(--gold-primary);
+}
+.chapter-card.selected{
+  border:2px solid var(--rose-blood);
+  background:linear-gradient(135deg,rgba(201,112,100,0.06),rgba(184,146,90,0.06));
+  box-shadow:0 4px 16px rgba(201,112,100,0.25);
+}
+.chapter-badge{
+  display:inline-block;
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11px;
+  padding:3px 10px;
+  margin-bottom:10px;
+  background:rgba(184,146,90,0.12);
+  color:var(--gold-deep);
+  border:1px solid rgba(184,146,90,0.3);
+  border-radius:3px;
+  font-weight:600;
+  letter-spacing:2px;
+}
+.chapter-card h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:6px;
+  color:var(--ink-warm);
+  font-weight:900;
+  letter-spacing:1px;
+}
+.chapter-card .chapter-year{
+  font-size:12px;
+  color:var(--gold-primary);
+  margin-bottom:10px;
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  letter-spacing:2px;
+}
+.chapter-card .chapter-desc{
+  font-size:13px;
+  line-height:1.75;
+  color:var(--ink-soft);
+  margin-bottom:12px;
+}
+.chapter-tags{display:flex;flex-wrap:wrap;gap:5px;}
+.tag{
+  font-size:11px;
+  padding:3px 8px;
+  background:rgba(122,151,165,0.12);
+  border:1px solid rgba(122,151,165,0.3);
+  color:var(--mist-blue);
+  border-radius:3px;
+}
+.open-ending{
+  display:inline-block;
+  font-size:11px;
+  padding:2px 8px;
+  background:rgba(201,112,100,0.15);
+  color:var(--rose-deep);
+  border:1px solid var(--rose-pale);
+  border-radius:3px;
+  margin-left:8px;
+  font-weight:600;
+  letter-spacing:1px;
+}
+.entry-section{
+  display:none;
+  margin-top:22px;
+  padding:22px;
+  background:rgba(239,233,220,0.7);
+  border:1px solid rgba(184,146,90,0.25);
+  border-radius:6px;
+}
+.entry-section.visible{display:block;}
+.entry-section h4{
+  font-size:14px;
+  margin-bottom:14px;
+  color:var(--rose-deep);
+  font-weight:700;
+  letter-spacing:1px;
+}
+.entry-option{
+  display:flex;
+  align-items:flex-start;
+  padding:14px 16px;
+  background:rgba(255,252,246,0.98);
+  border:1px solid rgba(184,146,90,0.2);
+  border-radius:5px;
+  margin-bottom:10px;
+  cursor:pointer;
+  transition:all .25s;
+}
+.entry-option:hover{border-color:var(--gold-primary);background:rgba(184,146,90,0.05);}
+.entry-option.selected{
+  border:2px solid var(--rose-blood);
+  background:rgba(201,112,100,0.05);
+}
+.entry-option input[type="radio"]{
+  margin-right:12px;
+  margin-top:2px;
+  accent-color:var(--rose-blood);
+  width:18px;height:18px;
+}
+.entry-option-content{flex:1;}
+.entry-option-content strong{
+  display:block;
+  margin-bottom:4px;
+  color:var(--ink-warm);
+  font-weight:700;
+}
+.entry-option-content span{font-size:13px;color:var(--ink-soft);}
+.custom-entry-input{display:none;margin-top:12px;}
+.custom-entry-input.visible{display:block;}
+.custom-entry-input textarea{
+  width:100%;
+  padding:12px;
+  border:1px solid var(--gold-primary);
+  border-radius:5px;
+  background:rgba(255,255,255,0.98);
+  font-family:inherit;
+  font-size:14px;
+  min-height:90px;
+  resize:vertical;
+  color:var(--ink-warm);
+}
+.form-section{margin-bottom:28px;}
+.form-section h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:16px;
+  padding-left:12px;
+  border-left:3px solid var(--rose-blood);
+  color:var(--ink-warm);
+  font-weight:900;
+  letter-spacing:1px;
+}
+.form-row{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:14px;
+  margin-bottom:14px;
+}
+.form-group{margin-bottom:14px;}
+.form-group label{
+  display:block;
+  font-size:13px;
+  font-weight:700;
+  margin-bottom:6px;
+  color:var(--ink-warm);
+  letter-spacing:1px;
+}
+.form-group .field-hint{
+  color:var(--ink-mute);
+  font-size:11px;
+  font-weight:400;
+  margin-left:6px;
+  letter-spacing:0;
+}
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group select,
+.form-group textarea{
+  width:100%;
+  padding:11px 13px;
+  border:1px solid rgba(184,146,90,0.35);
+  border-radius:5px;
+  background:rgba(255,255,255,0.95);
+  font-family:inherit;
+  font-size:14px;
+  transition:all .25s;
+  color:var(--ink-warm);
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(184,146,90,0.2);
+  border-color:var(--gold-primary);
+  background:#fff;
+}
+.form-group textarea{min-height:100px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:10px;flex-wrap:wrap;}
+.radio-group label{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 18px;
+  background:rgba(255,255,255,0.95);
+  border:1px solid rgba(184,146,90,0.3);
+  border-radius:5px;
+  cursor:pointer;
+  font-size:13px;
+  transition:all .25s;
+  font-weight:600;
+}
+.radio-group label:hover{background:rgba(184,146,90,0.08);border-color:var(--gold-primary);}
+.radio-group input{accent-color:var(--rose-blood);width:16px;height:16px;}
+.radio-group input:checked+span{font-weight:700;color:var(--rose-deep);}
+.arsenal-section{margin-bottom:28px;}
+.arsenal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:14px 20px;
+  background:linear-gradient(135deg,rgba(255,252,246,0.98),rgba(245,241,232,0.92));
+  border:1px solid rgba(184,146,90,0.28);
+  border-left:3px solid var(--gold-primary);
+  border-radius:8px;
+  margin-bottom:12px;
+  box-shadow:0 2px 8px var(--shadow-soft);
+  transition:all .3s ease;
+}
+.arsenal-header:hover{
+  border-color:var(--gold-primary);
+  box-shadow:0 4px 14px var(--shadow-mid);
+  transform:translateY(-1px);
+}
+.arsenal-section.open .arsenal-header{
+  border-left-color:var(--rose-blood);
+  background:linear-gradient(135deg,rgba(201,112,100,0.07),rgba(184,146,90,0.05));
+}
+.arsenal-header h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  color:var(--ink-warm);
+  font-weight:900;
+  letter-spacing:1px;
+}
+.arsenal-header .count{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11px;
+  color:var(--gold-deep);
+  letter-spacing:2px;
+  padding:5px 13px;
+  border:1px solid rgba(184,146,90,0.4);
+  border-radius:999px;
+  background:rgba(184,146,90,0.08);
+  flex-shrink:0;
+  transition:all .3s ease;
+}
+.arsenal-section.open .arsenal-header .count{
+  color:#fff;
+  background:linear-gradient(135deg,var(--gold-soft),var(--gold-primary));
+  border-color:var(--gold-primary);
+}
+.arsenal-hint{
+  font-size:12px;
+  color:var(--ink-mute);
+  margin-bottom:10px;
+  padding-left:12px;
+  font-style:italic;
+}
+.arsenal-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:10px;
+}
+.arsenal-item{
+  display:flex;
+  align-items:flex-start;
+  padding:12px 14px;
+  background:rgba(255,252,246,0.95);
+  border:1px solid rgba(184,146,90,0.2);
+  border-radius:5px;
+  cursor:pointer;
+  transition:all .25s;
+  gap:10px;
+}
+.arsenal-item:hover{
+  background:rgba(184,146,90,0.06);
+  border-color:var(--gold-primary);
+  transform:translateX(2px);
+}
+.arsenal-item.selected{
+  background:linear-gradient(135deg,rgba(201,112,100,0.08),rgba(184,146,90,0.05));
+  border:2px solid var(--rose-blood);
+  padding:11px 13px;
+}
+.arsenal-item input{
+  margin-top:3px;
+  accent-color:var(--rose-blood);
+  width:16px;height:16px;
+  flex-shrink:0;
+}
+.arsenal-item .item-body{flex:1;}
+.arsenal-item .item-name{
+  font-size:13px;
+  font-weight:700;
+  color:var(--ink-warm);
+  margin-bottom:3px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+}
+.arsenal-item .item-seq{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:11px;
+  color:var(--gold-primary);
+  padding:1px 6px;
+  background:rgba(184,146,90,0.1);
+  border-radius:3px;
+  letter-spacing:1px;
+}
+.arsenal-item .item-desc{
+  font-size:12px;
+  color:var(--ink-soft);
+  line-height:1.55;
+}
+.arsenal-item .item-user{
+  font-size:11px;
+  color:var(--rose-deep);
+  margin-top:3px;
+  font-style:italic;
+}
+.tier-tag{
+  display:inline-block;
+  font-size:10px;
+  padding:1px 6px;
+  border-radius:3px;
+  font-weight:700;
+  letter-spacing:1px;
+  margin-left:4px;
+}
+.tier-tag.low{background:rgba(139,168,136,0.2);color:#5A7A5A;}
+.tier-tag.high{background:rgba(201,112,100,0.2);color:var(--rose-deep);}
+.tier-tag.god{background:rgba(184,146,90,0.2);color:var(--gold-deep);}
+.tier-tag.legendary{background:rgba(168,82,72,0.15);color:var(--rose-deep);}
+.tier-tag.fan{background:rgba(122,151,165,0.2);color:var(--mist-blue);}
+.expand-toggle{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 18px;
+  background:rgba(122,151,165,0.08);
+  border:1px dashed rgba(122,151,165,0.4);
+  border-radius:5px;
+  margin-bottom:14px;
+  cursor:pointer;
+  transition:all .25s;
+}
+.expand-toggle:hover{background:rgba(122,151,165,0.12);}
+.expand-toggle input{accent-color:var(--mist-blue);width:16px;height:16px;}
+.expand-toggle label{
+  font-size:13px;
+  color:var(--ink-soft);
+  cursor:pointer;
+  flex:1;
+}
+.expand-toggle label strong{color:var(--ink-warm);}
+.custom-skills-section{
+  margin-top:22px;
+  padding:22px;
+  background:rgba(239,233,220,0.6);
+  border:1px solid rgba(184,146,90,0.25);
+  border-radius:6px;
+}
+.custom-skills-section h4{
+  font-size:15px;
+  margin-bottom:14px;
+  color:var(--ink-warm);
+  font-weight:700;
+  letter-spacing:1px;
+}
+.custom-skill-list{display:flex;flex-direction:column;gap:12px;}
+.custom-skill-item{
+  padding:14px;
+  background:rgba(255,252,246,0.98);
+  border:1px solid rgba(184,146,90,0.25);
+  border-radius:5px;
+  position:relative;
+  border-left:3px solid var(--gold-primary);
+}
+.custom-skill-item .delete-btn{
+  position:absolute;
+  top:10px;right:10px;
+  width:28px;height:28px;
+  border:none;
+  background:var(--rose-blood);
+  color:#fff;
+  font-size:16px;
+  cursor:pointer;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:all .25s;
+}
+.custom-skill-item .delete-btn:hover{background:var(--rose-deep);transform:rotate(90deg);}
+.custom-skill-item input,
+.custom-skill-item textarea{
+  width:100%;
+  padding:10px;
+  border:1px solid rgba(184,146,90,0.3);
+  border-radius:4px;
+  background:#fff;
+  font-family:inherit;
+  font-size:13px;
+  margin-bottom:10px;
+  color:var(--ink-warm);
+}
+.custom-skill-item textarea{min-height:60px;resize:vertical;margin-bottom:0;line-height:1.6;}
+.add-skill-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:100%;
+  padding:14px;
+  background:rgba(255,252,246,0.98);
+  border:2px dashed rgba(184,146,90,0.45);
+  border-radius:5px;
+  font-family:inherit;
+  font-size:14px;
+  font-weight:700;
+  color:var(--gold-deep);
+  cursor:pointer;
+  transition:all .25s;
+}
+.add-skill-btn:hover{background:rgba(184,146,90,0.08);border-color:var(--rose-blood);color:var(--rose-deep);}
+.add-skill-btn.disabled{opacity:.5;cursor:not-allowed;}
+.skill-limit-hint{
+  font-size:12px;
+  color:var(--ink-mute);
+  text-align:center;
+  margin-top:10px;
+  font-style:italic;
+}
+.destiny-section{text-align:center;padding:22px;}
+.roll-btn{
+  padding:18px 46px;
+  font-size:17px;
+  font-weight:700;
+  font-family:'Noto Serif SC',serif;
+  background:linear-gradient(135deg,var(--rose-blood),var(--rose-deep));
+  color:#fff;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  transition:all .35s;
+  box-shadow:0 6px 20px rgba(201,112,100,0.35);
+  letter-spacing:4px;
+}
+.roll-btn:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(201,112,100,0.5);}
+.roll-btn:active{transform:translateY(1px);}
+.roll-btn.rolling{animation:shake .5s infinite;}
+@keyframes shake{
+  0%,100%{transform:translateX(0);}
+  25%{transform:translateX(-4px) rotate(-2deg);}
+  75%{transform:translateX(4px) rotate(2deg);}
+}
+.destiny-pool{display:none;margin-top:26px;}
+.destiny-pool.visible{display:block;}
+.destiny-pool h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:10px;
+  color:var(--ink-warm);
+  font-weight:900;
+  letter-spacing:1px;
+}
+.destiny-count{font-size:13px;color:var(--ink-soft);margin-bottom:16px;}
+.destiny-list{
+  display:grid;
+  gap:10px;
+  max-height:520px;
+  overflow-y:auto;
+  padding:12px;
+  background:rgba(239,233,220,0.5);
+  border:1px solid rgba(184,146,90,0.2);
+  border-radius:6px;
+}
+.destiny-list::-webkit-scrollbar{width:6px;}
+.destiny-list::-webkit-scrollbar-thumb{background:var(--gold-soft);border-radius:3px;}
+.destiny-item{
+  display:flex;
+  align-items:flex-start;
+  padding:14px;
+  background:rgba(255,252,246,0.97);
+  border:1px solid;
+  border-radius:5px;
+  cursor:pointer;
+  transition:all .25s;
+  text-align:left;
+  gap:12px;
+}
+.destiny-item input{
+  margin-top:3px;
+  width:18px;height:18px;
+  accent-color:var(--rose-blood);
+  flex-shrink:0;
+}
+.destiny-item.selected{
+  transform:translateX(3px);
+  box-shadow:0 4px 14px var(--shadow-mid);
+}
+.destiny-item.mythic{border-color:var(--tier-mythic);background:linear-gradient(135deg,#FFF8E8,#FFFBF0);}
+.destiny-item.legendary{border-color:var(--tier-legendary);background:linear-gradient(135deg,#FBEAE6,#FFF6F3);}
+.destiny-item.epic{border-color:var(--tier-epic);background:linear-gradient(135deg,#E9EEF3,#F7F9FB);}
+.destiny-item.rare{border-color:var(--tier-rare);background:linear-gradient(135deg,#EDF3EC,#F8FBF7);}
+.destiny-item.common{border-color:var(--tier-common);background:rgba(255,252,246,0.97);}
+.destiny-info{flex:1;}
+.destiny-name{
+  font-family:'Noto Serif SC',serif;
+  font-weight:700;
+  font-size:14px;
+  margin-bottom:5px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+  color:var(--ink-warm);
+}
+.destiny-badge{
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:10px;
+  padding:2px 8px;
+  border-radius:10px;
+  color:#fff;
+  font-weight:700;
+  letter-spacing:1.5px;
+}
+.destiny-badge.mythic{background:var(--tier-mythic);}
+.destiny-badge.legendary{background:var(--tier-legendary);}
+.destiny-badge.epic{background:var(--tier-epic);}
+.destiny-badge.rare{background:var(--tier-rare);}
+.destiny-badge.common{background:var(--tier-common);}
+.destiny-desc{font-size:13px;color:var(--ink-warm);line-height:1.65;}
+.destiny-effect{
+  font-size:12px;
+  color:var(--rose-deep);
+  margin-top:4px;
+  font-style:italic;
+  font-weight:600;
+}
+.preview-section{padding:8px 0;}
+.preview-box{
+  padding:22px;
+  font-size:13px;
+  line-height:2;
+  white-space:pre-wrap;
+  word-break:break-word;
+  max-height:560px;
+  overflow-y:auto;
+  margin-bottom:20px;
+  font-family:'Courier New',monospace;
+  background:rgba(255,252,246,0.97);
+  border:1px solid rgba(184,146,90,0.28);
+  border-radius:6px;
+  color:var(--ink-warm);
+  box-shadow:inset 0 2px 8px var(--shadow-soft);
+}
+.preview-box::-webkit-scrollbar{width:6px;}
+.preview-box::-webkit-scrollbar-thumb{background:var(--gold-soft);border-radius:3px;}
+.copy-btn{
+  display:block;
+  width:100%;
+  max-width:320px;
+  margin:0 auto;
+  padding:16px 36px;
+  font-size:16px;
+  font-weight:700;
+  font-family:'Noto Serif SC',serif;
+  background:linear-gradient(135deg,var(--rose-blood),var(--rose-deep));
+  color:#fff;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  transition:all .35s;
+  box-shadow:0 6px 20px rgba(201,112,100,0.35);
+  letter-spacing:3px;
+}
+.copy-btn:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(201,112,100,0.5);}
+.nav-buttons{
+  display:flex;
+  justify-content:space-between;
+  margin-top:28px;
+  padding-top:22px;
+  border-top:1px dashed rgba(184,146,90,0.3);
+}
+.nav-btn{
+  padding:13px 26px;
+  font-size:14px;
+  font-weight:700;
+  font-family:inherit;
+  border:1px solid rgba(184,146,90,0.4);
+  border-radius:6px;
+  cursor:pointer;
+  transition:all .3s;
+  letter-spacing:2px;
+}
+.nav-btn.prev{background:rgba(255,252,246,0.9);color:var(--ink-warm);}
+.nav-btn.next{
+  background:linear-gradient(135deg,var(--gold-soft),var(--gold-primary));
+  color:#fff;
+  border-color:var(--gold-primary);
+  box-shadow:0 4px 14px rgba(184,146,90,0.35);
+}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn.prev:hover{border-color:var(--gold-primary);background:rgba(184,146,90,0.08);}
+.nav-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+footer{
+  text-align:center;
+  padding:18px;
+  background:rgba(61,56,51,0.88);
+  color:var(--paper-cream);
+  font-family:'Cormorant Garamond',serif;
+  font-style:italic;
+  font-size:13px;
+  letter-spacing:3px;
+  position:relative;
+  z-index:2;
+}
+@media(max-width:640px){
+  .content-wrapper{padding:12px;}
+  .tab-content{padding:20px;}
+  .main-title{padding:28px 16px 24px;}
+  .form-row{grid-template-columns:1fr;}
+  .chapter-grid,.arsenal-grid,.intro-grid{grid-template-columns:1fr;}
+  .nav-buttons{flex-direction:column;gap:10px;}
+  .nav-btn{width:100%;}
+}
+
+/* ==== 扮演原著角色 / 搜索模块 ==== */
+.mode-switch{display:flex;gap:10px;margin-bottom:14px;}
+.mode-btn{flex:1;padding:10px;border:1px solid var(--gold-soft);background:var(--paper-warm);color:var(--ink-soft);border-radius:6px;cursor:pointer;font-size:14px;letter-spacing:2px;transition:all .2s;font-family:inherit;}
+.mode-btn.active{background:var(--gold-primary);color:#fff;border-color:var(--gold-deep);}
+.mode-btn:hover{border-color:var(--gold-deep);}
+.canon-search-wrap{position:relative;margin-bottom:12px;}
+.canon-search{width:100%;padding:10px 14px;border:1px solid var(--gold-soft);border-radius:6px;background:#fff;font-size:14px;color:var(--ink-warm);outline:none;font-family:inherit;box-sizing:border-box;}
+.canon-search:focus{border-color:var(--gold-primary);}
+.canon-dropdown{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid var(--gold-soft);border-radius:6px;max-height:280px;overflow-y:auto;z-index:50;display:none;box-shadow:0 6px 18px rgba(61,56,51,.15);}
+.canon-dropdown.visible{display:block;}
+.canon-dropdown-item{padding:8px 14px;cursor:pointer;border-bottom:1px solid var(--paper-mist);display:flex;flex-direction:column;gap:2px;}
+.canon-dropdown-item:hover{background:var(--paper-warm);}
+.cdi-name{font-weight:700;color:var(--ink-warm);}
+.cdi-desc{font-size:12px;color:var(--ink-mute);}
+.canon-group{margin-bottom:8px;border:1px solid var(--gold-pale);border-radius:6px;overflow:hidden;}
+.canon-group-head{padding:10px 14px;background:var(--paper-warm);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:var(--gold-deep);}
+.canon-group-head .cnt{font-weight:400;font-size:12px;color:var(--ink-mute);}
+.canon-group-head .arrow{transition:transform .2s;}
+.canon-group.open .canon-group-head .arrow{transform:rotate(90deg);}
+.canon-group-body{display:none;padding:10px;}
+.canon-group.open .canon-group-body{display:block;}
+.canon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;}
+.canon-item{padding:8px 10px;border:1px solid var(--paper-dust);border-radius:6px;background:#fff;cursor:pointer;transition:all .15s;}
+.canon-item:hover{border-color:var(--gold-primary);}
+.canon-item.selected{border-color:var(--rose-blood);background:rgba(201,112,100,.08);}
+.canon-item>span{font-weight:700;font-size:13px;color:var(--ink-warm);}
+.ci-desc{font-size:11px;color:var(--ink-mute);margin-top:3px;line-height:1.5;}
+
+/* ==== 开场动画（移植自咒术回战建卡器；背景图层链接保留，可自行换图） ==== */
+.opening-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;cursor:pointer;overflow:hidden;background:#0d0f16;}
+.opening-container{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0d0f16;}
+.opening-bg{width:100%;height:100%;max-width:1200px;max-height:675px;background-image:url('https://pic1.imgdb.cn/i/034guMnbxhFSw3MFp8O9Zd.gif');background-size:contain;background-position:center;background-repeat:no-repeat;filter:blur(10px);transition:filter 1.5s ease-out;}
+.opening-screen.open .opening-bg{filter:blur(0);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#0d0f16;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);color:var(--gold-primary);font-size:13px;z-index:10;animation:blink 1.5s infinite;letter-spacing:3px;font-family:inherit;}
+@keyframes blink{0%,100%{opacity:0.45;}50%{opacity:1;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;}
+.main-container.active{display:block;}
+
+/* ==== 折叠分组（时间线/言灵武装档位） ==== */
+@keyframes foldReveal{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:translateY(0);}}
+.tl-head{cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;}
+.tl-arrow{
+  display:inline-flex;align-items:center;gap:6px;flex-shrink:0;
+  font-family:'Noto Sans SC',sans-serif;font-size:11px;font-weight:500;
+  color:var(--gold-deep);letter-spacing:1px;
+  padding:5px 13px;
+  border:1px solid rgba(184,146,90,0.4);
+  border-radius:999px;
+  background:rgba(184,146,90,0.08);
+  transition:all .3s ease;
+}
+.tl-head:hover .tl-arrow{background:rgba(184,146,90,0.16);border-color:var(--gold-primary);}
+.tl-arrow .tl-ic{display:inline-block;font-style:normal;font-size:9px;transition:transform .3s ease;}
+.tl-group.open .tl-arrow{color:#fff;background:linear-gradient(135deg,var(--gold-soft),var(--gold-primary));border-color:var(--gold-primary);}
+.tl-group.open .tl-arrow .tl-ic{transform:rotate(90deg);}
+.tl-group .tl-body{display:none;}
+.tl-group.open .tl-body{
+  display:block;
+  animation:foldReveal .35s ease;
+  border:1px solid rgba(184,146,90,0.28);
+  border-top:none;
+  border-radius:0 0 8px 8px;
+  padding:16px 16px 6px;
+  background:rgba(255,252,246,0.55);
+  margin-bottom:14px;
+}
+.arsenal-header{cursor:pointer;user-select:none;}
+.arsenal-header .count::after{content:' ▶';}
+.arsenal-section.open .arsenal-header .count::after{content:' ▾';}
+.arsenal-section .arsenal-grid,.arsenal-section>.arsenal-hint{display:none;}
+.arsenal-section.open .arsenal-grid{display:grid;animation:foldReveal .35s ease;}
+.arsenal-section.open>.arsenal-hint{display:block;animation:foldReveal .3s ease;}
+
+/* ==== 时间线：篇章行卡（咒术式分组标签+逐篇折叠） ==== */
+.chapter-group-head{display:flex;align-items:baseline;gap:12px;margin:26px 0 12px;padding-bottom:9px;border-bottom:1px solid rgba(184,146,90,0.35);position:relative;}
+.chapter-group-head::after{content:'';position:absolute;bottom:-1px;left:0;width:52px;height:2px;background:var(--gold-primary);}
+.chapter-group-head .cgh-cn{font-family:'Noto Serif SC',serif;font-size:18px;font-weight:900;letter-spacing:3px;color:var(--ink-warm);}
+.chapter-group-head .cgh-en{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:12px;letter-spacing:3px;color:var(--gold-primary);}
+#chapter-cards .chapter-card{padding:0;margin-bottom:10px;overflow:hidden;cursor:default;}
+#chapter-cards .chapter-card:hover{transform:none;}
+#chapter-cards .chapter-card.open{border-color:var(--gold-primary);}
+.chapter-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;cursor:pointer;user-select:none;transition:background .25s;}
+.chapter-card-head:hover{background:rgba(184,146,90,0.05);}
+.cc-main{flex:1;min-width:0;}
+.cc-title{font-family:'Noto Serif SC',serif;font-size:15.5px;font-weight:900;color:var(--ink-warm);letter-spacing:1px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.cc-meta{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap;}
+.cc-meta .chapter-badge{margin-bottom:0;}
+.cc-year{font-family:'Cormorant Garamond',serif;font-style:italic;font-size:12px;color:var(--gold-primary);letter-spacing:2px;}
+.cc-rating{background:rgba(201,112,100,0.15);border-color:var(--rose-pale);color:var(--rose-deep);font-weight:700;}
+.cc-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.select-chapter-btn{padding:7px 16px;font-size:12px;font-weight:600;border-radius:999px;border:1px solid var(--gold-primary);background:rgba(184,146,90,0.08);color:var(--gold-deep);cursor:pointer;transition:all .25s;font-family:inherit;letter-spacing:1px;white-space:nowrap;}
+.select-chapter-btn:hover{background:rgba(184,146,90,0.18);}
+.select-chapter-btn.active{background:linear-gradient(135deg,var(--rose-blood),var(--rose-deep));border-color:var(--rose-deep);color:#fff;box-shadow:0 2px 8px rgba(201,112,100,0.35);}
+.cc-arrow{font-size:10px;color:var(--gold-deep);transition:transform .3s;}
+.chapter-card.open .cc-arrow{transform:rotate(90deg);}
+.chapter-card-body{display:none;padding:16px 18px 18px;border-top:1px dashed rgba(184,146,90,0.3);}
+.chapter-card.open .chapter-card-body{display:block;animation:foldReveal .35s ease;}
+.chapter-entry-block{margin-top:14px;padding-top:12px;border-top:1px dashed rgba(184,146,90,0.25);}
+.chapter-entry-block h4{font-size:13px;margin-bottom:10px;color:var(--rose-deep);font-weight:700;letter-spacing:1px;}
+.custom-entry-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px;align-items:center;padding:10px;border:1px dashed rgba(184,146,90,0.35);border-radius:6px;transition:all .25s;}
+.custom-entry-row.selected{border-color:var(--rose-blood);background:rgba(201,112,100,0.05);}
+.custom-entry-row input{flex:1;min-width:0;padding:9px 12px;border:1px solid rgba(184,146,90,0.35);border-radius:5px;font-family:inherit;font-size:13px;background:rgba(255,252,246,0.95);color:var(--ink-warm);}
+.custom-entry-row input:focus{outline:none;border-color:var(--gold-primary);}
+.custom-entry-row button{padding:9px 16px;font-size:12px;border:none;border-radius:5px;background:linear-gradient(135deg,var(--gold-soft),var(--gold-primary));color:#fff;cursor:pointer;font-family:inherit;letter-spacing:1px;white-space:nowrap;transition:all .25s;flex-shrink:0;}
+.custom-entry-row button:hover{filter:brightness(1.08);}
+@media (max-width:560px){.custom-entry-row input{flex:1 1 100%;}.custom-entry-row button{width:100%;padding:11px 16px;}}
+</style>
+</head>
+<body>
+<div class="opening-screen" id="opening">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置 · 觉醒血统</div>
+</div>
+<div class="main-container" id="main">
+  <div class="content-wrapper">
+    <div class="main-title">
+      <div class="title-en">DRAGON RAJA CHARACTER ARCHIVE</div>
+      <h1>龙族大世界</h1>
+      <div class="subtitle">DRACO IN NOBIS · 龙在我们之中</div>
+      <div class="motto">— In the Roar of Dragons, We Remain Human —</div>
+    </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="intro">序章</button>
+      <button class="tab-btn" data-tab="timeline">时间线</button>
+      <button class="tab-btn" data-tab="character">角色</button>
+      <button class="tab-btn" data-tab="ability">言灵 · 武装</button>
+      <button class="tab-btn" data-tab="talent">天赋</button>
+      <button class="tab-btn" data-tab="preview">档案</button>
+    </div>
+    <!-- 序章 -->
+    <div class="tab-content active" id="tab-intro">
+      <div class="section-title">世界序章</div>
+      <div class="section-title-en">PROLOGUE · THE HIDDEN WORLD</div>
+      <div class="intro-box">
+        <p>有人在芝加哥远郊的<span class="highlight">卡塞尔学院</span>接过录取通知，从此告别平凡；</p>
+        <p>有人在<span class="highlight">东京新宿</span>的雨夜下潜伏成为牛郎，只为追一个未接的电话；</p>
+        <p>有人在长江三峡的水底看见<span class="highlight">青铜浇筑</span>的城，看见龙王苏醒。</p>
+        <p style="margin-top:16px;">这个世界从不只有人类。</p>
+        <p>龙的血脉流淌在<span class="highlight">混血种</span>的静脉里，言灵是古代龙王遗落的权柄残响，</p>
+        <p>而炼金术，是人类文明用了千年才换来的、对抗龙的武器。</p>
+        <p class="question">你，愿意成为其中一员吗？</p>
+      </div>
+      
+      <div class="info-box">
+        <h3>CORE LAWS · 世界核心法则</h3>
+        <span class="box-en">FOUR FUNDAMENTAL RULES</span>
+        <ul>
+          <li><strong>龙血为唯一力量本源</strong>：所有超自然能力均以龙类基因为核心载体衍生，言灵、炼金术、暴血龙化都遵循龙血共鸣逻辑</li>
+          <li><strong>临界血限铁则</strong>：混血种龙血比例阈值为 50%，超过即被龙类本能吞噬堕落为死侍；仅白王血裔的"皇"可短暂突破</li>
+          <li><strong>言灵即权能残响</strong>：言灵本质是古代龙王权能的碎片，序号越高越接近原始龙王权能，失控风险指数级上升</li>
+          <li><strong>力量等价交换</strong>：高危言灵永久损耗精神/寿命，暴血不可逆侵蚀人性，速成力量必然伴随死侍化的不可逆代价</li>
+        </ul>
+      </div>
+      <div class="intro-grid">
+        <div class="info-box">
+          <h3>MIXED-BLOOD RANKS · 混血种评级</h3>
+          <span class="box-en">CASSELL OFFICIAL STANDARD</span>
+          <ul>
+            <li><strong>皇 / Emperor</strong>：白王血裔特殊 S 级，可稳定突破 50% 临界线仍保持理智。代表：上杉越、源稚生</li>
+            <li><strong>S 级</strong>：龙血占比 40-50%，最接近临界血限，三度暴血可短暂对抗次代种，全球明面不超 20 人。代表：昂热</li>
+            <li><strong>A 级</strong>：龙血占比 30-40%，混血种核心战力，执行部资深专员、家族继承人。代表：恺撒、常态楚子航</li>
+            <li><strong>B 级</strong>：龙血占比 20-30%，混血种中流砥柱，学院高年级学生、执行部普通专员</li>
+            <li><strong>C 级</strong>：龙血占比 10-20%，正式混血种门槛</li>
+            <li><strong>D / E / F 级</strong>：龙血占比 10% 以下，未觉醒混血种，仅微弱感知龙文</li>
+            <li><strong>G 级</strong>：理论最低，为留级生芬格尔特设，不代表血统</li>
+            <li><strong>死侍 / Deathwalker</strong>：血限突破，理智被吞噬</li>
+          </ul>
+        </div>
+        <div class="info-box">
+          <h3>DRAGON GENERATIONS · 龙类代际</h3>
+          <span class="box-en">NATIVE DRAGON HIERARCHY</span>
+          <ul>
+            <li><strong>黑王尼德霍格</strong>（创世级）：规则制定者，可改写世界规则、重启文明，现世无对抗手段</li>
+            <li><strong>白王 / 四大君主</strong>（初代种·灭世级）：单一元素最高权能，可发动烛龙、湿婆业舞、莱茵等灭世言灵，拥有茧化复活能力</li>
+            <li><strong>次代种</strong>（亲王级·灾难级）：龙王直系后裔，单个可摧毁小型城市，免疫大口径反器材武器</li>
+            <li><strong>三代种</strong>（领主级·重灾级）：龙类军队中坚，执行部常规最高目标，免疫常规步枪</li>
+            <li><strong>四代种及以下</strong>（兵种类·威胁级）：低阶龙类，数量庞大，可被龙威驱使形成龙潮</li>
+            <li><strong>死侍</strong>（畸变体·浮动级）：血限突破的畸变体；普通死侍战力比生前低 1-2 档，特殊龙形死侍可匹敌次代种</li>
+          </ul>
+        </div>
+      </div>
+      <div class="info-box">
+        <h3>CASSELL ORDER · 秘党组织架构</h3>
+        <span class="box-en">STRUCTURE OF THE HIDDEN COURT</span>
+        <p><strong>卡塞尔学院</strong>是全球混血种唯一合法管理机构，拥有血统评级、任务调度、执法处决的最高权力。所有混血种家族都必须遵守《亚伯拉罕血统契》。</p>
+        <ul>
+          <li><strong>校董会</strong>：由各大古老家族代表组成，学院最高决策层</li>
+          <li><strong>执行部</strong>：暴力机关，负责屠龙任务、追缉叛逃者、维持秘党律法</li>
+          <li><strong>装备部</strong>：炼金 / 科技支持，打造炼金武器、维护学院设施，掌握贤者之石</li>
+          <li><strong>风纪委员会</strong>：律法监督机构，独立于执行部，可调查任何机构与家族</li>
+          <li><strong>保密铁则</strong>：龙类与混血种的存在必须对普通人类社会绝对保密，泄密者一律清除记忆</li>
+        </ul>
+      </div>
+      <div class="intro-grid">
+        <div class="info-box">
+          <h3>WORD SPIRIT · 言灵体系</h3>
+          <span class="box-en">RESONANCE OF DRAGON KINGS</span>
+          <p><strong>本质</strong>：古代龙王权能碎片，通过颂唱龙文引发基因共鸣，在自身"领域"内改写物理规则、言出法随。</p>
+<ul>
+  <li>序列号 <strong>1-70</strong>：低中危，普通混血种可稳定使用，无龙化风险</li>
+  <li>序列号 <strong>71-111</strong>：高危区间，其中71-88为风险混杂段——进阶型/无差别杀伤类言灵为高危（需A级以上血统或暴血支持，有龙化风险，代表：吸血镰、风王之瞳），规则类/辅助类/防御类言灵仍属中低危（代表：刹那、天演、无尘之地、时间零），可稳定使用无龙化风险；89-111为标准高危言灵，均需A级以上血统或暴血支持，龙化风险极高</li>
+  <li>序列号 <strong>112+</strong>：神级，本质借用龙王完整权能，施术者几乎必然以生命为代价</li>
+  <li><strong>领域优先规则</strong>：高序列/高血统释放者的领域可覆盖低序列/低血统领域；同序列同血统情况下，后释放者无法覆盖先释放者的领域</li>
+  <li><strong>情报差跨阶</strong>：未知言灵首次释放拥有最大“初见杀”威力，被解析效果与应对方式后威胁骤降 70%</li>
+</ul>
+        </div>
+        <div class="info-box">
+          <h3>ALCHEMY WEAPONS · 炼金武器</h3>
+          <span class="box-en">DRAGONSLAYER FORGE</span>
+          <p>常规热武器对三代种及以上龙类几乎无效，只有融入龙类材料、贤者之石核心的<strong>炼金武器</strong>可稳定造成致命伤害。</p>
+          <ul>
+            <li><strong>七宗罪套装</strong>：诺顿亲手锻造的 7 把再生金属武器，专为屠龙而生</li>
+            <li><strong>神代刀</strong>：蜘蛛切、童子切安纲、村雨等日本古代炼金名刀，对龙类特攻</li>
+            <li><strong>斩神刀</strong>：布都御魂、天羽羽斩，路鸣泽权能幻化，可斩白王防御</li>
+            <li><strong>破茧武器</strong>：高阶炼金武器（如七宗罪、村雨）可直接破坏龙类复活茧</li>
+            <li><strong>炼金子弹</strong>：淬毒龙骨子弹、汞核心穿甲弹，普通人也可用来伤龙</li>
+          </ul>
+        </div>
+      </div>
+      <div class="info-box">
+        <h3>SEVEN KINGDOMS · 炼金术七大王国</h3>
+        <span class="box-en">SEVEN ALCHEMIC KINGDOMS</span>
+        <p>龙族炼金术的七种顶级成就，每一项都不亚于龙王权柄：<strong>元素置换</strong>（诺顿铸七宗罪的再生金属之术）、<strong>精神重铸</strong>（炼金活灵制造）、<strong>概念武装</strong>（幻想武装具现）、<strong>时间逆流</strong>、<strong>空间开辟</strong>（一切尼伯龙根皆其产物）、<strong>生命缔造</strong>（龙类胚胎培育）、<strong>因果分离</strong>（奥丁抹除存在的因果改写）。此为龙王级领域——玩家角色至多接触其产物（炼金武器、尼伯龙根入口），不可作为技能学习。</p>
+      </div>
+      <div class="intro-grid">
+        <div class="info-box">
+          <h3>NIBELUNG · 尼伯龙根异空间</h3>
+          <span class="box-en">FOLDED DIMENSIONS</span>
+          <p>龙族用炼金术构建的折叠空间，入口仅在<strong>暴雨、特殊时间、血统共鸣</strong>等条件下显现，隐藏于水下、地下、无人区等世界"死角"。</p>
+          <ul>
+            <li><strong>青铜城</strong>：三峡水下，青铜与火之王领域，地脉岩浆能源</li>
+            <li><strong>北京地铁</strong>：大地与山之王领域，延伸数百公里</li>
+            <li><strong>高天原</strong>：日本海沟，白王沉眠的史前龙类都城</li>
+            <li><strong>阿瓦隆</strong>：格陵兰冰下，奥丁领域，时间流速与外界不同</li>
+            <li><strong>0号高架</strong>：仕兰暴雨夜入口，永夜雨幕即为领域边界</li>
+            <li><strong>夜之食原</strong>：日本列岛地下，蛇岐八家关押死侍的巨型空间</li>
+          </ul>
+        </div>
+        <div class="info-box">
+          <h3>BLOOD SORROW · 血之哀共鸣</h3>
+          <span class="box-en">THE LONELIEST BLOOD</span>
+          <p>所有混血种天生携带<strong>血之哀</strong>的精神烙印，血统越高孤独感越强。</p>
+          <ul>
+            <li>同类靠近时会产生精神场共鸣，越亲密共鸣越强</li>
+            <li>过度共鸣会导致情绪失控、龙血活化甚至死侍化</li>
+            <li>这是混血种难以融入普通人社会、也难以和同类建立深度亲密关系的核心原因</li>
+            <li>混血种的爱与亲情，几乎必然以悲剧收场</li>
+          </ul>
+        </div>
+      </div>
+      <div class="info-box">
+        <h3>BLOOD BURN & FALL · 暴血与死侍化</h3>
+        <span class="box-en">THE FORBIDDEN PATH</span>
+        <p><strong>暴血</strong>是混血种强行提升龙血活性的技术，每次使用都会永久提高龙血占比，是被秘党明令禁止的禁忌。</p>
+        <ul>
+          <li><strong>一度暴血</strong>：可对抗高一级敌人，恢复期数周</li>
+          <li><strong>二度暴血</strong>：A 级混血种极限，恢复期数月</li>
+          <li><strong>三度暴血</strong>：仅少数 S 级可承受，龙血占比永久跃升，接近临界线</li>
+          <li><strong>死侍化</strong>：龙血突破 50% 临界线，理智被龙类本能吞噬，不可逆转</li>
+          <li>战斗中愤怒、恐惧、绝望等极端情绪会大幅提升失控概率，队友可通过精神安抚、龙威压制帮助稳定</li>
+        </ul>
+      </div>
+      <div class="info-box">
+        <h3>BUILD FLOW · 构建流程</h3>
+        <span class="box-en">SIX STEPS TO YOUR ARCHIVE</span>
+        <ul>
+          <li>第一步 · 选择你所处的时间线篇章与入场节点</li>
+          <li>第二步 · 创建角色身份、血脉源流、血统评级与背景</li>
+          <li>第三步 · 挑选你的言灵与武装（原作 / 同人扩展 / 自创）</li>
+          <li>第四步 · 抽取天赋（血脉际遇神器），并可自创独门天赋</li>
+          <li>第五步 · 生成完整档案</li>
+        </ul>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" disabled>← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">进入档案 →</button>
+      </div>
+    </div>
+    <!-- 时间线 -->
+    <div class="tab-content" id="tab-timeline">
+      <div class="section-title">时间线篇章</div>
+      <div class="section-title-en">TIMELINE · CHOOSE YOUR ERA</div>
+      <div class="info-box">
+        <h3>说明</h3>
+        <p>选择角色故事发生的历史节点。前传篇章跨越 1900 至 2004，主线自 2009 年卡塞尔入学开始。</p>
+      </div>
+      <div id="chapter-cards"></div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- 角色 -->
+    <div class="tab-content" id="tab-character">
+      <div class="section-title">角色创建</div>
+      <div class="section-title-en">CHARACTER · PROFILE BUILDING</div>
+      <div class="info-box" id="selected-chapter-display">
+        <h3>当前时间线</h3>
+        <p id="selected-chapter-name">尚未选择篇章</p>
+      </div>
+      <!-- 扮演原著角色 -->
+      <div class="form-section">
+        <h3>角色模式</h3>
+        <div class="mode-switch">
+          <button type="button" class="mode-btn active" data-mode="original" onclick="switchCharMode('original')">✦ 原创角色</button>
+          <button type="button" class="mode-btn" data-mode="canon" onclick="switchCharMode('canon')">✦ 扮演原著角色</button>
+        </div>
+        <div class="canon-section" id="canon-section" style="display:none;">
+          <div class="info-box">
+            <h3>原著角色扮演</h3>
+            <p>从《龙族》原作角色中选择一位扮演（125 位，含前传、日本篇、龙五与异闻录角色），每个人物名下附一条与世界书人物卡一致的设定简介。输入关键词搜索，或展开分组浏览；选定后仍可在下方修改具体细节。</p>
+          </div>
+          <div class="canon-search-wrap">
+            <input type="text" class="canon-search" id="canon-search" placeholder="输入角色名或关键词搜索（如：楚子航、绘梨衣、诺诺、源稚生…）" oninput="filterCanon(this.value)">
+            <div class="canon-dropdown" id="canon-dropdown"></div>
+          </div>
+          <div id="canon-list"></div>
+          <div class="form-group" style="margin-top:14px;">
+            <label>扮演补充 <span class="field-hint">（额外设定、细节、备注，可选）</span></label>
+            <textarea id="canon-supplement" rows="3" placeholder="例：&#10;· 扮演某个篇章时间点的TA&#10;· 追加原著未提及的细节&#10;· 特殊关系或隐藏背景……"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>基础信息</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>姓名</label>
+            <input type="text" id="char-name" placeholder="输入角色姓名">
+          </div>
+          <div class="form-group">
+            <label>年龄</label>
+            <input type="number" id="char-age" placeholder="18" min="1" max="9999">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>性别</label>
+          <div class="radio-group">
+            <label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+            <label><input type="radio" name="gender" value="女"><span>女</span></label>
+            <label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>所在地 <span class="field-hint">（含尼伯龙根异空间常驻）</span></label>
+            <select id="char-origin">
+              <optgroup label="美国 / 学院线">
+                <option value="卡塞尔学院（美国芝加哥）">卡塞尔学院（美国芝加哥）</option>
+                <option value="芝加哥市区">芝加哥市区</option>
+                <option value="古巴（学院南美分部）">古巴（学院南美分部）</option>
+              </optgroup>
+              <optgroup label="中国线">
+                <option value="仕兰中学（长江沿岸）">仕兰中学（长江沿岸）</option>
+                <option value="0号高架路（仕兰市·暴雨夜显现）">0号高架路（仕兰市·暴雨夜显现）</option>
+                <option value="北京">北京</option>
+                <option value="三峡夔门（重庆-湖北）">三峡夔门（重庆-湖北）</option>
+                <option value="香港（学院亚洲分部）">香港（学院亚洲分部）</option>
+              </optgroup>
+              <optgroup label="日本线">
+                <option value="东京新宿">东京新宿</option>
+                <option value="东京塔">东京塔</option>
+                <option value="红井（东京郊区）">红井（东京郊区）</option>
+                <option value="东京湾人工岛">东京湾人工岛</option>
+                <option value="岩流研究所（东京湾海底）">岩流研究所（东京湾海底）</option>
+                <option value="极乐馆（大阪山中）">极乐馆（大阪山中）</option>
+              </optgroup>
+              <optgroup label="其他地区">
+                <option value="黑天鹅港（西伯利亚北极圈）">黑天鹅港（西伯利亚北极圈）</option>
+                <option value="格陵兰岛">格陵兰岛</option>
+                <option value="北极冰海">北极冰海</option>
+                <option value="德国慕尼黑">德国慕尼黑</option>
+                <option value="北西伯利亚 / 蒙古边境">北西伯利亚 / 蒙古边境</option>
+                <option value="罗马（加图索家总部）">罗马（加图索家总部）</option>
+                <option value="奥斯陆（学院北欧分部）">奥斯陆（学院北欧分部）</option>
+                <option value="马耳他（金色鸢尾花淑媛学院）">马耳他（金色鸢尾花淑媛学院）</option>
+              </optgroup>
+              <optgroup label="尼伯龙根 · 异空间常驻">
+                <option value="青铜城（三峡水下）">青铜城（三峡水下）</option>
+                <option value="北京地铁尼伯龙根">北京地铁尼伯龙根</option>
+                <option value="高天原（日本海沟）">高天原（日本海沟）</option>
+                <option value="阿瓦隆（格陵兰冰下）">阿瓦隆（格陵兰冰下）</option>
+                <option value="0号高架雨夜尼伯龙根">0号高架雨夜尼伯龙根</option>
+                <option value="红井地下尼伯龙根">红井地下尼伯龙根</option>
+                <option value="避风港尼伯龙根（北西伯利亚）">避风港尼伯龙根（北西伯利亚）</option>
+                <option value="夜之食原（东京地下）">夜之食原（东京地下）</option>
+              </optgroup>
+              <option value="custom">自定义所在地 · 任意城市 / 老家</option>
+            </select>
+            <div class="custom-input" id="custom-origin-input">
+              <input type="text" id="custom-origin" placeholder="填写你想设定的城市（南宁、成都、你的老家、任意地方均可）">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>职业 / 学历</label>
+            <input type="text" id="char-occupation" placeholder="如：卡塞尔学院学生、执行部专员、公司职员……">
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>身份与血统</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>身份类型</label>
+            <select id="identity-type" onchange="handleIdentityChange(this.value)">
+              <optgroup label="卡塞尔学院体系">
+                <option value="卡塞尔学生">卡塞尔学生</option>
+                <option value="卡塞尔教官/教师">卡塞尔教官 / 教师</option>
+                <option value="执行部专员">执行部专员</option>
+                <option value="装备部炼金师">装备部炼金师</option>
+                <option value="风纪委员会">风纪委员会</option>
+                <option value="校董会代表">校董会代表</option>
+              </optgroup>
+              <optgroup label="混血种家族">
+                <option value="加图索家族">加图索家族（罗马）</option>
+                <option value="高廷根家（炼金世家）">高廷根家（炼金世家）</option>
+                <option value="北美混血种联盟（汉高）">北美混血种联盟（汉高）</option>
+                <option value="上杉家（白王血裔）">上杉家（白王血裔）</option>
+                <option value="蛇岐八家">蛇岐八家</option>
+                <option value="其他古老家族">其他古老家族</option>
+              </optgroup>
+              <optgroup label="边缘 / 独立">
+                <option value="独立混血种">独立混血种</option>
+                <option value="末日派">末日派</option>
+                <option value="龙类实验体">龙类实验体</option>
+                <option value="被改造死侍">被改造死侍</option>
+                <option value="猎龙佣兵">猎龙佣兵</option>
+              </optgroup>
+              <optgroup label="特殊">
+                <option value="白王血裔·皇">白王血裔·皇（特殊 S）</option>
+                <option value="龙侍">龙侍（龙王直属）</option>
+                <option value="龙类/龙裔">龙类 / 龙裔</option>
+                <option value="妖怪/神灵后裔">妖怪 / 神灵后裔</option>
+                <option value="普通人">普通人</option>
+                <option value="custom">自定义身份</option>
+              </optgroup>
+            </select>
+            <div class="custom-input" id="custom-identity-input">
+              <input type="text" id="custom-identity" placeholder="输入自定义身份">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>所属势力</label>
+            <select id="faction" onchange="handleFactionChange(this.value)">
+              <optgroup label="秘党机构">
+                <option value="卡塞尔学院">卡塞尔学院</option>
+                <option value="执行部">执行部</option>
+                <option value="装备部">装备部</option>
+                <option value="风纪委员会">风纪委员会</option>
+              </optgroup>
+              <optgroup label="核心家族">
+                <option value="加图索家族">加图索家族</option>
+                <option value="高廷根家（炼金世家）">高廷根家（炼金世家）</option>
+                <option value="北美混血种联盟（汉高）">北美混血种联盟（汉高）</option>
+                <option value="上杉家">上杉家</option>
+                <option value="蛇岐八家 · 源家">蛇岐八家 · 源家</option>
+                <option value="蛇岐八家 · 樱井家">蛇岐八家 · 樱井家</option>
+                <option value="蛇岐八家 · 橘家">蛇岐八家 · 橘家</option>
+                <option value="蛇岐八家 · 宫本家">蛇岐八家 · 宫本家</option>
+                <option value="蛇岐八家 · 龙马家">蛇岐八家 · 龙马家</option>
+                <option value="蛇岐八家 · 犬山家">蛇岐八家 · 犬山家</option>
+                <option value="蛇岐八家 · 风魔家">蛇岐八家 · 风魔家</option>
+              </optgroup>
+              <optgroup label="敌对势力">
+                <option value="龙类阵营">龙类阵营</option>
+                <option value="末日派">末日派</option>
+                <option value="猛鬼众">猛鬼众</option>
+                <option value="路鸣泽/白王方">路鸣泽 / 白王方</option>
+              </optgroup>
+              <optgroup label="独立">
+                <option value="猎人网站 / 赏金猎人">猎人网站 / 赏金猎人</option>
+                <option value="所罗门圣殿会（异闻录）">所罗门圣殿会（异闻录）</option>
+                <option value="东方混血种家族（襄阳周家等 · 异闻录）">东方混血种家族（襄阳周家等 · 异闻录）</option>
+                <option value="无门无派 / 散人">无门无派 / 散人</option>
+                <option value="境外分部">境外分部</option>
+                <option value="custom">自定义势力</option>
+              </optgroup>
+            </select>
+            <div class="custom-input" id="custom-faction-input">
+              <input type="text" id="custom-faction" placeholder="输入自定义势力">
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>血脉源流 <span class="field-hint">（决定你的血脉外显形态，自由选择）</span></label>
+          <select id="bloodline" onchange="handleBloodlineChange(this.value)">
+            <optgroup label="原作 · 龙族血系">
+              <option value="黑王尼德霍格系">黑王尼德霍格系</option>
+              <option value="白王伊邪那美系">白王伊邪那美系</option>
+              <option value="青铜与火之王·诺顿系">青铜与火之王·诺顿系</option>
+              <option value="大地与山之王·芬里厄系">大地与山之王·芬里厄系</option>
+              <option value="大地与山之王·耶梦加得系">大地与山之王·耶梦加得系</option>
+              <option value="海洋与水之王系">海洋与水之王系</option>
+              <option value="天空与风之王系">天空与风之王系</option>
+              <option value="死神海拉系">死神海拉系</option>
+              <option value="奥丁·英灵之王系">奥丁·英灵之王系</option>
+              <option value="龙侍后裔">龙侍后裔</option>
+              <option value="稀薄混血种">稀薄混血种（家族血脉早已淡化）</option>
+            </optgroup>
+            <optgroup label="中国神怪血脉">
+              <option value="中国真龙·九子传承">中国真龙·九子传承</option>
+              <option value="九尾狐血脉">九尾狐血脉</option>
+              <option value="龙女血脉">龙女血脉</option>
+              <option value="蛇妖血脉">蛇妖血脉</option>
+              <option value="麒麟血脉">麒麟血脉</option>
+              <option value="凤凰血脉">凤凰血脉</option>
+              <option value="朱雀血脉">朱雀血脉</option>
+              <option value="玄武血脉">玄武血脉</option>
+              <option value="白虎血脉">白虎血脉</option>
+              <option value="青龙血脉">青龙血脉</option>
+              <option value="山鬼血脉">山鬼血脉</option>
+              <option value="水灵血脉">水灵 / 水鬼血脉</option>
+              <option value="修罗血脉">修罗血脉</option>
+              <option value="貔貅血脉">貔貅血脉</option>
+            </optgroup>
+            <optgroup label="日本神怪血脉">
+              <option value="玉藻前血脉">玉藻前血脉</option>
+              <option value="八岐大蛇血脉">八岐大蛇血脉</option>
+              <option value="天狗血脉">天狗血脉</option>
+              <option value="鬼族血脉">鬼族血脉</option>
+              <option value="雪女血脉">雪女血脉</option>
+              <option value="犬神血脉">犬神血脉</option>
+              <option value="酒吞童子血脉">酒吞童子血脉</option>
+              <option value="般若血脉">般若血脉</option>
+              <option value="河童血脉">河童血脉</option>
+            </optgroup>
+            <optgroup label="西方神魔血脉">
+              <option value="天使血脉">天使血脉</option>
+              <option value="炽天使血脉">炽天使血脉</option>
+              <option value="堕天使血脉">堕天使血脉</option>
+              <option value="恶魔契约者">恶魔契约者</option>
+              <option value="吸血鬼">吸血鬼</option>
+              <option value="狼人">狼人</option>
+              <option value="精灵后裔">精灵后裔</option>
+              <option value="巨人后裔（约顿）">巨人后裔（约顿）</option>
+              <option value="女武神">女武神</option>
+            </optgroup>
+            <optgroup label="术士 / 学派流派">
+              <option value="阴阳师传承">阴阳师传承</option>
+              <option value="道教术士传承">道教术士传承</option>
+              <option value="萨满传承">萨满传承</option>
+              <option value="西方驱魔师传承">西方驱魔师传承</option>
+              <option value="德鲁伊传承">德鲁伊传承</option>
+              <option value="无血脉·纯粹术士">无血脉·纯粹术士</option>
+            </optgroup>
+            <optgroup label="其他">
+              <option value="无特殊血脉·普通人">无特殊血脉·普通人</option>
+              <option value="custom">自定义血脉源流</option>
+            </optgroup>
+          </select>
+          <div class="custom-input" id="custom-bloodline-input">
+            <input type="text" id="custom-bloodline" placeholder="输入自定义血脉源流（跨神话体系皆可）">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>血统评级</label>
+            <select id="power-level">
+              <option value="无">无</option>
+              <option value="未知血脉">未知血脉</option>
+              <option value="F级 · 未觉醒">F 级 · 未觉醒</option>
+              <option value="E级 · 未觉醒">E 级 · 未觉醒</option>
+              <option value="D级 · 未觉醒">D 级 · 未觉醒</option>
+              <option value="C级 · 入门级">C 级 · 入门级</option>
+              <option value="B级 · 骨干级">B 级 · 骨干级</option>
+              <option value="A级 · 精英级">A 级 · 精英级</option>
+              <option value="S级 · 天花板级">S 级 · 天花板级</option>
+              <option value="皇 · 特殊S级">皇 · 特殊 S 级（白王血裔）</option>
+              <option value="死侍 · 畸变体">死侍 · 畸变体</option>
+              <option value="四代种以下 · 兵种类">四代种以下 · 兵种类（纯血龙）</option>
+              <option value="三代种 · 领主级">三代种 · 领主级（纯血龙）</option>
+              <option value="次代种 · 亲王级">次代种 · 亲王级（纯血龙）</option>
+              <option value="龙王 / 四大君主">龙王 / 四大君主（初代种·灭世级）</option>
+              <option value="黑王级 · 创世">黑王级 · 创世（尼德霍格档）</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>血统备注</label>
+            <input type="text" id="power-note" placeholder="如：家族嫡系 / 后天暴血 / 皇血觉醒 ……">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>入圈原因</label>
+          <select id="entry-reason" onchange="handleEntryReasonChange(this.value)">
+            <option value="无·没入圈">无·没入圈</option>
+            <option value="家族血脉觉醒">家族血脉觉醒</option>
+            <option value="卡塞尔录取通知">卡塞尔录取通知</option>
+            <option value="龙类事件卷入">龙类事件卷入</option>
+            <option value="意外接触混血种">意外接触混血种</option>
+            <option value="血亲被杀·复仇">血亲被杀 · 复仇</option>
+            <option value="被组织招募">被组织招募</option>
+            <option value="龙类实验体逃亡">龙类实验体逃亡</option>
+            <option value="妖怪本能觉醒">妖怪本能觉醒</option>
+            <option value="神启/契约降临">神启 / 契约降临</option>
+            <option value="custom">自定义原因</option>
+          </select>
+          <div class="custom-input" id="custom-entry-reason-input">
+            <input type="text" id="custom-entry-reason" placeholder="输入自定义入圈原因">
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>外貌与性情</h3>
+        <div class="form-group">
+          <label>外貌描述</label>
+          <textarea id="appearance" placeholder="描述角色容貌、身形、衣着、气度……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>性格特质</label>
+          <textarea id="personality" placeholder="描述角色性格，如冷峻、温柔、孤高、玩世不恭……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>日常兴趣 / 爱好</label>
+          <input type="text" id="hobby" placeholder="如：喜欢摩托车、痴迷古典乐、打游戏、抽烟……">
+        </div>
+        <div class="form-group">
+          <label>背景故事</label>
+          <textarea id="background" placeholder="补充角色身世、家族背景、关键经历、觉醒过程……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>当前处境 / 开局场景</label>
+          <textarea id="opening-scene" placeholder="描述角色故事开始时所处的场景……例如：正在卡塞尔学院的诺顿馆接受入学考核；东京新宿深夜的牛郎店里；三峡水下的青铜城入口前……"></textarea>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- 言灵 -->
+    <div class="tab-content" id="tab-ability">
+      <div class="section-title">言灵</div>
+      <div class="section-title-en">WORD SPIRIT · RESONANCE OF DRAGON KINGS</div>
+      <div class="info-box">
+        <h3>说明</h3>
+        <p>言灵本质是古代龙王权能的碎片。以下所有言灵均<strong>完全开放选择</strong>，玩家自行判断角色的血统与言灵是否匹配。序列号越高越接近原始龙王权能，失控风险呈指数级上升。</p>
+      </div>
+      <div class="canon-search-wrap" style="margin-bottom:16px;">
+        <input type="text" class="canon-search" placeholder="搜索言灵 / 武装（名称 / 效果 / 使用者…），输入即过滤下方列表" oninput="filterArsenal('tab-ability',this.value)">
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>低中危言灵 <span class="tier-tag low">LOW-MID</span></h3>
+          <span class="count">26 · STABLE</span>
+        </div>
+        <p class="arsenal-hint">普通混血种可稳定使用，无龙化风险</p>
+        <div class="arsenal-grid" id="ws-low-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>高危言灵 <span class="tier-tag high">HIGH-RISK</span></h3>
+          <span class="count">11 · DANGEROUS</span>
+        </div>
+        <p class="arsenal-hint">需 A 级以上血统或暴血支持，有龙化风险</p>
+        <div class="arsenal-grid" id="ws-high-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>神级言灵 <span class="tier-tag god">DIVINE</span></h3>
+          <span class="count">6 · GODLIKE</span>
+        </div>
+        <p class="arsenal-hint">仅龙王 / BOSS 级角色可用，施术几乎必然以生命为代价</p>
+        <div class="arsenal-grid" id="ws-god-grid"></div>
+      </div>
+<div class="arsenal-section">
+  <div class="arsenal-header">
+    <h3>番外言灵 · 低中危 <span class="tier-tag low">LOW-MID</span></h3>
+    <span class="count">9 · SIDE STORY</span>
+  </div>
+  <p class="arsenal-hint">异闻支线出场言灵，普通混血种可稳定使用</p>
+  <div class="arsenal-grid" id="ws-side-low-grid"></div>
+</div>
+<div class="arsenal-section">
+  <div class="arsenal-header">
+    <h3>番外言灵 · 高危 <span class="tier-tag high">HIGH-RISK</span></h3>
+    <span class="count">2 · SIDE STORY</span>
+  </div>
+  <p class="arsenal-hint">异闻支线出场高危言灵，需A级以上血统或暴血</p>
+  <div class="arsenal-grid" id="ws-side-high-grid"></div>
+</div>
+<div class="arsenal-section">
+  <div class="arsenal-header">
+    <h3>番外 · 大真言术 <span class="tier-tag" style="background:rgba(168,82,72,0.15);color:var(--rose-deep);">中国传承</span></h3>
+    <span class="count">2 · CHINA LINEAGE</span>
+  </div>
+  <p class="arsenal-hint">中国混血种专属独立传承体系，与西方言灵互不干扰，靠血脉与口诀传承</p>
+  <div class="arsenal-grid" id="ws-side-china-grid"></div>
+</div>
+      <div class="expand-toggle">
+        <input type="checkbox" id="toggle-fan" onchange="toggleFanContent(this.checked)">
+        <label for="toggle-fan"><strong>开启同人扩展言灵</strong>（23 项 · 通用技能，非原作实锤）</label>
+      </div>
+      <div class="arsenal-section" id="ws-fan-section" style="display:none;">
+        <div class="arsenal-header">
+          <h3>同人扩展 · 通用低阶 <span class="tier-tag fan">FAN</span></h3>
+          <span class="count">17 · UTILITY</span>
+        </div>
+        <div class="arsenal-grid" id="ws-fan-low-grid"></div>
+        <div class="arsenal-header" style="margin-top:20px;">
+          <h3>同人扩展 · 高危 / 神级 <span class="tier-tag fan">FAN</span></h3>
+          <span class="count">6 · EXTENDED</span>
+        </div>
+        <div class="arsenal-grid" id="ws-fan-high-grid"></div>
+      </div>
+      <div class="custom-skills-section">
+        <h4>✦ 自创言灵 / 独门权柄（最多 5 项）</h4>
+        <div class="custom-skill-list" id="custom-ws-list"></div>
+        <button class="add-skill-btn" id="add-ws-btn" onclick="addCustom('ws')">
+          <span>＋</span> 添加自创言灵
+        </button>
+        <p class="skill-limit-hint">已添加 <span id="ws-count">0</span> / 5</p>
+      </div>
+      <div class="section-title" style="margin-top:34px;border-top:2px solid var(--gold-pale);padding-top:26px;">武装</div>
+      <div class="section-title-en">ARSENAL · ALCHEMY WEAPONRY</div>
+      <div class="info-box">
+        <h3>说明</h3>
+        <p>常规热武器对三代种及以上龙类几乎无效，只有<strong>炼金武器</strong>能对龙类造成致命伤害。所有武装完全开放选择，玩家自行判断合理性。</p>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>传奇级炼金刀剑 <span class="tier-tag legendary">LEGENDARY</span></h3>
+          <span class="count">17 · DRAGONSLAYER</span>
+        </div>
+        <p class="arsenal-hint">龙王级 / 顶级屠龙武器 · 含七宗罪套装</p>
+        <div class="arsenal-grid" id="eq-legend-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>常规炼金冷兵器</h3>
+          <span class="count">12 · MELEE</span>
+        </div>
+        <div class="arsenal-grid" id="eq-melee-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>炼金枪械 / 热武器</h3>
+          <span class="count">12 · RANGED</span>
+        </div>
+        <div class="arsenal-grid" id="eq-ranged-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>标准作战装备</h3>
+          <span class="count">10 · GEAR</span>
+        </div>
+        <div class="arsenal-grid" id="eq-gear-grid"></div>
+      </div>
+      <div class="arsenal-section">
+        <div class="arsenal-header">
+          <h3>特殊炼金 / 神级武装 <span class="tier-tag god">DIVINE</span></h3>
+          <span class="count">6 · ARTIFACT</span>
+        </div>
+        <div class="arsenal-grid" id="eq-relic-grid"></div>
+      </div>
+      <div class="custom-skills-section">
+        <h4>✦ 自创武装 / 私人订制（最多 5 件）</h4>
+        <div class="custom-skill-list" id="custom-eq-list"></div>
+        <button class="add-skill-btn" id="add-eq-btn" onclick="addCustom('eq')">
+          <span>＋</span> 添加自创武装
+        </button>
+        <p class="skill-limit-hint">已添加 <span id="eq-count">0</span> / 5</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- 天赋 -->
+    <div class="tab-content" id="tab-talent">
+      <div class="section-title">天赋抽取</div>
+      <div class="section-title-en">TALENT · BLOODLINE FORTUNE</div>
+      <div class="info-box">
+        <h3>天赋规则</h3>
+        <ul>
+          <li>每次抽取获得 <strong>8 条</strong> 天赋卡，从中选择 <strong>3 条</strong> 作为核心血脉际遇</li>
+          <li>神话档概率 <strong>20%</strong>，每次抽取大概率出 1-2 个神话</li>
+          <li>天赋不锁言灵、不锁武装，仅决定你的身世、羁绊与际遇走向</li>
+          <li>可反复重抽，直到满意为止；亦可自创独门天赋</li>
+        </ul>
+      </div>
+      <div class="destiny-section">
+        <button class="roll-btn" id="roll-btn" onclick="rollDestiny()">抽 取 天 赋</button>
+      </div>
+      <div class="destiny-pool" id="destiny-pool">
+        <h3>天赋池 · Talent Pool</h3>
+        <p class="destiny-count">请从以下 8 条中选择 3 条（已选：<span id="destiny-selected-count">0</span>/3）</p>
+        <div class="destiny-list" id="destiny-list"></div>
+      </div>
+      <div class="custom-skills-section">
+        <h4>✦ 自创天赋 / 私人际遇（最多 5 项）</h4>
+        <div class="custom-skill-list" id="custom-tl-list"></div>
+        <button class="add-skill-btn" id="add-tl-btn" onclick="addCustom('tl')">
+          <span>＋</span> 添加自创天赋
+        </button>
+        <p class="skill-limit-hint">已添加 <span id="tl-count">0</span> / 5</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <!-- 档案预览 -->
+    <div class="tab-content" id="tab-preview">
+      <div class="section-title">档案预览</div>
+      <div class="section-title-en">ARCHIVE · FINAL PROFILE</div>
+      <div class="preview-section">
+        <div class="preview-box" id="preview-box"></div>
+        <button class="copy-btn" onclick="copyPreview()">复 制 档 案</button>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+      </div>
+    </div>
+  </div>
+</div>
+<footer>DRACO IN NOBIS · 龙 在 我 们 之 中</footer>
+<script>
+const appState = {
+  selectedChapter:null,
+  entryPoint:'start',
+  customEntryText:'',
+  openChapterId:null,
+  selectedWordSpirits:[],
+  selectedEquipment:[],
+  customWS:[],
+  customEQ:[],
+  customTL:[],
+  rolledDestiny:[],
+  selectedDestiny:[]
+};
+const chaptersDatabase = {
+  prequel:[
+    {id:'summer-mourning',name:'夏之哀悼篇',year:'1900',desc:'旧版正史时间线，本篇覆盖1900年8月28日-1900年8月31日，核心战斗发生于8月30日深夜至8月31日凌晨，地点为德国汉堡近郊的卡塞尔庄园（事件日期另有"9月20日遗骸运抵、9月21日深夜遇袭"一版记载，两说并存，本库取通行的8月30日编年史口径）；战后昂热于9月1日醒来亲手埋葬同伴，随后沉睡一年，1901年在慕尼黑医院苏醒。',tags:['狮心会','昂热','李雾月','夏之哀悼','卡塞尔庄园']},
+    {id:'black-swan',name:'冰海王座篇',year:'1991',desc:'旧版正史时间线，本篇覆盖1991年11月-1991年12月25日，地点为西伯利亚北极圈内未入册的绝密研究基地「黑天鹅港」（坐标：北纬77°36′40.4″、东经104°14′6.8″）',tags:['黑天鹅港','零号','雷娜塔','龙类实验','δ计划']},
+{id:'greenland-ice-sea',name:'格陵兰冰海篇',year:'2001',desc:'旧版正史时间线，本篇覆盖2001年秋-2001年冬，地点为格陵兰冰海、冰下尼伯龙根·阿瓦隆，核心事件为卡塞尔学院SS级任务「格陵兰计划」',tags:['格陵兰计划','芬格尔','EVA','阿瓦隆','太子','海洋与水之王']},
+    {id:'rain-fall',name:'雨落狂流篇',year:'2004',desc:'旧版正史时间线，本篇覆盖2004年7月3日-7月4日，地点为中国东南沿海虚构城市（仕兰中学所在地，台风“蒲公英”登陆地），核心场景为现实中不存在的0号高架路尼伯龙根',tags:['楚天骄','楚子航','奥丁','0号高架路','村雨']}
+  ],
+  main:[
+    {id:'cassell-entry',name:'卡塞尔入学篇',year:'2009',desc:'2009年9月，美国芝加哥远郊的卡塞尔学院。路明非从中国小城出发，经面试、乘CC1000次秘密列车抵达学院，入校当日即卷入"自由一日"枪战，数周后参加3E血统评定考试。本篇截止于3E放榜后、夔门计划启动前夕，是路明非屠龙人生的起点，也是他与卡塞尔学院众人命运交汇的开端。',tags:['路明非','入学','3E考试','诺顿馆','自由一日']},
+// 新增
+{
+  id:'kuimen-first-explore',
+  name:'夔门初探篇',
+  year:'2009',
+  desc:'2009年10月初（3E考试放榜后数日，冰窖事件前约一周），双线并行：中国长江三峡·摩尼亚赫号与水下青铜城，以及美国卡塞尔学院图书馆计算中心。暴风雨夜，水下地震震开地缝，叶胜与酒德亚纪发现青铜与火之王诺顿的宫殿"白帝城"。这是路明非入学后首次间接介入屠龙，也是学院近年来最惨重的一次行动——四名执行部成员此役阵亡。',
+  tags:['夔门计划','青铜城','叶胜','曼斯','black sheep wall','七宗罪','Gates','骨殖瓶']
+},
+// 冰窖篇
+{
+  id:'ice-vault',
+  name:'冰窖之乱篇',
+  year:'2009',
+  desc:'2009年10月9日，夔门初探四人牺牲后第六天。骨殖瓶封存于学院地下冰窖石英玻璃腔中。当夜赏金猎人潜入，康斯坦丁被灰锡溶液强行唤醒，以不完全姿态孵化。学院建校以来最严重入侵事件爆发，路明非第一次直面龙王。',
+  tags:['康斯坦丁','诺顿','老唐','冰窖','昂热','时间零','贤者之石','酒德麻衣','灰锡溶液']
+},
+
+// 青铜城篇
+{
+  id:'bronze-city',
+  name:'青铜计划篇',
+  year:'2010',
+  desc:'2010年2月13日，农历除夕。距夔门初探四人牺牲四个月，距冰窖之乱诺顿逃回三峡四个月。摩尼亚赫号再次下锚夔门江面，执行"青铜计划"——史上第一次由在校学生主导的屠龙作战。远处江岸传来鞭炮声，水下是青铜与火之王的宫殿。这一夜，路明非第一次与路鸣泽交易，第一次杀死龙王，也第一次明白屠龙者和龙之间没有赢家。',
+  tags:['诺顿','青铜城','诺诺','七宗罪','色欲','1/4生命','不要死','参孙','风暴鱼雷','酒德麻衣','零','叶胜遗体']
+},
+{
+  id:'shilan-city',
+  name:'仕兰归乡篇',
+  year:'2010',
+  desc:'2010年7月17日至18日，中国东南沿海虚构城市仕兰市——路明非家乡，楚子航母校仕兰中学所在。核心场景：叔叔家、火车南站废墟、润德大厦、Aspasia餐厅。路明非最后一次以普通人身份回乡，与平凡青春告别。',
+  tags:['火车南站','雷蒙德','润德大厦','唐威','楚子航','生日','SS级任务','陈雯雯','蒲公英','UA836']
+},
+{
+  id:'beijing-subway',
+  name:'大地与山之王篇',
+  year:'2010',
+  desc:'2010年7月至秋末。7月18日芝加哥火车站邂逅夏弥；7月19日定向拍卖会与六旗过山车事故；7月底至8月楚子航住院、冰窖龙骨争夺、血统听证会；秋末北京地铁尼伯龙根任务，大地与山之王双生子陨落；尾声延至12月25日圣诞节。楚子航的篇章，路明非第二次付出四分之一生命。',
+  tags:['夏弥','耶梦加得','芬里厄','北京地铁','楚子航','湿婆业舞','七宗罪','60%融合','中庭之蛇']
+},
+{id:'campus-days',
+    name:'学院风云篇',
+    year:'2010.10–2011.12',
+    desc:'本篇章为两段大主线之间的缓冲沙盒期，无强制推进的固定主线，覆盖两个时间段：<br>1. 2010年10月—2011年2月（大地与山之王篇结束→东京黑月篇开始）<br>2. 2011年6月—2011年12月（东京黑月篇结束→昆古尼尔篇开始）<br>核心地点以卡塞尔学院为主，可延伸至全球各地小型任务场景。',
+    tags:['学院日常','感情线','小型任务','沙盒','伏笔铺垫']},
+{
+    id:'tokyo-black-moon',
+    name:'东京黑月篇',
+    year:'2011.2–2011.5',
+    desc:'本篇覆盖2011年2月3日（春节）至2011年5月初，核心地点为日本东京、日本海沟极渊（高天原遗迹）、多摩川红井（藏骸之井）、海萤人工岛。全系列篇幅最长、人物最多、死亡最密集的核心战役篇。<br>- 2月3日（春节）：龙渊计划启动，三人组偷渡抵日<br>- 2月—3月：接待观光、深潜准备<br>- 4月上旬—中旬：深潜极渊、高天原覆灭、日本分部叛变；4月15日麻生真之死；4月16日犬山贺战死<br>- 4月中旬—下旬：高天原牛郎生涯，蛇岐八家与猛鬼众全面开战，极乐馆之战樱井小暮死<br>- 4月23日：夜探源氏重工（壁画厅之战、橘政宗断指），路明非发现绘梨衣<br>- 4月24日—4月30日：东京爱情故事七天（天空树、迪士尼、明治神宫、浅草寺、梅津寺町）<br>- 5月1日夜：东京塔之夜——橘政宗“葬身火海”（赫尔佐格自导自演假死）、矢吹樱坠亡<br>- 5月3日：红井（藏骸之井）决战——绘梨衣之死、源氏兄弟相拥而亡、上杉越战死海萤、白王赫尔佐格陨落于天谴<br>- 5月初：收尾，三人组离开日本',
+    tags:['白王','赫尔佐格','上杉绘梨衣','蛇岐八家','猛鬼众','高天原','红井','达摩克利斯之剑']
+},
+    {id:'odin-mist',name:'昆古尼尔篇',year:'2011–2012',desc:'本篇覆盖2011年12月25日至2012年4月，核心地点为卡塞尔学院、马耳他金色鸢尾花淑媛学院、中国北京（仕兰中学旧址、0号高架路尼伯龙根、市立第三医院、圣心仁爱医院）。本篇为悬疑逃亡向篇章，氛围压抑紧张，是全系列基调最黑暗的一部。<br>- 2011年12月25日：楚子航登YAMAL号，发现阿瓦隆岛，遭遇奥丁后失踪，被全世界遗忘<br>- 2012年2月：里约狂欢节猎杀“舞王”；路明非归校发现记忆异常；赴马耳他；昂热遇刺、龙骨失窃、路明非被通缉<br>- 2012年2—3月：北京寻人，0号高架路尼伯龙根，昆古尼尔锁定诺诺<br>- 2012年3月：精神病院梦境S/L，一百零八次Load<br>- 2012年4月：医院决战，第四次交易，面具碎裂，全球追杀开始',tags:['奥丁','楚子航失踪','昂热遇刺','龙骨','全球通缉','0号高架路']},
+    {id:'global-hunt',name:'全球追杀篇',year:'2012–',desc:'本篇覆盖2012年5月起（连载中断于西伯利亚避风港篇，无明确结束时间），核心地点为中国北京、蒙古、日本东京、北冰洋、莫斯科、西伯利亚023号城市、黑天鹅港旧址/避风港。全篇为逃亡公路片基调，死亡密集，氛围绝望。',tags:['全球逃亡','末日派','亲生父母','蒙古','北冰洋','连载中'],openEnding:true}
+  ],
+side:[
+    {id:'accountant-dragon',name:'会计师与龙女篇',year:'2010年9月（第一沙盒期）',desc:'2010年秋（北京尼伯龙根事件收尾后，日本龙渊计划启动前），核心地点为中国湖北襄阳（襄阳老城区、襄阳影视城幻术尼伯龙根）。<br>【沙盒设定说明】本篇章采用跑团默认软时代容错，允许出现少量流行文化元素偏差，属于平行世界合理范围，不视为OOC。',tags:['襄阳尼伯龙根','周家','娲主','比特币','王者荣耀','唐拓海'],rating:'B级'},
+    {id:'texan-ryuuma',name:'德州佬与龙马家的人篇',year:'2010年10月（第一沙盒期）',desc:'2010年10月，核心地点为阿富汗美军战区、美国德克萨斯州。',tags:['阿富汗','蛇岐八家','龙马逊','龙马宗一郎','斯蒂尔','狙击'],rating:'B级'},
+    {id:'twins-hunter',name:'双胞胎与猎人篇',year:'2010年11月（第一沙盒期）',desc:'2010年11月（龙渊计划启动前3个月），核心地点为中国内地某二线城市（姐妹居住的市区、郊外高架桥下）；本支线全程不跳玩家时间线，完成后时间仍停留在2010年11月。',tags:['邵南琴','邵南音','程霜繁','龙类伪装','开放结局'],rating:'A级'},
+    {id:'assassin-robot',name:'刺客与机器人篇',year:'2010年12月（第一沙盒期）',desc:'2010年12月（龙渊计划启动前2个月），核心地点为美国纽约华尔街、新泽西汽车旅馆；本支线全程不跳玩家时间线，完成后时间仍停留在2010年12月。',tags:['纽约','尹光熙','詹明明','天演','杀手事务所','天鹅湖'],rating:'B级'},
+    {id:'operator-exile',name:'接线员与流放者篇',year:'2011年1月（第一沙盒期）',desc:'2011年1月（龙渊计划启动前1个月），核心地点为英国伦敦斯诺顿庄园、多彻斯特酒店；本支线全程不跳玩家时间线，完成后时间仍停留在2011年1月。',tags:['伦敦','斯诺顿庄园','黄子雅','斯莱特','流放者','悲剧英雄'],rating:'B级'},
+    {id:'son-in-law',name:'赘婿与真命天子篇',year:'2011年10月（第二沙盒期）',desc:'2011年9月12日（农历中秋，东京黑月篇结束四个月后，昆古尼尔篇开始前），核心地点为中国江苏昆山（昆山老城区、阳澄湖水上画舫幻境、阳澄湖湖面）；本支线全程不跳玩家时间线，故事中无任何时间推进，所有后续内容均为NPC背景，完成后时间仍停留在2011年10月，自动返回第二沙盒期。',tags:['昆山','白商陆','姜菀之','断龙台','九婴','阳澄湖','周家'],rating:'A级'}]
+};
+const wordSpiritDB = {
+  low:[
+    {name:'催眠',seq:'14',desc:'深度催眠目标、修改短期记忆、短时间控制心神',user:'富山雅史、樱井小暮'},
+    {name:'炽',seq:'77',desc:'产生大量烈焰焚烧敌人',user:'兰斯洛特'},
+    {name:'王之侍',seq:'27',desc:'领域内强化活体体能与敌意，被强化者皮肤渗血仍疯狂进攻',user:'夏弥/耶梦加得（仕兰归乡篇，暗处操纵保安）'},
+    {name:'血系结罗',seq:'02',desc:'释放血缘探测场，对龙族血统极敏感，可大范围感知混血种与龙类',user:'万博倩'},
+    {name:'蛇',seq:'18',desc:'释放神经末梢般的"蛇"群侦查监听，可通过导体传导电信号',user:'曼施坦因、叶胜'},
+    {name:'钥匙',seq:'22',desc:'打开物理锁与炼金封印门（对尼伯龙根入口疑似无效，但可在炼金迷宫内指路）',user:'Gates'},
+    {name:'炽日',seq:'28',desc:'领域内释放4000流明强光结界，直径50米，可致盲敌人、干扰电子设备',user:'雷蒙德'},
+    {name:'冥照',seq:'69',desc:'折射光线实现光学隐身，可携带1-2名同伴',user:'酒德麻衣'},
+    {name:'镰鼬',seq:'59',desc:'放大领域内听觉百倍，可监听数公里内声音',user:'恺撒、路山彦'},
+    {name:'刹那',seq:'72',desc:'成倍提升自身移动速度，最高可开九阶（512倍速）',user:'犬山贺、夏洛子爵'},
+    {name:'风王之瞳',seq:'74',desc:'操控气流形成旋风，可实现飞行、释放小型风刃',user:'夏弥'},
+    {name:'天演',seq:'—',desc:'超算级大脑，工程计算、战术规划、黑客能力拉满',user:'古德里安、苏恩曦'},
+    {name:'无尘之地',seq:'81',desc:'制造空气防御屏障，可反弹物理攻击和低阶元素攻击（修订版名“离垢净土”）',user:'曼斯、帕西'},
+    {name:'时间零',seq:'84',desc:'放慢领域内时间流速，低阶5-10倍速，高阶达百倍速',user:'昂热、楚天骄'},
+    {name:'先知',seq:'—',desc:'预知短时间内的未来，使用者无法进入深度睡眠',user:'奇兰'},
+    {name:'剑御',seq:'—',desc:'磁化并遥控领域内金属物体（子弹、刀剑），远程狙击或近战',user:'苏茜'},
+    {name:'阴流',seq:'—',desc:'操控薄刃与空气刃，忍者暗杀用',user:'矢吹樱'},
+    {name:'涡',seq:'—',desc:'操控水流形成漩涡，水战与岩流作业用',user:'宫本志雄'},
+    {name:'雷池',seq:'—',desc:'释放高压电流形成雷区（修订版名“惊蛰”）',user:'龙马弦一郎'},
+    {name:'不朽',seq:'—',desc:'身体硬化，免疫普通物理攻击，断肢可缓慢再生',user:'樱井七海'},
+    {name:'因陀罗',seq:'—',desc:'操控雷电形成雷铠或落雷',user:'阿卜杜拉·阿巴斯'},
+    {name:'青铜御座',seq:'—',desc:'强化肌肉骨骼金属化，获得巨力和高防御',user:'芬格尔'},
+    {name:'镜瞳',seq:'—',desc:'复制解析他人言灵、读取机械信息',user:'零'},
+    {name:'戒律',seq:'—',desc:'领域内封印所有低于释放者血统的言灵',user:'守夜人、弗拉梅尔'},
+    {name:'冬',seq:'1',desc:'将呼吸、心跳降至极限，如爬行动物般完全隐蔽潜伏，狙击手专属',user:'鬼（夏之哀悼篇）'},
+    {name:'鬼魂',seq:'37',desc:'幽灵般虚化潜行，可避开常规侦测与检票系统',user:'CC1000次列车检票员'}
+  ],
+  high:[
+    {name:'吸血镰',seq:'71',desc:'镰鼬进阶形态，风刃实体化，范围内无差别切割',user:'路山彦、恺撒（暴血）'},
+    {name:'君焰',seq:'89',desc:'释放上千度高温火焰，与风王之瞳配合可形成火龙卷',user:'楚子航'},
+    {name:'王权',seq:'91',desc:'领域内施加百倍重力，直接压碎目标骨骼内脏',user:'源稚生'},
+    {name:'黑日',seq:'—',desc:'制造引力黑洞，吞噬范围内一切物体，可反弹伤害（官方资料一作序列号110）',user:'上杉越'},
+    {name:'审判',seq:'111',desc:'领域内下达死亡判定，直接切割所有未被豁免的目标',user:'上杉绘梨衣'},
+    {name:'莱茵',seq:'113',desc:'核爆级冲击波言灵，释放后使用者与范围内目标同归于尽',user:'疑似梅涅克·卡塞尔'},
+    {name:'梦貘',seq:'—',desc:'精神领域攻击，将目标拖入噩梦空间直接击杀',user:'源稚女、风间琉璃'},
+    {name:'圣裁',seq:'—',desc:'因果律射击，瞄准后子弹必中',user:'汉高'},
+    {name:'八歧',seq:'112',desc:'须佐之男命血脉言灵，强行提升血统获得八岐大蛇般的完美身躯与近乎永生的再生能力',user:'源稚女、历代须佐之男命'},
+    {name:'金刚界',seq:'81',desc:'冥照升阶言灵，隐匿领域扩大，可隐藏大规模目标',user:'酒德麻衣'},
+    {name:'黑炎牢狱',seq:'110',desc:'黑色火焰构筑的牢狱，焚烧并困锁领域内一切目标',user:'赫尔佐格（白王）'}
+  ],
+  god:[
+    {name:'烛龙',seq:'114',desc:'青铜与火之王灭世言灵，超新星级高温，可融化城市',user:'诺顿、康斯坦丁'},
+    {name:'湿婆业舞',seq:'117',desc:'大地与山之王灭世言灵，释放后领域内一切物质被粉碎',user:'芬里厄、海拉'},
+    {name:'神谕',seq:'—',desc:'白王专属，免疫黑王"皇帝"压制，可复制所有言灵',user:'白王、赫尔佐格'},
+    {name:'皇帝',seq:'—',desc:'黑王专属，全领域龙威压制，所有龙血裔强制跪拜',user:'黑王·尼德霍格'},
+    {name:'不要死',seq:'—',desc:'路明非专属权柄，因果律复活，未彻底死亡即可拉回',user:'路明非'},
+    {name:'归墟',seq:'115',desc:'海洋与水之王灭世言灵，领域内引发灭世级洪水与海啸',user:'海洋与水之王（利维坦）'}
+  ],
+sideLow:[
+  {name:'炽日',seq:'28',desc:'领域内释放4000流明强光结界，直径50米，可致盲敌人、干扰电子设备',user:'雷蒙德、程霜繁（双胞胎与猎人篇）'},
+  {name:'认知修改',seq:'—',desc:'小范围修改普通人短期记忆，抹除混血种相关存在痕迹，对B级以上混血无效，无直接杀伤力',user:'老皮（会计师与龙女篇）'},
+  {name:'鹰眼',seq:'—',desc:'大幅强化动态视力与远视能力，最高可看清数公里外目标，狙击专属辅助言灵',user:'龙马宗一郎（德州佬与龙马家的人篇）'},
+  {name:'真空刃',seq:'—',desc:'压缩空气形成透明风刃，可远程切割金属与人体，有效射程50米',user:'龙马逊（德州佬与龙马家的人篇）'},
+  {name:'天演',seq:'—',desc:'超算级大脑，工程计算、战术规划、黑客能力拉满，战斗时可预判所有弹道与敌人动作',user:'古德里安、苏恩曦、尹光熙（刺客与机器人篇）'},
+  {name:'先知',seq:'—',desc:'预知短时间内的未来片段，使用者无法进入深度睡眠',user:'奇兰、斯诺顿爵士（接线员与流放者篇）'},
+  {name:'钢躯',seq:'—',desc:'全身肌肉皮肤硬化至钢铁强度，免疫普通子弹与冷兵器，持续时间5分钟',user:'斯莱特·斯诺顿（接线员与流放者篇）'},
+  {name:'金刚',seq:'—',desc:'身体局部硬化，刀枪不入，配合传统武术可打出巨力，适合以伤换伤打法',user:'姜大卫（赘婿与真命天子篇）'},
+  {name:'疾风',seq:'—',desc:'短时间提升3-5倍移动速度，可短距离高速位移，适合短刀暗杀',user:'苏珊娜（赘婿与真命天子篇）'}
+],
+sideHigh:[
+  {name:'集体梦境',seq:'—',desc:'大范围精神领域，修改领域内所有普通人/低阶混血的认知，将目标拖入编织好的集体梦境；龙吼附带精神冲击可直接震碎普通人精神，可与幼龙签订契约控制幼龙行动',user:'赵旭祯（赘婿与真命天子篇）'},
+  {name:'钢躯·暴血龙化',seq:'—',desc:'暴血后解锁，全身覆盖白色龙鳞，力量速度提升10倍，硬抗大口径子弹，药效结束后使用者会死亡',user:'斯莱特·斯诺顿（接线员与流放者篇）'}
+],
+sideChina:[
+  {name:'大真言术·赤炎',seq:'—',desc:'拳部附着高温火焰，配合八卦/形意/通背拳可打出爆炸伤害，A级混血可稳定使用',user:'周敏皓（赘婿与真命天子篇）'},
+  {name:'大真言术·九婴',seq:'—',desc:'断龙台专属顶级术法，召唤九条冰火双龙，可冰封整片大湖，正面硬抗次代种龙威；需通过断龙台活灵的公平问答才可借取力量，普通人也可触发',user:'娲主、白商陆（赘婿与真命天子篇）'}
+],
+  fanLow:[
+    {name:'炽',desc:'凝出小型火焰'},{name:'御流',desc:'操控周身水流'},{name:'明照',desc:'释放强光致盲'},
+    {name:'传声',desc:'远距离通话'},{name:'鹰眼',desc:'狙击级动态视力'},{name:'疾行',desc:'短时间高速奔跑'},
+    {name:'岩壁',desc:'皮肤硬化如岩'},{name:'深眠',desc:'催眠对手入睡'},{name:'解毒',desc:'中和体内毒素'},
+    {name:'识鳞',desc:'辨识血统与龙裔'},{name:'燃血',desc:'短时间爆种提升'},{name:'冰雾',desc:'制造低温雾障'},
+    {name:'土循',desc:'穿墙潜行'},{name:'威压',desc:'震退低阶死侍'},{name:'愈伤',desc:'快速止血愈合'},
+    {name:'讯影',desc:'短距离闪避'},{name:'钢羽',desc:'操控飞镖攻击'}
+  ],
+  fanHigh:[
+    {name:'神寂',desc:'黑王级抹除言灵'},
+    {name:'因陀罗之怒',desc:'引发全球雷暴'},{name:'时间回溯',desc:'改写记忆或抹除存在'},
+    {name:'王选之侍',desc:'群体强化 buff'},
+    {name:'森罗',desc:'制造视觉幻术领域'},{name:'昆古尼尔',desc:'因果必中，武器化权柄'}
+  ]
+};
+const equipmentDB = {
+  legend:[
+    {name:'七宗罪·傲慢（八面汉剑）',desc:'诺顿铸造的弑王武器之一，汉八方形制，炼金刀剑的巅峰之作'},
+    {name:'七宗罪·妒忌（太刀）',desc:'诺顿铸造的弑王武器之一，弧刀形制，刀身刻有龙文与古希伯来文'},
+    {name:'七宗罪·暴怒（斩马刀）',desc:'诺顿自用，审判之剑，常态1.8米，感应高纯度龙血可伸长至8米化为狂龙，最狂暴的一把'},
+    {name:'七宗罪·懒惰（日本武士刀）',desc:'诺顿铸造的弑王武器之一，七宗罪中最神秘的一把'},
+    {name:'七宗罪·贪婪（苏格兰克雷默长剑）',desc:'吸噬之剑，可令被切割的龙类细胞迅速腐烂，能吸收血液从剑锷龙头喷出'},
+    {name:'七宗罪·色欲（日本肋差）',desc:'撕裂之剑，切割时刀身以极细微幅度高速巨震，瞬间撕裂龙鳞肌肉'},
+    {name:'七宗罪·饕餮（亚特坎长刀）',desc:'毒剑，金属刀身布满细孔填满剧毒，切开龙类躯体的瞬间便令其中毒'},
+    {name:'村雨 / 暝杀炎魔刀',desc:'楚天骄传楚子航，斩击后自动凝雨洗血，龙五中被激活为炎魔刀'},
+    {name:'狄克推多',desc:'恺撒佩刀，黑刃猎刀，炼金领域武器'},
+    {name:'奥古斯都',desc:'帕西佩刀，与狄克推多同炉对刀，双刀合璧威力翻倍'},
+    {name:'蜘蛛切',desc:'日本神代炼金刀，暗青色再生金属，刀身崩口自动修复'},
+    {name:'童子切安纲',desc:'日本神代炼金刀，荧铁打造，斩击时发出龙鸣，对龙类特攻'},
+    {name:'布都御魂',desc:'路鸣泽权能幻化的斩神刀，可斩断白王防御'},
+    {name:'天羽羽斩',desc:'路鸣泽权能幻化的斩神刀，与布都御魂对刀'},
+    {name:'般若·改',desc:'双手小太刀，日本分部赠路明非，短小灵活适合近身'},
+    {name:'亚特坎折刀',desc:'昂热贴身佩戴，由亚特坎长刀残片锻打，可切断龙鳞'},
+    {name:'参孙的青铜巨斧',desc:'龙侍参孙武器，20米长青铜巨斧，一斧劈碎潜水艇'}
+  ],
+  melee:[
+    {name:'制式炼金唐刀',desc:'执行部标配近战武器，开炼金刃，破低阶龙鳞'},
+    {name:'制式炼金军刺',desc:'三棱军刺，淬汞毒，龙类伤口无法愈合'},
+    {name:'炼金匕首',desc:'贴身暗杀武器，短小易藏，淬麻醉毒'},
+    {name:'风魔手里剑',desc:'风魔忍者专用炼金飞镖，破甲可回旋'},
+    {name:'苦无',desc:'忍者专用短兵器，可近战可投掷'},
+    {name:'锁链镰刀',desc:'日本分部忍者武器，中距离拉扯'},
+    {name:'龙鳞盾',desc:'次代种龙鳞打造，可防子弹与低阶言灵'},
+    {name:'合金战棍',desc:'突击手常用钝器，可砸碎死侍骨骼'},
+    {name:'炼金弩',desc:'无声暗杀武器，威力堪比手枪'},
+    {name:'大马士革炼金弯刀',desc:'阿拉伯分部常用，锋利削铁如泥'},
+    {name:'银弹燧发枪',desc:'夏洛子爵武器，配言灵·刹那使用的老式燧发枪，填装纯银弹丸'},
+    {name:'双管炼金霰弹枪',desc:'"酋长"布伦丹武器，近距离轰碎死侍'}
+  ],
+  ranged:[
+    {name:'沙漠之鹰·银版',desc:'恺撒赠路明非，大口径手枪，发射汞核心穿甲弹'},
+    {name:'沙漠之鹰·死亡天使',desc:'恺撒配枪双枪，可换10英寸长枪管当狙击枪'},
+    {name:'巴雷特M82A1炼金改',desc:'苏茜佩枪，2000米外可打爆死侍头部'},
+    {name:'李-恩菲尔德炼金改步枪',desc:'"老虎"贾迈勒武器，神射手专用，精度极高'},
+    {name:'弗里嘉麻醉弹',desc:'执行部常用，麻醉效果极强，可麻翻次代种'},
+    {name:'汞核心钝金穿甲弹',desc:'执行部标配，破龙鳞，汞毒让伤口不愈'},
+    {name:'焚烧之血·龙骨子弹',desc:'顶级子弹，命中后燃烧龙血，可伤龙王级目标'},
+    {name:'炼金阵特殊弹',desc:'刻炼金阵，带元素伤害，可破高阶龙鳞'},
+    {name:'炼金手榴弹',desc:'高爆炸弹附汞毒，炸碎成群死侍'},
+    {name:'铝热剂炼金燃烧弹',desc:'三千度高温，可烧穿龙鳞'},
+    {name:'单兵火箭筒炼金改',desc:'重火力，可轰碎次代种鳞甲'},
+    {name:'天基武器·达摩克利斯之剑',desc:'轨道动能钨棒，威力堪比核弹，曾击杀新白王赫尔佐格'}
+  ],
+  gear:[
+    {name:'炼金作战服',desc:'凯夫拉混龙鳞纤维，防弹防低阶言灵防火防水'},
+    {name:'潜水炼金服',desc:'青铜计划专用，抗水下高压带氧气循环，可下潜千米'},
+    {name:'龙血中和血清',desc:'注射后中和低浓度龙血污染，抑制龙化'},
+    {name:'记忆修改喷雾',desc:'富山雅史专用，修改普通人几小时内的记忆'},
+    {name:'加密通讯耳机',desc:'带言灵屏蔽防监听，跨数公里通讯'},
+    {name:'炼金夜视仪',desc:'完全黑暗中识别龙类的黄金瞳'},
+    {name:'便携氧气面罩',desc:'有毒环境、水下呼吸'},
+    {name:'重力靴',desc:'可吸附金属岩壁表面，爬墙飞机外挂'},
+    {name:'碳化硅防弹盾',desc:'可防大口径子弹'},
+    {name:'战地医疗包',desc:'愈伤炼金药、解毒剂、止血粉，处理非致命伤'}
+  ],
+  relic:[
+    {name:'贤者之石',desc:'炼金术最高产物，可封印龙类、提升炼金武器威力'},
+    {name:'昆古尼尔（永恒之枪）',desc:'奥丁的神级武器，因果律必中，无法闪避防御'},
+    {name:'八足天马斯莱普尼尔',desc:'奥丁坐骑，尼伯龙根与现实间穿梭，突破时间'},
+    {name:'炼金领域矩阵',desc:'可布置戒律、无尘之地等防御领域，学院最终防线'},
+    {name:'言灵枷锁',desc:'封印混血种或低阶龙类的言灵能力'},
+{name:'断龙台',desc:'襄阳周家传承千年的炼金刑具，内部封印比肩次代种的古龙活灵，通过问答形式借取活灵力量，答对可使用大真言术·九婴，答错会被活灵吞噬'}
+  ]
+};
+const destinyPool = {
+  mythic:[
+    {name:'白王血裔·皇',desc:'你天生就是白王血裔的"皇"，龙血比例可稳定突破50%临界线仍保持理智',effect:'混血种绝对天花板；但会成为整个白王阴谋的核心棋子'},
+  {name: '斯巴达半魔血脉', desc: '但丁与维吉尔这对银发双子共有的根源力量，是传奇魔剑士斯巴达与人类女子伊娃结合留下的半人半魔血统', effect: '赋予双子远超凡俗的怪力、神速与近乎不死的再生能力，即使脏器被贯穿也能瞬间愈合；可解放恶魔之力化身魔人，全属性暴涨并持续恢复伤势，完全融合人魔两面后可觉醒真魔神形态，免疫常规伤害，拥有自由飞行与毁天灭地的魔力输出'},
+{name:'替身「世界（The World）」',desc:'DIO所持有的近距离力量型人型替身，射程10米，战吼「無駄無駄無駄無駄！！！」，发动咏唱「砸瓦鲁多！！！」',effect:'核心能力为全域时间停止，静止时空中仅DIO可自由行动；初觉醒仅停一瞬，随颈部伤口愈合逐步延长，最终战达5秒，吸收乔瑟夫血液后延长至9秒；发动时触发专属JOJO画风突变——面部棱角锋利、嘴唇厚立体、睫毛浓密、肌肉血管夸张强化、发型突破物理呈锐角立体，周身漂浮ゴゴゴ/ドドド拟声字符，女性躯体亦转为刚硬肌肉几何形态；能力解除后画风维持3分钟，期间肉体获究极强化'},
+{name: '乖离剑·EA', desc: '吉尔伽美什所持EX级对界神造兵装，剑身无传统剑刃，为三段对应天、地、冥界的圆柱结构逆向回转构成，是开天辟地时代遗存的创世之剑，无法被任何投影、复制类能力复刻，可从王之财宝中随意念瞬间召出', effect: '真名解放「天地乖离开辟之星」时，超高速回转压缩风压形成时空断层，释放撕裂世界的创世级冲击，并非普通斩击而是直接粉碎空间结构，可直接击溃固有结界，最大出力可达地壳变动级威力，最大覆盖捕捉千人；真名解放需消耗巨量魔力，全力解放后10分钟内无法再次催动，攻击无法被常规物理/魔力防御格挡，可杀伤神性、不死性单位'},
+{name: '天之锁·恩奇都', desc: '吉尔伽美什最信赖的对神神造宝具，真名恩奇都，是曾捕缚天公牛的律神锁链，可从王之财宝中任意念射出，无固定长度与数量限制，锁链尖端可直接贯穿目标', effect: '核心特性为束缚强度随目标神性等级正比例提升，神性越高锁链越坚固几乎无法挣脱，对神级目标可直接封死所有行动能力；可变化形态作攻防武器，能拖拽、贯穿目标，也可编织为防御网格挡攻击；对无神性/神性极低的目标仅为高强度硬质锁链，被纯物理力量扯断后需24小时才能在王之财宝中重新具现'},
+{name: '天体压制最终兵器·杰顿', desc: '《新·奥特曼》中光之星制式恒星际天基歼灭武器，仅高阶观测员持有启动权限，部署于行星轨道的全自动战斗装置，搭载可耐受一兆度高温的装甲系统，定位为抹除威胁文明、压制天体的最终兵器', effect: '周身覆盖电磁波光波壁，可完全反弹奥特战士必杀光线与常规远程攻击；常规武装可发射多方向高能热射线，最终杀招为一兆度超高温光热球，命中后可直接蒸发行星，波及范围达数光年，足以摧毁直径200光年的三维空间；存在使用限制：光热球充能需数天，连续开火会导致机体过热强制冷却，近战能力薄弱，被普朗克膜级空间奇点命中时会被直接吞噬'},
+{name: '霜之哀伤', desc: '燃烧军团为腐蚀艾泽拉斯铸造的诅咒符文剑，巫妖王的标志性武器，剑身刻满死灵符文，常年散发彻骨寒气，曾蛊惑阿尔萨斯堕落为新巫妖王，是艾泽拉斯最知名的邪恶神器', effect: '击中目标时可直接抽取灵魂封印于剑中，可挥出冰霜死灵冲击波冻结大片敌人，召唤被封印灵魂组成的亡灵大军作战；持剑者会被剑中死灵意志持续腐蚀心智，长时间持有会彻底堕落为巫妖王傀儡，被圣光类武器正面命中时剑体符文会暂时失能，剑毁时被封印的灵魂会集体反噬持有者'},
+{name: '圣吉列斯之血', desc: '圣血天使战团传承的基因原体血脉，源自第九军团圣吉列斯，接受基因改造者获得远超普通星际战士的体能、反应力与自愈力，背后可生长骨质羽翼高速飞行', effect: '战斗中可进入圣化状态，速度力量翻倍，伤口快速愈合，对混沌恶魔造成额外神圣伤害；自带两大基因诅咒：血渴触发时会失控渴求鲜血进入无差别狂暴，黑怒触发时会陷入原体战死的幻觉不分敌我，长时间高强度战斗有概率永久堕入狂乱无法恢复'},
+{name: '幻想大剑·巴尔蒙克', desc: '出自《Fate/Apocrypha》屠龙英雄齐格飞的佩剑，因斩杀邪龙法夫纳的传说被赋予专属龙特攻，剑身缠绕苍蓝龙鳞魔力，是型月世界观最经典的屠龙圣剑', effect: '普通攻击威力等同于A级宝具，真名解放时释放半圆弧苍蓝光波，对所有龙种/龙血生物造成200%特攻伤害，同时持有者获得龙类特防，龙息、龙类物理攻击伤害减半；限制：对非龙类目标威力仅30%，真名解放消耗大量魔力，连续解放2次后进入3分钟冷却'},
+{name: '帝皇之剑', desc: '人类帝皇亲手锻造的灵能神器，剑身缠绕永不熄灭的金色帝皇灵焰，是混沌恶魔的绝对克星，先后由帝皇、复活的基里曼持有，是人类帝国最神圣的武器之一', effect: '剑刃可无视重甲与灵能屏障，触碰到的恶魔会被直接抹除亚空间本质无法重生，插地可展开大范围金色灵能护盾抵挡攻击；只有心怀绝对忠诚、灵能纯度足够的人才能握持，被混沌腐化者持剑会被灵焰直接焚灭，全力输出会大量消耗持剑者灵能'},
+{name: '暗影君王', desc: '出自《我独自升级》，是九大君王中执掌死亡与暗影的顶级权能，程肖宇的专属隐藏转职职业，觉醒后瞳孔转为暗紫色，周身常绕黑色暗影雾气，是作品设定里的天花板级能力之一', effect: '核心能力为暗影提取，可从被自身击杀的目标尸体上提取暗影，转化为绝对忠诚的暗影士兵，士兵保留生前全部能力且不会背叛，被打散后可在影子中重新凝聚；可将所有暗影储存在自身影子里随时召唤，展开君王领域时领域内所有暗影士兵全属性提升50%；衍生能力包括影步（在任意影子间瞬移）、暗影互换（和己方暗影士兵交换位置）、暗影潜行（融入他人影子完全隐蔽）；存在使用限制：无法提取实力远超自身的目标暗影，目标死亡超过1小时提取失败，同时维持的暗影士兵数量受自身魔力上限约束，君王领域最多维持10分钟，暗影互换冷却3小时，强光环境下暗影能力整体削弱30%'},
+{name: 'Neo品红帝骑驱动器', desc: '出自《假面骑士Decade》门矢士的专属变身腰带，骚粉色腰带本体，插入对应骑士卡牌即可解放力量，持有者被称为“世界的破坏者”，是跨作品玩梗最常用的骑士腰带', effect: '插入对应骑士卡牌可直接变身成该骑士并使用其全部技能与必杀，可自由打开次元壁在任意世界/空间穿梭，刷卡可释放对应骑士的招牌骑士踢；限制：无对应骑士卡时仅基础格斗水平，次元壁穿越冷却10分钟，同时叠加超过3种骑士力量会导致腰带不稳定，有概率把自己随机传送到未知世界'},
+{name: '逢魔时王驱动器', desc: '出自《假面骑士Zi-O》常磐庄吾的最终形态腰带，黑金配色的王者驱动器，是掌控时间、持有全骑士力量的逢魔时王专属变身器，变身音效为“祝福之刻！至仁至善至强之王！”', effect: '变身后可使用历代所有假面骑士的全部能力，自由操控时间暂停、时间回溯、时间加速，能召唤历代骑士协同作战，拳脚出力达百吨级，可释放覆盖千米的骑士冲击波；限制：单次时间回溯超过10分钟会大量消耗体力，时间暂停最多维持5秒，全力释放必杀骑士踢后有1分钟硬直，被同级别时间能力命中时腰带会短暂失灵'},
+{name: 'Faiz驱动器（555腰带）', desc: '出自《假面骑士555》智脑集团开发的骑士系统腰带，输入555代码插入折叠手机即可变身，全身流动红色光子血液，是平成老番里人气最高的经典腰带', effect: '变身后全身覆盖光子装甲，力量速度达常人百倍，可插入加速手表解锁10秒超高速形态（100米仅需0.0058秒），接收卫星供能可解锁重火力爆裂形态，武器可切换光子剑、光子炮模式；限制：无奥菲以诺因子的普通人强行变身会被高功率光子血液直接烧成灰，加速形态最多维持10秒超时强制解除，光子血液消耗过大时会全身僵直无法行动'},
+{name: '万花筒写轮眼', desc: '宇智波一族顶级血继限界，需经历至亲羁绊断裂的强烈负面情绪刺激开眼，瞳孔呈独特万花筒状花纹，不同开眼者花纹与专属能力存在差异，基础能力远凌驾于三勾玉写轮眼之上', effect: '共通能力包含极致动态洞察、可复制非血继限界的忍术体术、操控五感的顶级视觉幻术；双眼齐开可召唤实体化查克拉战神须佐能乎，根据开眼者不同附带专属瞳术（不灭火焰天照、精神空间月读、时空间神威等）；每次使用都会不可逆损伤视力，频繁催动会逐步失明直至彻底失去光芒，仅移植直系血亲万花筒进化为永恒万花筒可消除失明诅咒，非宇智波血脉使用者查克拉消耗翻倍'},
+{name: '王之财宝', desc: '英雄王吉尔伽美什的标志性宝具，连通黄金之都的钥匙之剑，金色门扉后收纳着世间一切珍宝的原典，是人类智慧与财富的终极象征，彰显着最古之王"收集天下所有宝物"的绝对王权', effect: '等级E~A++，本质是"人类智慧的原典"本身，连通空间可自由取出宝库中收藏的所有宝具原型与人类发明雏形；能将无数宝具如子弹般高速射出，魔力效率极高且可针对任何从者弱点攻击，射出的宝具会自动回收；内藏天之锁、维摩那、众神之盾等数不清的神造兵装与奇珍异宝，除了全新概念造物与外星文明产物外几乎无所不包，收藏的财宝越多威力便越强'},
+  {name: '阎魔刀', desc: '斯巴达留给维吉尔的遗物大太刀，漆黑刀身泛着冷光，是维吉尔毕生追求力量的象征', effect: '蕴含“分离”权能，刀锋锋利到无视硬度斩断一切物质，可切开空间制造次元裂缝；能释放招牌技能次元斩，无需接触就将范围内的目标撕成碎片，还能分离人与恶魔、打开人魔两界通道，甚至可将自身的人性与魔性完全剥离'},
+    {name:'誓约胜利之剑', desc:'风王结界散去的瞬间，圣剑的光辉将照亮整片战场', effect:'星造圣剑自带邪祟特攻，解放真名释放对城级金光柱，一击便可夷平要塞，是幻想种中当之无愧的最强圣剑'},
+  {name: '魔剑但丁', desc: '但丁以父亲留下的叛逆大剑融合斯巴达之剑，以自身为炉铸成的专属魔剑，红黑魔气缠绕的恶魔之刃，与但丁灵魂共生', effect: '蕴含“融合”权能，可随但丁意念瞬间召来，无需手持就能自主斩击；能挥出毁灭性的红色剑气，召唤魔人虚影协同作战，是但丁真魔人形态的力量核心，可投射铺天盖地的魔力剑雨'},
+{name: '八岐血裔·神纹解放', desc: '身具八岐大蛇本源血统，常态下双臂环刻深色蛇形咒纹臂环、胸口镌有深蓝八岐放射纹印，肌肤隐伏淡蛇鳞暗纹，发色与瞳孔与常人无异；全力释放血脉之力时发色尽数转为银白，赤红蛇形竖瞳彻底显现，周身咒纹灼亮浮起，恒常萦绕淡紫虚无粒子浮空，外泄神气场令凡俗物质近身自崩', effect: '血脉解放后解锁湮灭黑粒子、空间折跃、掏魂夺魄、地脉灵柱、虚无屏障、意念操控、天灾引动全套核心权能，三大终结奥义可发动覆面光能打击、展开虚无领域、引动灭世级生态重置冲击；单日仅可稳定维持解放状态30分钟'},
+{name: '电击使·超电磁炮', desc: 'Lv5等级电击使能力，可自由操纵十亿伏特高压电流与电磁波，核心杀招为以金属硬币为弹丸借电磁力加速至3倍音速发射的超电磁炮，命中附带高温熔化与冲击波，衍生可操控铁砂成剑、释放雷击、干涉电子设备、展开电磁屏障、踏空高速移动', effect: '常规硬币炮射速每分钟8发，单发可击穿2米厚钢板，全力输出可召唤落雷级范围雷击、释放10米范围电磁脉冲瘫痪电子设备'},
+{name:'五条悟咒术体系',desc:'现代最强咒术师五条悟的完整能力集合，以天生六眼为核心，覆盖防御、攻击、治疗、领域全维度',effect:'①无下限咒术（被动防御）：将「阿基里斯与乌龟」悖论具象化，接近本体之物速度无限衰减永不可触，配合反转术式可自动全时防护；②术式顺转「苍」制造吸引力（小型黑洞）兼具空间压缩瞬移，反转「赫」释放两倍威力的排斥力，虚式「茈」以假想质量切割空间为顶级破坏技；③领域展开「无量空处」向目标大脑灌注无限无效信息使其过载失能，仅触碰本体者免疫；④天赋「六眼」360度感知咒力、使自身咒力消耗趋近于零；⑤反转术式生成正能量治疗，濒死激发后自动运转为无下限永久供能'},
+{name:'镜花水月斩魄刀',desc:'蓝染惣右介的佩刀，幻觉系最强斩魄刀，拥有实体，始解语「碎裂吧，镜花水月」',effect:'核心能力为「完全催眠」：目标只要亲眼目睹过一次始解瞬间，即永久成为催眠对象，此后无论距离多远，蓝染再次解放即可远程激活；可完全支配目标视听嗅味触五感，并欺骗灵压与精神探测，既能无中生有制造幻象，也能将任意物体/人员伪装成他物；被催眠者对幻象绝对信任，即使现实与认知严重矛盾也会自动合理化，无法凭理性挣脱'},
+    {name:'奥林匹斯雷霆权柄', desc:'握持权杖，你便执掌天罚雷霆', effect:'主神级体质无惧凡俗伤害，雷电长矛可破神级以下防御，范围雷暴可顷刻夷平街区'},
+    {name: '矢量操作', desc: '所有指向我的伤害，都会原封不动返还给你', effect: '操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球'},
+{name:'琦玉修炼法',desc:'原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成',effect:'突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真'},
+    {name:'氪星血脉觉醒',desc:'你是流落地球的氪星人后裔',effect:'黄太阳辐射下解锁钢铁躯体、热视线、飞行、超速自愈。'},  
+    {name:'黑王血脉共鸣',desc:'你血脉深处流淌着黑王尼德霍格的印记',effect:'低阶龙类天然臣服；被白王方视为死敌'},
+    {name:'神谕碎片持有者',desc:'一段白王神谕言灵的碎片以某种形式与你共存',effect:'可微弱复制他人言灵；精神状态极不稳定'},
+    {name:'跨神话血脉觉醒',desc:'你的血脉源流是龙族体系之外的上古神话生物，且已完全觉醒',effect:'能力路数完全独立于言灵体系；秘党与神秘学界同时关注'}
+  ],
+  legendary:[
+    {name:'S级混血种',desc:'龙血占比约40%-50%，无限接近临界线',effect:'可稳定使用危险级言灵；全球明面上不超过20人'},
+    {name:'古老家族嫡系',desc:'你是加图索家、蛇岐八家等古老家族的直系继承人',effect:'资源、地位、话语权拉满；背负家族血债'},
+    {name:'蛇岐八家血脉',desc:'你是日本蛇岐八家某一支的正统继承人',effect:'家族独门言灵传承；卷入日本混血种内部斗争'},
+    {name:'昂热亲传弟子',desc:'你是卡塞尔学院校长昂热的私授弟子',effect:'掌握时间零等顶级言灵传承；成为龙类头号目标'},
+    {name:'龙侍血脉',desc:'你的祖上是某位龙王的贴身龙侍，血脉中带有龙王印记',effect:'对应元素言灵天赋极高；有一定概率被龙类精神操控'},
+    {name:'千岁混血种',desc:'你已存活数百年，见证了大量历史事件',effect:'见识、经验、人脉惊人；灵魂逐渐虚化，接近死侍化临界'},
+    {name:'双血系稀有觉醒',desc:'你体内同时觉醒了黑王与白王两大血系',effect:'能力叠加强大；基因崩溃风险极高'}
+  ],
+  epic:[
+    {name:'A级混血种',desc:'龙血占比约30%-40%，混血种精英战力',effect:'二度暴血可对抗三代种；执行部资深专员标配'},
+    {name:'执行部精英专员',desc:'你是执行部战功卓著的一线专员',effect:'装备与情报支持一流；接手最危险的任务'},
+    {name:'装备部炼金天才',desc:'你在炼金术上有惊人天赋',effect:'可打造中高阶炼金武器；被各方势力争抢'},
+    {name:'尼伯龙根幸存者',desc:'你曾闯入尼伯龙根异空间并活着回来',effect:'获得特殊感悟与遗物；精神状态留有阴影'},
+    {name:'冷门家族独传',desc:'你继承了某个式微家族的独门言灵',effect:'言灵路数独特罕见；家族已无人可依靠'},
+    {name:'龙类实验体',desc:'你曾是某个基因实验的实验体，逃出生天',effect:'体质异于常人；被原研究机构悬赏追捕'},
+    {name:'白王/黑王的关注',desc:'你不知为何进入了某位龙王的视线',effect:'关键节点会得到"馈赠"；每次馈赠都是陷阱的开端'}
+  ],
+  rare:[
+    {name:'B级混血种',desc:'龙血占比约20%-30%，混血种中流砥柱',effect:'熟练掌握中低阶言灵；可独立对抗四代种'},
+    {name:'卡塞尔学生会成员',desc:'你在学院学生会担任要职',effect:'学院资源调用权；被卷入校董会博弈'},
+    {name:'独立屠龙者',desc:'你不隶属于任何组织，靠自己屠龙为生',effect:'战斗经验极其丰富；缺乏支援'},
+    {name:'龙类事件目击者',desc:'你少年时目击过一场未公开的龙类事件',effect:'比同龄人更早觉醒；被风纪委员会重点监控'},
+    {name:'训练营出身',desc:'你出身混血种猎人训练营，实战能力扎实',effect:'战斗素养硬核；出身低微，晋升困难'},
+    {name:'学院优等生',desc:'你是卡塞尔学院成绩排名前列的学生',effect:'教官与校董关注；同学关系紧张'}
+  ],
+  common:[
+    {name:'C级混血种',desc:'龙血占比约10%-20%，正式混血种门槛',effect:'可使用低阶言灵；无法单独对抗成年龙类'},
+    {name:'学院外围成员',desc:'你只是学院最边缘的一名普通学生',effect:'一切靠自己摸索；成长空间反而更大'},
+    {name:'家族分支',desc:'你出自某个家族的旁支',effect:'略有传承但无核心资源；正统一脉排挤你'},
+    {name:'后天觉醒',desc:'你成年后才觉醒混血种血脉',effect:'起步晚但心态成熟'},
+    {name:'意外卷入',desc:'你因一场意外接触到混血种世界',effect:'一无所知但充满可能性'},
+    {name:'平凡混血种',desc:'你就是最普通的一名混血种，没有任何特殊之处',effect:'无加成，无风险，一切靠自己'}
+  ]
+};
+document.addEventListener('DOMContentLoaded',()=>{
+  renderChapters();
+  renderCanonList();
+  renderWordSpirits();
+  renderEquipment();
+  initTabs();
+  bindCustomSelects();
+});
+// --- 开场动画 ---
+const __opening=document.getElementById('opening');
+let __opStarted=false,__opDone=false;
+function __finishOpening(){
+if(__opDone)return;
+__opDone=true;
+__opening.classList.add('fade-out');
+setTimeout(()=>{__opening.style.display='none';document.getElementById('main').classList.add('active');},1000);
+}
+if(__opening){
+__opening.addEventListener('click',function(){
+if(!__opStarted){
+__opStarted=true;
+this.classList.add('open');
+const __h=this.querySelector('.skip-hint');if(__h)__h.textContent='再点一次 · 跳过';
+setTimeout(__finishOpening,5000);
+}else{
+__finishOpening();
+}
+});
+}
+// --- 折叠分组 ---
+document.querySelectorAll('.arsenal-header').forEach(h=>{h.addEventListener('click',()=>h.parentElement.classList.toggle('open'));});
+function initTabs(){
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>switchTab(btn.dataset.tab));
+  });
+}
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if(name==='character') updateChapterDisplay();
+  if(name==='preview') generatePreview();
+}
+const TAB_ORDER=['intro','timeline','character','ability','talent','preview'];
+function nextTab(){
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=TAB_ORDER.indexOf(cur);
+  if(i<TAB_ORDER.length-1) switchTab(TAB_ORDER[i+1]);
+}
+function prevTab(){
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=TAB_ORDER.indexOf(cur);
+  if(i>0) switchTab(TAB_ORDER[i-1]);
+}
+function markCompleted(name){
+  const t=document.querySelector(`[data-tab="${name}"]`);
+  if(t) t.classList.add('completed');
+}
+const canonChars=[{"name": "路明非", "group": "卡塞尔学院 · 学生", "desc": "S级学生、学生会主席、路鸣泽契约者、屠龙者“李嘉图·M·路”。"}, {"name": "芬格尔·冯·弗林斯", "group": "卡塞尔学院 · 学生", "desc": "留级学长、肯德基先生、言灵青铜御座、路明非室友"}, {"name": "恺撒·加图索", "group": "卡塞尔学院 · 学生", "desc": "学生会主席、加图索继承人、言灵镰鼬、狄克推多持有者"}, {"name": "楚子航", "group": "卡塞尔学院 · 学生", "desc": "狮心会会长、超A级、言灵君焰、村雨持有者、永不熄灭的黄金瞳"}, {"name": "陈墨瞳/诺诺", "group": "卡塞尔学院 · 学生", "desc": "红发巫女、侧写能力、路明非的引路人"}, {"name": "零/雷娜塔·叶夫根尼·契切林", "group": "卡塞尔学院 · 学生", "desc": "俄罗斯三无少女、言灵镜瞳、真空女王、路鸣泽的助手"}, {"name": "夏弥/耶梦加得", "group": "卡塞尔学院 · 学生", "desc": "大地与山之王、耶梦加得、言灵风王之瞳、楚子航的小师妹"}, {"name": "苏茜", "group": "卡塞尔学院 · 学生", "desc": "狮心会副会长、王牌狙击手、楚子航副手"}, {"name": "奇兰", "group": "卡塞尔学院 · 学生", "desc": "新生联谊会会长、言灵先知、预言者"}, {"name": "兰斯洛特", "group": "卡塞尔学院 · 学生", "desc": "狮心会副会长、言灵炽、苏茜未婚夫"}, {"name": "伊莎贝尔", "group": "卡塞尔学院 · 学生", "desc": "学生会舞蹈团团长、路明非秘书、主席保镖"}, {"name": "阿卜杜拉·阿巴斯", "group": "卡塞尔学院 · 学生", "desc": "狮心会会长、言灵因陀罗、雷帝"}, {"name": "Gates/钥匙", "group": "卡塞尔学院 · 学生", "desc": "诺诺的弟弟、言灵钥匙、万能钥匙"}, {"name": "路明非叔叔", "group": "卡塞尔学院 · 学生", "desc": "路明非叔叔、小市民、老好人"}, {"name": "路明非婶婶", "group": "卡塞尔学院 · 学生", "desc": "路明非婶婶、家庭主妇、刀子嘴豆腐心"}, {"name": "塞尔玛", "group": "卡塞尔学院 · 学生", "desc": "摩尼亚赫号声呐员、实习生、夔门殉职者"}, {"name": "高幂", "group": "卡塞尔学院 · 学生", "desc": "失踪专员、德州扑克幸存者、万博倩的男友"}, {"name": "万博倩", "group": "卡塞尔学院 · 学生", "desc": "失踪专员、血系结罗、高幂的女友"}, {"name": "维多利亚", "group": "卡塞尔学院 · 学生", "desc": "追杀小队狙击手、言灵·刹那、英国一年级生"}, {"name": "冈萨雷斯", "group": "卡塞尔学院 · 学生", "desc": "追杀小队成员、里约旧伤、伤重不治"}, {"name": "希尔伯特·让·昂热/昂热校长", "group": "卡塞尔学院 · 教职与执行部", "desc": "卡塞尔校长、百年复仇者、时间零使用者"}, {"name": "守夜人/尼古拉斯·弗拉梅尔", "group": "卡塞尔学院 · 教职与执行部", "desc": "炼金权威、言灵戒律、学院最终底牌"}, {"name": "古德里安", "group": "卡塞尔学院 · 教职与执行部", "desc": "路明非导师、龙族谱系学专家、脱线学究"}, {"name": "格尔德·鲁道夫·曼施坦因", "group": "卡塞尔学院 · 教职与执行部", "desc": "风纪主席、行动总指挥、铁面判官"}, {"name": "冯·施耐德", "group": "卡塞尔学院 · 教职与执行部", "desc": "执行部部长、格陵兰幸存者、铁血负责人"}, {"name": "曼斯·龙德施泰特", "group": "卡塞尔学院 · 教职与执行部", "desc": "夔门计划总指挥、诺诺导师、防御型指挥官"}, {"name": "富山雅史", "group": "卡塞尔学院 · 教职与执行部", "desc": "心理辅导员、记忆处理专家、言灵催眠"}, {"name": "诺玛/EVA", "group": "卡塞尔学院 · 教职与执行部", "desc": "学院主控AI、EVA战争人格"}, {"name": "叶胜", "group": "卡塞尔学院 · 教职与执行部", "desc": "深水专员、言灵蛇、夔门计划牺牲者"}, {"name": "酒德亚纪", "group": "卡塞尔学院 · 教职与执行部", "desc": "叶胜的搭档、酒德麻衣之妹、夔门计划牺牲者"}, {"name": "楚天骄", "group": "卡塞尔学院 · 教职与执行部", "desc": "S级暗桩、时间零使用者、楚子航生父、迈巴赫车主"}, {"name": "雷蒙德", "group": "卡塞尔学院 · 教职与执行部", "desc": "B007专员、代号深海鳕鱼、言灵炽日、仕兰市火车南站牺牲者"}, {"name": "安德鲁", "group": "卡塞尔学院 · 教职与执行部", "desc": "校董会专员、加图索律师、听证会负责人"}, {"name": "阿卡杜拉·艾哈迈德·穆罕默德·法鲁格/卡塞尔学院装备部部长", "group": "卡塞尔学院 · 教职与执行部", "desc": "装备部疯子头、炸弹狂人、炼金工程天才"}, {"name": "庞贝·加图索", "group": "家族 · 校董会与猎人", "desc": "加图索家主、恺撒之父、花花公子"}, {"name": "弗罗斯特·加图索", "group": "家族 · 校董会与猎人", "desc": "加图索代理家主、校董、恺撒的叔叔"}, {"name": "帕西·加图索", "group": "家族 · 校董会与猎人", "desc": "加图索秘书、恺撒副手、战争机器"}, {"name": "汉高", "group": "家族 · 校董会与猎人", "desc": "北美混血种领袖、言灵圣裁、昂热的老对手"}, {"name": "唐威", "group": "家族 · 校董会与猎人", "desc": "北京赏金猎人、三少、地下掮客"}, {"name": "藤原信之介", "group": "家族 · 校董会与猎人", "desc": "加图索家特使、娃娃脸刺客、言灵·时间零、杀死乌鸦的人"}, {"name": "源稚生", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "蛇岐八家大家长、天照命、皇、想去法国卖防晒油的男人"}, {"name": "源稚女/风间琉璃", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "猛鬼众龙王、风间琉璃、须佐之男、源稚生的弟弟"}, {"name": "上杉绘梨衣", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "上杉家主、月读命、小怪兽、Sakura的女孩"}, {"name": "上杉越", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "末代影皇、拉面师傅、三兄妹的父亲"}, {"name": "犬山贺", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "犬山家主、昂热的学生、九阶刹那"}, {"name": "风魔小太郎", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "风魔忍者首领、老顽童、忍者之神"}, {"name": "龙马弦一郎", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "龙马家主、自卫队军官、雷池"}, {"name": "樱井七海", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "樱井家主、末代大家长、不朽"}, {"name": "宫本志雄", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "宫本家主、岩流研究所所长、技术宅"}, {"name": "矢吹樱", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "源稚生的影、忍者、阴流"}, {"name": "乌鸦/佐伯龙治", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "源稚生的军师、乌鸦、执行局局长"}, {"name": "夜叉", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "源稚生的盾、夜叉、肉盾"}, {"name": "樱井明", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "叛逃的鬼、飞蛾、18年的囚徒"}, {"name": "樱井小暮", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "猛鬼众龙马、极乐馆女帝、樱井明的姐姐"}, {"name": "座头鲸", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "高天原店长、传奇牛郎、新宿教父"}, {"name": "龙马千介", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "龙马家新家主、乌鸦的小弟"}, {"name": "宫本央子", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "宫本家新家主、安静木讷、解剖提案"}, {"name": "辉夜姬", "group": "日本 · 蛇岐八家与猛鬼众", "desc": "日本分部AI、辉夜姬、与诺玛同级"}, {"name": "路鸣泽/零号", "group": "路鸣泽阵营", "desc": "小魔鬼、老板、零号、世界的终极"}, {"name": "酒德麻衣", "group": "路鸣泽阵营", "desc": "长腿妞、忍者、路鸣泽的剑"}, {"name": "苏恩曦/薯片妞", "group": "路鸣泽阵营", "desc": "薯片妞、财政总管、金融天才"}, {"name": "梅涅克·卡塞尔", "group": "前传 · 1900–1991", "desc": "初代狮心会会长、卡塞尔学院命名者、屠龙先驱"}, {"name": "路山彦", "group": "前传 · 1900–1991", "desc": "路明非高祖父、初代狮心会核心、言灵镰鼬"}, {"name": "鬼/狮心会成员", "group": "前传 · 1900–1991", "desc": "印第安狙击手、路山彦弟子"}, {"name": "夏洛子爵", "group": "前传 · 1900–1991", "desc": "秘党长老、银翼、言灵刹那、昂热的老师"}, {"name": "甘贝特侯爵", "group": "前传 · 1900–1991", "desc": "秘党长老、掘墓人、言灵天演、秘党智囊"}, {"name": "布伦丹", "group": "前传 · 1900–1991", "desc": "初代狮心会成员、酋长、霰弹手"}, {"name": "贾迈勒", "group": "前传 · 1900–1991", "desc": "初代狮心会成员、老虎、神射手"}, {"name": "卡迪斯", "group": "前传 · 1900–1991", "desc": "初代狮心会成员、永远叼雪茄的老大哥"}, {"name": "弗里德里希·冯·隆", "group": "前传 · 1900–1991", "desc": "夏之哀悼嫌疑人、林凤隆、古董店老板"}, {"name": "莫德勒", "group": "前传 · 1900–1991", "desc": "解剖学家、李雾月苏醒的导火索"}, {"name": "荣格·冯·赫尔佐格/橘政宗", "group": "前传 · 1900–1991", "desc": "黑天鹅港博士、橘政宗、王将、伪白王"}, {"name": "邦达列夫", "group": "前传 · 1900–1991", "desc": "克格勃少校、罗曼诺夫后裔、黑天鹅港推手"}, {"name": "安东", "group": "前传 · 1900–1991", "desc": "基地守卫队长、前16号实验体"}, {"name": "马耶克勋爵", "group": "前传 · 1900–1991", "desc": "秘党长老、销毁决议的推动者"}, {"name": "布宁", "group": "龙五 · 末日派与俄罗斯线", "desc": "黑市寡头、零的禁卫军首领、为女儿续命的父亲"}, {"name": "雷巴尔科", "group": "龙五 · 末日派与俄罗斯线", "desc": "YAMAL号船长、前阿尔法少校、冰海老船长"}, {"name": "路麟城", "group": "龙五 · 末日派与俄罗斯线", "desc": "路明非父亲、末日派秘书长、S级特工"}, {"name": "乔薇尼", "group": "龙五 · 末日派与俄罗斯线", "desc": "路明非母亲、S级专员、护崽的红发美人"}, {"name": "爱德华/不朽者爱德华", "group": "龙五 · 末日派与俄罗斯线", "desc": "不朽者最强个体、炼金超级士兵、追杀楚子航"}, {"name": "克里斯廷娜", "group": "龙五 · 末日派与俄罗斯线", "desc": "布宁之女、渐冻症少女、龙蜘蛛"}, {"name": "小布宁", "group": "龙五 · 末日派与俄罗斯线", "desc": "克隆体、幕后操控者、拍卖会主持"}, {"name": "瓦图京", "group": "龙五 · 末日派与俄罗斯线", "desc": "前苏联上将、δ计划知情者、零的旧识"}, {"name": "堂弟路鸣泽/泽太子", "group": "仕兰与北京 · 普通人", "desc": "路明非堂弟、泽太子、普通人"}, {"name": "陈雯雯", "group": "仕兰与北京 · 普通人", "desc": "路明非的白月光、班花、文静文学少女"}, {"name": "赵孟华", "group": "仕兰与北京 · 普通人", "desc": "高中校草、富二代、路明非的“情敌”"}, {"name": "苏晓樯/小天女", "group": "仕兰与北京 · 普通人", "desc": "小天女、中葡混血、骄傲大小姐"}, {"name": "柳淼淼", "group": "仕兰与北京 · 普通人", "desc": "钢琴公主、三大班花、喜欢楚子航"}, {"name": "苏小妍", "group": "仕兰与北京 · 普通人", "desc": "楚子航妈妈、舞蹈演员、不老美人"}, {"name": "麻生真", "group": "仕兰与北京 · 普通人", "desc": "普通女高中生、檀香味头发的女孩、恺撒的遗憾"}, {"name": "邵一峰", "group": "仕兰与北京 · 普通人", "desc": "诺诺的发小、北京帮手、普通人"}, {"name": "李雾月", "group": "龙类与君王", "desc": "疑似天空与风之王、夏之哀悼的古龙、千年龙王"}, {"name": "黑蛇", "group": "龙类与君王", "desc": "黑天鹅港的古龙、零号的伙伴、冰海古龙"}, {"name": "诺顿/老唐", "group": "龙类与君王", "desc": "青铜与火之王、老唐、炼金术之祖"}, {"name": "康斯坦丁", "group": "龙类与君王", "desc": "青铜与火之王、残疾小龙、诺顿的弟弟"}, {"name": "参孙", "group": "龙类与君王", "desc": "青铜城守护者、诺顿的龙侍、次代种古龙"}, {"name": "芬里厄", "group": "龙类与君王", "desc": "大地与山之王、傻大个、夏弥的哥哥"}, {"name": "奥丁", "group": "龙类与君王", "desc": "尼伯龙根之主、独眼神、因果律龙王"}, {"name": "利维坦/八岐大蛇", "group": "龙类与君王", "desc": "巨型古龙、无智慧怪物、天灾级存在"}, {"name": "尼德霍格/黑王", "group": "龙类与君王", "desc": "龙族始祖、黑皇帝、至高祖龙"}, {"name": "伊邪那美/白王", "group": "龙类与君王", "desc": "白皇帝、伊邪那美、圣骸"}, {"name": "海拉/死神", "group": "龙类与君王", "desc": "死神、尼伯龙根女王、大地与山之王完全体"}, {"name": "唐拓海", "group": "异闻录 · 番外角色", "desc": "襄阳社畜、比特币天选之子、老皮发小、娲主的王者搭子"}, {"name": "龙马宗一郎", "group": "异闻录 · 番外角色", "desc": "龙马家子弟、天才狙击手、斯蒂尔的搭档、龙马逊的弟弟"}, {"name": "龙马逊", "group": "异闻录 · 番外角色", "desc": "龙马家大小姐、龙马宗一郎姐姐、蛇岐八家执行者、精英女战士"}, {"name": "邵南琴", "group": "异闻录 · 番外角色", "desc": "银行柜员、邵南音姐姐、普通人、护妹狂魔"}, {"name": "邵南音", "group": "异闻录 · 番外角色", "desc": "摆烂小龙、邵南琴妹妹、化形龙、只想和姐姐过日子"}, {"name": "程霜繁", "group": "异闻录 · 番外角色", "desc": "执行部S级专员、猎龙人、被姐妹俩骗的冤种专员"}, {"name": "老皮", "group": "异闻录 · 番外角色", "desc": "金融掮客、唐拓海发小、比特币推动者、认知修改言灵持有者"}, {"name": "娲主", "group": "异闻录 · 番外角色", "desc": "周家主、东方混血种领袖、断龙台持有者、网瘾少女、半龙种"}, {"name": "斯蒂尔", "group": "异闻录 · 番外角色", "desc": "德州猎人、前海军陆战队员、龙马宗一郎的搭档、龙马逊的司机"}, {"name": "詹明明", "group": "异闻录 · 番外角色", "desc": "华尔街精英、规律到像机器人、尹光熙的爱人、假账发现者"}, {"name": "尹光熙", "group": "异闻录 · 番外角色", "desc": "混血种杀手、言灵·天演、审计师伪装、詹明明的爱人"}, {"name": "黄子雅", "group": "异闻录 · 番外角色", "desc": "香港女孩、斯诺顿家接线员、斯莱特的电话朋友、无战斗力文职"}, {"name": "斯诺顿爵士", "group": "异闻录 · 番外角色", "desc": "斯诺顿家家主、斯莱特的弟弟、英国混血种领袖、流放者热线建立者"}, {"name": "斯莱特·斯诺顿", "group": "异闻录 · 番外角色", "desc": "斯诺顿家最强战士、越战老兵、PTSD流放者、要欧冠球票的秃顶老头"}, {"name": "白商陆", "group": "异闻录 · 番外角色", "desc": "无证骨科医生、姜家赘婿、断龙台天选者、九婴使用者、1+1=2通关鬼才"}, {"name": "金正锡", "group": "异闻录 · 番外角色", "desc": "大德蟹庄老板、昆山餐饮领头、高度近视、讲义气、画舫撞婚礼的狠人"}, {"name": "周敏皓", "group": "异闻录 · 番外角色", "desc": "周家代表、晶圆厂CEO、大真言术使用者、骑共享单车救场的逼王、白姜CP媒人"}, {"name": "苏珊娜", "group": "异闻录 · 番外角色", "desc": "赵旭祯秘书、混血保镖、格斗高手、被姜老爹披桌布的倒霉蛋"}, {"name": "赵满堂", "group": "异闻录 · 番外角色", "desc": "桥头小馆老板、姜菀之心腹、点醒白商陆的人、太雕酒供应商"}, {"name": "强子", "group": "异闻录 · 番外角色", "desc": "小卖部老板、白商陆发小、爱占小便宜但讲义气、医院陪床好兄弟"}, {"name": "姜菀之", "group": "异闻录 · 番外角色", "desc": "姜家大小姐、商业天才、穿旗袍的女战士、白商陆的老婆"}, {"name": "赵旭祯", "group": "异闻录 · 番外角色", "desc": "所罗门龙骑士、基因优化产物、集体梦境制造者、控制狂"}, {"name": "姜大卫", "group": "异闻录 · 番外角色", "desc": "姜家老爹、下棋遛弯的普通老头、战力天花板、三俗嘴炮王者、宠女儿狂魔"}];
+let canonRole=null;
+function switchCharMode(m){
+  document.querySelectorAll('#tab-character .mode-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector('#tab-character .mode-btn[data-mode="'+m+'"]').classList.add('active');
+  document.getElementById('canon-section').style.display=(m==='canon')?'block':'none';
+  if(m==='original'){canonRole=null;const cs=document.getElementById('canon-search');if(cs)cs.value='';}
+  generatePreview();
+}
+function renderCanonList(){
+  const container=document.getElementById('canon-list');if(!container)return;
+  container.innerHTML='';
+  const groups={};
+  canonChars.forEach(c=>{(groups[c.group]=groups[c.group]||[]).push(c);});
+  let opened=false;
+  Object.keys(groups).forEach(g=>{
+    const items=groups[g];
+    const div=document.createElement('div');div.className='canon-group';
+    const gridHTML=items.map(c=>'<div class="canon-item" data-name="'+c.name+'"><span>'+c.name+'</span>'+(c.desc?'<div class="ci-desc">'+c.desc+'</div>':'')+'</div>').join('');
+    div.innerHTML='<div class="canon-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+g+' <span class="cnt">'+items.length+' 位</span></span><span class="arrow">▶</span></div><div class="canon-group-body"><div class="canon-grid">'+gridHTML+'</div></div>';
+    if(!opened){div.classList.add('open');opened=true;}
+    container.appendChild(div);
+  });
+  container.querySelectorAll('.canon-item').forEach(it=>{
+    it.addEventListener('click',()=>selectCanon(it.dataset.name));
+  });
+}
+function filterCanon(query){
+  const dd=document.getElementById('canon-dropdown');
+  if(!query.trim()){dd.classList.remove('visible');return;}
+  const q=query.trim().toLowerCase();
+  const ms=canonChars.filter(c=>c.name.toLowerCase().includes(q)||(c.desc||'').toLowerCase().includes(q)||c.group.toLowerCase().includes(q));
+  if(!ms.length){dd.innerHTML='<div class="canon-dropdown-item"><span class="cdi-name">无匹配结果</span></div>';dd.classList.add('visible');return;}
+  dd.innerHTML=ms.slice(0,20).map(c=>'<div class="canon-dropdown-item" data-name="'+c.name+'"><span class="cdi-name">'+c.name+'</span><span class="cdi-desc">'+c.desc+' — '+c.group+'</span></div>').join('');
+  dd.classList.add('visible');
+  dd.querySelectorAll('.canon-dropdown-item').forEach(it=>{it.addEventListener('click',()=>{if(it.dataset.name)selectCanon(it.dataset.name);});});
+}
+function selectCanon(name){
+  canonRole=name;
+  const nf=document.getElementById('char-name');if(nf)nf.value=name;
+  document.querySelectorAll('.canon-item').forEach(it=>it.classList.toggle('selected',it.dataset.name===name));
+  const dd=document.getElementById('canon-dropdown');if(dd)dd.classList.remove('visible');
+  const cs=document.getElementById('canon-search');if(cs)cs.value=name;
+  generatePreview();
+}
+function filterArsenal(tabId,query){
+  const q=query.trim().toLowerCase();
+  document.querySelectorAll('#'+tabId+' .arsenal-item').forEach(el=>{
+    el.style.display=(!q||el.textContent.toLowerCase().includes(q))?'':'none';
+  });
+  if(q){document.querySelectorAll('#'+tabId+' .arsenal-section').forEach(sec=>{
+    if([...sec.querySelectorAll('.arsenal-item')].some(el=>el.style.display!=='none'))sec.classList.add('open');
+  });}
+}
+
+const TL_GROUPS=[
+  {key:'prequel',label:'前传',en:'PREQUEL · 1900–2004',badge:'前传'},
+  {key:'main',label:'主线',en:'MAIN LINE · 2009–PRESENT',badge:'主线'},
+  {key:'side',label:'异闻支线',en:'SIDE STORIES · 2010–2011',badge:'异闻'}
+];
+const TL_ENTRIES=[
+  ['start','篇章开始','从事件刚萌芽时进入'],
+  ['mid','篇章中期','在冲突正炽时切入'],
+  ['end','篇章尾声','逼近结局的关键时刻'],
+  ['custom','自定义入场','自行描述切入的时间点或场景']
+];
+function findChapter(id){
+  for(const g of TL_GROUPS){const c=chaptersDatabase[g.key].find(x=>x.id===id);if(c)return c;}
+  return null;
+}
+function renderChapters(){
+  const cards=document.getElementById('chapter-cards');
+  cards.innerHTML='';
+  TL_GROUPS.forEach(g=>{
+    const list=chaptersDatabase[g.key];
+    if(!list||!list.length)return;
+    const head=document.createElement('div');head.className='chapter-group-head';
+    head.innerHTML=`<span class="cgh-cn">${g.label}</span><span class="cgh-en">${g.en}</span>`;
+    cards.appendChild(head);
+    if(g.key==='side'){
+      const note=document.createElement('div');
+      note.className='info-box';note.style.marginBottom='14px';
+      note.innerHTML=`<h3>异闻支线规则</h3><span class="box-en">SANDBOX SIDE QUEST</span><ul><li>异闻支线挂载在<strong>学院风云篇</strong>沙盒期内，按触发月份排序</li><li>无强制触发顺序，完成后<strong>自动返回</strong>对应时间的学院风云沙盒</li><li><strong>不推进主线</strong>，不影响东京黑月篇、昆古尼尔篇等正史事件</li><li>所有异闻<strong>无固定结局</strong>，玩家选择完全自由</li></ul>`;
+      cards.appendChild(note);
+    }
+    list.forEach(ch=>{
+      const isSel=appState.selectedChapter&&appState.selectedChapter.id===ch.id;
+      const isOpen=appState.openChapterId===ch.id;
+      const card=document.createElement('div');
+      card.className='chapter-card'+(isSel?' selected':'')+(isOpen?' open':'');
+      card.id='ch-'+ch.id;
+      const entriesHTML=TL_ENTRIES.map(e=>{
+        const isE=isSel&&appState.entryPoint===e[0];
+        return `<div class="entry-option${isE?' selected':''}" onclick="selectEntryPoint('${e[0]}','${ch.id}')"><input type="radio" name="entry-${ch.id}"${isE?' checked':''}><div class="entry-option-content"><strong>${e[1]}</strong><span>${e[2]}</span></div></div>`;
+      }).join('');
+      const ceVal=(isSel&&appState.entryPoint==='custom')?(appState.customEntryText||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'):'';
+      card.innerHTML=`
+        <div class="chapter-card-head" onclick="toggleChapter('${ch.id}')">
+          <div class="cc-main">
+            <div class="cc-title">${ch.name}${ch.openEnding?'<span class="open-ending">开放结局</span>':''}</div>
+            <div class="cc-meta"><span class="chapter-badge">${g.badge}</span><span class="cc-year">${ch.year}</span>${ch.rating?`<span class="tag cc-rating">${ch.rating}</span>`:''}</div>
+          </div>
+          <div class="cc-right">
+            <button class="select-chapter-btn${isSel?' active':''}" onclick="event.stopPropagation();selectChapter('${ch.id}')">${isSel?'✓ 已选':'选此篇章'}</button>
+            <span class="cc-arrow">▶</span>
+          </div>
+        </div>
+        <div class="chapter-card-body">
+          <div class="chapter-desc">${ch.desc}</div>
+          <div class="chapter-tags">${ch.tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+          <div class="chapter-entry-block">
+            <h4>入场节点 · Entry Point</h4>
+            ${entriesHTML}
+            <div class="custom-entry-row${isSel&&appState.entryPoint==='custom'?' selected':''}"><input type="text" id="ce-${ch.id}" placeholder="描述你切入的具体时间点或场景……" value="${ceVal}"><button onclick="setCustomEntry('${ch.id}',document.getElementById('ce-${ch.id}').value)">设为入场</button></div>
+          </div>
+        </div>`;
+      cards.appendChild(card);
+    });
+  });
+}
+function toggleChapter(id){
+  appState.openChapterId=(appState.openChapterId===id)?null:id;
+  document.querySelectorAll('#chapter-cards .chapter-card').forEach(c=>c.classList.toggle('open',('ch-'+appState.openChapterId)===c.id&&appState.openChapterId!==null));
+}
+function selectChapter(id){
+  const ch=findChapter(id);if(!ch)return;
+  if(appState.selectedChapter&&appState.selectedChapter.id===id){appState.selectedChapter=null;}
+  else{appState.selectedChapter=ch;appState.openChapterId=id;}
+  const t=document.querySelector('[data-tab="timeline"]');if(t)t.classList.toggle('completed',!!appState.selectedChapter);
+  renderChapters();
+}
+function selectEntryPoint(type,id){
+  const ch=findChapter(id);if(!ch)return;
+  appState.selectedChapter=ch;appState.entryPoint=type;appState.openChapterId=id;
+  markCompleted('timeline');
+  renderChapters();
+}
+function setCustomEntry(id,val){
+  val=(val||'').trim();if(!val)return;
+  const ch=findChapter(id);if(!ch)return;
+  appState.selectedChapter=ch;appState.entryPoint='custom';appState.customEntryText=val;appState.openChapterId=id;
+  markCompleted('timeline');
+  renderChapters();
+}
+function updateChapterDisplay(){
+  const el=document.getElementById('selected-chapter-name');
+  if(appState.selectedChapter){
+    el.textContent=`${appState.selectedChapter.name}（${appState.selectedChapter.year}）`;
+  }else{
+    el.textContent='尚未选择篇章';
+  }
+}
+function bindCustomSelects(){
+  document.getElementById('char-origin').addEventListener('change',function(){
+    document.getElementById('custom-origin-input').classList.toggle('visible',this.value==='custom');
+  });
+}
+function handleIdentityChange(v){document.getElementById('custom-identity-input').classList.toggle('visible',v==='custom');}
+function handleFactionChange(v){document.getElementById('custom-faction-input').classList.toggle('visible',v==='custom');}
+function handleEntryReasonChange(v){document.getElementById('custom-entry-reason-input').classList.toggle('visible',v==='custom');}
+function handleBloodlineChange(v){document.getElementById('custom-bloodline-input').classList.toggle('visible',v==='custom');}
+function renderWordSpirits(){
+  renderArsenalGrid('ws-low-grid',wordSpiritDB.low,'ws',true);
+  renderArsenalGrid('ws-high-grid',wordSpiritDB.high,'ws',true);
+renderArsenalGrid('ws-god-grid',wordSpiritDB.god,'ws',true);
+renderArsenalGrid('ws-side-low-grid',wordSpiritDB.sideLow,'ws',true);
+renderArsenalGrid('ws-side-high-grid',wordSpiritDB.sideHigh,'ws',true);
+renderArsenalGrid('ws-side-china-grid',wordSpiritDB.sideChina,'ws',true);
+  renderArsenalGrid('ws-fan-low-grid',wordSpiritDB.fanLow,'ws',false);
+  renderArsenalGrid('ws-fan-high-grid',wordSpiritDB.fanHigh,'ws',false);
+}
+function toggleFanContent(on){
+  document.getElementById('ws-fan-section').style.display=on?'block':'none';
+}
+function renderEquipment(){
+  renderArsenalGrid('eq-legend-grid',equipmentDB.legend,'eq',false);
+  renderArsenalGrid('eq-melee-grid',equipmentDB.melee,'eq',false);
+  renderArsenalGrid('eq-ranged-grid',equipmentDB.ranged,'eq',false);
+  renderArsenalGrid('eq-gear-grid',equipmentDB.gear,'eq',false);
+  renderArsenalGrid('eq-relic-grid',equipmentDB.relic,'eq',false);
+}
+function renderArsenalGrid(gridId,items,type,showSeq){
+  const g=document.getElementById(gridId);
+  if(!g) return;
+  items.forEach(it=>{
+    const el=document.createElement('label');
+    el.className='arsenal-item';
+    el.innerHTML=`
+      <input type="checkbox">
+      <div class="item-body">
+        <div class="item-name">${it.name}${showSeq&&it.seq?`<span class="item-seq">Seq. ${it.seq}</span>`:''}</div>
+        <div class="item-desc">${it.desc}</div>
+        ${it.user?`<div class="item-user">— ${it.user}</div>`:''}
+      </div>
+    `;
+    const cb=el.querySelector('input');
+    el.addEventListener('click',e=>{
+      if(e.target!==cb) cb.checked=!cb.checked;
+      el.classList.toggle('selected',cb.checked);
+      const list=type==='ws'?appState.selectedWordSpirits:appState.selectedEquipment;
+      if(cb.checked){
+        if(!list.find(x=>x.name===it.name)) list.push(it);
+      }else{
+        const arr=list.filter(x=>x.name!==it.name);
+        if(type==='ws') appState.selectedWordSpirits=arr;
+        else appState.selectedEquipment=arr;
+      }
+    });
+    g.appendChild(el);
+  });
+}
+/* 通用自创模块：ws / eq / tl */
+const CUSTOM_CFG={
+  ws:{state:'customWS',listId:'custom-ws-list',btnId:'add-ws-btn',countId:'ws-count',namePh:'言灵名称',descPh:'能力效果描述',limit:'最多只能添加5项自创言灵'},
+  eq:{state:'customEQ',listId:'custom-eq-list',btnId:'add-eq-btn',countId:'eq-count',namePh:'武装名称',descPh:'武器描述与效果',limit:'最多只能添加5件自创武装'},
+  tl:{state:'customTL',listId:'custom-tl-list',btnId:'add-tl-btn',countId:'tl-count',namePh:'天赋名称',descPh:'天赋效果 / 际遇描述',limit:'最多只能添加5项自创天赋'}
+};
+function addCustom(type){
+  const cfg=CUSTOM_CFG[type];
+  const arr=appState[cfg.state];
+  if(arr.length>=5){alert(cfg.limit);return;}
+  arr.push({id:Date.now()+Math.random(),name:'',desc:''});
+  renderCustom(type);
+  updateCustomCount(type);
+}
+function renderCustom(type){
+  const cfg=CUSTOM_CFG[type];
+  const arr=appState[cfg.state];
+  const list=document.getElementById(cfg.listId);
+  list.innerHTML='';
+  arr.forEach(s=>{
+    const div=document.createElement('div');
+    div.className='custom-skill-item';
+    div.innerHTML=`
+      <button class="delete-btn" onclick="deleteCustom('${type}',${s.id})">×</button>
+      <input type="text" placeholder="${cfg.namePh}" value="${s.name}" oninput="updateCustom('${type}',${s.id},'name',this.value)">
+      <textarea placeholder="${cfg.descPh}" oninput="updateCustom('${type}',${s.id},'desc',this.value)">${s.desc}</textarea>
+    `;
+    list.appendChild(div);
+  });
+}
+function updateCustom(type,id,field,val){
+  const arr=appState[CUSTOM_CFG[type].state];
+  const s=arr.find(x=>x.id===id);
+  if(s) s[field]=val;
+}
+function deleteCustom(type,id){
+  const cfg=CUSTOM_CFG[type];
+  appState[cfg.state]=appState[cfg.state].filter(x=>x.id!==id);
+  renderCustom(type);
+  updateCustomCount(type);
+}
+function updateCustomCount(type){
+  const cfg=CUSTOM_CFG[type];
+  document.getElementById(cfg.countId).textContent=appState[cfg.state].length;
+  document.getElementById(cfg.btnId).classList.toggle('disabled',appState[cfg.state].length>=5);
+}
+function rollDestiny(){
+  const btn=document.getElementById('roll-btn');
+  btn.classList.add('rolling');
+  btn.disabled=true;
+  setTimeout(()=>{
+    appState.rolledDestiny=[];
+    appState.selectedDestiny=[];
+    for(let i=0;i<8;i++){
+      const r=Math.random()*100;
+      let pool,rarity;
+      if(r<20){pool=destinyPool.mythic;rarity='mythic';}
+      else if(r<45){pool=destinyPool.legendary;rarity='legendary';}
+      else if(r<70){pool=destinyPool.epic;rarity='epic';}
+      else if(r<88){pool=destinyPool.rare;rarity='rare';}
+      else{pool=destinyPool.common;rarity='common';}
+      let d,att=0;
+      do{d=pool[Math.floor(Math.random()*pool.length)];att++;}while(appState.rolledDestiny.some(x=>x.name===d.name)&&att<50);
+      appState.rolledDestiny.push({...d,rarity});
+    }
+    renderDestiny();
+    btn.classList.remove('rolling');
+    btn.disabled=false;
+    document.getElementById('destiny-pool').classList.add('visible');
+  },1100);
+}
+function renderDestiny(){
+  const list=document.getElementById('destiny-list');
+  list.innerHTML='';
+  appState.selectedDestiny=[];
+  document.getElementById('destiny-selected-count').textContent='0';
+  const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+  const sorted=[...appState.rolledDestiny].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+  sorted.forEach((d,i)=>{
+    const el=document.createElement('div');
+    el.className=`destiny-item ${d.rarity}`;
+    el.innerHTML=`
+      <input type="checkbox" id="dst-${i}">
+      <div class="destiny-info">
+        <div class="destiny-name">${d.name}<span class="destiny-badge ${d.rarity}">${rarityName(d.rarity)}</span></div>
+        <div class="destiny-desc">${d.desc}</div>
+        <div class="destiny-effect">效果：${d.effect}</div>
+      </div>
+    `;
+    const cb=el.querySelector('input');
+    el.addEventListener('click',e=>{if(e.target!==cb) cb.click();});
+    cb.addEventListener('change',()=>{
+      if(cb.checked){
+        if(appState.selectedDestiny.length>=3){cb.checked=false;alert('最多选择3条天赋');return;}
+        appState.selectedDestiny.push(d);
+        el.classList.add('selected');
+      }else{
+        appState.selectedDestiny=appState.selectedDestiny.filter(x=>x.name!==d.name);
+        el.classList.remove('selected');
+      }
+      document.getElementById('destiny-selected-count').textContent=appState.selectedDestiny.length;
+      if(appState.selectedDestiny.length===3) markCompleted('talent');
+    });
+    list.appendChild(el);
+  });
+}
+function rarityName(r){return {mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'}[r]||'普通';}
+function generatePreview(){
+  const g=id=>document.getElementById(id)?.value||'';
+  const gr=n=>document.querySelector(`input[name="${n}"]:checked`)?.value||'';
+  let origin=g('char-origin');
+  if(origin==='custom') origin=g('custom-origin')||'自定义所在地';
+  let identity=g('identity-type');
+  if(identity==='custom') identity=g('custom-identity')||'自定义身份';
+  let faction=g('faction');
+  if(faction==='custom') faction=g('custom-faction')||'自定义势力';
+  let reason=g('entry-reason');
+  if(reason==='custom') reason=g('custom-entry-reason')||'自定义原因';
+  let bloodline=g('bloodline');
+  if(bloodline==='custom') bloodline=g('custom-bloodline')||'自定义血脉源流';
+  let chapter='未选择',entry='未设定';
+  if(appState.selectedChapter){
+    chapter=`${appState.selectedChapter.name}（${appState.selectedChapter.year}）`;
+    const map={start:'篇章开始',mid:'篇章中期',end:'篇章尾声'};
+    entry=map[appState.entryPoint]||appState.customEntryText||'自定义入场';
+  }
+  let out=`══════════════════════════════
+        DRAGON RAJA ARCHIVE
+        龙 族 档 案 · 建 卡 单
+══════════════════════════════
+■ 时间线篇章
+  ${chapter}
+  入场节点：${entry}
+■ 基础信息
+  姓名：${g('char-name')||'未命名'}
+  扮演原著：${appState.canonRole||'—（原创角色）'}${appState.canonRole&&g('canon-supplement')?'\n  扮演补充：'+g('canon-supplement').replace(/\n/g,'；'):''}
+  性别：${gr('gender')||'未定'} · 年龄：${g('char-age')||'未知'}
+  所在地：${origin||'未定'}
+  职业：${g('char-occupation')||'未填写'}
+■ 身份与血统
+  身份类型：${identity||'未定'}
+  所属势力：${faction||'未定'}
+  血脉源流：${bloodline||'未定'}
+  血统评级：${g('power-level')||'未定'}${g('power-note')?`（${g('power-note')}）`:''}
+  入圈原因：${reason||'未定'}
+■ 外貌与性情
+  外貌：${g('appearance')||'未填写'}
+  性格：${g('personality')||'未填写'}
+  兴趣：${g('hobby')||'未填写'}
+■ 背景故事
+  ${g('background')||'未填写'}
+■ 当前处境
+  ${g('opening-scene')||'未填写'}`;
+  if(appState.selectedWordSpirits.length){
+    out+=`\n\n■ 掌握言灵（${appState.selectedWordSpirits.length} 项）`;
+    appState.selectedWordSpirits.forEach((w,i)=>{
+      out+=`\n  ${i+1}. ${w.name}${w.seq&&w.seq!=='—'?` [Seq.${w.seq}]`:''}`;
+      if(w.desc) out+=`\n     ${w.desc}`;
+      if(w.user) out+=`\n     ※ 代表：${w.user}`;
+    });
+  }
+  const validWS=appState.customWS.filter(s=>s.name.trim());
+  if(validWS.length){
+    out+=`\n\n■ 自创言灵（${validWS.length} 项）`;
+    validWS.forEach((s,i)=>{
+      out+=`\n  ${i+1}. ${s.name}`;
+      if(s.desc.trim()) out+=`\n     ${s.desc}`;
+    });
+  }
+  if(appState.selectedEquipment.length){
+    out+=`\n\n■ 武装配置（${appState.selectedEquipment.length} 件）`;
+    appState.selectedEquipment.forEach((e,i)=>{
+      out+=`\n  ${i+1}. ${e.name}`;
+      if(e.desc) out+=` — ${e.desc}`;
+    });
+  }
+  const validEQ=appState.customEQ.filter(s=>s.name.trim());
+  if(validEQ.length){
+    out+=`\n\n■ 自创武装（${validEQ.length} 件）`;
+    validEQ.forEach((s,i)=>{
+      out+=`\n  ${i+1}. ${s.name}`;
+      if(s.desc.trim()) out+=`\n     ${s.desc}`;
+    });
+  }
+  if(appState.selectedDestiny.length){
+    out+=`\n\n■ 天赋（${appState.selectedDestiny.length}/3）`;
+    appState.selectedDestiny.forEach((d,i)=>{
+      out+=`\n  ${i+1}. [${rarityName(d.rarity)}] ${d.name}`;
+      out+=`\n     ${d.desc}`;
+      out+=`\n     效果：${d.effect}`;
+    });
+  }else{
+    out+=`\n\n■ 天赋\n  未抽取`;
+  }
+  const validTL=appState.customTL.filter(s=>s.name.trim());
+  if(validTL.length){
+    out+=`\n\n■ 自创天赋（${validTL.length} 项）`;
+    validTL.forEach((s,i)=>{
+      out+=`\n  ${i+1}. ${s.name}`;
+      if(s.desc.trim()) out+=`\n     ${s.desc}`;
+    });
+  }
+  out+=`\n\n══════════════════════════════
+     DRACO IN NOBIS · 龙在我们之中
+══════════════════════════════`;
+  document.getElementById('preview-box').textContent=out;
+}
+function copyPreview(){
+  const text=document.getElementById('preview-box').textContent;
+  const btn=document.querySelector('.copy-btn');
+  const done=()=>{const t=btn.textContent;btn.textContent='已 复 制';setTimeout(()=>btn.textContent=t,2000);};
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(text).then(done).catch(()=>fallback(text,done));
+  }else fallback(text,done);
+}
+function fallback(text,cb){
+  const ta=document.createElement('textarea');
+  ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+  document.body.appendChild(ta);ta.select();
+  try{document.execCommand('copy');cb();}catch(e){}
+  document.body.removeChild(ta);
+}
+</script>
+</body>
+</html>

@@ -6,9 +6,9 @@ import {createMemoryBudget} from './transport/memory-budget.mjs';
 // Pinned adapters exist only to avoid changing legacy session fingerprints.
 // Any future upstream fixes must be reconciled here, never silently diverge.
 const transforms={
- 'controlled-provider.mjs':s=>s.replace("from './model-parameters.mjs'","from '../../studio/model-parameters.mjs'").replace("from './provider.mjs'","from '../../studio/provider.mjs'").replace("['earth','god','cultivation','lord-of-mysteries','douluo','ancient','xingjian'].includes(cardId)","['blue-fish'].includes(cardId)"),
- 'memory-task-provider.mjs':s=>s.replaceAll("'../plugins/catalog.mjs'","'../../plugins/catalog.mjs'").replace("['earth','god','ancient','xingjian','cultivation','lord-of-mysteries','douluo'].includes(cardId)","['blue-fish'].includes(cardId)").replace('(earth|god|ancient|xingjian|cultivation|lord-of-mysteries|douluo)','(blue-fish)'),
- 'memory-budget.mjs':s=>s.replace("'./branch-archive.mjs'","'../../studio/branch-archive.mjs'").replace("'../plugins/catalog.mjs'","'../../plugins/catalog.mjs'").replace("['earth','god','ancient','xingjian','cultivation','lord-of-mysteries','douluo'].includes(cardId)","['blue-fish'].includes(cardId)")
+ 'controlled-provider.mjs':s=>s.replace("from './model-parameters.mjs'","from '../../studio/model-parameters.mjs'").replace("from './provider.mjs'","from '../../studio/provider.mjs'").replace("['earth','god','cultivation','lord-of-mysteries','douluo','dragon-raja','ancient','xingjian'].includes(cardId)","['blue-fish'].includes(cardId)"),
+ 'memory-task-provider.mjs':s=>s.replaceAll("'../plugins/catalog.mjs'","'../../plugins/catalog.mjs'").replace("['earth','god','ancient','xingjian','cultivation','lord-of-mysteries','douluo','dragon-raja'].includes(cardId)","['blue-fish'].includes(cardId)").replace('(earth|god|ancient|xingjian|cultivation|lord-of-mysteries|douluo|dragon-raja)','(blue-fish)'),
+ 'memory-budget.mjs':s=>s.replace("'./branch-archive.mjs'","'../../studio/branch-archive.mjs'").replace("'../plugins/catalog.mjs'","'../../plugins/catalog.mjs'").replace("['earth','god','ancient','xingjian','cultivation','lord-of-mysteries','douluo','dragon-raja'].includes(cardId)","['blue-fish'].includes(cardId)")
 };
 for(const [file,transform] of Object.entries(transforms))test(file+' retains upstream validations and receipts',async()=>{
  const source=await readFile(new URL('../studio/'+file,import.meta.url),'utf8');
