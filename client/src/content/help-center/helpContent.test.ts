@@ -106,7 +106,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
     expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("d9f20fe6");
     const rpgGuide = helpArticles.find((article) => article.slug === "play-rpg-cards");
-    expect(rpgGuide?.verifiedCommit).toBe("d9f20fe6");
+    expect(rpgGuide?.verifiedCommit).toBe("6977d86c");
     expect(rpgGuide?.content).toContain("导出完整作品包");
     expect(searchHelpContent("创作工作台").some((item) => item.id === "play-rpg-cards")).toBe(true);
     expect(searchHelpContent("CG 画廊").some((item) => item.id === "create-rpg-cg-gallery")).toBe(true);

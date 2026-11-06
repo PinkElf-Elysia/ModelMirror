@@ -5,6 +5,7 @@ import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-rep
 
 const titles={
   'blue-fish':'蓝色大肥鱼 · 创作助手',
+  douluo:'斗罗大陆 · 魂师觉醒台',
   earth:'地球 OL',
   god:'神临凡尘',
   rpg05:'行间 · 多世界 RPG',

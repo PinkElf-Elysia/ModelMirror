@@ -13,6 +13,7 @@ COPY docs/RPG04_PROTOCOL_RUNTIME.txt ./docs/RPG04_PROTOCOL_RUNTIME.txt
 COPY plugins ./plugins
 COPY ancient-card ./ancient-card
 COPY blue-fish-card ./blue-fish-card
+COPY douluo-card ./douluo-card
 COPY god-card/public ./god-card/public
 COPY god-card/lib ./god-card/lib
 COPY god-card/resources ./god-card/resources

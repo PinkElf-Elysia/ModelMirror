@@ -28,16 +28,17 @@ it('failed reads never automatically retry',async()=>{
  render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);await screen.findByRole('alert');expect(fetcher).toHaveBeenCalledTimes(1);
  fireEvent.click(screen.getByRole('button',{name:'重新读取'}));await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2));
 });
-it('shows seven worlds even when the status service fails, and does not dispatch a model',async()=>{
+it('shows eight worlds even when the status service fails, and does not dispatch a model',async()=>{
  const fetcher=vi.fn().mockRejectedValue(Error('offline'));vi.stubGlobal('fetch',fetcher);render(<MemoryRouter><RpgPage/></MemoryRouter>);
- for(const title of ['蓝色大肥鱼','诡秘之主','古代人生','地球 OL','神临凡尘','超级修仙','行间'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
+ for(const title of ['蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生','地球 OL','神临凡尘','超级修仙','行间'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
+ for(const [card,title] of [['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
  expect(screen.getByRole('link',{name:'插件市场'})).toHaveAttribute('href','/rpg/plugins');
- await screen.findByText(/部分存档暂时没有读到/);expect(fetcher).toHaveBeenCalledTimes(14);
+ await screen.findByText(/部分存档暂时没有读到/);expect(fetcher).toHaveBeenCalledTimes(16);
  expect(fetcher.mock.calls.every(([,options])=>!options.method)).toBe(true);
  expect(document.body).not.toHaveTextContent(/验收|复刻|本轮剩余|行间暂不兼容/);
 });
 it.each([
- ['blue-fish','/rpg-app/blue-fish/chat/api/plugins'],['earth','/rpg-app/api/plugins'],['god','/rpg-app/api/plugins'],['ancient','/rpg-app/ancient/chat/api/plugins'],
+ ['douluo','/rpg-app/douluo/chat/api/plugins'],['blue-fish','/rpg-app/blue-fish/chat/api/plugins'],['earth','/rpg-app/api/plugins'],['god','/rpg-app/api/plugins'],['ancient','/rpg-app/ancient/chat/api/plugins'],
  ['cultivation','/rpg-app/cultivation/chat/api/plugins'],['lord-of-mysteries','/rpg-app/lord-of-mysteries/chat/api/plugins'],['rpg05','/rpg-app/xingjian/api/plugins'],
 ])('reads and changes only the selected %s installation registry',async(card,root)=>{
  const fetcher=vi.fn(async()=>Response.json({revision:8,plugins:[plugin]}));vi.stubGlobal('fetch',fetcher);

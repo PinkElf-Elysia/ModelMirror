@@ -37,7 +37,7 @@ export function archiveChatOptions(env){
    ?{baseURL:env.RPG_CONTROL_URL,serviceToken:env.RPG_S2S_TOKEN,enabled:true,limit:Number(env[prefix+'_CALL_LIMIT']||0)}:null;
  const rewrite=control('RPG_ILLUSTRATION_REWRITE');
  return {rewriteControl:rewrite&&{...rewrite,model:env.RPG_ILLUSTRATION_REWRITE_MODEL},xingjianControl:control('RPG_XINGJIAN'),archiveControls:{
-   ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT')
+   ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT'),douluo:control('RPG_DOULUO_CHAT')
  }};
 }
 export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null}={}){
@@ -103,11 +103,12 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  let xingjianPromise;
  const xingjian=()=>xingjianPromise??=import('../xingjian-card/host.mjs').then(m=>openArchive(join(directory,'xingjian',xingjianControl?'real':'offline'),dir=>m.createXingjian(dir,xingjianControl,autoSummaryV2,archiveFeatures))).catch(e=>{xingjianPromise=null;throw e;});
  const archiveHosts=new Map();
- const archiveNames={'ancient':'古代人生 · 命运卷轴','lord-of-mysteries':'诡秘之主大世界','cultivation':'超级修仙大世界'};
+ const archiveNames={douluo:'斗罗大陆 · 魂师觉醒台','ancient':'古代人生 · 命运卷轴','lord-of-mysteries':'诡秘之主大世界','cultivation':'超级修仙大世界'};
  async function archiveHost(id){
   if(!archiveHosts.has(id)){
    const init=async()=>{
-    const system=id==='ancient'?(await import('../ancient-card/assembly.mjs')).assemble({input:'档案'})[0].content:
+    const system=id==='douluo'?(await import('../douluo-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
+     id==='ancient'?(await import('../ancient-card/assembly.mjs')).assemble({input:'档案'})[0].content:
      id==='cultivation'?(await (await import('../cultivation-card/host.mjs')).assembleOpening('档案'))[0].content:
      (await import('../lord-of-mysteries-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content;
     const control=archiveControls[id];
@@ -124,9 +125,16 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
   try{
+   const assetPath=new URL(req.url,'http://rpg').pathname;
+   // Opaque sandbox frames send cross-site/null-origin media requests. Only
+   // the explicitly named public assets may bypass the API origin guard.
+   if(req.method==='GET'&&assetPath.startsWith('/rpg-app/douluo/assets/')){
+    const {serveCard}=await import('../douluo-card/assets.mjs');
+    return await serveCard(req,res,assetPath.slice('/rpg-app/douluo/'.length));
+   }
    const allowed=new Set(origins.length?origins:[`http://127.0.0.1:${server.address().port}`]);
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
-   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god|xingjian|(?:ancient|cultivation|lord-of-mysteries)\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/transcript\/(import|export)$/);
+   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god|xingjian|(?:ancient|cultivation|lord-of-mysteries|douluo)\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/transcript\/(import|export)$/);
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!==(transfer?.[3]==='import'?'text/plain':'application/json')))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
    if (req.method === 'GET' && ['/rpg-app/ancient/', '/rpg-app/ancient/landscape.jpg'].includes(pathname)) {
@@ -136,14 +144,14 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     res.writeHead(200, {'Content-Type': image ? 'image/jpeg' : 'text/html; charset=utf-8'});
     return res.end(bytes);
    }
-   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
+   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'douluo',title:archiveNames.douluo,enabled:!!archiveControls.douluo},{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    if(transfer&&transcript){
     const host=transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
     return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
    }
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
-   const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation)\/chat\/(.*)$/);
+   const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation|douluo)\/chat\/(.*)$/);
    if(chatRoute||pathname.startsWith('/rpg-app/xingjian/')){
     const route=chatRoute?chatRoute[2]:pathname.slice('/rpg-app/xingjian/'.length);
     if(req.method==='GET' && ((!chatRoute&&route==='card')||route==='')){
@@ -162,6 +170,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     const cardId=chatRoute?chatRoute[1]:'xingjian';
     if(await archivePluginHttp({route,req,res,data,send,cardId,host:card,control:chatRoute?archiveControls[cardId]:xingjianControl,features:archiveFeatures,illustrations}))return;
     return await card.handle({route,method:req.method,data,plugins:card.plugins,send,query:new URL(req.url,'http://rpg').searchParams});
+   }
+   if(req.method==='GET'&&pathname.startsWith('/rpg-app/douluo/')){
+    const {serveCard}=await import('../douluo-card/assets.mjs');
+    return await serveCard(req,res,pathname.slice('/rpg-app/douluo/'.length));
    }
    const mysteryAsset=pathname.match(/^\/rpg-app\/lord-of-mysteries\/(|world-map\.jpg|fog-background\.jpg)$/);
    if(mysteryAsset&&req.method==='GET'){

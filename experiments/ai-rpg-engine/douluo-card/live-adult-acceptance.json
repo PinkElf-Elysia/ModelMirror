@@ -1,0 +1,148 @@
+{
+  "date": "2026-11-06",
+  "status": "passed-scoped-with-findings",
+  "scope": "Two nonsexual story turns for adult sample, automatic summary v2 and memory palace. Prior neutral acceptance remains failed.",
+  "sample": {
+    "age": 18,
+    "authorPromptUnchanged": true,
+    "authorPromptSha256": "5d70b0b40030c4367bd383a629d87e379c7a3d0fbb948888e5dcb43b8fc9dbf3",
+    "nonsexualSessionConstraint": true,
+    "sessionConstraintSha256": "40eb929033a5639dedffa7323cf2372ef0f61fa70c9d4eb12512727315e56671",
+    "visibleStoryAndOptionsReviewed": true,
+    "storyOutputCharacters": [
+      3441,
+      4537
+    ]
+  },
+  "modelRequestsDispatched": 6,
+  "completedStoryTurns": 2,
+  "summaryModelCalls": 2,
+  "memoryModelCalls": 2,
+  "retries": 0,
+  "budgetRemaining": 0,
+  "usage": {
+    "prompt_tokens": 64461,
+    "completion_tokens": 12540,
+    "total_tokens": 77001
+  },
+  "verification": {
+    "allResponseAndSseHashesVerified": true,
+    "summarySmallCount": 2,
+    "summaryIncludedInSecondStoryRequest": true,
+    "summarizedFirstRawTurnExcludedFromSecondStoryRequest": true,
+    "memoryRecallSelectedEntries": 2,
+    "memoryIncludedInSecondStoryRequest": true,
+    "memoryProcessedThrough": 2,
+    "memoryEntryVersions": [
+      1,
+      2
+    ],
+    "blocked": false
+  },
+  "limitations": [
+    "Large-summary merging, regeneration and longer conversations were not exercised by these two turns.",
+    "Second small summary labels time unknown although character memory retains year 2644.",
+    "Original neutral run with adult-oriented options remains a failed content check; it was not rerun.",
+    "Changing age and obtaining successful output does not establish the exact cause of the previous upstream rejection.",
+    "No shared-stack deployment, production acceptance, commit or publication performed."
+  ],
+  "previousEvidence": "live-acceptance.json",
+  "records": [
+    {
+      "slot": "slot-1",
+      "purpose": "story",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_bf0992cf612b4e1dab8e1fb51c0d3757",
+      "requestId": "1def32c25b2e9c8dbb33c148f92871495055304e867012bb8c114c70ebc1a4f9",
+      "usage": {
+        "prompt_tokens": 24113,
+        "completion_tokens": 4173,
+        "total_tokens": 28286
+      },
+      "retries": 0,
+      "responseSha256": "7a94a1ca03350a8c19454ef91413f40560926d94b9bc8c3b869cda00e7c4b533",
+      "sseSha256": "7bf9914e1f503204f1da36bf1efb494c7085937b85d7a473f5e742b60ca9a12e"
+    },
+    {
+      "slot": "slot-2",
+      "purpose": "summary",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_084ebf7d46524240ba71a47f2618cab0",
+      "requestId": "aee1f275cb2fecc8a178a516f3387552a4a75c84dbdcf05f9b87f6baae03590b",
+      "usage": {
+        "prompt_tokens": 3300,
+        "completion_tokens": 792,
+        "total_tokens": 4092
+      },
+      "retries": 0,
+      "responseSha256": "a57e906789d4904c6f9427e843cacbc3633c66fbb85f6b62a8f4bc645359ea10",
+      "sseSha256": "9406c4fc21025e9244ba6e970cab3c426d8a9b24c2c3529dc746439ba950577b"
+    },
+    {
+      "slot": "slot-3",
+      "purpose": "memory",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_19101aeaae834faea3c4aa012c509f8b",
+      "requestId": "32e52311dbd5e326d142f5f09f23a8475bc022764dffa89d61b8dbbff26e79fc",
+      "usage": {
+        "prompt_tokens": 3660,
+        "completion_tokens": 1311,
+        "total_tokens": 4971
+      },
+      "retries": 0,
+      "responseSha256": "06441ac7c945f7cef9cdd51bea398d39d887ea8aeef66c6d8b2adc82311c541a",
+      "sseSha256": "0e3bcf17583cb8984cad14b9278d271782aba95d357eb37ab4ff86808e392245"
+    },
+    {
+      "slot": "slot-4",
+      "purpose": "story",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_878e0e4e474f4e2c8712ba6431fa6deb",
+      "requestId": "196ac01dbda6a91783d3dc54d71d172425d8d528da07c5efa3b07595e9f0dca1",
+      "usage": {
+        "prompt_tokens": 24751,
+        "completion_tokens": 4559,
+        "total_tokens": 29310
+      },
+      "retries": 0,
+      "responseSha256": "ff1e5340693d175933a246b95e4dcba165d0b749fc0d7a996575337a87295361",
+      "sseSha256": "28effcb983dd5c11be22c477cd8f0e68ba8936e751eee8e8c913c9ebaa7fe721"
+    },
+    {
+      "slot": "slot-5",
+      "purpose": "summary",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_82b4973041804778b3d7a6a702352c4d",
+      "requestId": "491d76ccc683143d651e67c5f613bc66826250e2a5017cbd90be4acfbaa13723",
+      "usage": {
+        "prompt_tokens": 3899,
+        "completion_tokens": 340,
+        "total_tokens": 4239
+      },
+      "retries": 0,
+      "responseSha256": "2f4e1f7966737cf8451feb157ff135a6ac67aa309fb30ddc177fb0bb3fd0375a",
+      "sseSha256": "5b84cd12166223aa9acba14223a3c15ccd19e760305ef3c4a09b4da24992d778"
+    },
+    {
+      "slot": "slot-6",
+      "purpose": "memory",
+      "status": "complete",
+      "actualModel": "google/gemini-3.8-flash",
+      "runId": "chatrun_af15b0165a714d2a893063c456400628",
+      "requestId": "c463b902a9553e4a4e8ba63b55c0d69afb5910e012b8cc68b3e8bb7138b43b0f",
+      "usage": {
+        "prompt_tokens": 4738,
+        "completion_tokens": 1365,
+        "total_tokens": 6103
+      },
+      "retries": 0,
+      "responseSha256": "c1c3117611bb2e61e66c2ef172c95b364ad32cc4b2bf1a44ca5dd95201fe801d",
+      "sseSha256": "916758bf05fe315f5e2e6d92f9c9f5bc44cf3ed2a3e8cb7f693b6221ebd72e7e"
+    }
+  ]
+}
