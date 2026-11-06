@@ -19,7 +19,7 @@ TOKEN = "synthetic-rpg-service-token-for-tests-only"
 HEADERS = {"Authorization": "Bearer " + TOKEN}
 
 
-@pytest.mark.parametrize("setup", ["google/gemini-3.8-flash"], indirect=True)
+@pytest.mark.parametrize("setup", ["google/gemini-3.8-flash", "google/gemini-4-argon"], indirect=True)
 def test_god_long_profile_is_bound_and_default_unchanged(setup):
     client, _, _, meta, captured, _ = setup
     base = client.get('/api/rpg/v1/models', headers=HEADERS).json()['models'][0]
@@ -190,18 +190,48 @@ def test_preflight_failure_has_bound_undispatched_receipt(setup, monkeypatch, re
     assert captured == []
 
 
+@pytest.mark.parametrize("setup", [SCOPED_MODEL_ID, "google/gemini-3.8-flash", "google/gemini-4-argon"], indirect=True)
+def test_selected_compatible_backup_is_the_dispatched_route(setup, monkeypatch):
+    client, stable, repo, _, captured, _ = setup
+    route = next(r for r in stable.control.get_policy().routes if r.capability == "chat_text")
+    primary, backup = route.connection_ids
+    _qualify_scoped_model(repo, backup)
+    original = repo.list_catalog_models
+    def listing(*args, **kwargs):
+        rows = original(*args, **kwargs)
+        return [{**r, "metadata_json": "{}"} for r in rows] if kwargs.get("connection_id") == primary else rows
+    monkeypatch.setattr(repo, "list_catalog_models", listing)
+    selected = next(m for m in bridge.catalog(stable) if m["available"])
+    assert selected["_binding"]["connection"] == backup
+    result = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=payload(client))
+    assert result.status_code == 200, result.text
+    attempts = repo.list_chat_control_receipts("local")["attempts"]
+    assert len(attempts) == 1 and attempts[0]["connection_id"] == backup and attempts[0]["dispatched"]
+    assert len(captured) == 1 and captured[0]["model"] == selected["model"]
+    assert captured[0]["provider"] == {"allow_fallbacks": False, "require_parameters": True}
+
+
 def test_route_drift_during_begin_blocks_fallback(setup, monkeypatch):
     client, stable, repo, _, captured, _ = setup
     value = payload(client)
     original = stable.begin_rpg_certified
-    async def changed(model):
-        result = await original(model)
+    async def changed(model, **kwargs):
+        result = await original(model, **kwargs)
         return replace(result, dispatch=replace(result.dispatch, connection_fingerprint="changed"))
     monkeypatch.setattr(stable, "begin_rpg_certified", changed)
     response = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value)
     assert response.status_code == 409
+    receipt = response.json()["receipt"]
+    assert receipt["status"] == "failed" and receipt["dispatched"] is False
+    assert receipt["error"] == "rpg_selection_changed"
+    assert receipt["requestHash"] == bridge.digest(value)
+    assert receipt["selectionId"] == value["selectionId"] and receipt["selectionRevision"] == value["selectionRevision"]
+    assert response.json()["raw"] == response.json()["sse"] == ""
+    assert receipt["runId"] and receipt["attemptId"]
     assert captured == []
     assert not any(a["dispatched"] for a in repo.list_chat_control_receipts("local")["attempts"])
+    assert client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value).status_code == 409
+    assert len(repo.list_chat_control_receipts("local")["attempts"]) == 1
 
 
 @pytest.mark.parametrize("kind", ["http", "incomplete", "mismatch", "credential", "receipt"])
@@ -223,6 +253,23 @@ def test_failed_or_unknown_one_dispatch_never_retry(setup, monkeypatch, kind):
         assert result.json()["raw"] == result.json()["sse"] == ""
 
 
+def test_unpersisted_preflight_rejection_remains_unknown(setup, monkeypatch):
+    client, stable, _, _, captured, _ = setup
+    original = stable.begin_rpg_certified
+    async def changed(model, **kwargs):
+        result = await original(model, **kwargs)
+        return replace(result, dispatch=replace(result.dispatch, connection_fingerprint="changed"))
+    monkeypatch.setattr(stable, "begin_rpg_certified", changed)
+    monkeypatch.setattr(stable, "fail_undispatched", lambda *a, **k: False)
+    value = payload(client)
+    result = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value)
+    assert result.status_code == 502
+    assert result.json()["receipt"]["status"] == "failed_or_unknown"
+    assert result.json()["receipt"]["error"] == "rpg_receipt_pending"
+    assert result.json()["receipt"]["requestHash"] == bridge.digest(value)
+    assert captured == []
+
+
 def test_missing_actual_model_stays_unknown(setup):
     client, _, _, _, _, response = setup
     response["content"] = stream(model=None)
@@ -235,14 +282,17 @@ def test_metadata_changes_after_preflight_before_dispatch(setup, monkeypatch):
     client, stable, repo, meta, captured, _ = setup
     value = payload(client)
     original = stable.begin_rpg_certified
-    async def changed(model):
-        result = await original(model)
+    async def changed(model, **kwargs):
+        result = await original(model, **kwargs)
         meta["supported_parameters"] = []
         return result
     monkeypatch.setattr(stable, "begin_rpg_certified", changed)
     result = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=value)
-    assert result.status_code == 502
+    assert result.status_code == 409
     assert result.json()["receipt"]["dispatched"] is False
+    assert result.json()["receipt"]["status"] == "failed"
+    assert result.json()["receipt"]["error"] == "rpg_selection_changed"
+    assert result.json()["receipt"]["requestHash"] == bridge.digest(value)
     assert captured == []
     assert not any(a["dispatched"] for a in repo.list_chat_control_receipts("local")["attempts"])
 
@@ -306,8 +356,8 @@ def test_endpoint_tag_is_pinned_on_openrouter_wire(setup, monkeypatch):
     client, stable, repo, meta, captured, response = setup
     meta["rpg_provider_tag"] = "test-provider/endpoint"
     original = stable.begin_rpg_certified
-    async def begin(model):
-        p = await original(model)
+    async def begin(model, **kwargs):
+        p = await original(model, **kwargs)
         return replace(p, dispatch=replace(p.dispatch, target=replace(p.dispatch.target, provider_kind="openrouter")))
     monkeypatch.setattr(stable, "begin_rpg_certified", begin)
     result = client.post("/api/rpg/v1/chat/completions", headers=HEADERS, json=payload(client))

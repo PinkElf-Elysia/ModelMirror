@@ -2,15 +2,20 @@ import {assembleHistoryRequest} from './history-assembly.mjs';
 import {completeHistory} from './branch-archive.mjs';
 import {requireSummaryState,sealSummary,activeSummary,SUMMARY_WRAPPER} from './summary-state.mjs';
 import {canonical,sha,fail} from '../plugins/catalog.mjs';
+import {summaryV2Story} from './default-summary-v2.mjs';
 export const summarySnapshot=(s,state)=>sealSummary({...((state?.summary.requireSummaryState)||requireSummaryState)(s),pending:null,operations:{}});
 // Only host-owned raw history and a frozen authorization-derived policy enter here.
 export function assembleSummaryRequest(s,input,policy,baseAssembly,state){
  completeHistory(s);const snapshot=summarySnapshot(s,state);
  if(policy.runtimeHash!==s.runtime.hash||policy.summaryRevision!==s.rollingSummary.revision||policy.modelRevision!==s.modelState.revision||!policy.ready)throw fail('SUMMARY_POLICY_NOT_READY');
  const m2=policy.mode==='rolling-summary';
- const original=assembleHistoryRequest(s,input,policy.historyPolicy,baseAssembly);
+ const v2=policy.summaryVersion===2;
+ const original=assembleHistoryRequest(s,input,v2?{...policy.historyPolicy,enabled:false}:policy.historyPolicy,baseAssembly);
  let messages=original.messages,selectedTurns=original.historyPolicy.selectedTurns;
- if(m2){
+ const v2Story=v2?summaryV2Story(s,original):null;
+ if(v2Story){
+  ({messages,selectedTurns}=v2Story);
+ }else if(m2){
   const T=s.turns.length,active=activeSummary(snapshot);
   if((active?.coveredThrough||0)!==Math.max(0,T-1))throw fail('SUMMARY_COVERAGE_GAP');
   const system={...original.messages[0]};
@@ -21,7 +26,7 @@ export function assembleSummaryRequest(s,input,policy,baseAssembly,state){
   messages=[system,...imported,...structuredClone(s.history.slice(-2)),{role:'user',content:original.current}];
   selectedTurns=T?[T]:[];
  }
- const context={format:1,policy:structuredClone(policy),mode:policy.mode,totalTurns:s.turns.length,selectedTurns,selectedRequestIds:selectedTurns.map(n=>s.turns[n-1].requestId),summaryVersionId:m2?snapshot.activeVersionId:null,coveredThrough:m2?(activeSummary(snapshot)?.coveredThrough||0):0,summarySnapshot:snapshot,historyConfig:structuredClone(s.historyWindow.config),sourceHash:sha(canonical(s.history)),requestHash:sha(canonical(messages))};
+ const context={format:1,policy:structuredClone(policy),mode:policy.mode,totalTurns:s.turns.length,selectedTurns,selectedRequestIds:selectedTurns.map(n=>s.turns[n-1].requestId),summaryVersionId:m2&&!v2?snapshot.activeVersionId:null,coveredThrough:v2Story?v2Story.state.covered:m2?(activeSummary(snapshot)?.coveredThrough||0):0,summarySnapshot:snapshot,...(v2Story?{summaryV2Snapshot:v2Story.state}:{}),historyConfig:structuredClone(s.historyWindow.config),sourceHash:sha(canonical(s.history)),requestHash:sha(canonical(messages))};
  return {...original,messages,contextPolicy:{...context,hash:sha(canonical(context))}};
 }
 // This receipt permits reconstruction without consulting today's grants or summary.

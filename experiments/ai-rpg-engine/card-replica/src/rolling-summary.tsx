@@ -1,12 +1,13 @@
-import {useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import {cardStoragePrefix} from './session-client';
 import {Modal} from './modal';
 import {ModelPicker} from './model-picker';
 import type {ModelItem} from './model-picker';
 import {api,ApiError} from './session-client';
 import type {Session,ModelChoice} from './session-client';
+import AutoSummaryDialog,{type SummaryChange} from './auto-summary-dialog';
 import './rolling-summary.css';
-export type SummaryStatus={compatible:boolean;enabled:boolean;busy:boolean;sessionRevision:number;summaryRevision:number;pendingOperationId:string|null;config:{timing:'before'|'after';model:ModelChoice|null};activeVersionId:string|null;versions:{id:string;kind:string;coveredThrough:number;effectiveText:string;raw:string|null;compression?:{raw:string;rawHash:string}}[];updatePlan?:{kind:"summary"|"compression";maxCalls:number}|null;compressionAttempts?:{operationId:string;status:string;raw:string;compressedRaw:string|null}[];effectivePolicy:{revision:string;mode:string;needsUpdate:boolean;memoryEnabled?:boolean};taskState:{blocked:string|null;operations:Record<string,{status:string;kind:string;purpose?:'summary'|'compression'|'story'|'memory'|null;overflow?:boolean}>}};
+export type SummaryStatus={compatible:boolean;enabled:boolean;busy:boolean;sessionRevision:number;summaryRevision:number;pendingOperationId:string|null;config:{timing:'before'|'after';model:ModelChoice|null};activeVersionId:string|null;versions:{id:string;kind:string;coveredThrough:number;effectiveText:string;raw:string|null;compression?:{raw:string;rawHash:string}}[];updatePlan?:{kind:"summary"|"compression";maxCalls:number}|null;compressionAttempts?:{operationId:string;status:string;raw:string;compressedRaw:string|null}[];effectivePolicy:{revision:string;mode:string;needsUpdate:boolean;memoryEnabled?:boolean};taskState:{blocked:string|null;operations:Record<string,{status:string;kind:string;purpose?:'summary'|'compression'|'story'|'memory'|null;overflow?:boolean}>};v2?:{large:string;covered:number;turns:{id:number;small:string}[];canRegenerateLarge:boolean}};
 const key=(id:string)=>cardStoragePrefix()+'-summary-operation:'+id;
 export function summaryActivity(status:SummaryStatus,pending=false){
  if(status.busy){const task=Object.values(status.taskState.operations).find(o=>['pending','unknown'].includes(o.status));return task?.purpose==='compression'?'正在压缩摘要':task?.purpose==='summary'?'正在更新摘要':task?.purpose==='memory'?'正在整理记忆':task?.purpose==='story'?'正在生成剧情':'会话操作进行中';}
@@ -20,15 +21,35 @@ export function useRollingSummary(s:Session|null,accept:(s:Session)=>void){
  useEffect(()=>{live.current=true;if(!s?.rollingSummary)return;try{const raw=localStorage.getItem(key(s.id));if(raw){const x=JSON.parse(raw);if(!/^[a-zA-Z0-9-]{1,80}$/.test(x?.operationId))throw Error();setPending(x);}}catch{setBroken(true);setError('无法读取总结操作记录，请保留浏览器数据。');}void refresh();const timer=setInterval(()=>void refresh(),1500);return()=>{live.current=false;seq.current++;clearInterval(timer);};},[s?.id,!!s?.rollingSummary]);
  function persist(value:{operationId:string}|null){try{if(storageBroken)return false;if(value)localStorage.setItem(key(current.current!.id),JSON.stringify(value));else localStorage.removeItem(key(current.current!.id));setPending(value);return true;}catch{setBroken(true);setError('总结操作记录未能保存，请保留浏览器数据。');return false;}}
  async function perform(action:string,payload:Record<string,unknown>={}){
-  if(lock.current||storageBroken)return false;lock.current=true;setWorking(true);setError('');
-  try{const h=await refresh();if(!h?.compatible)throw Error();const body=action==='update'?{operationId:crypto.randomUUID(),expectedSessionRevision:h.sessionRevision,expectedContextPolicyRevision:h.effectivePolicy.revision}:{operationId:crypto.randomUUID(),expectedSessionRevision:h.sessionRevision,expectedSummaryRevision:h.summaryRevision,...payload};
-   if(!persist({operationId:body.operationId}))return false;const result=await api('sessions/'+current.current!.id+'/rolling-summary/'+action,body);handler.current(result.session);persist(null);await refresh();if(['failed','unknown','revoked','cancelled'].includes(result.operation?.status)){setError('更新未完成，原摘要保留。请核对结果后明确更新或停用。');return false;}return true;
+  if(lock.current||storageBroken||pending)return false;lock.current=true;setWorking(true);setError('');
+  try{const h=await refresh();if(!h?.compatible)throw Error();const body={operationId:crypto.randomUUID(),expectedSessionRevision:h.sessionRevision,...(action==='update'||action==='v2-regenerate'?{expectedContextPolicyRevision:h.effectivePolicy.revision}:{expectedSummaryRevision:h.summaryRevision}),...payload};
+   if(!persist({operationId:body.operationId}))return false;const result=await api('sessions/'+current.current!.id+'/rolling-summary/'+action,body);handler.current(result.session);if(!['pending','unknown'].includes(result.operation?.status))persist(null);await refresh();if(['failed','pending','unknown','revoked','cancelled','not-applied'].includes(result.operation?.status)){setError('更新未完成，原摘要保留。请核对结果后明确更新或停用。');return false;}return true;
   }catch(e){if(e instanceof ApiError&&e.status<500&&e.message!=='REQUEST_FAILED')persist(null);setError('操作未完成，请恢复操作结果核对；不会自动重试。');return false;}finally{lock.current=false;setWorking(false);}
  }
  async function recover(operationId?:string){if(lock.current||storageBroken)return;lock.current=true;setWorking(true);setError('');try{const h=await refresh();if(!h)throw Error();const id=operationId||pending?.operationId||h.pendingOperationId||Object.entries(h.taskState.operations).find(([,o])=>['pending','unknown'].includes(o.status))?.[0];if(!id){setError('没有待恢复的操作。');return;}const result=await api('sessions/'+current.current!.id+'/rolling-summary/recover',{operationId:id,expectedSessionRevision:h.sessionRevision,expectedSummaryRevision:h.summaryRevision});handler.current(result.session);if(['pending','unknown'].includes(result.operation.status))setError('结果仍未确认，请保留记录；不会换 ID 重发。');else{persist(null);setError(result.operation.status==='complete'?'已核对保存结果，没有重新派发。':'已核对为未完成，原有效摘要保留。');}await refresh();}catch{setError('恢复未完成，请稍后用原操作核对。');}finally{lock.current=false;setWorking(false);}}
  const unconfirmed=!!pending||!!status?.pendingOperationId||!!status&&Object.values(status.taskState.operations).some(o=>['pending','unknown'].includes(o.status));
- const blocked=!!s?.rollingSummary&&(storageBroken||working||!status?.compatible||status.sessionRevision!==s.revision||unconfirmed||status.busy||status.enabled&&(!status.config.model||!!status.taskState.blocked));
+ const blocked=!!s?.rollingSummary&&(storageBroken||working||!status?.compatible||status.sessionRevision!==s.revision||unconfirmed||status.busy||status.enabled&&(!status.v2&&!status.config.model||!!status.taskState.blocked));
  return {status,error:error||statusError,working,pending,unconfirmed,blocked,refresh,perform,recover};
+}
+export function SummaryV2Dialog({status,sessionId,busy,pending,error,perform,disable,recover,close}:{status:SummaryStatus;sessionId:string;busy:boolean;pending:boolean;error:string;perform:(action:string,payload:Record<string,unknown>)=>Promise<boolean>;disable:()=>Promise<boolean>;recover:()=>void;close:()=>void}){
+ const loadModels=useCallback(async()=>{
+  const {models}:{models:ModelItem[]}=await api('sessions/'+sessionId+'/rolling-summary/catalog');
+  return models.filter(m=>m.available).map(m=>({value:m.selectionId,revision:m.selectionRevision,label:m.name||m.model}));
+ },[sessionId]);
+ const model=status.config.model?.selectionId||'';
+ async function change(operation:SummaryChange){
+  const expectedSessionRevision=status.sessionRevision;
+  const expected={expectedSessionRevision,expectedSummaryRevision:status.summaryRevision};
+  if(operation.action==='settings'){
+   if(!operation.enabled)return disable();
+   const selection=operation.model?{selectionId:operation.model,selectionRevision:operation.modelRevision}:null;
+   return perform('v2-settings',{...expected,text:operation.large??null,...(operation.model!==model?{selection}:{})});
+  }
+  if(operation.action==='edit-small')return perform('v2-edit',{...expected,turn:operation.turn,text:operation.text});
+  return perform('v2-regenerate',{expectedSessionRevision,expectedContextPolicyRevision:status.effectivePolicy.revision,summaryTurn:operation.action==='small'?operation.turn:null});
+ }
+ return <AutoSummaryDialog session={{...status.v2!,model,modelLabel:status.config.model?.model,enabled:status.enabled}} defaultModel loadModels={loadModels} busy={busy||status.busy}
+  locked={pending||!status.enabled} error={error|| (status.taskState.blocked?'上次总结未完成，可以重新生成。':'')} change={change} recover={pending?recover:undefined} close={close}/>;
 }
 export function RollingSummaryDialog({status,sessionId,busy,pending,error,save,update,recover,close}:{status:SummaryStatus;sessionId:string;busy:boolean;pending:boolean;error:string;save:(v:Record<string,unknown>)=>Promise<boolean>;update:()=>void;recover:()=>void;close:()=>void}){
  const [base,setBase]=useState(status);

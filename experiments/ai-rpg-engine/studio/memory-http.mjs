@@ -1,5 +1,5 @@
 import {exact,operationId,revision} from './history-state.mjs';
-import {memoryPlan} from './memory-task-state.mjs';
+import {isV2SummaryStage} from './default-summary-v2.mjs';
 import {summaryHttp} from './summary-http.mjs';
 import {fail} from '../plugins/catalog.mjs';
 const status=o=>o.status==='unknown'||o.status==='pending'?'pending':['revoked','not-applied'].includes(o.status)?'cancelled':o.status;
@@ -14,7 +14,7 @@ export function memoryProjection(s){
 const summaryTask=o=>({status:o.status,kind:o.kind,error:o.error,purpose:o.tasks.at(-1)?.purpose||null,overflow:o.tasks.some(t=>t.overflow||t.purpose==='compression')});
 function validRecovery(x){return exact(x,['operationId','expectedSessionRevision','expectedMemoryRevision'])&&operationId(x.operationId)&&revision(x.expectedSessionRevision)&&revision(x.expectedMemoryRevision);}
 export async function memoryHttp({route,method,data,query,store,plugins,view,send}){
- const match=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/(memory-palace|rolling-summary)(?:\/(catalog|settings|edit|update|recover))?$/);if(!match)return false;
+ const match=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/(memory-palace|rolling-summary)(?:\/(catalog|settings|edit|update|recover|v2-settings|v2-edit|v2-regenerate))?$/);if(!match)return false;
  const [,id,feature,action]=match,s=await store.read(id);
  if(feature==='rolling-summary'&&s.runtime?.format!==5)return false;
  if(query.size)throw fail('MEMORY_OPERATION_INVALID',400);
@@ -22,10 +22,19 @@ export async function memoryHttp({route,method,data,query,store,plugins,view,sen
  await store.requireRuntime(s);
  if(feature==='rolling-summary'){
   if(method==='GET'&&!action){const h=await store.summaryStatus(id,plugins),a=await store.memoryAuthorizations(id),combined={...s.summaryTasks?.operations,...s.memoryTasks.operations};
-   const blocked=s.memoryTasks.blocked&&s.memoryTasks.operations[s.memoryTasks.blocked].blockedPurpose==='summary'?s.memoryTasks.blocked:h.taskState.blocked;
-   h.taskState={blocked,operations:Object.fromEntries(Object.entries(combined).map(([k,o])=>[k,summaryTask(o)]))};h.updatePlan=h.enabled&&h.config.model&&h.effectivePolicy.needsUpdate?{kind:'summary',maxCalls:a.memory.enabled?memoryPlan(s,a,'update',store.cardState?.validateModel).length:2}:null;
+   const failed=s.memoryTasks.operations[s.memoryTasks.blocked];
+   const blocked=failed?.blockedPurpose==='summary'&&(!h.v2||failed.plan.some(stage=>isV2SummaryStage(stage.stageId)))?s.memoryTasks.blocked:h.v2?null:h.taskState.blocked;
+   h.taskState={blocked,operations:Object.fromEntries(Object.entries(combined).map(([k,o])=>[k,summaryTask(o)]))};h.updatePlan=!h.v2&&h.enabled&&h.config.model&&h.effectivePolicy.needsUpdate?{kind:'summary',maxCalls:a.memory.enabled?store.memoryTasks.planFor(s,a,'update').length:2}:null;
    h.compressionAttempts=Object.entries(combined).flatMap(([operationId,o])=>o.tasks.filter(t=>t.overflow).map(t=>({operationId,status:o.status,raw:t.output.raw,compressedRaw:o.tasks.find(c=>c.candidate?.requestId===t.requestId)?.output?.raw??null})));
    send(200,{...h,busy:store.running.has(id)||store.locks.has(id)});return true;
+  }
+  if(method==='POST'&&store.autoSummaryV2&&(action==='v2-settings'||action==='v2-edit')){
+   const result=await store.saveSummaryV2(id,data,plugins,action==='v2-edit');send(200,{...result,session:view(result.session)});return true;
+  }
+  if(method==='POST'&&store.autoSummaryV2&&action==='v2-regenerate'){
+   if(!exact(data,['operationId','expectedSessionRevision','expectedContextPolicyRevision','summaryTurn']))throw fail('SUMMARY_OPERATION_INVALID',400);
+   const operation=await store.memoryTasks.regenerate(id,{...data,expectedMemoryRevision:s.memoryPalace.revision});
+   send(200,{operation:{status:operation.status,error:operation.error},session:view(await store.read(id))});return true;
   }
   if(method==='POST'&&action==='update'&&(await plugins.memoryAuthorization(id)).enabled){
    if(!exact(data,['operationId','expectedSessionRevision','expectedContextPolicyRevision'])||!operationId(data.operationId)||!revision(data.expectedSessionRevision))throw fail('SUMMARY_OPERATION_INVALID',400);
@@ -42,7 +51,7 @@ export async function memoryHttp({route,method,data,query,store,plugins,view,sen
   const operations={...Object.fromEntries(Object.entries(ops).map(([k,o])=>[k,summaryTask(o)])),...Object.fromEntries(Object.entries(s.summaryTasks?.operations||{}).map(([k,o])=>[k,summaryTask(o)]))};
   const originalOutputs=Object.entries(ops).flatMap(([operationId,o])=>o.tasks.filter(t=>t.purpose==='memory'&&t.output).map(t=>({operationId,status:t.status,raw:t.output.raw??'',sourceFrom:t.source.from,sourceThrough:t.source.through,rawHash:t.output.evidence?.record?.rawHash??null})));
   const pendingOperationId=s.memoryPalace.pending||s.memoryTasks.pendingSettings||Object.keys(s.memoryLegacyInputs||{}).find(k=>s.memoryLegacyInputs[k].status==='prepared'&&!s.summaryTasks?.operations?.[k])||null;
-  send(200,{compatible:true,enabled:a.memory.enabled,busy:store.running.has(id)||store.locks.has(id),sessionRevision:s.revision,memoryRevision:s.memoryPalace.revision,config:s.memoryTasks.config,entries:s.memoryPalace.entries,processedThrough:s.memoryPalace.processedThrough,totalTurns:s.turns.length,pendingOperationId,operations,originalOutputs,effectivePolicy:x.effectivePolicy,maxCalls:x.maxCalls,updateMaxCalls:a.memory.enabled?memoryPlan(s,a,'update',store.cardState?.validateModel).length:0,blocked:s.memoryTasks.blocked,lastRecall:s.turns.at(-1)?.memoryPolicy.recall||null});return true;
+  send(200,{compatible:true,enabled:a.memory.enabled,busy:store.running.has(id)||store.locks.has(id),sessionRevision:s.revision,memoryRevision:s.memoryPalace.revision,config:s.memoryTasks.config,entries:s.memoryPalace.entries,processedThrough:s.memoryPalace.processedThrough,totalTurns:s.turns.length,pendingOperationId,operations,originalOutputs,effectivePolicy:x.effectivePolicy,maxCalls:x.maxCalls,updateMaxCalls:a.memory.enabled?store.memoryTasks.planFor(s,a,'update').length:0,blocked:x.effectivePolicy.reason==='MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION'?s.memoryTasks.blocked:null,lastRecall:s.turns.at(-1)?.memoryPolicy.recall||null});return true;
  }
  if(method==='GET'&&action==='catalog'){send(200,{models:await store.memoryTasks.catalog(id)});return true;}
  if(method!=='POST')throw fail('MEMORY_OPERATION_INVALID',400);

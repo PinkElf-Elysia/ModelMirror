@@ -28,6 +28,7 @@ import {createIllustrationWriter} from './illustration-rewrite.mjs';
 import {createIllustrations,imageService} from './illustrations.mjs';
 import {transcriptHttp} from './transcript.mjs';
 import {forkMessage,storyProgress} from './message-tools.mjs';
+import {archivePluginHttp} from './archive-plugin-http.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {loadReviewedCatalog,ILLUSTRATIONS_ID,MESSAGE_TOOLS_ID,TRANSCRIPT_ID,canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -39,7 +40,7 @@ export function archiveChatOptions(env){
    ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT')
  }};
 }
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null}={}){
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
@@ -65,7 +66,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  const earthBudget=async()=>{if(rollingSummary)return summaryTransport.status();const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await (rollingSummary?summaryTransport:control).status()).enabled}:b;};
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let godHost=null;
- if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl});}
+ if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl,autoSummaryV2});}
  let plugins=null,pluginError=null;
  try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
@@ -85,7 +86,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
 
  if(godHost&&plugins)godHost.connect?.(plugins);
  if(historyWindow)earth.plugins=plugins;
- if(rollingSummary&&plugins){if(memoryPalace)earth.connectMemory(plugins,summaryTransport);else earth.connectSummary(plugins,summaryTransport);}
+ if(rollingSummary&&plugins){if(memoryPalace){earth.autoSummaryV2=autoSummaryV2;earth.connectMemory(plugins,summaryTransport);}else earth.connectSummary(plugins,summaryTransport);}
  async function openArchive(directory,create){
   const lease=await ownArchiveDirectory?.(join(directory,'plugins'));
   let card;
@@ -98,8 +99,9 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    throw error;
   }
  }
+ const archiveFeatures={messageTools,transcript,illustrations:!!illustrationService};
  let xingjianPromise;
- const xingjian=()=>xingjianPromise??=import('../xingjian-card/host.mjs').then(m=>openArchive(join(directory,'xingjian',xingjianControl?'real':'offline'),dir=>m.createXingjian(dir,xingjianControl))).catch(e=>{xingjianPromise=null;throw e;});
+ const xingjian=()=>xingjianPromise??=import('../xingjian-card/host.mjs').then(m=>openArchive(join(directory,'xingjian',xingjianControl?'real':'offline'),dir=>m.createXingjian(dir,xingjianControl,autoSummaryV2,archiveFeatures))).catch(e=>{xingjianPromise=null;throw e;});
  const archiveHosts=new Map();
  const archiveNames={'ancient':'古代人生 · 命运卷轴','lord-of-mysteries':'诡秘之主大世界','cultivation':'超级修仙大世界'};
  async function archiveHost(id){
@@ -110,7 +112,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
      (await import('../lord-of-mysteries-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content;
     const control=archiveControls[id];
     const {createArchiveHost}=await import('../xingjian-card/host.mjs');
-    return openArchive(join(directory,'archive-chat',id,control?'real':'offline'),dir=>createArchiveHost(dir,control,{cardId:id,name:archiveNames[id],system}));
+    return openArchive(join(directory,'archive-chat',id,control?'real':'offline'),dir=>createArchiveHost(dir,control,{cardId:id,name:archiveNames[id],system,autoSummaryV2,pluginFeatures:archiveFeatures}));
    };
    archiveHosts.set(id,init().catch(error=>{archiveHosts.delete(id);throw error;}));
   }
@@ -124,7 +126,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
   try{
    const allowed=new Set(origins.length?origins:[`http://127.0.0.1:${server.address().port}`]);
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
-   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god)\/api\/sessions\/([a-zA-Z0-9-]+)\/transcript\/(import|export)$/);
+   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god|xingjian|(?:ancient|cultivation|lord-of-mysteries)\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/transcript\/(import|export)$/);
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!==(transfer?.[3]==='import'?'text/plain':'application/json')))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
    if (req.method === 'GET' && ['/rpg-app/ancient/', '/rpg-app/ancient/landscape.jpg'].includes(pathname)) {
@@ -135,7 +137,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     return res.end(bytes);
    }
    if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
-   if(transfer&&transcript)return await transcriptHttp({req,res,send,match:transfer.slice(1),store:transfer[1]==='earth'?earth:godHost?.store,plugins});
+   if(transfer&&transcript){
+    const host=transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
+    return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
+   }
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation)\/chat\/(.*)$/);
@@ -152,8 +157,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     }
     const card=chatRoute?await archiveHost(chatRoute[1]):await xingjian();
     if(route==='api/plugins'&&req.method==='GET')return send(200,await card.plugins.catalog());
-    const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/install$/);
-    if(install&&req.method==='POST'&&data?.pluginId===install[1]&&REVIEWED_PLUGIN_IDS.includes(install[1]))return send(200,await card.plugins.change('install',data));
+    const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall)$/);
+    if(install&&req.method==='POST'&&data?.pluginId===install[1]&&REVIEWED_PLUGIN_IDS.includes(install[1]))return send(200,await card.plugins.change(install[2],data));
+    const cardId=chatRoute?chatRoute[1]:'xingjian';
+    if(await archivePluginHttp({route,req,res,data,send,cardId,host:card,control:chatRoute?archiveControls[cardId]:xingjianControl,features:archiveFeatures,illustrations}))return;
     return await card.handle({route,method:req.method,data,plugins:card.plugins,send,query:new URL(req.url,'http://rpg').searchParams});
    }
    const mysteryAsset=pathname.match(/^\/rpg-app\/lord-of-mysteries\/(|world-map\.jpg|fog-background\.jpg)$/);

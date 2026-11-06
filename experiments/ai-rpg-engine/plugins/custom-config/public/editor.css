@@ -16,6 +16,34 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* Shared RPG workspace frame; user-authored CSS is previewed separately. */
+body{--blue:#386bc7;--soft:#f3f6fb;--line:#d7e0ed;background:#edf1f7;color:#283b56;font-family:Inter,"PingFang SC","Microsoft Yahei",sans-serif}
+body .heading{background:#131b28;color:#e9f0fb;padding:18px 28px;min-height:78px;border-bottom:1px solid #34455e;flex-shrink:0}
+.workspace-kicker{font-size:10px;color:#a9bedc;letter-spacing:.12em;margin:0 0 6px}.heading h1{font-size:20px;font-weight:550}
+body .heading button{border:1px solid #4a5b75;background:transparent;color:#c3d4eb;width:34px;height:34px;border-radius:7px}
+body>nav{background:#f8faff;border-bottom:1px solid var(--line);min-height:52px;flex-shrink:0;padding-inline:28px;gap:22px}
+body>nav button{min-height:52px;font-size:14px;font-weight:500}
+body>main{width:100%;max-width:1080px;margin:auto;background:#fff;padding:24px 32px 44px;scroll-padding-top:64px;border-inline:1px solid #e0e7f0}
+body .actions{gap:8px;margin-bottom:12px}
+body .actions button{background:white;color:#3d587e;border:1px solid #c7d5e7;min-height:38px;font-size:12px;border-radius:6px}
+body .actions .danger{background:transparent;color:#a34942;border-color:#dfbfb9;margin-left:auto}
+body .config-jumps{position:sticky;top:-24px;z-index:4;background:#fff;gap:24px;padding:12px 0;border-bottom:1px solid #e0e7f0;margin:0 0 20px;flex-wrap:wrap}
+.config-jumps a{font-size:12px;text-decoration:none;color:#47678e;line-height:2}
+body .hint{font-size:12px;color:#647792;line-height:1.8}
+body .editorbox{border:1px solid #cfdae9;border-radius:8px;background:#fff}
+body .toolbar{background:#f1f5fa;border-bottom-color:#dce5f1;min-height:44px}
+body .toolbar button{min-width:32px;min-height:32px;border-radius:4px;color:#425e83}
+body .editorbox textarea{background:#fff;font:13px/1.85 Consolas,"Microsoft Yahei",monospace;color:#263e60;padding:18px}
+body :is(input,textarea,select){border-color:#c7d4e6;border-radius:7px;color:#2a4162}
+body h2{font-size:16px;font-weight:600;margin-top:28px}
+body .bottom{background:#f8faff;border-top:1px solid #d3dfef;min-height:68px;padding:14px 28px;gap:12px;flex-shrink:0}
+body .bottom button{min-height:40px;border-radius:7px;font-size:13px}
+body .bottom output{font-size:12px}
+body dialog{border:1px solid #d2deed;border-radius:12px;box-shadow:0 20px 70px #13243d40;color:#263e60}
+body dialog::backdrop{background:#0e1b31a0;backdrop-filter:none}
+body :is(a,button,input,textarea,summary,select):focus-visible{outline:3px solid #5089de;outline-offset:3px}
+@media(max-width:640px){body .heading{padding:16px 18px}body>nav{padding-inline:18px}body>main{padding:20px 18px 36px;border:0}body .actions button{min-height:42px}body .actions .danger{margin-left:0}body .config-jumps{gap:8px 18px;top:-20px}body .bottom{padding:12px 18px;flex-wrap:wrap}body .bottom output{width:100%;margin:0}body .bottom button{flex:1;min-width:80px}body .toolbar button{min-width:36px;min-height:38px}}
 h1 {
   font-size: 23px;
   margin: 0;

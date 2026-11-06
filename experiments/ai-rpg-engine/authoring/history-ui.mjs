@@ -104,11 +104,11 @@ export function openHistorySettings({api,sessionId,workId,dialog,onClose=()=>{}}
   function render(){
     if(!node.open)return;
     const body=node.querySelector('.model-body');
-    body.innerHTML='<p class="model-source">M1 历史窗口 · 离线会话</p><p data-model-status role="status"></p>';
+    body.innerHTML='<p class="model-source">历史窗口 · 离线会话</p><p data-model-status role="status"></p>';
     if(settings){
       const enabled=settings.effectivePolicy.authorization.history.enabled;
-      body.insertAdjacentHTML('beforeend','<div class="model-selection"><strong>历史窗口</strong><span>'+(!settings.plugin.installed?'未安装':enabled?'本会话已授权':'已安装 · 本会话未授权')+'</span></div><p class="model-hint">当前实际策略：'+(settings.effectivePolicy.mode==='rolling-summary'?'自动总结优先，携带历史摘要和最近 1 回合；停用自动总结后恢复下方窗口。':settings.effectivePolicy.blocked?'其他上下文插件尚未接入，发送将阻断。':enabled?'最近 '+settings.history.config.turns+' 个完整回合'+(settings.history.config.includeInitialCharacter?'，另带开局原文。':'。'):'完整历史。')+'</p><p class="model-hint">历史原文始终保留。M1 不调用模型；安装与逐会话授权分别保存。</p>');
-      body.insertAdjacentHTML('beforeend','<div class="model-selection"><label for="history-turns">保留回合数</label><select id="history-turns" data-edit>'+Array.from({length:50},(_,i)=>'<option value="'+(i+1)+'"'+(String(i+1)===draft.turns?' selected':'')+'>'+(i+1)+'</option>').join('')+'</select></div><p><label class="model-hint"><input type="checkbox" data-opening data-edit'+(draft.includeInitialCharacter?' checked':'')+'> 额外携带开局原文</label></p><p class="model-hint">本地 M1 范围为 1–50 回合；当前输入和 system 保留，已完成历史的前后置词不重复装配。</p>');
+      body.insertAdjacentHTML('beforeend','<div class="model-selection"><strong>历史窗口</strong><span>'+(!settings.plugin.installed?'未安装':enabled?'本会话已授权':'已安装 · 本会话未授权')+'</span></div><p class="model-hint">当前实际策略：'+(settings.effectivePolicy.mode==='rolling-summary'?'自动总结优先，携带历史摘要和最近 1 回合；停用自动总结后恢复下方窗口。':settings.effectivePolicy.blocked?'当前记忆设置暂不可用，请核对后再发送。':enabled?'最近 '+settings.history.config.turns+' 个完整回合'+(settings.history.config.includeInitialCharacter?'，另带开局原文。':'。'):'完整历史。')+'</p><p class="model-hint">历史原文始终保留。调整窗口不调用模型，开关只对当前会话生效。</p>');
+      body.insertAdjacentHTML('beforeend','<div class="model-selection"><label for="history-turns">保留回合数</label><select id="history-turns" data-edit>'+Array.from({length:50},(_,i)=>'<option value="'+(i+1)+'"'+(String(i+1)===draft.turns?' selected':'')+'>'+(i+1)+'</option>').join('')+'</select></div><p><label class="model-hint"><input type="checkbox" data-opening data-edit'+(draft.includeInitialCharacter?' checked':'')+'> 额外携带开局原文</label></p><p class="model-hint">可保留 1–50 回合。当前输入和系统设定始终携带，历史消息不会重复加入前置词与后置词。</p>');
       node.querySelector('#history-turns').onchange=e=>{draft.turns=e.target.value;};
       node.querySelector('[data-opening]').onchange=e=>{draft.includeInitialCharacter=e.target.checked;};
       if(settings.suggestion!==null){
@@ -122,7 +122,7 @@ export function openHistorySettings({api,sessionId,workId,dialog,onClose=()=>{}}
       }else body.insertAdjacentHTML('beforeend','<p><button type="button" data-action="disable">停用本会话</button></p>');
       if(settings.busy||settings.pending)body.insertAdjacentHTML('beforeend','<p class="model-warning">原剧情'+(settings.pending?'结果待核对':'正在处理')+'；可停用插件，但仍须核对原请求。</p>');
       if(settings.unconfirmed&&settings.unconfirmed.sessionId!==sessionId)body.insertAdjacentHTML('beforeend','<p class="model-warning">另一个离线会话有配置待核对，请回到该会话核对原操作。</p>');
-      body.insertAdjacentHTML('beforeend','<details class="model-evidence"><summary>安装范围与版本记录</summary><p>安装适用于本独立服务；授权只属于当前会话。卸载会停用本服务各会话的 M1，保留设置和历史。</p><p>会话 '+escape(sessionId.slice(-10))+' · 设置版本 '+settings.history.revision+' · 注册表版本 '+settings.registryRevision+'</p>'+(settings.plugin.installed?'<button type="button" data-action="uninstall">卸载历史窗口（本服务）</button>':'')+'</details>');
+      body.insertAdjacentHTML('beforeend','<details class="model-evidence"><summary>安装范围与版本记录</summary><p>安装后可在各会话中单独启用。卸载会停用这里各会话的历史窗口，保留设置和历史。</p><p>会话 '+escape(sessionId.slice(-10))+' · 设置版本 '+settings.history.revision+' · 注册表版本 '+settings.registryRevision+'</p>'+(settings.plugin.installed?'<button type="button" data-action="uninstall">卸载历史窗口（本服务）</button>':'')+'</details>');
     }
     if(pending){
       body.insertAdjacentHTML('beforeend','<div data-pending><p>配置结果待核对：'+escape(pending.operationId)+'</p><button type="button" data-recover>核对原操作</button>'+(retry?'<button type="button" data-retry>用原编号再试</button><button type="button" data-abandon>放弃未生效编辑</button>':'')+'</div>');

@@ -87,10 +87,6 @@ export function installCustomConfig(server, origins, directory) {
     if (
       !match ||
       (modRequest && !match?.[2]) ||
-      (configRequest &&
-        ["ancient/chat", "xingjian", "lord-of-mysteries/chat"].includes(
-          match?.[1],
-        )) ||
       req.method !== "POST" ||
       req.headers["content-type"] !== "application/json" ||
       req.headers["sec-fetch-site"] === "cross-site" ||

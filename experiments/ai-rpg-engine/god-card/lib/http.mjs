@@ -4,12 +4,13 @@ import {loadGodPlugins,loadGodPluginPackages} from './plugins.mjs';
 import {projection} from '../../card-replica/lib/store.mjs';
 import {cardDisplay} from '../../card-replica/lib/card-presentation.mjs';
 import {REVIEWED_PLUGIN_IDS,sha,canonical,fail} from '../../plugins/catalog.mjs';
-export async function createGodHost({directory,generate,branches=false,features=false,realControl=null}){
+export async function createGodHost({directory,generate,branches=false,features=false,realControl=null,autoSummaryV2=false}){
  let integrated=null;
  if(realControl&&!features)throw fail('GOD_REAL_PLUGIN_HOST_REQUIRED');
  if(realControl){const {createGodRealStore}=await import('./real-host.mjs');integrated=await createGodRealStore(directory,realControl);}
  else if(features){const {createGodPluginStore}=await import('./plugin-host.mjs');integrated=await createGodPluginStore(directory,generate);}
  const store=integrated?.store||createGodStore(directory,generate);if(!integrated)await store.init();
+ if(integrated)store.autoSummaryV2=autoSummaryV2;
  return createCardHttp({store,integrated,features,branches,realControl});
 }
 

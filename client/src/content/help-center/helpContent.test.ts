@@ -104,9 +104,9 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("继续跟踪").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
-    expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
+    expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("d9f20fe6");
     const rpgGuide = helpArticles.find((article) => article.slug === "play-rpg-cards");
-    expect(rpgGuide?.verifiedCommit).toBe("56e47104");
+    expect(rpgGuide?.verifiedCommit).toBe("d9f20fe6");
     expect(rpgGuide?.content).toContain("导出完整作品包");
     expect(searchHelpContent("创作工作台").some((item) => item.id === "play-rpg-cards")).toBe(true);
     expect(searchHelpContent("CG 画廊").some((item) => item.id === "create-rpg-cg-gallery")).toBe(true);
@@ -259,7 +259,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("分支存档").some((entry) => entry.id === "branch-rpg-story")).toBe(true);
     const guide = helpArticles.find((article) => article.slug === "branch-rpg-story");
     expect(guide?.relatedRoutes).toContain("/rpg/plugins");
-    expect(guide?.content).toContain("安装与启用是两个动作");
+    expect(guide?.content).toContain("安装与会话启用是两个动作");
     expect(guide?.content).toContain("不会增加额度");
     expect(guide?.content).toContain("恢复创建结果");
     const topic = helpModules.flatMap((module) => module.topics).find((item) => item.id === "rpg");

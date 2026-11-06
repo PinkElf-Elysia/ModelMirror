@@ -15,6 +15,7 @@ import {COMPRESSION_INSTRUCTION} from './summary-compression.mjs';
 import {parametersFor} from './model-parameters.mjs';
 import {assemble,activeSystem} from '../card-replica/lib/assembly.mjs';
 import {requireMemoryEvidence} from './memory-assembly.mjs';
+import {smallMessages,largeMessages} from '../plugins/auto-summary-v2.mjs';
 const root=fileURLToPath(new URL('../.rpg04-work/memory-palace-b3/',import.meta.url));await mkdir(root,{recursive:true});
 const models=['google/gemini-3.8-flash','openai/gpt-5.6-luna'].map((model,i)=>({model,name:model,selectionId:'model-'+i,selectionRevision:'v1',available:true,parameters:parametersFor(model)}));
 const kind=b=>b.messages[0].content===MEMORY_INSTRUCTION?'memory':b.messages[0].content===SUMMARY_INSTRUCTION?'summary':b.messages[0].content===COMPRESSION_INSTRUCTION?'compression':'story';
@@ -28,10 +29,10 @@ function updateLibrary(b){if(kind(b)!=='memory')return response(b);const source=
  const op=e?{type:'update',id:e.id,baseVersion:e.version,...fields,content:'旧码头事件至第'+last+'回合。',sourceTurns:source.turns.map(t=>t.number)}:{type:'create',...fields,sourceTurns:source.turns.map(t=>t.number)};
  return response(b,JSON.stringify({operations:[op]}));
 }
-async function fixture(t,{limit=60,onCall=response}={}){
+async function fixture(t,{limit=60,onCall=response,autoSummaryV2=false}={}){
  const directory=await mkdtemp(join(root,'case-')),wires=[],store=new MemorySessionStore(join(directory,'sessions'),()=>assert.fail('uncontrolled generator'));await store.init();
  const transport=await createMemoryTransport({directory:join(directory,'dispatches'),limit,enabled:true,baseURL:'http://127.0.0.1:1/',serviceToken:'synthetic-memory-test-token-not-a-real-credential',fetcher:async(url,init)=>{if(init.method==='GET')return Response.json({models});const b=JSON.parse(init.body);wires.push(b);await writeFile(join(directory,'wires.json'),JSON.stringify(wires,null,2));return onCall(b);}});
- const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:()=>loadReviewedPlugins({rollingSummary:true,memoryPalace:true})});t.after(()=>plugins.close());store.connectMemory(plugins,transport);
+ const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:()=>loadReviewedPlugins({rollingSummary:true,memoryPalace:true})});t.after(()=>plugins.close());store.autoSummaryV2=autoSummaryV2;store.connectMemory(plugins,transport);
  const f={directory,wires,store,plugins,transport,
   async change(action,id,pluginId=M){const c=await plugins.catalog(),p=c.plugins.find(p=>p.id===pluginId);return plugins.change(action,{operationId:randomUUID(),pluginId,version:p.version,artifactSha256:p.artifactSha256,manifestSha256:p.manifestSha256,expectedRegistryRevision:c.revision,...(id?{sessionId:id,expectedSessionRevision:(await store.read(id)).revision}:{}),...(action==='enable'?{permissions:p.permissions}:{})});},
   async enable(id,p=M){if(!(await plugins.catalog()).plugins.find(x=>x.id===p).installed)await f.change('install',null,p);await f.change('enable',id,p);},
@@ -45,6 +46,34 @@ async function fixture(t,{limit=60,onCall=response}={}){
   async branch(id,turn,name='合成分支'){await f.enable(id,'rpg.branch-save');const s=await store.read(id),x={operationId:randomUUID(),expectedSessionRevision:s.revision,turn,name};const result=await store.createBranch(id,x);await store.requireRuntime(result.session);return {...result,x};}
  };return f;
 }
+
+test('default chat rolls twenty v2 summaries into a large summary before the next story',async t=>{
+ const small=smallMessages({input:'',raw:''})[0].content,large=largeMessages('',[])[0].content;
+ const v2Kind=b=>b.messages[0].content===small?'small':b.messages[0].content===large?'large':kind(b);
+ const f=await fixture(t,{autoSummaryV2:true,onCall:b=>response(b,v2Kind(b)==='small'?'时间:未知|地点:钟楼|角色:旅人|情节:调查钟楼。':v2Kind(b)==='large'?'钟楼调查已进行二十轮。':undefined)});
+ const s=await f.create();
+ await f.send(s.id,'插件未启用时留下的原文');await f.enable(s.id,R);
+ for(let n=1;n<=20;n++){
+  const {s:current,x}=await f.send(s.id,'调查钟楼 '+n);
+  assert.equal(current.memoryTasks.operations[x.operationId].status,'complete',current.memoryTasks.operations[x.operationId].error);
+ }
+ assert.equal(f.wires.filter(b=>v2Kind(b)==='small').length,20);
+ assert.equal(f.wires.some(b=>v2Kind(b)==='large'),false);
+ const {s:next,x}=await f.send(s.id,'第21次启用后的行动');
+ assert.deepEqual(f.wires.slice(-3).map(v2Kind),['large','story','small']);
+ assert.equal(next.autoSummaryV2.covered,21);
+ assert.equal(next.autoSummaryV2.turns.length,21);
+ assert.equal(next.history.length,44);
+ const story=f.wires.at(-2).messages;
+ assert.ok(story[0].content.includes('钟楼调查已进行二十轮。'));
+ assert.ok(story.some(m=>m.role==='user'&&m.content.includes('插件未启用时留下的原文')));
+ const before=f.wires.length;await f.store.send(s.id,x);assert.equal(f.wires.length,before);
+ const {session:branch}=await f.branch(s.id,4);
+ assert.deepEqual(branch.autoSummaryV2.turns.map(t=>t.id),[2,3,4]);
+ assert.equal(branch.autoSummaryV2.large,'');
+ await f.enable(s.id);await f.configure(s.id,1);
+ await f.send(s.id,'同时使用记忆宫殿');assert.deepEqual(f.wires.slice(-3).map(v2Kind),['story','small','memory']);
+});
 
 test('new runtime, default-off M3 and zero-plugin messages exactly match existing assembly',async t=>{
  const f=await fixture(t),s=await f.store.create({characterText:'姓名:无插件合成角色',world:'表世界',mode:'real'});assert.equal((await f.plugins.catalog()).plugins.some(p=>p.installed),false);assert.equal(s.runtime.format,5);assert.equal((await f.plugins.memoryAuthorization(s.id)).enabled,false);

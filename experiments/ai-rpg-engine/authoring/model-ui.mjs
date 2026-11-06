@@ -11,7 +11,7 @@ const messages={
   MODEL_CONTROL_CHANGED:'控制面能力已变化，请刷新目录后重新核对。',
   MODEL_PARAMETERS_REJECTED:'控制面未接受这些参数，原配置保留。',
   MODEL_CONTROL_UNAVAILABLE:'控制面目录暂不可用，原配置保留。',
-  MODEL_CONTROL_UNAUTHORIZED:'控制面连接未获授权，需由宿主检查配置。',
+  MODEL_CONTROL_UNAUTHORIZED:'模型连接尚未就绪，请在平台设置中核对认证。',
   MODEL_CATALOG_CHANGED:'目录已变化，请刷新目录并重新选择，未覆盖原配置。',
   MODEL_SELECTION_CHANGED:'这条模型线路已变化，请重新选择。',
   MODEL_SELECTION_UNAVAILABLE:'这条模型线路当前不可用。',
@@ -214,7 +214,7 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice}
       if(c.drafts[next])Object.assign(c,c.drafts[next]);render(c);
     };
     if(s.history&&!s.memory){
-      body.insertAdjacentHTML('beforeend','<button type="button" data-history aria-haspopup="dialog">会话插件 · 历史窗口</button><p class="model-hint">M1 安装、授权和设置独立保存。关闭或取消会放弃尚未保存的编辑。</p>');
+      body.insertAdjacentHTML('beforeend','<button type="button" data-history aria-haspopup="dialog">会话插件 · 历史窗口</button><p class="model-hint">安装后在会话中启用。关闭或取消会放弃未保存的编辑。</p>');
       const historyButton=body.querySelector('[data-history]');historyButton.disabled=c.busy||!!c.pending;
       historyButton.onclick=()=>{
         c.picker=openHistorySettings({api,sessionId:c.sessionId,workId:c.workId,dialog,onClose:async()=>{
@@ -282,7 +282,7 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice}
     };
     node.querySelector('input').oninput=event=>{query=event.target.value;list();};
     for(const b of node.querySelectorAll('[data-family]'))b.onclick=()=>{family=b.dataset.family;for(const t of node.querySelectorAll('[data-family]'))t.setAttribute('aria-pressed',String(t===b));list();};
-    node.querySelector('.model-footer').innerHTML='<span class="model-hint">仅显示宿主提供的目录，不自动认证。</span><button type="button">返回参数</button>';node.querySelector('footer button').onclick=()=>node.close();
+    node.querySelector('.model-footer').innerHTML='<span class="model-hint">这里显示当前连接中的可用模型。</span><button type="button">返回参数</button>';node.querySelector('footer button').onclick=()=>node.close();
     node.addEventListener('close',()=>{c.picker=null;if(current(c))c.dialog.querySelector('[data-select]')?.focus();},{once:true});list();node.querySelector('input').focus();
   }
   async function open(purpose='story'){

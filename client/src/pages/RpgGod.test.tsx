@@ -34,35 +34,36 @@ it('God API and persisted requests never reuse Earth namespace; Earth legacy key
  window.history.replaceState({},'', '/rpg-app/god/');
  expect(readClientState('same').draft).toBe('God草稿');expect(localStorage.getItem('earth-chat-v1:same')).toContain('Earth草稿');
 });
-it('first God request is the exact server snapshot and waits for player send',async()=>{
+it('first God request uses the editable player draft and waits for send',async()=>{
  const posts=mockHost();render(<ChatView sessionId={session.id} exit={()=>{}} opened={()=>{}}/>);
- const input=await screen.findByRole('textbox',{name:'对话输入'});await waitFor(()=>expect(input).toHaveValue(session.characterText));
- expect(input).toHaveAttribute('readonly');expect(posts).toHaveLength(0);
+ const input=await screen.findByRole('textbox',{name:'对话输入'});await waitFor(()=>expect(input).toBeEnabled());
+ expect(input).toHaveValue('');expect(input).not.toHaveAttribute('readonly');expect(posts).toHaveLength(0);
+ fireEvent.change(input,{target:{value:'玩家自行编写的开场'}});
  fireEvent.click(screen.getByRole('button',{name:'发送'}));
- await waitFor(()=>expect(posts).toHaveLength(1));expect(posts[0].url).toBe('/rpg-app/god/api/sessions/god-session/send');expect(posts[0].body.input).toBe(session.characterText);
+ await waitFor(()=>expect(posts).toHaveLength(1));expect(posts[0].url).toBe('/rpg-app/god/api/sessions/god-session/send');expect(posts[0].body.input).toBe('玩家自行编写的开场');
  await screen.findByText('第 1 回合 · 已保存 · 离线样例');expect(input).not.toHaveAttribute('readonly');
 });
 it('setup bridge ignores other origins and windows, creates only once, and never sends automatically',async()=>{
  const posts=mockHost();render(<GodApp/>);const frame=screen.getByTitle('神临凡尘作者配置界面') as HTMLIFrameElement;
- const data={type:'god-setup-create',setup:{fixture:'server validates this'}};
+ const data={type:'god-setup-create',text:'从天书带入的可编辑草稿'};
  fireEvent(window,new MessageEvent('message',{origin:'https://example.com',source:frame.contentWindow,data}));
  fireEvent(window,new MessageEvent('message',{origin:location.origin,source:window,data}));expect(posts).toHaveLength(0);
  fireEvent(window,new MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data}));
  fireEvent(window,new MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data}));
- await screen.findByText('开始你的第一次聊天吧');
- expect(posts).toHaveLength(1);expect(posts[0]).toEqual({url:'/rpg-app/god/api/sessions',body:{setup:data.setup,mode:'offline'}});
- expect(readClientState(session.id).draft).toBe(session.characterText);expect(location.search).toContain(session.id);
+ await screen.findByRole('textbox',{name:'对话输入'});
+ expect(posts).toHaveLength(1);expect(posts[0]).toEqual({url:'/rpg-app/god/api/sessions',body:{setup:null,mode:'offline'}});
+ expect(readClientState(session.id).draft).toBe(data.text);expect(location.search).toContain(session.id);
 });
-it('God entry appears only when service advertises it; routed iframe is God-specific',async()=>{
- mockHost(url=>url.endsWith('/status')?Response.json({cards:[{id:'god',enabled:false,model:null,remaining:0}]}):null);
- render(<MemoryRouter><RpgPage/></MemoryRouter>);await screen.findByText('神临凡尘 · 上帝模拟器');expect(screen.getByText('离线展示样例 · 不调用真实模型')).toBeInTheDocument();cleanup();
+it('God world remains reachable and its routed iframe stays God-specific',async()=>{
+ const posts=mockHost(url=>url.endsWith('/status')?Response.json({cards:[{id:'god',enabled:false,model:null,remaining:0}]}):null);
+ render(<MemoryRouter><RpgPage/></MemoryRouter>);await screen.findByText('神临凡尘');expect(screen.getByRole('link',{name:'进入神临凡尘'})).toHaveAttribute('href','/rpg/god');expect(posts).toHaveLength(0);cleanup();
  render(<MemoryRouter initialEntries={['/rpg/god']}><Routes><Route path="/rpg/:cardId" element={<RpgPage/>}/></Routes></MemoryRouter>);
- expect(screen.getByTitle('神临凡尘配置与会话')).toHaveAttribute('src','/rpg-app/god/');
+ expect(screen.getByTitle('神临凡尘角色与会话')).toHaveAttribute('src','/rpg-app/god/');
 });
 it('market displays God compatibility from the reviewed manifest without implying enablement',async()=>{
- mockHost(url=>url.endsWith('/api/plugins')?Response.json({revision:0,plugins:[{id:'rpg.branch-save',name:'分支存档',version:'1.1.0',compatibleCards:['earth','god'],permissions:[],installed:false}]}):null);
+ const posts=mockHost(url=>url.endsWith('/api/plugins')?Response.json({revision:0,plugins:[{id:'rpg.branch-save',name:'分支存档',version:'1.1.0',compatibleCards:['earth','god'],permissions:[],installed:false}]}):null);
  render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);
- await screen.findByText('地球 OL / 神临凡尘 · 兼容的新版本会话');expect(screen.getByRole('button',{name:'安装插件'})).toBeInTheDocument();expect(screen.getByRole('link',{name:'进入神临凡尘 →'})).toHaveAttribute('href','/rpg/god');
+ await screen.findByText('地球 OL 与神临凡尘共用安装状态；会话内的开关分别保存。');await screen.findByText('未安装');expect(screen.getByRole('button',{name:'安装插件'})).toBeInTheDocument();fireEvent.change(screen.getByRole('combobox',{name:'当前世界'}),{target:{value:'god'}});expect(screen.getByRole('link',{name:'进入神临凡尘 →'})).toHaveAttribute('href','/rpg/god');expect(posts).toHaveLength(0);
 });
 
 it('saved HTML keeps player disclosure state across unrelated chat renders',()=>{
@@ -88,12 +89,10 @@ it.each([['memoryPalace',useMemoryPalace],['rollingSummary',useRollingSummary]] 
  expect(fetch).not.toHaveBeenCalledWith(expect.anything(),expect.objectContaining({method:'POST'}));
 });
 
-it('real God host creates a real session without generating and displays real budget',async()=>{
+it('real God host creates an empty real session without generating',async()=>{
  const posts=mockHost(url=>url.endsWith('/status')?Response.json({providerEnabled:true,mode:'controlled-real',budget:{remaining:4},cards:[]}):null);
- render(<GodApp/>);await screen.findByText('正式调用 · 点击发送才生成');
- const frame=screen.getByTitle('神临凡尘作者配置界面') as HTMLIFrameElement;
- fireEvent(window,new MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data:{type:'god-setup-create',setup:{fixture:true}}}));
- await waitFor(()=>expect(posts).toHaveLength(1));expect(posts[0].body.mode).toBe('real');expect(posts[0].url).not.toContain('/send');
+ render(<GodApp/>);fireEvent.click(screen.getByRole('button',{name:'进入聊天'}));
+ await waitFor(()=>expect(posts).toHaveLength(1));expect(posts[0].body).toEqual({setup:null,mode:'real'});expect(posts[0].url).not.toContain('/send');
 });
 
 // Source-only regressions: run after the user's second manual test has finished.
@@ -112,7 +111,7 @@ it.each([
   render(<ChatView sessionId={session.id} exit={()=>{}} opened={()=>{}}/>);
   await screen.findByText(new RegExp(`可用 ${budget?.remaining??'待核对'} 次`));
   expect(!!screen.queryByText('本卡额度已用完。仍可查看、创建分支和切换。')).toBe(exhausted);
-  if(budget&&'reserved' in budget&&budget.reserved)expect(screen.getByText(/已预留.*尚未计入已用/)).toBeInTheDocument();
+  if(budget&&'reserved' in budget&&budget.reserved)expect(screen.getByText(new RegExp(`预留 ${budget.reserved} 次`))).toBeInTheDocument();
   expect((screen.getByRole('button',{name:'发送'}) as HTMLButtonElement).disabled).toBe(disabled);
   expect(posts).toHaveLength(0);expect(readClientState(session.id).draft).toBe('保留草稿');cleanup();
  }

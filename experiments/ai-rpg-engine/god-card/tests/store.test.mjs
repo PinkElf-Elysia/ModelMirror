@@ -21,12 +21,14 @@ test('shared store dispatches the complete opening once and keeps continuation l
  assert.equal(two.world,null);assert.deepEqual(two.params,{});assert.equal(two.runtime.descriptor.cardId,'god');
  const reopened=createGodStore(dir,()=>{throw Error('no replay');});await reopened.init();assert.deepEqual(await reopened.read(s.id),two);
 });
-test('browser cannot supply system/history/world/parameters or real mode; first input bound to snapshot',async()=>{
+test('browser cannot supply trusted fields; player may edit the first message',async()=>{
  const {store,s}=await fixture();
  for(const data of [{setup:newSetup(),mode:'real'},{setup:newSetup(),mode:'offline',world:'表世界'},{setup:newSetup(),mode:'offline',params:{temperature:0}}])await assert.rejects(store.create(data));
- await assert.rejects(store.send(s.id,{input:'arbitrary',requestId:'first',revision:0}),/GOD_OPENING_SNAPSHOT_REQUIRED/);
  await assert.rejects(store.send(s.id,{input:s.characterText,requestId:'first',revision:0,system:'injected'}),/GOD_SEND_FIELDS_INVALID/);
  assert.equal((await store.read(s.id)).history.length,0);
+ const result=await store.send(s.id,{input:'玩家修改后的开场',requestId:'first',revision:0});
+ assert.equal(result.history[0].content,'玩家修改后的开场');
+ assert.equal(result.characterText,s.characterText,'legacy snapshot remains intact');
 });
 test('shared locking, cancellation and pending recovery never append late or replay unknown output',async()=>{
  let release,begin;const began=new Promise(r=>begin=r);

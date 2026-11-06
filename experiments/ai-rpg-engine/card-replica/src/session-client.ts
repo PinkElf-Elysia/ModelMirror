@@ -14,8 +14,8 @@ export const cardStoragePrefix=()=>studioPath()?.[1]||'earth';
 export const inStudioCard=()=>!!studioPath();
 export const archiveRoot=()=>{const id=cardStoragePrefix();return '/rpg-app/'+id+(['ancient','cultivation','lord-of-mysteries'].includes(id)?'/chat/':'/');};
 export const localCatalog=()=>!['earth','god'].includes(cardStoragePrefix());
-export const supportsCustomConfig=()=>inStudioCard()&&['earth','god','cultivation'].includes(cardStoragePrefix());
-export const customScope=(id:string)=>supportsCustomConfig()?cardStoragePrefix()+':'+(cardStoragePrefix()==='cultivation'?'archive':'classic')+':'+id:'';
+export const supportsCustomConfig=()=>inStudioCard();
+export const customScope=(id:string)=>supportsCustomConfig()?cardStoragePrefix()+':'+(['earth','god'].includes(cardStoragePrefix())?'classic':'archive')+':'+id:'';
 export async function api(path:string,body?:unknown){const modSend=body&&inStudioCard()?/^sessions\/([\w-]+)\/send$/.exec(path):null;const request=modSend?async(url:string,options:RequestInit)=>(await import('./mod-library')).modRequest(cardStoragePrefix(),modSend[1],url,options,customScope(modSend[1])):fetch;const response=await request((inStudioCard()?archiveRoot()+'api/':'/api/')+path,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new ApiError(data.error||'本地请求未完成',response.status);return data;}
 export async function catalogApi(){const r=await fetch(localCatalog()?archiveRoot()+'api/plugins':'/rpg-app/api/plugins');if(!r.ok)throw Error('插件目录暂不可用，聊天仍可使用。');return r.json();}
 export const emptyClientState=():ClientState=>({draft:'',request:null,branch:null});

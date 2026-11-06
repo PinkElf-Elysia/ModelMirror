@@ -1,6 +1,9 @@
 # Add after existing Compose overlays. No credentials are baked into images.
 services:
   client:
+    build:
+      args:
+        VITE_RPG_AUTHORING_PORT: "${VITE_RPG_AUTHORING_PORT:-}"
     environment:
       RPG_TARGET: http://rpg:18420
   rpg:

@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {summarySessions,summaryV2Http} from './auto-summary-v2.mjs';
 import {summaryCards} from '../plugins/auto-summary-v2.mjs';
+
+test('reviewed release manifest binds the actual summary prompt artifact', async () => {
+  const manifest=JSON.parse(await readFile(new URL('../plugins/auto-summary-v2.manifest.json',import.meta.url),'utf8'));
+  const artifact=await readFile(new URL('../plugins/auto-summary-v2.mjs',import.meta.url));
+  assert.equal(manifest.id,'rpg.rolling-summary');
+  assert.equal(manifest.version,'2.0.0');
+  assert.deepEqual(manifest.compatibleCards,summaryCards);
+  assert.equal(manifest.artifactSha256,createHash('sha256').update(artifact).digest('hex'));
+});
 
 for(const card of summaryCards)test(card+' 20/21, 40/41, persistence and explicit revisions',async t=>{
   const directory=await mkdtemp(join(tmpdir(),'summary-v2-'));
@@ -46,9 +56,29 @@ for(const card of summaryCards)test(card+' 20/21, 40/41, persistence and explici
   await change('edit-small',{turn:1,text:'人工修订早期事实'});
   await change('large');assert.notEqual(s.large,big);
   assert.ok(calls.at(-1).messages[1].content.includes('人工修订早期事实'));
+  const afterGeneration=calls.length;
+  await change('settings',{enabled:false,model:selection.model,large:'人工修订的大总结'});
+  assert.equal(s.large,'人工修订的大总结');assert.equal(s.enabled,false);
+  assert.equal(calls.length,afterGeneration);
+  await change('settings',{enabled:true,model:selection.model});
   await assert.rejects(host.change(s.id,{action:'large',revision:0}),/REVISION/);
   transport.generate=async()=>{throw Error('OUTCOME_UNKNOWN')};
   await assert.rejects(change('send',{input:'未知请求'}),/UNKNOWN/);
   assert.equal((await host.view(s.id)).blocked,true);
   await assert.rejects(change('send',{input:'再次发送'}),/ALREADY_CLAIMED/);
+});
+
+test('new independent chats can start with automatic summary off', async t => {
+  const directory=await mkdtemp(join(tmpdir(),'summary-v2-disabled-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const calls=[],model={model:'google/gemini-3.8-flash',available:true};
+  const host=summarySessions(directory,'earth',{
+    catalog:async()=>[model],status:async()=>({enabled:true,remaining:100}),
+    generate:async(_card,{purpose})=>{calls.push(purpose);return '示例正文';},
+  });
+  const created=await host.create({archive:'测试档案',enabled:false});
+  assert.equal(created.enabled,false);
+  const next=await host.change(created.id,{revision:created.revision,action:'send',input:'测试行动'});
+  assert.equal(next.turns[0].small,'');
+  assert.deepEqual(calls,['story']);
 });

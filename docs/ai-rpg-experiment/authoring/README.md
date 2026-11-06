@@ -13,7 +13,9 @@ npm.cmd --prefix experiments/ai-rpg-engine run rpg:authoring -- --directory C:/r
 
 通过 `http://127.0.0.1:19040/` 打开作品管理，选择「空白作品」或「导入作品」。右上角的「创作指南」有可编辑的开局示例、提示词放置方法、世界书抽取示例，以及模型回复的展示规则。此启动模式支持本地编辑、发布和回放，模型配置显示为未启用。
 
-要让 RPG 卡片库显示「创作工作台」，在启动或构建主前端的环境中设置 `VITE_RPG_AUTHORING_PORT=19040`。从 HTTP 的 `127.0.0.1` 访问主前端 `/rpg` 即可。浏览器通过顶层导航打开工作台。入口开关和创作服务可分别启停。
+要让 RPG 卡片库显示「打开创作工作台」，在启动或构建主前端的环境中设置 `VITE_RPG_AUTHORING_PORT=19040`。通过 HTTP 从 `localhost` 或 `127.0.0.1` 访问主前端 `/rpg`。从 `localhost` 点击会先自动进入同一前端端口的 `127.0.0.1/rpg/authoring`，再顶层导航到工作台，保留工作台的来源校验。入口开关和创作服务可分别启停。
+
+这是构建时参数：更改已运行容器的环境不会改变静态页面。使用 `docker-compose.rpg.yml` 时，该变量会传入前端构建；单独构建 `client/Dockerfile` 时传入 `--build-arg VITE_RPG_AUTHORING_PORT=19040`。重新构建前端后核对故事馆与顶栏都能进入工作台。未配置端口时，入口保持隐藏。
 
 ## 接入受控会话
 

@@ -197,11 +197,12 @@ class ProviderChatStableService:
             required_capabilities=normalized,
         )
 
-    async def begin_rpg_certified(self, model_id: str) -> ProviderChatStablePreflight:
-        """Use current text certification without changing stable chat membership."""
+    async def begin_rpg_certified(self, model_id: str, *, connection_id: str | None = None) -> ProviderChatStablePreflight:
+        """Use current certification and retain the catalog-selected route when supplied."""
         return await self._begin(
             model_id, "chat_text", scoped_certified=True,
             required_capabilities=("chat_text",), scoped_gateway="rpg_scoped",
+            required_connection_id=connection_id,
         )
 
     async def begin_rpg_authoring_certified(self, model_id: str, connection_id: str) -> ProviderChatStablePreflight:

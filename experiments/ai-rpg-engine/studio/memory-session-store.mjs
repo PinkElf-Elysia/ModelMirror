@@ -12,11 +12,17 @@ import {createSummaryTasks,summaryTaskBlock,requireTaskState} from './summary-ta
 import * as summaryDefaults from './summary-state.mjs';
 import {initialHistoryState,requireHistoryState,exact,operationId,revision} from './history-state.mjs';
 import * as modelDefaults from './model-runtime.mjs';
+import {isV2SummaryStage,projectSummaryV2,reviseSummaryV2,summaryV2State,validSummaryText} from './default-summary-v2.mjs';
 import {validateParameters} from '../card-replica/lib/assembly.mjs';
 import {models} from './provider.mjs';
 import {canonical,sha,fail,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const bridgePending=s=>Object.entries(s.memoryLegacyInputs||{}).some(([key,o])=>o.status==='prepared'&&!s.summaryTasks?.operations?.[key]);
-const policyBlock=(s,a)=>bridgePending(s)||memoryDefaults.memoryTaskBlock(s)||summaryTaskBlock(s)||s.memoryPalace.pending||s.historyWindow.pending||s.rollingSummary.pending?'MEMORY_TASK_UNCONFIRMED':s.memoryTasks.blocked&&(s.memoryTasks.operations[s.memoryTasks.blocked].blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled)||s.summaryTasks?.blocked&&a.summary.enabled?'MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION':null;
+const policyBlock=(s,a,v2)=>{
+ if(bridgePending(s)||memoryDefaults.memoryTaskBlock(s)||summaryTaskBlock(s)||s.memoryPalace.pending||s.historyWindow.pending||s.rollingSummary.pending)return 'MEMORY_TASK_UNCONFIRMED';
+ const failed=s.memoryTasks.operations[s.memoryTasks.blocked];
+ const blocked=failed&&(failed.blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled&&(!v2||failed.plan.some(stage=>isV2SummaryStage(stage.stageId))));
+ return blocked||!v2&&s.summaryTasks?.blocked&&a.summary.enabled?'MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION':null;
+};
 const taskInput=x=>exact(x,['operationId','expectedSessionRevision','expectedMemoryRevision','expectedContextPolicyRevision','input'])&&operationId(x.operationId)&&revision(x.expectedSessionRevision)&&revision(x.expectedMemoryRevision)&&typeof x.expectedContextPolicyRevision==='string'&&/^[a-f0-9]{64}$/.test(x.expectedContextPolicyRevision)&&typeof x.input==='string'&&!!x.input.trim()&&x.input.length<=20000;
 export function createMemoryStoreClass(profile=null){
  const {memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus}=profile?{memoryRuntime:profile.runtime,bindMemoryRuntime:profile.bind,memoryRuntimeStatus:profile.status}:runtimeDefaults;
@@ -33,6 +39,7 @@ export function createMemoryStoreClass(profile=null){
   if(s.runtime?.format!==5)return super.requireRuntime(s);
   const status=this.status(s);if(!status.compatible)throw fail(status.code);
   requireModelState(s);requireHistoryState(s);requireSummaryState(s);requireMemoryState(s);requireMemoryTasks(s);requireTaskState(s,profile?.state.validateModel);requireMemoryEvidence(s);
+  if(s.autoSummaryV2)summaryV2State(s);
   for(const [key,o] of Object.entries(s.memoryLegacyInputs||{}))if(!exact(o,['input','hash','mapped','authorization','status'])||!['prepared','not-applied'].includes(o.status)||!taskInput(o.input)||key!==o.input.operationId||o.hash!==sha(canonical(o.input))||!exact(o.mapped,['operationId','expectedSessionRevision','expectedContextPolicyRevision','input'])||o.mapped.operationId!==key||o.mapped.input!==o.input.input||!revision(o.mapped.expectedSessionRevision)||!/^[a-f0-9]{64}$/.test(o.mapped.expectedContextPolicyRevision)||!exact(o.authorization,['memory','summary','history'])||o.authorization.memory.enabled!==false)throw fail('MEMORY_LEGACY_INPUT_INVALID');
   await memoryRuntime.verify();
  }
@@ -41,7 +48,7 @@ export function createMemoryStoreClass(profile=null){
   if(!input||Object.keys(input).some(k=>!['characterText','world','params','mode'].includes(k)))throw fail('SESSION_CONFIGURATION_INVALID',400);
   const {characterText,world,mode}=input;if(!['real','offline'].includes(mode))throw fail('PROVIDER_DISABLED',403);
   if(mode==='real'&&!(await this.control?.status?.())?.enabled)throw fail('PROVIDER_DISABLED',403);
-  if(typeof characterText!=='string'||!characterText.trim()||characterText.length>200000||!['表世界','里世界'].includes(world))throw fail('SESSION_CONFIGURATION_INVALID',400);
+  if(typeof characterText!=='string'||characterText.length>200000||!['表世界','里世界'].includes(world))throw fail('SESSION_CONFIGURATION_INVALID',400);
   const params=validateParameters({...input.params,max_tokens:input.params?.max_tokens??16384});if(Object.entries(models.earth.parameters).some(([k,v])=>params[k]!==v))throw fail('MODEL_PARAMETERS_INCOMPATIBLE');
   await memoryRuntime.verify();const s={id:randomUUID(),name:(characterText.match(/姓名[：:]([^\n]+)/)?.[1]||'未命名角色').slice(0,100),created:new Date().toISOString(),characterText,world,params,mode,revision:0,history:[],turns:[],requests:{},modelState:initialModelState(fixedChoice()),historyWindow:initialHistoryState(),rollingSummary:initialSummaryState(),memoryPalace:initialMemoryState(),memoryTasks:initialMemoryTasks()};
   s.runtime=bindMemoryRuntime(s);await this.write(s);return s;
@@ -54,8 +61,8 @@ export function createMemoryStoreClass(profile=null){
   // order. Only its trusted budget adapter maps purposes onto shared stage leases.
   const legacyTransport={...transport,budget:{...transport.budget,reserve:(group,id,purposes)=>transport.budget.reserve(group,id,purposes.map(purpose=>({stageId:purpose,purpose})))}};
   this.summaryTasks=createSummaryTasks({cardState:profile?.state,store:this,plugins,transport:legacyTransport,admit:legacyAdmit,buildStory:async(s,input,p)=>{if(s.runtime.format===5){requireMemoryEvidence(s);const full=memoryContextPolicy(s,await this.memoryAuthorizations(s.id));if(full.memoryEnabled||full.baseRevision!==p.revision)throw fail('MEMORY_AUTHORIZATION_CHANGED');return assembleMemoryRequest(s,input,full);}requireContextEvidence(s);return {...assembleSummaryRequest(s,input,p),input};},commitStory:(s,t,r)=>s.runtime.format===5?commitMemoryStory(s,t,r):commitSummaryStory(s,t,r)});
-  const coordinator=createMemoryTasks({cardState:profile?.state,store:this,plugins,transport,buildStory:async(s,input,p)=>{await admit(s);requireMemoryEvidence(s);return assembleMemoryRequest(s,input,p);},commitStory:commitMemoryStory,settleStory:settleMemoryStory,legacySend:(s,x)=>this.sendWithoutMemory(s.id,x)});
-  this.memoryTasks={...coordinator,status:async id=>{const x=await coordinator.status(id),s=await this.read(id),a=await this.memoryAuthorizations(id),reason=policyBlock(s,a);return {...x,effectivePolicy:reason?{...x.effectivePolicy,ready:false,reason}:x.effectivePolicy};},send:async(id,input)=>{await admit(await this.read(id));return coordinator.send(id,input);},update:async(id,input)=>{await admit(await this.read(id));return coordinator.update(id,input);}};
+  const coordinator=createMemoryTasks({cardState:profile?.state,store:this,plugins,transport,autoSummaryV2:this.autoSummaryV2,buildStory:async(s,input,p)=>{await admit(s);requireMemoryEvidence(s);return assembleMemoryRequest(s,input,p);},commitStory:commitMemoryStory,settleStory:settleMemoryStory,legacySend:(s,x)=>this.sendWithoutMemory(s.id,x)});
+  this.memoryTasks={...coordinator,status:async id=>{const x=await coordinator.status(id),s=await this.read(id),a=await this.memoryAuthorizations(id),reason=policyBlock(s,a,this.autoSummaryV2);return {...x,effectivePolicy:reason?{...x.effectivePolicy,ready:false,reason}:x.effectivePolicy};},send:async(id,input)=>{await admit(await this.read(id));return coordinator.send(id,input);},update:async(id,input)=>{await admit(await this.read(id));return coordinator.update(id,input);},regenerate:async(id,input)=>{await admit(await this.read(id));return coordinator.regenerate(id,input);}};
   this.memoryEdits=memoryOperations(this,plugins);return this.memoryTasks;
  }
  async memoryAuthorizations(id){return {memory:await this.plugins.memoryAuthorization(id),summary:await this.plugins.summaryAuthorization(id),history:await this.plugins.historyAuthorization(id)};}
@@ -73,8 +80,28 @@ export function createMemoryStoreClass(profile=null){
  }
  async summaryStatus(id,plugins=this.plugins){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.summaryStatus(id,plugins);
-  await this.requireRuntime(s);const a=await this.memoryAuthorizations(id),h=s.rollingSummary,policy=memoryContextPolicy(s,a);
-  return {compatible:true,enabled:a.summary.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(requireTaskState(s,profile?.state.validateModel)),effectivePolicy:policyBlock(s,a)?{...policy,ready:false,reason:policyBlock(s,a)}:policy};
+  await this.requireRuntime(s);const a=await this.memoryAuthorizations(id),h=s.rollingSummary,policy=this.memoryTasks.policyFor(s,a),reason=policyBlock(s,a,this.autoSummaryV2);
+  return {compatible:true,enabled:a.summary.enabled,sessionRevision:s.revision,summaryRevision:h.revision,config:structuredClone(h.config),activeVersionId:h.activeVersionId,versions:structuredClone(h.versions),pendingOperationId:h.pending,taskState:structuredClone(requireTaskState(s,profile?.state.validateModel)),effectivePolicy:reason?{...policy,ready:false,reason}:policy,...(this.autoSummaryV2?{v2:projectSummaryV2(s)}:{})};
+ }
+ async saveSummaryV2(id,input,plugins,edit){
+  const common=['operationId','expectedSessionRevision','expectedSummaryRevision','text'];
+  const selectionChanged=Object.hasOwn(input??{},'selection');
+  const selection=input?.selection;
+  if(!this.autoSummaryV2||!exact(input,[...common,...(edit?['turn']:selectionChanged?['selection']:[])])||!operationId(input.operationId)||
+     !revision(input.expectedSessionRevision)||!revision(input.expectedSummaryRevision)||
+     (input.text===null?edit||!selectionChanged:!validSummaryText(input.text))||
+     edit&&(!Number.isSafeInteger(input.turn)||input.turn<1)||
+     selectionChanged&&selection!==null&&(!exact(selection,['selectionId','selectionRevision'])||Object.values(selection).some(v=>typeof v!=='string'||! /^[A-Za-z0-9_-]{1,128}$/.test(v))))throw fail('SUMMARY_V2_SETTINGS_INVALID',400);
+  return this.mutateSummary(id,structuredClone(input),plugins,async(s,h,x)=>{
+   if(s.runtime.format!==5)throw fail('SUMMARY_RUNTIME_INCOMPATIBLE');
+   const autoSummaryV2=x.text===null?null:reviseSummaryV2(s,x.turn,x.text);
+   const next=summaryDefaults.sealSummary({...h,revision:h.revision+1});
+   if(!selectionChanged)return {next,autoSummaryV2,capability:'session.summary.revise',proposal:{textHash:sha(x.text),characters:Array.from(x.text).length}};
+   const choice=(await this.control.catalog({sessionId:id})).find(m=>m.available&&(x.selection?m.selectionId===x.selection.selectionId&&m.selectionRevision===x.selection.selectionRevision:m.model===s.modelState.current.model));
+   if(!choice)throw fail('MODEL_SELECTION_UNAVAILABLE');
+   const config={...h.config,model:x.selection?controlledChoice(choice):null};
+   return {next:summaryDefaults.sealSummary({...next,config}),autoSummaryV2,capability:'session.summary.configure',proposal:{timing:config.timing,selectionId:choice.selectionId,catalogRevision:choice.selectionRevision}};
+  });
  }
  async historyWindowStatus(id,plugins=this.plugins){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.historyWindowStatus(id,plugins);
@@ -90,7 +117,8 @@ export function createMemoryStoreClass(profile=null){
   if(!taskInput(input))throw fail('MEMORY_TASK_INPUT_INVALID',400);
   await this.requireRuntime(s);const prior=s.memoryLegacyInputs?.[input.operationId];if(prior){if(prior.hash!==sha(canonical(input)))throw fail('MEMORY_OPERATION_COLLISION');if(prior.status==='not-applied')return {status:'not-applied',replayed:true};return this.summaryTasks.send(id,prior.mapped);}
   if(Object.hasOwn(s.memoryTasks.operations,input.operationId))return this.memoryTasks.send(id,input);
-  return (await this.plugins.memoryAuthorization(id)).enabled?this.memoryTasks.send(id,input):this.sendWithoutMemory(id,input);
+  const a=await this.memoryAuthorizations(id);
+  return a.memory.enabled||this.autoSummaryV2&&a.summary.enabled?this.memoryTasks.send(id,input):this.sendWithoutMemory(id,input);
  }
  // A bridge intent is written before the unchanged M2 coordinator starts. If no
  // coordinator operation exists, disk proves no Provider dispatch could occur.
@@ -146,7 +174,7 @@ export function createMemoryStoreClass(profile=null){
  async prepareHistoryRequest(id,input,plugins=this.plugins){
   if((await this.read(id)).runtime?.format!==5)return super.prepareHistoryRequest(id,input,plugins);
   if(!exact(input,['input','expectedContextPolicyRevision'])||typeof input.input!=='string'||!input.input.trim()||input.input.length>20000)throw fail('MEMORY_TASK_INPUT_INVALID',400);
-  return this.exclusive(id,async()=>{const s=await this.read(id);await this.requireSelectable(s);const policy=memoryContextPolicy(s,await this.memoryAuthorizations(id));if(policy.revision!==input.expectedContextPolicyRevision)throw fail('MEMORY_TASK_REVISION_CONFLICT');return assembleMemoryRequest(s,input.input,policy);});
+  return this.exclusive(id,async()=>{const s=await this.read(id);await this.requireSelectable(s);const policy=this.memoryTasks.policyFor(s,await this.memoryAuthorizations(id));if(policy.revision!==input.expectedContextPolicyRevision)throw fail('MEMORY_TASK_REVISION_CONFLICT');return assembleMemoryRequest(s,input.input,policy);});
  }
 }
 

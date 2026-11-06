@@ -24,7 +24,7 @@ def parameters_for(model, profile="default"):
     if profile not in ("default", "god-long-v1"):
         raise HTTPException(422, "rpg_parameter_profile_invalid")
     if profile == "god-long-v1":
-        return {**PARAMETERS, "max_tokens": 32768} if model == "google/gemini-3.8-flash" else None
+        return {**PARAMETERS, "max_tokens": 32768} if model in ("google/gemini-3.8-flash", "google/gemini-4-argon") else None
     # User-approved B5 exception; no blanket parameter stripping.
     return {"max_tokens": 16384} if model == "openai/gpt-5.6-luna" else dict(PARAMETERS)
 
@@ -87,8 +87,15 @@ def catalog(stable, profile="default"):
                 if model in result and result[model]["available"]:
                     continue
                 meta = json_object(row.get("metadata_json"))
-                qualification, _ = stable.control.current_qualification(connection_id=connection, model_id=model, capability="chat_text", require_exact_model=True)
-                ready, _ = stable.readiness_scoped_certified(model)
+                # Most discovered models have never been qualified. Avoid decrypting
+                # route credentials and re-evaluating both routes for every such row.
+                certification = stable.repository.get_latest_chat_certification(tenant, connection, model, "chat_text")
+                qualification = None
+                ready = False
+                if certification and certification.get("status") == "passed":
+                    qualification, _ = stable.control.current_qualification(connection_id=connection, model_id=model, capability="chat_text", require_exact_model=True)
+                    if qualification:
+                        ready, _ = stable.readiness_scoped_certified(model)
                 supported = meta.get("supported_parameters")
                 context = meta.get("context_length")
                 output = meta.get("max_output_tokens")
@@ -239,6 +246,21 @@ def story_progress(session_id: str, request_id: str):
     return JSONResponse({"text": preview.visible() if preview else ""}, headers={"Cache-Control": "no-store"})
 
 
+def undispatched_response(value, selected, *, dispatch=None, reason="rpg_route_unavailable", custom=None, confirmed=True):
+    """Return the same bound envelope as a dispatched request, without claiming success."""
+    receipt = {"gateway": "rpg_scoped", "requestId": value["requestId"], "sessionId": value["sessionId"],
+               "runId": dispatch.run_id if dispatch else None, "attemptId": dispatch.attempt_id if dispatch else None,
+               "selectionId": selected["selectionId"], "selectionRevision": selected["selectionRevision"],
+               "requestedModel": selected["model"], "actualModel": None, "parameters": dict(selected["parameters"]),
+               "httpStatus": None, "dispatched": False, "usage": None,
+               "error": reason if confirmed else "rpg_receipt_pending", "retries": 0,
+               "requestHash": digest(value), "rawHash": hashlib.sha256(b"").hexdigest(),
+               "sseHash": hashlib.sha256(b"").hexdigest(), "status": "failed" if confirmed else "failed_or_unknown"}
+    if custom is not None:
+        receipt["effectiveRequestHash"] = digest({**value, "messages": custom})
+    return JSONResponse({"raw": "", "sse": "", "receipt": receipt}, status_code=409 if confirmed else 502)
+
+
 @router.post("/chat/completions", dependencies=[Depends(require_service)])
 async def completion(request: Request, stable=Depends(get_stable), profile: str = "default"):
     value = await body(request, profile)
@@ -255,26 +277,19 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
     if estimated + selected["parameters"]["max_tokens"] > selected["contextLength"]:
         raise HTTPException(409, "rpg_context_capacity_exceeded")
     claim(stable, value, custom)
-    preflight = await stable.begin_rpg_certified(selected["model"])
+    preflight = await stable.begin_rpg_certified(selected["model"], connection_id=selected["_binding"]["connection"])
     dispatch = preflight.dispatch
     if not dispatch:
         # A completed preflight rejection is not an unknown Provider outcome.
         reason = "rpg_fallback_limit_exhausted" if preflight.error_code == "rpg_fallback_limit_exhausted" else "rpg_route_unavailable"
-        receipt = {"gateway": "rpg_scoped", "requestId": value["requestId"], "sessionId": value["sessionId"],
-                   "runId": None, "attemptId": None, "selectionId": selected["selectionId"],
-                   "selectionRevision": selected["selectionRevision"], "requestedModel": selected["model"],
-                   "actualModel": None, "parameters": dict(selected["parameters"]), "httpStatus": None,
-                   "dispatched": False, "usage": None, "error": reason, "retries": 0,
-                   "requestHash": digest(value), "rawHash": hashlib.sha256(b"").hexdigest(),
-                   "sseHash": hashlib.sha256(b"").hexdigest(), "status": "failed"}
-        return JSONResponse({"raw": "", "sse": "", "receipt": receipt}, status_code=409)
+        return undispatched_response(value, selected, reason=reason, custom=custom)
     binding = selected["_binding"]
     qualification = binding["qualification"]
     if (dispatch.target.connection_id != binding["connection"] or dispatch.policy_fingerprint != binding["policy"] or
             dispatch.certification_id != qualification["certification_id"] or
             dispatch.connection_fingerprint != qualification["connection_fingerprint"]):
-        stable.fail_undispatched(dispatch, error_code="rpg_selection_changed")
-        raise HTTPException(409, "rpg_selection_changed")
+        confirmed = stable.fail_undispatched(dispatch, error_code="rpg_selection_changed")
+        return undispatched_response(value, selected, dispatch=dispatch, reason="rpg_selection_changed", custom=custom, confirmed=confirmed)
     payload = {"model": selected["model"], "messages": messages, **selected["parameters"],
                "stream": True, "stream_options": {"include_usage": True}}
     if dispatch.target.provider_kind == "openrouter":
@@ -282,8 +297,8 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
         tag = binding["metadata"].get("rpg_provider_tag")
         if tag is not None:
             if not isinstance(tag, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_/-]{0,100}", tag):
-                stable.fail_undispatched(dispatch, error_code="rpg_endpoint_binding_invalid")
-                raise HTTPException(409, "rpg_endpoint_binding_invalid")
+                confirmed = stable.fail_undispatched(dispatch, error_code="rpg_endpoint_binding_invalid")
+                return undispatched_response(value, selected, dispatch=dispatch, custom=custom, confirmed=confirmed)
             provider["only"] = [tag]
             provider["order"] = [tag]
         payload.update(provider=provider, transforms=[])
@@ -342,7 +357,9 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
         except Exception:
             error = "rpg_receipt_pending"
     else:
-        stable.fail_undispatched(dispatch, error_code=error or "rpg_not_dispatched")
+        confirmed = stable.fail_undispatched(dispatch, error_code=error or "rpg_not_dispatched")
+        reason = "rpg_selection_changed" if error == "rpg_selection_changed" else "rpg_route_unavailable"
+        return undispatched_response(value, selected, dispatch=dispatch, reason=reason, custom=custom, confirmed=confirmed)
     receipt = {"gateway": "rpg_scoped", "requestId": value["requestId"], "sessionId": value["sessionId"],
                "runId": dispatch.run_id, "attemptId": dispatch.attempt_id,
                "selectionId": selected["selectionId"], "selectionRevision": selected["selectionRevision"],

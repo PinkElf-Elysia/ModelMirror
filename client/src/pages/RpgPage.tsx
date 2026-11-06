@@ -1,30 +1,48 @@
-import ArchiveCardPage,{isArchiveCard} from './ArchiveCardPage';
-import AutoSummarySession from './AutoSummarySession';
-import AncientCardPage from './AncientCardPage';
-import CultivationCard from './CultivationCard';
 import {useEffect,useState} from 'react';
 import {Link,useParams} from 'react-router-dom';
-import PageContainer from '../components/PageContainer';
+import ArchiveCardPage,{isArchiveCard} from './ArchiveCardPage';
+import AncientCardPage from './AncientCardPage';
+import CultivationCard from './CultivationCard';
+import RpgShell from './RpgShell';
 import {localAuthoringHref} from './rpgAuthoringLink';
-type Card={id:string;title:string;model:string;enabled:boolean;remaining:number;used:number};
+import {worlds,cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
+type Saved={id:string;name:string;turns:number};
+type WorldState={sessions?:Saved[];remaining?:number;error?:boolean};
 export default function RpgPage(){
- const {cardId}=useParams();const [cards,setCards]=useState<Card[]>([]),[error,setError]=useState('');
- useEffect(()=>{const controller=new AbortController();fetch('/rpg-app/api/status',{signal:controller.signal}).then(async r=>{if(!r.ok)throw Error('RPG 服务暂不可用，请稍后刷新。');return r.json();}).then(x=>setCards(x.cards)).catch(e=>{if(e.name!=='AbortError')setError(e.message);});return()=>controller.abort();},[cardId]);
+ const {cardId}=useParams();
+ const creator=localAuthoringHref(import.meta.env.VITE_RPG_AUTHORING_PORT,window.location);
+ const [state,setState]=useState<Record<string,WorldState>>({}),[attempt,retry]=useState(0);
+ useEffect(()=>{
+  if(cardId)return;
+  const controller=new AbortController();
+  for(const world of worlds){
+   const get=async(path:string)=>{const r=await fetch(cardRoot(world.id)+'api/'+path,{signal:controller.signal});if(!r.ok)throw Error();return r.json();};
+   void Promise.allSettled([get('sessions'),get('status')]).then(([sessions,status])=>{
+    if(controller.signal.aborted)return;
+    const items=sessions.status==='fulfilled'&&Array.isArray(sessions.value)?sessions.value.filter((s:Saved)=>validSession(s.id)&&typeof s.name==='string'):undefined;
+    const budget=status.status==='fulfilled'?(status.value.budget||status.value.offlineBudget):null;
+    setState(prev=>({...prev,[world.id]:{sessions:items,remaining:Number.isSafeInteger(budget?.remaining)?budget.remaining:undefined,error:!items}}));
+   });
+  }
+  return()=>controller.abort();
+ },[cardId,attempt]);
+ useEffect(()=>{if(cardId==='authoring'&&creator)window.location.replace(creator);},[cardId,creator]);
+ if(cardId==='authoring')return <RpgShell><p role="status">{creator?'正在打开创作工作台…':'此地址未配置创作工作台。'}</p>{creator?<a className="rpg-button" href={creator}>打开创作工作台</a>:<Link to="/rpg">返回故事馆</Link>}</RpgShell>;
  const classic=new URLSearchParams(location.search).has('classic');
  if(cardId&&isArchiveCard(cardId)&&!(classic&&['ancient','cultivation'].includes(cardId)))return <ArchiveCardPage card={cardId}/>;
  if(cardId==='ancient')return <AncientCardPage/>;
- if(cardId==='cultivation')return <><AutoSummarySession key={cardId} card={cardId}/><CultivationCard/></>;
- if(cardId==='earth'||cardId==='god')return <div className="flex min-h-0 flex-1 flex-col">
-   <header className="flex flex-wrap items-center gap-4 border-b border-white/10 px-5 py-3">
-     <Link to="/rpg" className="text-sm text-zinc-300 hover:text-white">← 返回 RPG</Link>
-     <h1 className="text-base font-medium text-white">{cardId==='god'?'神临凡尘 · 上帝模拟器':'地球 OL · 人生模拟器'}</h1>
-   </header>
-   <AutoSummarySession key={cardId} card={cardId}/>
-   <iframe title={cardId==='god'?'神临凡尘配置与会话':'地球 OL 角色与会话'} src={'/rpg-app/'+cardId+'/'} className="w-full flex-1 border-0 bg-zinc-950" style={{minHeight:'calc(100dvh - 130px)'}} allow="clipboard-write"/>
- </div>;
- const creatorHref = localAuthoringHref(import.meta.env.VITE_RPG_AUTHORING_PORT, window.location);
- return <PageContainer><div className="mx-auto max-w-5xl py-8">
-  <Link to="/studio" className="text-sm text-zinc-400 hover:text-white">← Studio</Link><Link to="/rpg/plugins" className="ml-6 text-sm text-blue-300 underline">插件市场</Link>
-  {creatorHref && <a href={creatorHref} className="ml-6 text-sm text-blue-300 underline">创作工作台</a>}
-  <h1 className="mt-5 text-3xl font-semibold tracking-tight text-white">RPG</h1><p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-300">选择一张卡片，创建角色，开始或继续你的故事。角色草稿分别保存，已生成的原文可从各自的历史中恢复。</p>{error&&<p role="alert" className="mt-6 text-amber-200">{error}</p>}<div className="mt-8 divide-y divide-white/10 border-y border-white/10">{[{id:'earth',title:'地球 OL · 人生模拟器',description:'从出生、家世、天赋与命运开始一世人生，可选择表世界或深层世界。',label:'作者卡片复刻 · 已通过本轮人工验收'},...(cards.some(c=>c.id==='cultivation')?[{id:'cultivation',title:'超级修仙大世界',description:'游历凡、仙、神三界，选择出身与命途，写下自己的修真档案。',label:'作者界面复刻 · 开局档案'}]:[]),...(cards.some(c=>c.id==='god')?[{id:'god',title:'神临凡尘 · 上帝模拟器',description:'以凡人之躯行走人间，以上帝之眼俯瞰众生。填写天书，在会话中继续故事。',label:'作者界面复刻 · 本轮验收候选'}]:[]),...(cards.some(c=>c.id==='ancient')?[{id:'ancient',title:'古代人生 · 命运卷轴',description:'选择人生道路，填写来历与命格，生成并复制你的命书。',label:'作者卡片复刻'}]:[]),{id:'lord-of-mysteries',title:'诡秘之主大世界',description:'配置档案，进入独立聊天，继续你的非凡旅程。',label:'作者卡片复刻'},{id:'rpg05',title:'行间 · 多世界 RPG',description:'选择世界与开局，配置身份、天赋和随身物品，以轻量文本推进故事。',label:'原卡开局 · 独立会话'}].map(item=>{const status=cards.find(c=>c.id===item.id);return <section key={item.id} className="flex flex-col justify-between gap-6 py-8 sm:flex-row sm:items-center"><div><p className="text-xs text-zinc-400">{item.label}</p><h2 className="mt-2 text-xl font-medium text-white">{item.title}</h2><p className="mt-3 max-w-xl text-sm leading-6 text-zinc-300">{item.description}</p><p className="mt-3 text-xs text-zinc-400">{['ancient','rpg05','lord-of-mysteries','cultivation'].includes(item.id)?'角色配置 · 独立会话':status?item.id==='cultivation'?(status.enabled?`Gemini 剧情会话 · 剩余 ${status.remaining} 次调用`:'档案构建与开局装配 · 离线'):item.id==='god'&&!status.enabled?'离线展示样例 · 不调用真实模型':`${status.model} · ${status.enabled?'正式调用已启用':'正式调用未配置'} · 本轮剩余 ${status.remaining} 次`:'正在读取调用状态…'}</p></div><Link to={'/rpg/'+item.id} className="shrink-0 self-start rounded-lg border border-white/20 px-5 py-2.5 text-sm text-white transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 sm:self-auto">进入卡片 →</Link></section>;})}</div><p className="mt-6 text-sm leading-6 text-zinc-400">地球 OL 可在服务剩余额度内连续游玩。只有主动发送才会调用模型，失败和取消也计数；刷新不会重新发送。行间保留旧版旅程与草稿入口。</p><Link to="/help" className="mt-4 inline-block text-sm text-blue-300 hover:text-blue-200">查看帮助中心</Link></div></PageContainer>;
+ if(cardId==='cultivation')return <CultivationCard/>;
+ if(cardId)return <RpgShell><h1>没有找到这个世界</h1><Link className="rpg-button" to="/rpg">返回故事馆</Link></RpgShell>;
+ const saved=worlds.flatMap(w=>(state[w.id]?.sessions||[]).slice(0,1).map(s=>({world:w,session:s})));
+ return <RpgShell>
+  <header className="rpg-heading"><div><p className="rpg-eyebrow">属于你的故事</p><h1>下一段人生，从这里开始。</h1><p>六个世界，六种可能。选好身份，把故事交给你的下一次选择。</p></div>{creator&&<a className="rpg-button" href={creator}>打开创作工作台 <span aria-hidden="true">↗</span></a>}</header>
+  {saved.length>0&&<section aria-labelledby="rpg-continue"><div className="rpg-section-title"><h2 id="rpg-continue">接着上次的故事</h2><span>存档会自动保留</span></div><div className="rpg-recent">{saved.map(({world:w,session:s})=><Link to={'/rpg/'+w.id+'/chat/'+s.id} key={w.id}><span className="rpg-seal" aria-hidden="true">{w.mark}</span><span style={{minWidth:0}}><strong>{s.name}</strong><small>{w.name} · {s.turns} 回合</small></span><span aria-hidden="true">↗</span></Link>)}</div></section>}
+  <div className="rpg-section-title"><h2>挑一个世界</h2><span>角色与存档分别保存</span></div>
+  <div className="rpg-worlds">{worlds.map(w=><article key={w.id} className={'rpg-world rpg-world--'+w.id+(w.art?' rpg-world--cover':'')}>
+   {w.art?<img src={w.art} alt="" loading="lazy"/>:<span className="rpg-world-mark" aria-hidden="true">{w.mark}</span>}
+   <div><span className="rpg-genre">{w.genre}</span><h2>{w.name}</h2><p>{w.description}</p><div className="rpg-world-foot"><small>{state[w.id]?.sessions?state[w.id].sessions!.length+' 个存档':'存档'+(state[w.id]?.error?'暂不可用':'读取中…')}{state[w.id]?.remaining!==undefined?' · 可用 '+state[w.id].remaining+' 次':''}</small><Link to={'/rpg/'+w.id} aria-label={'进入'+w.name}>进入世界 →</Link></div></div>
+  </article>)}</div>
+  {Object.values(state).some(s=>s.error)&&<p className="rpg-alert" role="status">部分存档暂时没有读到，可进入对应世界核对。<button onClick={()=>retry(n=>n+1)}>重新读取</button></p>}
+  <p className="rpg-library-note">打开存档不会自动生成内容。发送剧情、生成总结与插画等操作按实际调用计费。 <Link to="/help">查看使用帮助 ↗</Link></p>
+ </RpgShell>;
 }

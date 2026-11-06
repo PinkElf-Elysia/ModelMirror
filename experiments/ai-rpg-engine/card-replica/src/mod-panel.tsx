@@ -30,7 +30,7 @@ export function ModPanel({
   return (
     <>
       <button className="secondary" onClick={() => show(true)}>
-        Mod 面板
+        模组
       </button>
       {open && (
         <Panel
@@ -143,7 +143,7 @@ function Panel({
     }
   }
   return (
-    <Modal title="Mod 面板" close={close} className="rpg-mod-panel">
+    <Modal title="模组" close={close} className="chat-dialog rpg-mod-panel">
       <aside className="mod-info">
         <strong>Mod 说明</strong>
         <details>
