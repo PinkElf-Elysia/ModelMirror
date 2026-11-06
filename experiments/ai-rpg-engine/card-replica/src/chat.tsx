@@ -20,7 +20,7 @@ import './card-presentation.css';
 import {Modal} from './modal';
 import {archiveRoot,localCatalog,cardStoragePrefix,inStudioCard,api,ApiError,catalogApi,emptyClientState,readClientState,writeClientState,reconcileClientState,sendBlocked} from './session-client';
 import type {Session,ClientState,BranchRecord,SelectionRecord} from './session-client';
-export const SavedOutput=memo(function SavedOutput({raw,html}:{raw:string;html:string}){return /<[a-z][a-z0-9-]*(?:\s|>)/i.test(raw)?<div className="model-output" dangerouslySetInnerHTML={{__html:html}}/>:<div className="model-output platform-prose"><ReactMarkdown components={{img:()=> <span>图片未加载</span>,a:({children})=><span>{children}</span>}} urlTransform={()=>''}>{raw}</ReactMarkdown></div>;});
+export const SavedOutput=memo(function SavedOutput({raw,html}:{raw:string;html:string}){return typeof html==='string'?<div className={/<[a-z][a-z0-9-]*(?:\s|>)/i.test(raw)?"model-output":"model-output platform-prose"} dangerouslySetInnerHTML={{__html:html}}/>:<div className="model-output platform-prose"><ReactMarkdown components={{img:()=> <span>图片未加载</span>,a:({children})=><span>{children}</span>}} urlTransform={()=>''}>{raw}</ReactMarkdown></div>;});
 
 type BudgetSnapshot={remaining?:number;reserved?:number;used?:number;limit?:number};
 const budgetCount=(value:unknown):number|undefined=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:undefined;

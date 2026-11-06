@@ -92,3 +92,20 @@ it('does not offer installation or toggling while plugin state is unknown',()=>{
  expect(screen.queryByRole('switch')).not.toBeInTheDocument();
  expect(screen.queryByRole('link',{name:/去安装/})).not.toBeInTheDocument();
 });
+
+it('uses the host display projection for pure Markdown tables without replacing saved source',()=>{
+ const raw='| 地点 | 状态 |\n| --- | --- |\n| 雾港 | 小雨 |';
+ const html='<table><thead><tr><th>地点</th><th>状态</th></tr></thead><tbody><tr><td>雾港</td><td>小雨</td></tr></tbody></table>';
+ const {container,rerender}=render(<SavedOutput raw={raw} html={html}/>);
+ expect(screen.getByRole('table')).toHaveTextContent('雾港');
+ expect(container).not.toHaveTextContent('| ---');
+ const table=screen.getByRole('table');
+ rerender(<SavedOutput raw={raw} html={html}/>);
+ expect(screen.getByRole('table')).toBe(table);
+ expect(raw).toContain('| ---');
+});
+
+it('does not show filtered source when the host intentionally returns an empty display',()=>{
+ const {container}=render(<SavedOutput raw="<think>private block</think>" html=""/>);
+ expect(container).not.toHaveTextContent('private block');
+});
