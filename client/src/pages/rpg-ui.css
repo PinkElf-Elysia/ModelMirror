@@ -12,11 +12,17 @@
 @media(prefers-reduced-motion:no-preference){.rpg-platform :is(a,button){transition:background-color .16s,border-color .16s,color .16s}}
 @media(max-width:760px){.rpg-platform--reader .rpg-platform-nav{display:none}.rpg-platform--reader{height:100dvh}}
 
-/* New releases share one row; entries remain driven by the card registry. */
-.rpg-new-worlds{grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
-.rpg-new-worlds .rpg-world{grid-column:auto;min-height:300px;padding:30px}
+/* Three playable releases and a separate writing entry keep the ten-card library balanced. */
+.rpg-new-worlds{grid-template-columns:repeat(3,minmax(0,1fr))}
+.rpg-new-worlds .rpg-world{grid-column:auto;min-height:310px;padding:28px}
 .rpg-new-worlds .rpg-world h2{font-size:30px;text-wrap:balance}
 .rpg-new-worlds .rpg-world-foot{max-width:520px}
-.rpg-world-new{display:inline-block;margin-right:12px;padding:2px 9px;border-radius:4px;background:#d5e5f4;color:#17344d;font-size:12px;font-weight:600}
-.rpg-new-worlds .rpg-world-foot a{min-height:44px;display:inline-flex;align-items:center;font-weight:600}
-@media(max-width:760px){.rpg-new-worlds{grid-template-columns:1fr}.rpg-new-worlds .rpg-world{padding:24px;min-height:290px}.rpg-new-worlds .rpg-world-foot{flex-direction:row;align-items:center;gap:14px}.rpg-section-title{gap:14px;flex-wrap:wrap}}
+.rpg-new-worlds .rpg-world-foot a,.rpg-creator-entry .rpg-world-foot a{min-height:44px;display:inline-flex;align-items:center;font-weight:600}
+.rpg-creator-entry{min-height:160px;padding:24px 28px 24px 168px;background:#182638}
+.rpg-creator-entry>img{left:24px;top:24px;width:120px;height:112px;object-fit:contain;opacity:1}
+.rpg-creator-entry>div{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:32px;align-items:center}
+.rpg-creator-entry .rpg-genre,.rpg-creator-entry h2,.rpg-creator-entry p{grid-column:1}
+.rpg-creator-entry h2{font-size:25px;margin:4px 0 8px}
+.rpg-creator-entry .rpg-world-foot{grid-column:2;grid-row:1/4;flex-direction:column;align-items:flex-end;margin:0;gap:12px}
+@media(min-width:761px) and (max-width:1120px){.rpg-new-worlds{grid-template-columns:repeat(2,minmax(0,1fr))}.rpg-new-worlds .rpg-world--jinyong{grid-column:1/-1;min-height:260px}.rpg-creator-entry .rpg-world-foot{grid-column:1;grid-row:auto;align-items:flex-start;flex-direction:row;margin-top:20px}}
+@media(max-width:760px){.rpg-new-worlds{grid-template-columns:1fr}.rpg-new-worlds .rpg-world{padding:24px;min-height:290px}.rpg-new-worlds .rpg-world-foot{flex-direction:row;align-items:center;gap:14px}.rpg-section-title{gap:14px;flex-wrap:wrap}.rpg-creator-entry{padding:24px;min-height:220px}.rpg-creator-entry>img{width:72px;height:72px;left:auto;right:20px;top:20px;opacity:.3}.rpg-creator-entry>div{display:block}.rpg-creator-entry .rpg-world-foot{flex-direction:row;align-items:center;margin-top:20px;gap:14px}}

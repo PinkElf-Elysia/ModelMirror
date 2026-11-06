@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  jinyong:'金庸大世界',
   'blue-fish':'蓝色大肥鱼 · 创作助手',
   douluo:'斗罗大陆 · 魂师觉醒台',
   earth:'地球 OL',

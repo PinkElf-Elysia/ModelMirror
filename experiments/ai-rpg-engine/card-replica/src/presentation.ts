@@ -1,5 +1,6 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
+  {id:'jinyong',name:'金庸大世界',description:'群侠并世，江湖未定。选择一部传奇，或踏入群侠交汇的江湖。',genre:'武侠 · 群像',mark:'侠',art:'/rpg-app/jinyong/background.jpg'},
   {id:'douluo',name:'斗罗大陆',description:'觉醒武魂，装配魂环，在斗罗大陆写下自己的篇章。',genre:'玄幻 · 魂师',mark:'魂',art:''},
   {id:'dragon-raja',name:'龙族大世界',description:'从卡塞尔的来信开始，在龙与人的命运之间作出选择。',genre:'龙族 · 青春',mark:'龙',art:'/rpg-app/dragon-raja/background.jpg'},
   {id:'blue-fish',name:'蓝色大肥鱼',description:'和吃白饭的蓝色大肥鱼一起写作，在独立编辑器里整理角色、世界与灵感。',genre:'创作 · Prompt 编辑器',mark:'鱼',art:'/rpg-app/blue-fish/logo.png'},
@@ -13,7 +14,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={
