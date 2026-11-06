@@ -9,10 +9,10 @@ export const validHistoryOperation=(x:HistoryOperation)=>!!x&&typeof x.operation
 export type ClientState={draft:string;request:RequestRecord|null;branch:BranchRecord|null;selection?:SelectionRecord|null;historySetting?:HistoryOperation|null};
 export type Session={importedTurns?:{input:string;raw:string}[];id:string;name:string;characterText:string;revision:number;mode:string;parentId?:string;branchTurn?:number;memoryPalace?:{supported:boolean};rollingSummary?:{supported:boolean};historyWindow?:{config:HistoryConfig;configRevision:number;pendingOperationId:string|null};runtime?:{compatible:boolean;code:string|null};modelSelection?:{revision:number;current:ModelChoice};turns:{origin?:string;model?:{actualModel:string|null;requestedModel:string};requestId:string;input:string;raw:string;html:string;at:string}[];requests:Record<string,{status:string;error?:string}>};
 export class ApiError extends Error{constructor(message:string,public status:number){super(message);}}
-const studioPath=()=>typeof location==='undefined'?null:location.pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\//);
+const studioPath=()=>typeof location==='undefined'?null:location.pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|blue-fish)\//);
 export const cardStoragePrefix=()=>studioPath()?.[1]||'earth';
 export const inStudioCard=()=>!!studioPath();
-export const archiveRoot=()=>{const id=cardStoragePrefix();return '/rpg-app/'+id+(['ancient','cultivation','lord-of-mysteries'].includes(id)?'/chat/':'/');};
+export const archiveRoot=()=>{const id=cardStoragePrefix();return '/rpg-app/'+id+(['ancient','cultivation','lord-of-mysteries','blue-fish'].includes(id)?'/chat/':'/');};
 export const localCatalog=()=>!['earth','god'].includes(cardStoragePrefix());
 export const supportsCustomConfig=()=>inStudioCard();
 export const customScope=(id:string)=>supportsCustomConfig()?cardStoragePrefix()+':'+(['earth','god'].includes(cardStoragePrefix())?'classic':'archive')+':'+id:'';

@@ -1,0 +1,7 @@
+*.txt text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+.gitattributes text eol=lf
