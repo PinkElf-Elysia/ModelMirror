@@ -3,7 +3,7 @@ import './styles.css';
 import './platform-shell.css';
 
 // Earth sessions bind the original entry bytes. Select the other cards before loading it.
-if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries)\/chat\/)/.test(location.pathname)) {
+if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries|douluo)\/chat\/)/.test(location.pathname)) {
   void import('./xingjian').then(({Xingjian}) => {
     createRoot(document.getElementById('root')!).render(<Xingjian/>);
   });

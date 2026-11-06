@@ -31,6 +31,8 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({cards: [{id: 'god'}]})));
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
   await screen.findByRole('heading', {name: '神临凡尘'});
+  expect(screen.getByRole('link', {name: '进入斗罗大陆'})).toHaveAttribute('href', '/rpg/douluo');
+  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(7);
   expect(screen.getByRole('link', {name: '插件市场'})).toHaveAttribute('href', '/rpg/plugins');
   const link = screen.queryByRole('link', {name: /打开创作工作台/});
   if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/');
