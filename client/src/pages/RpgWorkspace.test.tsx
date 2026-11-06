@@ -18,6 +18,7 @@ it.each([
  ['lord-of-mysteries','/rpg-app/lord-of-mysteries/chat/'],
  ['douluo','/rpg-app/douluo/chat/'],['blue-fish','/rpg-app/blue-fish/chat/'],
  ['dragon-raja','/rpg-app/dragon-raja/chat/'],
+ ['jinyong','/rpg-app/jinyong/chat/'],
 ] as const)('keeps the saved session URL and embedded host for %s', (card,root)=>{
  const {container}=render(<MemoryRouter initialEntries={['/rpg/'+card+'/chat/'+id]}><Routes>
   <Route path="/rpg/:card/chat/:sessionId" element={<ArchiveCardPage card={card}/>}/>
