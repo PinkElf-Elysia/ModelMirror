@@ -1,10 +1,9 @@
 // Presentation copies only. Never use this result as saved history or a model message.
 import {parseFragment, serialize} from 'parse5';
-import {createElement} from 'react';
-import {renderToStaticMarkup} from 'react-dom/server';
-import Markdown from 'react-markdown';
+// Marked is already pinned by the RPG engine package; parsing stays on the host.
+import {Marked} from 'marked';
 
-export const presentationVersion = 'rpg-card-presentation/2';
+export const presentationVersion = 'rpg-card-presentation/3';
 export const commentarySource = 'https://catai.wiki/31a557a3-828e-44e7-bcc7-972771e4bb00/w=3000';
 export const commentaryAsset = './assets/god-commentary-v1.webp';
 export const commentaryAssets = Object.freeze({
@@ -30,6 +29,7 @@ const htmlNamespace = 'http://www.w3.org/1999/xhtml';
 const tags = new Set('p br hr div span strong b em i u s del blockquote pre code ul ol li details summary table thead tbody tfoot tr th td h1 h2 h3 h4 h5 h6 ruby rt rp'.split(' '));
 const drop = new Set('script style iframe object embed svg math template form textarea select link meta base audio video source picture canvas noscript thinking think'.split(' '));
 const classes = {
+  archive: new Set(['main-text']),
   god: new Set('page page-top status-box status-summary status-details status-item summary-icon summary-name a b label value page-main scene-wrapper flip-button-wrapper flip-toggle text-front text-back flip-card flip-card-inner flip-card-front flip-card-back page-bottom live-container status-info status-row topic separator danmu-area danmu-track aa bb cc dd title interview-wrap interview-card interview-header interview-avatar interview-info interview-name interview-status interview-qa qa-1 qa-2 qa-3 qa-question qa-answer speech'.split(' ')),
   earth: new Set('situation-panel info-row label-icon info-text main-text char-card char-header char-name char-tags tag char-section section-title info-grid grid-item key val appearance-text personality-tags motivation relation-list relation-item relation-type finance-grid finance-item finance-label finance-val status-bars stat-bar stat-label bar fill health hunger fatigue stat-num condition-text inventory-grid inv-category skill-list certificate-list vehicle-info npc-container npc-card npc-header npc-name npc-tags npc-body npc-row icon favor npc-collapsible collapsible-trigger collapsible-content npc-divider env-panel env-sense sense-icon sense-content env-crowd env-interact social-panel social-item social-label social-value memory-core memory-section section-header note anchor-list anchor-item aid atype divider ltm-scroll stm-scroll stm-card sid stime sscene sfact state-info entity-scroll entity-card entity-name entity-status open-scroll open-card oid otime ocontent ostatus close-scroll close-card cid ctime ccontent action-panel action-item'.split(' ')),
 };
@@ -71,11 +71,15 @@ function protectFences(raw) {
   return out.join('\n');
 }
 
+// HTML nodes were parsed and sanitized separately. Do not promote escaped text
+// back to markup while parsing Markdown, and never load model-provided URLs.
+const markdown = new Marked({gfm:true,async:false,renderer:{
+  html:({text})=>escape(text),
+  link({tokens}) {return '<span>'+this.parser.parseInline(tokens)+'</span>';},
+  image:({text})=>'<span>'+escape(text||'图片未加载')+'</span>',
+}});
 function prose(value) {
-  return parseFragment(renderToStaticMarkup(createElement(Markdown, {
-    components:{img:({alt})=>createElement('span',null,alt||'图片未加载'),a:({children})=>createElement('span',null,children)},
-    urlTransform:()=>'', children:value,
-  }))).childNodes;
+  return parseFragment(markdown.parse(value).trimEnd()).childNodes;
 }
 
 // This author protocol is data inside an otherwise inert HTML comment. Never
@@ -98,11 +102,16 @@ function preserveSoftBreaks(parent,inParagraph=false) {
   for(const n of parent.childNodes)n.parentNode=parent;
 }
 
-function safeStyle(value, n) {
+const archiveStyleKeys=new Set('color background-color border-color border-width border-style border-radius padding margin font-size font-weight text-align line-height display white-space'.split(' '));
+function safeStyle(value, n, profile) {
   const kept=[];
   for(const declaration of value.split(';')) {
     const i=declaration.indexOf(':'); if(i<0)continue;
     const key=declaration.slice(0,i).trim().toLowerCase(), val=declaration.slice(i+1).trim();
+    if(profile==='archive') {
+      if(archiveStyleKeys.has(key)&&/^[#\w\s.,%()-]+$/.test(val)&&!/[()\\]|url|expression|position|fixed|sticky|var/i.test(val))kept.push(key+':'+val);
+      continue;
+    }
     if(['color','background-color','border-color'].includes(key) && /^(?:#[0-9a-f]{3,8}|[a-z]{1,24})$/i.test(val))kept.push(key+':'+val);
     if(key==='width' && has(n,'fill') && /^(?:100|\d{1,2})(?:\.\d{1,2})?%$/.test(val) && parseFloat(val)<=100)kept.push(key+':'+val);
   }
@@ -123,11 +132,13 @@ export function cardPresentation(raw, profile) {
     const flush=()=>{
       if(!run.length)return;
       const literals=run.filter(n=>n.nodeName==='#text').map(n=>n.value).join('');
-      if(!literals.trim()||(!force&&!/\n\s*\n|(?:^|\n)\s*(?:---+|\*\*\*+|#{1,6} |[-*] |\d+\. )/.test(literals))) {result.push(...run);run=[];return;}
+      // The legacy main-text template owns plain-text line spacing in CSS.
+      const authorLines=profile==='archive'&&has(parent,'main-text')&&!/[*_`~#|\x5b]|(?:^|\n)\s*(?:[-+>]|\d+[.)])\s/.test(literals);
+      if(authorLines||!literals.trim()||(!force&&!/\n\s*\n|(?:^|\n)\s*(?:---+|\*\*\*+|#{1,6} |[-*] |\d+\. )/.test(literals))) {result.push(...run);run=[];return;}
       const slots=[];
       const source=run.map(n=>n.nodeName==='#text'?n.value:marker+(slots.push(n)-1)+'END').join('');
       const fragment={childNodes:prose(source)};
-      if(profile==='god')preserveSoftBreaks(fragment);
+      if(profile!=='earth')preserveSoftBreaks(fragment);
       clean(fragment,[],depth+1,false);
       const restore=p=>{
         p.childNodes=(p.childNodes||[]).flatMap(n=>{
@@ -178,6 +189,10 @@ export function cardPresentation(raw, profile) {
         } else report.removedElements++;
         continue;
       }
+      if(n.tagName==='font') {
+        const color=attr(n,'color');n.tagName=n.nodeName='span';
+        n.attrs=color&&/^(?:#[0-9a-f]{3,8}|[a-z]{1,24})$/i.test(color)?[a('style','color:'+color)]:[];
+      }
       const isProse=profile==='god' && ['macroscopic','microscopic'].includes(n.tagName);
       clean(n,[...ancestors,parent],depth+1,markdown&&!['pre','code'].includes(n.tagName));
       if(profile==='earth' && n.tagName==='say') {
@@ -192,7 +207,7 @@ export function cardPresentation(raw, profile) {
         if(item.name==='class') {
           const tokens=originalClass.split(/\s+/).filter(c=>classes[profile].has(c)||(n.tagName==='code'&&/^language-[a-zA-Z0-9_-]{1,32}$/.test(c)));
           if(tokens.length)attributes.push(a('class',[...new Set(tokens)].join(' ')));
-        } else if(item.name==='style') {const val=safeStyle(item.value,n);if(val)attributes.push(a('style',val));}
+        } else if(item.name==='style') {const val=safeStyle(item.value,n,profile);if(val)attributes.push(a('style',val));}
         else if(item.name==='open'&&n.tagName==='details')attributes.push(a('open',''));
         else if(['colspan','rowspan'].includes(item.name)&&['td','th'].includes(n.tagName)&&/^[1-9]\d?$/.test(item.value))attributes.push(item);
         else report.removedAttributes++;
@@ -201,7 +216,7 @@ export function cardPresentation(raw, profile) {
     }
     parent.childNodes=result;
     if(markdown && [undefined,'div','details','macroscopic','microscopic'].includes(parent.tagName)) {
-      markdownRuns(parent,depth,parent.tagName===undefined||['macroscopic','microscopic'].includes(parent.tagName)||has(parent,'main-text'));
+      markdownRuns(parent,depth,parent.tagName===undefined||profile==='archive'||parent.tagName==='details'||['macroscopic','microscopic'].includes(parent.tagName)||has(parent,'main-text'));
     }
     for(const n of parent.childNodes)n.parentNode=parent;
   }

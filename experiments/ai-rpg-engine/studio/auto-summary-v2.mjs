@@ -66,13 +66,14 @@ export function summarySessions(directory,card,transport){
   }
   async function catalog(){return (await transport.catalog({})).filter(m=>m.available)}
   async function create(data){
-    if(data===null||typeof data!=='object'||(data.memory!==undefined&&typeof data.memory!=='boolean'))throw fail('SUMMARY_INPUT_INVALID');
+    if(data===null||typeof data!=='object'||(data.memory!==undefined&&typeof data.memory!=='boolean')||
+      (data.enabled!==undefined&&typeof data.enabled!=='boolean'))throw fail('SUMMARY_INPUT_INVALID');
     const archive=text(data.archive,64000), models=await catalog();
     const storyModel=models.find(m=>m.model==='google/gemini-3.8-flash');
     const summaryModel=data.model?models.find(m=>m.model===data.model):storyModel;
     if(!storyModel||!summaryModel)throw fail('SUMMARY_MODEL_UNAVAILABLE',409);
     const id=randomUUID();
-    const s={id,card,archive,world:data.world==='里世界'?'里世界':'表世界',revision:0,sequence:0,memory:data.memory===true,entries:[],storyModel,summaryModel,enabled:true,large:'',covered:0,turns:[]};
+    const s={id,card,archive,world:data.world==='里世界'?'里世界':'表世界',revision:0,sequence:0,memory:data.memory===true,entries:[],storyModel,summaryModel,enabled:data.enabled??true,large:'',covered:0,turns:[]};
     await mkdir(dir(id),{recursive:true});await persist(s);return view(id);
   }
   async function change(id,data){
@@ -97,9 +98,12 @@ export function summarySessions(directory,card,transport){
         });
       };
     }else if(action==='settings'){
-      if(typeof data.enabled!=='boolean')throw fail('SUMMARY_SETTING_INVALID');
-      const model=(await catalog()).find(m=>m.model===data.model);if(!model)throw fail('SUMMARY_MODEL_UNAVAILABLE',409);
-      run=()=>{s.enabled=data.enabled;s.summaryModel=model;};
+      if(typeof data.enabled!=='boolean'||typeof data.model!=='string')throw fail('SUMMARY_SETTING_INVALID');
+      if(data.large!==undefined&&!s.covered)throw fail('SUMMARY_LARGE_MISSING');
+      const large=data.large===undefined?s.large:text(data.large);
+      const model=(await catalog()).find(m=>m.model===data.model);
+      if(!model)throw fail('SUMMARY_MODEL_UNAVAILABLE',409);
+      run=()=>{s.enabled=data.enabled;s.summaryModel=model;s.large=large;};
     }else if(action==='delete'){
       run=()=>{s.turns=s.turns.filter(turn=>turn!==t);};
     }else if(action==='edit-small'||action==='edit-large'){

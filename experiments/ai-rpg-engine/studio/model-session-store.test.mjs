@@ -10,7 +10,7 @@ import {createPluginService} from '../plugins/host.mjs';
 import {MODEL_SELECTOR_ID,PLUGIN_ID,canonical,sha} from '../plugins/catalog.mjs';
 import {models} from './provider.mjs';
 import {modelRuntime,LEGACY_RUNTIME_HASH} from './model-runtime.mjs';
-import {earthRuntime} from './runtime-binding.mjs';
+import {earthRuntime,legacyEarthRuntime} from './runtime-binding.mjs';
 
 const root=fileURLToPath(new URL('../.rpg04-work/model-selector-b3/tests/',import.meta.url));await mkdir(root,{recursive:true});
 const A={selectionId:'model-a',selectionRevision:'catalog-a',model:'synthetic/A',available:true};
@@ -95,10 +95,13 @@ test('unconfirmed requests and runtime tampering block switch/send/branch withou
 });
 
 test('legacy verified runtime stays readable/continuable without v2 re-signing or model selection',async t=>{
- const f=await fixture(t);assert.equal(earthRuntime.hash,LEGACY_RUNTIME_HASH);
- const old=new VersionedSessionStore(f.store.directory,async()=>'旧会话原文');let s=await old.create({characterText:'姓名：旧测试',world:'表世界',mode:'offline',params:{}});
+ const f=await fixture(t);assert.equal(legacyEarthRuntime.hash,LEGACY_RUNTIME_HASH);
+ const old=new VersionedSessionStore(f.store.directory,async()=>'旧会话原文',null,legacyEarthRuntime);let s=await old.create({characterText:'姓名：旧测试',world:'表世界',mode:'offline',params:{}});
  const binding=canonical(s.runtime);s=await f.store.send(s.id,{revision:0,requestId:'old-request',input:'原配置继续'});
  assert.equal(s.turns.length,1);assert.equal(s.modelState,undefined);assert.equal(canonical(s.runtime),binding);
+ const changedSetup=structuredClone(s);changedSetup.characterText='被替换的资料';assert.equal(f.store.status(changedSetup).compatible,false);
+ const changedPrompt=structuredClone(s);changedPrompt.runtime.descriptor.author.system='0'.repeat(64);changedPrompt.runtime.hash=sha(canonical(changedPrompt.runtime.descriptor));assert.equal(f.store.status(changedPrompt).compatible,false);
+ const currentOnly=new VersionedSessionStore(f.store.directory,async()=>'当前样例',null,earthRuntime);const current=await currentOnly.create({characterText:'姓名：当前测试',world:'表世界',mode:'offline',params:{}});assert.equal(f.store.status(current).compatible,false,'new v1 bindings are not promoted to the reviewed legacy runtime');
  await assert.rejects(f.store.select(s.id,{operationId:'old',expectedSessionRevision:1,selectionRevision:0,selectionId:A.selectionId,catalogRevision:A.selectionRevision},f.plugins),/MODEL_LEGACY_READ_ONLY/);
 });
 

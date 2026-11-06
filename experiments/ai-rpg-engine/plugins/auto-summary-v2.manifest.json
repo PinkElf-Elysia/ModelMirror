@@ -29,5 +29,5 @@
   "dataRetention": "retain",
   "source": "ModelMirror / experiments/ai-rpg-engine/plugins/auto-summary-v2.mjs",
   "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
-  "artifactSha256": "66828fb50d841a5fcfa43e129d4fc85b7ff5c27764071dcc59d9849fdcdccf37"
+  "artifactSha256": "8e6e9da821f89a478471ec98b6b8c743e021780085c9a21f3c6cc62d80236aad"
 }

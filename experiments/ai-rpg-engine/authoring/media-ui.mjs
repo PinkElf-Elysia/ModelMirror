@@ -256,7 +256,7 @@ export function createMediaUI(host) {
   }
   function manageGroups() {
     modal('分组管理（'+client.catalog.groups.length+'/20）','media-small',
-      '<div class="media-group-list">'+client.catalog.groups.map(group=>'<p><span>'+esc(group.name)+'</span><span>'+client.catalog.images.filter(image=>image.groupId===group.id).length+' 张</span></p>').join('')+'</div><p class="hint">本批可在图片编辑的分组下拉中新建和选择分组。删除交互尚待原站核验，未提供删除入口。</p>');
+      '<div class="media-group-list">'+client.catalog.groups.map(group=>'<p><span>'+esc(group.name)+'</span><span>'+client.catalog.images.filter(image=>image.groupId===group.id).length+' 张</span></p>').join('')+'</div><p class="hint">在图片编辑中选择分组，也可以直接新建一个分组。</p>');
   }
   function chooseFile(audio,multiple,ready) {
     const input=document.createElement('input');input.type='file';input.accept=audio?'.mp3,audio/mpeg':imageTypes.join(',');input.multiple=multiple;input.hidden=true;
@@ -309,8 +309,9 @@ export function createMediaUI(host) {
   }
   function sourceKey(path){return host.workId()+':'+path;}
   function sourceMode(path){const key=sourceKey(path);if(!sources.has(key)){let mode=false;try{mode=localStorage.getItem('authoring-media-source:'+key)==='gallery';}catch{}sources.set(key,mode);}return sources.get(key);}
-  function field(title,path) {
+  function field(title,path,{compact=false}={}) {
     const ref=editor.read()[path], asset=host.assets().find(item=>item.alias===ref), mode=sourceMode(path);
+    if(compact)return '<section class="field media-field creator-cover" data-media-field="'+path+'"><span class="field-title">'+title+'</span><div class="media-field-image"><button type="button" class="media-field-select" data-media-field-select="'+path+'" data-media-pick-source="file" aria-label="上传'+title+'">'+(asset?'<img src="'+host.assetUrl(asset)+'" alt="'+esc(asset.fileName)+'">':'<span>＋ 上传'+title+'</span>')+'</button>'+(ref?'<button type="button" class="media-field-clear" data-media-clear="'+path+'" aria-label="移除'+title+'">×</button>':'')+'</div><div class="creator-cover-actions"><button type="button" data-media-field-select="'+path+'" data-media-pick-source="file">上传</button><button type="button" data-media-field-select="'+path+'" data-media-pick-source="gallery">从图库选</button></div><p class="hint">PNG / JPG / WEBP / GIF</p>'+(ref&&!asset?'<p class="danger">缺少资源：asset://'+esc(ref)+'。引用已保留。</p>':'')+'<p class="media-image-failure danger" hidden>图片无法显示，请重新选择有效资源。</p></section>';
     return '<section class="field media-field" data-media-field="'+path+'"><div class="field-row"><span class="field-title">'+title+'</span><label class="media-source-switch">使用图库图片<input type="checkbox" role="switch" aria-label="'+title+'使用图库图片" data-media-source="'+path+'"'+(mode?' checked':'')+'></label></div><div class="media-field-image"><button type="button" class="media-field-select" data-media-field-select="'+path+'" aria-label="选择'+title+'">'+(asset?'<img src="'+host.assetUrl(asset)+'" alt="'+esc(asset.fileName)+'">':'<span aria-hidden="true">＋</span>')+'</button>'+(ref?'<button type="button" class="media-field-clear" data-media-clear="'+path+'" aria-label="移除'+title+'">×</button>':'')+'</div><p class="hint">仅支持上传图片：PNG、JPG、JPEG、WEBP、GIF</p>'+(ref&&!asset?'<p class="danger">缺少资源：asset://'+esc(ref)+'。引用已保留。</p>':'')+'<p class="media-image-failure danger" hidden>图片无法显示，请重新选择有效资源。</p></section>';
   }
   function music() {
@@ -321,7 +322,8 @@ export function createMediaUI(host) {
     for(const input of document.querySelectorAll('[data-media-source]'))input.onchange=()=>{const key=sourceKey(input.dataset.mediaSource);sources.set(key,input.checked);try{localStorage.setItem('authoring-media-source:'+key,input.checked?'gallery':'file');}catch{}};
     for(const button of document.querySelectorAll('[data-media-field-select]'))button.onclick=()=>{
       const path=button.dataset.mediaFieldSelect;
-      if(sourceMode(path))openGallery(path).catch(error=>editor.toast(errorText(error)));
+      const gallery=button.dataset.mediaPickSource ? button.dataset.mediaPickSource==='gallery' : sourceMode(path);
+      if(gallery)openGallery(path).catch(error=>editor.toast(errorText(error)));
       else chooseFile(false,false,files=>uploadDirect(files[0],path));
     };
     for(const button of document.querySelectorAll('[data-media-clear]'))button.onclick=()=>editor.change(button.dataset.mediaClear,null);

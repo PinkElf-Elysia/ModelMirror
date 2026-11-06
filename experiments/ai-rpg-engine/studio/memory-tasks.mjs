@@ -7,17 +7,21 @@ import * as defaultMemoryState from './memory-task-state.mjs';
 import * as defaultSummaryState from './summary-state.mjs';
 import {overflow,compressionMessages,compressionEvidence,COMPRESSION_MAX} from './summary-compression.mjs';
 import {reservationId} from './memory-budget.mjs';
+import {isV2SummaryStage,publishSummaryV2,summaryV2Plan,summaryV2Policy,summaryV2Source} from './default-summary-v2.mjs';
 const wireHash=t=>sha(JSON.stringify({sessionId:t.sessionId,requestId:t.requestId,selectionId:t.selection.selectionId,selectionRevision:t.selection.selectionRevision,messages:t.messages,parameters:t.selection.parameters}));
 const pending=o=>['pending','unknown'].includes(o.status);
 const identity=(id,key,stageId)=>sha(canonical({id,key,stageId}));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 // No caller-supplied callbacks/configuration cross HTTP. The M3 host connects these
 // trusted boundaries; B3 supplies production story assembly, publication and snapshots.
-export function createMemoryTasks({store,plugins,transport,buildStory=null,commitStory=null,settleStory=null,legacySend=null,cardState=null}){
+export function createMemoryTasks({store,plugins,transport,buildStory=null,commitStory=null,settleStory=null,legacySend=null,cardState=null,autoSummaryV2=false}){
  const {requireMemoryTasks,sealMemoryTasks,memoryTaskBlock,memoryContextPolicy,memoryPlan,memorySource,MEMORY_INSTRUCTION,publishMemoryResult}=cardState?.memory||defaultMemoryState;
  const {SUMMARY_INSTRUCTION,summaryUpdateSource,modelSummaryVersion,withSummaryVersion}=cardState?.summary||defaultSummaryState;
  const {controlledChoice,validChoice}=cardState?.models||{controlledChoice:defaultControlledChoice,validChoice:defaultValidChoice};
  const active=new Map();
+ const usesV2=a=>autoSummaryV2&&a.summary.enabled;
+ const policyFor=(s,a)=>{const policy=memoryContextPolicy(s,a);return usesV2(a)?summaryV2Policy(s,policy):policy;};
+ const planFor=(s,a,kind,turn)=>usesV2(a)?summaryV2Plan(s,a,kind,turn):memoryPlan(s,a,kind);
  const authorizations=async id=>({memory:await plugins.memoryAuthorization(id),summary:await plugins.summaryAuthorization(id),history:await plugins.historyAuthorization(id)});
  const save=async s=>{s.memoryTasks.hash=sealMemoryTasks(s.memoryTasks).hash;await store.write(s);};
  async function read(id){const s=await store.read(id);if(!(await store.pluginSession(id)).memoryPalaceCompatible)throw fail('MEMORY_RUNTIME_INCOMPATIBLE');await store.requireRuntime(s);requireMemoryState(s);requireMemoryTasks(s);return s;}
@@ -30,7 +34,8 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
  }
  function unconfirmed(s){if(memoryTaskBlock(s)||s.memoryPalace.pending||s.historyWindow?.pending||s.rollingSummary?.pending||Object.values(s.summaryTasks?.operations||{}).some(pending)||Object.values(s.requests||{}).some(r=>r.status==='pending'))throw fail('MEMORY_TASK_UNCONFIRMED');}
  function validate(input,kind){
-  if(!exact(input,['operationId','expectedSessionRevision','expectedMemoryRevision','expectedContextPolicyRevision',...(kind==='send'?['input']:[])])||!operationId(input.operationId)||!revision(input.expectedSessionRevision)||!revision(input.expectedMemoryRevision)||typeof input.expectedContextPolicyRevision!=='string'||!/^[a-f0-9]{64}$/.test(input.expectedContextPolicyRevision)||kind==='send'&&(typeof input.input!=='string'||!input.input.trim()||input.input.length>20000))throw fail('MEMORY_TASK_INPUT_INVALID',400);
+  const extra=kind==='send'?['input']:kind==='regenerate'?['summaryTurn']:[];
+  if(!exact(input,['operationId','expectedSessionRevision','expectedMemoryRevision','expectedContextPolicyRevision',...extra])||!operationId(input.operationId)||!revision(input.expectedSessionRevision)||!revision(input.expectedMemoryRevision)||typeof input.expectedContextPolicyRevision!=='string'||!/^[a-f0-9]{64}$/.test(input.expectedContextPolicyRevision)||kind==='send'&&(typeof input.input!=='string'||!input.input.trim()||input.input.length>20000)||kind==='regenerate'&&input.summaryTurn!==null&&(!Number.isSafeInteger(input.summaryTurn)||input.summaryTurn<1))throw fail('MEMORY_TASK_INPUT_INVALID',400);
  }
  async function finish(s,op,task,result,cancelled=()=>op.cancelRequested){
   task.output=structuredClone(result);if(result?.cancelledKnown){task.status='cancelled';throw fail('CANCELLED');}const receipt=result?.evidence?.record;
@@ -44,7 +49,8 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   // Build candidate on a copy. Validation or a failed write cannot mutate the live
   // library/summary in a later failure-state save.
   const next=structuredClone(s),nt=next.memoryTasks.operations[op.input.operationId].tasks.find(t=>t.stageId===task.stageId);
-  if(task.purpose==='memory')publishMemoryResult(next,task,result);
+  if(isV2SummaryStage(task.stageId))publishSummaryV2(next,task,result,op.input.summaryTurn);
+  else if(task.purpose==='memory')publishMemoryResult(next,task,result);
   else if(task.purpose==='story'){
    if(!result.raw.trim())throw fail('MODEL_EMPTY_OUTPUT');await commitStory(next,task,result);
   }else if(task.purpose==='summary'&&overflow(result.raw,result.finishReason))nt.overflow=true;
@@ -63,10 +69,11 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   if(controller.signal.aborted)throw fail('CANCELLED_BEFORE_DISPATCH');
   const candidate=stage.purpose==='compression'?(op.tasks.find(t=>t.stageId===stage.stageId.replace('compression','summary')&&t.overflow)||(stage.stageId==='compression-before'?op.reusedOverflow:null)):null;
   if(stage.purpose==='compression'&&!candidate){op.skipped.push(stage.stageId);await save(s);return;}
-  const source=stage.purpose==='memory'?memorySource(s):stage.purpose==='story'?null:summaryUpdateSource(s);
-  const selection=await choose(stage.purpose==='memory'?s.memoryTasks.config.model:stage.purpose==='story'?s.modelState.current:s.rollingSummary.config.model,s.id);
-  const story=stage.purpose==='story'?await buildStory(s,op.input.input,memoryContextPolicy(s,op.authorization)):null;
-  const messages=stage.purpose==='memory'?[{role:'system',content:MEMORY_INSTRUCTION},{role:'user',content:JSON.stringify({entries:source.entries,turns:source.turns})}]:stage.purpose==='story'?story.messages:stage.purpose==='compression'?compressionMessages(compressionEvidence(candidate).raw):[{role:'system',content:SUMMARY_INSTRUCTION},{role:'user',content:JSON.stringify({previousSummary:source.previousSummary,completedTurns:source.source})}];
+  const v2=isV2SummaryStage(stage.stageId)?summaryV2Source(s,stage.stageId,op.input.summaryTurn):null;
+  const source=v2?v2.binding:stage.purpose==='memory'?memorySource(s):stage.purpose==='story'?null:summaryUpdateSource(s);
+  const selection=await choose(stage.purpose==='memory'?s.memoryTasks.config.model:stage.purpose==='story'?s.modelState.current:s.rollingSummary.config.model||(v2?s.modelState.current:null),s.id);
+  const story=stage.purpose==='story'?await buildStory(s,op.input.input,policyFor(s,op.authorization)):null;
+  const messages=v2?v2.messages:stage.purpose==='memory'?[{role:'system',content:MEMORY_INSTRUCTION},{role:'user',content:JSON.stringify({entries:source.entries,turns:source.turns})}]:stage.purpose==='story'?story.messages:stage.purpose==='compression'?compressionMessages(compressionEvidence(candidate).raw):[{role:'system',content:SUMMARY_INSTRUCTION},{role:'user',content:JSON.stringify({previousSummary:source.previousSummary,completedTurns:source.source})}];
   if(candidate&&(canonical(source)!==canonical(candidate.source)||canonical(selection)!==canonical(candidate.selection)))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
   const task={...stage,sessionId:s.id,requestId:identity(s.id,op.input.operationId,stage.stageId),selection,messages:structuredClone(messages),messagesHash:sha(canonical(messages)),source,sourceHash:sha(canonical(source)),story,lease:op.leases.find(l=>l.stageId===stage.stageId),status:'pending',output:null,...(candidate?{candidate:structuredClone(candidate)}:{})};
   op.tasks.push(task);await save(s);
@@ -85,22 +92,25 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   return store.exclusive(id,async()=>{
    const s=await read(id),q=s.memoryTasks,prior=Object.hasOwn(q.operations,input.operationId)?q.operations[input.operationId]:null;
    if(prior){if(prior.inputHash!==sha(canonical(input)))throw fail('MEMORY_TASK_OPERATION_COLLISION');const result={...structuredClone(prior),replayed:true};front.resolve(result);return result;}
-   unconfirmed(s);const a=await authorizations(id),policy=memoryContextPolicy(s,a);
+   unconfirmed(s);const a=await authorizations(id),policy=policyFor(s,a),v2=usesV2(a);
    if(s.revision!==admission.expectedSessionRevision||s.memoryPalace.revision!==admission.expectedMemoryRevision||policy.revision!==admission.expectedContextPolicyRevision)throw fail('MEMORY_TASK_REVISION_CONFLICT');
-   if(kind==='send'&&q.blocked){const old=q.operations[q.blocked];if(old.blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled)throw fail('MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION');}
-   if(!a.memory.enabled){
+   if(kind==='regenerate'&&!v2)throw fail('PLUGIN_NOT_AUTHORIZED',403);
+   if(kind==='send'&&q.blocked){const old=q.operations[q.blocked];if(old.blockedPurpose==='memory'?a.memory.enabled:a.summary.enabled&&(!v2||old.plan.some(stage=>isV2SummaryStage(stage.stageId))))throw fail('MEMORY_UPDATE_REQUIRES_EXPLICIT_ACTION');}
+   if(!a.memory.enabled&&(!v2||kind==='update')){
     if(kind!=='send')throw fail('PLUGIN_NOT_AUTHORIZED');if(!legacySend)throw fail('MEMORY_LEGACY_PATH_NOT_CONNECTED');return {delegateLegacy:true,session:s,input};
    }
    if(kind==='send'&&(!buildStory||!commitStory))throw fail('MEMORY_ASSEMBLY_NOT_CONNECTED');
-   memorySource(s);await choose(q.config.model,id);if(a.summary.enabled)await choose(s.rollingSummary.config.model,id);
-   let plan=memoryPlan(s,a,kind),reusedOverflow=null;
-   if(kind==='update'&&a.summary.enabled&&summaryUpdateSource(s).needsUpdate&&q.blocked){
+   if(a.memory.enabled&&kind!=='regenerate'){memorySource(s);await choose(q.config.model,id);}
+   if(a.summary.enabled&&(!v2||kind!=='update'))await choose(s.rollingSummary.config.model||(v2?s.modelState.current:null),id);
+   let plan=planFor(s,a,kind,input.summaryTurn),reusedOverflow=null;
+   if(kind==='regenerate')summaryV2Source(s,plan[0].stageId,input.summaryTurn);
+   if(kind==='update'&&!v2&&a.summary.enabled&&summaryUpdateSource(s).needsUpdate&&q.blocked){
     const source=summaryUpdateSource(s),old=q.operations[q.blocked];
     reusedOverflow=[...old.tasks].reverse().map(t=>t.purpose==='compression'?t.candidate:t).find(t=>t?.purpose==='summary'&&t.overflow&&t.status==='complete'&&canonical(t.source)===canonical(source)&&canonical(t.selection)===canonical(s.rollingSummary.config.model))||null;
     if(reusedOverflow){compressionEvidence(reusedOverflow);reusedOverflow=structuredClone(reusedOverflow);plan=plan.filter(p=>p.stageId!=='summary-before');}
    }
    if(Object.keys(q.operations).length>=10000)throw fail('MEMORY_OPERATION_LIMIT');
-   const op={sessionId:id,input:structuredClone(input),inputHash:sha(canonical(input)),kind,authorization:a,policyRevision:policy.revision,plan,reusedOverflow,status:'pending',tasks:[],leases:[],skipped:[],blockedPurpose:null,cancelRequested:false,error:null};
+   const op={sessionId:id,input:structuredClone(input),inputHash:sha(canonical(input)),kind:kind==='regenerate'?'update':kind,authorization:a,policyRevision:policy.revision,plan,reusedOverflow,status:'pending',tasks:[],leases:[],skipped:[],blockedPurpose:null,cancelRequested:false,error:null};
    q.operations[input.operationId]=op;await save(s);const controller=new AbortController();store.running.set(id,controller);let preserveDisk=false;
    try{
     if(plan.length){op.leases=await transport.budget.reserve(reservationId(id,input.operationId),id,plan);await save(s);}
@@ -108,7 +118,8 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
      await step(s,op,stage,controller);
      if(stage.purpose==='story'){entry.phase='background';front.resolve({...structuredClone(op),background:true});}
     }
-    op.status='complete';q.blocked=null;s.memoryTasks.blocked=null;
+    op.status='complete';
+    if(!v2||kind==='send'||q.operations[q.blocked]?.blockedPurpose===(kind==='regenerate'?'summary':'memory'))s.memoryTasks.blocked=null;
    }catch(e){
     preserveDisk=!!e.preserveDisk;op.cancelRequested ||= controller.signal.aborted;const last=op.tasks.at(-1);op.status=last?.status==='unknown'?'unknown':last?.status==='revoked'||e.code==='MEMORY_AUTHORIZATION_CHANGED'?'revoked':controller.signal.aborted?'cancelled':'failed';
     op.error=e.code||'MEMORY_TASK_PERSISTENCE_FAILED';
@@ -130,7 +141,8 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   return {front:front.promise,done:entry.promise};
  }
  const api={
-  async status(id){const s=await read(id),a=await authorizations(id);return {sessionRevision:s.revision,memoryRevision:s.memoryPalace.revision,state:structuredClone(s.memoryTasks),effectivePolicy:memoryContextPolicy(s,a),plan:memoryPlan(s,a),maxCalls:a.memory.enabled?memoryPlan(s,a).length:null};},
+  policyFor,planFor,
+  async status(id){const s=await read(id),a=await authorizations(id),plan=planFor(s,a,'send');return {sessionRevision:s.revision,memoryRevision:s.memoryPalace.revision,state:structuredClone(s.memoryTasks),effectivePolicy:policyFor(s,a),plan,maxCalls:a.memory.enabled||usesV2(a)?plan.length:null};},
   async catalog(id){await read(id);const ticket=await plugins.invoke({pluginId:MEMORY_PALACE_ID,sessionId:id,capability:'ui.memory-action'});const list=await transport.catalog({sessionId:id});await plugins.validateResult(ticket);return list;},
   async configure(id,input){
    if(!exact(input,['operationId','expectedSessionRevision','expectedMemoryRevision','selectionId','catalogRevision'])||!operationId(input.operationId)||!revision(input.expectedSessionRevision)||!revision(input.expectedMemoryRevision)||!validSettings({selectionId:input.selectionId,catalogRevision:input.catalogRevision}))throw fail('MEMORY_CONFIGURATION_INVALID',400);
@@ -160,6 +172,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
    return launch(id,input,'send',admission).front;
   },
   async update(id,input){validate(input,'update');if(active.has(id))throw fail('SESSION_BUSY');return launch(id,structuredClone(input),'update').front;},
+  async regenerate(id,input){validate(input,'regenerate');if(active.has(id))throw fail('SESSION_BUSY');return launch(id,structuredClone(input),'regenerate').front;},
   async wait(id){return active.get(id)?.promise||null;},
   async recover(id,key){
    if(!operationId(key))throw fail('MEMORY_OPERATION_INVALID');if(active.has(id))throw fail('SESSION_BUSY');return store.exclusive(id,async()=>{

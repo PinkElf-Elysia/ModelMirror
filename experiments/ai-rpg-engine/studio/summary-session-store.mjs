@@ -134,6 +134,7 @@ export function createSummaryStoreClass(cardState=null){
    const staged=structuredClone(s),op={hash:operationHash,input:structuredClone(input),status:'pending',summaryRevision:h.revision};
    staged.rollingSummary.pending=input.operationId;staged.rollingSummary.operations[input.operationId]=op;staged.rollingSummary=sealSummary(staged.rollingSummary);
    const next=prepared.next;next.operations[input.operationId]={...op,status:'complete',summaryRevision:next.revision};next.pending=null;s.rollingSummary=sealSummary(next);s.revision++;
+   if(prepared.autoSummaryV2)s.autoSummaryV2=prepared.autoSummaryV2;
    requireSummaryState(staged);requireSummaryState(s);
    await plugins.commitResult(ticket,async()=>{await this.write(staged);await this.publishSummary(s);});
    return {session:s,operation:structuredClone(s.rollingSummary.operations[input.operationId]),replayed:false};

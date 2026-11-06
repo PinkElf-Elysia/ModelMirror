@@ -74,7 +74,7 @@ test("global and session prompts, wrapped keyword trigger, display only and hist
   assert.equal(runJob({ kind: "story", configs, messages })[2].content, "new");
   assert.equal(messages[2].content, "old");
 });
-test("seven chat routes scope configuration to a single story; auxiliaries, recovery and later turns are unaffected", async (t) => {
+test("all six card chats and legacy routes scope configuration to one story; auxiliaries remain unaffected", async (t) => {
   const seen = [];
   const origin = "http://127.0.0.1:12345";
   const server = http.createServer(async (req, res) => {
@@ -115,6 +115,11 @@ test("seven chat routes scope configuration to a single story; auxiliaries, reco
   t.after(() => server.close());
   const base = "http://127.0.0.1:" + server.address().port;
   for (const [path, request, storyId] of [
+    ...["ancient/chat", "xingjian", "lord-of-mysteries/chat"].map(card=>[
+      "/"+card+"/api/sessions/"+id+"/send",
+      {operationId:key},
+      hash({id,key,stageId:"story"}),
+    ]),
     [
       "/cultivation/chat/api/sessions/" + id + "/send",
       { operationId: key },

@@ -17,7 +17,7 @@ export async function createIllustrationWriter(directory,config){
   if(!config)return null;
   const model=config.model||models.earth.model;
   const providers=new Map();
-  for(const cardId of ['earth','god']){
+  for(const cardId of ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries']){
     providers.set(cardId,await createControlledProvider({...config,directory:join(directory,'illustration-rewrites'),cardId,
       catalogModels:[model],modelPolicy:{cardId,parametersFor,sameParameters}}));
   }

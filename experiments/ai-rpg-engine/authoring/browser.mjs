@@ -51,12 +51,12 @@ const failureText = {
   AUTHORING_DOM_CAPACITY:'脚本生成的页面节点或层级超过上限，已停止。',
   AUTHORING_SCRIPT_SOURCE_UNSUPPORTED:'仅支持作品内普通脚本；外部脚本、模块及动态脚本标签未执行。',
   AUTHORING_SCRIPT_ASYNC_PENDING:'异步任务未能在本次事件内收束，已停止。未提交部分画面。',
-  AUTHORING_SCRIPT_ASYNC_UNSUPPORTED:'本批仅支持同步开局脚本；async/await、动态模块、eval 和异步任务未执行。请使用同步表单事件及 rpg 交接接口。',
+  AUTHORING_SCRIPT_ASYNC_UNSUPPORTED:'开局脚本支持同步表单事件。请移除 async/await、动态模块、eval 和异步任务后再试。',
   AUTHORING_SCRIPT_GESTURE_REQUIRED:'初始化不能交接或复制文字。请改为由玩家操作按钮触发。',
   AUTHORING_SCRIPT_CLOSED:'脚本预览已停止或过期。画面和输入保留；需手动刷新预览重新运行。',
   AUTHORING_SCRIPT_CAPACITY:'脚本预览达到容量上限。最多4个活动实例，每个最多512次事件；可停止旧预览后重试。',
   AUTHORING_PRESENTATION_STALE:'准备期间编辑内容已变化。请刷新预览后重新核对。',
-  AUTHORING_PRESENTATION_SIZE:'预览内容或引用图片超过本批展示容量，请减少单次预览内容。原文未截断。',
+  AUTHORING_PRESENTATION_SIZE:'预览内容或引用图片过大，请减少单次预览内容。原文完整保留。',
   AUTHORING_PRESENTATION_COMPLEX:'HTML 层级或节点过多，本次预览已停止。请检查结构。',
   AUTHORING_PRESENTATION_TIMEOUT:'HTML 解析超过时限，本次预览已停止。可以保留源码后检查结构。',
   AUTHORING_PRESENTATION_RESOURCE_LIMIT:'本次预览解析达到资源上限，已停止；编辑界面与作品仍保留。',
@@ -121,11 +121,11 @@ async function renderPreview(mode,createCG=false){
   }
   const replyControl=mode==='reply'?'<div class="regex-preview-role" role="group" aria-label="回放来源"><span>回放来源</span>'+[['assistant','AI输出'],['user','用户输入']].map(([value,label])=>'<label><input type="radio" name="preview-role" value="'+value+'"'+(previewRole===value?' checked':'')+'>'+label+'</label>').join('')+'</div><label class="form-label" for="preview-reply-source">粘贴原始回复（Markdown / HTML）</label><textarea id="preview-reply-source" rows="5" placeholder="粘贴完整原始回复，然后点击渲染。">'+esc(previewReply)+'</textarea><button type="button" id="render-reply">渲染回复</button>':'';
   const cgControl=mode==='reply'?'<label class="form-label" for="preview-cg-user">本轮玩家原文（供 CG 匹配）</label><textarea id="preview-cg-user" rows="2">'+esc(previewCGUser)+'</textarea><button type="button" id="create-cg-replay">生成本轮 CG 回放</button><p class="hint">请粘贴完整回复。仅此按钮生成选图；渲染与刷新复用结果。同一配置内连续回放未命中时保留上一张背景。配置变化或记录过期后，新回放从作品默认背景开始。记录在服务内保留10分钟，重启后不自动重抽，不写入正式历史。</p>':'';
-  if(!previous||previous.workId!==work.id||!$('#presentation-frame'))root.innerHTML='<div id="presentation-reply-controls"></div><p class="hint" id="presentation-status" role="status"></p><button type="button" id="stop-script" hidden>停止脚本</button><div id="presentation-proposal" class="data-block" hidden></div><div id="presentation-frame"></div><details class="help-disclosure"><summary>预览诊断与兼容说明</summary><div id="presentation-diagnostics"></div><p>作者 JS 在独立引擎内执行，只操作本作品的表单和展示节点。回复脚本禁止执行。编辑后点“刷新”更新预览，不保存或调用模型。</p><p>脚本可用 rpg.setInput(text)、rpg.saveDraft(text)、rpg.copyText(text) 提出交接候选，必须由玩家按钮触发，并在此界面采用。声明式 data-rpg-input、data-rpg-copy、data-rpg-draft 仍可用。异步复制仅在此处确认成功后继续；取消不会触发作者复制成功提示。</p><p>支持受限 DOM/SVG、定时器、动画帧、画布、布局快照、合成音效和本地 MP3。浏览器可能需点击后才能播放。预览最多运行10分钟；停止或关闭后释放脚本与声音。网络、存储、父窗口和直接模型调用仍不可用。不支持的调用会明确停止。</p></details>';
+  if(!previous||previous.workId!==work.id||!$('#presentation-frame'))root.innerHTML='<div id="presentation-reply-controls"></div><p class="hint" id="presentation-status" role="status"></p><button type="button" id="stop-script" hidden>停止脚本</button><div id="presentation-proposal" class="data-block" hidden></div><div id="presentation-frame"></div><details class="help-disclosure"><summary>预览说明与问题</summary><div id="presentation-diagnostics"></div><p>作者 JS 在独立引擎内执行，只操作本作品的表单和展示节点。回复脚本禁止执行。编辑后点“刷新”更新预览，不保存或调用模型。</p><p>脚本可用 rpg.setInput(text)、rpg.saveDraft(text)、rpg.copyText(text) 提出交接候选，必须由玩家按钮触发，并在此界面采用。声明式 data-rpg-input、data-rpg-copy、data-rpg-draft 仍可用。异步复制仅在此处确认成功后继续；取消不会触发作者复制成功提示。</p><p>支持受限 DOM/SVG、定时器、动画帧、画布、布局快照、合成音效和本地 MP3。浏览器可能需点击后才能播放。预览最多运行10分钟；停止或关闭后释放脚本与声音。网络、存储、父窗口和直接模型调用仍不可用。不支持的调用会明确停止。</p></details>';
   if(!$('#presentation-suggestions'))$('#presentation-frame').insertAdjacentHTML('afterend','<div id="presentation-suggestions" class="assistance-choices" aria-label="下一步建议"></div>');
   $('#presentation-suggestions').replaceChildren();
   $('#presentation-reply-controls').innerHTML=replyControl+cgControl;
-  $('#presentation-status').textContent='正在准备隔离展示…';$('#presentation-proposal').hidden=true;$('#stop-script').hidden=true;
+  $('#presentation-status').textContent='正在准备预览…';$('#presentation-proposal').hidden=true;$('#stop-script').hidden=true;
   if(mode==='reply'){
     document.querySelectorAll('[name="preview-role"]').forEach(input=>input.onchange=()=>{previewRole=input.value;$('#create-cg-replay').disabled=previewRole!=='assistant';$('#presentation-status').textContent='来源已变化，点击渲染回复更新显示。';});
     $('#preview-reply-source').oninput=event=>{previewReply=event.target.value;};
@@ -370,18 +370,45 @@ function afterBasic() {
     editor.editor('startupHtml','开局 HTML') + editor.editor('startupCss','开局 CSS') + editor.editor('startupJs','开局 JavaScript') + '</details>');
   const panelRoot=document.createElement('section');panelRoot.id='variable-panel-editor';$('#panel-basic').append(panelRoot);variableUI.render(panelRoot);
   $('#name').maxLength = 120;
-  $('[data-target="cover"].upload-box').closest('.field').outerHTML = media.field('封面','cover');
+  $('[data-target="cover"].upload-box').closest('.field').outerHTML = media.field('封面','cover',{compact:creatorMode});
   media.bindFields();
   $('#panel-basic .help-disclosure p').textContent = 'HTML/CSS 可隔离预览；作者 JS、创作增强与实际请求按后续子批接入。';
   if(creatorMode){
     $('#source-intro').closest('.field').querySelector('.hint').textContent='写下作品介绍或可交互的开局页面，点击右侧“刷新”查看效果。';
-    auto.textContent='每 3 分钟保存草稿。弹窗编辑、冲突或结果待核对时暂停。';
+    auto.textContent='每 3 分钟保存草稿；弹窗编辑、有冲突或结果待核对时暂停。';
+    layoutCreatorIdentity();
     for(const [id,hint] of [['system','设定世界、角色、玩法和回复格式，作为模型的系统提示词。'],['prefix','每轮添加到玩家输入之前，适合简短的固定资料。'],['suffix','每轮添加到玩家输入之后，适合持续生效的回复要求。']])$('#source-'+id).closest('.field').querySelector('.hint').textContent=hint;
     $('#panel-basic').insertAdjacentHTML('afterbegin','<nav class="creator-jumps" aria-label="基础设置快捷定位"><a href="#name">作品资料</a><a href="#source-intro">开局页面</a><a href="#source-system">提示词</a><a href="/creator-guide.html#start" target="_blank" rel="noopener">创作入门 ↗</a></nav>');
     const capability=$('#panel-basic .help-disclosure');capability.remove();
     const source=$('#panel-basic .help-disclosure');source.querySelector('summary').textContent='独立开局源码';
     source.querySelector('p').textContent='分别编辑 HTML、CSS 和 JavaScript。HTML 非空时替代上方详细介绍，作为开局页面。';
   }
+}
+
+function layoutCreatorIdentity() {
+  const name=$('#name').closest('.field'), tags=$('#manage-tags').closest('.field');
+  const cover=$('[data-media-field="cover"]'), autosave=$('[data-bind="autosave"]').closest('.field');
+  const section=document.createElement('section');
+  section.className='creator-identity';section.setAttribute('aria-labelledby','creator-identity-title');
+  section.innerHTML='<header><h2 id="creator-identity-title">作品资料</h2><span>* 为必选</span></header><div class="creator-identity-body"><div class="creator-identity-fields"></div></div>';
+  name.before(section);
+  const body=section.querySelector('.creator-identity-body'), fields=section.querySelector('.creator-identity-fields');
+  body.prepend(cover);fields.append(name,tags);
+  const manage=$('#manage-tags'), list=tags.querySelector('.tags'), warnings=[...tags.querySelectorAll('.metadata-warning')];
+  manage.className='text-button';manage.textContent=list.children.length?'＋ 管理标签':'添加';
+  manage.setAttribute('aria-label','管理标签');
+  if(!list.children.length){const empty=document.createElement('span');empty.className='creator-tags-empty';empty.textContent='还没有标签';list.append(empty);}
+  list.append(manage);
+  const title=document.createElement('span');title.className='field-title';title.textContent='标签';
+  tags.replaceChildren(title,list,...warnings);
+  const choices=document.createElement('div');choices.className='creator-identity-choices';fields.append(choices);
+  for(const [path,label] of [['language','语言'],['audience','面向群体']]){
+    const control=$('#metadata-'+path), field=control.closest('.field');
+    const heading=document.createElement('label');heading.htmlFor=control.id;heading.textContent=label+' *';
+    control.setAttribute('aria-required','true');control.setAttribute('aria-label',label);
+    field.replaceChildren(heading,control);choices.append(field);
+  }
+  autosave.classList.add('creator-autosave');section.after(autosave);
 }
 
 // B2-B: metadata controls share validation with the host; drafts in dialogs stay local.
@@ -884,7 +911,7 @@ function reloadServer() {
   },'放弃本页修改并载入','取消');
 }
 function scope() {
-  if(creatorMode)return editor.openDialog('功能与帮助','<p>保存作品、编辑源码和资源，使用预览检查开局与回复样式。</p><p>'+ (document.body.dataset.execution==='controlled'?'点击发送才调用所选模型；保存、预览与发布不调用模型。':'当前入口为离线演练，发送使用固定样例。') +'模型配置不会自动启用插件。</p><p><a href="/creator-guide.html" target="_blank" rel="noopener">打开创作指南</a></p><details><summary>后续扩展</summary><p>已发布作品支持 CG 画廊与变量面板。扩展参数选择与并行模型对照另行验收。</p></details>',null,undefined,'关闭');
+  if(creatorMode)return editor.openDialog('功能与帮助','<p>保存作品、编辑源码和资源，使用预览检查开局与回复样式。</p><p>'+ (document.body.dataset.execution==='controlled'?'点击发送才调用所选模型；保存、预览与发布不调用模型。':'当前是离线预览，发送会显示固定样例。') +'模型配置不会自动启用插件。</p><p>已发布作品可使用 CG 画廊与变量面板。</p><p><a href="/creator-guide.html" target="_blank" rel="noopener">打开创作指南</a></p>',null,undefined,'关闭');
   editor.openDialog('本批能力','<p>已接线：标签管理、五种语言、男性向／女性向、空白作品、草稿保存与刷新恢复、资源清单、分组图库与媒体选用、配置 / 完整包导入导出、作品复制、不可变版本数据封存、原操作核对。</p>' +
     '<p>图库删图/删组尚待原站交互核验，本批没有删除入口。聊天音乐自动播放在 B5 接入；媒体字段只试听。</p>' +
     '<p>B3 世界书编辑已验收。B4-B 在隔离展示上接入作者脚本引擎、DOM 与表单事件；脚本和声明式桥接均只提出开局候选，由你采用或取消。</p>' +
@@ -969,9 +996,17 @@ editor.connect({
   changed() { validation = null;variableUI.invalidate();syncChatBGM(false); },
 });
 if(creatorMode){
+ const home=document.createElement('a');home.className='creator-brand';home.textContent='镜 · RPG';home.setAttribute('aria-label','返回 RPG 故事馆');
+ const destination=new URL(location.href);destination.port='5173';destination.pathname='/rpg';destination.search='';destination.hash='';home.href=destination.href;
+ $('.workspace-header').prepend(home);
+ $('.work-identity').insertAdjacentHTML('afterbegin','<span class="creator-context">创作工作台</span>');
+ $('.preview-pane').setAttribute('aria-label','作品预览');$('.preview-header strong').textContent='作品预览';
+ $('.edit-scroll').setAttribute('tabindex','0');$('.edit-scroll').setAttribute('aria-label','作品编辑区');
+ $('#tab-world').textContent='世界书';
+ $('#save-button').textContent='保存作品';
  $('#publish-button').textContent='作品版本';
  $('[data-preview="reply"]').textContent='样式回放';
- $('[data-preview="assembly"]').textContent='提示词装配';
+ $('[data-preview="assembly"]').textContent='提示词预览';
  $('#player-input').placeholder='输入角色资料或下一步行动…';
  $('#works-button').title='管理与新建作品';
  // Expanded preview is a local workspace dialog; keep keyboard focus out of

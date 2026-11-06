@@ -68,6 +68,7 @@ async function run(env){
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',
     godCard:yes('RPG_GOD_CARD_ENABLED'),godBranches:yes('RPG_GOD_BRANCHES_ENABLED'),godPlugins:yes('RPG_GOD_PLUGINS_ENABLED'),
     historyWindow:yes('RPG_HISTORY_WINDOW_ENABLED'),rollingSummary:yes('RPG_ROLLING_SUMMARY_ENABLED'),memoryPalace:yes('RPG_MEMORY_PALACE_ENABLED'),
+    autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',
     modelControl:yes('RPG_MODEL_SELECTION_ENABLED')?control:null,godControl:yes('RPG_GOD_REAL_ENABLED')?{...control,limit}:null,
     cultivationControl:yes('RPG_CULTIVATION_ENABLED')?{...control,enabled:true,limit:Number(env.RPG_CULTIVATION_CALL_LIMIT||0)}:null});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);

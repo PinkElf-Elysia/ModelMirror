@@ -60,6 +60,6 @@ it('summary polling refreshes shared remaining quota without a new send or manua
  let remaining=3,reserved=0;const writes:any[]=[],session:any={id:'s',name:'额度验收',mode:'real',revision:3,rollingSummary:{supported:true},turns:[],requests:{},runtime:{compatible:true}};
  vi.stubGlobal('fetch',vi.fn(async(url:string,opts?:RequestInit)=>{if(opts?.body)writes.push(opts.body);return {ok:true,json:async()=>url.endsWith('/api/status')?{budget:{remaining,reserved,limit:3,used:3-remaining-reserved}}:url.endsWith('/api/plugins')?{revision:0,plugins:[]}:url.endsWith('/rolling-summary')?structuredClone(initial):session};}));
  render(<ChatView sessionId="s" exit={()=>{}} opened={()=>{}}/>);await screen.findByText(/可用 3 次/);remaining=0;reserved=2;
- await waitFor(()=>expect(screen.getByText(/已预留 2 次/)).toBeInTheDocument(),{timeout:3500});expect(screen.queryByText(/本卡额度已用完/)).not.toBeInTheDocument();reserved=0;
+ await waitFor(()=>expect(screen.getByText(/预留 2 次/)).toBeInTheDocument(),{timeout:3500});expect(screen.queryByText(/本卡额度已用完/)).not.toBeInTheDocument();reserved=0;
  await waitFor(()=>expect(screen.getByText(/本卡额度已用完/)).toBeInTheDocument(),{timeout:3500});expect(writes).toHaveLength(0);
 });

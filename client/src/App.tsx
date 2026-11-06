@@ -8,7 +8,7 @@ import MetaAgentPage from "./pages/MetaAgentPage";
 import MatrixOasisPage from "./pages/MatrixOasisPage";
 import ModelListPage from "./pages/ModelListPage";
 import RuntimeOpsPage from "./pages/RuntimeOpsPage";
-import CultivationChat from './pages/CultivationChat';
+import CultivationChat, { SummaryV2Chat } from './pages/CultivationChat';
 import RpgPage from "./pages/RpgPage";
 import RpgPluginsPage from "./pages/RpgPluginsPage";
 import StudioHomePage from "./pages/StudioHomePage";
@@ -85,6 +85,7 @@ export default function App() {
       <Route element={<StudioHomePage />} path="/studio" />
       <Route element={<RpgPage />} path="/rpg" />
       <Route element={<RpgPluginsPage />} path="/rpg/plugins" />
+      <Route element={<SummaryV2Chat />} path="/rpg/:cardId/chat/summary/:id" />
       <Route element={<CultivationChat />} path="/rpg/cultivation/chat/:mode/:id" />
       <Route element={<RpgPage />} path="/rpg/:cardId/chat/:sessionId" />
       <Route element={<RpgPage />} path="/rpg/:cardId" />

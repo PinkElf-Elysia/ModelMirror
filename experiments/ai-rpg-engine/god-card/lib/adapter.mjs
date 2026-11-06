@@ -8,6 +8,7 @@ const exact=(x,keys)=>x&&typeof x==='object'&&!Array.isArray(x)&&Object.keys(x).
 export const godAdapter=Object.freeze({
  create(input){
   if(!exact(input,['setup','mode'])||input.mode!=='offline')throw fail('GOD_OFFLINE_CONFIGURATION_REQUIRED',400);
+  if(input.setup===null)return {cardId:'god',name:'神临凡尘',characterText:'',world:null,params:{},mode:'offline'};
   let setup;try{setup=restoreSetup(JSON.stringify(input.setup));}catch{throw fail('GOD_SETUP_INVALID',400);}
   const characterText=serializeSetup(setup);
   if(characterText.length>20000)throw fail('GOD_SETUP_TOO_LARGE',400);
@@ -18,8 +19,7 @@ export const godAdapter=Object.freeze({
  },
  assemble(session,input){
   if(session.cardId!=='god'||session.world!==null||canonical(session.params)!=='{}')throw fail('GOD_SESSION_BINDING_INVALID');
-  // First dispatch must be the server-serialized complete author setup, exactly once.
-  if(!session.history.length&&input!==session.characterText)throw fail('GOD_OPENING_SNAPSHOT_REQUIRED',400);
+  // The first message is player-authored, just like every later message.
   return assemble({input,history:session.history});
  }
 });
