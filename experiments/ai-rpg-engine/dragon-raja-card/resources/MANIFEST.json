@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "cardId": "dragon-raja",
+  "authority": "Author-provided and human-reviewed; no semantic edits",
+  "extraction": "OOXML body paragraph order; paragraph LF, explicit break LF, tab TAB; no trimming or normalization",
+  "source": {
+    "name": "龙族提示词.docx",
+    "bytes": 46048,
+    "sha256": "1f99e82a5d3a961f303b78516959aa0cd07cfbb2fad85f440b4a50e83d4a858e"
+  },
+  "system": {
+    "sha256": "79f13f72382edaa60fca0946de9230343b93ea35cc350f9cbb692799b326bf29",
+    "unicodeCharacters": 20043,
+    "paragraphs": 859,
+    "emptyParagraphs": 169,
+    "textRuns": 698,
+    "orderedTextRunsVerified": true
+  },
+  "frontend": {
+    "url": "https://afengy.cash/zh/explore/installed/5892055f-8249-4ea2-9dda-9bf86b8806e5",
+    "sha256": "a3a25d6524e96165e0f59dbbee7a36ab1ce4330dcf0f3c6320fa1113acec5c82",
+    "utf16Length": 120170
+  },
+  "prefix": null,
+  "suffix": null,
+  "worldbook": null
+}

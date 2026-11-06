@@ -12,6 +12,7 @@ const titles={
   ancient:'古代人生 · 命运卷轴',
   cultivation:'超级修仙大世界',
   'lord-of-mysteries':'诡秘之主大世界',
+  'dragon-raja':'龙族大世界',
 };
 export function isArchiveCard(id:string):id is keyof typeof titles {
   return Object.hasOwn(titles,id);

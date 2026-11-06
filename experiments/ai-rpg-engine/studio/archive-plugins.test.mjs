@@ -10,7 +10,7 @@ import {canonical,sha} from '../plugins/catalog.mjs';
 import {parse,serialize} from '../plugins/transcript.mjs';
 import {models} from './provider.mjs';
 
-for(const card of ['xingjian','ancient','cultivation','lord-of-mysteries'])test(card+' supports all eight plugins with isolated grants, import, rewrite and image receipts',async()=>{
+for(const card of ['xingjian','ancient','cultivation','lord-of-mysteries','douluo','dragon-raja'])test(card+' supports all eight plugins with isolated grants, import, rewrite and image receipts',async()=>{
   let imageCalls=0;
   const rewrites=[],selection={model:models.earth.model,name:'fixture',available:true,selectionId:'image-writer',selectionRevision:'v1',parameters:models.earth.parameters};
   const rewriteControl={enabled:true,model:selection.model,baseURL:'http://127.0.0.1:8000/',serviceToken:'fixture-only-archive-illustration-writer-token',limit:1,

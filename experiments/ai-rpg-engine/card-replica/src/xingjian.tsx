@@ -9,7 +9,7 @@ import {createChatDraft} from './start-chat';
 
 export function Xingjian(){
   const card=cardStoragePrefix();
-  const title=({douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界'} as Record<string,string>)[card];
+  const title=({douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
   useEffect(()=>{document.title=title;},[title]);
   const frame=useRef<HTMLIFrameElement>(null),creating=useRef(false);
   const [session,setSession]=useState(()=>new URLSearchParams(location.search).get('session')||'');
