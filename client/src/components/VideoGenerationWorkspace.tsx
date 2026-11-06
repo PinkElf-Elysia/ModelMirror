@@ -364,7 +364,9 @@ export default function VideoGenerationWorkspace({
   const [duration, setDuration] = useState<number | null>(null);
   const [resolution, setResolution] = useState("");
   const [aspectRatio, setAspectRatio] = useState("");
-  const [generateAudio, setGenerateAudio] = useState(false);
+  const [optionalAudio, setGenerateAudio] = useState(false);
+  const requiresNativeAudio = model.id === "google/gemini-omni-1.1-flash" || model.id === "google/gemini-omni-1.2-flash";
+  const generateAudio = requiresNativeAudio || optionalAudio;
   const [seed, setSeed] = useState("");
   const [firstFrame, setFirstFrame] = useState<File | null>(null);
   const [firstFrameUrl, setFirstFrameUrl] = useState("");
@@ -1703,7 +1705,7 @@ export default function VideoGenerationWorkspace({
                       <input
                         checked={generateAudio}
                         className="h-4 w-4 accent-orange-300"
-                        disabled={submitting}
+                        disabled={submitting || requiresNativeAudio}
                         onChange={(event) => {
                           setGenerateAudio(event.target.checked);
                           markFormChanged();

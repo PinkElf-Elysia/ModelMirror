@@ -675,6 +675,10 @@ class VideoJobService:
         self._ensure_enabled()
         clean_model = self._model_id(model_id)
         clean_key = self._idempotency_key(idempotency_key)
+        if clean_model in {"google/gemini-omni-1.1-flash", "google/gemini-omni-1.2-flash"} and not generate_audio:
+            raise MultimodalServiceError(
+                "native_audio_required", "该模型仅开放带音频的视频生成档位。", status_code=422
+            )
         tenant_id = self.router_service.tenant_id
         key_hash = hashlib.sha256(
             f"{tenant_id}\0{clean_key}".encode("utf-8")

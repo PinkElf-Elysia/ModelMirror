@@ -20,7 +20,7 @@ async def client():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_id", ["perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2", "~perplexity/pplx-decider-flash-latest", "respan/span-02", "liquid/d1-ultra", "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
+@pytest.mark.parametrize("model_id", ["parallel/decisions-fast", "perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2", "~perplexity/pplx-decider-flash-latest", "respan/span-02", "liquid/d1-ultra", "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
 async def test_decisions_proxy_uses_dedicated_openrouter_contract(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -50,6 +50,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
                 "model": model_id,
                 "answers": {"priority": {"choice": "page", "probability": 0.92}},
                 "usage": {"prompt_tokens": 17},
+                **({"citations": [{"url": "https://example.com/source"}]} if model_id == "parallel/decisions-fast" else {}),
             },
         )
 
@@ -82,6 +83,8 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
 
     assert response.status_code == 200
     assert response.json()["answers"]["priority"]["choice"] == "page"
+    if model_id == "parallel/decisions-fast":
+        assert response.json()["citations"] == [{"url": "https://example.com/source"}]
 
 
 @pytest.mark.asyncio

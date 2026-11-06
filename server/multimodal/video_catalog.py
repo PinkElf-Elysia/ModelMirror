@@ -88,6 +88,8 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
 
 HIGH_COST_VIDEO_VERIFICATION_MODELS = frozenset(
     {
+        "google/gemini-omni-1.1-flash",
+        "google/gemini-omni-1.2-flash",
         "google/veo-3.1-lite",
         "google/veo-3.1-fast",
         "google/veo-3.1",

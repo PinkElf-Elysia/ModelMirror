@@ -38,6 +38,18 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"safe-image"
 VIDEO = b"\x00\x00\x00\x18ftypmp42safe-video"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_id", ["google/gemini-omni-1.1-flash", "google/gemini-omni-1.2-flash"])
+async def test_omni_rejects_unpriced_no_audio_request(tmp_path: Path, model_id: str):
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    service = VideoJobService(router_instance, StubCatalog(router_instance, model_id=model_id), adapter=adapter)
+    with pytest.raises(MultimodalServiceError) as caught:
+        await service.create(model_id=model_id, prompt="Public fixture", duration=5, resolution="720p", idempotency_key="omni-no-audio-0001")
+    assert caught.value.code == "native_audio_required"
+    assert adapter.submit_calls == []
+
+
 def router_service(
     storage: Path, *, tenant_id: str = "local"
 ) -> ModelRouterService:

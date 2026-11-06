@@ -169,12 +169,16 @@ export default function DecisionPage() {
             </div>
             <div className="rounded-3xl border border-emerald-300/20 bg-emerald-300/[0.06] p-6">
               <div className="flex items-center gap-2 text-emerald-200"><ShieldCheck className="h-5 w-5" /><h2 className="font-semibold">费用预估</h2></div>
-              <p className="mt-3 text-2xl font-bold">约 ${estimatedCost.toFixed(6)}</p>
-              <p className="mt-2 text-sm text-slate-300">按约 {estimatedTokens.toLocaleString()} 输入 Token、${inputPrice.toFixed(3)} / M 估算；输出定价为 $0。</p>
+              {model.id === "parallel/decisions-fast" ? (
+                <p className="mt-3 text-sm text-slate-300">按请求计费，当前公开端点费率为 $0／请求；不是 Token 估价，实际以供应商回执为准。</p>
+              ) : <>
+                <p className="mt-3 text-2xl font-bold">约 ${estimatedCost.toFixed(6)}</p>
+                <p className="mt-2 text-sm text-slate-300">按约 {estimatedTokens.toLocaleString()} 输入 Token、${inputPrice.toFixed(3)} / M 估算；输出定价为 $0。</p>
+              </>}
             </div>
             <p className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.05] p-4 text-sm leading-6 text-amber-100">
               提交会将这里填写的状态与问题发送至 OpenRouter
-              {usesChatDecisionContract ? " Chat Completions API" : " Decisions API"}。请勿填写密钥或未经授权的敏感数据。
+              {usesChatDecisionContract ? " Chat Completions API" : " Decisions API"}。{model.id === "parallel/decisions-fast" ? "Parallel 会基于这些内容实时检索网页。" : ""}请勿填写密钥或未经授权的敏感数据。
             </p>
           </aside>
         </section>
