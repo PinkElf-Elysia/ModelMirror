@@ -1,6 +1,7 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
   {id:'douluo',name:'斗罗大陆',description:'觉醒武魂，装配魂环，在斗罗大陆写下自己的篇章。',genre:'玄幻 · 魂师',mark:'魂',art:''},
+  {id:'blue-fish',name:'蓝色大肥鱼',description:'和吃白饭的蓝色大肥鱼一起写作，在独立编辑器里整理角色、世界与灵感。',genre:'创作 · Prompt 编辑器',mark:'鱼',art:'/rpg-app/blue-fish/logo.png'},
   {id:'lord-of-mysteries',name:'诡秘之主',description:'推开迷雾中的门，沿着非凡途径写下你的名字。',genre:'蒸汽 · 神秘',mark:'诡',art:'/rpg-app/lord-of-mysteries/fog-background.jpg'},
   {id:'ancient',name:'古代人生',description:'从市井到庙堂，在时代的潮水里作出自己的选择。',genre:'历史 · 人生',mark:'古',art:'/rpg-app/ancient/landscape.jpg'},
   {id:'earth',name:'地球 OL',description:'选择出身、天赋与命运，从一个新的起点出发。',genre:'都市 · 人生',mark:'世',art:''},
@@ -11,7 +12,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','douluo'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

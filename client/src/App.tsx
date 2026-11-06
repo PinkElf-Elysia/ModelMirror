@@ -88,6 +88,7 @@ export default function App() {
       <Route element={<SummaryV2Chat />} path="/rpg/:cardId/chat/summary/:id" />
       <Route element={<CultivationChat />} path="/rpg/cultivation/chat/:mode/:id" />
       <Route element={<RpgPage />} path="/rpg/:cardId/chat/:sessionId" />
+      <Route element={<RpgPage />} path="/rpg/:cardId/editor" />
       <Route element={<RpgPage />} path="/rpg/:cardId" />
       <Route
         element={

@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "cardId": "blue-fish",
+  "name": "蓝色大肥鱼 · 创作助手",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/2ac001df-9824-47c2-be43-d7aa6285bef7",
+  "sourceHtmlSha256": "27217589a85e23632c60fa58eaae362b0ad431bf695edd088f0f954544cf1a5c",
+  "docxSha256": "72a8e34d775e721929cfdcf36759a9392178766d2b31bd62a0b92dd8a41d297c",
+  "extractedPromptSha256": "885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a",
+  "systemSha256": "885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a",
+  "paragraphs": 444,
+  "brandReplacement": {
+    "from": "知鱼",
+    "to": "肥鱼",
+    "count": 0
+  },
+  "logoSha256": "eb3e2aade085f264b2fa3a98338bdd0775b652e0b7296ed6e050149d8af7e5ee"
+}

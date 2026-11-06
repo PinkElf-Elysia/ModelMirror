@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  'blue-fish':'蓝色大肥鱼 · 创作助手',
   douluo:'斗罗大陆 · 魂师觉醒台',
   earth:'地球 OL',
   god:'神临凡尘',
@@ -43,7 +44,7 @@ export default function ArchiveCardPage({card}:{card:keyof typeof titles}){
       {!sessionId&&card==='ancient'&&<Link to={setup+'?classic=1'}>命书预览</Link>}</span>
     </header>}
     {sessionId&&!validSession(sessionId)?<p role="alert">会话地址无效，请返回角色与存档。</p>:
-      <iframe ref={frame} title={titles[card]+(sessionId?'独立聊天':'角色与会话')} src={root+(sessionId?'?session='+encodeURIComponent(sessionId):new URLSearchParams(location.search).has('plugins')?'?plugins=1':'')}
+      <iframe ref={frame} title={titles[card]+(sessionId?'独立聊天':'角色与会话')} src={root+(sessionId?'?session='+encodeURIComponent(sessionId):route.pathname.endsWith('/editor')?'?editor=1':new URLSearchParams(location.search).has('plugins')?'?plugins=1':'')}
         allow="clipboard-write"/>}
   </RpgShell>;
 }

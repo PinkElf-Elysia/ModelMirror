@@ -27,7 +27,7 @@ const publicFiles = new Set([
   "worldbook-ui.css",
 ]);
 const allowedPath =
-  /^\/rpg-app\/(?:(earth|god|cultivation\/chat|ancient\/chat|lord-of-mysteries\/chat|douluo\/chat|xingjian)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/send|cultivation\/api\/(?:sessions\/([a-f0-9-]{36})\/turns|summary-v2\/(earth|god|cultivation)\/sessions\/([a-f0-9-]{36})))$/;
+  /^\/rpg-app\/(?:(earth|god|cultivation\/chat|ancient\/chat|lord-of-mysteries\/chat|blue-fish\/chat|douluo\/chat|xingjian)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/send|cultivation\/api\/(?:sessions\/([a-f0-9-]{36})\/turns|summary-v2\/(earth|god|cultivation)\/sessions\/([a-f0-9-]{36})))$/;
 function reply(res, status, msg) {
   res.writeHead(status, {
     "Content-Type": "application/json",
