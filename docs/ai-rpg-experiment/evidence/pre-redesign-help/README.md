@@ -6,6 +6,7 @@ These images were moved unchanged from the public help directory during the plat
 - `1864ed84/rpg-model-selector.png`: SHA-256 `929647af34388709c92c4973dfc0d55b72d4804d38093e6ac2c6cef34b5a0677`
 - `56e47104/creator-workbench.png`: SHA-256 `6a19a9545a1bb0d797ab55319a5282b54607a102713a7a71f39e6ab0369e2499`
 - `56e47104/rpg-archive-chat.png`: SHA-256 `72ab7a9838e9a835a340402a579772df7bd2a3ccdcaa16389962bec2bad4ae8e`
+- `56e47104/rpg-library.png`: SHA-256 `cf665b542ecb73466d4a1a8aee06a83ecc9743a517b879de12dd4d7e10271ca0`
 - `56fe2e2d/rpg-summary-overflow-desktop.png`: SHA-256 `f814eb2b2718a5a1e552df8607d3b2c6b47542d2884608dc180b09771df948ed`
 - `56fe2e2d/rpg-summary-overflow-mobile.png`: SHA-256 `0d4ba3f9a098b867204ccae31a5171ce182f17ee97c145729f5604c6a366a522`
 - `61b6eea8/rpg-history-window-settings.png`: SHA-256 `4c83c8c5f11392ef91ed06edb97620519e6bfdc1dffdea9fd6a49e3bbbb20ef0`
