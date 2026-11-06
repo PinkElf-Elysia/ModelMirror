@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  douluo:'斗罗大陆 · 魂师觉醒台',
   earth:'地球 OL',
   god:'神临凡尘',
   rpg05:'行间 · 多世界 RPG',

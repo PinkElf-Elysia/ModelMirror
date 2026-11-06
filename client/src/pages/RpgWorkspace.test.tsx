@@ -16,6 +16,7 @@ it.each([
  ['earth','/rpg-app/earth/'],['god','/rpg-app/god/'],['rpg05','/rpg-app/xingjian/'],
  ['ancient','/rpg-app/ancient/chat/'],['cultivation','/rpg-app/cultivation/chat/'],
  ['lord-of-mysteries','/rpg-app/lord-of-mysteries/chat/'],
+ ['douluo','/rpg-app/douluo/chat/'],
 ] as const)('keeps the saved session URL and embedded host for %s', (card,root)=>{
  const {container}=render(<MemoryRouter initialEntries={['/rpg/'+card+'/chat/'+id]}><Routes>
   <Route path="/rpg/:card/chat/:sessionId" element={<ArchiveCardPage card={card}/>}/>
@@ -62,8 +63,8 @@ it.each(['branch','rewrite','import'])('opens persisted %s conversations through
  expect(container.querySelector('iframe')).toHaveAttribute('src','/rpg-app/ancient/chat/?session='+session);
 });
 
-it.each(['earth','god','xingjian','ancient','cultivation','lord-of-mysteries'])('exports from the correct %s chat host',async card=>{
- const root='/rpg-app/'+card+(['ancient','cultivation','lord-of-mysteries'].includes(card)?'/chat/':'/');
+it.each(['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','douluo'])('exports from the correct %s chat host',async card=>{
+ const root='/rpg-app/'+card+(['ancient','cultivation','lord-of-mysteries','douluo'].includes(card)?'/chat/':'/');
  window.history.replaceState({},'',root);
  const request=vi.fn().mockResolvedValue({ok:false,json:async()=>({error:'TRANSCRIPT_EMPTY'})});
  vi.stubGlobal('fetch',request);

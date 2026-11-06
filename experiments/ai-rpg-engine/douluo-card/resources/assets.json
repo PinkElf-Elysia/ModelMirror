@@ -1,0 +1,436 @@
+[
+  {
+    "url": "https://catai.wiki/08af4549-c430-4440-6dd5-b69c1278ae00/w=3000",
+    "file": "assets/asset-00.jpg",
+    "bytes": 2062049,
+    "sha256": "e8de3c798bff6e417ecf8f3484c190dec39987bf7b41a753577c1c9bb0574a36",
+    "contentType": "image/png"
+  },
+  {
+    "url": "https://catai.wiki/5b478e8d-9106-49b8-b4a9-65247a478600/w=640",
+    "file": "assets/asset-01.jpg",
+    "bytes": 49086,
+    "sha256": "2f32609c985802633f9ef5150aabf624b1d6076bc88441553905f446a08e7f80",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/1385c057-57e3-4542-e164-9bef4653ee00/w=640",
+    "file": "assets/asset-02.jpg",
+    "bytes": 45197,
+    "sha256": "57b83e4fbca582e7caebe6f44f5105b9c852a29d4c92ad4a82f659007828d377",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/7084544a-fb2f-4349-88ab-8c87a4045b00/w=640",
+    "file": "assets/asset-03.jpg",
+    "bytes": 57957,
+    "sha256": "33bb0e028da45064b696e3ea58de166f38f7d90585045538cd01de2aaa010fc6",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/b5f895c0-f500-417f-1b66-94315e926800/w=640",
+    "file": "assets/asset-04.jpg",
+    "bytes": 42162,
+    "sha256": "54265bd72c5952d655022289ce545b72bc839b7594e25d159296a71710c4f7e4",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/6992a8ed-fa04-41ba-71d8-01ed7dff7b00/w=640",
+    "file": "assets/asset-05.jpg",
+    "bytes": 50664,
+    "sha256": "645152e3f82a0405f433735ebe56d88789c673f4dbdacef7cd6e5f82ae1048f2",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/d2d46713-84fd-42fe-cb68-48b280329d00/w=640",
+    "file": "assets/asset-06.jpg",
+    "bytes": 73100,
+    "sha256": "180951715936c4ce38e777d6457cdc92ee675f096a954f05a8f57f66da7d6ba0",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/b9a0edc9-a136-4e74-7538-506112129800/w=640",
+    "file": "assets/asset-07.jpg",
+    "bytes": 31666,
+    "sha256": "79cc83763f7f233066208848aa66ecc79e7e6de92f492eff1fc98eef50cae470",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/55e00d4d-cb80-4bc4-054c-4e7894a05100/w=640",
+    "file": "assets/asset-08.jpg",
+    "bytes": 55280,
+    "sha256": "e867100d2ec0e5f86b902aaf8a57369a7df0970be3ff812d32b2895db6224387",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/a1acc8fa-1f63-415c-d428-178580577c00/w=640",
+    "file": "assets/asset-09.jpg",
+    "bytes": 33904,
+    "sha256": "7f4d4ca86d296be01d384775108d2fb3e22fc22ca214acdd57e79e9fa72ba842",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/7966c690-b57e-4def-5b2a-476aca214a00/w=640",
+    "file": "assets/asset-10.jpg",
+    "bytes": 73274,
+    "sha256": "563b190ef2c0fa9a49c8743bf08c0245e575f860a9effff1dca67bee37a4c735",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/777e05db-bcdc-4f90-6b33-b208f208a500/w=640",
+    "file": "assets/asset-11.jpg",
+    "bytes": 36696,
+    "sha256": "74e50596784a085e0a2f319c96a91e0f07cab0a39b05ed4330ad22b04027a228",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/8cd7a2a3-bacd-45b9-ec07-7353bcf13700/w=640",
+    "file": "assets/asset-12.jpg",
+    "bytes": 54291,
+    "sha256": "9e57544a1c30e8aff055aed7aa60d06da24526ad274f012f2c8aac781e5c2d69",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/18929a5a-decf-4aec-1062-cb196c6be200/w=640",
+    "file": "assets/asset-13.jpg",
+    "bytes": 33510,
+    "sha256": "38cf41f995e0b4ff6333c63df2c7a6d6d08ceeaa45734c5657da52e2c18f363a",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/fd5dbc7f-5bdf-4b6f-d628-52e837d4bb00/w=640",
+    "file": "assets/asset-14.jpg",
+    "bytes": 73814,
+    "sha256": "27f56efce7bc32839b645c87411822f310c323246ff6ff8ee7392471651b052f",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/427eb698-fb21-492e-124e-b28bfbbcaa00/w=640",
+    "file": "assets/asset-15.jpg",
+    "bytes": 51022,
+    "sha256": "53c800a3c073652bfb51db68db9e5b0a5eed36dcb48df612aba68c865be14738",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/6f7e3b60-b0ef-4276-3207-0ee3920b3c00/w=640",
+    "file": "assets/asset-16.jpg",
+    "bytes": 86401,
+    "sha256": "fe8a80b3a913e79e916b72602c506eb16bff5959823d9f0ef962df9e820c3998",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/10551dcb-40bc-44f9-ed62-76f8f7ff7100/w=640",
+    "file": "assets/asset-17.jpg",
+    "bytes": 30099,
+    "sha256": "d9565f8b1dfabc514a164f32d56b1d3fa202aafc9d253e62a81bad6b6c9aecc6",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/8e26b4a8-d36f-4757-464c-4ea25d23e400/w=640",
+    "file": "assets/asset-18.jpg",
+    "bytes": 106421,
+    "sha256": "2a07c5784befb7fd4463290e143d94b0b78e728317c56a55694696d7dab666ba",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/640bf092-0226-4d05-99bc-16a8ed9d5600/w=640",
+    "file": "assets/asset-19.jpg",
+    "bytes": 55651,
+    "sha256": "0230d03ba8d94049d594c96f63d9f293e133cbe4325d9335aeb9f388ffa68394",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/e10b4123-9b01-424b-e19c-b5b75cfa7800/w=640",
+    "file": "assets/asset-20.jpg",
+    "bytes": 94151,
+    "sha256": "22bd80b41647fdad4fd3c2032917010c4b5a56485b2b2339d63416cc6d73a710",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/394a8a9a-29f8-451c-0e17-6fc6a0bb5900/w=640",
+    "file": "assets/asset-21.jpg",
+    "bytes": 62547,
+    "sha256": "b6c04e4f9347851f7eab7c8c5c737186acf5dbe93a4b45ec2ae052dda4b95bb1",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/2f69fabd-64d0-486e-92e8-91c6a602f200/w=640",
+    "file": "assets/asset-22.jpg",
+    "bytes": 126202,
+    "sha256": "2117309c2fb43929cc1eaa3787bd5d9e77b8555ed14bd4771f3b86fbaa3799e6",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/2b8ec501-12e5-4d18-ac28-0abc825ece00/w=640",
+    "file": "assets/asset-23.jpg",
+    "bytes": 81670,
+    "sha256": "93f8862d7047415e762abbcdd4632c441b2d6a84a172d37541d6fa302b0b0798",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/7acc51c7-4283-4ce5-3b12-f7984dcfbe00/w=640",
+    "file": "assets/asset-24.jpg",
+    "bytes": 75309,
+    "sha256": "f559b4c26110ca79a0a1d178942ad280b91a644d52136108690396b9f74bc1d3",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/f27e90e6-3b98-492a-97eb-0abba8790500/w=640",
+    "file": "assets/asset-25.jpg",
+    "bytes": 33070,
+    "sha256": "b6029ca6f362104d3d2f132de5af59f0eb2ec3b90281a85cd096535f49fcf69b",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/5f6cae3e-3d2e-433e-293f-278a39542900/w=640",
+    "file": "assets/asset-26.jpg",
+    "bytes": 99972,
+    "sha256": "2903951ba531615180876f80d30c37071be98a5cac4e4821dedf7b45c29b5a02",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/374b65d5-70c6-49a7-b91f-83d8edc6e700/w=640",
+    "file": "assets/asset-27.jpg",
+    "bytes": 35965,
+    "sha256": "88872b2fc4e39925446b132522097eeae08e35dbe00db15104cdb84a9cad1197",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/299a9208-1003-486e-9508-c43e92559e00/w=640",
+    "file": "assets/asset-28.jpg",
+    "bytes": 26943,
+    "sha256": "b2e8ec55727c76b317e27ccc8ac5bf23ea438bface99677267a54dfe0848f4bb",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/605e3477-e380-4b1e-2533-d6ef1cfef600/w=640",
+    "file": "assets/asset-29.jpg",
+    "bytes": 68086,
+    "sha256": "aaac26ca18824ba3430669a41eeeed506d86e5a8c3d80e58a66722212635d91d",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/1b3412db-eea0-4339-a3cc-3449c0d4cc00/w=640",
+    "file": "assets/asset-30.jpg",
+    "bytes": 44261,
+    "sha256": "d5b8b9364134dac2af2c517bfa0b05e8afa4ef7c83a7d71a974f9a4fcd1aa521",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/32daa54a-889c-4559-4322-1c2a157a6d00/w=640",
+    "file": "assets/asset-31.jpg",
+    "bytes": 34611,
+    "sha256": "7676c342c382a590dd1830eae87d867b8085f748c31f5ef83af5b3840dc55a31",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/bd0cdfe7-1600-46e0-2ef3-6dd278000500/w=640",
+    "file": "assets/asset-32.jpg",
+    "bytes": 58333,
+    "sha256": "fd4aeff853e224aff8182b26e24f5ce3bbf30bf0a93291631e3c0fa73f7e9a65",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/8dedd041-6fc4-4cf3-1760-64d7ecc47400/w=640",
+    "file": "assets/asset-33.jpg",
+    "bytes": 357235,
+    "sha256": "851a7239683469c0e44eb83b694eb30a5bd5279ddc1658f41418147e83de2de4",
+    "contentType": "image/png"
+  },
+  {
+    "url": "https://catai.wiki/0301a05b-7b86-42fa-16b2-afe029c22300/w=640",
+    "file": "assets/asset-34.jpg",
+    "bytes": 35935,
+    "sha256": "58db1d9c2900710e84b2b9e8f6b09d7fbec0608f598a8a505e9d8e7f08c76682",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/eda8842b-216a-41ba-c5a8-6f4c42771700/w=640",
+    "file": "assets/asset-35.jpg",
+    "bytes": 68921,
+    "sha256": "7ff611b60b7ccdd572d979309a93f155fc8dacb725e699e69807c1ceae581d46",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/e1b19ac2-55a1-4c14-f72b-53e2497a1100/w=640",
+    "file": "assets/asset-36.jpg",
+    "bytes": 37829,
+    "sha256": "e20f9c4dee353539e93e4078513e8e4e13a2d757a61e2c72dc2685d9ec187243",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/24fcd9d4-3166-43ba-0d74-d171b0910600/w=640",
+    "file": "assets/asset-37.jpg",
+    "bytes": 56636,
+    "sha256": "79bb7aa84be9c52de8c0e3e4329917d761d1e7abeddece351ecd31be738d80c1",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/955a426c-625a-4988-a238-52293d151b00/w=640",
+    "file": "assets/asset-38.jpg",
+    "bytes": 27490,
+    "sha256": "fcdbccee0950d0445dbd0db9b1c6011185bafd4f6a1c9d71a4faf55f6c9805ea",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/318c27aa-ae7b-4824-45e6-65a6e2118800/w=640",
+    "file": "assets/asset-39.jpg",
+    "bytes": 46486,
+    "sha256": "9b1cc4111f734f42d3c4519ad71b802d9c2460f1d51bc795502c3de98c94a261",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/010f757e-a16a-416b-63a2-c1e202473500/w=640",
+    "file": "assets/asset-40.jpg",
+    "bytes": 60389,
+    "sha256": "adfeeeb8692fb1c3ee1c539fa09551c099279fa6c54259d2ecce2ce5c2fa7bda",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/91ddc051-5197-446d-a60e-c7c665772000/w=640",
+    "file": "assets/asset-41.jpg",
+    "bytes": 68353,
+    "sha256": "b0a9b6592176f167cc31b34ff4e9677832285dd592695a787837928cd28f5d0c",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/05203b3a-e4d6-4aec-2f3b-8673eb301300/w=640",
+    "file": "assets/asset-42.jpg",
+    "bytes": 105657,
+    "sha256": "b96f9c778238d53deddedb87f8598b86cbdbcb7761a0ff0275c07bfe1992ed75",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/e877a0ad-8e4d-4130-5665-20b9a490bc00/w=640",
+    "file": "assets/asset-43.jpg",
+    "bytes": 84688,
+    "sha256": "eb302f0f1e0aaad7631a375ca41b6a6e144706205188c81a1c4ea0e303017c54",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/5c4bbf72-79bd-419b-9487-b375dbab4e00/w=640",
+    "file": "assets/asset-44.jpg",
+    "bytes": 39783,
+    "sha256": "fbfb5412ac1cb15ca10793d7036924869fbef0f158217e8ee3d335386ad3b809",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://catai.wiki/0c724ab9-9c4d-4055-b5e9-5be429ec9c00/w=640",
+    "file": "assets/asset-45.jpg",
+    "bytes": 33725,
+    "sha256": "cbc9f15a6a6d84ccd450c7df884b681891194620081d93a1f28a55c0d9a556b6",
+    "contentType": "image/jpeg"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/f0q6m-v9t8e.mp3",
+    "file": "assets/asset-46.mp3",
+    "bytes": 3775465,
+    "sha256": "33f868c03a08c8dc0023db587ad6d3976bd7ca7b1393baad73641c26ba8ac939",
+    "contentType": "audio/mpeg"
+  },
+  {
+    "url": "https://img.wjwj.top/2026/09/23/6d12bb8ca0f7af29c08d554f143931ed.mp4",
+    "file": "assets/asset-47.mp4",
+    "bytes": 2534788,
+    "sha256": "a75f71fcccc42f728459b17678ebe2504ebfec6f90ba319c5944373af2c9d0ab",
+    "contentType": "video/mp4"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/tz5de-64tar.mp3",
+    "file": "assets/asset-48.mp3",
+    "bytes": 3312366,
+    "sha256": "7ba05d2c71282f289e41e961dd7d1275afafda0d10c387d566bf594704fe37a9",
+    "contentType": "audio/mpeg"
+  },
+  {
+    "url": "https://img.wjwj.top/2026/09/23/a0d59c9f8dee53c72935dff55a45ebb4.mp4",
+    "file": "assets/asset-49.mp4",
+    "bytes": 1623899,
+    "sha256": "7a4e8e0bd35e4373a598f6c28f62d6a32dd6ce3cd24ee517f1e5de25139e0947",
+    "contentType": "video/mp4"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/bhx2q-x8mea.mp3",
+    "file": "assets/asset-50.mp3",
+    "bytes": 4611801,
+    "sha256": "7a1ccf8056132bbdf9253e893ed4840a170ecda8f9e036ec3361082d50524d79",
+    "contentType": "audio/mpeg"
+  },
+  {
+    "url": "https://img.wjwj.top/2026/09/23/299c250965ad848a7128b6324ff0cb38.mp4",
+    "file": "assets/asset-51.mp4",
+    "bytes": 1980117,
+    "sha256": "2b445108c1f0e370dc880aeb74b488cefc6733e810dfb125986b7f186c27fcb4",
+    "contentType": "video/mp4"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/u0nyp-tvcex.mp3",
+    "file": "assets/asset-52.mp3",
+    "bytes": 3793437,
+    "sha256": "13e6e62cdd8e7cdcc1269f10e93890a0e7e6e7dcec15791c954087b28bc176f9",
+    "contentType": "audio/mpeg"
+  },
+  {
+    "url": "https://img.wjwj.top/2026/09/23/d9a3e1aa4e78a05e555c2a4e19e67cb7.mp4",
+    "file": "assets/asset-53.mp4",
+    "bytes": 3801901,
+    "sha256": "99b240219d85777af7971785b6379c422ade29a12cac3b6f2d41b4b5cd51a7dd",
+    "contentType": "video/mp4"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/relzx-kelc4.mp3",
+    "file": "assets/asset-54.mp3",
+    "bytes": 3405989,
+    "sha256": "05683cdc0331a4fb034626a87b60b02740f46535e619391c28f8cc181b207b87",
+    "contentType": "audio/mpeg"
+  },
+  {
+    "url": "https://img.wjwj.top/2026/09/23/6b4f11705f254ab5f1b8d98f1052de1d.mp4",
+    "file": "assets/asset-55.mp4",
+    "bytes": 1275702,
+    "sha256": "4e5066b255cfa5bc53f8d0a1fe76500610f54ffc71b681f920741f1b7c1e8267",
+    "contentType": "video/mp4"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/longcang/v21/LYjAdGP8kkgoTec8zkRgrQ.ttf",
+    "file": "assets/font-0.ttf",
+    "bytes": 5150664,
+    "sha256": "ad407b7857f81eeaa0deca4088a8862511fe92ba02c23c54ddbf8bce8b7d1a19",
+    "contentType": "font/ttf"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/mashanzheng/v18/NaPecZTRCLxvwo41b4gvzkXaRMQ.ttf",
+    "file": "assets/font-1.ttf",
+    "bytes": 5857052,
+    "sha256": "7aeadc89ef360fd53085a83a08c0062b08dae43d0b70c367c4170bf1f1f53696",
+    "contentType": "font/ttf"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/notoserifsc/v36/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7SCqyWv.ttf",
+    "file": "assets/font-2.ttf",
+    "bytes": 14785412,
+    "sha256": "a513b97fa1503422d78ee1f40415db736926e2d0d8d99701bdcede8cf6f6058e",
+    "contentType": "font/ttf"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/notoserifsc/v36/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7RcrCWv.ttf",
+    "file": "assets/font-3.ttf",
+    "bytes": 14784836,
+    "sha256": "a296d053443fb478924d9d7ef3b57054ac791acab0b1f48f56e1028478911562",
+    "contentType": "font/ttf"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/notoserifsc/v36/H4cyBXePl9DZ0Xe7gG9cyOj7uK2-n-D2rd4FY7QrrCWv.ttf",
+    "file": "assets/font-4.ttf",
+    "bytes": 14785376,
+    "sha256": "0229a09de5a93334b425f4a1933d7fb8532a34a61546b478bf13b06615449b4d",
+    "contentType": "font/ttf"
+  },
+  {
+    "url": "https://fonts.gstatic.com/s/zcoolkuaile/v22/tssqApdaRQokwFjFJjvM6h2Wpg.ttf",
+    "file": "assets/font-5.ttf",
+    "bytes": 1513964,
+    "sha256": "b3ed6f358cb69f9232eb7e794267767e51d8aeeeeeb612a81a24efb52f0b6bae",
+    "contentType": "font/ttf"
+  }
+]

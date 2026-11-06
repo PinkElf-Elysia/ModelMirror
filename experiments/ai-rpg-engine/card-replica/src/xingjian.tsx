@@ -8,7 +8,8 @@ import {createChatDraft} from './start-chat';
 
 export function Xingjian(){
   const card=cardStoragePrefix();
-  const title=({xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界'} as Record<string,string>)[card];
+  const title=({douluo:'斗罗大陆',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界'} as Record<string,string>)[card];
+  useEffect(()=>{document.title=title;},[title]);
   const frame=useRef<HTMLIFrameElement>(null),creating=useRef(false);
   const [session,setSession]=useState(()=>new URLSearchParams(location.search).get('session')||'');
   const [error,setError]=useState(''),[busy,setBusy]=useState(false);

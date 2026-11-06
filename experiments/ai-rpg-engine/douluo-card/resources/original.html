@@ -1,0 +1,3208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>斗罗大陆 · 魂师觉醒台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;600;900&family=Long+Cang&family=ZCOOL+KuaiLe&display=swap" rel="stylesheet">
+<style>
+:root{
+ --ink:#eaf3ff;--dim:#9db4d0;--gold:#f0c36c;--gold2:#ffdf9e;--blue:#6cd0ff;--cyan:#8fe3d8;--purple:#b57bff;
+ --panel:rgba(9,26,47,.4);--line:rgba(140,190,255,.22);--line2:rgba(240,195,108,.35);
+ --rW:#eef3ff;--rY:#ffd166;--rP:#b57bff;--rB:#8fa3ff;--rR:#ff5e6c;--rO:#ff9d45;--gld:#ffd88a;
+ --bk-ink:#352a4d;--bk-pink:#e63a73;--bk-pinkl:rgba(230,58,115,.15);--bk-yellow:#ffd166;
+ /* ★★★ 自定义背景图：把引号里换成图片链接即可，如 --bg-url:url('https://example.com/bg.jpg')；默认 none 用夜空渐变 ★★★ */
+ --bg-url:none;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:'Noto Serif SC',serif;color:var(--ink);min-height:100vh;overflow-x:hidden;line-height:1.75;
+ background-color:#020710;
+ background-image:var(--bg-url),radial-gradient(120% 90% at 50% -5%,rgba(13,44,80,.86) 0%,rgba(4,16,31,.89) 55%,rgba(2,7,16,.93) 100%);
+ background-size:cover,auto;background-position:center,center;background-repeat:no-repeat,repeat;background-attachment:fixed,fixed;}
+::selection{background:rgba(240,195,108,.35)}
+button,label{cursor:pointer;font-family:inherit}
+input,textarea,select{font-family:inherit;color:var(--ink)}
+body.lock{overflow:hidden}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:rgba(140,190,255,.25);border-radius:3px}
+
+#bgDust{position:fixed;inset:0;z-index:0;pointer-events:none;transition:opacity .6s}
+#bgVideo{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;pointer-events:none;display:none;filter:brightness(.6) saturate(.9)}
+#bgVideo.on{display:block}
+#bgDust.off{opacity:0}
+#dmLayer{position:fixed;inset:0;z-index:40;pointer-events:none;overflow:hidden}
+.dm{position:absolute;left:100vw;white-space:nowrap;font-size:14px;color:#d5e6ff;text-shadow:0 1px 3px rgba(0,0,0,.8),0 0 10px rgba(108,208,255,.4);animation:dmMove linear forwards;opacity:.9}
+.dm.gold{color:var(--gold2);font-family:'Ma Shan Zheng';font-size:18px;text-shadow:0 0 14px rgba(240,195,108,.8)}
+@keyframes dmMove{to{transform:translateX(calc(-100vw - 100%))}}
+#toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-14px);z-index:300;background:rgba(10,28,50,.95);border:1px solid var(--gold);color:var(--gold2);padding:10px 24px;border-radius:999px;font-size:13.5px;opacity:0;pointer-events:none;transition:.3s;max-width:86vw;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#fxCanvas{position:fixed;inset:0;z-index:45;pointer-events:none}
+
+/* ===== 入场玻璃 ===== */
+#entryGlass{position:fixed;inset:0;z-index:500;background:#040c1a;overflow:hidden;cursor:pointer;transition:opacity 1.4s ease-out}
+#entryGlass.gone{opacity:0;pointer-events:none}
+#entryGlass.storm::after{content:'';position:absolute;inset:0;background:#dfeaff;mix-blend-mode:screen;animation:lightning .22s 3;pointer-events:none;z-index:9}
+@keyframes lightning{0%{opacity:0}40%{opacity:.55}100%{opacity:0}}
+.glass-pane{position:absolute;inset:0;z-index:1;transition:opacity .35s;
+ background:
+  linear-gradient(115deg,transparent 22%,rgba(255,255,255,.14) 33%,rgba(255,255,255,.03) 40%,transparent 47%,rgba(255,255,255,.10) 61%,transparent 71%),
+  linear-gradient(205deg,rgba(165,205,245,.17),rgba(90,130,180,.07) 45%,rgba(175,215,250,.15)),
+  radial-gradient(140% 110% at 50% 45%,rgba(115,165,220,.13),rgba(14,40,76,.34));
+ box-shadow:inset 0 0 130px rgba(200,230,255,.24),inset 0 0 10px rgba(255,255,255,.4),inset 0 -60px 120px rgba(10,30,60,.5)}
+.glass-pane::before{content:'';position:absolute;inset:0;opacity:.55;background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="260" height="260" filter="url(%23n)" opacity="0.05"/></svg>')}
+.glass-pane::after{content:'';position:absolute;inset:0;background:radial-gradient(118% 105% at 50% 50%,transparent 52%,rgba(2,10,24,.62) 100%)}
+.glass-pane.broken{opacity:0}
+.g-title{position:absolute;top:47%;left:50%;transform:translate(-50%,-50%);display:flex;gap:clamp(8px,3vw,28px);z-index:5;font-family:'Ma Shan Zheng';font-weight:400;font-size:clamp(58px,13vw,122px);color:var(--gold2);text-shadow:0 0 34px rgba(240,195,108,.8),0 0 90px rgba(240,195,108,.35);pointer-events:none;white-space:nowrap}
+.g-title span{display:inline-block;opacity:0;filter:blur(16px);transform:translateX(-46px) scale(1.5)}
+.g-title span.in{animation:gChar .8s cubic-bezier(.2,.8,.3,1) forwards}
+@keyframes gChar{0%{opacity:0;filter:blur(16px);transform:translateX(-46px) scale(1.5)}55%{opacity:1;filter:blur(0);transform:translateX(0) scale(.96)}72%{transform:scale(1.06)}100%{opacity:1;transform:none;filter:none}}
+.g-title span.out{animation:gOut .5s forwards}
+@keyframes gOut{to{opacity:0;filter:blur(14px);transform:scale(1.7) translateY(-30px)}}
+.g-hint{position:absolute;bottom:13%;left:0;right:0;text-align:center;z-index:5;letter-spacing:7px;color:var(--dim);font-size:14px;animation:pulse 2.6s infinite;transition:opacity .3s}
+.g-hint.out{opacity:0}
+@keyframes pulse{0%,100%{opacity:.7}50%{opacity:1}}
+#hammerWrap{position:absolute;top:-34%;left:50%;width:min(46vw,300px);z-index:6;transform:translate(-50%,0) rotate(-32deg);opacity:0;pointer-events:none;filter:drop-shadow(0 0 34px rgba(240,195,108,.55))}
+#hammerWrap.fall{animation:hammerFall .86s cubic-bezier(.6,.02,1,.4) forwards}
+@keyframes hammerFall{0%{top:-34%;opacity:0;transform:translate(-50%,0) rotate(-64deg)}12%{opacity:1}99.9%{top:46%;transform:translate(-50%,0) rotate(-2deg);opacity:1}100%{top:46%;transform:translate(-50%,0) rotate(0);opacity:1}}
+#hammerWrap.rest{animation:hammerBounce 1s ease-out forwards}
+@keyframes hammerBounce{0%{top:46%;transform:translate(-50%,0) rotate(0)}25%{top:34%;transform:translate(-56%,-2%) rotate(-14deg);opacity:1}100%{top:-40%;transform:translate(-58%,0) rotate(-50deg);opacity:0}}
+#hammerTail{position:absolute;top:62%;left:50%;width:70%;height:42vh;transform:translateX(-50%);background:linear-gradient(to top,rgba(240,195,108,.5),rgba(255,230,150,.12) 55%,transparent);border-radius:50% 50% 0 0/28% 28% 0 0;opacity:0;pointer-events:none}
+#hammerWrap.fall #hammerTail{opacity:.9}
+#entryFx{position:absolute;inset:0;z-index:7;pointer-events:none}
+#whiteFlash{position:absolute;inset:0;z-index:8;background:radial-gradient(circle at 50% 47%,#fff,rgba(255,240,200,.85) 30%,transparent 75%);opacity:0;pointer-events:none}
+#whiteFlash.boom{animation:flashK .6s ease-out}
+@keyframes flashK{0%{opacity:1}100%{opacity:0}}
+body.shake{animation:shake .45s}
+@keyframes shake{0%,100%{transform:translate(0)}15%{transform:translate(-12px,7px)}30%{transform:translate(12px,-7px)}45%{transform:translate(-9px,8px)}60%{transform:translate(9px,-8px)}80%{transform:translate(-5px,4px)}}
+
+/* ===== 顶栏 ===== */
+#topbar{position:fixed;top:0;left:0;right:0;z-index:60;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;pointer-events:none}
+#topbar>*{pointer-events:auto}
+.brand .b-ring{width:15px;height:15px;border:2px solid var(--gold);border-radius:50%;box-shadow:0 0 12px var(--gold);animation:pulse 2.6s infinite;display:block}
+.tb-btns{display:flex;gap:7px}
+.tbtn{background:rgba(18,40,68,.62);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:6px 9px;font-size:12.5px;display:flex;align-items:center;gap:6px;transition:.2s}
+.tbtn svg{width:15px;height:15px;stroke:var(--dim);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;transition:.2s}
+.tbtn:hover{border-color:var(--gold);transform:translateY(-1px)}
+.tbtn.on svg{stroke:var(--gold2)}
+.tbtn .dot{width:6px;height:6px;border-radius:50%;background:#3d5a78;transition:.2s}
+.tbtn.on .dot{background:var(--gold);box-shadow:0 0 8px var(--gold)}
+
+/* ===== 侧栏箭头 ===== */
+.side-toggle{position:fixed;top:50%;transform:translateY(-50%);z-index:210;width:46px;height:64px;border:none;background:rgba(20,42,72,.55);color:var(--gold2);border-radius:14px;display:grid;place-items:center;box-shadow:0 6px 26px rgba(0,0,0,.45),inset 0 0 18px rgba(240,195,108,.08);transition:left .4s cubic-bezier(.4,0,.2,1),right .4s cubic-bezier(.4,0,.2,1),background .25s;border:1px solid var(--line2)}
+.side-toggle:hover{background:rgba(240,195,108,.22);border-color:var(--gold)}
+.side-toggle svg{width:22px;height:22px;stroke:var(--gold2);fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;transition:transform .4s;filter:drop-shadow(0 0 6px rgba(240,195,108,.6))}
+#leftToggle{left:10px}
+#rightToggle{right:10px}
+#leftToggle svg{transform:rotate(180deg)}
+#leftToggle.open{left:calc(min(520px,95vw) - 56px)}
+#rightToggle.open{right:calc(min(520px,95vw) - 56px)}
+#leftToggle.open svg{transform:rotate(0deg)}
+#rightToggle.open svg{transform:rotate(180deg)}
+.side-toggle .st-seal{position:absolute;font-family:'Ma Shan Zheng';font-size:11px;color:var(--dim);letter-spacing:1px;bottom:4px}
+@media(max-width:860px){
+ #leftToggle.open{left:10px}
+ #rightToggle.open{right:10px}
+}
+
+/* ===== 抽屉（无标题栏 · tab 即顶栏） ===== */
+#drawerMask{position:fixed;inset:0;z-index:90;background:rgba(2,8,18,.5);opacity:0;pointer-events:none;transition:opacity .35s}
+#drawerMask.show{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;bottom:0;z-index:95;background:rgba(6,15,30,.6);backdrop-filter:blur(8px);display:flex;flex-direction:column;transition:transform .42s cubic-bezier(.4,0,.2,1);box-shadow:0 0 60px rgba(0,0,0,.55)}
+#leftDrawer{left:0;width:min(520px,95vw);transform:translateX(-102%);border-right:1px solid var(--line2)}
+#rightDrawer{right:0;width:min(520px,95vw);transform:translateX(102%);border-left:1px solid var(--line2)}
+#leftDrawer.open{transform:translateX(0)}
+#rightDrawer.open{transform:translateX(0)}
+.d-tabs{display:flex;gap:8px;padding:calc(12px + env(safe-area-inset-top,0px)) 14px 12px;border-bottom:1px solid var(--line);overflow-x:auto;flex:none}
+.d-tab-btn{flex:none;width:46px;border:1px solid var(--line);background:rgba(255,255,255,.05);border-radius:10px;padding:6px 0 4px;display:flex;flex-direction:column;align-items:center;gap:1px;transition:.2s}
+.d-tab-btn b{font-family:'Ma Shan Zheng';font-weight:400;font-size:19px;color:var(--dim);line-height:1.2}
+.d-tab-btn i{font-style:normal;font-size:9px;color:#5f7c9c;letter-spacing:1px}
+.d-tab-btn:hover{border-color:var(--blue)}
+.d-tab-btn.act{background:rgba(240,195,108,.3);border-color:var(--gold);box-shadow:0 0 16px rgba(240,195,108,.35)}
+.d-tab-btn.act b{color:var(--gold2)}.d-tab-btn.act i{color:#c7a558}
+.d-body{flex:1;overflow-y:auto;padding:16px 16px 30px;-webkit-overflow-scrolling:touch}
+.d-pane{display:none}
+.d-pane.act{display:block;animation:fadeUp .35s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1}}
+
+/* ===== 抽屉内通用 ===== */
+.field{margin-bottom:13px}
+.field label{display:block;font-size:13px;color:var(--gold2);letter-spacing:2px;margin-bottom:6px}
+.field label em{font-style:normal;color:var(--dim);font-size:11px;margin-left:6px;letter-spacing:1px}
+.field input[type=text],.field textarea{width:100%;background:rgba(255,255,255,.055);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;transition:.2s;outline:none}
+.field input:focus,.field textarea:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(240,195,108,.14);background:rgba(255,255,255,.08)}
+.field textarea{resize:vertical;min-height:72px}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{flex:1;min-width:76px;background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--dim);border-radius:9px;padding:8px 6px;font-size:13px;transition:.2s}
+.seg button:hover{border-color:var(--blue)}
+.seg button.act{background:rgba(240,195,108,.16);border-color:var(--gold);color:var(--gold2);box-shadow:0 0 12px rgba(240,195,108,.25)}
+.linked{display:flex;gap:10px;flex-wrap:wrap}
+.linked .lk{flex:1;min-width:150px;background:rgba(108,208,255,.06);border:1px dashed rgba(108,208,255,.35);border-radius:10px;padding:10px 12px}
+.linked .lk b{display:block;font-size:11.5px;color:var(--dim);letter-spacing:2px;margin-bottom:3px}
+.linked .lk span{font-family:'Ma Shan Zheng';font-size:17px;color:var(--blue)}
+.lk-note{font-size:11px;color:#5f7c9c;margin-top:10px}
+.rich h4{font-family:'Ma Shan Zheng';font-size:18px;color:var(--blue);letter-spacing:2px;margin:20px 0 8px;font-weight:400}
+.rich p{font-size:13.5px;color:#d6e4f5;margin:9px 0}
+.rich ul{margin:4px 0 12px 20px;font-size:13px;color:#cfe0f4}
+.rich li{margin:5px 0}
+.rich ol{margin:4px 0 12px 20px;font-size:13px;color:#cfe0f4}
+.rich b{color:var(--gold2)}
+
+.feat-card{background:rgba(255,255,255,.045);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;transition:.25s}
+.feat-card:hover{border-color:var(--blue)}
+.feat-card.on{border-color:var(--gold);box-shadow:0 0 16px rgba(240,195,108,.22);background:rgba(240,195,108,.07)}
+.fc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:10px}
+.fc-name{font-weight:600;font-size:14px;letter-spacing:1px}
+.fc-desc{font-size:12px;color:var(--dim);line-height:1.6;margin-bottom:8px}
+.fc-cmds{display:flex;flex-wrap:wrap;gap:6px}
+.cmd-chip{font-size:11px;color:var(--cyan);border:1px dashed rgba(143,227,216,.4);border-radius:6px;padding:3px 9px;background:none;transition:.15s}
+.cmd-chip:hover{background:rgba(143,227,216,.14);border-style:solid;color:#c9fff7}
+.switch{position:relative;width:42px;height:22px;flex:none}
+.switch input{display:none}
+.switch span{position:absolute;inset:0;background:rgba(255,255,255,.12);border:1px solid var(--line);border-radius:99px;transition:.25s}
+.switch span::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8fa5bd;transition:.25s}
+.switch input:checked+span{background:rgba(240,195,108,.3);border-color:var(--gold)}
+.switch input:checked+span::after{left:22px;background:var(--gold2);box-shadow:0 0 8px var(--gold)}
+
+.extra-card{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.04);animation:fadeUp .3s}
+.ex-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}
+.ex-head b{font-family:'Ma Shan Zheng';font-weight:400;color:var(--gold2);letter-spacing:2px;font-size:16px}
+.ex-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ex-grid input,.ex-grid textarea{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:13px;width:100%;outline:none}
+.ex-grid input:focus,.ex-grid textarea:focus{border-color:var(--gold)}
+.ex-grid textarea{resize:vertical;min-height:64px}
+.ex-full{grid-column:1/-1}
+.extra-del{width:26px;height:26px;border-radius:50%;border:1px solid rgba(255,94,108,.5);background:rgba(255,94,108,.1);color:#ff9aa5;font-size:12px;line-height:1;display:grid;place-items:center;transition:.2s}
+.extra-del:hover{background:rgba(255,94,108,.28)}
+
+.pv-stat{display:flex;gap:16px;font-size:13px;color:var(--dim);margin-bottom:12px}
+.pv-stat b{color:var(--gold2);font-size:19px;font-family:'Ma Shan Zheng';margin-right:3px}
+#previewPre{background:rgba(3,10,20,.5);border:1px solid var(--line);border-radius:12px;padding:16px;font-size:12.5px;line-height:1.95;white-space:pre-wrap;word-break:break-all;max-height:52vh;overflow:auto;cursor:pointer;transition:.25s}
+#previewPre:hover{border-color:var(--line2)}
+.pv-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.btn{display:inline-flex;align-items:center;gap:8px;border:none;border-radius:10px;padding:10px 20px;font-size:14px;letter-spacing:2px;transition:.22s;font-weight:600}
+.btn-gold{background:linear-gradient(135deg,rgba(247,217,139,.82),rgba(224,168,63,.75));color:#2a1c05;box-shadow:0 6px 24px rgba(240,195,108,.3);border:1px solid rgba(255,235,180,.5)}
+.btn-gold:hover{transform:translateY(-2px);box-shadow:0 10px 30px rgba(240,195,108,.45)}
+.btn-ghost{background:rgba(108,208,255,.08);border:1px solid var(--line);color:var(--blue);}
+.btn-ghost:hover{border-color:var(--blue);transform:translateY(-2px)}
+.btn-ghost.warn{border-color:var(--rR);color:#ff9aa5}
+
+/* ===== 主内容 ===== */
+main{max-width:880px;margin:0 auto;padding:70px 16px 90px;position:relative;z-index:10;opacity:0;transform:translateY(16px);transition:opacity 1.1s .1s,transform 1.1s .1s}
+main.in{opacity:1;transform:none}
+.hero{text-align:center;padding:16px 0 4px;cursor:pointer;user-select:none}
+.hero h1{position:relative;font-family:'Ma Shan Zheng';font-weight:400;font-size:clamp(44px,10vw,84px);letter-spacing:clamp(6px,2vw,22px);line-height:1.15;display:inline-block;
+  background:linear-gradient(180deg,#fffbe9 8%,#ffe9a8 34%,#f0c36c 58%,#d19a3a 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(3px 3px 0 rgba(20,10,0,.6)) drop-shadow(0 0 24px rgba(240,195,108,.42))}
+.hero h1::before,.hero h1::after{content:'斗罗大陆';position:absolute;left:0;top:0;opacity:.55;pointer-events:none}
+.hero h1::before{color:#8b5cff;animation:gl1 .42s steps(2) infinite;z-index:-1}
+.hero h1::after{color:var(--cyan);animation:gl1 .38s steps(2) infinite reverse;z-index:-2}
+@keyframes gl1{0%{transform:translate(0)}25%{transform:translate(-3px,2px)}50%{transform:translate(2px,-2px)}75%{transform:translate(-2px,-1px)}100%{transform:translate(0)}}
+.ps{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 12px 44px rgba(0,0,0,.35);margin:26px 0;overflow:hidden;position:relative}
+#secAwaken{background:transparent;border-color:transparent;box-shadow:none}
+#secAwaken::before{display:none}
+.ps::before{content:'';position:absolute;top:0;left:0;width:120px;height:3px;background:linear-gradient(90deg,var(--gold),transparent);opacity:.7}
+.ps-head{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;cursor:pointer;user-select:none;gap:12px}
+.ps-head h2{font-family:'Ma Shan Zheng';font-weight:400;font-size:clamp(19px,4.4vw,25px);letter-spacing:3px;color:var(--gold2);display:flex;align-items:center;gap:10px}
+.ps-head h2::before{content:'';width:9px;height:9px;background:var(--gold);transform:rotate(45deg);box-shadow:0 0 10px var(--gold);flex:none}
+.ps-arrow{width:26px;height:26px;flex:none;transition:transform .35s}
+.ps-arrow svg{width:100%;height:100%;stroke:var(--gold);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ps.open .ps-arrow{transform:rotate(180deg)}
+.ps-body{display:none;padding:4px 20px 22px}
+.ps.open .ps-body{display:block;animation:fadeUp .4s}
+
+/* ===== 觉醒 ===== */
+.awaken-stage{position:relative;padding:18px 0 4px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.orb-wrap{position:relative;width:min(360px,82vw);aspect-ratio:1;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:pointer}
+.orb-wrap.pressing{animation:orbShiver .14s infinite}
+@keyframes orbShiver{0%,100%{transform:translate(0,0)}25%{transform:translate(.8px,-.6px)}75%{transform:translate(-.8px,.6px)}}
+.charged{animation:chargedPulse .5s infinite}
+@keyframes chargedPulse{0%,100%{filter:brightness(1.15)}50%{filter:brightness(1.6)}}
+#orbCanvas{display:block;width:100%;height:100%}
+.orb-runes{position:absolute;inset:0;display:grid;place-items:center;font-family:'Ma Shan Zheng';font-size:clamp(30px,7vw,44px);color:var(--gold2);letter-spacing:8px;text-shadow:0 0 22px rgba(240,195,108,.85);pointer-events:none;transition:.25s}
+.orb-wrap.hot .orb-runes{color:#fff;text-shadow:0 0 28px #fff,0 0 60px var(--gold)}
+.draw-slot{width:100%;max-width:480px;min-height:92px;border:1px dashed var(--line2);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:14px;background:rgba(255,255,255,.03);position:relative;overflow:hidden;transition:.3s}
+.ds-name{font-family:'Ma Shan Zheng';font-size:30px;letter-spacing:4px}
+.ds-tag{font-size:12px;letter-spacing:3px;padding:3px 14px;border-radius:999px;border:1px solid}
+.ds-pow{font-size:12.5px;color:var(--dim)}
+.r-waste .ds-name{color:#9aa7b5}.r-waste .ds-tag{color:#9aa7b5;border-color:#9aa7b5;border-style:dashed}
+.r-common .ds-name{color:var(--rY);text-shadow:0 0 18px rgba(255,209,102,.5)}.r-common .ds-tag{color:var(--rY);border-color:var(--rY)}
+.r-rare .ds-name{color:var(--rP);text-shadow:0 0 18px rgba(181,123,255,.55)}.r-rare .ds-tag{color:var(--rP);border-color:var(--rP)}
+.r-epic .ds-name{color:var(--rB);text-shadow:0 0 20px rgba(143,163,255,.65)}.r-epic .ds-tag{color:var(--rB);border-color:var(--rB)}
+.r-legend .ds-name{color:var(--rR);text-shadow:0 0 24px rgba(255,94,108,.75);animation:pulse 1.6s infinite}.r-legend .ds-tag{color:var(--rR);border-color:var(--rR)}
+.r-god .ds-name{background:linear-gradient(90deg,#fff3c9,#f0c36c,#fff);-webkit-background-clip:text;background-clip:text;color:transparent;animation:pulse 1.4s infinite}.r-god .ds-tag{color:var(--gold2);border-color:var(--gold);box-shadow:0 0 14px rgba(240,195,108,.5)}
+.r-legend::after,.r-god::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.14) 50%,transparent 70%);animation:sheen 1.8s infinite}
+@keyframes sheen{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.awaken-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;width:100%;max-width:560px;padding-top:8px}
+
+/* ===== 武魂卡 ===== */
+#wuhunModal{position:fixed;inset:0;z-index:140;display:none;align-items:center;justify-content:center;padding:18px}
+#wuhunModal.show{display:flex}
+.wm-mask{position:absolute;inset:0;background:rgba(2,8,18,.72);opacity:0;transition:opacity .3s}
+#wuhunModal.show .wm-mask{opacity:1}
+.wm-card{position:relative;width:min(430px,92vw);background:linear-gradient(165deg,rgba(14,32,56,.8),rgba(8,18,38,.95));border:1px solid;border-radius:18px;padding:26px 24px 20px;transform:scale(.55) rotateY(-30deg);opacity:0;transition:transform .5s cubic-bezier(.2,1.35,.4,1),opacity .28s;overflow:hidden}
+#wuhunModal.show .wm-card{transform:none;opacity:1}
+.wm-card::after{content:'';position:absolute;top:0;left:18%;right:18%;height:2px;background:linear-gradient(90deg,transparent,var(--wmc,#f0c36c),transparent)}
+.wm-card .wm-sheen{position:absolute;top:0;bottom:0;left:-60%;width:45%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.13),transparent);pointer-events:none;display:none}
+.wm-card.r-legend .wm-sheen,.wm-card.r-god .wm-sheen{display:block;animation:wmSheen 2.2s infinite}
+@keyframes wmSheen{to{left:115%}}
+.wm-card.r-waste{--wmc:#9aa7b5}.wm-card.r-common{--wmc:#ffd166}.wm-card.r-rare{--wmc:#b57bff}
+.wm-card.r-epic{--wmc:#8fa3ff}.wm-card.r-legend{--wmc:#ff5e6c;box-shadow:0 30px 90px rgba(0,0,0,.7),0 0 50px rgba(255,94,108,.3)}
+.wm-card.r-god{--wmc:var(--gold2);box-shadow:0 30px 90px rgba(0,0,0,.7),0 0 60px rgba(240,195,108,.4)}
+.wm-rar{font-size:12px;letter-spacing:4px;color:var(--wmc);border:1px solid var(--wmc);border-radius:999px;padding:3px 16px;display:inline-block}
+.wm-name{font-family:'Ma Shan Zheng';font-weight:400;font-size:clamp(34px,8vw,46px);letter-spacing:4px;color:var(--wmc);margin:12px 0 2px;text-shadow:0 0 26px currentColor}
+.wm-card.r-god .wm-name{background:linear-gradient(90deg,#fff3c9,#f0c36c,#fff);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;animation:pulse 1.6s infinite}
+.wm-type{font-size:13px;color:var(--dim);letter-spacing:3px}
+.wm-rows{margin:16px 0 4px}
+.wm-row{display:flex;gap:10px;padding:9px 0;border-bottom:1px dashed rgba(140,190,255,.16);font-size:13.5px}
+.wm-row:last-child{border-bottom:none}
+.wm-row b{flex:none;width:74px;color:var(--dim);font-weight:400;letter-spacing:2px;font-size:12.5px;padding-top:1px}
+.wm-row span{flex:1;color:#dce8f7;line-height:1.7}
+.wm-ok{width:100%;margin-top:12px}
+.wm-hint{font-size:11px;color:#5f7c9c;text-align:center;margin-top:9px;letter-spacing:2px}
+
+/* ===== 修炼魂力 ===== */
+.lv-box{padding:4px 0 2px}
+.lv-top{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.lv-num{font-family:'Ma Shan Zheng';font-size:54px;color:var(--blue);text-shadow:0 0 22px rgba(108,208,255,.5);line-height:1}
+.lv-num.pop{animation:pop .35s}
+@keyframes pop{0%{transform:scale(1.25);filter:brightness(1.6)}100%{transform:scale(1)}}
+.lv-title{font-size:16px;letter-spacing:3px;color:var(--ink);border:1px solid var(--line);padding:3px 14px;border-radius:999px;background:rgba(255,255,255,.04)}
+.lv-title.god{color:var(--gold2);border-color:var(--gold);box-shadow:0 0 14px rgba(240,195,108,.45)}
+.lv-stage{font-size:12px;color:var(--dim)}
+input[type=range]{width:100%;appearance:none;-webkit-appearance:none;height:8px;border-radius:99px;background:linear-gradient(90deg,#eef3ff,#ffd166,#b57bff,#22242f,#ff5e6c,#f0c36c,#ffd88a);outline:none;margin:6px 0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#6cd0ff);border:2px solid var(--gold);box-shadow:0 0 14px rgba(108,208,255,.85);cursor:grab}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:#6cd0ff;border:2px solid var(--gold)}
+.lv-hint{font-size:12px;color:var(--dim)}
+#titleInput{margin-top:12px;display:none;gap:8px;align-items:center}
+#titleInput.show{display:flex}
+#titleInput input{flex:1;background:rgba(240,195,108,.08);border:1px solid var(--line2);border-radius:9px;padding:8px 12px;outline:none}
+
+/* ===== 魂环 / 魂技 / 魂骨 ===== */
+.rings{display:flex;gap:10px;flex-wrap:wrap;padding:4px 0 8px}
+.rslot{width:54px;height:54px;border-radius:50%;border:2px dashed rgba(140,190,255,.35);background:transparent;position:relative;transition:.2s;display:grid;place-items:center;font-size:10px;color:#5f7c9c;letter-spacing:1px}
+.rslot:hover{transform:scale(1.12)}
+.rslot::before{content:'';position:absolute;inset:5px;border-radius:50%;border:3px solid transparent;transition:.2s}
+.rslot[data-c="w"]::before{border-color:var(--rW);box-shadow:0 0 12px var(--rW)}
+.rslot[data-c="y"]::before{border-color:var(--rY);box-shadow:0 0 12px var(--rY)}
+.rslot[data-c="p"]::before{border-color:var(--rP);box-shadow:0 0 14px var(--rP)}
+.rslot[data-c="b"]::before{border-color:#2a2c3a;box-shadow:0 0 16px var(--rB);background:radial-gradient(circle,#0a0b12,#22243a)}
+.rslot[data-c="r"]::before{border-color:var(--rR);box-shadow:0 0 18px var(--rR)}
+.rslot[data-c="o"]::before{border-color:var(--gld);box-shadow:0 0 16px rgba(255,216,138,.95),0 0 32px rgba(240,195,108,.5);background:radial-gradient(circle,rgba(255,225,160,.3),transparent 72%)}
+.rslot.pop{animation:ringPop .4s}
+@keyframes ringPop{0%{transform:scale(1.35);filter:brightness(2)}100%{transform:scale(1)}}
+.r-legend-row{font-size:11.5px;color:var(--dim);display:flex;gap:12px;flex-wrap:wrap;padding-top:8px}
+.r-legend-row i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.skill-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;animation:fadeUp .25s}
+.sk-idx{flex:none;width:86px;text-align:center;font-size:12px;letter-spacing:1px;color:var(--gold2);border:1px solid var(--line2);border-radius:8px;padding:5px 0;background:rgba(240,195,108,.06)}
+.sk-in{flex:1;background:rgba(255,255,255,.055);border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:14px;outline:none;transition:.2s;min-width:0}
+.sk-in:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(240,195,108,.13)}
+.sk-del{flex:none;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);background:rgba(255,94,108,.06);color:#ff9aa5;display:grid;place-items:center;transition:.2s}
+.sk-del svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.sk-del:hover{border-color:var(--rR);background:rgba(255,94,108,.18);transform:rotate(90deg)}
+.sk-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px;flex-wrap:wrap}
+.sk-count{font-size:12px;color:var(--dim);letter-spacing:2px}
+.sk-count b{color:var(--gold2);font-size:15px}
+.bones{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+.bone-card{display:flex;align-items:center;gap:12px;text-align:left;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:12px;padding:11px 13px;transition:.22s;position:relative;color:var(--ink)}
+.bone-card:hover{border-color:var(--blue);transform:translateY(-2px)}
+.bone-card.filled{background:linear-gradient(150deg,rgba(181,123,255,.16),rgba(108,208,255,.1));border-color:var(--purple);box-shadow:0 0 16px rgba(181,123,255,.3)}
+.bone-card.filled::after{content:'';position:absolute;inset:-1px;border-radius:12px;border:1px solid rgba(181,123,255,.5);pointer-events:none}
+.bone-card.pop{animation:ringPop .45s}
+.bone-seal{flex:none;width:40px;height:40px;border:2px solid var(--line2);border-radius:9px;display:grid;place-items:center;font-family:'Ma Shan Zheng';font-size:20px;color:var(--gold2);background:rgba(240,195,108,.08);position:relative}
+.bone-seal small{position:absolute;right:2px;bottom:1px;font-size:8px;color:var(--dim);line-height:1}
+.bone-info{flex:1;min-width:0}
+.bone-info b{display:block;font-size:14px;letter-spacing:2px}
+.bone-info i{display:block;font-style:normal;font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.bone-card.filled .bone-info i{color:#e3d2ff}
+.bone-card svg{flex:none;width:16px;height:16px;stroke:var(--dim);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transition:.2s}
+.bone-card:hover svg{stroke:var(--gold2);transform:translateX(3px)}
+#boneModal{position:fixed;inset:0;z-index:120;display:none;align-items:center;justify-content:center;padding:18px}
+#boneModal.show{display:flex}
+.bm-mask{position:absolute;inset:0;background:rgba(2,8,18,.7);opacity:0;transition:opacity .3s}
+#boneModal.show .bm-mask{opacity:1}
+.bm-box{position:relative;width:min(430px,94vw);max-height:86vh;overflow-y:auto;background:rgba(8,20,40,.8);border:1px solid var(--line2);border-radius:16px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 40px rgba(240,195,108,.12);transform:scale(.88);opacity:0;transition:transform .3s cubic-bezier(.34,1.4,.5,1),opacity .25s}
+#boneModal.show .bm-box{transform:scale(1);opacity:1}
+.bm-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+.bm-head h3{font-family:'Ma Shan Zheng';font-weight:400;font-size:24px;color:var(--gold2);letter-spacing:3px}
+#bmClose{background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--ink);width:30px;height:30px;border-radius:50%;display:grid;place-items:center}
+#bmClose svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.bm-sub{font-size:11.5px;color:#5f7c9c;margin-bottom:12px}
+.bm-opt{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;transition:.2s;color:var(--ink)}
+.bm-opt:hover{border-color:var(--gold);background:rgba(240,195,108,.09);transform:translateX(4px)}
+.bm-opt.cur{border-color:var(--purple);background:rgba(181,123,255,.14);box-shadow:0 0 14px rgba(181,123,255,.3)}
+.bm-n{font-weight:600;font-size:14px;flex:none}
+.bm-s{flex:1;font-size:11.5px;color:var(--dim);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ybadge{flex:none;font-size:10.5px;padding:2px 8px;border-radius:999px;border:1px solid}
+.ybadge.c-w{color:var(--rW);border-color:var(--rW)}
+.ybadge.c-y{color:var(--rY);border-color:var(--rY)}
+.ybadge.c-p{color:var(--rP);border-color:var(--rP)}
+.ybadge.c-b{color:var(--rB);border-color:var(--rB)}
+.ybadge.c-r{color:var(--rR);border-color:var(--rR)}
+.ybadge.c-o{color:var(--rO);border-color:var(--rO)}
+.bm-cur{flex:none;font-size:10px;color:var(--purple);letter-spacing:1px}
+.bm-custom{margin-top:14px;border-top:1px dashed var(--line);padding-top:12px}
+.bm-custom h4{font-family:'Ma Shan Zheng';font-weight:400;font-size:16px;color:var(--blue);letter-spacing:2px;margin-bottom:8px}
+.bm-custom input{width:100%;background:rgba(255,255,255,.055);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;margin-bottom:8px;outline:none}
+.bm-custom input:focus{border-color:var(--gold)}
+#bmClear{width:100%;margin-top:6px;background:rgba(255,94,108,.06);border:1px solid rgba(255,94,108,.35);color:#ff9aa5;border-radius:10px;padding:9px;letter-spacing:2px;font-size:13px;transition:.2s}
+#bmClear:hover{background:rgba(255,94,108,.16)}
+
+/* ===== 时间线 ===== */
+.tl-wrap{padding-top:4px}
+.tl-top{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.tl-year{font-family:'Ma Shan Zheng';font-size:46px;color:var(--gold);text-shadow:0 0 24px rgba(240,195,108,.5);line-height:1}
+.tl-ymname{font-size:13px;color:var(--dim);letter-spacing:3px}
+.tl-visual{position:relative;height:78px;border-radius:10px;background:linear-gradient(90deg,rgba(240,195,108,.08),rgba(108,208,255,.15),rgba(181,123,255,.1),rgba(255,94,108,.12));overflow:hidden;border:1px solid var(--line)}
+.tl-line{position:absolute;left:12px;right:12px;top:44px;height:2px;background:rgba(255,255,255,.22)}
+.tl-dot{position:absolute;top:40px;width:10px;height:10px;border-radius:50%;background:rgba(240,195,108,.4);border:2px solid rgba(240,195,108,.5);transform:translateX(-50%);transition:.2s;cursor:pointer;padding:0}
+.tl-dot.major{background:var(--gold);box-shadow:0 0 10px var(--gold);width:14px;height:14px;top:38px}
+.tl-dot:hover{transform:translateX(-50%) scale(1.5)}
+.tl-dot.active{background:#fff;box-shadow:0 0 16px #fff,0 0 26px var(--gold);transform:translateX(-50%) scale(1.45)}
+.tl-cursor{position:absolute;top:30px;width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-top:10px solid var(--gold);transform:translateX(-50%);filter:drop-shadow(0 0 6px rgba(240,195,108,.8));pointer-events:none;transition:left .15s}
+.tl-scale{display:flex;justify-content:space-between;font-size:10.5px;color:#5f7c9c;margin:4px 12px 10px;letter-spacing:1px}
+.tl-event{background:rgba(240,195,108,.1);border:1px solid var(--line2);border-radius:10px;padding:11px 14px;font-size:13.5px;min-height:52px;color:#dce8f7}
+.tl-event b{color:var(--gold2);font-family:'Ma Shan Zheng';font-size:16px;display:block;margin-bottom:4px;font-weight:400}
+.tl-event em{color:var(--dim);font-style:normal;font-size:12px}
+
+/* ===== 图鉴书（透视挂 book · 页自背面隐藏 · z-index 可控） ===== */
+.book-scene{display:flex;flex-direction:column;align-items:center;padding:6px 0 0}
+.book{position:relative;width:min(470px,100%);height:min(700px,72vh);perspective:1800px}
+.page{position:absolute;inset:0;transform-origin:left center;transition:transform .82s cubic-bezier(.645,.045,.355,1);backface-visibility:hidden;-webkit-backface-visibility:hidden;cursor:default}
+.page.flipped{transform:rotateY(-180deg)}
+.page-face{position:absolute;inset:0;border:3px solid var(--bk-ink);overflow:hidden;border-radius:2px 14px 14px 2px}
+.page-front{background:repeating-linear-gradient(90deg,transparent 0,transparent 24px,rgba(53,42,77,.02) 24px,rgba(53,42,77,.02) 25px),linear-gradient(to right,#f5ead0 0,#fffdf2 3%,#fffdf2 97%,#f5ead0 100%);box-shadow:6px 6px 0 var(--bk-ink),inset -4px 0 8px rgba(53,42,77,.08);padding:22px 20px;display:flex;flex-direction:column}
+.cover{background:radial-gradient(circle at 30% 20%,rgba(255,255,255,.15),transparent 60%),linear-gradient(150deg,#b82c5c 0%,#e63a73 50%,#8b1a44 100%) !important;color:#fff8e8;border:3px solid #5a1030 !important;border-radius:3px 14px 14px 3px !important;box-shadow:6px 6px 0 var(--bk-ink),inset 0 0 40px rgba(0,0,0,.25) !important;align-items:center;justify-content:center;text-align:center;position:absolute;overflow:hidden;padding:22px !important}
+.cover::before{content:'';position:absolute;inset:14px;border:2px solid rgba(255,215,160,.6);border-radius:6px;pointer-events:none}
+.cover::after{content:'';position:absolute;inset:22px;border:1px solid rgba(255,215,160,.35);border-radius:4px;pointer-events:none}
+.cover h2{font-family:'ZCOOL KuaiLe';font-weight:400;font-size:clamp(36px,9vw,52px);letter-spacing:6px;color:#ffe6a8;text-shadow:3px 3px 0 #5a1030,0 0 20px rgba(255,200,120,.4);margin-top:16px;line-height:1.1}
+.cover .cover-sub{font-family:'Long Cang';font-size:18px;color:#ffd7e6;letter-spacing:2px;margin-top:4px}
+.cover .cover-line{width:62%;height:2px;background:linear-gradient(90deg,transparent,#ffd7a8,transparent);margin:16px 0}
+.cover .cover-info{font-size:12.5px;color:#ffd7e6;letter-spacing:1.5px;line-height:1.9}
+.cover .cover-info b{display:block;font-family:'ZCOOL KuaiLe';font-weight:400;font-size:17px;color:#ffe6a8;margin-top:10px;letter-spacing:3px}
+.toc-page{display:flex;flex-direction:column;height:100%;width:100%;min-height:0;overflow:hidden}
+.toc-head{text-align:center;padding-bottom:10px;border-bottom:2px dashed var(--bk-ink);margin-bottom:10px;flex-shrink:0}
+.toc-head h3{font-family:'ZCOOL KuaiLe';font-weight:400;font-size:24px;letter-spacing:4px;color:var(--bk-ink)}
+.toc-head p{font-family:'Long Cang';font-size:14px;color:#8a7ba8;margin-top:2px}
+.toc-list{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;flex:1;overflow-y:auto;min-height:0;padding-right:2px}
+.toc-item{display:flex;align-items:center;gap:7px;padding:8px 8px;background:rgba(255,255,255,.55);border:2px solid transparent;border-radius:8px;cursor:pointer;transition:.2s;font-size:12px;line-height:1.35;text-align:left}
+.toc-item:hover{background:var(--bk-pinkl);border-color:var(--bk-pink);transform:translateX(3px)}
+.toc-no{flex:none;width:24px;height:24px;border-radius:50%;background:var(--bk-ink);color:var(--bk-yellow);display:grid;place-items:center;font-family:'ZCOOL KuaiLe';font-size:11px}
+.toc-info{flex:1;min-width:0}
+.toc-name{font-family:'ZCOOL KuaiLe';font-size:14px;color:var(--bk-ink);letter-spacing:1px;display:block}
+.toc-trait{font-size:10.5px;color:#8a7ba8;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sis-page{display:flex;flex-direction:column;padding:0 !important;overflow:hidden;height:100%;background:radial-gradient(circle,#141d33,#05080f)}
+.sis-photo-wrap{position:relative;width:100%;height:100%;cursor:pointer;overflow:hidden}
+.sis-photo{width:100%;height:100%;object-fit:cover;display:block;transition:.3s;background:#0a1220}
+.sis-photo-wrap:hover .sis-photo{transform:scale(1.02)}
+.sis-photo-wrap .sis-overlay{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(53,42,77,.9));padding:22px 14px 14px;color:#fff;display:flex;align-items:flex-end;gap:9px}
+.sis-overlay .sis-no{font-family:'ZCOOL KuaiLe';width:32px;height:32px;flex:none;border-radius:50%;background:var(--bk-yellow);color:var(--bk-ink);display:grid;place-items:center;font-size:13px;border:2px solid #fff}
+.sis-overlay h4{font-family:'ZCOOL KuaiLe';font-weight:400;font-size:20px;letter-spacing:2px;color:#fff;text-shadow:1px 1px 3px rgba(0,0,0,.5)}
+.sis-overlay .sis-tag{margin-left:auto;font-family:'Long Cang';font-size:13px;color:var(--bk-yellow);background:rgba(53,42,77,.6);padding:2px 9px;border-radius:999px;border:1.5px solid var(--bk-yellow);white-space:nowrap}
+.book-nav{display:flex;justify-content:space-between;width:min(470px,100%);margin-top:12px;gap:10px}
+.flip-btn{background:rgba(255,209,102,.82);color:var(--bk-ink);border:3px solid var(--bk-ink);border-radius:999px;padding:9px 18px;font-family:'ZCOOL KuaiLe';font-size:13px;letter-spacing:1px;cursor:pointer;box-shadow:3px 3px 0 var(--bk-ink);transition:.15s}
+.flip-btn:hover:not(:disabled){background:rgba(230,58,115,.35);transform:translateY(-2px);box-shadow:4px 5px 0 var(--bk-ink)}
+.flip-btn:active:not(:disabled){transform:translate(2px,2px);box-shadow:0 0 0 var(--bk-ink)}
+.flip-btn:disabled{opacity:.35;cursor:not-allowed}
+
+/* 照片悬浮卡（与书页共用同一图片 URL，缓存命中即显） */
+.photo-overlay{position:fixed;inset:0;z-index:130;background:rgba(53,42,77,.65);display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .4s;overflow-y:auto}
+.photo-overlay.show{opacity:1;pointer-events:auto}
+.photo-card{position:relative;height:min(84vh,740px);aspect-ratio:9/16;max-width:92vw;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.35,.1,.25,1.12);cursor:pointer}
+.photo-card.flipped{transform:rotateY(180deg)}
+/* ★性能补丁★ */
+.page.far{display:none}
+.photo-overlay{perspective:1800px;-webkit-perspective:1800px}
+.photo-card{will-change:transform}
+#rightDrawer,#leftDrawer{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(6,15,30,.88)}
+.sis-photo-wrap:hover .sis-photo{transform:none}
+.photo-card-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border:4px solid var(--bk-ink);box-shadow:10px 10px 0 rgba(53,42,77,.8);overflow:hidden}
+.photo-card-front{background:#0e1626;display:flex;align-items:center;justify-content:center}
+.photo-card-front img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-card-back{transform:rotateY(180deg);background:repeating-linear-gradient(0deg,transparent 0,transparent 23px,rgba(53,42,77,.05) 23px,rgba(53,42,77,.05) 24px),linear-gradient(135deg,#fff9e8,#fff4f9);padding:24px 16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.photo-card-back h4{font-family:'ZCOOL KuaiLe';font-weight:400;font-size:23px;letter-spacing:2px;color:var(--bk-ink);display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:12px;border-bottom:2px dashed var(--bk-ink)}
+.photo-card-back .pc-tag{font-family:'Noto Serif SC';font-size:11px;background:var(--bk-pink);color:#fff;padding:3px 10px;border-radius:999px;border:2px solid var(--bk-ink)}
+.photo-card-back p{font-size:14.5px;line-height:1.6;color:var(--bk-ink);text-indent:1em}
+.photo-card-back .pc-row{font-size:12.5px;color:#8a7ba8;display:flex;gap:8px;flex-wrap:wrap}
+.photo-card-back .pc-row b{color:var(--bk-ink)}
+.photo-card-back .pc-close{margin-top:8px;padding-top:12px;font-family:'Long Cang';font-size:16px;color:#8a7ba8;text-align:center;cursor:pointer;border-top:1px solid rgba(138,123,168,.2)}
+.photo-card-back .pc-close:hover{color:var(--bk-pink)}
+
+/* ===== 竖版地图 ===== */
+.map-wrap{padding:2px 0}
+.map-svg{width:100%;height:auto;display:block;border-radius:12px;background:radial-gradient(ellipse at 45% 30%,rgba(12,32,64,.9),rgba(3,10,22,.9));border:1px solid var(--line)}
+.map-land{fill:rgba(30,60,105,.35);stroke:rgba(140,190,255,.5);stroke-width:1.8}
+.map-deco{stroke:rgba(140,190,255,.28);fill:none;stroke-width:1.1}
+.map-dot{cursor:pointer}
+.map-dot:hover circle.core{r:8}
+.map-dot:hover{filter:drop-shadow(0 0 8px var(--gold))}
+.map-pin-label{font-size:12px;fill:#d5e3f7;font-family:'Ma Shan Zheng';letter-spacing:1px;pointer-events:none;text-shadow:0 1px 3px #000,0 0 5px #000}
+.map-region ellipse{fill:none;stroke:rgba(240,195,108,.35);stroke-width:1.5;stroke-dasharray:8 8;pointer-events:none}
+.map-region-label{font-family:'Ma Shan Zheng';font-size:24px;fill:rgba(240,195,108,.55);letter-spacing:8px;pointer-events:auto;cursor:pointer;transition:.2s}
+.map-region-label:hover{fill:var(--gold2)}
+.map-legend{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:10px;font-size:11px;color:var(--dim)}
+.map-legend span{display:flex;align-items:center;gap:5px}
+.map-legend i{width:9px;height:9px;border-radius:50%;display:inline-block}
+/* 地点图卷弹窗 */
+#mapModal{position:fixed;inset:0;z-index:125;display:none;align-items:center;justify-content:center;padding:18px}
+#mapModal.show{display:flex}
+.mm-mask{position:absolute;inset:0;background:rgba(2,8,18,.7);opacity:0;transition:opacity .3s}
+#mapModal.show .mm-mask{opacity:1}
+.mm-box{position:relative;width:min(420px,94vw);background:rgba(8,20,40,.8);border:1px solid var(--line2);border-radius:16px;padding:22px 22px 18px;box-shadow:0 24px 80px rgba(0,0,0,.65),0 0 40px rgba(240,195,108,.12);transform:scale(.85) translateY(16px);opacity:0;transition:transform .32s cubic-bezier(.3,1.3,.5,1),opacity .25s}
+#mapModal.show .mm-box{transform:none;opacity:1}
+.mm-box::after{content:'';position:absolute;top:0;left:16%;right:16%;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+.mm-name{font-family:'Ma Shan Zheng';font-size:30px;color:var(--gold2);font-weight:400}
+.mm-badge{font-size:11.5px;padding:3px 12px;border:1px solid;border-radius:999px;letter-spacing:2px;vertical-align:6px;margin-left:10px}
+.mm-desc{font-size:14px;color:#d6e4f5;margin-top:12px;line-height:1.95}
+
+@media(max-width:860px){
+ .tbtn span{display:none}
+ main{padding:64px 12px 70px}
+ .toc-list{grid-template-columns:1fr}
+ .photo-card{height:min(76vh,620px)}
+ .extra-card .ex-grid{grid-template-columns:1fr}
+ .book{height:min(620px,66vh)}
+ .awaken-fields{grid-template-columns:1fr}
+}
+#btnNext .dot{background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+#secAwaken .ps-head{cursor:default;pointer-events:none}
+#secAwaken .ps-arrow{display:none}
+#secAwaken .ps-body{display:block !important}
+#secAwaken .ps-head{display:none}
+#secAwaken .ps-body{padding-top:0}
+/* ===== ★ 新增：魂力能量环 + 球内魂力波动 ===== */
+.orb-wrap{--rc:#6cd0ff}   /* 能量环主色：觉醒后由脚本随品阶自动切换 */
+
+.ring-clip{position:absolute;left:50%;top:50%;overflow:hidden;pointer-events:none}
+.ring-clip.back{clip-path:inset(0 0 50% 0);z-index:1}    /* 后半环：沉到球体后面 */
+.ring-clip.front{clip-path:inset(50% 0 0 0);z-index:3}   /* 前半环：盖在球体前面 */
+.ring-plane{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(var(--rot))}
+.band-ell{position:absolute;inset:0;transform:scaleY(var(--tilt))}
+
+.band-spin{position:absolute;inset:0;animation:bandspin 12s linear infinite;will-change:transform}
+.ring-clip.rev .band-spin{animation-direction:reverse}
+@keyframes bandspin{to{transform:rotate(360deg)}}
+.band-base{position:absolute;inset:0;border-radius:50%;border:calc(var(--w)*.5) solid var(--rc);opacity:.22;box-shadow:0 0 calc(var(--w)*2.2) var(--rc)}
+.band-grad{position:absolute;inset:0;border-radius:50%;
+ background:conic-gradient(from 90deg,
+   transparent 0deg,var(--rc) 30deg,#fff 48deg,var(--rc) 70deg,transparent 112deg,
+   transparent 188deg,var(--rc) 226deg,#fff 244deg,var(--rc) 266deg,transparent 308deg);
+ -webkit-mask:radial-gradient(closest-side,transparent calc(100% - var(--w)),#000 calc(100% - var(--w) + 1px));
+         mask:radial-gradient(closest-side,transparent calc(100% - var(--w)),#000 calc(100% - var(--w) + 1px))}
+.orb{position:absolute;left:50%;top:50%;border-radius:50%;pointer-events:none;
+ background:radial-gradient(circle,#fff 0%,var(--rc) 42%,transparent 72%);
+ box-shadow:0 0 10px 2px var(--rc);will-change:transform}
+#soulFx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2}
+#orbTint{position:absolute;inset:10%;border-radius:50%;background:var(--rc);
+ mix-blend-mode:color;opacity:0;pointer-events:none;z-index:2;
+ transition:opacity 1.2s ease,background-color 1.4s ease}
+#orbTint.on{opacity:.8}
+/* ★ 标题雷击特效（覆盖旧的上跳动画）★ */
+.hero h1{
+  background:linear-gradient(180deg,#fffbe9 8%,#ffe9a8 34%,#f0c36c 58%,#d19a3a 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;
+  filter:drop-shadow(3px 3px 0 rgba(20,10,0,.6)) drop-shadow(0 0 24px rgba(240,195,108,.42));
+}
+.hero h1 span{display:inline-block;animation:zapChar 5.2s infinite}
+.hero h1 span:nth-child(2){animation-delay:1.3s}
+.hero h1 span:nth-child(3){animation-delay:2.6s}
+.hero h1 span:nth-child(4){animation-delay:3.9s}
+.hero h1 span.zapped{filter:brightness(3) drop-shadow(0 0 8px #fff) drop-shadow(0 0 26px #6cd0ff)!important;transform:translateY(-3px) skewX(-5deg)!important}
+@keyframes zapChar{
+  0%,86%,100%{transform:none;filter:drop-shadow(3px 3px 0 rgba(20,10,0,.6)) drop-shadow(0 0 24px rgba(240,195,108,.42))}
+  87%{transform:translate(-2px,1px) skewX(-6deg);filter:brightness(2.8) drop-shadow(0 0 6px #fff) drop-shadow(0 0 22px #6cd0ff) drop-shadow(3px 3px 0 rgba(20,10,0,.6))}
+  89%{transform:translate(2px,-2px) skewX(4deg);filter:brightness(.5)}
+  91%{transform:translate(-1px,1px);filter:brightness(2.1) drop-shadow(0 0 10px #fff) drop-shadow(0 0 30px #7de3ff) drop-shadow(3px 3px 0 rgba(20,10,0,.6))}
+  93.5%{transform:none;filter:brightness(1.15) drop-shadow(3px 3px 0 rgba(20,10,0,.6)) drop-shadow(0 0 24px rgba(240,195,108,.42))}
+}
+</style>
+</head>
+<body>
+<video id="bgVideo" autoplay loop muted playsinline></video><audio id="bgMusic" autoplay></audio>
+<canvas id="bgDust"></canvas>
+<canvas id="fxCanvas"></canvas>
+
+<!-- ===== 入场玻璃 ===== -->
+<div id="entryGlass">
+  <div class="glass-pane" id="glassPane"></div>
+  <h1 class="g-title" id="gTitle"><span>斗</span><span>罗</span><span>大</span><span>陆</span></h1>
+  <p class="g-hint" id="gHint">— 点击开启斗罗人生 —</p>
+  <div id="hammerWrap">
+    <div id="hammerTail"></div>
+    <svg id="hammerSvg" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="hgHead" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5a4128"/><stop offset=".5" stop-color="#2a1a10"/><stop offset="1" stop-color="#160d06"/></linearGradient>
+        <linearGradient id="hgShaft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9c7c50"/><stop offset="1" stop-color="#4e3a20"/></linearGradient>
+        <linearGradient id="hgEdge" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9b0"/><stop offset="1" stop-color="#c99a3f"/></linearGradient>
+      </defs>
+      <ellipse cx="120" cy="140" rx="40" ry="120" fill="rgba(240,195,108,.16)"/>
+      <rect x="110" y="92" width="20" height="158" rx="7" fill="url(#hgShaft)" stroke="#2a1a10" stroke-width="2.5"/>
+      <rect x="103" y="238" width="34" height="12" rx="5" fill="#6b5030" stroke="#2a1a10" stroke-width="2"/>
+      <g transform="translate(120,66)">
+        <rect x="-62" y="-46" width="124" height="80" rx="11" fill="url(#hgHead)" stroke="url(#hgEdge)" stroke-width="3"/>
+        <rect x="-54" y="-38" width="108" height="64" rx="6" fill="none" stroke="#f0c36c" stroke-width="1" stroke-dasharray="4 3" opacity=".85"/>
+        <rect x="-58" y="-43" width="116" height="12" rx="6" fill="rgba(255,235,180,.28)"/>
+        <text x="0" y="16" text-anchor="middle" font-family="Ma Shan Zheng" font-size="42" fill="#f0c36c" style="filter:drop-shadow(0 0 6px #f0c36c)">昊</text>
+        <circle cx="-48" cy="26" r="5" fill="#c99a3f" stroke="#1a0f08" stroke-width="1.5"/><circle cx="48" cy="26" r="5" fill="#c99a3f" stroke="#1a0f08" stroke-width="1.5"/>
+        <circle cx="-48" cy="-30" r="5" fill="#c99a3f" stroke="#1a0f08" stroke-width="1.5"/><circle cx="48" cy="-30" r="5" fill="#c99a3f" stroke="#1a0f08" stroke-width="1.5"/>
+      </g>
+    </svg>
+  </div>
+  <canvas id="entryFx"></canvas>
+  <div id="whiteFlash"></div>
+</div>
+
+<header id="topbar">
+  <div class="brand"><span class="b-ring"></span></div>
+  <div class="tb-btns">
+    <button class="tbtn on" id="btnMusic"><svg viewBox="0 0 24 24"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg><span>音乐</span><i class="dot"></i></button>
+<button class="tbtn on" id="btnNext" title="切歌">
+  <svg viewBox="0 0 24 24"><path d="M5 5l9 7-9 7V5z"/><path d="M18 5v14"/></svg><span>切歌</span><i class="dot"></i>
+</button>
+    <button class="tbtn on" id="btnDm"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M6 9h8M10 13h8"/></svg><span>弹幕</span><i class="dot"></i></button>
+    <button class="tbtn on" id="btnBg"><svg viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg><span>星尘</span><i class="dot"></i></button>
+  </div>
+</header>
+
+<div id="dmLayer"></div>
+<div id="drawerMask"></div>
+
+<button class="side-toggle" id="leftToggle" aria-label="打开左侧填写"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg><span class="st-seal">填</span></button>
+<button class="side-toggle" id="rightToggle" aria-label="打开右侧档案"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg><span class="st-seal">档</span></button>
+
+<!-- ===== 左抽屉：档案 / 功能 / 开场白 / 投影 ===== -->
+<aside class="drawer" id="leftDrawer">
+  <div class="d-tabs" id="ldTabs"></div>
+  <div class="d-body">
+    <div class="d-pane act" id="tabProfile">
+      <div class="field"><label>姓名</label><input type="text" id="cName" placeholder="彭于晏 / 刘亦菲"></div>
+      <div class="field"><label>性别</label>
+        <div class="seg" id="genderSeg"><button type="button" data-v="男" class="act">男</button><button type="button" data-v="女">女</button><button type="button" data-v="沃尔玛购物袋">沃尔玛购物袋</button></div>
+      </div>
+      <div class="field"><label>年龄</label><input type="text" id="cAge" placeholder="如：12岁"></div>
+      <div class="field"><label>当前时间<em>主页面时间线联动</em></label><input type="text" id="cTime" readonly></div>
+      <div class="linked">
+        <div class="lk"><b>先天魂力（觉醒所获）</b><span id="innateShow">未知</span></div>
+        <div class="lk"><b>修炼魂力（实时境界）</b><span id="cultShow">10 级 · 魂士</span></div>
+      </div>
+      <p class="lk-note">先天魂力在主页「武魂觉醒」区由命运水晶裁定；修炼魂力在主页「修炼魂力」区拖动提升——二者独立。</p>
+      <div class="field" style="margin-top:12px"><label>外貌</label><input type="text" id="cLook" placeholder="蓝发蓝眸，清瘦挺拔……"></div>
+      <div class="field"><label>性格</label><input type="text" id="cChar" placeholder="沉稳冷静，护短，有仇必报……"></div>
+      <div class="field"><label>身份</label><input type="text" id="cId" placeholder="圣魂村少年 / 史莱克学员 / 武魂殿圣女……"></div>
+      <div class="field"><label>关系网</label><textarea id="cRel" placeholder="与某某是师徒、宿敌、青梅竹马……"></textarea></div>
+      <div class="field"><label>背景</label><textarea id="cBg" placeholder="身世、经历、来到此地的缘由……"></textarea></div>
+      <div class="field"><label>其他原创角色<em>可无限添加</em></label>
+        <div id="extraChars"></div>
+        <button class="btn btn-ghost" id="addChar" style="padding:8px 15px;font-size:13px;margin-top:4px">＋ 添加新角色</button>
+      </div>
+    </div>
+
+    <div class="d-pane" id="tabFeat"><div id="featList"></div></div>
+
+    <div class="d-pane" id="tabOpen">
+      <div class="field"><label>开场白<em>故事第一幕 · 你希望从哪里开始</em></label>
+        <textarea id="cOpen" style="min-height:220px" placeholder="夜色下的圣魂村，铁匠铺的炉火尚未熄灭……"></textarea>
+      </div>
+    </div>
+
+    <div class="d-pane" id="tabPreview">
+      <div class="pv-stat"><span>已填写 <b id="fillCount">0</b> 项</span><span>功能开启 <b id="featCount">0</b> 个</span></div>
+      <pre id="previewPre" title="点击复制"></pre>
+      <div class="pv-actions">
+        <button class="btn btn-gold" id="copyBtn">复制</button>
+        <button class="btn btn-ghost" id="clearBtn">清空</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ===== 右抽屉：世界设定 / 图鉴 / 地图 / 降耗 / 配置 ===== -->
+<aside class="drawer" id="rightDrawer">
+  <div class="d-tabs" id="rdTabs"></div>
+  <div class="d-body">
+    <div class="d-pane act rich" id="tabWorld"></div>
+
+    <div class="d-pane" id="tabBook">
+      <div class="book-scene">
+        <div class="book" id="book"></div>
+        <div class="book-nav">
+          <button class="flip-btn" id="prevBtn" disabled>上一页</button>
+          <button class="flip-btn" id="nextBtn">下一页</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-pane" id="tabMap">
+      <div class="map-wrap">
+        <svg class="map-svg" id="mapSvg" viewBox="0 0 500 800" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div class="map-legend" id="mapLegend"></div>
+      </div>
+    </div>
+
+    <div class="d-pane rich" id="tabSave"></div>
+    <div class="d-pane rich" id="tabCfg"></div>
+  </div>
+</aside>
+
+<!-- ===== 主内容 ===== -->
+<main id="main">
+  <header class="hero" id="hero"><h1 id="mainTitle"><span>斗</span><span>罗</span><span>大</span><span>陆</span></h1></header>
+
+  <section class="ps open" id="secAwaken">
+    <div class="ps-head" data-acc><h2>武魂觉醒</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body">
+      <div class="awaken-stage" id="awakenStage">
+        <div class="orb-wrap" id="orbWrap">
+          <canvas id="orbCanvas"></canvas>
+          <div class="orb-runes" id="orbRunes">觉醒</div>
+        </div>
+        <div class="draw-slot" id="drawSlot">
+          <div class="ds-name" id="dsName">？？？</div>
+          <div class="ds-tag" id="dsTag" style="display:none"></div>
+          <div class="ds-pow" id="dsPow">尚未觉醒武魂</div>
+        </div>
+      </div>
+      <div class="awaken-fields">
+        <div class="field"><label>武魂<em>觉醒后自动填入 · 也可手改</em></label><input type="text" id="cSpirit" placeholder="命运水晶裁定，亦可手填"></div>
+        <div class="field"><label>先天魂力<em>觉醒时与生俱来</em></label><input type="text" id="cPow" placeholder="如：先天满魂力（10级）"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ps open" id="secLevel">
+    <div class="ps-head" data-acc><h2>修炼魂力 · 境界等级</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body">
+      <div class="lv-box">
+        <div class="lv-top">
+          <span class="lv-num" id="lvNum">10</span>
+          <span class="lv-title" id="lvTitle">魂士</span>
+          <span class="lv-stage" id="lvRing">尚未获得魂环（10级可吸收第一魂环）</span>
+        </div>
+        <input type="range" id="lvRange" min="1" max="100" value="10">
+        <div class="lv-hint">1-10魂士 · 11-20魂师 · 21-30大魂师 · 31-40魂尊 · 41-50魂宗 · 51-60魂王 · 61-70魂帝 · 71-80魂圣 · 81-90魂斗罗 · 90+封号斗罗 · 99极限斗罗 · 100成神</div>
+        <div id="titleInput"><input type="text" id="cTitle" placeholder="封号（90级以上自动开启）"><button class="btn btn-ghost" id="titleDice" style="padding:8px 13px;font-size:13px">随机封号</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ps open" id="secRings">
+    <div class="ps-head" data-acc><h2>魂环装配 · 环位年限</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body">
+      <div class="rings" id="ringRow"></div>
+      <div class="r-legend-row">
+        <span><i style="background:var(--rW)"></i>白·十年</span><span><i style="background:var(--rY)"></i>黄·百年</span>
+        <span><i style="background:var(--rP)"></i>紫·千年</span><span><i style="background:#2a2c3a;box-shadow:0 0 6px var(--rB)"></i>黑·万年</span>
+        <span><i style="background:var(--rR)"></i>红·十万年</span><span><i style="background:var(--gld);box-shadow:0 0 8px rgba(255,216,138,.9)"></i>金·百万年</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="ps open" id="secSkills">
+    <div class="ps-head" data-acc><h2>魂技获取 · 逐环习得</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body">
+      <div id="skillList"></div>
+      <div class="sk-foot">
+        <button class="btn btn-ghost" id="addSkillBtn" style="padding:8px 16px;font-size:13px">＋ 获取下一魂技</button>
+        <span class="sk-count">已拥有 <b id="skCount">3</b> / 20</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="ps open" id="secBones">
+    <div class="ps-head" data-acc><h2>魂骨镶嵌 · 六部择骨</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body"><div class="bones" id="boneRow"></div></div>
+  </section>
+
+  <section class="ps open" id="secTime">
+    <div class="ps-head" data-acc><h2>斗罗时间线 · 滑动择刻</h2><span class="ps-arrow"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></span></div>
+    <div class="ps-body">
+      <div class="tl-wrap">
+        <div class="tl-top"><span class="tl-year" id="tlYear">2637</span><span class="tl-ymname">斗罗历 · 当前时刻</span></div>
+        <div class="tl-visual" id="tlVisual"><div class="tl-line"></div><div class="tl-cursor" id="tlCursor"></div></div>
+        <div class="tl-scale"><span>2470</span><span>2530</span><span>2590</span><span>2657</span></div>
+        <input type="range" id="tlRange" min="2470" max="2657" value="2637" step="1">
+        <div class="tl-event" id="tlEvent"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== 武魂卡 ===== -->
+<div id="wuhunModal">
+  <div class="wm-mask" id="wmMask"></div>
+  <div class="wm-card" id="wmCard">
+    <i class="wm-sheen"></i>
+    <div class="wm-rar" id="wmRar">？？？</div>
+    <div class="wm-name" id="wmName">？？？</div>
+    <div class="wm-type" id="wmType"></div>
+    <div class="wm-rows">
+      <div class="wm-row"><b>觉醒方式</b><span id="wmMethod"></span></div>
+      <div class="wm-row"><b>先天魂力</b><span id="wmPow"></span></div>
+      <div class="wm-row"><b>特殊效果</b><span id="wmEff"></span></div>
+      <div class="wm-row"><b>备注</b><span id="wmNote"></span></div>
+    </div>
+    <button class="btn btn-gold wm-ok" id="wmOk">铭刻入档</button>
+    <div class="wm-hint">点击空白处同样铭刻入档</div>
+  </div>
+</div>
+
+<!-- ===== 地点图卷弹窗 ===== -->
+<div id="mapModal">
+  <div class="mm-mask" id="mmMask"></div>
+  <div class="mm-box">
+    <span class="mm-name" id="mmName">？？？</span><span class="mm-badge" id="mmBadge"></span>
+    <p class="mm-desc" id="mmDesc"></p>
+    <button class="btn btn-gold" id="mmClose" style="width:100%;margin-top:16px">合上图卷</button>
+  </div>
+</div>
+
+<!-- ===== 魂骨弹窗 ===== -->
+<div id="boneModal">
+  <div class="bm-mask" id="bmMask"></div>
+  <div class="bm-box">
+    <div class="bm-head"><h3 id="bmTitle">择骨台</h3><button id="bmClose"><svg viewBox="0 0 14 14"><path d="M2 2l10 10M12 2L2 12"/></svg></button></div>
+    <p class="bm-sub">镶嵌后属性与魂骨技能将计入档案投影 · 点击弹窗外空白处收起</p>
+    <div id="bmList"></div>
+    <div class="bm-custom">
+      <h4>自铸魂骨</h4>
+      <input id="bmName" placeholder="魂骨名称，如：玄冥龟甲骨">
+      <input id="bmSkill" placeholder="魂骨技能，如：玄冥寒甲">
+      <div class="seg" id="bmYear">
+        <button type="button" data-y="十年" data-c="w">十年</button>
+        <button type="button" data-y="百年" data-c="y">百年</button>
+        <button type="button" data-y="千年" data-c="p" class="act">千年</button>
+        <button type="button" data-y="万年" data-c="b">万年</button>
+        <button type="button" data-y="十万年" data-c="r">十万年</button>
+        <button type="button" data-y="百万年" data-c="o">百万年</button>
+      </div>
+      <button class="btn btn-gold" id="bmConfirm" style="width:100%;margin-top:10px;padding:9px;font-size:13px">镶嵌自铸魂骨</button>
+    </div>
+    <button id="bmClear">卸下当前魂骨</button>
+  </div>
+</div>
+
+<!-- ===== 照片悬浮卡 ===== -->
+<div class="photo-overlay" id="photoOverlay">
+  <div class="photo-card" id="photoCard">
+    <div class="photo-card-face photo-card-front" id="pcFront"></div>
+    <div class="photo-card-face photo-card-back" id="pcBack"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id)};
+var $$=function(s,c){return Array.prototype.slice.call((c||document).querySelectorAll(s))};
+
+/* =========================================================
+   音效引擎
+========================================================= */
+var SND={
+  ctx:null,master:null,sg:null,mg:null,musicOn:true,_noise:null,_ch:null,_mtimer:null,
+  ensure:function(){
+    if(this.ctx){ if(this.ctx.state==='suspended') this.ctx.resume(); return; }
+    var C=window.AudioContext||window.webkitAudioContext; if(!C) return;
+    this.ctx=new C();
+    this.master=this.ctx.createGain(); this.master.gain.value=.9; this.master.connect(this.ctx.destination);
+    this.sg=this.ctx.createGain(); this.sg.connect(this.master);
+    this.mg=this.ctx.createGain(); this.mg.gain.value=0; this.mg.connect(this.master);
+    this.startPad(); this.applyMusic();
+  },
+  noiseBuf:function(){
+    if(this._noise) return this._noise;
+    var b=this.ctx.createBuffer(1,this.ctx.sampleRate,this.ctx.sampleRate),d=b.getChannelData(0);
+    for(var i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+    this._noise=b; return b;
+  },
+  tone:function(o){
+    if(!this.ctx) return;
+    var t=this.ctx.currentTime+(o.delay||0),dur=o.dur||.2;
+    var osc=this.ctx.createOscillator(),g=this.ctx.createGain();
+    osc.type=o.type||'sine'; osc.frequency.setValueAtTime(o.f,t);
+    if(o.f2) osc.frequency.exponentialRampToValueAtTime(Math.max(o.f2,1),t+dur);
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(o.vol||.2,t+(o.at||.012));
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    osc.connect(g); g.connect(o.dest||this.sg);
+    osc.start(t); osc.stop(t+dur+.05);
+  },
+  noise:function(o){
+    if(!this.ctx) return;
+    var t=this.ctx.currentTime+(o.delay||0),dur=o.dur||.25;
+    var src=this.ctx.createBufferSource(); src.buffer=this.noiseBuf(); src.loop=true;
+    var fl=this.ctx.createBiquadFilter(); fl.type=o.ft||'bandpass'; fl.Q.value=o.q||1;
+    fl.frequency.setValueAtTime(o.f||800,t);
+    if(o.f2) fl.frequency.exponentialRampToValueAtTime(Math.max(o.f2,20),t+dur);
+    var g=this.ctx.createGain();
+    g.gain.setValueAtTime(0,t);
+    g.gain.linearRampToValueAtTime(o.vol||.25,t+(o.at||.015));
+    g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+    src.connect(fl); fl.connect(g); g.connect(o.dest||this.sg);
+    src.start(t); src.stop(t+dur+.1);
+  },
+  click:function(){ this.tone({f:1250,dur:.05,type:'triangle',vol:.1}); this.tone({f:2500,dur:.03,type:'sine',vol:.04}); },
+  panel:function(open){ this.noise({f:open?260:1600,f2:open?1800:240,dur:.22,vol:.14}); this.tone({f:open?320:620,f2:open?640:300,dur:.2,type:'sine',vol:.1}); },
+  drawer:function(open){ this.noise({f:open?180:1400,f2:open?1500:160,dur:.32,vol:.16}); this.tone({f:open?240:560,f2:open?520:240,dur:.28,type:'triangle',vol:.12}); },
+  tick:function(f){ this.tone({f:f,dur:.045,type:'square',vol:.055}); },
+  ring:function(c){
+    var m={w:340,y:440,p:560,b:170,r:680,o:820};
+    this.tone({f:m[c]||420,dur:.1,type:'triangle',vol:.15});
+    if(c==='b') this.noise({f:120,dur:.16,vol:.1,ft:'lowpass'});
+    if(c==='r') this.tone({f:1360,dur:.14,type:'sine',vol:.08,delay:.05});
+    if(c==='o'){ this.tone({f:1640,dur:.2,type:'sine',vol:.1,delay:.06}); this.noise({f:4000,f2:8000,dur:.2,vol:.05,ft:'highpass'}); }
+  },
+  add:function(){ this.tone({f:620,f2:980,dur:.14,type:'triangle',vol:.14}); },
+  del:function(){ this.tone({f:320,f2:150,dur:.16,type:'sawtooth',vol:.1}); },
+  toggle:function(on){ on?(this.tone({f:520,dur:.09,type:'sine',vol:.13}),this.tone({f:780,dur:.12,type:'sine',vol:.13,delay:.08})):this.tone({f:600,f2:300,dur:.16,type:'sine',vol:.12}); },
+  segSel:function(){ this.tone({f:880,dur:.07,type:'triangle',vol:.12}); this.tone({f:1320,dur:.1,type:'sine',vol:.09,delay:.06}); },
+  modal:function(open){ open?this.tone({f:180,f2:360,dur:.3,type:'sine',vol:.16}):this.tone({f:360,f2:180,dur:.24,type:'sine',vol:.12}); this.noise({f:open?400:900,f2:open?1200:300,dur:.2,vol:.08}); },
+  select:function(){ this.tone({f:980,dur:.1,type:'sine',vol:.14}); this.tone({f:1470,dur:.16,type:'sine',vol:.1,delay:.07}); },
+  bookFlip:function(){ this.noise({f:900,f2:2600,dur:.32,vol:.14,q:.8}); this.tone({f:400,f2:640,dur:.24,type:'sine',vol:.07}); },
+  levelUp:function(){ this.tone({f:523,dur:.1,type:'triangle',vol:.13}); this.tone({f:784,dur:.16,type:'triangle',vol:.13,delay:.08}); },
+  chargeStart:function(){
+    if(!this.ctx) return;
+    this.chargeStop(true);
+    var t=this.ctx.currentTime;
+    var o=this.ctx.createOscillator(),g=this.ctx.createGain(),f=this.ctx.createBiquadFilter();
+    o.type='sawtooth'; f.type='lowpass'; f.frequency.value=900;
+    o.frequency.setValueAtTime(70,t);
+    o.frequency.exponentialRampToValueAtTime(620,t+3);
+    g.gain.setValueAtTime(.001,t); g.gain.linearRampToValueAtTime(.13,t+.15);
+    o.connect(f); f.connect(g); g.connect(this.sg); o.start();
+    this._ch={o:o,g:g};
+  },
+  chargeStop:function(silent){
+    if(!this._ch) return;
+    var c=this._ch; this._ch=null;
+    try{
+      var t=this.ctx.currentTime;
+      c.g.gain.cancelScheduledValues(t); c.g.gain.setValueAtTime(c.g.gain.value,t);
+      c.g.gain.linearRampToValueAtTime(0,t+.08); c.o.stop(t+.12);
+    }catch(e){}
+    if(!silent) this.tone({f:420,f2:160,dur:.2,type:'sine',vol:.1});
+  },
+  noDraw:function(){ this.tone({f:640,f2:260,dur:.16,type:'sine',vol:.08}); },
+  tierUp:function(n){
+    var f=[523,622,740,880,1047][n]||523;
+    this.tone({f:f,dur:.2,type:'triangle',vol:.15});
+    this.tone({f:f*1.5,dur:.26,type:'sine',vol:.1,delay:.05});
+    this.noise({f:2500,f2:8000,dur:.18,vol:.06,ft:'highpass'});
+  },
+  reveal:function(r){
+    var seq={
+      waste:[[300,0],[236,.09]],
+      common:[[420,0],[560,.1]],
+      rare:[[440,0],[554,.09],[659,.18]],
+      epic:[[440,0],[554,.08],[659,.16],[880,.24]],
+      legend:[[523,0],[659,.08],[784,.16],[1047,.24],[1319,.36]],
+      god:[[392,0],[523,.07],[659,.14],[784,.21],[1047,.28],[1568,.4]]
+    }[r]||[[440,0]];
+    for(var i=0;i<seq.length;i++){
+      this.tone({f:seq[i][0],dur:(r==='god'||r==='legend')?.5:.3,type:'sine',vol:.16,delay:seq[i][1]});
+      if(r==='god'||r==='legend') this.tone({f:seq[i][0]*1.5,dur:.4,type:'triangle',vol:.07,delay:seq[i][1]});
+    }
+    if(r==='god') this.noise({f:2000,f2:9000,dur:.8,vol:.08,ft:'highpass',delay:.3});
+  },
+  thunder:function(){ this.noise({f:320,f2:50,dur:1,vol:.4,ft:'lowpass'}); this.tone({f:64,f2:26,dur:.9,type:'sine',vol:.4}); },
+  fallWhoosh:function(){ this.noise({f:220,f2:2600,dur:.8,vol:.3,q:.7}); },
+  hammerHit:function(){
+    this.tone({f:130,f2:28,dur:.55,type:'sine',vol:.85});
+    this.noise({f:3200,f2:160,dur:.4,vol:.5});
+    this.tone({f:420,dur:.5,type:'sine',vol:.1,delay:.02});
+    this.tone({f:640,dur:.45,type:'sine',vol:.08,delay:.03});
+  },
+  shatter:function(){
+    this.tone({f:110,f2:26,dur:.5,type:'sine',vol:.6});
+    this.noise({f:5000,f2:1200,dur:.5,vol:.35,ft:'highpass'});
+    for(var i=0;i<16;i++) this.tone({f:1600+Math.random()*3800,dur:.1+Math.random()*.2,type:'triangle',vol:.05,delay:Math.random()*.45});
+  },
+  startPad:function(){
+    var t=this.ctx.currentTime;
+    [[110,.05,'sine'],[164.81,.04,'sine'],[220.5,.025,'triangle']].forEach(function(p){
+      var o=SND.ctx.createOscillator(),g=SND.ctx.createGain();
+      o.type=p[2]; o.frequency.value=p[0]; g.gain.value=p[1];
+      o.connect(g); g.connect(SND.mg); o.start(t);
+    });
+    this._mtimer=setInterval(function(){
+      if(!SND.musicOn||!SND.ctx||SND.ctx.state!=='running') return;
+      if(Math.random()<.25) return;
+      var sc=[440,523.25,587.33,659.25,783.99,880];
+      var f=sc[Math.floor(Math.random()*sc.length)];
+      SND.tone({f:f,dur:2.8,type:'sine',vol:.05,dest:SND.mg});
+      SND.tone({f:f/2,dur:2.4,type:'sine',vol:.03,delay:.5,dest:SND.mg});
+    },2600);
+  },
+  applyMusic:function(){
+    if(!this.ctx) return;
+if(BG_MUSIC_URL) return;
+    var t=this.ctx.currentTime;
+    this.mg.gain.cancelScheduledValues(t);
+    this.mg.gain.setValueAtTime(this.mg.gain.value,t);
+    this.mg.gain.linearRampToValueAtTime(this.musicOn?1:0,t+.8);
+  }
+};
+document.addEventListener('pointerdown',function(){ SND.ensure(); },true);
+
+/* ===== Toast / 复制 ===== */
+var toastTimer=null;
+function toast(msg){
+  var t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(function(){ t.classList.remove('show'); },2400);
+}
+function copyText(txt,okMsg){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){ toast(okMsg||'已复制到剪贴板'); SND.select(); },function(){ fallbackCopy(txt,okMsg); });
+  } else fallbackCopy(txt,okMsg);
+}
+function fallbackCopy(txt,okMsg){
+  var ta=document.createElement('textarea'); ta.value=txt;
+  ta.style.cssText='position:fixed;opacity:0'; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand('copy'); toast(okMsg||'已复制到剪贴板'); SND.select(); }catch(e){ toast('复制失败，请手动选择复制'); }
+  document.body.removeChild(ta);
+}
+
+/* ===== 弹幕 ===== */
+var DM={
+  on:true,
+  pool:['前方高能预警——','这就是昊天斗罗的威压吗！','唐三你只管修炼，小舞会由我来珍惜！','武魂殿万岁！','十万年魂环！跪了','先天满魂力是什么神仙开局啊','双生武魂？我裂开了','这波是命运水晶玄学','蓄满五档了快松手！！','昊天锤算什么，盘古斧了解一下','史莱克只收怪物？抱歉我不是怪物，我是怪兽','宁荣荣的腰，细的能把我脖子绞死','杀戮之都旅游团路过，报名只需一个金魂币','小舞的腿比我命还长！','不是，99级了还在涨魂力？','比比东才是真理啊','靠！我的武魂变异成一只会打篮球的鸡了！','没有废物的魂师，只有废物的武魂！','唐三我看你有取死之道','千仞雪是我老婆','穿越到斗罗大陆，开局先天魂力90级很合理吧？','唐三这小子看着就不像个好人','灭了邪恶的史莱克，正义的武魂殿必胜！','如果我的魂技是常识修改，敢问阁下如何应对？','唐三，柔骨兔的肉真好吃'],
+  send:function(text,gold){
+    if(!this.on&&!gold) return;
+    var layer=$('dmLayer'),el=document.createElement('div');
+    el.className='dm'+(gold?' gold':'');
+    el.textContent=text;
+    el.style.top=(9+Math.random()*74)+'%';
+    el.style.animationDuration=(6+Math.random()*5)+'s';
+    layer.appendChild(el);
+    setTimeout(function(){ el.remove(); },12500);
+  },
+  start:function(){
+    var self=this;
+    (function loop(){
+      setTimeout(function(){
+        self.send(self.pool[Math.floor(Math.random()*self.pool.length)]);
+        loop();
+      },2600+Math.random()*3000);
+    })();
+  }
+};
+DM.start();
+
+/* ===== 背景星尘 ===== */
+(function(){
+  var cv=$('bgDust'),ctx=cv.getContext('2d'),on=true,parts=[];
+  function size(){
+    cv.width=innerWidth; cv.height=innerHeight;
+    parts=[];
+    var n=Math.min(90,Math.round(innerWidth/16));
+    for(var i=0;i<n;i++){
+      parts.push({x:Math.random()*cv.width,y:Math.random()*cv.height,r:.5+Math.random()*1.7,
+        sp:.06+Math.random()*.22,ph:Math.random()*6.28,
+        c:Math.random()<.6?'170,215,255':(Math.random()<.75?'240,195,108':'181,123,255')});
+    }
+  }
+  size(); addEventListener('resize',size);
+  (function loop(t){
+    if(on){
+      ctx.clearRect(0,0,cv.width,cv.height);
+      for(var i=0;i<parts.length;i++){
+        var p=parts[i];
+        p.y-=p.sp; if(p.y<-4){ p.y=cv.height+4; p.x=Math.random()*cv.width; }
+        var a=.25+.35*Math.abs(Math.sin(t/1600+p.ph));
+        ctx.beginPath();
+        ctx.fillStyle='rgba('+p.c+','+a+')';
+        ctx.shadowColor='rgba('+p.c+',.8)'; ctx.shadowBlur=6;
+        ctx.arc(p.x+Math.sin(t/2400+p.ph)*14,p.y,p.r,0,6.29); ctx.fill();
+        ctx.shadowBlur=0;
+      }
+    }
+    requestAnimationFrame(loop);
+  })(0);
+
+ $('btnBg').addEventListener('click',function(){
+  videoOn=!videoOn; on=videoOn;
+  this.classList.toggle('on',videoOn);
+  cv.classList.toggle('off',!videoOn);          /* 星尘粒子 */
+  bgVideo.classList.toggle('on',videoOn);       /* 背景视频 */
+  if(videoOn){ try{bgVideo.play()}catch(e){} }
+  else{ try{bgVideo.pause()}catch(e){} }
+  SND.click();
+  toast(videoOn?'背景显示':'背景关闭');
+});
+})();
+
+/* ===== 全屏特效层 ===== */
+var FX=(function(){
+  var cv=$('fxCanvas'),ctx=cv.getContext('2d'),parts=[],rings=[],run=false,rx=0,ry=0;
+  function size(){ cv.width=innerWidth; cv.height=innerHeight; }
+  addEventListener('resize',size);
+  function boom(x,y,power){
+    size(); rx=x; ry=y;
+    power=Math.max(1,Math.min(6,power));
+    var n=34+power*46;
+    for(var i=0;i<n;i++){
+      var a=Math.random()*Math.PI*2,sp=1.5+Math.random()*(4+power*2.4),r=Math.random();
+      parts.push({x:x,y:y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-1.5,life:1,
+        dec:.006+Math.random()*.012,rr:.8+Math.random()*2.4,
+        c:r<.55?'255,220,140':(r<.8?'170,225,255':'255,255,255')});
+    }
+    rings=[{r:16,v:14+power*3,a:.9,c:'255,235,190',w:10},{r:6,v:20+power*4,a:.85,c:'255,255,255',w:4}];
+    if(power>=4) rings.push({r:10,v:9,a:.7,c:'255,180,90',w:8});
+    if(!run){ run=true; loop(); }
+  }
+  function loop(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    ctx.globalCompositeOperation='lighter';
+    var i;
+    for(i=rings.length-1;i>=0;i--){
+      var rg=rings[i];
+      rg.r+=rg.v; rg.a*=.96; rg.w*=.965;
+      if(rg.a<.02){ rings.splice(i,1); continue; }
+      ctx.beginPath(); ctx.strokeStyle='rgba('+rg.c+','+rg.a+')'; ctx.lineWidth=rg.w;
+      ctx.shadowColor='rgba('+rg.c+','+rg.a+')'; ctx.shadowBlur=16;
+      ctx.arc(rx,ry,rg.r,0,6.29); ctx.stroke(); ctx.shadowBlur=0;
+    }
+    for(i=parts.length-1;i>=0;i--){
+      var p=parts[i];
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.05; p.vx*=.985; p.vy*=.985; p.life-=p.dec;
+      if(p.life<=0){ parts.splice(i,1); continue; }
+      ctx.beginPath(); ctx.fillStyle='rgba('+p.c+','+p.life+')';
+      ctx.arc(p.x,p.y,p.rr*p.life+.3,0,6.29); ctx.fill();
+    }
+    ctx.globalCompositeOperation='source-over';
+    if(parts.length||rings.length){ requestAnimationFrame(loop); }
+    else{ run=false; ctx.clearRect(0,0,cv.width,cv.height); }
+  }
+  return {boom:boom};
+})();
+
+/* ===== 入场玻璃 ===== */
+var EntryFx=(function(){
+  var cv=$('entryFx'),ctx=cv.getContext('2d');
+  var cracks=[],shards=[],sparks=[],rings=[],run=false;
+  function size(){ cv.width=innerWidth; cv.height=innerHeight; }
+  function center(){ return {x:innerWidth/2,y:innerHeight*.48}; }
+  function crack(){
+    size(); cracks=[];
+    var c=center(),N=30,maxR=Math.hypot(innerWidth,innerHeight);
+    for(var i=0;i<N;i++){
+      var a=(i+Math.random()*.6)/N*Math.PI*2;
+      var pts=[[c.x,c.y]];
+      var steps=4+Math.floor(Math.random()*3);
+      for(var s=1;s<=steps;s++){
+        var r=maxR*s/steps*(.78+Math.random()*.3);
+        var aa=a+(Math.random()-.5)*.14;
+        pts.push([c.x+Math.cos(aa)*r,c.y+Math.sin(aa)*r*.9]);
+      }
+      cracks.push({pts:pts,w:1+Math.random()*1.4});
+      if(Math.random()<.55){
+        var bi=1+Math.floor(Math.random()*(pts.length-2));
+        var p=pts[bi],ba=a+(Math.random()>.5?1:-1)*(.5+Math.random()*.6);
+        var bl=maxR*(.1+Math.random()*.22);
+        cracks.push({pts:[p,[p[0]+Math.cos(ba)*bl,p[1]+Math.sin(ba)*bl*.9]],w:.8});
+      }
+    }
+    if(!run){ run=true; loop(); }
+  }
+  function shatter(){
+    size(); cracks=[];
+    var c=center();
+    var N=30,ringD=[.05,.13,.27,.48,.74,1.05];
+    var maxR=Math.hypot(Math.max(innerWidth,innerHeight),Math.max(innerWidth,innerHeight))*.62;
+    var nodes=[];
+    for(var i=0;i<N;i++){
+      var a=(i+(Math.random()*.5-.25))/N*Math.PI*2;
+      nodes[i]=[];
+      for(var j=0;j<ringD.length;j++){
+        var r=maxR*ringD[j]*(j===0?1:(1+(Math.random()-.5)*.22));
+        nodes[i][j]=[c.x+Math.cos(a)*r,c.y+Math.sin(a)*r*.92];
+      }
+    }
+    function mkShard(pts){
+      var cx=0,cy=0;
+      pts.forEach(function(p){cx+=p[0];cy+=p[1]});
+      cx/=pts.length; cy/=pts.length;
+      var rel=pts.map(function(p){return [p[0]-cx,p[1]-cy]});
+      var dx=cx-c.x,dy=cy-c.y,d=Math.hypot(dx,dy)||1;
+      var sp=2+Math.random()*7+d*.005;
+      var big=Math.min(1,d/maxR);
+      shards.push({x:cx,y:cy,vx:dx/d*sp+(Math.random()-.5)*1.6,vy:dy/d*sp+(Math.random()-.5)*1.6-1.3,
+        rot:0,vr:(Math.random()-.5)*(.05+big*.14),rel:rel,a:1,
+        dec:.004+.012*(1-big),tone:Math.random()});
+    }
+    for(i=0;i<N;i++){ var i2=(i+1)%N; mkShard([[c.x,c.y],nodes[i][0],nodes[i2][0]]); }
+    for(var j2=0;j2<ringD.length-1;j2++){
+      for(i=0;i<N;i++){
+        var i3=(i+1)%N;
+        mkShard([nodes[i][j2],nodes[i3][j2],nodes[i3][j2+1],nodes[i][j2+1]]);
+      }
+    }
+    for(var k=0;k<90;k++){
+      var ang=Math.random()*Math.PI*2,sp2=2+Math.random()*11;
+      sparks.push({x:c.x,y:c.y,vx:Math.cos(ang)*sp2,vy:Math.sin(ang)*sp2-2,life:1,
+        dec:.006+Math.random()*.012,rr:1+Math.random()*2.4,
+        col:Math.random()<.7?'255,220,140':'180,225,255'});
+    }
+    rings=[{r:16,v:16,a:.95,c:'255,235,190',w:13},{r:6,v:25,a:.9,c:'255,255,255',w:5},{r:8,v:10,a:.75,c:'150,220,255',w:8}];
+    if(!run){ run=true; loop(); }
+  }
+  function loop(){
+    ctx.clearRect(0,0,cv.width,cv.height);
+    var i;
+    if(cracks.length){
+      ctx.save();
+      ctx.shadowColor='rgba(190,225,255,.9)'; ctx.shadowBlur=6;
+      ctx.strokeStyle='rgba(235,248,255,.92)';
+      for(i=0;i<cracks.length;i++){
+        var cr=cracks[i];
+        ctx.beginPath(); ctx.moveTo(cr.pts[0][0],cr.pts[0][1]);
+        for(var s2=1;s2<cr.pts.length;s2++) ctx.lineTo(cr.pts[s2][0],cr.pts[s2][1]);
+        ctx.lineWidth=cr.w; ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation='lighter';
+    for(i=shards.length-1;i>=0;i--){
+      var sh=shards[i];
+      sh.x+=sh.vx; sh.y+=sh.vy; sh.vy+=.14; sh.vx*=.988; sh.vy*=.99;
+      sh.rot+=sh.vr; sh.a-=sh.dec;
+      if(sh.a<=0||sh.y>cv.height+140){ shards.splice(i,1); continue; }
+      ctx.save();
+      ctx.translate(sh.x,sh.y); ctx.rotate(sh.rot);
+      ctx.beginPath();
+      ctx.moveTo(sh.rel[0][0],sh.rel[0][1]);
+      for(var v=1;v<sh.rel.length;v++) ctx.lineTo(sh.rel[v][0],sh.rel[v][1]);
+      ctx.closePath();
+      var fill=sh.tone<.45?'168,205,240':(sh.tone<.8?'205,230,252':'240,250,255');
+      ctx.fillStyle='rgba('+fill+','+(sh.a*.5)+')'; ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,'+(sh.a*.7)+')'; ctx.lineWidth=.8; ctx.stroke();
+      ctx.restore();
+    }
+    for(i=sparks.length-1;i>=0;i--){
+      var p=sparks[i];
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.12; p.vx*=.99; p.vy*=.99; p.life-=p.dec;
+      if(p.life<=0){ sparks.splice(i,1); continue; }
+      ctx.beginPath(); ctx.fillStyle='rgba('+p.col+','+p.life+')';
+      ctx.arc(p.x,p.y,p.rr*p.life+.3,0,6.29); ctx.fill();
+    }
+    for(i=rings.length-1;i>=0;i--){
+      var rg=rings[i];
+      rg.r+=rg.v; rg.a*=.965; rg.w*=.97;
+      if(rg.a<.02){ rings.splice(i,1); continue; }
+      var c=center();
+      ctx.beginPath(); ctx.strokeStyle='rgba('+rg.c+','+rg.a+')'; ctx.lineWidth=rg.w;
+      ctx.shadowColor='rgba('+rg.c+','+rg.a+')'; ctx.shadowBlur=16;
+      ctx.arc(c.x,c.y,rg.r,0,6.29); ctx.stroke(); ctx.shadowBlur=0;
+    }
+    ctx.globalCompositeOperation='source-over';
+    if(cracks.length||shards.length||sparks.length||rings.length){ requestAnimationFrame(loop); }
+    else{ run=false; ctx.clearRect(0,0,cv.width,cv.height); }
+  }
+  return {crack:crack,shatter:shatter};
+})();
+
+(function(){
+  var spans=$$('#gTitle span');
+  spans.forEach(function(s,i){
+    setTimeout(function(){ s.classList.add('in'); SND.tone({f:660*Math.pow(1.12,i),dur:.3,type:'sine',vol:.07}); },450+i*200);
+  });
+  var glass=$('entryGlass'),started=false;
+  glass.addEventListener('pointerdown',function(){
+    if(started) return; started=true;
+    SND.ensure();
+    spans.forEach(function(s){ s.classList.remove('in'); s.classList.add('out'); });
+    $('gHint').classList.add('out');
+    SND.thunder();
+    glass.classList.add('storm');
+    setTimeout(function(){ glass.classList.remove('storm'); },700);
+    setTimeout(function(){ $('hammerWrap').classList.add('fall'); SND.fallWhoosh(); },500);
+    setTimeout(function(){
+      $('hammerWrap').classList.remove('fall');
+      $('hammerWrap').classList.add('rest');
+      $('whiteFlash').classList.add('boom');
+      document.body.classList.add('shake');
+      SND.hammerHit();
+      EntryFx.crack();
+    },500+860);
+    setTimeout(function(){
+      EntryFx.shatter();
+      SND.shatter();
+      $('glassPane').classList.add('broken');
+      var wf=$('whiteFlash');
+      wf.classList.remove('boom'); void wf.offsetWidth; wf.classList.add('boom');
+      setTimeout(function(){ document.body.classList.remove('shake'); },420);
+    },500+860+180);
+    setTimeout(function(){
+      glass.classList.add('gone');
+      $('main').classList.add('in');
+      toast('欢迎来到斗罗大陆');
+      SND.tone({f:660,dur:.4,type:'sine',vol:.12}); SND.tone({f:990,dur:.5,type:'sine',vol:.1,delay:.12});
+    },2550);
+    setTimeout(function(){ glass.remove(); },4200);
+  });
+  glass.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+})();
+
+/* =========================================================
+   蓄力五档（3 秒满 · 到达第一档即生效）
+========================================================= */
+var CHARGE_MAX=3000;
+var TIERS=[
+ {label:'凡引',ru:'觉醒',m:'指尖轻触 · 凡引觉醒',core:'255,248,225',n1:'240,195,108',n2:'108,208,255',n3:'181,123,255',ring:'240,195,108',glow:'70,140,220',bolt:'255,225,160',sparks:'255,240,200'},
+ {label:'灵引',ru:'凝魂',m:'蓄力一档 · 灵引觉醒',core:'230,255,250',n1:'143,227,216',n2:'108,208,255',n3:'200,255,240',ring:'143,227,216',glow:'80,200,190',bolt:'190,255,245',sparks:'210,255,250'},
+ {label:'天引',ru:'聚灵',m:'蓄力二档 · 天引觉醒',core:'245,235,255',n1:'181,123,255',n2:'143,227,216',n3:'216,180,255',ring:'181,123,255',glow:'150,100,255',bolt:'225,195,255',sparks:'235,215,255'},
+ {label:'圣引',ru:'通天',m:'蓄力三档 · 圣引觉醒',core:'255,242,215',n1:'255,150,80',n2:'240,195,108',n3:'255,94,108',ring:'255,150,60',glow:'255,150,60',bolt:'255,220,170',sparks:'255,230,190'},
+ {label:'神引',ru:'天命',m:'蓄力圆满 · 神引天命',core:'255,255,255',n1:'255,225,150',n2:'255,255,255',n3:'240,195,108',ring:'255,240,200',glow:'255,220,150',bolt:'255,255,255',sparks:'255,250,230'}
+];
+function tierOf(ch){
+  var p=Math.min(1,ch/CHARGE_MAX);
+  if(p>=1) return 4; if(p>=.75) return 3; if(p>=.5) return 2; if(p>=.25) return 1;
+  return 0;
+}
+
+/* =========================================================
+   命运水晶球
+========================================================= */
+var Orb=(function(){
+  var cv=$('orbCanvas'),wrap=$('orbWrap'),stage=$('awakenStage'),runes=$('orbRunes');
+  var ctx=cv.getContext('2d');
+  var dpr=Math.min(window.devicePixelRatio||1,2);
+  var W=0,cx=0,cy=0,R=0;
+  var t=0,spin=0,coreFlash=0;
+  var pressed=false,charge=0,curTier=0,pT=0,ptr={x:0,y:0};
+  var inner=[],flows=[],shocks=[],orbSparks=[];
+
+  function resize(){
+    var s=wrap.clientWidth||300;
+    W=s; cx=s/2; cy=s/2; R=s*.40;
+    cv.width=Math.round(s*dpr); cv.height=Math.round(s*dpr);
+    cv.style.width=s+'px'; cv.style.height=s+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    inner=[];
+    for(var i=0;i<26;i++){
+      inner.push({a:Math.random()*6.28,r:Math.sqrt(Math.random())*R*.85,
+        pr:.6+Math.random()*1.4,al:.25+Math.random()*.5,sp:.15+Math.random()*.5});
+    }
+  }
+  resize(); addEventListener('resize',resize);
+
+  function bolt(x1,y1,x2,y2,amp,width,branch,col){
+    var n=7,pts=[[x1,y1]],i;
+    var dx=-(y2-y1),dy=(x2-x1),L=Math.hypot(dx,dy)||1; dx/=L; dy/=L;
+    for(i=1;i<n;i++){
+      var k=i/n,mx=x1+(x2-x1)*k,my=y1+(y2-y1)*k;
+      var off=(Math.random()-.5)*amp*Math.sin(Math.PI*k);
+      pts.push([mx+dx*off,my+dy*off]);
+    }
+    pts.push([x2,y2]);
+    ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+    for(i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.strokeStyle='rgba('+col+','+(.35+charge*.0003)+')';
+    ctx.lineWidth=width*2.6; ctx.shadowColor='rgba('+col+',.9)'; ctx.shadowBlur=10; ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=width; ctx.shadowBlur=0; ctx.stroke();
+    if(branch){
+      for(i=2;i<n-1;i+=3){
+        if(Math.random()<.55){
+          var p=pts[i],ang=Math.random()*6.28,len=amp*(.4+Math.random()*.6);
+          ctx.beginPath(); ctx.moveTo(p[0],p[1]);
+          ctx.lineTo(p[0]+Math.cos(ang)*len*.5+(Math.random()-.5)*8,p[1]+Math.sin(ang)*len*.5+(Math.random()-.5)*8);
+          ctx.lineTo(p[0]+Math.cos(ang)*len,p[1]+Math.sin(ang)*len);
+          ctx.strokeStyle='rgba(220,240,255,.45)'; ctx.lineWidth=width*.5; ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function frame(){
+    t+=1/60;
+    var T=TIERS[curTier];
+    var heat=Math.min(1,charge/CHARGE_MAX);
+    ctx.clearRect(0,0,W,W);
+
+    if(pressed){
+      charge+=1000/60;
+      var nt=tierOf(charge);
+      if(nt>curTier){
+        curTier=nt; T=TIERS[curTier];
+        coreFlash=1;
+        shocks.push({r:R*.15,v:R*.07,a:.85},{r:R*.3,v:R*.05,a:.6});
+        SND.tierUp(nt);
+        runes.textContent=T.ru;
+        if(navigator.vibrate) navigator.vibrate(30);
+      }
+      wrap.classList.toggle('charged',curTier>=4);
+    }
+
+    var og=ctx.createRadialGradient(cx,cy,R*.5,cx,cy,R*1.35);
+    og.addColorStop(0,'rgba('+T.glow+','+(.3+heat*.3+coreFlash*.4)+')');
+    og.addColorStop(.65,'rgba('+T.glow+',.12)');
+    og.addColorStop(1,'rgba(20,60,120,0)');
+    ctx.fillStyle=og; ctx.beginPath(); ctx.arc(cx,cy,R*1.35,0,6.29); ctx.fill();
+
+    var base=ctx.createRadialGradient(cx-R*.35,cy-R*.42,R*.05,cx,cy,R);
+    base.addColorStop(0,'rgba(228,246,255,.95)');
+    base.addColorStop(.28,'rgba(155,208,255,.6)');
+    base.addColorStop(.62,'rgba(60,125,205,.55)');
+    base.addColorStop(1,'rgba(8,28,66,.94)');
+    ctx.fillStyle=base; ctx.beginPath(); ctx.arc(cx,cy,R,0,6.29); ctx.fill();
+
+    ctx.globalCompositeOperation='lighter';
+    var blobs=[
+      {r:R*.5,sp:.45,ph:0,c:T.n1,a:.3},
+      {r:R*.62,sp:-.3,ph:2.1,c:T.n2,a:.26},
+      {r:R*.4,sp:.62,ph:4.2,c:T.n3,a:.22}
+    ];
+    for(var i=0;i<blobs.length;i++){
+      var b=blobs[i],ang=t*b.sp*(1+heat*2.4)+b.ph;
+      var bx=cx+Math.cos(ang)*b.r*.55, by=cy+Math.sin(ang)*b.r*.4;
+      var g=ctx.createRadialGradient(bx,by,0,bx,by,R*.5);
+      g.addColorStop(0,'rgba('+b.c+','+(b.a+heat*.25+coreFlash*.3)+')');
+      g.addColorStop(1,'rgba('+b.c+',0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(bx,by,R*.5,0,6.29); ctx.fill();
+    }
+    spin+=.007+heat*.06+coreFlash*.02;
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(spin);
+    for(i=0;i<5;i++){
+      var rr=R*(.34+.13*i);
+      ctx.beginPath(); ctx.arc(0,0,rr,i*1.26,i*1.26+1.05+heat*.7);
+      ctx.strokeStyle='rgba('+T.ring+','+(.12+heat*.24)+')'; ctx.lineWidth=1.6; ctx.stroke();
+    }
+    ctx.restore();
+
+    for(i=0;i<inner.length;i++){
+      var p=inner[i]; p.a+=p.sp*.01*(1+heat*3);
+      var px=cx+Math.cos(p.a)*p.r, py=cy+Math.sin(p.a)*p.r*.92;
+      var al=p.al*(.6+.4*Math.sin(t*2+p.a*3))*(1+heat*.6);
+      ctx.beginPath(); ctx.fillStyle='rgba('+T.sparks+','+Math.min(1,al)+')';
+      ctx.arc(px,py,p.pr*(1+heat*.5),0,6.29); ctx.fill();
+    }
+
+    var coreR=R*.2*(1+.13*Math.sin(t*2.3))*(1+heat*.45+coreFlash*.9);
+    var cg=ctx.createRadialGradient(cx,cy,0,cx,cy,coreR*2.2);
+    cg.addColorStop(0,'rgba('+T.core+','+(.95+coreFlash*.05)+')');
+    cg.addColorStop(.4,'rgba('+T.ring+',.75)');
+    cg.addColorStop(1,'rgba('+T.ring+',0)');
+    ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(cx,cy,coreR*2.2,0,6.29); ctx.fill();
+
+    for(i=orbSparks.length-1;i>=0;i--){
+      var os=orbSparks[i];
+      os.x+=os.vx; os.y+=os.vy; os.vx*=.94; os.vy*=.94; os.life-=.03;
+      if(os.life<=0){ orbSparks.splice(i,1); continue; }
+      ctx.beginPath(); ctx.fillStyle='rgba('+T.sparks+','+os.life+')';
+      ctx.arc(os.x,os.y,1.8*os.life+.4,0,6.29); ctx.fill();
+    }
+    ctx.globalCompositeOperation='source-over';
+
+    function ring(rot,scale,col,dashSp){
+      ctx.save(); ctx.translate(cx,cy); ctx.rotate(rot); ctx.scale(1,scale);
+      ctx.beginPath(); ctx.arc(0,0,R*1.1,0,6.29);
+      ctx.setLineDash([14,20]); ctx.lineDashOffset=-dashSp;
+      ctx.strokeStyle=col; ctx.lineWidth=1.6; ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
+    }
+
+    var hg=ctx.createRadialGradient(cx-R*.42,cy-R*.46,0,cx-R*.42,cy-R*.46,R*.4);
+    hg.addColorStop(0,'rgba(255,255,255,'+(.5+heat*.2)+')'); hg.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=hg; ctx.beginPath(); ctx.arc(cx-R*.42,cy-R*.46,R*.4,0,6.29); ctx.fill();
+
+
+
+    for(i=shocks.length-1;i>=0;i--){
+      var s3=shocks[i]; s3.r+=s3.v; s3.a-=.03;
+      if(s3.a<=0){ shocks.splice(i,1); continue; }
+      ctx.beginPath(); ctx.arc(cx,cy,s3.r,0,6.29);
+      ctx.strokeStyle='rgba('+T.ring+','+s3.a+')'; ctx.lineWidth=3*s3.a; ctx.stroke();
+    }
+    coreFlash*=.94;
+
+    if(pressed){
+      var prog=Math.min(1,charge/CHARGE_MAX);
+      for(i=1;i<=4;i++){
+        var dp=i*.25,da=-Math.PI/2+dp*6.283;
+        ctx.beginPath();
+        ctx.arc(cx+Math.cos(da)*(R+9),cy+Math.sin(da)*(R+9),2.6,0,6.29);
+        ctx.fillStyle=prog>=dp?'rgba(255,255,255,.95)':'rgba(140,190,255,.4)';
+        ctx.fill();
+      }
+      ctx.beginPath(); ctx.arc(cx,cy,R+9,-Math.PI/2,-Math.PI/2+prog*6.283);
+      ctx.strokeStyle=curTier>=4?'#ffffff':'rgba('+T.ring+',.95)';
+      ctx.lineWidth=curTier>=4?5:4;
+      ctx.shadowColor='rgba('+T.ring+',.9)'; ctx.shadowBlur=12; ctx.stroke();
+      ctx.shadowBlur=0;
+      if(curTier>=4){
+        ctx.beginPath(); ctx.arc(cx,cy+R+9,4.5,0,6.29);
+        ctx.fillStyle='#fff'; ctx.fill();
+      }
+    }
+
+    if(pressed&&ptr.x){
+      ctx.globalCompositeOperation='lighter';
+      var mxp=(ptr.x+cx)/2, myp=(ptr.y+cy)/2+Math.sin(t*7)*13;
+      var bg=ctx.createLinearGradient(ptr.x,ptr.y,cx,cy);
+      bg.addColorStop(0,'rgba('+T.n2+',.85)'); bg.addColorStop(1,'rgba('+T.ring+',.9)');
+      ctx.beginPath(); ctx.moveTo(ptr.x,ptr.y); ctx.quadraticCurveTo(mxp,myp,cx,cy);
+      ctx.strokeStyle=bg; ctx.lineWidth=5+2*Math.sin(t*13)+heat*4;
+      ctx.shadowColor='rgba('+T.n2+',.8)'; ctx.shadowBlur=16; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ptr.x,ptr.y); ctx.quadraticCurveTo(mxp,myp,cx,cy);
+      ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=1.6; ctx.shadowBlur=0; ctx.stroke();
+      bolt(ptr.x,ptr.y,cx,cy,R*.5+heat*40,1.7,true,T.bolt);
+      bolt(ptr.x,ptr.y,cx,cy,R*.28,1,false,T.bolt);
+      if(Math.random()<.5) bolt(ptr.x,ptr.y,cx+(Math.random()-.5)*R,cy+(Math.random()-.5)*R,R*.6,1,false,T.bolt);
+      var pg=ctx.createRadialGradient(ptr.x,ptr.y,0,ptr.x,ptr.y,20);
+      pg.addColorStop(0,'rgba(255,255,255,.95)'); pg.addColorStop(.3,'rgba('+T.n2+',.6)'); pg.addColorStop(1,'rgba('+T.n2+',0)');
+      ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(ptr.x,ptr.y,20,0,6.29); ctx.fill();
+      ctx.save(); ctx.translate(ptr.x,ptr.y); ctx.rotate(t*4);
+      ctx.beginPath(); ctx.setLineDash([5,7]); ctx.arc(0,0,26,0,6.29);
+      ctx.strokeStyle='rgba('+T.bolt+',.7)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.setLineDash([]);
+      ctx.restore();
+      if(Math.random()<.45+heat*.55){
+        var aa=Math.random()*6.28, ar=14+Math.random()*34;
+        flows.push({x:ptr.x+Math.cos(aa)*ar,y:ptr.y+Math.sin(aa)*ar,vx:0,vy:0});
+      }
+      for(i=flows.length-1;i>=0;i--){
+        var f=flows[i];
+        var ddx=cx-f.x,ddy=cy-f.y,dd=Math.hypot(ddx,ddy)||1;
+        f.vx+=ddx/dd*(.5+heat*.9); f.vy+=ddy/dd*(.5+heat*.9);
+        f.vx*=.96; f.vy*=.96;
+        var ox=f.x,oy=f.y; f.x+=f.vx; f.y+=f.vy;
+        if(dd<R*.28){ flows.splice(i,1); coreFlash=Math.min(1,coreFlash+.25); continue; }
+        ctx.beginPath(); ctx.moveTo(ox,oy); ctx.lineTo(f.x,f.y);
+        ctx.strokeStyle='rgba('+T.sparks+',.8)'; ctx.lineWidth=1.8; ctx.stroke();
+      }
+      ctx.globalCompositeOperation='source-over';
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function loc(e){
+    var r=cv.getBoundingClientRect();
+    return {x:e.clientX-r.left,y:e.clientY-r.top};
+  }
+  stage.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+  wrap.addEventListener('pointerdown',function(e){
+    if(e.button&&e.button>0) return;
+    SND.ensure();
+    pressed=true; charge=0; curTier=0; pT=performance.now();
+    ptr=loc(e);
+    try{ wrap.setPointerCapture(e.pointerId); }catch(err){}
+    wrap.classList.add('pressing','hot');
+    SND.chargeStart();
+    e.preventDefault();
+  });
+  wrap.addEventListener('pointermove',function(e){ if(pressed) ptr=loc(e); });
+  function release(e){
+    if(!pressed) return;
+    var tier=curTier;
+    pressed=false;
+    SND.chargeStop();
+    wrap.classList.remove('pressing','hot','charged');
+    runes.textContent='觉醒';
+    if(e&&e.type==='pointercancel'){ charge=0; flows=[]; curTier=0; return; }
+    charge=0; flows=[]; curTier=0;
+    if(tier<1){ SND.noDraw(); Orb.burst(0); return; }
+    DRAW.draw(tier);
+  }
+  wrap.addEventListener('pointerup',release);
+  wrap.addEventListener('pointercancel',release);
+
+  return {
+    burst:function(tier){
+      for(var i=0;i<1+Math.min(4,tier);i++) shocks.push({r:R*.15*(i+1),v:R*(.05+.012*tier),a:.9});
+      coreFlash=1;
+      for(i=0;i<20+tier*20;i++){
+        var a=Math.random()*6.28,sp=1.5+Math.random()*(2.5+tier);
+        orbSparks.push({x:cx,y:cy,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1});
+      }
+    }
+  };
+})();
+
+/* =========================================================
+   抽签 → 武魂卡
+========================================================= */
+var DRAW={
+  busy:false,
+  pools:{
+    waste:[
+      ['蓝银草','植物系 · 器武魂','武魂天赋「野火烧不尽」——看似柔弱，控制系潜力深不见底','大陆最常见武魂之一，觉醒台上年年见'],
+      ['锄头','器武魂','耕作时魂力灌注田地，亩产翻倍','长老建议：回家种地也挺好'],
+      ['木梳','器武魂','梳理发丝可安抚心神，精神力恢复微增','闺阁之选'],
+      ['水瓢','器武魂','舀水不洒，臂力小幅增长','家家都有'],
+      ['蒲扇','器武魂','扇风带起微弱气流，可扰敌视线','夏夜觉醒台常见'],
+['红薯','器武魂 · 食物系','食用后腹内胀气，第一魂技疑似「局部尾气喷射」','觉醒现场一度因气味陷入混乱，大师连夜退场'],
+  ['铁锅','器武魂 · 防御/烹饪','炖肉自带入味加成，扣在头上可防板砖偷袭','炊事班的灵魂，打不过能直接生火做饭'],
+  ['折凳','器武魂 · 暗器潜质','「七种武器」之首，平平无奇但极为顺手，藏于民居不露杀气','魂圣见了也得提防脑门被开瓢'],
+  ['破碗','器武魂 · 精神/辅助','手持破碗眼神凄凉，对敌方产生微弱同情心压制','丐帮内门信物，自带「要饭成功率+50%」'],
+  ['生锈铁剑','器武魂 · 强攻系','攻击力不如烧火棍，唯一威胁是让伤口破伤风','老铁匠：磨磨还能切萝卜，别浪费魂力'],
+  ['夜壶','器武魂 · 杂物系','散发陈年微弱恶臭，具有极弱的精神致晕范围效果','觉醒此武魂的少年已经闭门三月不肯见人'],
+  ['鸡毛掸子','器武魂 · 控制系','抽打臀部时附带「血脉压制」效果，疼痛感翻倍','天下不肖子孙的终极噩梦'],
+  ['大葱','植物系 · 器武魂','自带辛辣气息，甩动时隐隐有洗脑旋律在脑海回荡','据说某位绿发双马尾封号斗罗的初始形态'],
+  ['抹布','器武魂 · 特殊系','擦拭万物除污率极高，丢在地上容易滑倒追踪者','圣魂村保洁大妈代代相传'],
+  ['秤砣','器武魂 · 重力潜质','落地极稳，但凡扔出去基本砸不中人','掌柜的心头肉，砸核桃倒是一绝'],
+  ['算盘','器武魂 · 精神系','拨动算珠声清脆，自带「锱铢必较」减抗光环','七宝琉璃宗财务长老测试未成年弟子的最爱'],
+      ['竹筷','器武魂','夹取精度极高，暗器天赋的微弱苗头','民以食为天'],
+  ['二锅头','器武魂 · 食物/致幻','饮下一口满脸通红，第一魂技「酒驾步法」自带S型蛇皮走位','素云涛闻了直摇头：这孩子刚觉醒就醉过去了'],
+  ['搓衣板','器武魂 · 防御/反思','往地上一扔自带引力跪伏效果，让敌方不由自主陷入道德自责','已婚封号斗罗见了膝盖都会隐隐作痛的终极器武魂'],
+  ['痒痒挠','器武魂 · 近战挠人','竹制长柄，专挠对手碰不到的后背，让人魂力运转时奇痒无比','大爷们人手一把，实战中伤害不高但侮辱性极强'],
+  ['苍蝇拍','器武魂 · 对空特攻','对翼膜类、昆虫类兽武魂拥有天生300%拍晕命中率','敏攻系敏捷如蝶的魂师最讨厌看见的器物没有之一'],
+  ['老花镜','器武魂 · 辅助/侦查','戴上后能看清三寸之内的灰尘，但十步以外人畜不分','戴上它的老魂师打架全靠缘分和听声辨位'],
+  ['假发片','器武魂 · 伪装/自欺','戴上后魅力瞬间拉满，一旦被风吹掉将进入狂暴破防状态','中年秃顶魂师最后的尊严壁垒'],
+  ['唢呐','器武魂 · 音波大杀器','乐器流氓，初鸣震碎全场注意力，曲一响要么升天要么开席','一旦吹起来，辅助系和强攻系的节奏全被它强行带跑'],
+  ['平底锅','器武魂 · 钝击/防御','后脑勺护甲天花板，挥舞起来带有「铛」的金属撞击清脆音效','红太狼一脉相传，专治各种花里胡哨的狼类武魂'],
+  ['机械键盘','器武魂 · 精神/音波','十指如飞敲击声震耳欲聋，附带「键盘侠附体」强行嘲讽全图','第一魂技「键来」：站在道德制高点指责对手魂技动作不标准'],
+  ['空油桶','器武魂 · 敲击控场','敲起来咚咚响，扣在敌人头上能造成长时间耳鸣与视野盲区','街边混战的性价比之王，环保又顺手'],
+  ['漏勺','器武魂 · 辅助/挑刺','舀水水漏光，捞面全捞干，能精准挑出对手魂技里的破绽','实战卵用没有，但在宗门食堂后厨是绝对的主力']
+],
+    common:[
+      ['猎刀','器武魂','近战锋锐，第一魂技多为斩击系','猎户世家代代相传'],
+      ['铁背熊','兽武魂','皮糙肉厚，体魄强横，耐力出众','山民最爱'],
+      ['灰纹狼','兽武魂','群体作战时全属性小幅提升','讲究兄弟齐上'],
+      ['岩甲龟','兽武魂','防御系，受击时反弹部分伤害','龟壳流打法开创者'],
+      ['赤目隼','兽武魂','视野开阔，侦查系天赋','夜里眼睛发光，慎用'],
+      ['烈风剑','器武魂','出剑带风声，攻速见长','入门剑修标配'],
+['开山斧','器武魂 · 强攻系','大开大合，劈砍势沉，破甲效果良好','佣兵团先锋标准配置'],
+  ['穿云弓','器武魂 · 敏攻/远攻','弓弦沉稳，百步穿杨，第一魂技多附带加速','边境神射手的基石武魂'],
+  ['青竹蛇','兽武魂 · 敏攻系','身法滑腻，毒性微弱但行动隐蔽敏捷','草莽魂师的暗杀起手式'],
+  ['野猪王','兽武魂 · 强攻/防御','皮糙肉厚，冲撞力惊人，附带短暂霸体','一旦发起冲锋，自己都刹不住车'],
+  ['赤火雀','兽武魂 · 强攻/远攻','喷吐低阶火球，空中骚扰能力极强','杂毛鸟也能偶尔点燃对面的胡子'],
+  ['生铁盾','器武魂 · 防御系','立盾稳如磐石，抗击打能力合格','组队下副本永远不可或缺的前排'],
+  ['鬼脸面具','器武魂 · 精神/控制','戴上面具隐匿气息，附带微弱恐吓与幻术','行走夜路的二流刺客标配'],
+  ['金钱镖','器武魂 · 敏攻系','指尖发力破空无痕，对金魂币有微弱感应','贫民窟里常有靠这手暗器养家糊口的故事'],
+  ['硬头铜甲蟹','兽武魂 · 防御系','双鳌夹力惊人，且附带横行霸道位移技','走位永远是横着的，容易把自己绕晕'],
+  ['杀猪刀','器武魂 · 纯粹破防','刀刃带着几代人的煞气，对哺乳类兽武魂附带流血撕裂效果','屠户村走出的少年，第一环就敢单挑千年野猪'],
+  ['狼牙棒','器武魂 · 钝击/破甲','满布精铁倒刺，挥舞起来呼呼作响，不求切开只求砸扁','山贼当家的传家宝，朴实且掉肉'],
+  ['竹叶青','兽武魂 · 刺客/敏攻','体态纤细通体翠绿，潜伏草丛暴起发难，微毒令人手脚麻痹','初级魂师学院刺客选手的入门基本功'],
+  ['穿山甲','兽武魂 · 遁地/防御','鳞片坚硬且善于打洞，打不过原地三秒钻入泥土遁走','野外遇上打不过的队伍，直接当着面刨个坑溜了'],
+  ['刺猬球','兽武魂 · 刺猬反甲','遇袭瞬间缩成一团，受击反弹尖刺，让强攻系近战痛不欲生','谁打谁知道，打一拳自己手掌全是窟窿眼'],
+  ['尖头哨棒','器武魂 · 强攻/连打','长约五尺两头包铜，打狗阵法基础组件，攻速极快','据说某位姓武的魂尊曾用此武魂醉打吊额白虎'],
+  ['铁羽乌鸦','兽武魂 · 诅咒/骚扰','盘旋头顶叫声凄厉，附带微弱掉魂力的霉运光环','虽然被正规宗门嫌弃，但夜袭骚扰防不胜防'],
+  ['硬皮野水牛','兽武魂 · 防御/重装','横冲直撞蛮力惊人，唯一的缺点是容易被红颜色激怒','斗魂场二楼常常被它失控撞穿一面墙'],
+  ['篮球鸡','兽武魂 · 敏攻/暗器','会使用各种篮球技巧对敌人发动进攻','它不仅长得很美，而且还会唱跳rap'],
+  ['短发火铳','器武魂 · 爆发远攻','装填极慢但近身轰击威力不俗，容易炸膛伤到自己胡子','铁匠铺与魂导器结合的半成品残次品']
+],
+    rare:[
+      ['白虎','兽武魂 · 星罗皇族','天赋「白虎金刚变」——爆发力冠绝同侪','星罗帝国戴氏血脉象征'],
+      ['幽冥灵猫','兽武魂','速度与幽冥系攻击，身法如影','与白虎可融幽冥白虎'],
+      ['七宝琉璃塔','器武魂 · 辅助系','同时增幅力量、速度、魂力等多项属性','天下第一辅助武魂'],
+      ['蓝电霸王龙','兽武魂','雷电血脉，攻击附带麻痹','蓝电霸王龙宗镇宗武魂'],
+      ['柔骨兔','兽武魂','身体柔若无骨，缠绕控制一绝','柔能克刚'],
+      ['香肠','器武魂 · 食物系','先天满魂力体质，魂技可食用回魂','看似儿戏，实则奥斯卡同款'],
+['破魂枪','器武魂 · 强攻系','一往无前，纯粹攻击，放弃一切防御换取极致穿透','杨无敌与破之一族的傲骨与脊梁'],
+  ['九心海棠','器武魂 · 辅助系','无论附加多少魂环，魂技永远只有一个——范围全体百分比治愈','一脉单传，大陆唯二的顶级治愈神话'],
+  ['尖尾雨燕','兽武魂 · 纯敏系','天下极速，肉眼难辨，放弃一切攻击手段','敏之一族侦察天下，逃命第一'],
+  ['冰蚕','兽武魂 · 精神/冰系','看似毫无战力的肉虫，却蕴藏不可思议的精神本源','某只活了百万年的大肉虫表示很不服气'],
+  ['降魔杵','器武魂 · 破魔系','势大力沉，对邪气、死气、阴属性武魂有天然压制','佛门苦修者的不传之秘'],
+  ['四眼猫鹰','兽武魂 · 敏攻/飞行','夜视无阻，利爪裂石，附带金币搜寻直觉','史莱克学院弗兰德院长的奸商之魂'],
+  ['黑白双煞棋盘','器武魂 · 控场系','以方寸棋盘锁定战场，落子成阵，黑子杀伐白子生','下棋老头的心机，全写在魂技里了'],
+  ['紫火灵狐','兽武魂 · 控制/敏攻','身形魅惑，狐火蚀魂，兼备精神干扰与火系灼烧','武魂殿中不少妖娆女魂师的初始武魂'],
+  ['金刚大板砖','器武魂 · 强攻/控制','专砸后脑勺，自带「80%概率击晕」的玄学因果律','街头乱战之神，朴实无华却让人头皮发麻'],
+  ['疾风双头狼','兽武魂 · 顶级变异','兼具极致敏捷与撕裂暴风，双首异动杀伐双重叠加','神风学院风笑天的标志，自创魂技狂风三十六连斩的基石'],
+  ['蛇矛','器武魂 · 攻防一体','既是长矛亦能如灵蛇扭曲反咬，矛尖淬毒穿透力惊人','武魂殿九长老蛇矛斗罗同款，近战诡谲狠辣'],
+  ['嗜血魔熊','兽武魂 · 狂暴强攻','受创越重攻击越强，一旦进入「嗜血」状态不分敌我','比铁背熊暴虐十倍的战场绞肉机，狂战狂魔的最爱'],
+  ['海魔女之笛','器武魂 · 精神/幻境','海浪化音，水波织梦，吹奏间令人魂归大海甘愿沉沦','海神岛七圣柱同款血脉，海战中的控制女王'],
+  ['暴雨梨花匣','器武魂 · 机关/暗器流','武魂本身便是一件巧夺天工的机栝，瞬间爆射万千钢针','唐门老匠人若是觉醒此物，做梦都要笑醒'],
+  ['紫极魔蛛','兽武魂 · 控制/剧毒','八足如蛛矛，喷吐附骨之疽的黏稠紫网，腐蚀一切护体罡气','魂师大赛上让对手洗澡都洗不掉蛛毒的恶心存在'],
+  ['玄重黑铁尺','器武魂 · 巨力/压制','无锋无刃厚重沉滞，平时背着压制魂力，拔尺横扫排山倒海','某异界黑袍少年曾以此武魂越阶拍碎无数强敌'],
+  ['天星罗盘','器武魂 · 辅助/吉凶','推演战场气运，判定吉凶方位，给队友施加百分百躲避的概率buff','宗门军师的标配，遇事不决先转一圈占个卜'],
+  ['食人花王','植物系 · 伏击陷阱','伪装成无害草丛，一旦踏入直接闭合花瓣开启消化腐蚀','打扫战场的魂师最怕路过这种貌似艳丽的花丛'],
+  ['鬼面青铜鼎','器武魂 · 镇压/炼化','三足两耳鼎震四方，能将对手震晕并收入鼎中强行炼化魂力','古老世家传下来的厚重武魂，砸人如陨石坠地']
+],
+
+    epic:[
+      ['邪火凤凰','兽武魂 · 良性变异','真火焚烧一切，凤凰血脉觉醒','马红俊同源，需仙草压制邪火'],
+      ['昊天锤','器武魂','天下第一器武魂，一锤既出，万法辟易','昊天宗镇宗之魂'],
+      ['七杀剑','器武魂','杀气凝剑，剑意锋锐无匹','剑斗罗尘心同款'],
+      ['碧磷蛇皇','兽武魂','剧毒领域，蛇瞳可慑魂','独孤博同款，慎近水域'],
+      ['大力金刚熊','兽武魂','怪力惊人，肉搏无双','泰坦级体魄'],
+['九宝琉璃塔','器武魂 · 辅助之王','突破七宝桎梏，力、速、魂、御、攻、增幅全满，神光普照','宁荣荣借仙草「绮罗郁金香」逆天改命'],
+  ['暗金恐爪熊','兽武魂 · 极致强攻','拥有撕裂空间的恐怖臂力，一双恐爪可正面撼动真龙','魂兽界公认的顶级战斗狂，越阶杀敌如饮水'],
+  ['天青牛蟒','兽武魂 · 控制/强攻','蟒身牛首，迟缓领域一旦展开，方圆之内如坠泥沼','星斗大森林的王者，大明本尊'],
+  ['泰坦巨猿','兽武魂 · 力量至尊','重力泥沼与泰坦苍穹炮，肉身力量近乎无解的陆地霸主','二明一跃，山崩地裂'],
+  ['冰碧帝皇蝎','兽武魂 · 极致之冰','极北三天王之一，冰皇之怒冻结万物，躯干骨坚不可摧','碧绿如翡翠的极北暴君，美艳与杀戮并存'],
+  ['黄金圣龙','兽武魂 · 极致神圣','纯正龙王血统，龙威浩荡，神圣火焰净化一切魑魅魍魉','黄金铁三角武魂融合技的终极形态'],
+  ['八音魔琴','器武魂 · 精神/音律','琴音如刀，九霄同悲，曲终人散时杀人于无形无相','雅致乐器包裹的无情杀伐凶兵'],
+  ['镇魂棺','器武魂 · 强控/封印','棺盖掀起产生万丈吸力，封人魂力，盖棺定论即直接镇压','打不过就直接给对手办席，自带唢呐BGM'],
+  ['九尾天狐','兽武魂 · 极致魅惑','魅惑天成，幻境乱真，九尾一展天地失色','胡列娜妖狐的终极返祖形态，一眼万年'],
+  ['雷霆灭世龙','兽武魂 · 极致之雷','蓝电霸王龙极度恶性/良性狂暴变异，每一片鳞甲都跳动紫黑色劫雷','蓝电一脉万年难遇的天罚之兽，怒吼一声雷动百里'],
+  ['光明圣龙','兽武魂 · 极致光明','龙神分裂时光明意志的具象化，神圣龙息净化万物恶念','穆老一脉传承的无上龙魂，正义与威严的化身'],
+  ['地狱三头犬','兽武魂 · 黑暗/死气','三首分管寒冰、冥火与噬魂撕咬，来自深渊的凶暴门神','杀戮之都至暗血脉，寻常兽武魂见其即腿软'],
+  ['通天建木','植物系 · 生命/囚禁','通天彻地之巨树，枝丫化作神链锁拿天地，自成一片生命森林','蓝银皇之上的神木血统，不败的持续控场怪'],
+  ['斩天铡刀','器武魂 · 绝杀/处刑','天地不仁以万物为刍狗，刀锋落下无视一切护甲，强制残血处决','包青天神话概念具象化，龙头铡下一刀断魂'],
+  ['冥王渡鸦','兽武魂 · 死亡/诅咒','鸦翼展处万灵寂灭，双瞳如深渊可引渡亡灵，自带死寂领域','比寻常邪魂师更纯粹的黄泉主宰，走到哪哪寸草不生'],
+  ['九幽冥凤','兽武魂 · 极致阴火','自九幽黄泉涅槃而生的死凤，焚烧的不是肉身而是灵魂','与邪火凤凰截然相反的至阴至煞神禽'],
+  ['混元金斗','器武魂 · 空间/削级','金光一卷将人装入其中，强行闭其顶门泥丸，削其魂力等级','源自封神大劫的大杀器，进斗走一圈神仙也得变凡人'],
+  ['不灭金身罗汉','兽武魂/化身 · 极致防御','魂力运转通体化作紫金琉璃，丈六金身不垢不坏无视同阶打击','任你万般兵刃轰击，我自合十念佛岿然不动'],
+  ['吞天巴蛇','兽武魂 · 贪婪/空间吞噬','身长千里，蛇吻张开宛如黑洞，能将对手的魂技甚至武魂虚影直接吞下','传说中巴蛇食象三年而出其骨，贪食之罪的化身']
+],
+  
+    legend:[
+      ['蓝银皇','植物系之皇','领域「蓝银领域」+嗜血天赋，控制与续航并存','蓝银草一脉的至高进化'],
+      ['噬魂蛛皇','兽武魂之皇','吞噬魂力，蛛网困天','比比东双武魂之一'],
+      ['死亡蛛皇','兽武魂之皇','死亡毒素，触之即溃','比比东双武魂之一'],
+      ['光明女神蝶','兽武魂','蝶翼展开光华流转，光明加持','大陆最美的武魂之一'],
+['黄金圣龙皇','兽武魂 · 极致神圣/破灭','万龙朝宗之象，龙鳞覆体万法不侵，光明龙息焚尽深渊','龙神分裂后的神圣化身之一'],
+  ['暗魔邪神虎','兽武魂 · 邪神/时间/空间','至邪至暗，掌控生死时空，天赋「生死竞技场」返老还童','哪怕只是初生体，连封号斗罗见了也要退避三舍'],
+  ['冰天雪女（雪帝）','兽武魂 · 极致之冰雪','天地孕育的雪帝三绝：帝寒天、帝掌、帝剑，冰封三千里','极北之地的真正主宰，遗世独立的冰天绝色'],
+  ['九彩神女之杖','器武魂 · 极致辅助','九彩神光笼罩战场，不仅增幅万物，更掌有逆转生死的复活神光','凡间器武魂所能抵达的辅助终点，宁荣荣成神之引'],
+  ['金眼黑龙王','兽武魂 · 极致黑暗','黑龙灭世，黑龙王爪撕裂天穹，魂兽共主座下第一战神','帝天本体，曾经大陆最接近神级的兽神存在'],
+  ['十二品功德金莲','植物系 · 防御/净化至高','端坐莲台立于不败之地，功德之气垂落，百毒不侵，万法避易','借鉴洪荒大能遗宝，防御系的绝对天花板'],
+  ['幽冥万鬼幡','器武魂 · 邪道至尊','幡动而阴风怒号，炼化千万冤魂厉鬼为己所用，反噬极重','正道魂师眼中的头号邪魔，一人成军的恐怖存在'],
+  ['九天息壤','器武魂/特殊 · 创生防御','一撮土壤化作崇山峻岭，生生不息，大地之母的血脉馈赠','只要双脚踏在大地之上，魂力便永无枯竭之时'],
+  ['太极阴阳鱼','器武魂 · 规则控制','黑白二气流转，借力打力，逆乱阴阳，化解一切强攻为虚无','看似太极慢吞吞，实则专治各种数值怪的大道规矩'],
+  ['五色神光雀','兽武魂 · 极致五行','尾羽开屏五色神光流转，五行之内无物不刷，强行缴械一切器武魂','孔宣同源本命，昊天锤遇上五色神光也得被当场刷走'],
+  ['定海神针铁','器武魂 · 极致重力/变化','重一万三千五百斤，随心意长短粗细，上抵三十三重天下捣九幽幽冥','猴哥借给大陆的至尊铁棒，砸碎诸神法阵只需一棒'],
+  ['金翅大鹏雕','兽武魂 · 速度极境','振翅九万里，云程万里难留痕，抓龙撕天如捉小虫','极致速度与穿透力的终极天花板，连雷电都追不上它的尾羽'],
+  ['烛龙之瞳','兽武魂 · 阴阳昼夜','睁眼为白昼，闭眼为永夜，吹气成凛冬，呼气成酷暑，玩弄天道时令','钟山之神，一眼定乾坤，神界委员会也得尊称一声老祖'],
+  ['山河社稷图','器武魂 · 规则小世界','展开即是一方独立大世界，万物皆在画中生灭，入图者非圣不能出','女娲圣人遗宝概念，比任何封号斗罗的领域都要庞大无边'],
+  ['弑神枪残片','器武魂 · 破魔杀圣','魔祖罗睺杀道至宝，哪怕只是一道枪头残片，也带着刺破神界的无边凶煞','修罗神剑在它面前也要感受到源自洪荒魔祖的滔天杀意'],
+  ['太虚古龙','兽武魂 · 空间至尊','身躯横跨无垠虚空，肉身强横至极，以空间裂缝为零食，穿梭位面如过家常','虚空造物，隔空抓取敌方心脏只是其平A小技巧'],
+  ['十二品业火红莲','植物系 · 因果/焚尽业障','生于幽冥血海，血色红莲业火以世间罪孽为养料，因果不消火势不灭','专治一切杀人如麻的邪魂师，罪孽越重烧得越惨烈'],
+  ['造化玉牒残卷','器武魂 · 大道推演','玉牒微转解析诸天万法，对手一抬手其魂力运转路线便被洞悉得一清二楚','人形全知全能挂，你的魂技在他眼里全是0和1的代码'],
+  ['九曲黄河幡','器武魂 · 混元大阵','幡旗一挥黄河浊浪滔天，迷人心智、消人魂骨、散人修为','阵法类武魂的绝对尽头，摆下大阵万仙难逃']
+],
+    god:[
+      ['海神','神格传承','海神九考传承者，掌海洋之力','唐三已验证的成神之路'],
+      ['修罗神','神格传承','杀戮之神，修罗领域可斩神','杀神领域的终点'],
+      ['天使之神','神格传承','圣光神装，天使领域','千仞雪同款神位'],
+      ['罗刹神','神格传承','罗刹神力，怨煞加持','比比东已验证的神位'],
+['六翼堕落天使','神格传承 · 堕落之神','十二黑羽遮蔽苍穹，黑炎焚尽秩序，由圣入魔的毁灭天使','与千仞雪圣光截然相反的至暗神位，执掌审判与堕落'],
+  ['创世混沌青莲','神格传承 · 创世神迹','生于混沌未开之时，三十六品莲台开辟天地，蕴养三千大道法则','唐三蓝银皇若是往此方向变异，直接单手重塑神界'],
+  ['盘古斧','神格传承 · 开天力神','一斧划破鸿蒙混沌，一力降十会，破碎万法虚空','纯粹极致的力量神祇，昊天锤在它面前只能算玩具小榔头'],
+  ['轩辕剑','神格传承 · 人道圣皇','剑身一面刻日月星辰，一面刻山川草木，人道皇道王道汇聚之神剑','神剑所指，四海臣服，天下第一攻击圣道之神'],
+  ['东皇钟','神格传承 · 空间/时间天帝','钟声悠扬镇压鸿蒙，颠倒乾坤，音波过处虚空坍塌、岁月停滞','神界万神殿也得在东皇钟响时退避三舍的天道神器'],
+  ['诛仙四剑','神格传承 · 杀伐天尊','诛仙、戮仙、陷仙、绝仙，四剑成阵，神魔难渡，杀伐第一','修罗神的杀神领域在此阵面前，也不过是微风拂面'],
+  ['阎罗生死簿','神格传承 · 冥界至尊','判官笔下勾生死，生死簿上定寿元，执掌六道轮回之权柄','管你是封号斗罗还是三级神祗，名字一划，魂归九泉'],
+  ['灭世磨盘','神格传承 · 终焉之神','黑白巨磨缓缓转动，研磨诸天星辰、天地灵气，宣告纪元终结','比毁灭之神更纯粹的宇宙终结者，武魂展开即是末日'],
+  ['时间之轮','神格传承 · 时空主宰','指针逆转可回溯光阴，顺转可瞬息万年，凌驾于物质之上的法则神格','打不过就回到你觉醒武魂的前一天，先收你当徒弟'],
+  ['开天神斧（盘古幡）','神格传承 · 破裂鸿蒙','拥有撕裂混沌鸿蒙之无上威能，粉碎诸天时空，统御万道生灭','创世力神极致化身，昊天宗老祖看了自愧当场把锤子砸了'],
+  ['造化混元太极图','神格传承 · 平定水火','图卷一抖化作金桥连通天地，定地水火风，五行阴阳皆在此桥下臣服','至高道德天尊之神格，站在金桥之上即是立于绝对真理之中'],
+  ['乾坤混沌鼎','神格传承 · 逆转后天为先天','返本还源，炼化万物法则，甚至能将废武魂在鼎中逆炼为神级武魂','神界兵工厂的终极源头，诸神的神装在此鼎中不过一炉丹火'],
+  ['昆仑镜','神格传承 · 逆乱因果时空','镜光照耀洞穿过去未来，随意修改时间长河节点，抹杀敌手于未成之时','“打不过现在的你，我就穿越到一万年前顺着网线灭你祖先”'],
+  ['大罗天道令','神格传承 · 规则言出法随','手持帝令口含天宪，说“此地不可使用魂力”则漫天神佛皆化凡人','真正的管理员权限号，直接在现实世界修改斗罗大陆底层代码'],
+  ['阿赖耶识·六道天轮','神格传承 · 轮回主宰','天道、修罗、人间、畜生、饿鬼、地狱六道轮回巨轮在身后轰鸣','死者归宿生者审判，比修罗神与罗刹神合并还要高半筹的往生界主'],
+  ['永恒因果橡皮擦','神格脑洞 · 降维抹除','外表就是一块平平无奇的白橡皮，在虚空一擦即可抹去对手的存在痕迹','“你觉醒了什么牛逼神格？抱歉，我把你出生证明擦掉了。”'],
+  ['万象起源·黑洞','神格传承 · 引力终焉','连光线与神力法则都能强行吞噬压缩的奇点，自身即是万物的归宿','展开神环之时，整个星系都在朝着这尊神祇的掌心坍塌'],
+  ['终末之刃·朗基努斯','神格传承 · 弑神之枪','沾染过神明真血的命运长矛，拥有“绝对命中”与“创口永不愈合”的因果律','诸神黄昏的丧钟，任何号称不灭的神体在矛尖下皆如脆纸'],
+  ['原初混沌魔神','神格传承 · 万魔之祖','三千大道魔神法相合一，生于天地之前，以神界为饲料的宇宙真魔','神界五大至高神联手，见此魔神也得做好同归于尽的准备']
+]
+  },
+  meta:{waste:['废魂','r-waste'],common:['凡品','r-common'],rare:['稀有','r-rare'],epic:['史诗','r-epic'],legend:['传说','r-legend'],god:['神话','r-god']},
+  power:{waste:[1,3],common:[2,5],rare:[5,7],epic:[6,9],legend:[10,10],god:[15,20]},
+  pick:function(a){ return a[Math.floor(Math.random()*a.length)]; },
+pickRarity:function(tier){
+  var r=Math.random()*100;
+  /* 第一档（白点/一档）：god0 legend0 epic5 rare15 common30 waste50 */
+  if(tier<=1){
+    if(r<5) return 'epic';
+    if(r<20) return 'rare';
+    if(r<50) return 'common';
+    return 'waste';
+  }
+  /* 第二档：god2 legend6 epic14 rare28 common30 waste20 */
+  if(tier===2){
+    if(r<2) return 'god';
+    if(r<8) return 'legend';
+    if(r<22) return 'epic';
+    if(r<50) return 'rare';
+    if(r<80) return 'common';
+    return 'waste';
+  }
+  /* 第三档：god10 legend18 epic22 rare32 common15 waste3 */
+  if(tier===3){
+    if(r<10) return 'god';
+    if(r<28) return 'legend';
+    if(r<50) return 'epic';
+    if(r<82) return 'rare';
+    if(r<97) return 'common';
+    return 'waste';
+  }
+  /* 满档：god50 legend30 epic15 rare5 common0 waste0 */
+  if(r<50) return 'god';
+  if(r<80) return 'legend';
+  if(r<95) return 'epic';
+  return 'rare';
+},
+  current:null,
+  draw:function(tier){
+    if(this.busy) return;
+    this.busy=true;
+    var self=this;
+    var rar=this.pickRarity(tier);
+    var item=this.pick(this.pools[rar]);
+    var pw=this.power[rar];
+    var innate=pw[0]+Math.floor(Math.random()*(pw[1]-pw[0]+1));
+    var twin=(rar==='epic'||rar==='legend'||rar==='god')&&Math.random()<.16;
+    var twinItem=twin?this.pick(this.pools[rar]):null;
+    var d={
+      name:item[0]+(twin?' & '+twinItem[0]:''),
+      type:item[1], rar:rar, rarName:this.meta[rar][0],
+      tier:tier, innate:innate, twin:twin,
+      eff:item[2], note:item[3],
+      twinNote:twin?('；双生武魂「'+twinItem[0]+'」——两具武魂可各配魂环，潜力倍增'):''
+    };
+    this.current=d;
+    Orb.burst(tier);
+    var rect=$('orbCanvas').getBoundingClientRect();
+    FX.boom(rect.left+rect.width/2, rect.top+rect.height/2,
+      2+tier+(rar==='god'?3:rar==='legend'?2:0));
+    setTimeout(function(){
+      self.busy=false;
+      showWuhunCard(d);
+      if(rar==='legend'||rar==='god') DM.send('天命觉醒 · '+d.name+'！',true);
+    },420);
+  }
+};
+function pwDesc(v){ return v>=10?'先天满魂力 · 百年难遇':(v>=6?'上佳之资':(v>=3?'中人之姿':'尚需苦修')); }
+function showWuhunCard(d){
+  var card=$('wmCard');
+  card.className='wm-card '+DRAW.meta[d.rar][1];
+  $('wmRar').textContent=d.rarName+' · '+TIERS[d.tier].label;
+  $('wmName').textContent=d.name;
+  $('wmType').textContent=d.type+(d.twin?' · 双生武魂':'');
+  $('wmMethod').textContent=TIERS[d.tier].m;
+  $('wmPow').textContent='先天魂力 '+d.innate+' 级 —— '+pwDesc(d.innate);
+  $('wmEff').textContent=d.eff+d.twinNote;
+  $('wmNote').textContent=d.note;
+  $('wuhunModal').classList.add('show');
+  SND.reveal(d.rar);
+}
+function sealWuhun(){
+  if(!DRAW.current) return;
+  var d=DRAW.current;
+  DRAW.current=null;
+  $('cSpirit').value=d.name;
+  $('cPow').value='先天魂力 '+d.innate+' 级'+(d.innate>=10?'（先天满魂力）':'');
+  var slot=$('drawSlot');
+  slot.className='draw-slot '+DRAW.meta[d.rar][1];
+  $('dsName').textContent=d.name;
+  $('dsTag').style.display='';
+  $('dsTag').textContent=d.rarName+' · '+TIERS[d.tier].label;
+  $('dsPow').textContent='先天魂力 '+d.innate+' 级 · 已铭刻入档';
+  $('wuhunModal').classList.remove('show');
+  SND.select();
+  toast('已觉醒 · '+d.name);
+  schedPreview();
+}
+ $('wmOk').addEventListener('click',sealWuhun);
+ $('wmMask').addEventListener('click',sealWuhun);
+
+/* =========================================================
+   修炼魂力
+========================================================= */
+var TITLES=[[100,'神'],[99,'极限斗罗'],[95,'超级斗罗'],[90,'封号斗罗'],[80,'魂斗罗'],[70,'魂圣'],[60,'魂帝'],[50,'魂王'],[40,'魂宗'],[30,'魂尊'],[20,'大魂师'],[10,'魂师'],[1,'魂士']];
+var TITLE_POOL=['剑','罗刹','幽冥','昊天','碧磷','菊','鬼','龙','玄武','雷霆','修罗','凤凰','破军','天罗','斗战','千军','暗影','炽阳','雪魄','镇岳','苍穹','星陨','天罡','地煞','赤霄','紫电','青冥','玄月','寒霜','烈阳','曜日','天穹','九霄','凌云','沧海','孤鸿','惊鸿','流云','长空','裂天','断岳','擎天','覆海','镇海','破空','御风','逐日','追星','摘星','落星','星河','银河','天璇','天枢','天玑','玉衡','北辰','太虚','混元','乾坤','阴阳','两仪','四象','八荒','六合','九幽','黄泉','忘川','幽月','冥河','鬼蜮','血煞','血月','修罗','杀戮','赤血','魔焰','幽炎','冥火','天火','地火','玄火','紫焰','炎狱','焚天','灼世','霜华','冰魄','雪域','寒星','玄冰','冰河','风暴','狂雷','天雷','惊雷','雷鸣','霆锋','疾风','罡风','青雷','紫霆','苍雷','金刚','铁壁','不动','磐石','巨岳','擎山','撼岳','战狂','战神','狂战','破阵','破军','无双','天戈','龙渊','龙吟','龙骧','龙威','虎魄','虎啸','凤鸣','凰炎','麒麟','玄麟','白泽','青鸾','朱雀','鲲鹏','饕餮','穷奇','混沌','苍狼','血狼','天狼','月狼','星狼','鹰扬','鹤鸣','灵狐','天狐','魅影','幻月','幻灭','虚空','无相','寂灭','归墟','湮灭','虚无','永夜','暗星','夜魇','影杀','影月','暗鸦','噬魂','摄魂','夺魄','镇魂','灭魂','断魂','天命','神罚','圣裁','天罚','审判','裁决','神威','神耀','圣光','辉耀','耀阳','晨曦','曙光','净世','圣焰','天圣','玄圣','道玄','太一','无极','太初','鸿蒙','混天','凌霄','九天','问天','苍生','万象','归一','天衍','玄机','玄天','太苍','苍玄','青阳','紫阳','赤阳','金阳','月华','星辉','流光','幻星','天音','凤舞','月影','花魂','蝶舞','兰陵','青莲','红莲','血莲','冰莲','雪莲','幽兰','墨莲'];
+function titleOf(lv){ for(var i=0;i<TITLES.length;i++){ if(lv>=TITLES[i][0]) return TITLES[i][1]; } return '魂士'; }
+var prevLv=10,prevTitle='魂士';
+function setLevel(lv,silent){
+  lv=Math.max(1,Math.min(100,+lv||1));
+  $('lvNum').textContent=lv;
+  var ti=titleOf(lv);
+  var tEl=$('lvTitle');
+  tEl.textContent=ti; tEl.classList.toggle('god',lv>=91);
+  var pop=$('lvNum'); pop.classList.remove('pop'); void pop.offsetWidth; pop.classList.add('pop');
+  if(!silent&&lv!==prevLv) SND.tick(190+lv*8);
+  if(ti!==prevTitle&&!silent){ SND.levelUp(); toast('境界突破 · '+ti); }
+  prevLv=lv; prevTitle=ti;
+  var rings=Math.max(0,Math.min(9,Math.floor(lv/10)));
+  $('lvRing').textContent=lv<10?'尚未获得魂环（10级可吸收第一魂环）':('理论可承载 '+rings+' 枚魂环 · 当前已装 '+ringCount()+' 枚');
+  $('titleInput').classList.toggle('show',lv>=90);
+  $('cultShow').textContent=lv+' 级 · '+ti;
+  schedPreview();
+}
+ $('lvRange').addEventListener('input',function(){ setLevel(this.value); });
+ $('titleDice').addEventListener('click',function(){
+  var t=TITLE_POOL[Math.floor(Math.random()*TITLE_POOL.length)];
+  $('cTitle').value='「'+t+'」斗罗';
+  SND.select(); schedPreview();
+});
+ $('cTitle').addEventListener('input',schedPreview);
+
+/* =========================================================
+   魂环
+========================================================= */
+var RING_DEFS=[{c:'',t:'空',y:''},{c:'w',t:'白',y:'十年',f:340},{c:'y',t:'黄',y:'百年',f:440},{c:'p',t:'紫',y:'千年',f:560},{c:'b',t:'黑',y:'万年',f:170},{c:'r',t:'红',y:'十万年',f:680},{c:'o',t:'金',y:'百万年',f:820}];
+var ringState=['','','','','','','','',''];
+var CN_NUM=['一','二','三','四','五','六','七','八','九'];
+function ringCount(){ return ringState.filter(function(x){return x}).length; }
+(function(){
+  var row=$('ringRow');
+  for(var i=0;i<9;i++){
+    (function(idx){
+      var b=document.createElement('button');
+      b.className='rslot'; b.type='button';
+      b.textContent='环位'+CN_NUM[idx];
+      b.addEventListener('click',function(){
+        var cur=RING_DEFS.map(function(d){return d.c}).indexOf(ringState[idx]);
+        var next=(cur+1)%RING_DEFS.length;
+        ringState[idx]=RING_DEFS[next].c;
+        b.dataset.c=RING_DEFS[next].c;
+        b.textContent=RING_DEFS[next].y||('环位'+CN_NUM[idx]);
+        b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+        if(RING_DEFS[next].c){ SND.ring(RING_DEFS[next].c); }
+        else SND.tick(220);
+        setLevel($('lvRange').value,true);
+        schedPreview();
+      });
+      row.appendChild(b);
+    })(i);
+  }
+})();
+function ringListText(){
+  var arr=[];
+  for(var i=0;i<9;i++){
+    if(!ringState[i]) continue;
+    var d=RING_DEFS.filter(function(x){return x.c===ringState[i]})[0];
+    arr.push('第'+CN_NUM[i]+'环·'+d.y+'（'+d.t+'）');
+  }
+  return arr;
+}
+
+/* =========================================================
+   魂技
+========================================================= */
+var SKILL_MAX=20;
+var skills=['','',''];
+function cnum(x){
+  var d=['零','一','二','三','四','五','六','七','八','九'];
+  if(x<10) return d[x];
+  if(x===10) return '十';
+  if(x<20) return '十'+d[x-10];
+  return '二十';
+}
+var SK_PH=['亲妈缠绕','亲妈囚笼','蛛网束缚','亲妈突刺','寄生','猛毒天罗','虚无缥缈','净化领域'];
+function renderSkills(focusLast){
+  var host=$('skillList'); host.innerHTML='';
+  skills.forEach(function(v,i){
+    var row=document.createElement('div'); row.className='skill-row';
+    row.innerHTML='<span class="sk-idx">第'+cnum(i+1)+'魂技</span>'+
+      '<input class="sk-in" data-i="'+i+'" value="'+(v||'').replace(/"/g,'&quot;')+'" placeholder="如：'+SK_PH[i%SK_PH.length]+'">'+
+      '<button class="sk-del" data-i="'+i+'" title="移除此魂技" type="button"><svg viewBox="0 0 12 12"><path d="M2 2l8 8M10 2l-8 8"/></svg></button>';
+    host.appendChild(row);
+  });
+  $('skCount').textContent=skills.length;
+  $('addSkillBtn').disabled=skills.length>=SKILL_MAX;
+  $('addSkillBtn').style.opacity=skills.length>=SKILL_MAX?.4:1;
+  if(focusLast){
+    var ins=host.querySelectorAll('.sk-in');
+    if(ins.length) ins[ins.length-1].focus();
+  }
+}
+ $('addSkillBtn').addEventListener('click',function(){
+  if(skills.length>=SKILL_MAX){ toast('魂技铭刻已达上限二十枚'); return; }
+  skills.push('');
+  renderSkills(true);
+  SND.add(); schedPreview();
+});
+ $('skillList').addEventListener('click',function(e){
+  var btn=e.target.closest('.sk-del');
+  if(!btn) return;
+  if(skills.length<=1){ toast('至少保留一枚魂技位'); return; }
+  skills.splice(+btn.dataset.i,1);
+  renderSkills();
+  SND.del(); schedPreview();
+});
+ $('skillList').addEventListener('input',function(e){
+  if(e.target.classList.contains('sk-in')) skills[+e.target.dataset.i]=e.target.value;
+});
+renderSkills();
+
+/* =========================================================
+   魂骨
+========================================================= */
+var BONES=[
+  {k:'head',label:'头骨',seal:'颅',side:'',opts:[
+      ['精神凝聚头骨','精神冲击','千年','p'],
+      ['灵眸天狐头骨','灵眸穿透','千年','p'],
+      ['紫晶幻瞳头骨','紫晶幻瞳·迷心','千年','p'],
+      ['碧落幻境头骨','碧落幻境·心牢','万年','b'],
+      ['紫霄魔瞳头骨','紫霄魔瞳·破妄','万年','b'],
+      ['幻魅迷踪头骨','幻魅迷踪·分身','万年','b'],
+      ['幽冥魔猿头骨','幽冥魔音','万年','b'],
+      ['九幽魔猿王头骨','九幽魔音','十万年','r'],
+      ['邪眼暴君头骨','邪眼凝视','十万年','r'],
+      ['天梦冰蚕头骨','冰魄幻梦','十万年','r'],
+      ['冰碧帝皇蝎头骨','冰碧极光','十万年','r'],
+      ['金眼黑龙王头骨','黑龙灭神瞳','十万年','r'],
+      ['邪魔虎鲸王头骨','虎鲸魔啸','十万年','r'],
+      ['深海魔鲸王头骨','魔鲸之怒领域','百万年','o'],
+      ['六翼天使头骨','天使圣光领域','百万年','o'],
+      ['海神遗龙头骨','海神威压领域','百万年','o'],
+      ['修罗魔龙头骨','修罗魔焰领域','百万年','o']
+    ]
+  },
+  {
+    k: 'torso',
+    label: '躯干骨',
+    seal: '躯',
+    side: '',
+    opts: [
+      ['铁甲犀牛躯干骨','犀牛冲撞','千年','p'],
+      ['岩甲巨熊躯干骨','岩甲护体','千年','p'],
+      ['暗金恐爪熊躯干骨','暗金护体','万年','b'],
+      ['玄冰巨蟒躯干骨','玄冰缠躯','万年','b'],
+      ['金甲龙虾躯干骨','金甲泡沫','万年','b'],
+      ['泰坦巨猿躯干骨','泰坦之躯','十万年','r'],
+      ['蓝银皇躯干骨','蓝银护心甲','十万年','r'],
+      ['天青牛蟒躯干骨','天青蟒甲','十万年','r'],
+      ['玄龟甲躯干骨','玄武之御','十万年','b'],
+      ['冰碧帝皇蝎躯干骨','冰碧之甲','十万年','r'],
+      ['金眼黑龙王躯干骨','黑龙吞噬','十万年','r'],
+      ['深海魔鲸王躯干骨','魔鲸吞噬','百万年','o'],
+      ['深海魔鲸皇躯干骨','魔鲸皇者领域','百万年','o'],
+      ['修罗魔龙躯干骨','修罗魔铠','百万年','o']
+    ]
+  },
+  {
+    k: 'larm',
+    label: '左臂骨',
+    seal: '臂',
+    side: '左',
+    opts: [
+      ['铁臂魔猿左臂骨','铁臂重击','千年','p'],
+      ['裂岩猿左臂骨','裂岩崩拳','千年','p'],
+      ['寒玉冰猿左臂骨','冰猿裂空拳','万年','b'],
+      ['暗金恐爪熊左臂骨','暗金恐爪','万年','b'],
+      ['大力金刚熊左臂骨','大力金刚拳','万年','b'],
+      ['幽冥白虎左臂骨','幽冥斩','万年','p'],
+      ['金甲犀左臂骨','金甲冲撞','万年','b'],
+      ['天魔猿王左臂骨','天魔崩山击','十万年','r'],
+      ['天青牛蟒左臂骨','天青缠绕','十万年','r'],
+      ['泰坦巨猿左臂骨','泰坦苍穹破','十万年','r'],
+      ['冰碧帝皇蝎左臂骨','冰碧帝皇斩','十万年','r'],
+      ['邪眼暴君左臂骨','邪眼裂魂爪','十万年','r'],
+      ['邪魔虎鲸王左臂骨','虎鲸裂浪爪','十万年','r'],
+      ['深海魔鲸王左臂骨','魔鲸怒涛击','百万年','o'],
+      ['修罗魔龙左臂骨','修罗魔龙爪','百万年','o']
+    ]
+  },
+  {
+    k: 'rarm',
+    label: '右臂骨',
+    seal: '臂',
+    side: '右',
+    opts: [
+      ['裂空魔王右臂骨','裂空斩','千年','p'],
+      ['金刚狒狒右臂骨','金刚裂石拳','千年','p'],
+      ['幽冥狼右臂骨','幽冥撕咬','千年','p'],
+      ['暗金恐爪熊右臂骨','暗金撕裂爪','万年','b'],
+      ['金鳄右臂骨','金鳄撕咬','万年','b'],
+      ['火凤燎原右臂骨','凤炎裂空爪','万年','p'],
+      ['玄冰巨蟒右臂骨','玄冰绞杀','万年','b'],
+      ['泰坦巨猿右臂骨','泰坦震空击','十万年','r'],
+      ['天青牛蟒右臂骨','天青迟钝神爪','十万年','r'],
+      ['冰碧帝皇蝎右臂骨','冰碧蝎尾针','十万年','r'],
+      ['邪魔虎鲸王右臂骨','虎鲸裂浪爪','十万年','r'],
+      ['金眼黑龙王右臂骨','黑龙灭世爪','十万年','r'],
+      ['深海魔鲸王右臂骨','魔鲸覆海击','百万年','o'],
+      ['修罗魔龙右臂骨','修罗灭魔击','百万年','o']
+    ]
+  },
+  {
+    k: 'lleg',
+    label: '左腿骨',
+    seal: '腿',
+    side: '左',
+    opts: [
+      ['风纹疾影左腿骨','风纹疾行','千年','p'],
+      ['迅影狼左腿骨','迅影突袭','千年','p'],
+      ['岩羚左腿骨','岩羚跳踢','千年','p'],
+      ['风雷隼左腿骨','风雷闪踢','万年','b'],
+      ['幽冥灵猫左腿骨','幽冥突刺','万年','b'],
+      ['火凤燎原左腿骨','凤影燎原踢','万年','p'],
+      ['蓝银皇左腿骨','蓝银缠绕步','十万年','r'],
+      ['天青牛蟒左腿骨','天青蟒行','十万年','r'],
+      ['冰碧帝皇蝎左腿骨','冰碧寒影步','十万年','r'],
+      ['邪眼暴君左腿骨','邪眼瞬影步','十万年','r'],
+      ['金眼黑龙王左腿骨','黑龙踏空步','十万年','r'],
+      ['天梦冰蚕左腿骨','冰蚕之镜','百万年','o'],
+      ['深海魔鲸王左腿骨','魔鲸踏海','百万年','o'],
+      ['六翼天使左腿骨','天使疾风步','百万年','o']
+    ]
+  },
+  {
+    k: 'rleg',
+    label: '右腿骨',
+    seal: '腿',
+    side: '右',
+    opts: [
+      ['疾风狼右腿骨','疾风连踢','千年','p'],
+      ['雷纹豹右腿骨','雷纹闪踢','千年','p'],
+      ['玄龟右腿骨','玄龟踏浪','万年','b'],
+      ['火凤燎原右腿骨','凤翼天翔','万年','p'],
+      ['玄武右腿骨','玄武之壁','万年','b'],
+      ['雷翼隼右腿骨','雷翼闪空','万年','b'],
+      ['蓝银皇右腿骨','蓝银皇之翼','十万年','r'],
+      ['冰碧帝皇蝎右腿骨','冰碧皇者之翼','十万年','r'],
+      ['天梦冰蚕右腿骨','冰蚕幻翼','十万年','r'],
+      ['邪眼暴君右腿骨','邪眼瞬步','十万年','r'],
+      ['金眼黑龙王右腿骨','黑龙踏空','十万年','r'],
+      ['深海魔鲸王右腿骨','魔鲸怒涛踏','百万年','o'],
+      ['修罗魔龙右腿骨','修罗魔龙踏','百万年','o'],
+      ['海神遗龙右腿骨','海神踏浪','百万年','o']
+    ]
+  },
+  {
+    k: 'external',
+    label: '外附魂骨',
+    seal: '附',
+    side: '',
+    opts: [
+      ['八蛛矛','吞噬金丝·可随魂师进化','万年','p'],
+      ['天蚕丝翼','天蚕庇护','万年','b'],
+      ['碧磷魔藤','淬毒缠绕','十万年','r'],
+      ['深海魔鲸触','魔鲸绞缠','百万年','o']
+    ]
+  }
+];
+var boneSel={head:null,torso:null,larm:null,rarm:null,lleg:null,rleg:null,external:null};
+var boneCurKey=null, bmYearVal={y:'千年',c:'p'};
+(function(){
+  var row=$('boneRow');
+  BONES.forEach(function(b){
+    var card=document.createElement('button');
+    card.className='bone-card'; card.type='button'; card.dataset.k=b.k;
+    card.innerHTML='<span class="bone-seal">'+b.seal+(b.side?'<small>'+b.side+'</small>':'')+'</span>'+
+      '<span class="bone-info"><b>'+b.label+'</b><i class="bone-cur">未镶嵌 · 点击择骨</i></span>'+
+      '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+    card.addEventListener('click',function(){ openBoneModal(b.k); });
+    row.appendChild(card);
+  });
+})();
+function renderBoneCards(){
+  BONES.forEach(function(b){
+    var card=document.querySelector('.bone-card[data-k="'+b.k+'"]');
+    var sel=boneSel[b.k];
+    card.classList.toggle('filled',!!sel);
+    card.querySelector('.bone-cur').textContent=sel?(sel.n+'（'+sel.s+'）'):'未镶嵌 · 点击择骨';
+  });
+}
+function openBoneModal(k){
+  boneCurKey=k;
+  var def=BONES.filter(function(x){return x.k===k})[0];
+  $('bmTitle').textContent=def.label+' · 择骨台';
+  var list=$('bmList'); list.innerHTML='';
+  def.opts.forEach(function(o){
+    var cur=boneSel[k]&&boneSel[k].n===o[0];
+    var el=document.createElement('button');
+    el.className='bm-opt'+(cur?' cur':''); el.type='button';
+    el.innerHTML='<span class="bm-n">'+o[0]+'</span><span class="bm-s">'+o[1]+'</span>'+
+      '<span class="ybadge c-'+o[3]+'">'+o[2]+'</span>'+(cur?'<span class="bm-cur">当前</span>':'');
+    el.addEventListener('click',function(){
+      boneSel[k]={n:o[0],s:o[1],y:o[2],c:o[3]};
+      renderBoneCards();
+      var card=document.querySelector('.bone-card[data-k="'+k+'"]');
+      card.classList.remove('pop'); void card.offsetWidth; card.classList.add('pop');
+      SND.select(); closeBoneModal();
+      toast('已镶嵌 · '+o[0]); schedPreview();
+    });
+    list.appendChild(el);
+  });
+  $('bmName').value=''; $('bmSkill').value='';
+  $('boneModal').classList.add('show');
+  SND.modal(true);
+}
+function closeBoneModal(){
+  if(!$('boneModal').classList.contains('show')) return;
+  $('boneModal').classList.remove('show');
+  SND.modal(false);
+}
+ $('bmClose').addEventListener('click',closeBoneModal);
+ $('bmMask').addEventListener('click',closeBoneModal);
+ $('bmYear').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  $$('#bmYear button').forEach(function(x){x.classList.remove('act')});
+  b.classList.add('act');
+  bmYearVal={y:b.dataset.y,c:b.dataset.c};
+  SND.segSel();
+});
+ $('bmConfirm').addEventListener('click',function(){
+  var n=$('bmName').value.trim(),s=$('bmSkill').value.trim();
+  if(!n){ toast('请先为自铸魂骨命名'); return; }
+  boneSel[boneCurKey]={n:n,s:s||'未知神通',y:bmYearVal.y,c:bmYearVal.c};
+  renderBoneCards();
+  SND.select(); closeBoneModal();
+  toast('已镶嵌自铸魂骨 · '+n); schedPreview();
+});
+ $('bmClear').addEventListener('click',function(){
+  boneSel[boneCurKey]=null;
+  renderBoneCards();
+  SND.del(); closeBoneModal();
+  toast('已卸下魂骨'); schedPreview();
+});
+
+/* =========================================================
+   时间线
+========================================================= */
+var TLE={
+ 2470:['金鳄斗罗出生',0],2477:['唐晨（唐三先祖）出生',0],2507:['千道流出生',0],
+ 2548:['独孤博出生',0],2561:['剑斗罗尘心出生',0],2587:['唐昊、弗兰德出生',0],
+ 2588:['宁风致出生',0],2589:['柳二龙出生',0],2590:['玉小刚出生',0],2593:['唐昊觉醒昊天锤',0],
+ 2594:['宁风致觉醒七宝琉璃塔',0],2596:['比比东出生',0],2597:['千道流达到99级',0],
+ 2602:['比比东觉醒双生武魂',1],2608:['素云涛出生',0],2612:['唐昊进入杀戮之都',0],2614:['比比东与玉小刚相恋',0],
+ 2615:['比比东被千寻疾强暴 · 比比东进入杀戮之都 · 唐昊离开杀戮之都',1],2618:['比比东离开杀戮之都 · 弗兰德创立史莱克学院',1],
+ 2620:['千仞雪出生',0],2621:['风笑天出生',0],2622:['唐昊、唐啸与阿银相遇 · 唐啸成为封号斗罗',0],2625:['唐啸退出三角恋 · 武魂殿攻打昊天宗',1],
+ 2626:['胡列娜、邪月、焱、水冰儿、火舞出生',0],2628:['戴沐白出生',0],2629:['奥斯卡出生',0],
+ 2631:['唐三出生 · 唐昊成为封号斗罗 · 阿银献祭 · 唐昊飙升至92级 · 比比东杀死千寻疾成为新教皇 · 马红俊出生 · 武魂殿又攻打昊天宗 · 唐昊父亲死亡 · 昊天宗归隐 · 唐昊被昊天宗除名 · 宁荣荣出生 · 朱竹清出生',1],
+ 2632:['小舞化形为人',0],2634:['千仞雪被密送天斗皇宫',0],
+ 2637:['唐三觉醒双生武魂 · 进入诺丁学院 · 拜玉小刚为师 · 认识小舞、王圣',1],
+ 2642:['马红俊加入史莱克学院 · 唐三小舞诺丁学院毕业',0],2643:['唐三、小舞、宁荣荣、朱竹清加入史莱克 · 唐三获得外附魂骨八蛛矛',1],
+ 2644:['史莱克融合柳二龙的蓝霸学院 · 唐三被独孤博抓进冰火两仪眼 · 回归后史莱克七怪集体吃仙草',1],2645:['高级魂师大赛预选赛 · 前往武魂城 · 魂师大赛夺冠 · 小舞暴露魂兽身份 · 唐昊救场 · 定下五年之约 · 唐昊开始秘密特训唐三',1],2646:['唐昊正在秘密特训唐三',0],
+ 2647:['唐昊秘密特训唐三结束 · 唐三蓝银草觉醒为蓝银皇 · 唐三进入杀戮之都遇到胡列娜',1],2649:['唐三和胡列娜联手离开杀戮之都 · 唐三来到天斗城月轩找唐月华洗杀气',0],
+ 2650:['唐三回归史莱克七怪重聚 · 小舞献祭 · 武魂殿启动猎魂计划 · 七宝琉璃宗重创 · 蓝电霸王龙宗覆灭 · 唐三收服下四宗成立唐门 · 千仞雪伪装暴露 · 天斗帝国发生政变',1],2651:['唐三等人前往海神岛参加神考',0],2655:['唐三等人离开海神岛 · 唐三杀死鬼斗罗和菊斗罗 · 泰坦巨猿和天青牛蟒献祭 · 小舞复活（复活吧！俺滴爱人！）',1],
+ 2657:['千仞雪成神追杀唐三 · 唐三杀死深海魔鲸王 · 史莱克七怪成神 · 嘉陵关决战 · 唐三死亡被奥斯卡和宁荣荣的融合技重生 · 唐三杀死比比东重创千仞雪',1]
+};
+(function(){
+  var vis=$('tlVisual');
+  Object.keys(TLE).forEach(function(y){
+    var d=document.createElement('button');
+    d.className='tl-dot'+(TLE[y][1]?' major':''); d.type='button';
+    d.style.left=(12+(+y-2470)/187*(100-2.4))+'%';
+    d.title=y+' · '+TLE[y][0];
+    d.dataset.y=y;
+    d.addEventListener('click',function(){ $('tlRange').value=y; setTime(y); });
+    vis.appendChild(d);
+  });
+  vis.appendChild($('tlCursor'));
+})();
+var tlPrevYear=2637;
+function setTime(y,silent){
+  y=Math.round(+y);
+  $('tlYear').textContent=y;
+  $('tlCursor').style.left=(12+(y-2470)/187*(100-2.4))+'%';
+  $$('.tl-dot').forEach(function(d){ d.classList.toggle('active',+d.dataset.y===y); });
+  var ev=TLE[y];
+  $('tlEvent').innerHTML=ev?('<b>斗罗历 '+y+' 年 · '+ev[0]+'</b><em>'+(ev[1]?'—— 大事刻 · 史册重笔 ——':'—— 小事刻 · 史册有载 ——')+'</em>')
+    :('<b>斗罗历 '+y+' 年</b><em>—— 岁月静默 · 史册无载 ——</em>');
+  if(!silent&&y!==tlPrevYear) SND.tick(200+(y-2470)/187*560);
+  tlPrevYear=y;
+   $('cTime').value='斗罗历 '+y+' 年';
+  schedPreview();
+}
+ $('tlRange').addEventListener('input',function(){ setTime(this.value); });
+setTime(2637,true);
+
+/* =========================================================
+   抽屉（无标题栏 · tab 即顶部）
+========================================================= */
+var LTABS=[
+  {pane:'tabProfile',seal:'档',name:'魂师档案'},
+  {pane:'tabFeat',seal:'能',name:'功能开关'},
+  {pane:'tabOpen',seal:'幕',name:'开场白'},
+  {pane:'tabPreview',seal:'影',name:'实时投影'}
+];
+var RTABS=[
+  {pane:'tabWorld',seal:'界',name:'世界设定'},
+  {pane:'tabBook',seal:'鉴',name:'人物图鉴'},
+  {pane:'tabMap',seal:'图',name:'大陆地图'},
+  {pane:'tabSave',seal:'省',name:'降低消耗'},
+  {pane:'tabCfg',seal:'配',name:'自定义配置'}
+];
+function buildTabs(host,tabs){
+  tabs.forEach(function(t){
+    var b=document.createElement('button');
+    b.className='d-tab-btn'+(t===tabs[0]?' act':'');
+    b.innerHTML='<b>'+t.seal+'</b><i>'+t.name+'</i>';
+    b.addEventListener('click',function(){
+      $$('.d-tab-btn',host).forEach(function(x){x.classList.remove('act')});
+      b.classList.add('act');
+      var drawer=host.closest('.drawer');
+      $$('.d-pane',drawer).forEach(function(p){p.classList.remove('act')});
+      $(t.pane).classList.add('act');
+      SND.panel(true);
+    });
+    host.appendChild(b);
+  });
+}
+buildTabs($('ldTabs'),LTABS);
+buildTabs($('rdTabs'),RTABS);
+
+var drawerState=null;
+function openDrawer(side){
+  drawerState=side;
+  $('drawerMask').classList.add('show');
+  document.body.classList.add('lock');
+  $(side==='left'?'leftDrawer':'rightDrawer').classList.add('open');
+  $(side==='left'?'leftToggle':'rightToggle').classList.add('open');
+  SND.drawer(true);
+}
+function closeDrawer(){
+  if(!drawerState) return;
+  $(drawerState==='left'?'leftDrawer':'rightDrawer').classList.remove('open');
+  $(drawerState==='left'?'leftToggle':'rightToggle').classList.remove('open');
+  $('drawerMask').classList.remove('show');
+  document.body.classList.remove('lock');
+  SND.drawer(false);
+  drawerState=null;
+}
+ $('leftToggle').addEventListener('click',function(){ drawerState==='left'?closeDrawer():openDrawer('left'); });
+ $('rightToggle').addEventListener('click',function(){ drawerState==='right'?closeDrawer():openDrawer('right'); });
+ $('drawerMask').addEventListener('click',closeDrawer);
+
+ $$('.ps-head').forEach(function(h){
+  h.addEventListener('click',function(){
+    var ps=h.closest('.ps');
+    ps.classList.toggle('open');
+    SND.panel(ps.classList.contains('open'));
+  });
+});
+ $('hero').addEventListener('click',function(){
+  $$('#mainTitle span').forEach(function(s,i){
+    s.style.animation='none'; void s.offsetWidth;
+    s.style.animation=''; s.style.animationDelay=(i*.14)+'s';
+  });
+  SND.reveal('legend');
+  DM.send('斗罗大陆 · 命运觉醒！',true);
+});
+
+/* ===== 性别 / 同行角色 ===== */
+ $('genderSeg').addEventListener('click',function(e){
+  var b=e.target.closest('button'); if(!b) return;
+  $$('#genderSeg button').forEach(function(x){x.classList.remove('act')});
+  b.classList.add('act');
+  SND.segSel(); schedPreview();
+});
+function genderVal(){ var b=document.querySelector('#genderSeg button.act'); return b?b.dataset.v:'男'; }
+ $('addChar').addEventListener('click',function(){
+  var n=$('extraChars').children.length+1;
+  var card=document.createElement('div');
+  card.className='extra-card';
+  card.innerHTML='<div class="ex-head"><b>角色 '+n+'</b><button class="extra-del" type="button" title="移除">✕</button></div>'+
+    '<div class="ex-grid">'+
+    '<input class="ex-name" placeholder="姓名"><input class="ex-gender" placeholder="性别（男 / 女 / …）">'+
+    '<input class="ex-age" placeholder="年龄"><input class="ex-spirit" placeholder="武魂">'+
+    '<input class="ex-role ex-full" placeholder="身份 / 称号">'+
+    '<input class="ex-look ex-full" placeholder="外貌">'+
+    '<input class="ex-char ex-full" placeholder="性格">'+
+    '<input class="ex-rel ex-full" placeholder="关系网">'+
+    '<textarea class="ex-bg ex-full" placeholder="背景"></textarea>'+
+    '</div>';
+  $('extraChars').appendChild(card);
+  SND.add(); schedPreview();
+});
+ $('extraChars').addEventListener('click',function(e){
+  if(!e.target.classList.contains('extra-del')) return;
+  e.target.closest('.extra-card').remove();
+  SND.del(); schedPreview();
+});
+
+/* =========================================================
+   高维功能开关（仅「总结」默认开启）
+========================================================= */
+var FEATS=[
+ {k:'summary',n:'总结',type:'sw',v:true,d:'底部生成剧情记忆区，可编辑修改，重要部分可一键存入自定义配置。',cmds:['开启总结','关闭总结']},
+ {k:'options',n:'选项',type:'sw',v:false,d:'底部生成六个剧情选项供懒人选择。',cmds:['开启选项','关闭选项']},
+ {k:'live',n:'直播',type:'sw',v:false,d:'底部生成高维观众滚动弹幕，不影响剧情。',cmds:['开启直播','关闭直播']},
+ {k:'person',n:'人称视角',type:'seg',v:'第二人称',opts:['第一人称','第二人称','第三人称'],d:'改变描写对用户的代称。',cmds:['改成第一人称','改成第二人称','改成第三人称']},
+ {k:'closeup',n:'画面特写',type:'sw',v:false,d:'每次回复以微观特写镜头描写。',cmds:['开启特写','关闭特写']},
+ {k:'beautify',n:'UI美化',type:'sw',v:false,d:'状态栏更美观，消耗略增。',cmds:['开启美化','关闭美化']},
+ {k:'novel',n:'小说模式',type:'sw',v:false,d:'网络小说创作模式，NPC 戏份增加，可能代替玩家行动，谨慎开启。',cmds:['开启小说模式','关闭小说模式']},
+ {k:'plot',n:'剧情辅助',type:'sw',v:false,d:'想象力卡壳时，底部生成剧情发展建议。',cmds:['开启剧情辅助','关闭剧情辅助']},
+ {k:'length',n:'回复长度',type:'seg',v:'中等',opts:['简短','中等','冗长'],d:'简短（500字以下）· 中等（700~1200字）· 冗长（1500字以上）。',cmds:['回复长度简短','回复长度中等','回复长度冗长']},
+ {k:'gaki',n:'雌小鬼吐槽',type:'sw',v:false,d:'底部生成阴阳怪气 AI 嘲讽用户，接受不了别开。',cmds:['开启雌小鬼吐槽','关闭雌小鬼吐槽']},
+ {k:'interview',n:'幕后采访',type:'sw',v:false,d:'底部生成主持人对角色的幕后采访，角色以演员状态评价剧情。',cmds:['开启幕后采访','关闭幕后采访']}
+];
+(function(){
+  var host=$('featList');
+  FEATS.forEach(function(f){
+    var card=document.createElement('div');
+    card.className='feat-card'+((f.type==='sw'&&f.v)?' on':'');
+    var cmds=f.cmds?'<div class="fc-cmds">'+f.cmds.map(function(c){return '<button class="cmd-chip" type="button" data-cmd="'+c+'">'+c+'</button>'}).join('')+'</div>':'';
+    if(f.type==='sw'){
+      card.innerHTML='<div class="fc-top"><span class="fc-name">'+f.n+'</span><label class="switch"><input type="checkbox" data-fk="'+f.k+'" '+(f.v?'checked':'')+'><span></span></label></div><div class="fc-desc">'+f.d+'</div>'+cmds;
+    }else{
+      card.innerHTML='<div class="fc-top"><span class="fc-name">'+f.n+'</span></div><div class="seg" data-fk="'+f.k+'">'+f.opts.map(function(o){return '<button type="button" class="'+(o===f.v?'act':'')+'" data-v="'+o+'">'+o+'</button>'}).join('')+'</div><div class="fc-desc" style="margin-top:8px">'+f.d+'</div>'+cmds;
+    }
+    host.appendChild(card);
+  });
+  host.addEventListener('change',function(e){
+    var inp=e.target;
+    if(inp.dataset&&inp.dataset.fk){
+      var f=FEATS.filter(function(x){return x.k===inp.dataset.fk})[0];
+      f.v=inp.checked;
+      inp.closest('.feat-card').classList.toggle('on',f.v);
+      SND.toggle(f.v); schedPreview();
+    }
+  });
+  host.addEventListener('click',function(e){
+    var seg=e.target.closest('.seg[data-fk] button');
+    if(seg){
+      var fk=seg.parentNode.dataset.fk;
+      var f=FEATS.filter(function(x){return x.k===fk})[0];
+      f.v=seg.dataset.v;
+      $$('button',seg.parentNode).forEach(function(x){x.classList.remove('act')});
+      seg.classList.add('act');
+      SND.segSel(); schedPreview();
+      return;
+    }
+    var chip=e.target.closest('.cmd-chip');
+    if(chip){ copyText(chip.dataset.cmd,'指令已复制 · '+chip.dataset.cmd); }
+  });
+})();
+function featOn(k){ var f=FEATS.filter(function(x){return x.k===k})[0]; return f.v; }
+
+/* ===== 右抽屉文字内容 ===== */
+  $('tabWorld').innerHTML=`
+<h4>时间线</h4><ul>
+<li>斗罗大陆原著对于年历的细节较为模糊，所以可能不一定百分百准确，仅供参考</li>
+<li>斗罗历2470年：金鳄出生</li>
+<li>斗罗历2477年：唐晨出生</li>
+<li>斗罗历2507年：千道流出生</li>
+<li>斗罗历2548年：独孤博出生</li>
+<li>斗罗历2561年：尘心出生</li>
+<li>斗罗历2587年：唐昊出生，弗兰德出生</li>
+<li>斗罗历2588年：宁风致出生</li>
+<li>斗罗历2589年：柳二龙出生</li>
+<li>斗罗历2590年：玉小刚出生</li>
+<li>斗罗历2593年：唐昊觉醒昊天锤武魂</li>
+<li>斗罗历2594年：宁风致觉醒七宝琉璃塔武魂</li>
+<li>斗罗历2596年：比比东出生，玉小刚觉醒罗三炮武魂</li>
+<li>斗罗历2597年：千道流达到99级</li>
+<li>斗罗历2602年：比比东觉醒双生武魂</li>
+<li>斗罗历2608年：素云涛出生</li>
+<li>斗罗历2612年：唐昊进入杀戮之都</li>
+<li>斗罗历2614年：比比东和玉小刚谈恋爱，素云涛觉醒武魂</li>
+<li>斗罗历2615年：比比东被千寻疾强暴，并进入杀戮之都，唐昊离开杀戮之都。</li>
+<li>斗罗历2618年：比比东离开杀戮之都，弗兰德创立史莱克学院。</li>
+<li>斗罗历2620年：比比东生下千仞雪</li>
+<li>斗罗历2621年：风笑天出生</li>
+<li>斗罗历2622年：唐昊、唐啸和阿银相识，唐啸成为封号斗罗</li>
+<li>斗罗历2625年：唐啸退出三角恋，武魂殿攻打昊天宗</li>
+<li>斗罗历2626年：胡列娜、邪月、焱、水冰儿、火舞出生</li>
+<li>斗罗历2628年：戴沐白出生</li>
+<li>斗罗历2629年：奥斯卡出生</li>
+<li>斗罗历2631年：唐三出生，唐昊成为封号斗罗，阿银献祭，唐昊飙升至92级，比比东杀死千寻疾成为新教皇，马红俊出生，武魂殿攻打昊天宗，唐昊父亲死亡，昊天宗归隐，唐昊被昊天宗除名，小舞化形，宁荣荣出生，朱竹清出生</li>
+<li>斗罗历2637年：唐三觉醒双生武魂，进入诺丁学院，拜玉小刚为师，认识小舞、王圣</li>
+<li>斗罗历2642年：马红俊加入史莱克学院，唐三小舞诺丁学院毕业</li>
+<li>斗罗历2643年：唐三、小舞、宁荣荣、朱竹清加入史莱克，唐三获得外附魂骨八蛛矛</li>
+<li>斗罗历2644年：史莱克融合柳二龙的蓝霸学院，唐三被独孤博抓进冰火两仪眼，回归后史莱克七怪集体吃仙草</li>
+<li>斗罗历2645年：高级魂师大赛预选赛，前往武魂城，魂师大赛夺冠，小舞暴露魂兽身份，唐昊救场，定下五年之约</li>
+<li>斗罗历2645～2647年：唐昊秘密特训唐三</li>
+<li>斗罗历2647年：唐三蓝银草觉醒为蓝银皇，唐三进入杀戮之都遇到胡列娜</li>
+<li>斗罗历2649年：唐三和胡列娜联手离开杀戮之都，唐三来到天斗城月轩找唐月华洗杀气</li>
+<li>斗罗历2650年：唐三回归史莱克七怪重聚，小舞献祭，武魂殿启动猎魂计划，七宝琉璃宗重创，蓝电霸王龙宗覆灭，唐三收服下四宗成立唐门，千仞雪伪装暴露，天斗帝国发生政变</li>
+<li>斗罗历2651年：唐三等人前往海神岛参加神考</li>
+<li>斗罗历2655年：唐三等人离开海神岛，唐三杀死鬼斗罗和菊斗罗，泰坦巨猿和天青牛蟒献祭，小舞复活</li>
+<li>斗罗历2657年：千仞雪成神追杀唐三，唐三杀死深海魔鲸王，史莱克七怪成神，嘉陵关决战，唐三死亡重生，唐三杀死比比东重创千仞雪</li>
+</ul>
+<h4>武魂</h4><ul>
+<li>斗罗大陆人类在约六岁时觉醒的一种天生能力，决定了一个人是否有潜力成为魂师以及未来的发展方向。</li>
+<li>武魂大致分为器武魂、兽武魂、本体武魂三大类。武魂通常由父母其中一方遗传，但也可能发生变异。</li>
+<li><b>双生武魂</b>：一种极其罕见的现象，拥有者体内存在两种武魂，这提供了拥有更多魂环的可能性，但修炼难度也更大。</li>
+<li><b>变异武魂</b>：指与父母武魂显著不同的武魂，可能向好的方向变异（良性变异，如马红俊的邪火凤凰净化为火凤凰、柳二龙的火龙），也可能向坏的方向变异（恶性变异，如玉小刚的罗三炮），甚至出现完全无攻击力但具备特殊能力的武魂（如唐月华的贵族圆环）。</li></ul>
+<h4>魂力等级</h4><ul>
+<li>衡量魂师魂力修为的标准。魂力等级从1级开始，每10级为一个大的阶段，并拥有特定的称号。</li>
+<li>1-10级为魂士，11-20级为魂师，21-30级为大魂师，31-40级为魂尊，41-50级为魂宗，51-60级为魂王，61-70级为魂帝，71-80级为魂圣，81-90级为魂斗罗。达到91级以上则被称为"封号斗罗"，这是魂师的顶点，拥有属于自己的封号。</li>
+<li>封号斗罗内部也存在实力差距，通常91-94级为普通封号斗罗，95-98级被称为"超级斗罗"，而99级则被称为"极限斗罗"（或绝世斗罗），是凡人的巅峰，距离神祇仅一步之遥。100级则代表成神。</li></ul>
+<h4>先天魂力</h4><ul>
+<li>觉醒时体内与生俱来的魂力总量，1~10级衡量（极其罕见的神级武魂可出现10级以上先天魂力，例如千仞雪先天20级），决定修炼速度与天赋。</li>
+<li>先天满魂力（10级）百年难遇，如奥斯卡、唐三；双生武魂者往往也是。</li></ul>
+<h4>实时魂力 · 战斗蓝条</h4><ul>
+<li>释放魂技、维持领域、催动魂导器与暗器都要消耗魂力，魂力耗尽只能肉搏。</li>
+<li>等级越高总量与恢复越强；食物系、辅助系可为队友回魂力。</li></ul>
+<h4>魂环</h4><ul>
+<li>魂师猎杀与其武魂属性相适应的魂兽后，吸收其灵魂能量形成的能量环。</li>
+<li>魂环是魂师突破等级瓶颈（10级、20级等）的必需品，每吸收一个魂环，魂师就能获得一个对应的魂技，并提升自身的基础属性。</li>
+<li>魂环的品质由其来源魂兽的年限决定，年限越高，魂环品质越好，提供的魂技越强，属性增幅也越大。</li>
+<li>魂环的年限通过颜色区分：白色代表十年魂环，黄色代表百年魂环，紫色代表千年魂环，黑色代表万年魂环，红色代表十万年魂环（极为珍贵，通常伴随产出魂骨或魂兽献祭/重修的机会），此外还有更高级别的如百万年魂环（橙金色等）和神级魂环。</li>
+<li>魂师吸收魂环需要遵循一定的规则，每个魂环位置（第一魂环、第二魂环等）都有理论上能承受的最高年限，超出承受范围强行吸收可能导致身体爆裂。</li>
+<li>吸收极限会随着魂师等级的提升而增加，也可以通过强大的体魄、特殊际遇或天材地宝（如仙品药草）来突破。</li></ul>
+<h4>魂骨</h4><ul>
+<li>魂兽死亡后有极小几率产生的特殊骨骼，远比魂环稀有。</li>
+<li>十万年魂兽死亡时必定产生魂骨（若不选择化形或献祭）。</li>
+<li>魂骨可以与魂师身体的特定部位（头骨、躯干骨、左臂骨、右臂骨、左腿骨、右腿骨，共六大类）融合，融合后会极大地提升魂师的属性，并赋予一个强大的魂骨技能，该技能通常不消耗魂力或消耗极少。</li>
+<li>魂骨无法被夺取（除非杀死魂师），一旦融合即为魂师自身的一部分。</li>
+<li>除了常规的六块魂骨，还存在更为罕见和强大的"外附魂骨"，它可以随着魂师的成长而进化（如唐三的八蛛矛）。</li>
+<li>集齐一套六块魂骨会对魂师实力产生质的飞跃。</li></ul>
+<h4>魂兽</h4><ul>
+<li>斗罗大陆上的生物，它们通过吸收天地精华修炼，拥有魂力。</li>
+<li>魂兽的实力以其修炼的年限来衡量，如十年魂兽、百年魂兽、千年魂兽、万年魂兽、十万年魂兽，乃至更高层次的百万年魂兽。</li>
+<li>魂兽达到特定的年限（如万年、十万年）时，实力会发生质变，智慧也会大幅提升。</li>
+<li>十万年魂兽拥有极高的智慧，能够口吐人言，在濒死或自愿时，可以选择献祭（将自身所有力量化为魂环和魂骨给予魂师）或化形（放弃修为，重新变为人类婴儿形态开始修炼）。</li>
+<li>魂兽是魂师获取魂环和魂骨的主要来源。</li></ul>
+<h4>仙草名录</h4><ul>
+<li><b>八角玄冰草</b>：极寒仙品，唐三以之淬体。</li>
+<li><b>烈火杏娇疏</b>：极热仙品，与玄冰草阴阳相济。</li>
+<li><b>望穿秋水露</b>：淬炼精神与双目。</li><li><b>相思断肠红</b>：百花之王，隐匿气息、护主保命。</li>
+<li><b>绮罗郁金香</b>：助七宝琉璃塔进化为九宝。</li>
+<li><b>鸡冠凤凰葵</b>：净化邪火。</li><li><b>水仙玉骨肌</b>：玉骨冰肌，增幅敏捷体魄。</li><li><b>八瓣仙兰</b>：固本培元，食物系根基。</li></ul>
+<h4>魂技</h4><ul>
+<li>魂师通过吸收魂环、魂骨、自创、神赐等方式获得的能力，是魂师战斗、辅助、控制等各种能力的主要体现。</li>
+<li>每个魂环提供一个魂技（十万年提供两个魂技，百万年提供四个），魂技的强弱与魂环年限直接相关。</li>
+<li>武魂融合技：由两个或多个武魂契合度极高的魂师共同施展的强大技能，威力远超个人魂技（如戴沐白和朱竹清的"幽冥白虎"）。</li>
+<li>自创魂技：魂师凭借对自身武魂、魂力运行的深刻理解，或结合特殊技巧创造出的技能，具有很高的灵活性和威力（如唐三结合唐门绝学和自身能力的各种应用）。</li></ul>
+<h4>魂导器</h4><ul>
+<li>利用稀有金属，通过特殊工艺制造，并能以魂力驱动的器物。</li>
+<li>魂导器种类繁多，攻击、防御、储物等，最常见的是储物魂导器（如"二十四桥明月夜"），可以用来储存物品。</li></ul>
+<h4>暗器</h4><ul>
+<li>唐三从前世唐门带到斗罗大陆的特殊武器技艺。</li>
+<li>它主要依靠精密的机械结构、特殊材质、淬毒以及使用者的手法和技巧发挥威力，对魂力的直接依赖相对较小，但魂力可以用来驱动或增强某些强大的暗器。</li>
+<li>暗器种类繁多，有机括类（如诸葛神弩、佛怒唐莲）、手掷类（如阎王帖、观音泪）、下毒类等。</li>
+<li>暗器以其隐蔽性、突然性和强大的穿透力、杀伤力而闻名，在战斗中往往能起到出其不意的效果，甚至能威胁到等级远高于使用者的魂师。</li></ul>
+<h4>领域</h4><ul>
+<li>一种极其稀有且强大的范围性能力，拥有领域的魂师可以在自身周围展开一个特殊的场域，对领域范围内的环境、敌人或友方产生持续性的影响，如增益己方、削弱敌方、改变环境属性、增强自身感知或特定能力等。</li>
+<li>领域技能的来源多样，可能由特殊的武魂天生自带（如唐三的蓝银领域），或通过吸收特定的高年限魂环（尤其是十万年魂环）、魂骨（特别是头部魂骨）、完成神祇试炼获得（如唐三的杀神领域、海神领域），或达到封号斗罗层次后自行领悟。</li>
+<li>领域之间存在相互克制和压制的关系，是顶级强者实力的重要象征（如比比东的死亡领域、千仞雪的天使领域、唐月华的贵族圆环）。</li></ul>`;
+ $('tabSave').innerHTML=
+ '<p>积分有限时，可配合以下心法节省。</p><ol><li><b>调低记忆范围</b>：右上角调低记忆范围（例如 4 或 6）。</li><li><b>更换低系数模型</b>：质量自测，按需取舍。</li><li><b>关闭高消耗功能</b>：例如关闭「UI美化」「画面特写」。</li><li><b>搬家总结</b>：经常把长期总结区里的内容，挪到自定义配置的提示词里。</li><li><b>精简 MOD</b>：减少使用的 MOD 数量。</li></ol>'+
+ '<h4>小技巧</h4><ul><li>避免在同一对话中频繁开启关闭大量功能。</li><li>把"世界观设定"类内容放入【世界书】以关键词触发，比全量灌入主提示词更省。</li><li>角色信息固定后，可把关键属性存入主提示词，不再重复描述。</li><li>回复长度选「中等」在质量与消耗间最佳平衡。</li></ul>';
+ $('tabCfg').innerHTML=
+ '<p>位置在右上角，可填入自定义的设定和故事进程。<b>若创建新对话，务必检查配置中是否有之前遗留的设定。</b></p>'+
+ '<h4>【前置词 / 后置词】</h4><p>将填写的内容，每次附加在你发送给 AI 消息的前面/后面。</p><div class="feat-card" style="padding:8px 12px;font-size:13px;color:var(--cyan);margin-top:8px">[注意严格遵守输出格式，不要自由发挥]</div>'+
+ '<h4>【主提示词】</h4><p>主要填写设定的区域，大部分设定只需填写在此即可。</p><ul><li>你的角色信息</li><li>故事发展进程、重要事件</li><li>世界规则与当前状态</li></ul>'+
+ '<h4>【世界书】</h4><p>当对话中触发了你设置的关键词后，AI 才能读取里面的设定。<b>本页所有功能皆以世界书形式触发。</b></p>'+
+ '<h4>使用顺序建议</h4><ol><li>先填<b>主提示词</b>：人物、剧情、背景。</li><li>再填<b>世界书</b>：地名、组织、特殊设定。</li><li>最后加<b>前/后置词</b>：格式、风格、特殊要求。</li></ol>';
+
+/* =========================================================
+   人物图鉴书（右抽屉 · 翻页引擎）
+   透视挂 .book（非 preserve-3d），z-index 完全可控；
+   书页与悬浮卡共用同一图片 URL，缓存命中即显
+========================================================= */
+var SIS=[
+ {name:'唐三',tag:'千手修罗',trait:'史莱克七怪老三 · 双生武魂',img:'tangsan',lv:'100级 · 海神 / 修罗神',spirit:'蓝银皇 & 昊天锤',intro:'史莱克七怪老三，七怪核心。\n初期相貌普通，觉醒蓝银皇后变得极为英俊，蓝发蓝眸。\n性格沉稳冷静、护短、城府极深、有仇必报。\n唐昊与十万年魂兽阿银之子，最终继承海神与修罗神双神位，创立唐门。'},
+ {name:'小舞',tag:'十万年魂兽',trait:'史莱克七怪老五 · 柔骨兔',img:'xiaowu',lv:'十万年化形 · 不死神',spirit:'柔骨兔',intro:'史莱克七怪老五。\n外貌极美，蝎子辫，活泼可爱，后期成熟魅力。\n武魂柔骨兔，本体为十万年魂兽柔骨兔化形，唐三的挚爱与妻子。\n性格开朗善良，对唐三无比依恋与信任，勇敢坚强。'},
+ {name:'戴沐白',tag:'白虎公爵',trait:'史莱克七怪老大 · 邪眸白虎',img:'daimubai',lv:'95级 · 超级斗罗',spirit:'白虎',intro:'史莱克七怪老大，星罗帝国太子，后为星罗大帝。\n身材高大健壮，金发金眸，邪眸双瞳，英俊威严。\n性格从傲慢风流成长为有担当、勇猛正直的领袖，保护欲强。\n朱竹清的伴侣。'},
+ {name:'奥斯卡',tag:'食神',trait:'史莱克七怪老二 · 食物系香肠',img:'aosika',lv:'92级 · 食神',spirit:'香肠',intro:'史莱克七怪老二。\n相貌俊美，桃花眼。武魂是食物系香肠，先天满魂力，能制造各种效果的香肠。\n性格风趣幽默，看似不羁实则内心坚韧，为宁荣荣付出巨大努力。\n斗罗大陆首位食物系封号斗罗，最后继承食神神位。'},
+ {name:'马红俊',tag:'邪火凤凰',trait:'史莱克七怪老四 · 顶级变异兽武魂',img:'mahongjun',lv:'93级 · 封号斗罗',spirit:'邪火凤凰',intro:'史莱克七怪老四。\n初期身材肥胖，后服用仙草变得英俊。\n武魂是顶级变异兽武魂邪火凤凰，后净化为火凤凰，最终进化为十首火凤凰。\n性格从好色懒惰变得成熟勇猛、讲义气，但依旧直爽冲动。\n弗兰德的弟子，白沉香的伴侣，最后继承凤凰之神神位。'},
+ {name:'宁荣荣',tag:'九彩神女',trait:'史莱克七怪老六 · 七宝琉璃塔',img:'ningrongrong',lv:'94级 · 封号斗罗',spirit:'九宝琉璃塔',intro:'史莱克七怪老六。\n外貌绝色，皮肤白皙，气质高贵典雅。\n武魂是辅助系第一的七宝琉璃塔，后进化为九宝琉璃塔。\n性格从刁蛮任性的小公主成长为善良体贴、顾全大局、坚韧聪慧的女子。\n宁风致之女，后为宗主，最后继承九彩神女神位。'},
+ {name:'朱竹清',tag:'速度之神',trait:'史莱克七怪老七 · 幽冥灵猫',img:'zhuzhuqing',lv:'93级 · 封号斗罗',spirit:'幽冥灵猫',intro:'史莱克七怪老七。\n身材火爆性感，容貌冷艳绝美，黑发黑眸。\n武魂是敏攻系兽武魂幽冥灵猫。\n性格外冷内热，沉默寡言，但意志坚定，修炼刻苦，行事果断。\n星罗帝国贵族朱家之女，戴沐白的未婚妻及伴侣，最后继承速度之神神位。'},
+ {name:'玉小刚',tag:'大师',trait:'唐三之师 · 罗三炮',img:'yuxiaogang',lv:'29级 · 理论大师',spirit:'罗三炮',intro:'唐三的老师，理论知识极为丰富。\n外貌普通，神情略显僵硬。武魂是蓝电霸王龙恶性变异而成的罗三炮。\n性格固执、极其看重理论和规则，但内心深处非常护短和关爱弟子。\n「黄金铁三角」智慧之角，蓝电霸王龙家族直系子弟。'},
+ {name:'唐昊',tag:'昊天斗罗',trait:'唐三之父 · 昊天锤',img:'tanghao',lv:'97级 · 超级斗罗',spirit:'昊天锤',intro:'唐三的父亲。\n初期是颓废邋遢的铁匠形象，实则身材高大威猛。\n武魂是强攻系第一的昊天锤。\n性格深沉、刚猛霸道，深爱妻儿，但也背负着巨大的痛苦和责任。\n昊天宗最年轻的封号斗罗「昊天斗罗」，实力极其强大。'},
+ {name:'弗兰德',tag:'史莱克院长',trait:'黄金铁三角飞行之角 · 四眼猫鹰',img:'fulande',lv:'魂斗罗',spirit:'四眼猫鹰',intro:'史莱克学院院长。\n身材瘦高，戴眼镜，显得有些精明和市侩。\n性格爱财但极度护短，看重怪物般的才华，对史莱克七怪视如己出。\n「黄金铁三角」飞行之角。'},
+ {name:'柳二龙',tag:'火龙',trait:'黄金铁三角杀戮之角 · 良性变异',img:'liuerlong',lv:'封号斗罗',spirit:'火龙',intro:'史莱克学院老师。\n外貌美艳，性格火爆。\n武魂是蓝电霸王龙良性变异而成的火龙。\n性格刚烈、直接，敢爱敢恨，对玉小刚感情极深。\n「黄金铁三角」杀戮之角，玉小刚的堂妹和爱人。'},
+ {name:'赵无极',tag:'不动明王',trait:'史莱克副院长 · 大力金刚熊',img:'zhaowuji',lv:'魂圣',spirit:'大力金刚熊',intro:'史莱克学院副院长。\n身材极其魁梧壮硕。\n性格粗犷豪放，好战，看重实战和意志力，也非常护短。\n防御极强，人送外号「不动明王」，曾是让武魂殿头疼的人物。'},
+ {name:'秦明',tag:'烈火苍狼',trait:'天斗皇家学院教师 · 史莱克早期毕业生',img:'qinming',lv:'魂帝',spirit:'烈火苍狼',intro:'天斗皇家学院老师，史莱克学院早期毕业生。\n年轻有为，相貌英俊。\n性格谦逊有礼，尊敬师长，天赋很高。\n深受弗兰德看重的弟子，后为保护史莱克众人牺牲。'},
+ {name:'邵鑫',tag:'糖豆魂圣',trait:'史莱克教师 · 食物系先天满魂力',img:'shaoxin',lv:'魂圣',spirit:'糖豆',intro:'史莱克学院老师，外表比较胖。\n性格温和。\n史莱克学院的食物系魂圣，大陆第一位食物系先天满魂力的魂师。'},
+ {name:'比比东',tag:'罗刹神',trait:'武魂殿教皇 · 双生武魂',img:'bibi',lv:'99级 · 罗刹神',spirit:'死亡蛛皇 & 噬魂蛛皇',intro:'武魂殿教皇，后为武魂帝国女皇。\n外貌极美，高贵而充满威严。\n拥有双生武魂：死亡蛛皇和噬魂蛛皇。\n性格复杂，野心勃勃，心狠手辣。\n曾被教皇千寻疾玷污生下女儿千仞雪，对胡列娜有师徒之情。'},
+ {name:'千仞雪',tag:'天使之神',trait:'武魂殿少主 · 六翼天使',img:'qianrenxue',lv:'100级 · 天使之神',spirit:'六翼天使',intro:'比比东与千寻疾之女。\n外貌神圣美丽，如同天使。\n武魂是顶级的六翼天使，先天满魂力20级。\n性格聪慧、坚韧、高傲。曾伪装成男性，化名雪清河潜伏天斗帝国，对唐三感情复杂。\n后继承天使之神之位追杀唐三，在嘉陵关为救比比东而神位破碎。'},
+ {name:'胡列娜',tag:'妖狐',trait:'武魂殿黄金一代 · 比比东之徒',img:'huliena',lv:'魂帝（19岁50级）',spirit:'妖狐',intro:'武魂殿黄金一代，比比东的徒弟。\n气质妩媚动人，身材曼妙，狐狸眼。\n聪慧狡黠，善于察言观色，野心勃勃但不失忠诚，对感情较为执着，兼具柔情与狠辣。\n擅长魅惑控制。'},
+ {name:'月关',tag:'菊斗罗',trait:'武魂殿长老 · 奇茸通天菊',img:'yueguan',lv:'95级 · 封号斗罗',spirit:'奇茸通天菊',intro:'武魂殿长老，封号菊斗罗。\n外貌阴柔俊美，举止妩媚。\n忠于比比东，与鬼斗罗形影不离，行事狠辣，比比东的得力手下。'},
+ {name:'鬼魅',tag:'鬼斗罗',trait:'武魂殿长老 · 鬼魅',img:'guimei',lv:'95级 · 封号斗罗',spirit:'鬼魅',intro:'武魂殿长老，封号鬼斗罗。\n外形诡异，如同鬼影，气息阴冷。\n性格沉默寡言，冷酷无情，能与菊斗罗施展武魂融合技「两极静止领域」。'},
+ {name:'金鳄',tag:'金鳄斗罗',trait:'供奉殿二供奉 · 98级巅峰斗罗',img:'jine',lv:'98级 · 巅峰斗罗',spirit:'黄金鳄王',intro:'武魂殿供奉殿二供奉，98级巅峰斗罗，封号金鳄斗罗。\n年事已高但气势强大。\n性格沉稳霸道，忠于千道流。'},
+ {name:'波塞西',tag:'海神代言人',trait:'海神岛大祭司 · 99级极限斗罗',img:'bosexi',lv:'99级 · 极限斗罗',spirit:'海神（借力）',intro:'海神岛大祭司。\n外貌绝美，宛若女神，海蓝色长发。\n借助海神之力拥有海神武魂。\n性格温和、睿智、强大而慈悲，深爱唐晨。\n海神代言人。'},
+ {name:'千道流',tag:'天使守护者',trait:'武魂殿大供奉 · 六翼天使',img:'qiandaoliu',lv:'99级 · 极限斗罗',spirit:'六翼天使',intro:'武魂殿大供奉。\n年老但威严，金发金眸。\n性格高傲，信仰坚定，深爱波塞西。\n千仞雪的祖父，天使之神守护者，为助孙女成神而牺牲。'},
+ {name:'唐晨',tag:'杀戮之王',trait:'昊天宗前宗主 · 昊天锤',img:'tangchen',lv:'99级 · 极限斗罗',spirit:'昊天锤',intro:'昊天宗前任宗主，唐三的曾祖。\n身材伟岸，霸气无双。\n性格雄才大略，骄傲自信，追求力量极致，深爱波塞西。\n受杀戮神的影响成为杀戮之都的杀戮之王。'},
+ {name:'独孤博',tag:'毒斗罗',trait:'碧磷蛇皇 · 用毒大师',img:'dugubo',lv:'91级 · 封号斗罗',spirit:'碧磷蛇皇',intro:'封号毒斗罗。\n身材瘦长，绿发绿眸，气息阴冷。\n性格孤僻古怪，极其疼爱孙女独孤雁，后与唐三成为忘年之交。\n用毒大师，史莱克和唐门的盟友。'},
+ {name:'宁风致',tag:'七宝琉璃宗主',trait:'大陆第一辅助 · 七宝琉璃塔',img:'ningfengzhi',lv:'79级 · 魂斗罗',spirit:'七宝琉璃塔',intro:'七宝琉璃宗宗主。\n外貌儒雅俊朗，气质温和。\n性格睿智、沉稳，是优秀的领导者和慈父。\n曾是大陆第一辅助系魂师，唐三的重要支持者。'},
+ {name:'尘心',tag:'剑斗罗',trait:'七宝琉璃宗守护者 · 七杀剑',img:'chenxin',lv:'97级 · 超级斗罗',spirit:'七杀剑',intro:'七宝琉璃宗守护者，封号剑斗罗。\n目光锐利，气质如剑。\n性格孤高、冷傲，痴迷剑道，忠于宗门。\n顶级攻击型强者。'},
+ {name:'古榕',tag:'骨斗罗',trait:'七宝琉璃宗守护者 · 骨龙',img:'gurong',lv:'95级 · 封号斗罗',spirit:'骨龙',intro:'七宝琉璃宗守护者，封号骨斗罗。\n性格古怪，常与剑斗罗斗嘴。\n实力强大且诡异，擅长空间和防御能力。'},
+ {name:'玉元震',tag:'蓝电霸王龙宗主',trait:'上三宗之一 · 蓝电霸王龙',img:'yuyuanzhen',lv:'封号斗罗',spirit:'蓝电霸王龙',intro:'蓝电霸王龙家族族长。\n身材魁梧，气势霸道。\n性格刚猛，重视家族荣耀。\n上三宗宗主之一，后为护族牺牲。'},
+ {name:'泰坦',tag:'大力神',trait:'力之一族族长 · 大力猩猩',img:'titan',lv:'86级 · 战魂斗罗',spirit:'大力猩猩',intro:'力之一族的族长，外号「大力神」。\n性格豪爽、护短，但心思细密，为人忠诚。\n铁匠协会副会长，大陆三大神匠级铁匠之一。\n后成为唐门力堂堂主，负责铸造暗器。'},
+ {name:'牛皋',tag:'板甲巨犀',trait:'御之一族族长 · 防御系顶级',img:'niugao',lv:'魂斗罗',spirit:'板甲巨犀',intro:'御之一族族长。\n身材极为壮硕，如同山岳。\n性格憨厚、固执，重承诺。\n单属性四宗族族长之一，后加入唐门任御堂堂主。'},
+ {name:'白鹤',tag:'尖尾雨燕',trait:'敏之一族族长 · 白沉香祖父',img:'baihe',lv:'魂斗罗',spirit:'尖尾雨燕',intro:'敏之一族族长。\n身材瘦小，速度极快。\n性格急躁，重情义。\n单属性四宗族族长之一，后加入唐门任敏堂堂主。'},
+ {name:'杨无敌',tag:'破魂枪',trait:'破之一族族长',img:'yangwudi',lv:'魂斗罗',spirit:'破魂枪',intro:'破之一族族长。\n身材瘦高，面容冷峻。\n性格孤傲、自负，只信奉实力。\n单属性四宗族族长之一，后加入唐门任药堂堂主。'},
+ {name:'唐月华',tag:'月轩轩主',trait:'唐三之姑姑 · 如意环',img:'tangyuehua',lv:'领域系',spirit:'如意环（昊天锤变异）',intro:'唐三的姑姑。\n容貌绝美，气质高雅雍容。\n武魂是昊天锤变异的如意环，无攻击力但有领域。\n性格温柔知性，精通礼仪艺术。\n月轩轩主，昊天宗直系子弟。'},
+ {name:'素云涛',tag:'瞎眼斗罗',trait:'武魂殿基层魂师 · 独狼',img:'suyuntao',lv:'魂师',spirit:'独狼',intro:'武魂殿基层魂师，负责觉醒事宜。\n性格按章办事，略有优越感。\n虽然勤奋但眼光差，曾为唐三觉醒武魂后将其忽略，人送外号「瞎眼斗罗」。'},
+ {name:'白沉香',tag:'尖尾雨燕',trait:'敏之一族 · 马红俊伴侣',img:'baichenxiang',lv:'魂帝',spirit:'尖尾雨燕',intro:'敏之一族族长的孙女。\n外貌俏丽，身形轻盈。\n性格初期有些娇蛮，后变得努力坚强。\n马红俊的伴侣，唐门敏堂成员。'},
+ {name:'独孤雁',tag:'碧磷蛇',trait:'皇斗战队副队长',img:'duguyan',lv:'魂帝',spirit:'碧磷蛇',intro:'独孤博的孙女。\n容貌美艳带毒。\n性格高傲好胜，维护祖父。\n皇斗战队副队长，玉天恒的女友。'},
+ {name:'玉天恒',tag:'蓝电霸王龙',trait:'皇斗战队队长 · 玉小刚侄子',img:'yutianheng',lv:'魂帝',spirit:'蓝电霸王龙',intro:'蓝电霸王龙家族继承人。\n英俊挺拔，蓝发蓝眸。\n性格高傲自信，有领导力。\n皇斗战队队长。'},
+ {name:'泰隆',tag:'大力猩猩',trait:'史莱克学员 · 唐门力堂',img:'tailong',lv:'魂宗',spirit:'大力猩猩',intro:'力之一族族长的孙子。\n身材极其高大魁梧。\n性格憨厚直率，崇拜力量。\n史莱克学院学员，后加入唐门力堂。'},
+ {name:'不乐',tag:'天罗双罩',trait:'小混混',img:'bule',lv:'魂师',spirit:'天罗双罩',intro:'小混混。\n外貌龅牙、猥琐、贼眉鼠眼。\n好色、下流。\n曾因骚扰小舞被唐三等人教训。'},
+ {name:'唐啸',tag:'昊天宗宗主',trait:'唐三伯父 · 昊天锤',img:'tangxiao',lv:'96级 · 封号斗罗',spirit:'昊天锤',intro:'昊天宗宗主。\n身材高大魁梧，面容刚毅，不怒自威。\n性格沉稳、刚毅、顾全大局、极重宗门荣誉和亲情。\n对弟弟唐昊感情深厚，对侄子唐三也十分关照。'},
+ {name:'王圣',tag:'战虎',trait:'诺丁学院工读生',img:'wangsheng',lv:'魂士',spirit:'战虎',intro:'诺丁初级魂师学院的工读生。\n穿着朴素的校服，孩子王。\n爱争强好胜，喜欢在宿舍里当老大，欺软怕硬。'},
+ {name:'风笑天',tag:'疾风双头狼',trait:'神风学院队长',img:'fengxiaotian',lv:'魂王（19岁）',spirit:'疾风双头狼',intro:'大赛时期神风学院的队长。\n金发，戴面罩。\n拥有顶级兽武魂疾风双头狼。\n性格狂傲执着，非常痴恋火舞，重视学院的荣誉，好胜心很强。'},
+ {name:'火舞',tag:'火影',trait:'炽火学院副队长',img:'huowu',lv:'魂王',spirit:'火影',intro:'大赛时期炽火学院战斗的副队长。\n红色长发，红色长裙。\n武魂是精神控制系的火影。\n性格骄傲火爆，好胜心很强，容易冲动。\n对风笑天若即若离，以此刺激唐三。'},
+ {name:'水冰儿',tag:'冰凤凰',trait:'天水学院队长',img:'shuibinger',lv:'魂王',spirit:'冰凤凰',intro:'大赛时期天水学院的队长。\n身穿水蓝色流纱长裙，看上去较为冷淡。\n武魂是顶级控制系兽武魂冰凤凰。\n性格聪明、沉稳，好胜心很强，过度追求完美。'},
+ {name:'邪月',tag:'月刃',trait:'武魂殿黄金一代队长 · 胡列娜之兄',img:'xieyue',lv:'魂圣（29岁）',spirit:'月刃',intro:'武魂殿黄金一代队长，胡列娜的亲哥哥。\n19岁就突破50级，打破最年轻魂王记录，29岁达到魂圣。\n性格冷静心思缜密，心怀邪念，认为实力即真理。'},
+ {name:'焱',tag:'火焰领主',trait:'武魂殿黄金一代',img:'yan',lv:'魂王（19岁）',spirit:'火焰领主',intro:'武魂殿黄金一代。\n性格易怒冲动，喜欢胡列娜。\n19岁突破50级成为魂王，对武魂殿极为忠诚。'}
+];
+
+/* 人物图鉴图片表：名字必须与 SIS 里的 name 完全一致；没列到的人物自动用占位图 */
+var IMG={
+'唐三':'https://catai.wiki/08af4549-c430-4440-6dd5-b69c1278ae00/w=3000',
+'小舞':'https://catai.wiki/5b478e8d-9106-49b8-b4a9-65247a478600/w=640',
+'戴沐白':'https://catai.wiki/1385c057-57e3-4542-e164-9bef4653ee00/w=640',
+'奥斯卡':'https://catai.wiki/7084544a-fb2f-4349-88ab-8c87a4045b00/w=640',
+'马红俊':'https://catai.wiki/b5f895c0-f500-417f-1b66-94315e926800/w=640',
+'宁荣荣':'https://catai.wiki/6992a8ed-fa04-41ba-71d8-01ed7dff7b00/w=640',
+'朱竹清':'https://catai.wiki/d2d46713-84fd-42fe-cb68-48b280329d00/w=640',
+'玉小刚':'https://catai.wiki/b9a0edc9-a136-4e74-7538-506112129800/w=640',
+'唐昊':'https://catai.wiki/55e00d4d-cb80-4bc4-054c-4e7894a05100/w=640',
+'弗兰德':'https://catai.wiki/a1acc8fa-1f63-415c-d428-178580577c00/w=640',
+'柳二龙':'https://catai.wiki/7966c690-b57e-4def-5b2a-476aca214a00/w=640',
+'赵无极':'https://catai.wiki/777e05db-bcdc-4f90-6b33-b208f208a500/w=640',
+'秦明':'https://catai.wiki/8cd7a2a3-bacd-45b9-ec07-7353bcf13700/w=640',
+'邵鑫':'https://catai.wiki/18929a5a-decf-4aec-1062-cb196c6be200/w=640',
+'比比东':'https://catai.wiki/fd5dbc7f-5bdf-4b6f-d628-52e837d4bb00/w=640',
+'千仞雪':'https://catai.wiki/427eb698-fb21-492e-124e-b28bfbbcaa00/w=640',
+'胡列娜':'https://catai.wiki/6f7e3b60-b0ef-4276-3207-0ee3920b3c00/w=640',
+'月关':'https://catai.wiki/10551dcb-40bc-44f9-ed62-76f8f7ff7100/w=640',
+'鬼魅':'https://catai.wiki/8e26b4a8-d36f-4757-464c-4ea25d23e400/w=640',
+'金鳄':'https://catai.wiki/640bf092-0226-4d05-99bc-16a8ed9d5600/w=640',
+'波塞西':'https://catai.wiki/e10b4123-9b01-424b-e19c-b5b75cfa7800/w=640',
+'千道流':'https://catai.wiki/394a8a9a-29f8-451c-0e17-6fc6a0bb5900/w=640',
+'唐晨':'https://catai.wiki/2f69fabd-64d0-486e-92e8-91c6a602f200/w=640',
+'独孤博':'https://catai.wiki/2b8ec501-12e5-4d18-ac28-0abc825ece00/w=640',
+'宁风致':'https://catai.wiki/7acc51c7-4283-4ce5-3b12-f7984dcfbe00/w=640',
+'尘心':'https://catai.wiki/f27e90e6-3b98-492a-97eb-0abba8790500/w=640',
+'古榕':'https://catai.wiki/5f6cae3e-3d2e-433e-293f-278a39542900/w=640',
+'玉元震':'https://catai.wiki/374b65d5-70c6-49a7-b91f-83d8edc6e700/w=640',
+'泰坦':'https://catai.wiki/299a9208-1003-486e-9508-c43e92559e00/w=640',
+'牛皋':'https://catai.wiki/605e3477-e380-4b1e-2533-d6ef1cfef600/w=640',
+'白鹤':'https://catai.wiki/1b3412db-eea0-4339-a3cc-3449c0d4cc00/w=640',
+'杨无敌':'https://catai.wiki/32daa54a-889c-4559-4322-1c2a157a6d00/w=640',
+'唐月华':'https://catai.wiki/bd0cdfe7-1600-46e0-2ef3-6dd278000500/w=640',
+'素云涛':'https://catai.wiki/8dedd041-6fc4-4cf3-1760-64d7ecc47400/w=640',
+'白沉香':'https://catai.wiki/0301a05b-7b86-42fa-16b2-afe029c22300/w=640',
+'独孤雁':'https://catai.wiki/eda8842b-216a-41ba-c5a8-6f4c42771700/w=640',
+'玉天恒':'https://catai.wiki/e1b19ac2-55a1-4c14-f72b-53e2497a1100/w=640',
+'泰隆':'https://catai.wiki/24fcd9d4-3166-43ba-0d74-d171b0910600/w=640',
+'不乐':'https://catai.wiki/955a426c-625a-4988-a238-52293d151b00/w=640',
+'唐啸':'https://catai.wiki/318c27aa-ae7b-4824-45e6-65a6e2118800/w=640',
+'王圣':'https://catai.wiki/010f757e-a16a-416b-63a2-c1e202473500/w=640',
+'风笑天':'https://catai.wiki/91ddc051-5197-446d-a60e-c7c665772000/w=640',
+'火舞':'https://catai.wiki/05203b3a-e4d6-4aec-2f3b-8673eb301300/w=640',
+'水冰儿':'https://catai.wiki/e877a0ad-8e4d-4130-5665-20b9a490bc00/w=640',
+'邪月':'https://catai.wiki/5c4bbf72-79bd-419b-9487-b375dbab4e00/w=640',
+'焱':'https://catai.wiki/0c724ab9-9c4d-4055-b5e9-5be429ec9c00/w=640'
+};
+
+(function(){
+  var bookEl=$('book');
+  var cover=document.createElement('div');
+  cover.className='page';
+  cover.innerHTML='<div class="page-face page-front cover">'+
+    '<h2>人物图鉴</h2><p class="cover-sub">斗罗大陆 · 魂师卷宗</p><div class="cover-line"></div>'+
+    '<div class="cover-info">翻开人物档案 · 点击图片查看<b>史莱克学院监制 · 武魂殿出版</b></div></div>';
+  bookEl.appendChild(cover);
+  var toc=document.createElement('div');
+  toc.className='page';
+  toc.innerHTML='<div class="page-face page-front">'+
+    '<div class="toc-page">'+
+    '<div class="toc-head"><h3>目 录</h3><p>—— 点击名字可直达对应页面 ——</p></div>'+
+    '<div class="toc-list">'+SIS.map(function(s,i){
+      return '<button type="button" class="toc-item" data-goto="'+(i+2)+'">'+
+        '<span class="toc-no">'+String(i+1).padStart(2,'0')+'</span>'+
+        '<span class="toc-info"><span class="toc-name">'+s.name+'</span><span class="toc-trait">'+s.trait+'</span></span></button>';
+    }).join('')+'</div></div></div>';
+  bookEl.appendChild(toc);
+  SIS.forEach(function(s,i){
+    var p=document.createElement('div');
+    p.className='page';
+    p.innerHTML='<div class="page-face page-front sis-page">'+
+      '<div class="sis-photo-wrap" data-idx="'+i+'">'+
+      '<img class="sis-photo" data-src="'+(IMG[s.name]||('https://picsum.photos/seed/douluo-'+s.img+'/540/920.jpg'))+'" decoding="async" alt="'+s.name+'">'+
+      '<div class="sis-overlay"><span class="sis-no">'+String(i+1).padStart(2,'0')+'</span><h4>'+s.name+'</h4><span class="sis-tag">'+s.tag+'</span></div>'+
+      '</div></div>';
+    bookEl.appendChild(p);
+  });
+
+var pages=$$('.page',bookEl);
+var view=0;
+var farTimer=null;
+function updatePageState(){
+  pages.forEach(function(p,idx){
+    var flipped=idx<view;
+    p.classList.toggle('flipped',flipped);
+    p.style.zIndex=flipped?String(200+idx):String(100-idx);
+    var d=Math.abs(idx-view);
+    if(d<=2){ p.classList.remove('far'); }
+    if(d<=2){
+      var im=p.querySelector('img[data-src]');
+      if(im){ im.src=im.dataset.src; im.removeAttribute('data-src'); }
+    }
+  });
+  clearTimeout(farTimer);
+  farTimer=setTimeout(function(){
+    pages.forEach(function(p,idx){ if(Math.abs(idx-view)>2) p.classList.add('far'); });
+  },950);
+  $('prevBtn').disabled=view<=0;
+  $('nextBtn').disabled=view>=pages.length-1;
+}
+function goTo(v){
+  if(v<0||v>=pages.length||v===view) return;
+  view=v;
+  SND.bookFlip();
+  updatePageState();
+}
+ $('prevBtn').addEventListener('click',function(){ goTo(view-1); });
+ $('nextBtn').addEventListener('click',function(){ goTo(view+1); });
+bookEl.addEventListener('click',function(e){
+  var item=e.target.closest('.toc-item');
+  if(item){ goTo(parseInt(item.dataset.goto,10)); return; }
+  var w=e.target.closest('.sis-photo-wrap');
+  if(w) openPhoto(SIS[+w.dataset.idx]);
+});
+updatePageState();
+})();
+
+var photoTimer=null;
+function openPhoto(s){
+  clearTimeout(photoTimer);
+ $('pcFront').innerHTML='<img src="'+(IMG[s.name]||('https://picsum.photos/seed/douluo-'+s.img+'/540/920.jpg'))+'" alt="'+s.name+'">';
+  var introHtml=s.intro.split('\n').filter(function(x){return x.trim().length>0})
+    .map(function(x){return '<p>'+x.trim()+'</p>'}).join('');
+  $('pcBack').innerHTML='<h4>'+s.name+'<span class="pc-tag">'+s.tag+'</span></h4>'+
+    '<div class="pc-row"><b>武魂：</b>'+s.spirit+'</div><div class="pc-row"><b>魂力：</b>'+s.lv+'</div>'+
+    '<div class="pc-row"><b>卷宗：</b>'+s.trait+'</div>'+introHtml+
+    '<div class="pc-close">点击卡面可翻看</div>';
+  var card=$('photoCard');
+  card.classList.remove('flipped');
+  $('photoOverlay').classList.add('show');
+  SND.bookFlip();
+  var fimg=$('pcFront').querySelector('img');
+  var ready=(fimg&&fimg.decode)?fimg.decode().catch(function(){}):Promise.resolve();
+  ready.then(function(){
+    photoTimer=setTimeout(function(){
+      if($('photoOverlay').classList.contains('show')) card.classList.add('flipped');
+    },700);
+  });
+}
+ $('photoCard').addEventListener('click',function(e){
+  if(e.target.closest('.pc-close')) return;
+  this.classList.toggle('flipped');
+  SND.bookFlip();
+});
+ $('photoOverlay').addEventListener('click',function(e){
+  if(e.target.closest('.photo-card')&&!e.target.closest('.pc-close')) return;
+  SND.panel(false);
+  $('photoCard').classList.remove('flipped');
+  var ov=this;
+  setTimeout(function(){ ov.classList.remove('show'); },450);
+});
+
+/* =========================================================
+   竖版大陆地图（疆域仅大字可点 · 地点带热区 · 弹窗详情）
+========================================================= */
+var MC={cap:'#f0c36c',city:'#c9d8ec',edu:'#6cd0ff',sect:'#b57bff',holy:'#ff9d45',danger:'#ff5e6c',forest:'#58c99a',sea:'#8fe3d8',secret:'#ff7ab8',arena:'#ffd166',village:'#9db4d0'};
+var MT={cap:'帝国首都',city:'城镇',edu:'学院机构',sect:'宗门家族',holy:'圣地',danger:'秘境险地',forest:'魂兽森林',sea:'海外神岛',secret:'秘境宝地',arena:'斗魂场',village:'村落'};
+var MAP=[
+ {n:'星斗大森林',x:200,y:100,dy:-14,t:'forest',d:'斗罗大陆面积最大、魂兽种类与数量最多的魂兽聚居地，危险与机遇并存。从十年到十万年魂兽皆有栖息，存在天青牛蟒和泰坦巨猿，是魂师获取魂环的主要地点之一。小舞的本体柔骨兔就来自这里。'},
+ {n:'天斗城',x:170,y:150,dy:-14,t:'cap',d:'天斗帝国的首都，繁华无比，设有天斗皇家学院、月轩、天斗大斗魂场等重要机构。'},
+ {n:'天斗大斗魂场',x:280,y:130,dy:-14,t:'arena',d:'位于天斗城，比索托城的大斗魂场规模更大、规格更高。'},
+ {n:'月轩',x:110,y:190,dy:-14,t:'edu',d:'位于天斗城，由唐三的姑姑唐月华创办。并非修炼魂力之处，而是学习贵族礼仪、音乐、艺术，提升气质与精神境界之地，拥有特殊的领域能力。'},
+ {n:'天斗皇家学院',x:250,y:195,dy:-14,t:'edu',d:'天斗帝国最好的魂师学院，资源丰富，但内部派系林立。皇斗战队是其代表队伍，史莱克学院曾短暂在此挂名。'},
+ {n:'圣魂村',x:120,y:250,dy:-14,t:'village',d:'位于法斯诺行省诺丁城南的小村庄，是唐三幼年生活的地方，也是他武魂觉醒之地。因曾走出过一位魂圣而得名。'},
+ {n:'武魂殿',x:330,y:230,dy:-14,t:'holy',d:'斗罗大陆最强大、覆盖范围最广的魂师组织，负责魂师觉醒与注册，拥有强大武力。由教皇比比东和长老殿掌控，后期试图统一大陆建立武魂帝国，但以失败告终。'},
+ {n:'武魂城',x:370,y:280,dy:-14,t:'holy',d:'武魂殿的总部所在地，是大陆魂师心中的圣地，规模宏大，教皇殿和长老殿坐落于此。'},
+ {n:'昊天宗',x:400,y:180,dy:-14,t:'sect',d:'上三宗之首，以拥有大陆第一强攻系武魂「昊天锤」闻名，唐三、唐昊所属宗门。因唐昊事件选择隐世，后在唐三的努力下重新出世对抗武魂殿。'},
+ {n:'庚辛城',x:420,y:330,dy:-14,t:'city',d:'以金属锻造闻名的大陆城市，被誉为「金属之都」，拥有最顶尖的铁匠。唐三在此获得了大量稀有金属并结识了神匠楼高，为唐门暗器的制造提供了基础。'},
+ {n:'力之村',x:100,y:310,dy:20,t:'village',d:'力之一族聚居地。族长泰坦，武魂大力猩猩，擅长力量与铸造，曾是昊天宗附属，后整体加入唐门成为力堂。'},
+ {n:'御之村',x:155,y:300,dy:-14,t:'village',d:'御之一族聚居地。族长牛皋，武魂板甲巨犀，防御登峰造极，后加入唐门成为御堂。'},
+ {n:'敏之村',x:210,y:312,dy:20,t:'village',d:'敏之一族聚居地。族长白鹤，武魂尖尾雨燕，速度冠绝大陆，后加入唐门成为敏堂。'},
+ {n:'破魂村',x:265,y:300,dy:-14,t:'village',d:'破之一族聚居地。族长杨无敌，武魂破魂枪，攻击锐不可当，后加入唐门成为药堂。'},
+ {n:'诺丁城',x:185,y:360,dy:-14,t:'city',d:'位于天斗帝国法斯诺行省的小城，是唐三和小舞初遇并进入诺丁初级魂师学院的地方。'},
+ {n:'诺丁学院',x:245,y:385,dy:20,t:'edu',d:'位于诺丁城的初级魂师学院，唐三和小舞学习的第一个学院，也是唐三拜大师玉小刚为师的地方。'},
+ {n:'七宝琉璃宗',x:360,y:390,dy:-14,t:'sect',d:'上三宗之一，以拥有大陆第一辅助系武魂「七宝琉璃塔」闻名，宗主宁风致。富甲天下，有剑斗罗尘心和骨斗罗古榕两位封号斗罗守护，是唐三和天斗帝国的重要盟友。'},
+ {n:'索托城',x:300,y:450,dy:-14,t:'city',d:'隶属于巴拉克王国（天斗帝国附属）的繁华城市，拥有著名的大斗魂场，史莱克学院初期位于城外。'},
+ {n:'史莱克学院',x:250,y:470,dy:20,t:'edu',d:'一所专门招收「怪物」天才魂师的学院，由弗兰德创办。初期位于索托城附近，条件简陋，后迁至天斗城，以实战教学、培养精英闻名。'},
+ {n:'索托城大斗魂场',x:360,y:475,dy:20,t:'arena',d:'位于索托城，供魂师进行对战、提升实战经验和获取积分等级的地方。史莱克七怪在此初露锋芒，获得了「史莱克七怪」的称号。'},
+ {n:'蓝电霸王龙家族',x:410,y:430,dy:20,t:'sect',d:'上三宗之一，以拥有顶级强攻系兽武魂「蓝电霸王龙」闻名，玉小刚、玉天恒、玉元震所属家族。实力强大，后在武魂殿的猎魂行动中几乎被灭门。'},
+ {n:'落日森林',x:95,y:430,dy:-14,t:'forest',d:'靠近天斗城的一片大型魂兽森林，危险程度低于星斗大森林，冰火两仪眼就隐藏在其中。'},
+ {n:'冰火两仪眼',x:130,y:480,dy:20,t:'secret',d:'位于落日森林中心的宝地，一半极寒一半极热的泉眼，孕育了大量顶级仙品药草。原为毒斗罗独孤博的药圃，后被唐三获得，极大地提升了史莱克七怪等人的实力和天赋。'},
+ {n:'杀戮之都',x:140,y:650,dy:-14,t:'danger',d:'充满血腥与堕落的特殊区域，无法使用魂技，只能依靠纯粹的力量、技巧和杀气生存。通过「地狱路」试炼可获得「杀神领域」，唐三和胡列娜都在此获得了该领域，唐晨曾是这里的杀戮之王。'},
+ {n:'星罗城',x:330,y:650,dy:-14,t:'cap',d:'星罗帝国的首都。星罗帝国位于大陆西部，崇尚武力，皇室继承制度残酷，与天斗帝国长期对峙，戴沐白和朱竹清的故乡。'},
+ {n:'海神岛',x:438,y:60,dy:20,t:'sea',d:'位于大海深处，供奉海神的神秘岛屿。由大祭司波塞西守护，拥有强大的海魂师和圣柱守护者。魂师可以通过海神试炼获得力量甚至继承神位，是唐三获得海神传承的地方。'}
+];
+var MAPREG=[
+ {n:'天斗帝国',labelX:108,labelY:522,cx:225,cy:290,rx:185,ry:250,t:'cap',d:'斗罗大陆两大帝国之一，位于大陆东部，由雪氏皇族统治，首都天斗城。整体实力相对弱于星罗帝国，后期成为对抗武魂帝国的主要力量。'},
+ {n:'星罗帝国',labelX:335,labelY:600,cx:340,cy:560,rx:150,ry:190,t:'cap',d:'斗罗大陆两大帝国之一，位于大陆西部，崇尚武力，皇室继承制度残酷，与天斗帝国长期对峙。戴沐白和朱竹清的故乡。'}
+];
+(function(){
+  var svg=$('mapSvg');
+  var s='';
+  /* 大陆地块 */
+  s+='<path class="map-land" d="M60 120 C 90 40, 220 30, 300 70 C 370 100, 430 60, 450 130 C 470 200, 440 280, 450 380 C 460 480, 430 580, 380 660 C 330 730, 240 760, 170 720 C 100 680, 60 600, 50 480 C 40 360, 30 200, 60 120 Z"/>';
+  s+='<ellipse class="map-land" cx="438" cy="60" rx="40" ry="24"/>';
+  s+='<ellipse class="map-deco" cx="470" cy="120" rx="15" ry="6"/><ellipse class="map-deco" cx="462" cy="145" rx="20" ry="7"/>';
+  [[160,220],[340,335],[220,555],[150,600],[300,590]].forEach(function(m){
+    s+='<path class="map-deco" d="M'+(m[0]-14)+' '+m[1]+' l 14 -20 l 14 20"/><path class="map-deco" d="M'+(m[0]-2)+' '+m[1]+' l 12 -16 l 12 16" opacity=".6"/>';
+  });
+  /* 帝国疆域：椭圆仅描边装饰（不拦截点击），大字标签可点 */
+  MAPREG.forEach(function(r,i){
+    s+='<g class="map-region" data-ri="'+i+'">'+
+      '<ellipse cx="'+r.cx+'" cy="'+r.cy+'" rx="'+r.rx+'" ry="'+r.ry+'"/>'+
+      '<text class="map-region-label" data-ri="'+i+'" x="'+r.labelX+'" y="'+r.labelY+'" text-anchor="middle">'+r.n+'</text></g>';
+  });
+  /* 地点：透明热区 + 光点 + 标签 */
+  MAP.forEach(function(m,i){
+    var col=MC[m.t];
+    s+='<g class="map-dot" data-i="'+i+'">'+
+      '<circle cx="'+m.x+'" cy="'+m.y+'" r="18" fill="rgba(0,0,0,0)"/>'+
+      '<circle class="core" cx="'+m.x+'" cy="'+m.y+'" r="5" fill="'+col+'" stroke="#030a16" stroke-width="2"/>'+
+      '<circle cx="'+m.x+'" cy="'+m.y+'" r="10" fill="none" stroke="'+col+'" stroke-opacity=".35" stroke-width="1.5"/>'+
+      '<text class="map-pin-label" x="'+m.x+'" y="'+(m.y+m.dy)+'" text-anchor="middle">'+m.n+'</text></g>';
+  });
+  svg.innerHTML=s;
+  function showInfo(m){
+    $('mmName').textContent=m.n;
+    var badge=$('mmBadge');
+    badge.textContent=MT[m.t];
+    badge.style.color=MC[m.t];
+    badge.style.borderColor=MC[m.t];
+    $('mmDesc').textContent=m.d;
+    $('mapModal').classList.add('show');
+    SND.modal(true);
+  }
+  svg.addEventListener('click',function(e){
+    var d=e.target.closest('.map-dot');
+    if(d){ showInfo(MAP[+d.dataset.i]); return; }
+    var t=e.target.closest('.map-region-label');
+    if(t){ showInfo(MAPREG[+t.dataset.ri]); }
+  });
+  var lg=$('mapLegend');
+  ['cap','city','edu','sect','holy','danger','forest','sea','secret','arena','village'].forEach(function(k){
+    var sp=document.createElement('span');
+    sp.innerHTML='<i style="background:'+MC[k]+'"></i>'+MT[k];
+    lg.appendChild(sp);
+  });
+})();
+function closeMapModal(){
+  if(!$('mapModal').classList.contains('show')) return;
+  $('mapModal').classList.remove('show');
+  SND.modal(false);
+}
+ $('mmClose').addEventListener('click',closeMapModal);
+ $('mmMask').addEventListener('click',closeMapModal);
+
+/* =========================================================
+   实时投影
+========================================================= */
+function gv(id){ return ($(id).value||'').trim(); }
+function buildText(){
+  var g=genderVal();
+  var name=gv('cName')||(g==='女'?'刘亦菲':'彭于晏');
+  var lv=$('lvRange').value, ti=titleOf(lv);
+  var fh=gv('cTitle')?(' · 封号'+(gv('cTitle').indexOf('「')===0?gv('cTitle'):'「'+gv('cTitle')+'」')):'';
+  var rl=ringListText();
+  var sks=[]; skills.forEach(function(s,i){ if(s.trim()) sks.push('第'+cnum(i+1)+'魂技·'+s.trim()); });
+  var bs=[]; BONES.forEach(function(b){ var s=boneSel[b.k]; if(s) bs.push(b.label+'·'+s.n+'（'+s.s+'）'); });
+  var ex=[];
+  $$('#extraChars .extra-card').forEach(function(c,i){
+    var q=function(cls){ var el=c.querySelector('.'+cls); return el?el.value.trim():''; };
+    var nm=q('ex-name')||('角色'+(i+1));
+    var parts=[];
+    if(q('ex-gender')) parts.push(q('ex-gender'));
+    if(q('ex-age')) parts.push(q('ex-age'));
+    if(q('ex-role')) parts.push(q('ex-role'));
+    if(q('ex-spirit')) parts.push('武魂：'+q('ex-spirit'));
+    ex.push((i+1)+'. '+nm+(parts.length?'（'+parts.join(' · ')+'）':''));
+    if(q('ex-look')) ex.push('　　外貌：'+q('ex-look'));
+    if(q('ex-char')) ex.push('　　性格：'+q('ex-char'));
+    if(q('ex-rel')) ex.push('　　关系网：'+q('ex-rel'));
+    if(q('ex-bg')) ex.push('　　背景：'+q('ex-bg'));
+  });
+  var yr=$('tlRange').value, ev=TLE[yr];
+  var L=[];
+  L.push('【我的档案】');
+  L.push('◆ 觉醒');
+  L.push('武魂：'+(gv('cSpirit')||'未觉醒'));
+  L.push('先天魂力：'+(gv('cPow')||'未知')+'（觉醒时与生俱来，决定天赋与修炼速度）');
+  L.push('◆ 修炼');
+  L.push('修炼魂力：'+lv+'级 · '+ti+fh+'（修炼后的实时境界，与先天魂力相互独立）');
+  L.push('魂环：'+(rl.length?rl.join('、'):'尚未猎取魂环'));
+  L.push('魂技：'+(sks.length?sks.join(' ｜ '):'尚未习得魂技'));
+  L.push('魂骨：'+(bs.length?bs.join('、'):'未镶嵌魂骨'));
+  L.push('◆ 基础');
+  L.push('姓名：'+name);
+  L.push('性别：'+g);
+  L.push('年龄：'+(gv('cAge')||'未填写'));
+  L.push('当前时间：斗罗历'+yr+'年');
+  if(gv('cLook')) L.push('外貌：'+gv('cLook'));
+  if(gv('cChar')) L.push('性格：'+gv('cChar'));
+  if(gv('cId')) L.push('身份：'+gv('cId'));
+  if(gv('cRel')) L.push('关系网：'+gv('cRel'));
+  if(gv('cBg')) L.push('背景：'+gv('cBg'));
+  if(gv('cOpen')) L.push('开场白：'+gv('cOpen'));
+  if(ex.length){ L.push('◆ 同行角色'); ex.forEach(function(x){L.push(x)}); }
+  L.push('◆ 小功能');
+  L.push('总结：'+(featOn('summary')?'开启':'关闭')+' ｜ 选项：'+(featOn('options')?'开启':'关闭')+' ｜ 直播：'+(featOn('live')?'开启':'关闭')+' ｜ 视角：'+featOn('person')+' ｜ 特写：'+(featOn('closeup')?'开启':'关闭')+' ｜ 美化：'+(featOn('beautify')?'开启':'关闭'));
+  L.push('小说模式：'+(featOn('novel')?'开启':'关闭')+' ｜ 剧情辅助：'+(featOn('plot')?'开启':'关闭')+' ｜ 回复长度：'+featOn('length')+' ｜ 雌小鬼吐槽：'+(featOn('gaki')?'开启':'关闭')+' ｜ 幕后采访：'+(featOn('interview')?'开启':'关闭'));
+  return L.join('\n');
+}
+function countFill(){
+  var n=0;
+  ['cName','cAge','cLook','cChar','cId','cRel','cBg','cOpen','cSpirit','cPow','cTitle'].forEach(function(id){ if(gv(id)) n++; });
+  n+=ringCount();
+  n+=skills.filter(function(s){return s.trim()}).length;
+  var bn=0; BONES.forEach(function(b){ if(boneSel[b.k]) bn++; }); n+=bn;
+  n+=$$('#extraChars .extra-card').length;
+  return n;
+}
+function updatePreview(){
+  $('previewPre').textContent=buildText();
+  $('fillCount').textContent=countFill();
+  $('featCount').textContent=FEATS.filter(function(f){return f.v===true}).length;
+  $('innateShow').textContent=gv('cPow')||'未知';
+  $('cultShow').textContent=$('lvRange').value+' 级 · '+titleOf(+$('lvRange').value);
+}
+var pvTimer=null;
+function schedPreview(){
+  clearTimeout(pvTimer);
+  pvTimer=setTimeout(updatePreview,160);
+}
+['cName','cAge','cLook','cChar','cId','cRel','cBg','cOpen','cSpirit','cPow'].forEach(function(id){
+  $(id).addEventListener('input',schedPreview);
+});
+ $('leftDrawer').addEventListener('input',schedPreview);
+ $('previewPre').addEventListener('click',function(){ copyText(buildText()); });
+ $('copyBtn').addEventListener('click',function(){ copyText(buildText(),'档案已复制到剪贴板'); });
+(function(){
+  var armed=false,t=null;
+  var btn=$('clearBtn');
+  btn.addEventListener('click',function(){
+    if(!armed){
+      armed=true; btn.textContent='再点一次确认清空'; btn.classList.add('warn');
+      SND.click();
+      t=setTimeout(function(){ armed=false; btn.textContent='清空档案'; btn.classList.remove('warn'); },2800);
+      return;
+    }
+    clearTimeout(t); armed=false;
+    btn.textContent='清空档案'; btn.classList.remove('warn');
+    ['cName','cAge','cLook','cChar','cId','cRel','cBg','cOpen','cSpirit','cPow','cTitle'].forEach(function(id){ $(id).value=''; });
+    ringState=['','','','','','','','',''];
+    $$('#ringRow .rslot').forEach(function(s,i){ s.dataset.c=''; s.textContent='环位'+CN_NUM[i]; });
+    skills=['','','']; renderSkills();
+    BONES.forEach(function(b){ boneSel[b.k]=null; }); renderBoneCards();
+    $('extraChars').innerHTML='';
+    $('lvRange').value=10; setLevel(10,true);
+    $('tlRange').value=2637; setTime(2637,true);
+    var slot=$('drawSlot');
+    slot.className='draw-slot';
+    $('dsName').textContent='？？？';
+    $('dsTag').style.display='none';
+    $('dsPow').textContent='尚未觉醒武魂';
+    updatePreview();
+    SND.del();
+    toast('档案已归于白纸');
+  });
+})();
+updatePreview();
+
+/* ===== 顶栏开关 ===== */
+/* ★ 歌曲列表：一首歌配一个背景视频 */
+var SONGS=[
+  {name:'斗罗大陆', music:'https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/f0q6m-v9t8e.mp3', video:'https://img.wjwj.top/2026/09/23/6d12bb8ca0f7af29c08d554f143931ed.mp4'},
+  {name:'破茧',     music:'https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/tz5de-64tar.mp3', video:'https://img.wjwj.top/2026/09/23/a0d59c9f8dee53c72935dff55a45ebb4.mp4'},
+  {name:'不舍', music:'https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/bhx2q-x8mea.mp3', video:'https://img.wjwj.top/2026/09/23/299c250965ad848a7128b6324ff0cb38.mp4'},
+  {name:'战歌', music:'https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/u0nyp-tvcex.mp3', video:'https://img.wjwj.top/2026/09/23/d9a3e1aa4e78a05e555c2a4e19e67cb7.mp4'},
+  {name:'不抛弃不嫌弃', music:'https://raw.githubusercontent.com/wszqwe/-/refs/heads/main/relzx-kelc4.mp3', video:'https://img.wjwj.top/2026/09/23/6b4f11705f254ab5f1b8d98f1052de1d.mp4'}];
+var videoOn=true;
+var bgMusic=$('bgMusic'), bgVideo=$('bgVideo');
+var musicIdx=0, musicWanted=true;
+
+function applySong(idx){
+  musicIdx=idx;
+  var s=SONGS[idx];
+  bgMusic.src=s.music;
+  try{bgMusic.volume=.45}catch(e){}
+  bgVideo.src=s.video;
+  if(videoOn){ bgVideo.classList.add('on'); try{bgVideo.play()}catch(e){} }   /* ← 尊重按钮状态 */
+  var p=bgMusic.play(); if(p&&p.catch) p.catch(function(){});
+  toast('♪《'+s.name+'》');
+}
+
+if(SONGS.length){
+  applySong(0);
+  bgMusic.addEventListener('ended',function(){ applySong((musicIdx+1)%SONGS.length); });
+  var syncBtn=function(){ $('btnMusic').classList.toggle('on',!bgMusic.paused); };
+  bgMusic.addEventListener('play',syncBtn);
+  bgMusic.addEventListener('pause',syncBtn);
+  ['pointerdown','touchend','click'].forEach(function(ev){
+    document.addEventListener(ev,function(){
+      if(musicWanted&&bgMusic.paused){
+        var p=bgMusic.play(); if(p&&p.catch) p.catch(function(){});
+      }
+    },true);
+  });
+  setTimeout(syncBtn,300);
+}
+
+ $('btnMusic').addEventListener('click',function(){
+  SND.ensure(); SND.click();
+  if(!SONGS.length){
+    SND.musicOn=!SND.musicOn;
+    this.classList.toggle('on',SND.musicOn);
+    SND.applyMusic();
+    toast(SND.musicOn?'氛围乐 · 起':'氛围乐 · 止');
+    return;
+  }
+  musicWanted=!musicWanted;
+  if(musicWanted){
+    var p=bgMusic.play(); if(p&&p.catch) p.catch(function(){});
+    toast('♪《'+SONGS[musicIdx].name+'》');
+  }else{
+    bgMusic.pause();
+  }
+});
+
+/* 切歌按钮：歌+视频一起切，到底回第一首 */
+ $('btnNext').addEventListener('click',function(){
+  if(!SONGS.length){ SND.click(); toast('未配置歌曲列表'); return; }
+  SND.click();
+  applySong((musicIdx+1)%SONGS.length);
+});
+
+ $('btnDm').addEventListener('click',function(){
+  DM.on=!DM.on;
+  this.classList.toggle('on',DM.on);
+  SND.click();
+  toast(DM.on?'高维观众入场':'观众席已静音');
+});
+
+/* ===== ESC 收起所有弹出 ===== */
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape') return;
+  if($('wuhunModal').classList.contains('show')){ sealWuhun(); return; }
+  if($('photoOverlay').classList.contains('show')){ $('photoOverlay').classList.remove('show'); SND.panel(false); return; }
+  if($('mapModal').classList.contains('show')){ closeMapModal(); return; }
+  if($('boneModal').classList.contains('show')){ closeBoneModal(); return; }
+  closeDrawer();
+});
+
+})();
+</script>
+<script>
+/* ===== ★ 能量环 + 魂力波动 + 标题闪电（自动注入，不动原有 HTML）===== */
+(function(){
+const wrap=document.querySelector('.orb-wrap');
+if(!wrap)return;
+const TAU=Math.PI*2, R=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const hex2rgb=h=>({r:parseInt(h.slice(1,3),16),g:parseInt(h.slice(3,5),16),b:parseInt(h.slice(5,7),16)});
+const rgba=(c,a)=>`rgba(${c.r|0},${c.g|0},${c.b|0},${a})`;
+const oc=document.getElementById('orbCanvas');
+if(oc){oc.style.position='relative';oc.style.zIndex=2;}   /* 让你的球体盖住后半环 */
+
+/* 品阶色映射（联动 .draw-slot 的稀有度 class） */
+const RARITY={'r-waste':'#9aa7b5','r-common':'#ffd166','r-rare':'#b57bff','r-epic':'#8fa3ff','r-legend':'#ff5e6c','r-god':'#ffd88a'};
+let colNow={r:108,g:208,b:255}, colTgt={...colNow}, sprites={}, cnt=0;
+function makeSprites(){
+  const mk=st=>{const c=document.createElement('canvas');c.width=c.height=96;
+    const x=c.getContext('2d'),g=x.createRadialGradient(48,48,0,48,48,48);
+    st.forEach(s=>g.addColorStop(s[0],s[1]));x.fillStyle=g;x.fillRect(0,0,96,96);return c;};
+  sprites.spark=mk([[0,'rgba(255,255,255,1)'],[.3,rgba(colNow,.9)],[1,rgba(colNow,0)]]);
+  sprites.mist =mk([[0,rgba(colNow,.5)],[.55,rgba(colNow,.15)],[1,rgba(colNow,0)]]);
+}
+makeSprites();
+
+/* —— 生成四层能量环（土星环式穿插球体）—— */
+/* 先量球宽：球占屏宽一半以上 → 判定为窄屏（手机） */
+const W0=wrap.getBoundingClientRect().width;
+const narrow=W0>innerWidth*0.5;
+const RINGS= narrow ? [
+ /* 手机紧凑版：紧贴水晶球，不会跑出屏幕 */
+ {d:1.06,tilt:.30,rot:0,  w:5,dur:11,dir: 1,orbn:3,om:.50},
+ {d:1.13,tilt:.26,rot:22, w:4,dur:15,dir:-1,orbn:2,om:.34},
+ {d:1.18,tilt:.34,rot:-16,w:3,dur:19,dir: 1,orbn:2,om:.26},
+ {d:1.02,tilt:.21,rot:40, w:5,dur:8, dir:-1,orbn:2,om:.62}
+]:[
+ /* 电脑宽屏版：大气环绕 */
+ {d:1.26,tilt:.30,rot:0,  w:5,dur:11,dir: 1,orbn:3,om:.50},
+ {d:1.52,tilt:.26,rot:22, w:4,dur:15,dir:-1,orbn:2,om:.34},
+ {d:1.80,tilt:.34,rot:-16,w:3,dur:19,dir: 1,orbn:2,om:.26},
+ {d:1.04,tilt:.21,rot:40, w:5,dur:8, dir:-1,orbn:2,om:.62}
+];
+const mkEl=c=>{const d=document.createElement('div');d.className=c;return d;};
+RINGS.forEach(r=>{
+  const pc=r.d*132;
+  ['back','front'].forEach(half=>{
+    const clip=mkEl('ring-clip '+half+(r.dir<0?' rev':''));
+    clip.style.cssText=`width:${pc}%;height:${pc}%;margin:${-pc/2}% 0 0 ${-pc/2}%`;
+    const plane=mkEl('ring-plane');
+    plane.style.cssText=`width:75.76%;height:75.76%;--rot:${r.rot}deg`;
+    const ell=mkEl('band-ell'),base=mkEl('band-base'),spin=mkEl('band-spin'),grad=mkEl('band-grad');
+    ell.style.cssText=`--tilt:${r.tilt};--w:${r.w}px`;
+    spin.style.animationDuration=r.dur+'s';
+    spin.appendChild(grad);ell.append(base,spin);plane.appendChild(ell);clip.appendChild(plane);
+    if(half==='back')wrap.insertBefore(clip,wrap.firstChild);else wrap.appendChild(clip);
+  });
+  r.rotR=r.rot*Math.PI/180;r.orbs=[];
+  for(let i=0;i<r.orbn;i++){
+    const el=mkEl('orb'),s=R(9,13);
+    el.style.width=el.style.height=s+'px';wrap.appendChild(el);
+    r.orbs.push({el,ph:R(0,TAU),om:r.om*R(.8,1.25)});
+  }
+});
+
+/* —— 球内波动画布（叠在你的 orbCanvas 上）—— */
+const fx=document.createElement('canvas');fx.id='soulFx';
+const runes=wrap.querySelector('.orb-runes');
+if(runes)wrap.insertBefore(fx,runes);else wrap.appendChild(fx);
+const fxr=fx.getContext('2d');
+let W=0,SR=0;
+function resize(){
+  W=wrap.getBoundingClientRect().width;SR=W/2;
+  const dpr=Math.min(devicePixelRatio||1,2);
+  fx.width=fx.height=Math.round(W*dpr);
+  fxr.setTransform(dpr,0,0,dpr,0,0);fxr.translate(W/2,W/2);
+}
+addEventListener('resize',resize);resize();
+
+/* —— 粒子池 —— */
+const env={spin:1,tSpin:1,radial:1,tRadial:1,glow:1,tGlow:1};
+const mist=[],sparks=[],arcs=[],waves=[];
+for(let i=0;i<12;i++)mist.push({baseR:R(.18,.8),th:R(0,TAU),om:R(.1,.32)*(Math.random()<.5?-1:1),size:R(.42,.8),ph:R(0,TAU),a:R(.1,.18)});
+function spawnArc(){
+  const a1=R(0,TAU),a2=a1+R(1.2,3.6),rr=SR*.92;
+  arcs.push({ax:Math.cos(a1)*rr,ay:Math.sin(a1)*rr*.9,bx:Math.cos(a2)*rr,by:Math.sin(a2)*rr*.9,cx:R(-.5,.5)*rr*.7,cy:R(-.5,.5)*rr*.7,age:0,life:R(.7,1.4)});
+}
+function burst(){
+  for(let i=0;i<90;i++){
+    const a=R(0,TAU),sp=R(.35,1.05)*SR;
+    sparks.push({x:R(-.1,.1)*SR,y:R(-.1,.1)*SR,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:R(.45,1.25),age:0,sz:R(1.5,4.5),kind:'burst'});
+  }
+  waves.push({r:SR*.15,v:SR*1.9,a:.9,lw:SR*.055},{r:SR*.1,v:SR*1.4,a:.7,lw:SR*.035});
+  env.spin=8;
+}
+
+/* —— 联动：长按加速（配合你的指尖闪电）、觉醒变色+爆发 —— */
+let pressing=false,lastRar='';
+new MutationObserver(()=>{
+  const p=wrap.classList.contains('pressing');
+  if(p!==pressing){pressing=p;env.tSpin=p?5.5:1;env.tRadial=p?.32:1;}
+  env.tGlow=pressing?1.9:(wrap.classList.contains('hot')?1.5:1);
+}).observe(wrap,{attributes:true,attributeFilter:['class']});
+const slot=document.querySelector('.draw-slot');
+if(slot)new MutationObserver(()=>{
+  let cur='',hex='#6cd0ff';
+  for(const k in RARITY)if(slot.classList.contains(k)){cur=k;hex=RARITY[k];break;}
+  colTgt=hex2rgb(hex);wrap.style.setProperty('--rc',hex);
+  if(cur&&cur!==lastRar)burst();
+  lastRar=cur;
+}).observe(slot,{attributes:true,attributeFilter:['class']});
+window.__soulColor=hex=>{colTgt=hex2rgb(hex);wrap.style.setProperty('--rc',hex);};  /* 手动备用接口 */
+
+/* —— 主循环 —— */
+let last=0;
+function frame(t){
+  requestAnimationFrame(frame);
+  const dt=clamp((t-last)/1000,0,.05);last=t;
+  const k=1-Math.exp(-3*dt),k2=1-Math.exp(-1.3*dt);
+  env.spin+=(env.tSpin-env.spin)*k;env.radial+=(env.tRadial-env.radial)*k2;env.glow+=(env.tGlow-env.glow)*k;
+  const kc=1-Math.exp(-2.5*dt);
+  colNow.r+=(colTgt.r-colNow.r)*kc;colNow.g+=(colTgt.g-colNow.g)*kc;colNow.b+=(colTgt.b-colNow.b)*kc;
+  if(Math.abs(colNow.r-colTgt.r)+Math.abs(colNow.g-colTgt.g)+Math.abs(colNow.b-colTgt.b)>3&&++cnt%6===0)makeSprites();
+
+  RINGS.forEach(r=>{
+    const rad=W*r.d/2,cr=Math.cos(r.rotR),sr=Math.sin(r.rotR);
+    r.orbs.forEach(o=>{
+      o.ph+=o.om*r.dir*env.spin*dt;
+      const x0=Math.cos(o.ph)*rad,y0=Math.sin(o.ph)*rad*r.tilt;
+      const x=x0*cr-y0*sr,y=x0*sr+y0*cr,near=Math.sin(o.ph);
+      o.el.style.zIndex=near>0?4:1;
+      o.el.style.opacity=.3+.7*(.5+.5*Math.max(0,near));
+      o.el.style.transform=`translate(-50%,-50%) translate(${x}px,${y}px) scale(${.65+.6*Math.max(0,near)})`;
+    });
+  });
+
+  fxr.clearRect(-SR,-SR,W,W);
+  fxr.globalCompositeOperation='lighter';
+  mist.forEach(m=>{
+    m.th+=m.om*env.spin*.9*dt;
+    const r=m.baseR*SR*env.radial+Math.sin(t*.0006+m.ph)*SR*.05;
+    const s=m.size*SR*env.radial+8;
+    fxr.globalAlpha=m.a*env.glow;
+    fxr.drawImage(sprites.mist,Math.cos(m.th)*r-s/2,Math.sin(m.th)*r*.85-s/2,s,s);
+  });
+  if(Math.random()<(pressing?.05:.008))spawnArc();
+  for(let i=arcs.length-1;i>=0;i--){
+    const a=arcs[i];a.age+=dt;
+    if(a.age>=a.life){arcs.splice(i,1);continue;}
+    const al=Math.pow(Math.sin(Math.PI*a.age/a.life),1.5)*.55;
+    fxr.beginPath();fxr.moveTo(a.ax,a.ay);fxr.quadraticCurveTo(a.cx,a.cy,a.bx,a.by);
+    fxr.strokeStyle=rgba(colNow,al*.3);fxr.lineWidth=5;fxr.stroke();
+    fxr.strokeStyle=`rgba(255,255,255,${al})`;fxr.lineWidth=1.4;fxr.stroke();
+  }
+  if(pressing){
+    if(Math.random()<.85){
+      const a=R(0,TAU),rr=SR*R(.75,.98),sp=SR*R(.5,.85);
+      sparks.push({x:Math.cos(a)*rr,y:Math.sin(a)*rr*.9,
+        vx:-Math.cos(a)*sp-Math.sin(a)*sp*.5,vy:-Math.sin(a)*sp+Math.cos(a)*sp*.5,
+        life:R(.6,1.1),age:0,sz:R(1.4,3),kind:'in'});
+    }
+  }else if(sparks.length<46&&Math.random()<.3){
+    const a=R(0,TAU),rr=Math.sqrt(Math.random())*SR*.85;
+    sparks.push({x:Math.cos(a)*rr*.75,y:Math.abs(Math.sin(a))*rr*.6+SR*.15,
+      vx:R(-6,6),vy:-R(14,42),life:R(1.8,3.6),age:0,sz:R(1.2,3.2),kind:'rise'});
+  }
+  for(let i=sparks.length-1;i>=0;i--){
+    const p=sparks[i];p.age+=dt;
+    if(p.age>=p.life||p.y<-SR*1.05){sparks.splice(i,1);continue;}
+    if(p.kind==='burst'){const f=Math.pow(.88,dt*60);p.vx*=f;p.vy*=f;}
+    if(p.kind==='rise')p.vy-=dt*6;
+    p.x+=p.vx*dt;p.y+=p.vy*dt;
+    if(p.kind==='in'&&Math.hypot(p.x,p.y)<SR*.1){sparks.splice(i,1);continue;}
+    fxr.globalAlpha=Math.sin(Math.PI*p.age/p.life)*.85;
+    const s=p.sz*3.2;fxr.drawImage(sprites.spark,p.x-s/2,p.y-s/2,s,s);
+  }
+  for(let i=waves.length-1;i>=0;i--){
+    const w=waves[i];w.r+=w.v*dt;w.a-=dt*1.15;
+    if(w.a<=0||w.r>SR*1.15){waves.splice(i,1);continue;}
+    fxr.globalAlpha=1;fxr.beginPath();fxr.arc(0,0,w.r,0,TAU);
+    fxr.strokeStyle=rgba(colNow,w.a*.5);fxr.lineWidth=w.lw*2;fxr.stroke();
+    fxr.strokeStyle=`rgba(255,255,255,${w.a})`;fxr.lineWidth=w.lw*.5;fxr.stroke();
+  }
+  fxr.globalAlpha=1;fxr.globalCompositeOperation='source-over';
+}
+requestAnimationFrame(frame);
+})();
+
+/* ===== ★ 标题“斗罗大陆”闪电 ===== */
+(function(){
+const h1=document.querySelector('.hero h1');
+if(!h1||!h1.querySelector('span'))return;
+const lc=document.createElement('canvas');
+lc.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:5';
+h1.appendChild(lc);
+const g=lc.getContext('2d'),spans=h1.querySelectorAll('span');
+const R=(a,b)=>a+Math.random()*(b-a);
+let bolt=null,nextAt=performance.now()+1200,last=0;
+function fire(){
+  const rc=h1.getBoundingClientRect();
+  lc.width=Math.round(rc.width);lc.height=Math.round(rc.height);
+  const w=lc.width,h=lc.height,pts=[];
+  let x=R(.12,.4)*w,y=-4;pts.push([x,y]);
+  while(y<h){y+=R(.07,.2)*h;x+=R(-.16,.16)*w;pts.push([x,Math.min(y,h)]);}
+  const br=[];
+  for(let i=2;i<pts.length-1;i++)if(Math.random()<.45){
+    let[cx,cy]=pts[i];const b=[[cx,cy]];
+    for(let k=0;k<3;k++){cx+=R(-.09,.09)*w;cy+=R(.03,.09)*h;b.push([cx,cy]);}
+    br.push(b);
+  }
+  bolt={pts,br,life:1};
+  const s=spans[Math.random()*spans.length|0];
+  if(s){s.classList.add('zapped');setTimeout(()=>s.classList.remove('zapped'),200);}
+  nextAt=performance.now()+R(1800,4200);
+}
+function path(p){g.beginPath();g.moveTo(p[0][0],p[0][1]);for(let i=1;i<p.length;i++)g.lineTo(p[i][0],p[i][1]);}
+requestAnimationFrame(function loop(now){
+  requestAnimationFrame(loop);
+  const dt=Math.min((now-last)/1000,.05);last=now;
+  if(!bolt){if(now>=nextAt)fire();return;}
+  bolt.life-=dt*3;
+  if(bolt.life<=0){bolt=null;g.clearRect(0,0,lc.width,lc.height);return;}
+  g.clearRect(0,0,lc.width,lc.height);
+  g.globalAlpha=Math.random()<.5?bolt.life:bolt.life*.35;
+  g.lineJoin=g.lineCap='round';
+  g.strokeStyle='rgba(140,210,255,.9)';g.lineWidth=4.5;path(bolt.pts);g.stroke();
+  g.strokeStyle='#fff';g.lineWidth=1.6;path(bolt.pts);g.stroke();
+  g.globalAlpha*=.65;g.lineWidth=1.6;g.strokeStyle='rgba(160,220,255,.8)';
+  bolt.br.forEach(b=>{path(b);g.stroke();});
+  g.globalAlpha=1;
+});
+})();
+</script>
+<script>
+/* ★ 水晶球本体染色：觉醒后球色随档位变化 ★ */
+(function(){
+const wrap=document.querySelector('.orb-wrap'),slot=document.querySelector('.draw-slot');
+if(!wrap)return;
+wrap.style.isolation='isolate';            /* 把染色范围锁死在球内 */
+const runes=wrap.querySelector('.orb-runes');
+const tint=document.createElement('div');tint.id='orbTint';
+wrap.insertBefore(tint,runes||wrap.lastChild);
+if(runes)runes.style.zIndex=3;             /* 金色"觉醒"符文保持原色不染 */
+if(slot)new MutationObserver(()=>{
+  let has=false;
+  ['r-waste','r-common','r-rare','r-epic','r-legend','r-god']
+    .forEach(k=>{if(slot.classList.contains(k))has=true;});
+  tint.classList.toggle('on',has);         /* 觉醒出结果→开染色；重置→关掉回蓝 */
+}).observe(slot,{attributes:true,attributeFilter:['class']});
+window.__awakenColor=hex=>{wrap.style.setProperty('--rc',hex);tint.classList.add('on');};
+})();
+</script>
+</body>
+</html>
