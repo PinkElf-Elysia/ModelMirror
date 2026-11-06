@@ -51,16 +51,16 @@ afterEach(() => {
 it('opens v2 in the chat, links to the supplied help, and enables summaries only on save', async () => {
   const fetcher = withSession(opening, {...opening, enabled: true, revision: 1});
   renderChat();
-  fireEvent.click(await screen.findByRole('button', {name: '自动总结', exact: true}));
+  fireEvent.click(await screen.findByRole('button', {name: /^自动总结$/}));
   const modal = within(await screen.findByRole('dialog', {name: '自动总结'}));
   expect(modal.getByRole('link', {name: '帮助'})).toHaveAttribute('href', 'https://afengy.cash/docs/auto-summary.html?lang=zh-Hans');
   expect(modal.getByRole('switch')).not.toBeChecked();
   expect(modal.getByText('暂无小总结内容')).toBeVisible();
   expect(modal.getByRole('button', {name: '重新生成大总结'})).toBeDisabled();
-  expect(modal.getByRole('button', {name: '保存', exact: true})).toBeDisabled();
+  expect(modal.getByRole('button', {name: /^保存$/})).toBeDisabled();
   fireEvent.click(modal.getByRole('switch'));
   expect(fetcher.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
-  fireEvent.click(modal.getByRole('button', {name: '保存', exact: true}));
+  fireEvent.click(modal.getByRole('button', {name: /^保存$/}));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const write = fetcher.mock.calls.find(([, options]) => options?.method === 'POST');
   expect(JSON.parse(String(write?.[1]?.body))).toEqual({revision: 0, action: 'settings', enabled: true, model});
@@ -75,15 +75,15 @@ it('shows the latest five small summaries and sends an edited large summary with
   };
   const fetcher = withSession(populated, {...populated, large: '已编辑的大总结', revision: 9});
   renderChat();
-  fireEvent.click(await screen.findByRole('button', {name: '自动总结', exact: true}));
+  fireEvent.click(await screen.findByRole('button', {name: /^自动总结$/}));
   const modal = within(await screen.findByRole('dialog', {name: '自动总结'}));
   expect(modal.queryByText('小结记录 1')).not.toBeInTheDocument();
   expect(modal.getByRole('list')).toBeVisible();
   expect(modal.getAllByRole('listitem')).toHaveLength(5);
-  fireEvent.click(modal.getAllByRole('button', {name: '展开', exact: true})[0]);
+  fireEvent.click(modal.getAllByRole('button', {name: /^展开$/})[0]);
   expect(modal.getByText('小结记录 2')).toBeVisible();
   fireEvent.change(modal.getByRole('textbox', {name: '大总结内容'}), {target: {value: '已编辑的大总结'}});
-  fireEvent.click(modal.getByRole('button', {name: '保存', exact: true}));
+  fireEvent.click(modal.getByRole('button', {name: /^保存$/}));
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   const write = fetcher.mock.calls.find(([, options]) => options?.method === 'POST');
   expect(JSON.parse(String(write?.[1]?.body))).toEqual({

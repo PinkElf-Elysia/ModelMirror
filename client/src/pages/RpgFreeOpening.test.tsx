@@ -31,11 +31,11 @@ it.each(cards)('%s keeps the optional archive editable and sends only the final 
  const {session,writes}=host(card);await createChatDraft('原档案，仅作为草稿');
  render(<ChatView sessionId={session.id} exit={()=>{}} opened={()=>{}}/>);
  const input=await screen.findByRole('textbox',{name:'对话输入'});
- await waitFor(()=>expect(screen.getByRole('button',{name:'发送',exact:true})).toBeEnabled());
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^发送$/})).toBeEnabled());
  expect(input).toHaveValue('原档案，仅作为草稿');expect(input).not.toHaveAttribute('readonly');
  expect(screen.queryByText('开局角色资料')).not.toBeInTheDocument();
  fireEvent.change(input,{target:{value:''}});expect(readClientState(session.id).draft).toBe('');
- fireEvent.change(input,{target:{value:'完全不同的开场'}});fireEvent.click(screen.getByRole('button',{name:'发送',exact:true}));
+ fireEvent.change(input,{target:{value:'完全不同的开场'}});fireEvent.click(screen.getByRole('button',{name:/^发送$/}));
  await waitFor(()=>expect(writes.filter(x=>x.path.endsWith('/send'))).toHaveLength(1));
  expect(writes.at(-1)!.body.input).toBe('完全不同的开场');
  await waitFor(()=>expect(input).toHaveValue(''));
