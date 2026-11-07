@@ -128,17 +128,22 @@ export function ConfigText({
   role,
   source,
   children,
+  render,
 }: {
   scope: string;
   role: "user" | "assistant";
   source: string;
-  children: ReactNode;
+  children?: ReactNode;
+  render?: (value: string) => ReactNode;
 }) {
+  const [displayFailed,setDisplayFailed]=useState(false),[retry,setRetry]=useState(0);
   const rev = useRevision(),
     [projection, set] = useState<{
       scope: string;
       source: string;
       value: string;
+      revision: number;
+      role: string;
     } | null>(null);
   useEffect(() => {
     let live = true;
@@ -146,15 +151,23 @@ export function ConfigText({
       plugin()
         .then((p) => p.display(scope, role, source))
         .then((value) => {
-          if (live) set({ scope, source, value });
+          if (live) {set({ scope, source, value, revision: rev, role });setDisplayFailed(false);}
         })
         .catch(() => {
-          if (live) set(null);
+          if (live) {set(previous=>({scope,source,value:render?(previous?.scope===scope&&previous.role===role&&previous.revision===rev?previous.value:""):source,revision:rev,role}));setDisplayFailed(true);}
         });
     return () => {
       live = false;
     };
-  }, [scope, source, role, rev]);
+  }, [scope, source, role, rev, retry]);
+  // Render callbacks keep one presentation component mounted across chunks.
+  // While display rules catch up, retain their last projection instead of
+  // briefly revealing the unprocessed source between updates.
+  if (render) {
+    const configured = scope && localStorage.getItem("rpg-custom-config-used");
+    const valid = projection?.scope === scope && projection.revision === rev && projection.role === role;
+    return <>{render(configured ? valid ? projection.value : "" : source)}{configured&&displayFailed&&<p role="status">显示规则暂未应用，已暂停更新画面。<button type="button" className="text-button" onClick={()=>setRetry(n=>n+1)}>重试显示</button></p>}</>;
+  }
   return projection &&
     projection.source === source &&
     projection.scope === scope &&

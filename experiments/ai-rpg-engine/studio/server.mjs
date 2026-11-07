@@ -1,3 +1,4 @@
+import {attachSessionLifecycle,sessionLifecycleHttp} from './session-lifecycle.mjs';
 import {cultivationHttp} from '../cultivation-card/host.mjs';
 import {MemorySessionStore} from './memory-session-store.mjs';
 import {memoryHostTransport} from './memory-host.mjs';
@@ -60,13 +61,14 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    return await transport.generate('earth',args);
   }finally{fixedProgress.delete(id);}
  }:null;
- const earth=memoryPalace?new MemorySessionStore(join(directory,'earth'),offlineGenerate):rollingSummary?new SummarySessionStore(join(directory,'earth'),offlineGenerate,null,{control:null}):historyWindow?new HistorySessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence}):control?new ModelSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence:control.evidence}):new VersionedSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate);await earth.init();
+ const earth=memoryPalace?new MemorySessionStore(join(directory,'earth'),offlineGenerate):rollingSummary?new SummarySessionStore(join(directory,'earth'),offlineGenerate,null,{control:null}):historyWindow?new HistorySessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence}):control?new ModelSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate,{control,evidence:control.evidence}):new VersionedSessionStore(join(directory,'earth'),offlineGenerate,fixedGenerate);await earth.init();attachSessionLifecycle(earth);
  const summaryTransport=rollingSummary?await (memoryPalace?memoryHostTransport:summaryHostTransport)({directory,control:controlOptions,limit,store:earth,offlineGenerate}):null;
  if(rollingSummary)earth.control=summaryTransport;
  const earthBudget=async()=>{if(rollingSummary)return summaryTransport.status();const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await (rollingSummary?summaryTransport:control).status()).enabled}:b;};
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let godHost=null;
  if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl,autoSummaryV2});}
+ if(godHost)attachSessionLifecycle(godHost.store);
  let plugins=null,pluginError=null;
  try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
@@ -149,7 +151,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'jinyong',title:archiveNames.jinyong,enabled:!!archiveControls.jinyong},{id:'dragon-raja',title:archiveNames['dragon-raja'],enabled:!!archiveControls['dragon-raja']},{id:'douluo',title:archiveNames.douluo,enabled:!!archiveControls.douluo},{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    if(transfer&&transcript){
     const host=transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
-    return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
+    attachSessionLifecycle(host.store);return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
    }
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
@@ -215,6 +217,8 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     if(data?.pluginId!==pluginAction[1])return send(400,{error:'PLUGIN_ID_BINDING'});
     return plugins?send(200,await plugins.change(pluginAction[2],data)):send(503,{error:pluginError});
    }
+   const lifecycleRoute=pathname.match(/^\/rpg-app\/(earth|god)\/(api\/.*)$/);
+   if(lifecycleRoute){const store=lifecycleRoute[1]==='earth'?earth:godHost?.store;if(store&&await sessionLifecycleHttp({route:lifecycleRoute[2],method:req.method,data,store,send}))return;}
    const messageTools=pathname.match(/^\/rpg-app\/(earth|god)\/api\/sessions\/([a-zA-Z0-9-]+)\/message-tools\/(fork|progress)$/);
    if(messageTools){
     const [,card,id,action]=messageTools,store=card==='earth'?earth:godHost?.store;
