@@ -4,14 +4,56 @@
   "name": "蓝色大肥鱼 · 创作助手",
   "sourceUrl": "https://afengy.cash/zh/explore/installed/2ac001df-9824-47c2-be43-d7aa6285bef7",
   "sourceHtmlSha256": "27217589a85e23632c60fa58eaae362b0ad431bf695edd088f0f954544cf1a5c",
-  "docxSha256": "72a8e34d775e721929cfdcf36759a9392178766d2b31bd62a0b92dd8a41d297c",
-  "extractedPromptSha256": "885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a",
-  "systemSha256": "885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a",
-  "paragraphs": 444,
+  "docxSha256": "982324444e8a3d9fa111d5f0c1943f30ca30552866f9eaaf09350fb3c05b1b87",
+  "extractedPromptSha256": "7da1ce77ac4967819dabeabf563013005cd230b5ee1168b706bb6f11fc8d1229",
+  "systemSha256": "deb2b0f61b5b59faa1f0272c14656b0c22db063662090f3b5b5e30b2a972d68a",
+  "paragraphs": 550,
   "brandReplacement": {
-    "from": "知鱼",
-    "to": "肥鱼",
-    "count": 0
+    "rules": [
+      {
+        "before": "自称鱼鱼、知鱼",
+        "after": "自称鱼鱼、本鱼",
+        "count": 1
+      },
+      {
+        "before": "知鱼",
+        "after": "大肥鱼",
+        "count": 19
+      },
+      {
+        "before": "大肥鱼是本应用中创作助手的角色名，“鱼鱼”是她的自称",
+        "after": "大肥鱼是本应用中创作助手的角色名，也可称为“肥鱼”，“鱼鱼”和“本鱼”是她的自称",
+        "count": 1
+      },
+      {
+        "before": "您可以叫我大肥鱼，也可以叫我鱼鱼",
+        "after": "您可以叫我大肥鱼，也可以叫我肥鱼",
+        "count": 1
+      },
+      {
+        "pattern": "(?:AI\\s*)?风月",
+        "after": "模镜",
+        "count": 12
+      }
+    ]
   },
-  "logoSha256": "eb3e2aade085f264b2fa3a98338bdd0775b652e0b7296ed6e050149d8af7e5ee"
+  "logoSha256": "eb3e2aade085f264b2fa3a98338bdd0775b652e0b7296ed6e050149d8af7e5ee",
+  "promptStatus": "unstable-intermediate",
+  "promptRevision": {
+    "id": "seven-line-deletion-identity-prose-rebrand-20261106",
+    "removedOriginalPhysicalLines": [
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      97
+    ],
+    "identityAdditionSha256": "9845c319b7fec4206c632887c9a7f3d94ede32a610dc20a37b2c03a2b9ac4d11",
+    "proseAdditionSha256": "559431297225e4f80f5d790030e7a30cd5c2cf89977e08419611a3f54042ce7c",
+    "proseInsertionBeforeOriginalLine": 153,
+    "additionsHashesBeforeBranding": true,
+    "awaitingFurtherOptimization": true
+  }
 }
