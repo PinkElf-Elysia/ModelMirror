@@ -1,3 +1,4 @@
+export type LifecycleRecord={id:string;body:{action:'rewind'|'restore-version'|'delete'|'restore-trash';operationId:string;expectedRevision:number;turn?:number;versionId?:string}};
 export type RequestRecord={input:string;requestId:string;revision:number;expectedSelectionRevision?:number;expectedMemoryRevision?:number;expectedContextPolicyRevision?:string;expectedHistoryPolicyRevision?:string};
 export type BranchRecord={operationId:string;expectedSessionRevision:number;turn:number;name:string};
 export type SelectionRecord={operationId:string;expectedSessionRevision:number;selectionRevision:number;selectionId:string;catalogRevision:string};
@@ -6,7 +7,7 @@ export type HistoryConfig={turns:number;includeInitialCharacter:boolean};
 export type HistoryOperation=HistoryConfig&{operationId:string;expectedSessionRevision:number;expectedConfigRevision:number};
 export type HistoryStatus={compatible:boolean;reason?:string;enabled:boolean;sessionRevision:number;configRevision:number;config:HistoryConfig;pendingOperationId:string|null;historyPolicyRevision:string};
 export const validHistoryOperation=(x:HistoryOperation)=>!!x&&typeof x.operationId==='string'&&Number.isSafeInteger(x.expectedSessionRevision)&&x.expectedSessionRevision>=0&&Number.isSafeInteger(x.expectedConfigRevision)&&x.expectedConfigRevision>=0&&Number.isInteger(x.turns)&&x.turns>=1&&x.turns<=50&&typeof x.includeInitialCharacter==='boolean';
-export type ClientState={draft:string;request:RequestRecord|null;branch:BranchRecord|null;selection?:SelectionRecord|null;historySetting?:HistoryOperation|null};
+export type ClientState={lifecycle?:LifecycleRecord|null;draft:string;request:RequestRecord|null;branch:BranchRecord|null;selection?:SelectionRecord|null;historySetting?:HistoryOperation|null};
 export type Session={importedTurns?:{input:string;raw:string}[];id:string;name:string;characterText:string;revision:number;mode:string;parentId?:string;branchTurn?:number;memoryPalace?:{supported:boolean};rollingSummary?:{supported:boolean};historyWindow?:{config:HistoryConfig;configRevision:number;pendingOperationId:string|null};runtime?:{compatible:boolean;code:string|null};modelSelection?:{revision:number;current:ModelChoice};turns:{origin?:string;model?:{actualModel:string|null;requestedModel:string};requestId:string;input:string;raw:string;html:string;at:string}[];requests:Record<string,{status:string;error?:string}>};
 export class ApiError extends Error{constructor(message:string,public status:number){super(message);}}
 const studioPath=()=>typeof location==='undefined'?null:location.pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|blue-fish|douluo|dragon-raja|jinyong)\//);
@@ -22,6 +23,7 @@ export const emptyClientState=():ClientState=>({draft:'',request:null,branch:nul
 const key=(id:string)=>cardStoragePrefix()+'-chat-v1:'+id;
 export function readClientState(id:string,storage:Pick<Storage,'getItem'>=localStorage):ClientState{
  const raw=storage.getItem(key(id));if(!raw)return emptyClientState();const x=JSON.parse(raw);
+ if(x?.lifecycle!=null&&!(typeof x.lifecycle.id==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(x.lifecycle.id)&&typeof x.lifecycle.body?.operationId==='string'&&['rewind','restore-version','delete','restore-trash'].includes(x.lifecycle.body.action)&&Number.isSafeInteger(x.lifecycle.body.expectedRevision)))throw Error('会话管理记录无法读取，请保留浏览器数据。');
  if(x?.historySetting!=null&&!validHistoryOperation(x.historySetting))throw Error('历史窗口设置记录无法读取，请保留浏览器数据。');
  if(x?.request?.expectedMemoryRevision!==undefined&&(!Number.isSafeInteger(x.request.expectedMemoryRevision)||x.request.expectedMemoryRevision<0))throw Error('记忆版本无法读取');
  if(x?.request?.expectedContextPolicyRevision!==undefined&&!/^[a-f0-9]{64}$/.test(x.request.expectedContextPolicyRevision))throw Error('上下文策略版本无法读取');
@@ -32,4 +34,4 @@ export function readClientState(id:string,storage:Pick<Storage,'getItem'>=localS
 }
 export function writeClientState(id:string,state:ClientState,storage:Pick<Storage,'setItem'>=localStorage){storage.setItem(key(id),JSON.stringify(state));}
 export function reconcileClientState(state:ClientState,s:Pick<Session,'requests'>):ClientState{const req=state.request;if(!req)return state;const status=s.requests[req.requestId]?.status;if(!['complete','failed','cancelled'].includes(status||''))return state;return {...state,draft:status==='complete'&&state.draft===req.input?'':state.draft,request:null};}
-export function sendBlocked(s:Session|null,local:ClientState,busy:boolean,remaining?:number){return !s||busy||!local.draft.trim()||!!local.request||!!local.branch||!!local.selection||!!local.historySetting||!!s.historyWindow?.pendingOperationId||s.runtime?.compatible===false||Object.values(s.requests).some(r=>r.status==='pending')||(s.mode==='real'&&(remaining===undefined||remaining<=0));}
+export function sendBlocked(s:Session|null,local:ClientState,busy:boolean,remaining?:number){return !s||busy||!!local.lifecycle||!local.draft.trim()||!!local.request||!!local.branch||!!local.selection||!!local.historySetting||!!s.historyWindow?.pendingOperationId||s.runtime?.compatible===false||Object.values(s.requests).some(r=>r.status==='pending')||(s.mode==='real'&&(remaining===undefined||remaining<=0));}

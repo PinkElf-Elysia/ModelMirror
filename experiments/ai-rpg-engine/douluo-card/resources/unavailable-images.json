@@ -1,0 +1,79 @@
+{
+  "checkedOn": "2026-11-07",
+  "source": "douluo-card/resources/prompts.json",
+  "method": "GET exact authored URLs; no inferred aliases or replacements",
+  "images": [
+    {
+      "id": "0380009923dd4c8b52a03ec865fe5fb1",
+      "url": "https://img.wjwj.top/2025/06/16/0380009923dd4c8b52a03ec865fe5fb1.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "1385dfa721288c0438be79472cb48429",
+      "url": "https://img.wjwj.top/2025/06/16/1385dfa721288c0438be79472cb48429.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "7f77f7f0f74e4b8bdcca858e183e4e23",
+      "url": "https://img.wjwj.top/2025/06/16/7f77f7f0f74e4b8bdcca858e183e4e23.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "44864f54970ec18c2a531079a8410928",
+      "url": "https://img.wjwj.top/2025/06/16/44864f54970ec18c2a531079a8410928.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "d9f7067e7783abfe6c030433cb1a79f9",
+      "url": "https://img.wjwj.top/2025/06/16/d9f7067e7783abfe6c030433cb1a79f9.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "b192e0ac7b0f32e9db6753e779b1da38",
+      "url": "https://img.wjwj.top/2025/06/16/b192e0ac7b0f32e9db6753e779b1da38.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "07678d12468208f444d3d8a7f9d02f92",
+      "url": "https://img.wjwj.top/2025/06/16/07678d12468208f444d3d8a7f9d02f92.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "ebd05cd5cf971215b43f9f32edec641e",
+      "url": "https://img.wjwj.top/2025/06/16/ebd05cd5cf971215b43f9f32edec641e.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "5d7df8bab2c1c8d1ab263f4e634c584e",
+      "url": "https://img.wjwj.top/2025/06/16/5d7df8bab2c1c8d1ab263f4e634c584e.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "5908d2b94efd129d20e3d72170df0cd3",
+      "url": "https://img.wjwj.top/2025/06/16/5908d2b94efd129d20e3d72170df0cd3.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "6b4afc6949ff89e66b29d31d2a4f4ab5",
+      "url": "https://img.wjwj.top/2025/06/16/6b4afc6949ff89e66b29d31d2a4f4ab5.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    },
+    {
+      "id": "f554cd457a8fc597ab439f7ddec8d7fb",
+      "url": "https://img.wjwj.top/2025/06/16/f554cd457a8fc597ab439f7ddec8d7fb.png",
+      "status": 404,
+      "excludedFromRandomDisplay": true
+    }
+  ]
+}

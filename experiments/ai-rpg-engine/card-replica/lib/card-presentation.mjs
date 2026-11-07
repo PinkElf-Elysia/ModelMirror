@@ -2,29 +2,15 @@
 import {parseFragment, serialize} from 'parse5';
 // Marked is already pinned by the RPG engine package; parsing stays on the host.
 import {Marked} from 'marked';
+import {imageMap, unavailableImageSources, disabledImageSources} from './image-library.mjs';
 
-export const presentationVersion = 'rpg-card-presentation/3';
+export const douluoAssets = imageMap('douluo');
+const douluoMissing = unavailableImageSources('douluo');
+const douluoDisabled = disabledImageSources('douluo');
+export const presentationVersion = 'rpg-card-presentation/4';
 export const commentarySource = 'https://catai.wiki/31a557a3-828e-44e7-bcc7-972771e4bb00/w=3000';
-export const commentaryAsset = './assets/god-commentary-v1.webp';
-export const commentaryAssets = Object.freeze({
-  "https://catai.wiki/5a7a3217-dc6e-4b63-36d8-1c4b11a28d00/w=3000": "./assets/god-commentary-alt-v1.jpg",
-  "https://catai.wiki/287eba7e-830e-4ba3-032a-f55393131900/w=3000": "./assets/god-commentary-287eba7e-830e-4ba3-032a-f55393131900.jpg",
-  "https://catai.wiki/1fc2661a-a9c2-4330-8a34-51959bda5c00/w=3000": "./assets/god-commentary-1fc2661a-a9c2-4330-8a34-51959bda5c00.jpg",
-  "https://catai.wiki/31a557a3-828e-44e7-bcc7-972771e4bb00/w=3000": "./assets/god-commentary-v1.webp",
-  "https://catai.wiki/61e70fb9-9a81-4274-56dc-9753b573e000/w=3000": "./assets/god-commentary-61e70fb9-9a81-4274-56dc-9753b573e000.jpg",
-  "https://catai.wiki/2f3c5ff4-ee3e-4ea8-03b9-27ff5cb00d00/w=3000": "./assets/god-commentary-2f3c5ff4-ee3e-4ea8-03b9-27ff5cb00d00.jpg",
-  "https://catai.wiki/5824e5aa-ea5d-4396-32d9-8e3db9095700/w=3000": "./assets/god-commentary-5824e5aa-ea5d-4396-32d9-8e3db9095700.jpg",
-  "https://catai.wiki/6e822f82-cf5c-448b-b976-046800a7b100/w=3000": "./assets/god-commentary-6e822f82-cf5c-448b-b976-046800a7b100.jpg",
-  "https://catai.wiki/98cbbf81-7e73-484d-a713-1b04c0917b00/w=3000": "./assets/god-commentary-98cbbf81-7e73-484d-a713-1b04c0917b00.jpg",
-  "https://catai.wiki/9c431025-e8ca-471e-8edf-d82eb7a83400/w=3000": "./assets/god-commentary-9c431025-e8ca-471e-8edf-d82eb7a83400.jpg",
-  "https://catai.wiki/c2157402-2346-4fc8-0808-6ab5a1809b00/w=3000": "./assets/god-commentary-c2157402-2346-4fc8-0808-6ab5a1809b00.jpg",
-  "https://catai.wiki/ab5abbc7-a2ec-45f3-1efe-486b2efe1300/w=3000": "./assets/god-commentary-ab5abbc7-a2ec-45f3-1efe-486b2efe1300.jpg",
-  "https://catai.wiki/c9a9a34f-9965-4314-146c-7a48fb5c5100/w=3000": "./assets/god-commentary-c9a9a34f-9965-4314-146c-7a48fb5c5100.jpg",
-  "https://catai.wiki/4256c515-785f-420f-d777-683cf95bb900/w=3000": "./assets/god-commentary-4256c515-785f-420f-d777-683cf95bb900.jpg",
-  "https://catai.wiki/5939d0f0-163b-4c27-2a7a-b05419797900/w=3000": "./assets/god-commentary-5939d0f0-163b-4c27-2a7a-b05419797900.jpg",
-  "https://catai.wiki/280a79e9-0e26-46ad-3f71-028cfa9b5c00/w=3000": "./assets/god-commentary-280a79e9-0e26-46ad-3f71-028cfa9b5c00.jpg",
-  "https://catai.wiki/8f21b0cc-67e2-42ab-95bc-e78dd37fdf00/w=3000": "./assets/god-commentary-8f21b0cc-67e2-42ab-95bc-e78dd37fdf00.jpg"
-});
+export const commentaryAssets = imageMap('god', 'commentary');
+export const commentaryAsset = commentaryAssets[commentarySource];
 const htmlNamespace = 'http://www.w3.org/1999/xhtml';
 const tags = new Set('p br hr div span strong b em i u s del blockquote pre code ul ol li details summary table thead tbody tfoot tr th td h1 h2 h3 h4 h5 h6 ruby rt rp'.split(' '));
 const drop = new Set('script style iframe object embed svg math template form textarea select link meta base audio video source picture canvas noscript thinking think'.split(' '));
@@ -33,6 +19,9 @@ const classes = {
   god: new Set('page page-top status-box status-summary status-details status-item summary-icon summary-name a b label value page-main scene-wrapper flip-button-wrapper flip-toggle text-front text-back flip-card flip-card-inner flip-card-front flip-card-back page-bottom live-container status-info status-row topic separator danmu-area danmu-track aa bb cc dd title interview-wrap interview-card interview-header interview-avatar interview-info interview-name interview-status interview-qa qa-1 qa-2 qa-3 qa-question qa-answer speech'.split(' ')),
   earth: new Set('situation-panel info-row label-icon info-text main-text char-card char-header char-name char-tags tag char-section section-title info-grid grid-item key val appearance-text personality-tags motivation relation-list relation-item relation-type finance-grid finance-item finance-label finance-val status-bars stat-bar stat-label bar fill health hunger fatigue stat-num condition-text inventory-grid inv-category skill-list certificate-list vehicle-info npc-container npc-card npc-header npc-name npc-tags npc-body npc-row icon favor npc-collapsible collapsible-trigger collapsible-content npc-divider env-panel env-sense sense-icon sense-content env-crowd env-interact social-panel social-item social-label social-value memory-core memory-section section-header note anchor-list anchor-item aid atype divider ltm-scroll stm-scroll stm-card sid stime sscene sfact state-info entity-scroll entity-card entity-name entity-status open-scroll open-card oid otime ocontent ostatus close-scroll close-card cid ctime ccontent action-panel action-item'.split(' ')),
 };
+// Douluo uses the same reviewed live/commentary protocol, with its own scope.
+classes.douluo = new Set(classes.god);
+const richProfile = p => p === 'god' || p === 'douluo';
 const escape = s => s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 const text = value => ({nodeName:'#text',value});
 const attr = (n,k) => n.attrs?.find(a=>a.name===k)?.value;
@@ -78,8 +67,14 @@ const markdown = new Marked({gfm:true,async:false,renderer:{
   link({tokens}) {return '<span>'+this.parser.parseInline(tokens)+'</span>';},
   image:({text})=>'<span>'+escape(text||'图片未加载')+'</span>',
 }});
-function prose(value) {
-  return parseFragment(markdown.parse(value).trimEnd()).childNodes;
+// Douluo Markdown images still pass through the same exact-URL sanitizer.
+const douluoMarkdown = new Marked({gfm:true,async:false,renderer:{
+  html:({text})=>escape(text),
+  link({tokens}) {return '<span>'+this.parser.parseInline(tokens)+'</span>';},
+  image:({href,text})=>'<img src="'+escape(href)+'" alt="'+escape(text||'配图')+'">',
+}});
+function prose(value, profile) {
+  return parseFragment((profile==='douluo'?douluoMarkdown:markdown).parse(value).trimEnd()).childNodes;
 }
 
 // This author protocol is data inside an otherwise inert HTML comment. Never
@@ -137,7 +132,7 @@ export function cardPresentation(raw, profile) {
       if(authorLines||!literals.trim()||(!force&&!/\n\s*\n|(?:^|\n)\s*(?:---+|\*\*\*+|#{1,6} |[-*] |\d+\. )/.test(literals))) {result.push(...run);run=[];return;}
       const slots=[];
       const source=run.map(n=>n.nodeName==='#text'?n.value:marker+(slots.push(n)-1)+'END').join('');
-      const fragment={childNodes:prose(source)};
+      const fragment={childNodes:prose(source,profile)};
       if(profile!=='earth')preserveSoftBreaks(fragment);
       clean(fragment,[],depth+1,false);
       const restore=p=>{
@@ -174,8 +169,24 @@ export function cardPresentation(raw, profile) {
         continue;
       }
       if(n.namespaceURI!==htmlNamespace||drop.has(n.tagName)) {report.removedElements++;continue;}
-      const originalClass=attr(n,'class')||'';
+      let originalClass=attr(n,'class')||'';
+      if(profile==='douluo' && n.tagName==='marquee' && ancestors.some(p=>has(p,'live-container'))) {
+        n.tagName=n.nodeName='div'; n.attrs=[a('class','danmu-track')]; originalClass='danmu-track';
+      }
       if(n.tagName==='img') {
+        if(profile==='douluo') {
+          const source=attr(n,'src'), local=Object.hasOwn(douluoAssets,source)?douluoAssets[source]:null;
+          if(local) {
+            result.push(element('img',[a('src',local),a('alt',attr(n,'alt')||'斗罗配图'),a('loading','lazy'),a('decoding','async')]));
+          } else {
+            const reason=douluoMissing.has(source)?'原图链接已失效（404）':'配图未收录';
+            const commentary=ancestors.some(p=>has(p,'aa'));
+            result.push(element('span',commentary?[a('class','commentary-placeholder')]:[],
+              [text(commentary?(douluoDisabled.has(source)?'💬 展开／收起文字吐槽（随机头像已停用）':'💬 展开／收起吐槽 · '+reason):reason)]));
+            report.unavailableImages++;
+          }
+          continue;
+        }
         if(profile==='god' && Object.hasOwn(commentaryAssets,attr(n,'src')) && ancestors.some(p=>has(p,'aa'))) {
           result.push(element('img',[a('src',commentaryAssets[attr(n,'src')]),a('alt','吐槽角色，点击展开或收起吐槽'),a('loading','lazy'),a('decoding','async'),a('referrerpolicy','no-referrer')]));
         } else {report.unavailableImages++;result.push(element('span',[],[text(attr(n,'alt')||'图片未加载')]));}
@@ -184,7 +195,7 @@ export function cardPresentation(raw, profile) {
       if(n.tagName==='input') {
         const flip=has(n,'flip-toggle') && parent.tagName==='label' && has(parent,'flip-button-wrapper');
         const aside=has(n,'bb') && parent.tagName==='label' && ancestors.some(p=>has(p,'aa'));
-        if(profile==='god' && attr(n,'type')==='checkbox' && (flip||aside)) {
+        if(richProfile(profile) && attr(n,'type')==='checkbox' && (flip||aside)) {
           result.push(element('input',[a('type','checkbox'),a('class',flip?'flip-toggle':'bb'),a('aria-label',flip?'切换宏观与微观视角':'展开或收起吐槽'),...(attr(n,'checked')!==undefined?[a('checked','')]:[])]));
         } else report.removedElements++;
         continue;
@@ -201,7 +212,7 @@ export function cardPresentation(raw, profile) {
         result.push(n);continue;
       }
       if(isProse) {n.tagName=n.nodeName='div';n.attrs=[a('class','rpg-narrative')];result.push(n);continue;}
-      if(!tags.has(n.tagName) && !(profile==='god' && ['main','label'].includes(n.tagName))) {result.push(...n.childNodes);continue;}
+      if(!tags.has(n.tagName) && !(richProfile(profile) && ['main','label'].includes(n.tagName))) {result.push(...n.childNodes);continue;}
       const attributes=[];
       for(const item of n.attrs||[]) {
         if(item.name==='class') {
