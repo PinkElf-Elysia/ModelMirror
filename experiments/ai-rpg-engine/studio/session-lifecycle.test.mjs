@@ -67,7 +67,7 @@ test('HTTP rewind restores selected-turn memory and summary v2 snapshots, keeps 
   if(action==='enable')Object.assign(body,{sessionId:s.id,expectedSessionRevision:(await call(base)).revision,permissions:p.permissions});
   await call((action==='enable'?base+'/':'')+'plugins/'+id+'/'+action,body);
  }
- const [model]=(await call(base+'/model-catalog')).models;
+ const [model,otherModel]=(await call(base+'/model-catalog')).models;
  let h=await call(base+'/memory-palace');
  await call(base+'/memory-palace/settings',{operationId:randomUUID(),expectedSessionRevision:h.sessionRevision,expectedMemoryRevision:h.memoryRevision,selectionId:model.selectionId,catalogRevision:model.selectionRevision});
  async function send(input){
@@ -78,16 +78,23 @@ test('HTTP rewind restores selected-turn memory and summary v2 snapshots, keeps 
  }
  await send('抵达港口');await send('寻找书院');
  const before=await call(base);assert.equal(before.turns.length,2);
- const op={action:'rewind',operationId:randomUUID(),expectedRevision:before.revision,turn:2};
+ assert.notEqual(otherModel.model,before.turns[1].model.requestedModel);
+ await call(base+'/model-selection',{operationId:randomUUID(),expectedSessionRevision:before.revision,selectionRevision:before.modelSelection.revision,selectionId:otherModel.selectionId,catalogRevision:otherModel.selectionRevision});
+ const selected=await call(base);
+ const op={action:'rewind',operationId:randomUUID(),expectedRevision:selected.revision,turn:2};
  await call(base+'/lifecycle',op);
+ const rewound=await call(base);assert.deepEqual(rewound.modelSelection,selected.modelSelection);
+ for(const id of ['rpg.model-selector','rpg.rolling-summary','rpg.memory-palace','rpg.message-tools'])assert.equal((await call(base+'/plugins/'+id)).enabled,true);
  const state=await call(base+'/memory-palace');assert.equal(state.compatible,true);
  const after=await send('改往山间');assert.equal(after.id,s.id);assert.equal(after.turns.length,2);assert.equal(after.turns[1].input,'改往山间');
+ assert.equal(after.turns[1].model.requestedModel,otherModel.model);
+ assert.deepEqual(after.turns[0],before.turns[0]);
  assert.equal((await call('sessions')).length,1);
  await call(base+'/lifecycle',{action:'restore-version',operationId:randomUUID(),expectedRevision:after.revision,versionId:op.operationId});
  assert.equal((await call(base)).turns[1].raw,before.turns[1].raw);
  assert.equal((await call(base+'/plugins/rpg.message-tools')).enabled,true);
  const restored=await call(base);await call(base+'/lifecycle',{action:'rewind',operationId:randomUUID(),expectedRevision:restored.revision,turn:1});
- await send('从第一轮重开');assert.equal((await call(base)).turns.length,1);
+ const first=await send('从第一轮重开');assert.equal(first.turns.length,1);assert.equal(first.turns[0].model.requestedModel,otherModel.model);
 });
 
 test('brief rename contention retries the same publication, while persistent and other I/O failures remain errors',async()=>{

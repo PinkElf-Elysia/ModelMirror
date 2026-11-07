@@ -24,11 +24,15 @@ async def main():
      await asyncio.sleep(.15)
     raise AssertionError('memory did not settle')
    before=await get(path);await page.goto(fixture['url']);await expect(page.locator('.conversation article')).to_have_count(2)
+   models=(await get(path+'/model-catalog'))['models'];chosen=models[1]
+   await page.locator('.model-chip').click()
+   await page.get_by_role('dialog',name='选择模型',exact=True).get_by_role('button').filter(has_text=chosen['name']).click()
+   await expect(page.locator('.model-chip')).to_contain_text(chosen['model'])
    await page.get_by_role('button',name='↻ 重新生成',exact=True).first.click()
    await page.get_by_role('dialog',name='重新生成此回合').screenshot(path=str(evidence/'regenerate.png'))
    await page.get_by_role('button',name='保留版本并重新生成',exact=True).click()
    await expect(page.locator('.conversation article')).to_have_count(1,timeout=20000)
-   after=await settled(1);assert page.url==fixture['url'];assert after['id']==before['id'];assert len(await get('sessions'))==1
+   after=await settled(1);assert after['turns'][0]['model']['requestedModel']==chosen['model'];assert page.url==fixture['url'];assert after['id']==before['id'];assert len(await get('sessions'))==1
    await page.get_by_role('button',name='历史版本',exact=True).click()
    await page.get_by_role('dialog',name='历史版本').screenshot(path=str(evidence/'versions.png'))
    await page.get_by_role('dialog',name='历史版本').get_by_role('button',name='恢复',exact=True).first.click()

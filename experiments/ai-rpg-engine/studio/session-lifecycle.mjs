@@ -3,7 +3,6 @@ import {mkdir, readFile, readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {atomicJson, completeHistory} from './branch-archive.mjs';
 import {canonical, sha, fail} from '../plugins/catalog.mjs';
-import {initialModelState} from './model-runtime.mjs';
 import {initialHistoryState} from './history-state.mjs';
 import {standbyMemoryTasks} from './memory-assembly.mjs';
 
@@ -30,7 +29,8 @@ export function rewindSnapshot(source,turn) {
  next.history=next.history.slice(0,(turn-1)*2);next.turns=next.turns.slice(0,turn-1);
  // Keep terminal request receipts, including removed turns, to prevent old IDs
  // from ever dispatching again. Their complete bodies also live in the version.
- if(source.modelState)next.modelState=initialModelState(target.model.selection);
+ // Keep the current model selection, revision and operation receipts from source.
+ // Rewind story context only; regeneration is a new send with the selected model.
  if(source.historyWindow)next.historyWindow=initialHistoryState(target.contextPolicy?.historyConfig??target.historyPolicy.config);
  if(source.rollingSummary)next.rollingSummary=structuredClone(target.contextPolicy.summarySnapshot);
  if(source.memoryPalace){next.memoryPalace=structuredClone(target.memoryPolicy.usedSnapshot.library);next.memoryTasks=standbyMemoryTasks(target.memoryPolicy.usedSnapshot.config);}
