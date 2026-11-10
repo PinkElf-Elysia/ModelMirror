@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-10T08:12:43.500Z.
+// Merged with OpenRouter model catalog on 2026-11-10T17:03:41.036Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,46 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "google/gemini-4-carbon",
+    "canonical_slug": "google/gemini-4-carbon-20261110",
+    "name": "Google: Gemini 4 Carbon",
+    "raw_description": "Gemini 4 Carbon is a frontier Gemini 4 model from Google for coding, agentic and complex reasoning work. It takes text, image, audio, video and file input, supports long decode...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 2,
+      "output": 10
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794326871,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
   {
     "id": "nex-agi/nex-n2.6",
     "canonical_slug": "nex-agi/nex-n2.6-20261110",
@@ -1885,8 +1925,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
+      "input": 0.075,
+      "output": 0.3,
       "time_overrides": [
         {
           "utc_start": 1500,
@@ -2935,7 +2975,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Drama 3 is a text-to-speech model from Fish Audio built for directed voice performances. You write the direction in plain language in square brackets before a line, such as `[nervous,...",
     "context_length": 0,
     "pricing": {
-      "input": 2,
+      "input": 10,
       "output": 0
     },
     "input_modalities": [
@@ -2952,7 +2992,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "utf8_byte_million",
-      "usd": 2
+      "usd": 10
     },
     "note": "专用语音接口，首轮单声线 MP3、最多 4,000 字符；可在原文中用方括号及配对标签描述演绎方式。使用官方示例的三条公开声线，不开放多角色和声音克隆。按 UTF-8 字节而非 Token 或字符计价，等待短音频人工验收。"
   },
@@ -6443,8 +6483,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.006,
-      "output": 0.5
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -7291,8 +7331,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.834,
-      "output": 2.501,
+      "input": 0.7505999999999999,
+      "output": 2.2509,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -7459,8 +7499,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0335,
-      "output": 0.083
+      "input": 0.0399,
+      "output": 0.0784
     },
     "input_modalities": [
       "text",
@@ -7572,8 +7612,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.0399,
+      "output": 0.0784
     },
     "input_modalities": [
       "text",
@@ -11557,8 +11597,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -12111,7 +12151,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.006,
+      "input": 0.007,
       "output": 6.8
     },
     "input_modalities": [
@@ -14285,8 +14325,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15200000000000002,
-      "output": 10.5601
+      "input": 0.18239999999999998,
+      "output": 9.338799999999999
     },
     "input_modalities": [
       "text",
@@ -27366,6 +27406,46 @@ const rawCatalogModels: RawCatalogModel[] = [
 
 const rawBatchServingVariants: RawCatalogModel[] = [
   {
+    "id": "google/gemini-4-carbon:batch",
+    "canonical_slug": "google/gemini-4-carbon-20261110",
+    "name": "Google: Gemini 4 Carbon (batch)",
+    "raw_description": "Gemini 4 Carbon is a frontier Gemini 4 model from Google for coding, agentic and complex reasoning work. It takes text, image, audio, video and file input, supports long decode...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1,
+      "output": 5
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794326871,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
     "id": "anthropic/claude-fable-5.2:batch",
     "canonical_slug": "anthropic/claude-fable-5.2-20261109",
     "name": "Anthropic: Claude Fable 5.2 (batch)",
@@ -28241,7 +28321,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.03,
+      "input": 0.032999999999999995,
       "output": 0.061000000000000006
     },
     "input_modalities": [
@@ -32041,7 +32121,7 @@ const LATEST_REFRESH_MODEL_IDS = [
 const FRONT_ROW_MODEL_IDS = [
   "anthropic/claude-fable-5.2",
   "moonshotai/kimi-k3.1-pro",
-  "anthropic/claude-opus-5.5", "google/gemini-4-argon",
+  "anthropic/claude-opus-5.5", "google/gemini-4-argon", "google/gemini-4-carbon",
   "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
   "openai/gpt-6-luna", "anthropic/claude-haiku-5.5",
 ];
@@ -32117,6 +32197,7 @@ const primaryCatalogModels: Model[] = [
   ...(gptImage26FlareModel ? [gptImage26FlareModel] : []),
   ...(gptImage26SunburstModel ? [gptImage26SunburstModel] : []),
   ...(claudeFable51Model ? [claudeFable51Model] : []),
+  ...frontRowModel("google/gemini-4-carbon"),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
   ...normallyOrderedCatalogModels,

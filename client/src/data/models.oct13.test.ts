@@ -5,7 +5,7 @@ import { chatModelOptions } from "./modelOptions";
 describe("October 13 contracts and placement", () => {
   it("reserves the requested flagship and front-six-row models without duplicates", () => {
     expect(models[0].id).toBe("anthropic/claude-fable-5.2");
-    for (const id of ["anthropic/claude-opus-5.5", "google/gemini-4-argon", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna", "anthropic/claude-haiku-5.5", "anthropic/claude-fable-5.1"]) {
+    for (const id of ["anthropic/claude-opus-5.5", "google/gemini-4-argon", "google/gemini-4-carbon", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna", "anthropic/claude-haiku-5.5", "anthropic/claude-fable-5.1"]) {
       expect(models.filter((model) => model.id === id)).toHaveLength(1);
       const index = models.findIndex((model) => model.id === id);
       expect(index).toBeGreaterThan(1);
@@ -36,7 +36,7 @@ describe("October 13 contracts and placement", () => {
       expect(models.filter((model) => model.id === id)).toHaveLength(1);
       expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
     }
-    for (const [id, unit, usd] of [["heygen/heygen-voice-1", "character_million", 15], ["heygen/heygen-voice-1-turbo", "character_million", 4], ["fish-audio/drama-3", "utf8_byte_million", 2]]) {
+    for (const [id, unit, usd] of [["heygen/heygen-voice-1", "character_million", 15], ["heygen/heygen-voice-1-turbo", "character_million", 4], ["fish-audio/drama-3", "utf8_byte_million", 10]]) {
       expect(models.find((model) => model.id === id)).toMatchObject({ pricing_basis: "media", media_pricing: { unit, usd }, primary_operation: "synthesize_speech" });
     }
     expect(models.find((model) => model.id === "~unbiased/pareto-latest")?.note).toContain("unbiased/pareto-26.9");

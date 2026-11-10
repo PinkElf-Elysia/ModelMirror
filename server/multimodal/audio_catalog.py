@@ -122,6 +122,14 @@ OPENROUTER_AUDIO_CONTRACTS: dict[str, AudioContract] = {
         verification_status="contract_verified",
         planned_reason="多模态输入契约已适配；未执行真实供应商调用。",
     ),
+    "google/gemini-4-carbon": AudioContract(
+        operations=("analyze_audio",),
+        chat_modes=("direct_audio_input",),
+        input_formats=DIRECT_AUDIO_INPUT_FORMATS,
+        interaction_adapted=True,
+        verification_status="contract_verified",
+        planned_reason="多模态输入契约已适配；未执行真实供应商调用。",
+    ),
     "meta/muse-wonder": AudioContract(
         operations=("analyze_audio",),
         chat_modes=("direct_audio_input",),

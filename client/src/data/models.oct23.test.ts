@@ -15,7 +15,7 @@ describe("October 23 snapshot contracts", () => {
   });
   it("keeps paid and missing free MiniMax identities separate", () => {
     expect(models.findIndex(m => m.id === "minimax/minimax-m3.1-flash")).toBeGreaterThanOrEqual(20);
-    expect(models.find(m => m.id === "minimax/minimax-m3.1-flash")).toMatchObject({catalog_status: "live", pricing: {input: 0.15, output: 0.6}});
+    expect(models.find(m => m.id === "minimax/minimax-m3.1-flash")).toMatchObject({catalog_status: "live", pricing: {input: 0.075, output: 0.3}});
     expect(models.find(m => m.id === "minimax/minimax-m3.1-flash:free")).toMatchObject({catalog_status: "uncertain", active: true});
   });
 });

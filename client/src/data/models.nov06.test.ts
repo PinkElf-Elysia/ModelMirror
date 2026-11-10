@@ -7,7 +7,7 @@ describe("November 6 refresh", () => {
     expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
     expect(models.find((model) => model.id === id)).toMatchObject({primary_operation:"decide", ui_entrypoint:"decisions", pricing_basis:"request", pricing_status:"dynamic", catalog_status:"uncertain"});
   });
-  it("places Claude Fable 5.2 in the first-row flagship slot and moves Opus 5.5 to row 2", () => {
+  it("places Claude Fable 5.2 in the first-row flagship slot, moves Opus 5.5 to row 2, and places Gemini 4 Carbon in the front six rows", () => {
     expect(models[0]?.id).toBe("anthropic/claude-fable-5.2");
     expect(models[0]?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
       catalog_id: "anthropic/claude-fable-5.2:batch",
@@ -15,6 +15,24 @@ describe("November 6 refresh", () => {
       pricing: { input: 4, output: 20 },
     });
     expect(models[4]?.id).toBe("anthropic/claude-opus-5.5");
+    const carbonIndex = models.findIndex((model) => model.id === "google/gemini-4-carbon");
+    expect(carbonIndex).toBeGreaterThan(1);
+    expect(carbonIndex).toBeLessThan(20);
+    expect(models[carbonIndex]).toMatchObject({
+      context_length: 1_048_576,
+      pricing: { input: 2, output: 10 },
+      input_modalities: ["audio", "file", "image", "text", "video"],
+      output_modalities: ["text"],
+      ui_entrypoint: "chat",
+      reasoning_declared: true,
+    });
+    expect(models[carbonIndex]?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
+      catalog_id: "google/gemini-4-carbon:batch",
+      request_model_id: "google/gemini-4-carbon",
+      pricing: { input: 1, output: 5 },
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+    });
   });
   it("adapts November 10 Decisions, Reranker, and post-six-row chat entries", () => {
     for (const id of [
