@@ -3416,6 +3416,8 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "nace-ai/drex-max-finance",
+        "parallel/decisions-fast:free",
         "parallel/decisions-fast",
         "liquid/d1.1",
         "morph/reflex",

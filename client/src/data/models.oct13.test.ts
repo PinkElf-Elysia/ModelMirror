@@ -4,8 +4,8 @@ import { chatModelOptions } from "./modelOptions";
 
 describe("October 13 contracts and placement", () => {
   it("reserves the requested flagship and front-six-row models without duplicates", () => {
-    expect(models[0].id).toBe("anthropic/claude-opus-5.5");
-    for (const id of ["google/gemini-4-argon", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna", "anthropic/claude-haiku-5.5", "anthropic/claude-fable-5.1"]) {
+    expect(models[0].id).toBe("anthropic/claude-fable-5.2");
+    for (const id of ["anthropic/claude-opus-5.5", "google/gemini-4-argon", "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5", "openai/gpt-6-luna", "anthropic/claude-haiku-5.5", "anthropic/claude-fable-5.1"]) {
       expect(models.filter((model) => model.id === id)).toHaveLength(1);
       const index = models.findIndex((model) => model.id === id);
       expect(index).toBeGreaterThan(1);
