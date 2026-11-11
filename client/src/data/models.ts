@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-10T17:03:41.036Z.
+// Merged with OpenRouter model catalog on 2026-11-11T16:36:00.999Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -226,6 +226,166 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "minimax/minimax-h3-image-highspeed",
+    "canonical_slug": "minimax/minimax-h3-image-highspeed-20261110",
+    "name": "MiniMax: MiniMax H3 Image Highspeed",
+    "raw_description": "MiniMax H3 Image Highspeed is the faster version of MiniMax's H3 Image model. It takes the same inputs and limits as MiniMax H3 Image: it creates images from text prompts...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 2.3,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "output_format",
+      "n",
+      "input_references",
+      "size"
+    ],
+    "created": 1794363447,
+    "expiration_date": null,
+    "model_author": "MiniMax",
+    "pricing_basis_override": "media",
+    "note": "专用图片生成/编辑高速入口：支持 1K/2K/4K、24 种宽高比、JPEG/PNG/WebP、单次 1–10 张输出、最多 16 张参考图与 size；按图片端点 Token 费率计价，文本输入 $2.30/M、图片输入 $3/M、图片输出 $7.60/M Token（首发促销期间高像素输出可能有五折结算）。生成前不能可靠估算总价；未执行真实调用。"
+  },
+  {
+    "id": "minimax/minimax-h3-image",
+    "canonical_slug": "minimax/minimax-h3-image-20261110",
+    "name": "MiniMax: MiniMax H3 Image",
+    "raw_description": "MiniMax H3 Image is MiniMax's image generation and editing model. It creates images from text prompts and edits or composes images from 1 to 16 reference images, with output up...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 2.3,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "output_format",
+      "n",
+      "input_references",
+      "size"
+    ],
+    "created": 1794340143,
+    "expiration_date": null,
+    "model_author": "MiniMax",
+    "pricing_basis_override": "media",
+    "note": "专用图片生成/编辑入口：支持 1K/2K/4K、24 种宽高比、JPEG/PNG/WebP、单次 1–10 张输出、最多 16 张参考图与 size；按图片端点 Token 费率计价，文本输入 $2.30/M、图片输入 $1.50/M、图片输出 $3.80/M Token（首发促销期间高像素输出可能有五折结算）。生成前不能可靠估算总价；未执行真实调用。"
+  },
+  {
+    "id": "baidu/ernie-5.5-flash-preview:free",
+    "canonical_slug": "baidu/ernie-5.5-flash-preview-20261110",
+    "name": "Baidu: ERNIE-5.5-Flash-Preview (free)",
+    "raw_description": "ERNIE 5.5 Flash Preview is the latest foundation model in the ERNIE family, with comprehensive improvements in coding, agentic capabilities, knowledge work, and deep research. It has 280 billion total...",
+    "context_length": 1024000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794333533,
+    "expiration_date": null,
+    "model_author": "Baidu",
+    "reasoning_declared": true
+  },
+  {
+    "id": "baidu/ernie-light-dt-1.0-intl",
+    "canonical_slug": "baidu/ernie-light-dt-1.0-intl-20261110",
+    "name": "Baidu: ERNIE-Light-DT-1.0",
+    "raw_description": "ERNIE-Light-DT-1.0 is based on open-source GLM models and includes research findings from Baidu Search's Lightning large model. It features Baidu Sparse Attention (BSA), a unique sparse attention mechanism developed by...",
+    "context_length": 1024000,
+    "pricing": {
+      "input": 1.13,
+      "output": 3.9400000000000004
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794331260,
+    "expiration_date": null,
+    "model_author": "Baidu",
+    "reasoning_declared": true
+  },
+  {
+    "id": "x-ai/grok-stt-2.0",
+    "canonical_slug": "x-ai/grok-stt-2.0-20260918",
+    "name": "SpaceXAI: Grok STT 2.0",
+    "raw_description": "Grok STT 2.0 is a speech-to-text model from SpaceXAI and the successor to Grok STT 1.0. It is suited for transcription workloads that need word-level timestamps, optional speaker diarization, and...",
+    "context_length": 0,
+    "pricing": {
+      "input": 27.777777777799997,
+      "output": 0
+    },
+    "input_modalities": [
+      "audio"
+    ],
+    "output_modalities": [
+      "transcription"
+    ],
+    "tokenizer": "Grok",
+    "supported_parameters": [],
+    "created": 1794329167,
+    "expiration_date": null,
+    "model_author": "xAI",
+    "note": "专用音频转写，约 $0.10/小时。本站使用标准音频转写输入，仅返回文字；暂不开放说话人分离、时间戳和多声道扩展，等待人工验证。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "audio_hour",
+      "usd": 0.10000000000008
+    }
+  },
+  {
     "id": "google/gemini-4-carbon",
     "canonical_slug": "google/gemini-4-carbon-20261110",
     "name": "Google: Gemini 4 Carbon",
@@ -425,6 +585,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -601,6 +762,43 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Google",
     "reasoning_declared": true,
     "note": "专用异步视频生成入口，支持首尾帧；使用带音频的分辨率费率，源视频编辑和 task 扩展尚未适配，等待人工生成验证。"
+  },
+  {
+    "id": "kt/midm-k-3.0-pro",
+    "canonical_slug": "kt/midm-k-3.0-pro",
+    "name": "KT: Mi:dm K 3.0 Pro",
+    "raw_description": "Mi:dm K 3.0 Pro is a Mixture-of-Experts reasoning model from KT, with 120B total and 12B active parameters. It uses a hybrid architecture that mixes Mamba, MoE and attention layers.",
+    "context_length": 261795,
+    "pricing": {
+      "input": 0.19999999999999998,
+      "output": 0.7999999999999999
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1793897701,
+    "expiration_date": null,
+    "model_author": "Kt",
+    "reasoning_declared": true
   },
   {
     "id": "openrouter/auto",
@@ -1091,6 +1289,43 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1793669930,
     "expiration_date": null,
     "model_author": "Stealth",
+    "reasoning_declared": true
+  },
+  {
+    "id": "motif-technologies/motif-3",
+    "canonical_slug": "motif-technologies/motif-3",
+    "name": "Motif Technologies: Motif 3",
+    "raw_description": "Motif 3 is a Mixture-of-Experts language model from Motif Technologies, with 314B total and 13.2B active parameters. It is a general-purpose multilingual model for English and Korean, particularly strong at...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.3,
+      "output": 1.2
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "repetition_penalty",
+      "response_format",
+      "structured_outputs",
+      "temperature",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1793655334,
+    "expiration_date": null,
+    "model_author": "Motif Technologies",
     "reasoning_declared": true
   },
   {
@@ -3191,6 +3426,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -3908,17 +4144,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
-      "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -4108,7 +4340,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef is Cloudflare's open-source 27B multimodal decision model, a fine-tune of Qwen3.8-27B served on Workers AI. It turns a state (text or structured JSON) plus a schema of typed questions...",
     "context_length": 65537,
     "pricing": {
-      "input": 0.24,
+      "input": 0.192,
       "output": 0
     },
     "input_modalities": [
@@ -6483,8 +6715,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.051,
+      "output": 0.5670000000000001
     },
     "input_modalities": [
       "text",
@@ -7127,6 +7359,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning_effort",
       "repetition_penalty",
       "response_format",
+      "seed",
       "structured_outputs",
       "temperature",
       "tool_choice",
@@ -9148,16 +9381,20 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logprobs",
       "max_tokens",
       "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1786371636,
@@ -10487,7 +10724,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Grok",
     "supported_parameters": [],
     "created": 1784817014,
-    "expiration_date": null,
+    "expiration_date": 1794700800,
     "model_author": "xAI"
   },
   {
@@ -12624,6 +12861,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -12638,6 +12876,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1780551208,
@@ -14326,7 +14565,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.18239999999999998,
-      "output": 9.338799999999999
+      "output": 11.0055
     },
     "input_modalities": [
       "text",
@@ -14815,8 +15054,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.8872260000000001,
+      "output": 1.7744520000000001
     },
     "input_modalities": [
       "text"
@@ -14860,8 +15099,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash is an efficiency-optimized Mixture-of-Experts model from DeepSeek with 284B total parameters and 13B activated parameters, supporting a 1M-token context window. It is designed for fast inference and...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.091,
-      "output": 0.182
+      "input": 0.09,
+      "output": 0.18
     },
     "input_modalities": [
       "text"
@@ -15753,8 +15992,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.4,
-      "output": 4.4
+      "input": 1.33,
+      "output": 4.18
     },
     "input_modalities": [
       "text"
@@ -16725,7 +16964,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "nvidia/nemotron-3-super-120b-a12b-20230311",
     "name": "NVIDIA: Nemotron 3 Super",
     "raw_description": "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
-    "context_length": 1048576,
+    "context_length": 262144,
     "pricing": {
       "input": 0.075,
       "output": 0.39999999999999997
@@ -17697,8 +17936,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
     "context_length": 200000,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.27,
+      "output": 1.08
     },
     "input_modalities": [
       "text"
@@ -20808,7 +21047,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1760447986,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -21074,7 +21313,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1759776663,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -22234,7 +22473,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587413,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -22271,7 +22510,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587407,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -22308,7 +22547,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587402,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -23415,7 +23654,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1749598352,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -24103,7 +24342,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1744823457,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -24640,7 +24879,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.08,
-      "output": 0.44999999999999996
+      "output": 0.35
     },
     "input_modalities": [
       "text",
@@ -27220,8 +27459,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "An attempt to recreate Claude-style verbosity, but don't expect the same level of coherence or memory. Meant for use in roleplay/narrative situations.",
     "context_length": 8000,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 0.75
+      "input": 0.3,
+      "output": 0.5
     },
     "input_modalities": [
       "text"
@@ -27258,8 +27497,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "A recreation trial of the original MythoMax-L2-B13 but with updated models. #merge",
     "context_length": 6144,
     "pricing": {
-      "input": 0.35,
-      "output": 0.65
+      "input": 0.3,
+      "output": 0.5
     },
     "input_modalities": [
       "text"
@@ -28321,7 +28560,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.032999999999999995,
+      "input": 0.047,
       "output": 0.061000000000000006
     },
     "input_modalities": [
@@ -30244,7 +30483,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1759776663,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -30324,7 +30563,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587413,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -30360,7 +30599,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587407,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -30396,7 +30635,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1754587402,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -30605,7 +30844,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "tools"
     ],
     "created": 1744823457,
-    "expiration_date": null,
+    "expiration_date": 1796947200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -31003,6 +31242,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "perplexity/pplx-decider-v1-27b",
   "poolside/laguna-xs.2:free",
   "prime-intellect/intellect-3",
+  "qwen/qwen-2.5-7b-instruct",
   "qwen/qwen-plus-2025-07-28:thinking",
   "qwen/qwen3-coder:free",
   "qwen/qwen3-next-80b-a3b-instruct:free",
@@ -31032,6 +31272,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "voyageai/voyage-multimodal-3.5",
   "x-ai/grok-imagine-image-quality",
   "xiaomi/mimo-v2-flash",
+  "xingchen-agi/xing4.0-29b-a4b:free",
   "z-ai/glm-4-32b",
   "z-ai/glm-4.5-air:free",
   "z-ai/glm-5.2:free",
@@ -31331,6 +31572,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "minimax/minimax-h3-image", "minimax/minimax-h3-image-highspeed",
   "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst",
   "sourceful/riverflow-v2.6-pro",
   "inclusionai/ming-image-0.1-design",
@@ -31873,6 +32115,9 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "minimax/minimax-h3-image-highspeed", "minimax/minimax-h3-image",
+  "baidu/ernie-5.5-flash-preview:free", "baidu/ernie-light-dt-1.0-intl",
+  "x-ai/grok-stt-2.0", "kt/midm-k-3.0-pro", "motif-technologies/motif-3",
   "nex-agi/nex-n2.6", "nace-ai/drex-max-finance", "thinkingmachines/inkling-2-small:free",
   "meta/muse-ember", "liquid/lfm-3-1.7b", "liquid/lfm-3-1.7b:free",
   "parallel/decisions-fast:free", "qwen/qwen3-reranker-0.6b",

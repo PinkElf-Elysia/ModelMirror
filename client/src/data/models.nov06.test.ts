@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { models } from "./models";
+import {
+  estimateImageCost,
+  imageTokenPricingSummary,
+  MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
+} from "../utils/imageCostEstimate";
 
 describe("November 6 refresh", () => {
   it("keeps Parallel on request-priced Decisions, not free chat", () => {
@@ -78,5 +83,70 @@ describe("November 6 refresh", () => {
   });
   it("retains explicit per-hour Nemotron transcription pricing", () => {
     expect(models.find((model) => model.id === "nvidia/nemotron-3.5-transcribe")?.media_pricing).toEqual({unit:"audio_hour", usd:0.06000012});
+  });
+  it("adapts November 11 MiniMax H3 Image, Grok STT 2.0, Baidu ERNIE, KT Mi:dm, and Motif 3 below the first six rows", () => {
+    for (const id of [
+      "minimax/minimax-h3-image",
+      "minimax/minimax-h3-image-highspeed",
+      "x-ai/grok-stt-2.0",
+      "baidu/ernie-5.5-flash-preview:free",
+      "baidu/ernie-light-dt-1.0-intl",
+      "kt/midm-k-3.0-pro",
+      "motif-technologies/motif-3",
+    ]) {
+      expect(models.filter((model) => model.id === id)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    for (const [id, summary] of [
+      [
+        "minimax/minimax-h3-image",
+        "文本输入 $2.30/M Token · 图片输入 $1.50/M Token · 图片输出 $3.80/M Token",
+      ],
+      [
+        "minimax/minimax-h3-image-highspeed",
+        "文本输入 $2.30/M Token · 图片输入 $3/M Token · 图片输出 $7.60/M Token",
+      ],
+    ] as const) {
+      const model = models.find((entry) => entry.id === id);
+      expect(model).toMatchObject({
+        primary_operation: "generate_image",
+        ui_entrypoint: "multimodal",
+        interaction_status: "ready",
+        pricing_basis: "media",
+        supported_parameters: [
+          "resolution",
+          "aspect_ratio",
+          "output_format",
+          "n",
+          "input_references",
+          "size",
+        ],
+      });
+      const pricing = MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID[id];
+      expect(estimateImageCost(pricing, { outputCount: 4, referenceCount: 2, resolution: "2K" })).toBeNull();
+      expect(imageTokenPricingSummary(pricing)).toBe(summary);
+    }
+
+    expect(models.find((entry) => entry.id === "x-ai/grok-stt-2.0")).toMatchObject({
+      primary_operation: "transcribe",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      pricing_basis: "media",
+      media_pricing: { unit: "audio_hour", usd: 0.10000000000008 },
+    });
+    expect(models.find((entry) => entry.id === "baidu/ernie-5.5-flash-preview:free")).toMatchObject({
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      pricing_basis: "free",
+      pricing_status: "free",
+      reasoning_declared: true,
+    });
+    expect(models.find((entry) => entry.id === "baidu/ernie-light-dt-1.0-intl")).toMatchObject({
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      pricing_basis: "token",
+      reasoning_declared: true,
+    });
   });
 });

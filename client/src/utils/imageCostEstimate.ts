@@ -110,6 +110,22 @@ export const GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID: Record<
   ),
 );
 
+export const MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID: Record<
+  string,
+  ImagePricingItem[]
+> = {
+  "minimax/minimax-h3-image": [
+    { billable: "input_text", unit: "token", cost_usd: 0.0000023 },
+    { billable: "input_image", unit: "token", cost_usd: 0.0000015 },
+    { billable: "output_image", unit: "token", cost_usd: 0.0000038 },
+  ],
+  "minimax/minimax-h3-image-highspeed": [
+    { billable: "input_text", unit: "token", cost_usd: 0.0000023 },
+    { billable: "input_image", unit: "token", cost_usd: 0.000003 },
+    { billable: "output_image", unit: "token", cost_usd: 0.0000076 },
+  ],
+};
+
 // Verified against the four Recraft Styles endpoint profiles on 2026-08-26.
 // Style creation is billed once per request, not once per reference image.
 export const RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID: Record<

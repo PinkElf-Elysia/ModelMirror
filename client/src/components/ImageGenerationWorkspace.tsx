@@ -14,6 +14,7 @@ import {
   GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID,
   imageTokenPricingSummary,
   MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
+  MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
   SEEDREAM_5_LITE_PRICING,
@@ -167,6 +168,8 @@ export default function ImageGenerationWorkspace({
             ? MUSE_IMAGE_PRICING
           : MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
             ? MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
+          : MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
+            ? MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id]
           : GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id]
             ? GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id]
             : RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID[model.id] ?? [];
@@ -191,6 +194,7 @@ export default function ImageGenerationWorkspace({
     if (model.id === "sourceful/riverflow-v2.6-pro") return null;
     const fallbackPricing =
       MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
+      MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
       GPT_IMAGE_2_5_TOKEN_PRICING_BY_MODEL_ID[model.id] ??
       [];
     return imageTokenPricingSummary(

@@ -8,7 +8,7 @@ const source = {
 };
 
 test("Voxtral 3 audio seconds cannot drift into token pricing", () => {
-  for (const [id, prompt] of [["mistralai/voxtral-small-transcribe-3-0", "0.0000666667"], ["mistralai/voxtral-mini-transcribe-3-0", "0.0000583333"]]) {
+  for (const [id, prompt] of [["mistralai/voxtral-small-transcribe-3-0", "0.0000666667"], ["mistralai/voxtral-mini-transcribe-3-0", "0.0000583333"], ["x-ai/grok-stt-2.0", "0.0000277777777778"]]) {
     const row = { id, pricing_basis: "media", media_pricing: {unit: "audio_hour", usd: Number(prompt) * 3600} };
     const marketRow = {slug: id, endpoint: {model_variant_slug: id, pricing: {prompt}, display_pricing: [{kind: "unit", sku_label: "Audio Seconds", price: prompt, unitLabel: "/second"}], pricing_json: {"stt:audio_seconds": prompt}}};
     const audit = (local, records = [marketRow]) => auditAudioHourPricingOverlays({localModels: [local], sourceModels: [{id, pricing: {prompt}}], marketModels: records});
