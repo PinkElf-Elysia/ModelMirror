@@ -1,3 +1,4 @@
+import {PARAMETER_DISPATCH_FAILURES} from './chat-parameters.mjs';
 import {summaryOriginRevision} from './branch-origin.mjs';
 import {canonical,keys,isId,isHash,sha256,fail,LIMITS} from './contracts.mjs';
 import {MEMORY_TASK_FORMAT,LEGACY_MEMORY_TASK_FORMAT,initialAuthoringMemory,validateAuthoringMemory,memoryAt,memoryUpdateSource,createMemoryTask,inspectMemoryResult,commitMemoryUpdate,requireMemoryAuthorization,MEMORY_STATE_LIMITS} from './memory-state.mjs';
@@ -11,7 +12,7 @@ export const MEMORY_JOB_LIMIT=1000;
 export const MEMORY_RECEIPT_RESERVE=MEMORY_STATE_LIMITS.rawCharacters*18+65536;
 const terminal=['applied','rejected','revoked','not_dispatched','blocked','stale'];
 const preparationErrors=['MODEL_CONTEXT_CAPACITY','MEMORY_MODEL_REQUIRED','MEMORY_CAPACITY_FULL','MEMORY_STATE_CAPACITY','MEMORY_SOURCE_CAPACITY','SUMMARY_SOURCE_CAPACITY'];
-export const MEMORY_LOCAL_FAILURES=Object.freeze(['MEMORY_AUTHORIZATION_CHANGED','MEMORY_MODEL_CHANGED','MEMORY_SOURCE_CHANGED','MEMORY_REVISION_CONFLICT','MODEL_SELECTION_CHANGED','MODEL_SELECTION_UNAVAILABLE','MODEL_CAPABILITY_UNKNOWN','MODEL_CONTEXT_CAPACITY','OFFLINE_FIXTURE_MISSING']);
+export const MEMORY_LOCAL_FAILURES=Object.freeze([...PARAMETER_DISPATCH_FAILURES,'MEMORY_AUTHORIZATION_CHANGED','MEMORY_MODEL_CHANGED','MEMORY_SOURCE_CHANGED','MEMORY_REVISION_CONFLICT','MODEL_SELECTION_CHANGED','MODEL_SELECTION_UNAVAILABLE','MODEL_CAPABILITY_UNKNOWN','MODEL_CONTEXT_CAPACITY','OFFLINE_FIXTURE_MISSING']);
 const digest=v=>sha256(canonical(v)),same=(a,b)=>canonical(a)===canonical(b),clone=v=>structuredClone(v),integer=v=>Number.isSafeInteger(v)&&v>=0;
 const grants=v=>{keys(v,['history','summary','memory']);Object.values(v).forEach(requireMemoryAuthorization);};
 export const memoryJobId=(sessionId,storyOperationId)=>stageOperationId(sessionId,storyOperationId,'memory-after');

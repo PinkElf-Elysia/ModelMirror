@@ -168,9 +168,11 @@ export class SessionRecords {
       return {hash, data:structuredClone(snapshot)};
     });
   }
-  reconcile() {
+  reconcile(expectedId = null) {
+    if(expectedId !== null)this.#path(expectedId);
     return this.#run(async () => {
       const pending = await this.#pending(); if (!pending) return null;
+      if(expectedId !== null && pending.id !== expectedId)fail('OFFLINE_RECOVERY_TARGET_CONFLICT');
       const current = await this.#read(pending.id), hash = current?.hash ?? null;
       if (hash !== pending.nextHash && hash !== pending.previousHash) fail('OFFLINE_RECOVERY_CONFLICT');
       await unlink(join(this.#root, 'pending.json')); await syncDirectory(this.#root);

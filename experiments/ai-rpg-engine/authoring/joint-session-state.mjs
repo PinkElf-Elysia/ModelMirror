@@ -1,3 +1,5 @@
+import {validateFutureConfigurations} from './comparison-future.mjs';
+import {validatePlan as validateComparisonPlan,validateContext} from './comparison-contract.mjs';
 import {panelTurn,validatePanelTurns} from './variable-panel.mjs';
 import {validateRequirements,requirementsAt} from './requirements.mjs';
 import {CONTROLLED_MODE,CONTROLLED_SESSION_FORMAT,CONTROLLED_BRANCH_FORMAT,isControlledSession,validateControlledReceipt} from './controlled-receipt.mjs';
@@ -6,6 +8,7 @@ import {canonical,keys,isId,isHash,sha256,fail} from './contracts.mjs';
 import {validateModelState,modelChoiceAt,modelCapacity} from './model-control.mjs';
 import {validateHistoryState,historyStateAt} from './history-control.mjs';
 import {summaryRawHash} from './summary-state.mjs';
+import {validateChatParameters,validateRunParameters,taskModelChoice} from './chat-parameters.mjs';
 import {summaryAt,modelsAt,validateJointSummary,pendingJointSummary} from './joint-summary.mjs';
 import {memoryAt} from './memory-state.mjs';
 import {memoryContextPolicy,replayMemoryContext} from './memory-context.mjs';
@@ -29,8 +32,9 @@ export const runPending=s=>s.runs.find(r=>RUN_PENDING.includes(r.state))??null;
 export const outcomeState=r=>r.status==='failed'?'failed':r.finishReason==='length'?'incomplete':!r.text.trim()?'invalid':'completed';
 export function checkSession(id){if(typeof id!=='string'||!/^session-[a-f0-9]{64}$/.test(id))fail('OFFLINE_SESSION_INVALID');}
 export function jointIntent(input){
- canonical(input);keys(input,['sessionId','operationId','expectedRevision','expectedModelRevision','expectedContextPolicyRevision','expectedSummaryRevision','expectedMemoryRevision','kind','input']);
+ canonical(input);keys(input,['sessionId','operationId','expectedRevision','expectedModelRevision','expectedContextPolicyRevision','expectedSummaryRevision','expectedMemoryRevision','kind','input',...(Object.hasOwn(input,'expectedParameterAuthorizationRevision')?['expectedParameterAuthorizationRevision']:[])]);
  checkSession(input.sessionId);
+ if(Object.hasOwn(input,'expectedParameterAuthorizationRevision')&&!isHash(input.expectedParameterAuthorizationRevision))fail('JOINT_INTENT_INVALID');
  if(!isId(input.operationId)||!integer(input.expectedRevision)||!integer(input.expectedModelRevision)||!integer(input.expectedSummaryRevision)||!integer(input.expectedMemoryRevision)||!isHash(input.expectedContextPolicyRevision)||!['send','update'].includes(input.kind)||
   (input.kind==='send'?(!raw(input.input)||!input.input.trim()||[...input.input].length>1000000):input.input!==null))fail('JOINT_INTENT_INVALID');
  return clone(input);
@@ -52,7 +56,7 @@ export function jointPlan(s,operationId,kind,authorization){
 }
 export function assertJointIdFree(s,id){
  if(!isId(id)||id===s.create.operationId||s.runs.some(r=>r.operationId===id||r.plan.stages.some(t=>t.operationId===id))||
-  s.models.changes.some(c=>c.intent.operationId===id)||(s.requirements?.changes??[]).some(c=>c.intent.operationId===id)||s.history.changes.some(c=>c.intent.operationId===id)||memoryOwnsId(s,id))fail('OFFLINE_OPERATION_COLLISION');
+  (s.futureConfigurations??[]).some(c=>c.intent.operationId===id)||(s.generationParameters?.changes??[]).some(c=>c.intent.operationId===id)||s.models.changes.some(c=>c.intent.operationId===id)||(s.requirements?.changes??[]).some(c=>c.intent.operationId===id)||s.history.changes.some(c=>c.intent.operationId===id)||memoryOwnsId(s,id))fail('OFFLINE_OPERATION_COLLISION');
 }
 export function pauseReason(s,auth){
  for(const [purpose,log]of [['summary',s.summary],['memory',s.memory]]){
@@ -68,7 +72,7 @@ function revisionsAt(s,revision){
  return {summary,memory};
 }
 export function validateJointSession(s,executionHash){
- canonical(s);keys(s,['format','id','revision','createdAt','updatedAt','create','binding','executionHash','allowanceId','presetId','examples','draft','runs','operations','turns','models','history','summary','memory','memoryEdits',...(Object.hasOwn(s,'requirements')?['requirements']:[]),...(Object.hasOwn(s,'origin')?['origin']:[]),...(Object.hasOwn(s,'variablePanel')?['variablePanel']:[])]);
+ canonical(s);keys(s,['format','id','revision','createdAt','updatedAt','create','binding','executionHash','allowanceId','presetId','examples','draft','runs','operations','turns','models','history','summary','memory','memoryEdits',...(Object.hasOwn(s,'futureConfigurations')?['futureConfigurations']:[]),...(Object.hasOwn(s,'generationParameters')?['generationParameters']:[]),...(Object.hasOwn(s,'requirements')?['requirements']:[]),...(Object.hasOwn(s,'origin')?['origin']:[]),...(Object.hasOwn(s,'variablePanel')?['variablePanel']:[])]);
  keys(s.create,['operationId','requestHash']);checkSession(s.id);
  const origin=checkSessionOrigin(s),controlled=isControlledSession(s);
  const format=controlled?(origin?CONTROLLED_BRANCH_FORMAT:CONTROLLED_SESSION_FORMAT):(origin?BRANCH_SESSION_FORMAT:JOINT_SESSION_FORMAT);
@@ -78,13 +82,15 @@ export function validateJointSession(s,executionHash){
   !Array.isArray(s.memoryEdits)||!Array.isArray(s.examples)||s.examples.length>200||s.examples.length%2)fail('JOINT_SESSION_CORRUPT');
  s.examples.forEach((m,i)=>{keys(m,['role','content']);if(m.role!==(i%2?'assistant':'user')||!raw(m.content))fail('JOINT_SESSION_CORRUPT');});
  validateRequirements(s.requirements,s.id,s.revision,origin?.inheritance.settings.requirements);
- validateModelState(s.models,s.id,s.revision,s.binding.resourceHash);validateHistoryState(s.history,s.id,s.revision,s.binding.resourceHash,origin?.inheritance.settings.history??null);
- const ids=new Set([s.create.operationId]),configIds=[...s.models.changes,...s.history.changes,...(s.requirements?.changes??[])].map(c=>c.intent.operationId);
+ validateModelState(s.models,s.id,s.revision,s.binding.resourceHash);validateChatParameters(s);validateFutureConfigurations(s);validateHistoryState(s.history,s.id,s.revision,s.binding.resourceHash,origin?.inheritance.settings.history??null);
+ const ids=new Set([s.create.operationId]),configIds=[...(s.futureConfigurations??[]),...(s.generationParameters?.changes??[]),...s.models.changes,...s.history.changes,...(s.requirements?.changes??[])].map(c=>c.intent.operationId);
  for(const id of configIds){if(ids.has(id))fail('OFFLINE_OPERATION_COLLISION');ids.add(id);}
  let previous=-1,pending=0;
  for(const [index,r]of s.runs.entries()){
-  keys(r,['operationId','intent','intentHash','plan','groupId','historyRevision','summaryRevision','memoryRevision','state','diagnostic','settledRevision']);
-  const i=jointIntent(r.intent);validateJointPlan(r.plan);
+  keys(r,['operationId','intent','intentHash','plan','groupId','historyRevision','summaryRevision','memoryRevision','state','diagnostic','settledRevision',...(s.generationParameters?['parameters']:[]),...(r.comparison?['comparison']:[])]);
+  validateRunParameters(s,r);const i=jointIntent(r.intent);validateJointPlan(r.plan);
+  if(r.comparison){const c=r.comparison;keys(c,['plan','choice','context','commits']);validateComparisonPlan(c.plan);if(c.plan.intent.sessionId!==s.id||c.plan.intent.operationId!==r.operationId||c.plan.intent.input!==r.intent.input||!c.plan.intent.candidates.some(x=>same(x.choice,c.choice))||!Array.isArray(c.commits)||c.commits.length>12)fail('COMPARISON_HOST_RECORD_INVALID');if(c.context)validateContext(c.context);const ids=new Set();for(const p of c.commits){keys(p,['operationId','payloadHash','contextRevision','hash']);const {hash,...body}=p;if(!isId(p.operationId)||ids.has(p.operationId)||!isHash(p.payloadHash)||!integer(p.contextRevision)||p.contextRevision>s.revision||hash!==digest(body))fail('COMPARISON_HOST_RECORD_INVALID');ids.add(p.operationId);}}
+
   if(r.operationId!==i.operationId||ids.has(r.operationId)||r.intentHash!==digest(i)||i.sessionId!==s.id||i.expectedRevision<=previous||i.expectedRevision>=s.revision||
    r.groupId!==jointGroupId(s.allowanceId,r.plan)||!['prepared','running','unknown','completed','paused','not_dispatched'].includes(r.state)||!(r.diagnostic===null||/^[A-Z0-9_]{1,100}$/.test(r.diagnostic)))fail('JOINT_RUN_CORRUPT');
   const at=revisionsAt(s,i.expectedRevision);
@@ -110,7 +116,7 @@ export function validateJointSession(s,executionHash){
   keys(r,['id','operationId','sessionId','bindingHash','executionHash','mode','model','policy','createdAt','rawInput','worldbook','draws','messages','messagesHash','memoryContext','modelConfiguration','parameters','capacity']);
   if(r.id!==jointRequestId(s.id,op.operationId)||r.operationId!==op.operationId||r.sessionId!==s.id||r.bindingHash!==digest(s.binding)||r.executionHash!==executionHash||
    r.mode!==(controlled?CONTROLLED_MODE:JOINT_MODE)||r.rawInput!==i.input||r.messagesHash!==digest(r.messages)||op.requestHash!==digest(r)||!raw(r.createdAt)||!same(r.policy.authorization,run.plan.input.authorization))fail('JOINT_STORY_CORRUPT');
-  const ctx=r.memoryContext,choice=modelChoiceAt(s.models,i.expectedModelRevision,'story'),at=revisionsAt(s,i.expectedRevision);
+  const ctx=r.memoryContext,choice=taskModelChoice(s,i.expectedModelRevision,'story',op.operationId),at=revisionsAt(s,i.expectedRevision);
   if(ctx.summarySnapshot.revision!==at.summary||ctx.memorySnapshot.revision!==at.memory||
    s.models.changes.some(c=>(c.revision<=i.expectedModelRevision)!==(c.intent.expectedRevision<i.expectedRevision)))fail('JOINT_STORY_CORRUPT');
   keys(r.modelConfiguration,['revision','choice']);

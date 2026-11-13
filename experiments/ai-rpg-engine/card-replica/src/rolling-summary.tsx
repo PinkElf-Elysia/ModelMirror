@@ -1,4 +1,5 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
+import {createStatusRead} from './status-read';
 import {cardStoragePrefix} from './session-client';
 import {Modal} from './modal';
 import {ModelPicker} from './model-picker';
@@ -16,9 +17,10 @@ export function summaryActivity(status:SummaryStatus,pending=false){
 }
 export function useRollingSummary(s:Session|null,accept:(s:Session)=>void){
  const [status,setStatus]=useState<SummaryStatus|null>(null),[error,setError]=useState(''),[statusError,setStatusError]=useState(''),[working,setWorking]=useState(false),[pending,setPending]=useState<{operationId:string}|null>(null),[storageBroken,setBroken]=useState(false);
+ const reads=useRef(createStatusRead<SummaryStatus|null>());
  const current=useRef(s),handler=useRef(accept),lock=useRef(false),live=useRef(true),seq=useRef(0);current.current=s;handler.current=accept;
- async function refresh(){const v=++seq.current,id=current.current?.id;if(!id||!current.current?.rollingSummary)return null;try{const h=await api('sessions/'+id+'/rolling-summary');if(live.current&&v===seq.current&&current.current?.id===id){setStatus(h);setStatusError('');if(h.sessionRevision!==current.current?.revision){const next=await api('sessions/'+id);if(live.current&&v===seq.current)handler.current(next);}}return h as SummaryStatus;}catch{if(live.current&&v===seq.current&&current.current?.id===id){setStatus(null);setStatusError('自动总结状态暂不可用，请恢复记录核对。');}return null;}}
- useEffect(()=>{live.current=true;if(!s?.rollingSummary)return;try{const raw=localStorage.getItem(key(s.id));if(raw){const x=JSON.parse(raw);if(!/^[a-zA-Z0-9-]{1,80}$/.test(x?.operationId))throw Error();setPending(x);}}catch{setBroken(true);setError('无法读取总结操作记录，请保留浏览器数据。');}void refresh();const timer=setInterval(()=>void refresh(),1500);return()=>{live.current=false;seq.current++;clearInterval(timer);};},[s?.id,!!s?.rollingSummary]);
+ async function refresh(){const id=current.current?.id;if(!id||!current.current?.rollingSummary)return null;return reads.current.run(id,async()=>{const v=++seq.current;try{const h=await api('sessions/'+id+'/rolling-summary');if(live.current&&v===seq.current&&current.current?.id===id){setStatus(h);setStatusError('');if(h.sessionRevision!==current.current?.revision){const next=await api('sessions/'+id);if(live.current&&v===seq.current)handler.current(next);}}return h as SummaryStatus;}catch{if(live.current&&v===seq.current&&current.current?.id===id){setStatus(null);setStatusError('自动总结状态暂不可用，请恢复记录核对。');}return null;}});}
+ useEffect(()=>{live.current=true;if(!s?.rollingSummary)return;try{const raw=localStorage.getItem(key(s.id));if(raw){const x=JSON.parse(raw);if(!/^[a-zA-Z0-9-]{1,80}$/.test(x?.operationId))throw Error();setPending(x);}}catch{setBroken(true);setError('无法读取总结操作记录，请保留浏览器数据。');}void refresh();const timer=setInterval(()=>void refresh(),1500);return()=>{live.current=false;seq.current++;reads.current.clear();clearInterval(timer);};},[s?.id,!!s?.rollingSummary]);
  function persist(value:{operationId:string}|null){try{if(storageBroken)return false;if(value)localStorage.setItem(key(current.current!.id),JSON.stringify(value));else localStorage.removeItem(key(current.current!.id));setPending(value);return true;}catch{setBroken(true);setError('总结操作记录未能保存，请保留浏览器数据。');return false;}}
  async function perform(action:string,payload:Record<string,unknown>={}){
   if(lock.current||storageBroken||pending)return false;lock.current=true;setWorking(true);setError('');

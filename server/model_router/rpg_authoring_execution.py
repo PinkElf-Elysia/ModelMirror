@@ -19,6 +19,9 @@ from .egress import ProviderEgressError
 from .openrouter_errors import read_openrouter_error_code
 
 FORMAT = "modelmirror.rpg.authoring-task/1"
+FORMAT_V2 = "modelmirror.rpg.authoring-task/2"
+FORMAT_COMPARISON = "modelmirror.rpg.authoring-task/3"
+from . import rpg_comparison as comparison
 RECEIPT_FORMAT = "modelmirror.rpg.authoring-task-receipt/1"
 MAX_BODY = 8 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
@@ -91,7 +94,15 @@ async def _body(request, unique):
                            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         fields = {"format", "sessionId", "requestId", "operationId", "purpose", "sourceRequestHash",
                   "catalogRevision", "selectionId", "selectionRevision", "parameters", "messages"}
-        if not isinstance(value, dict) or set(value) != fields or value["format"] != FORMAT:
+        version_two = isinstance(value, dict) and value.get("format") in (FORMAT_V2, FORMAT_COMPARISON)
+        if version_two:
+            fields.add("capabilityRevision")
+        if isinstance(value, dict) and value.get("format") == FORMAT_COMPARISON:
+            fields.add("comparison")
+            comparison.task_binding(value)
+        if not isinstance(value, dict) or set(value) != fields or value["format"] not in (FORMAT, FORMAT_V2, FORMAT_COMPARISON):
+            raise ValueError()
+        if version_two and (not isinstance(value["capabilityRevision"], str) or not _HASH.fullmatch(value["capabilityRevision"])):
             raise ValueError()
         if any(not isinstance(value[k], str) or not _ID.fullmatch(value[k]) for k in ("sessionId", "requestId", "operationId")):
             raise ValueError()
@@ -155,10 +166,10 @@ def _parse(sse, model, evidence):
         raise ValueError("rpg_authoring_invalid_output")
 
 
-def register_authoring_execution(router, auth, get_stable, catalog, parameters, unique, digest):
+def register_authoring_execution(router, auth, get_stable, catalog, parameters, unique, digest, parameters_v2):
     def selection(stable, value):
         # Other catalog rows may refresh; this exact row revision must not change.
-        current = catalog(stable)
+        current = catalog(stable, 2, include_private=True) if value["format"] in (FORMAT_V2, FORMAT_COMPARISON) else catalog(stable)
         entry = next((e for e in current["models"] if e["selectionId"] == value["selectionId"]), None)
         if not entry or not entry["available"] or entry["selectionRevision"] != value["selectionRevision"]:
             raise ValueError("rpg_authoring_selection_changed")
@@ -174,6 +185,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         sent = False
         preflighting = False
         wire = None
+        resolution = None
+        provider_request_hash = None
         selected = None
         evidence = {"raw": "", "actualModel": None, "usage": None, "finishReason": None}
         sse, error, http_status = "", None, None
@@ -183,13 +196,22 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
             if not _execution_enabled():
                 raise ValueError("rpg_authoring_execution_disabled")
             selected, connection = selection(stable, value)
-            wire = parameters(selected, value["parameters"])
+            if value["format"] in (FORMAT_V2, FORMAT_COMPARISON):
+                resolution = parameters_v2(selected, value["parameters"], value["purpose"], value["capabilityRevision"])
+                wire = resolution["wireParameters"]
+                output_limit = resolution["effectiveParameters"]["maxOutputTokens"]
+            else:
+                wire = parameters(selected, value["parameters"])
+                output_limit = value["parameters"]["maxOutputTokens"]
             estimate = sum(len(m["content"].encode()) + 32 for m in value["messages"]) + 256
-            if estimate + value["parameters"]["maxOutputTokens"] > selected["contextLength"]:
+            if estimate + output_limit > selected["contextLength"]:
                 raise ValueError("rpg_authoring_context_capacity")
             preflighting = True
             async with asyncio.timeout(PREFLIGHT_TIMEOUT_SECONDS):
-                preflight = await stable.begin_rpg_authoring_certified(selected["modelId"], connection)
+                if value["format"] == FORMAT_COMPARISON:
+                    preflight = await stable.begin_rpg_authoring_certified(selected["modelId"], connection, comparison_request=value)
+                else:
+                    preflight = await stable.begin_rpg_authoring_certified(selected["modelId"], connection)
             preflighting = False
             dispatch = preflight.dispatch
             if dispatch is None:
@@ -218,6 +240,7 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                         raise ValueError("rpg_authoring_endpoint_invalid")
                     provider.update(only=[tag], order=[tag])
                 payload.update(provider=provider, transforms=[])
+            provider_request_hash = digest(payload)
             async with asyncio.timeout(240), httpx.AsyncClient(**stable.transport.client_kwargs()) as client:
                 outbound = stable.transport.build_authorized_stream_request(client, dispatch.target, dispatch.authorized, payload)
                 selection(stable, value)
@@ -280,6 +303,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                        "rpg_authoring_invalid_output", "rpg_authoring_non_text_output", "rpg_authoring_model_mismatch",
                        "rpg_authoring_provider_error", "rpg_authoring_result_unknown", "rpg_authoring_parameter_unsupported",
                        "rpg_authoring_parameter_range", "rpg_authoring_parameter_required", "rpg_authoring_parameter_conflict",
+                       "rpg_authoring_capability_changed", "rpg_authoring_parameter_invalid",
+                       "rpg_authoring_parameter_dependency", "rpg_authoring_parameter_purpose", "rpg_authoring_selection_unavailable",
                        "rpg_authoring_budget_exhausted", "rpg_authoring_routing_disabled", "rpg_authoring_model_not_allowed",
                        "rpg_authoring_dns_failed", "rpg_authoring_address_blocked",
                        "rpg_authoring_preflight_timeout", "rpg_authoring_preflight_network"}
@@ -316,9 +341,14 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                    "dispatched": sent, "status": status, "finishReason": evidence["finishReason"], "error": error,
                    "httpStatus": http_status, "usage": evidence["usage"], "retries": 0,
                    "rawHash": _hash(evidence["raw"]), "sseHash": _hash(sse)}
+        if value["format"] in (FORMAT_V2, FORMAT_COMPARISON):
+            receipt.update(format="modelmirror.rpg.authoring-task-receipt/2",
+                           capabilityRevision=value["capabilityRevision"], parameterResolution=resolution,
+                           providerRequestHash=provider_request_hash)
         result = {"status": status, "requestHash": request_hash, "raw": evidence["raw"], "sse": sse,
                   "receipt": {**receipt, "sha256": digest(receipt)}}
         _persist(result_path, result)
+        comparison.settle_result(stable, value, result)
         return result
 
     @router.get("/authoring/readiness", dependencies=[Depends(auth)])
@@ -334,11 +364,16 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         request_hash = digest(value)
         prior = _lookup(stable, value["sessionId"], value["requestId"], request_hash)
         if prior["status"] != "absent":
+            if "receipt" in prior:
+                comparison.settle_result(stable, value, prior)
             return JSONResponse(prior, headers={"Cache-Control": "no-store"})
+        if value["format"] == FORMAT_COMPARISON:
+            with stable.repository._lock, stable.repository._connect() as db:
+                comparison.validate_task(db, stable.router_service.tenant_id, value)
         claim, result = _paths(stable, value["sessionId"], value["requestId"])
         claim.parent.mkdir(parents=True, exist_ok=True)
         try:
-            _write_new(claim, {"format": FORMAT, "requestHash": request_hash, "request": value})
+            _write_new(claim, {"format": value["format"], "requestHash": request_hash, "request": value})
         except FileExistsError:
             return JSONResponse(_lookup(stable, value["sessionId"], value["requestId"], request_hash), headers={"Cache-Control": "no-store"})
         task = asyncio.create_task(execute(stable, value, request_hash, result))
@@ -365,4 +400,7 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         if saved.get("request", {}).get("sourceRequestHash") != sourceRequestHash:
             raise HTTPException(409, "rpg_authoring_request_conflict")
         # Server hashes are opaque across Python/JS number serialization.
-        return JSONResponse(_lookup(stable, session_id, request_id, saved["requestHash"]), headers={"Cache-Control": "no-store"})
+        result = _lookup(stable, session_id, request_id, saved["requestHash"])
+        if "receipt" in result:
+            comparison.settle_result(stable, saved["request"], result)
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})

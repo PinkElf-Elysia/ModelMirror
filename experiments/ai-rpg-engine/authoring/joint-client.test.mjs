@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {memoryRejectionMessage,createJointClient,jointTaskIntent,pluginIntent,memoryEditIntent,requirementsEditIntent,storyProblem} from './joint-client.mjs';
+import {memoryRejectionMessage,createJointClient,jointTaskIntent,pluginIntent,memoryEditIntent,requirementsEditIntent,storyProblem,parameterEditIntent} from './joint-client.mjs';
 const sid='session-'+'a'.repeat(64),workId='work-a',hash='b'.repeat(64),clone=v=>structuredClone(v);
 const storage=()=>{const s={};Object.defineProperties(s,{getItem:{value:k=>s[k]??null},setItem:{value:(k,v)=>{s[k]=v;}},removeItem:{value:k=>{delete s[k];}}});return s;};
 const fixtureView=()=>({session:{id:sid,binding:{workId},revision:5,runs:[],models:{revision:3},summary:{snapshot:{revision:1}},memory:{snapshot:{revision:2,versions:[]}}},effectivePolicy:{revision:hash},busy:false,pending:false});
@@ -160,4 +160,52 @@ test('only attributes an explicit stale update to the model when the frozen entr
  assert.equal(memoryRejectionMessage({...job,state:'unknown'}),null);
  job.request.source.entries[0].protected=true;assert.equal(memoryRejectionMessage(job),null);
  job.receipt.result.text='invalid';assert.equal(memoryRejectionMessage(job),null);
+});
+
+function parameterView(){return {...fixtureView(),session:{...fixtureView().session,generationParameters:{revision:2,current:{story:null,summary:null,memory:null},changes:[]}},parameterSettings:{revision:2,purposeRevisions:{story:1,summary:1,memory:0},authorization:{enabled:true,revision:hash}}};}
+const parameterChange=body=>({intent:clone(body),revision:body.expectedParameterRevision+1,purposeRevision:body.expectedPurposeRevision+1,receipt:{sessionId:sid,parameterRevision:body.expectedParameterRevision,capability:'session.parameters.configure'}});
+
+test('chat client binds parameter and authorization revisions; native send stays byte-compatible',()=>{
+ const native=fixtureView(),chat=parameterView();assert.equal(Object.hasOwn(jointTaskIntent(native,'send','text'),'expectedParameterAuthorizationRevision'),false);
+ assert.equal(jointTaskIntent(chat,'send','text').expectedParameterAuthorizationRevision,hash);
+ delete chat.parameterSettings;assert.throws(()=>jointTaskIntent(chat,'send','text'),e=>e.code==='JOINT_PARAMETER_STATE_REQUIRED');
+ const choice={format:'modelmirror.rpg.parameter-selection/2',profile:{purpose:'memory'}},i=parameterEditIntent(parameterView(),'params','memory',choice);choice.profile.purpose='story';
+ assert.equal(i.choice.profile.purpose,'memory');assert.equal(i.expectedParameterRevision,2);assert.equal(i.expectedPurposeRevision,0);assert.equal(parameterEditIntent(parameterView(),'clear','story',null).choice,null);
+ assert.throws(()=>parameterEditIntent(native,'params','story',null),e=>e.code==='JOINT_PARAMETER_STATE_REQUIRED');
+ const settings={sessionId:sid,sessionRevision:5,modelRevision:3,historyRevision:0,summaryRevision:1,memoryRevision:2,effectivePolicy:{revision:hash},registryRevision:8,parameterRevision:2,plugins:{parameters:{permissions:['model.parameters.read']}}};
+ assert.equal(pluginIntent(settings,'parameters','enable','enable').expectedParameterRevision,2);
+});
+
+test('chat client persists before parameter write and retains unknown until exact receipt appears',async()=>{
+ const v=parameterView(),body=parameterEditIntent(v,'params','story',null),f=fixture(()=>{throw failed('NETWORK_RESULT_UNKNOWN');});
+ await rejects(f.client.submit('parameters',body),'NETWORK_RESULT_UNKNOWN');assert.equal(f.client.pending().length,1);
+ const pending=f.client.pending()[0];body.purpose='memory';assert.equal(pending.body.purpose,'story');
+ v.session.generationParameters.changes=[parameterChange(pending.body)];f.client.observe(v);assert.equal(f.client.pending().length,0);assert.equal(f.calls.length,1);
+});
+
+test('chat client rejects altered parameter responses and preserves draft-operation journal',async()=>{
+ const body=parameterEditIntent(parameterView(),'params','story',null);
+ for(const mutate of [c=>c.intent.purpose='memory',c=>c.revision++,c=>c.purposeRevision++,c=>c.receipt.sessionId='different',c=>c.receipt.parameterRevision++,c=>c.receipt.capability='other']){
+  const change=parameterChange(body);mutate(change);const f=fixture(()=>({sessionId:sid,change}));await rejects(f.client.submit('parameters',body),'JOINT_RECEIPT_MISMATCH');assert.equal(f.client.pending().length,1);
+ }
+});
+
+test('chat client parameter restore queries same ID without submitting; absent is not auto-discarded',async()=>{
+ const body=parameterEditIntent(parameterView(),'params','memory',null);let state='unknown';
+ const f=fixture(p=>{if(p.endsWith('/configure'))throw failed('NETWORK_RESULT_UNKNOWN');return {sessionId:sid,intent:clone(body),state,change:state==='applied'?parameterChange(body):null};});
+ await rejects(f.client.submit('parameters',body),'NETWORK_RESULT_UNKNOWN');const record=f.client.pending()[0];
+ assert.equal((await f.client.recover(record)).state,'unknown');await rejects(f.client.discardConfirmed(record),'JOINT_RESULT_PENDING');
+ state='not_applied';assert.equal((await f.client.recover(record)).state,'not_applied');assert.equal(f.client.pending().length,1);
+ state='applied';assert.equal((await f.client.recover(record)).state,'settled');assert.equal(f.client.pending().length,0);assert.equal(f.calls.filter(c=>c.path.endsWith('/configure')).length,1);
+});
+
+test('chat client parameter explicit discard requires confirmed absence; storage failure prevents transmission',async()=>{
+ const body=parameterEditIntent(parameterView(),'params','story',null),f=fixture(p=>{if(p.endsWith('/configure'))throw failed('NETWORK_RESULT_UNKNOWN');return {sessionId:sid,intent:body,state:'not_applied',change:null};});
+ await rejects(f.client.submit('parameters',body),'NETWORK_RESULT_UNKNOWN');await f.client.discardConfirmed(f.client.pending()[0]);assert.equal(f.client.pending().length,0);
+ let sent=false;const c=createJointClient({sessionId:sid,workId,storage:{getItem:()=>null,setItem:()=>{throw Error('full');}},api:()=>{sent=true;}});await rejects(c.submit('parameters',body),'JOINT_LOCAL_STORAGE_UNAVAILABLE');assert.equal(sent,false);
+});
+
+test('chat client applied parameter write is not marked unknown when subsequent status read fails',async()=>{
+ const body=parameterEditIntent(parameterView(),'params','story',null),f=fixture(p=>{if(p.endsWith('/configure'))return {sessionId:sid,change:parameterChange(body)};throw failed('NETWORK_READ_FAILED');});
+ await f.client.submit('parameters',body);await rejects(f.client.view(),'NETWORK_READ_FAILED');assert.equal(f.client.pending().length,0);assert.equal(f.calls.filter(c=>c.path.endsWith('/configure')).length,1);
 });

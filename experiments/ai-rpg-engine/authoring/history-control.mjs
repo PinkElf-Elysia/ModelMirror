@@ -86,7 +86,7 @@ export function requireHistoryControl(control) {
 
 // Host-only factory: the grant registry is the existing reviewed plugin service.
 // A document, HTTP payload or arbitrary callback cannot manufacture this controller.
-export async function createAuthoringHistoryControl({directory,lookupSession,resolveRuntime,recoverDeadOwner=false}) {
+export async function createAuthoringHistoryControl({directory,lookupSession,resolveRuntime,recoverDeadOwner=false,generationParameters=false,modelComparison=false}) {
   // A separate host lease permits explicit, identity-checked dead-owner recovery
   // without changing the reviewed registry or silently reclaiming a live owner.
   const lease=await SessionRecords.open(join(directory,'ownership'),{recoverDeadOwner,scope:'authoring-history-control'});
@@ -98,15 +98,15 @@ export async function createAuthoringHistoryControl({directory,lookupSession,res
     let stat;try{stat=await lstat(lock);}catch(error){if(error.code!=='ENOENT')throw error;}
     if(stat){
       if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||stat.size>1024)fail('HISTORY_OWNER_UNKNOWN');
-      const bytes=await readFile(lock), prior=JSON.parse(bytes.toString('utf8'));keys(prior,['pid']);
-      if(!Number.isSafeInteger(prior.pid)||prior.pid<1)fail('HISTORY_OWNER_UNKNOWN');
+      const bytes=await readFile(lock), prior=JSON.parse(bytes.toString('utf8'));keys(prior,['pid','token']);
+      if(!Number.isSafeInteger(prior.pid)||prior.pid<1||(prior.token!==undefined&&typeof prior.token!=='string'))fail('HISTORY_OWNER_UNKNOWN');
       try{process.kill(prior.pid,0);fail('HISTORY_STORE_BUSY');}
       catch(error){if(error.code!=='ESRCH'){if(error.code==='HISTORY_STORE_BUSY')throw error;fail('HISTORY_OWNER_UNKNOWN');}}
       if(!recoverDeadOwner)fail('HISTORY_OWNER_RECOVERY_REQUIRED');
       if(!bytes.equals(await readFile(lock)))fail('HISTORY_OWNER_CHANGED');
       await rename(lock,join(registry,'owner-dead-'+randomUUID()+'.json'));
     }
-    const bridge=await createAuthoringPluginBridge({directory:registry,lookupSession,resolveRuntime});service=bridge.pluginService;
+    const bridge=await createAuthoringPluginBridge({directory:registry,lookupSession,resolveRuntime,generationParameters,modelComparison});service=bridge.pluginService;
   } catch(error){await lease.close();throw error;}
   const readAuthorization=async id=>({history:await service.historyAuthorization(id),summary:await service.summaryAuthorization(id),memory:await service.memoryAuthorization(id)});
   const control={

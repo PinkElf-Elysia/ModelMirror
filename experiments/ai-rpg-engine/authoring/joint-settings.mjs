@@ -3,18 +3,20 @@ import {SessionRecords} from './session-storage.mjs';
 import {AuthoringError,canonical,keys,isId,isHash,sha256,fail} from './contracts.mjs';
 import {requireHistoryControl} from './history-control.mjs';
 import {assertJointIdFree} from './joint-session-state.mjs';
+import {PARAMETER_PLUGIN} from './chat-parameters.mjs';
 
-export const JOINT_PLUGINS=Object.freeze({model:'rpg.model-selector',history:'rpg.history-window',summary:'rpg.rolling-summary',memory:'rpg.memory-palace',branch:'rpg.branch-save'});
+export const JOINT_PLUGINS=Object.freeze({model:'rpg.model-selector',history:'rpg.history-window',summary:'rpg.rolling-summary',memory:'rpg.memory-palace',branch:'rpg.branch-save',parameters:PARAMETER_PLUGIN,comparison:'rpg.model-comparison'});
 const format='modelmirror.rpg.joint-settings/1',limit=2000;
 const digest=v=>sha256(canonical(v)),clone=v=>structuredClone(v),integer=v=>Number.isSafeInteger(v)&&v>=0;
 const actions=['install','uninstall','enable','disable','configure'];
 export function jointSettingsIntent(value){
  canonical(value);
  keys(value,['purpose','action','sessionId','operationId','expectedRevision','expectedModelRevision','expectedHistoryRevision','expectedSummaryRevision','expectedMemoryRevision',
-  'expectedContextPolicyRevision','expectedRegistryRevision',...(value.action==='enable'?['permissions']:[]),...(value.action==='configure'?['config']:[])]);
+  'expectedContextPolicyRevision','expectedRegistryRevision',...(value.purpose==='parameters'?['expectedParameterRevision']:[]),...(value.action==='enable'?['permissions']:[]),...(value.action==='configure'?['config']:[])]);
  if(!Object.hasOwn(JOINT_PLUGINS,value.purpose)||!actions.includes(value.action)||!/^session-[a-f0-9]{64}$/.test(value.sessionId)||!isId(value.operationId)||
   ![value.expectedRevision,value.expectedModelRevision,value.expectedHistoryRevision,value.expectedSummaryRevision,value.expectedMemoryRevision,value.expectedRegistryRevision].every(integer)||
   !isHash(value.expectedContextPolicyRevision))fail('JOINT_SETTINGS_INVALID');
+ if(value.purpose==='parameters'&&!integer(value.expectedParameterRevision))fail('JOINT_SETTINGS_INVALID');
  if(value.action==='enable'&&(!Array.isArray(value.permissions)||value.permissions.some(p=>typeof p!=='string')))fail('PLUGIN_PERMISSION_MISMATCH');
  if(value.action==='configure'){
   if(value.purpose!=='history')fail('JOINT_SETTINGS_INVALID');keys(value.config,['turns','includeInitialCharacter']);
@@ -49,13 +51,14 @@ export async function createJointSettings({directory,host,control,resolveRuntime
  async function view(id){
   const v=await host.read(id),s=v.session,catalog=await control.pluginService.catalog(),plugins={};
   for(const [purpose,pluginId]of Object.entries(JOINT_PLUGINS)){
-   const p=catalog.plugins.find(p=>p.id===pluginId);if(!p)fail('JOINT_CONTROL_HOST_REQUIRED');
-   plugins[purpose]={id:p.id,name:p.name,version:p.version,permissions:p.permissions,installed:p.installed,compatibleInstallation:p.compatibleInstallation,...(['branch','model'].includes(purpose)?{enabled:(await control.pluginService.sessionStatus(id,pluginId)).enabled}:{})};
+   if(purpose==='parameters'&&!v.parameterSettings)continue;
+   const p=catalog.plugins.find(p=>p.id===pluginId);if(purpose==='comparison'&&!p)continue;if(!p)fail('JOINT_CONTROL_HOST_REQUIRED');
+   plugins[purpose]={id:p.id,name:p.name,version:p.version,permissions:p.permissions,installed:p.installed,compatibleInstallation:p.compatibleInstallation,...(['branch','model','parameters','comparison'].includes(purpose)?{enabled:(await control.pluginService.sessionStatus(id,pluginId)).enabled}:{})};
   }
   const pending=(await journal()).data.operations.find(o=>o.state==='prepared');
   const runtime=await resolveRuntime({workId:s.binding.workId,versionId:s.binding.versionId});
   return {sessionId:id,sessionRevision:s.revision,modelRevision:s.models.revision,historyRevision:s.history.revision,summaryRevision:s.summary.snapshot.revision,memoryRevision:s.memory.snapshot.revision,
-   registryRevision:catalog.revision,plugins,models:s.models.current,history:s.history.config,suggestion:runtime.configuration().document.settings.defaultMemory,
+   registryRevision:catalog.revision,plugins,...(v.parameterSettings?{parameterRevision:v.parameterSettings.revision,parameterSettings:v.parameterSettings}:{}),models:s.models.current,history:s.history.config,suggestion:runtime.configuration().document.settings.defaultMemory,
    effectivePolicy:v.effectivePolicy,busy:v.busy,pending:v.pending,summaryCoveredThrough:s.summary.snapshot.versions.at(-1)?.coveredThrough??0,
    memoryProcessedThrough:s.memory.snapshot.processedThrough,completedTurns:s.turns.length,budget:v.budget,
    unconfirmed:pending?clone(pending.intent):null,realProvider:host.readiness.realProvider===true};
@@ -66,10 +69,12 @@ export async function createJointSettings({directory,host,control,resolveRuntime
    ['expectedMemoryRevision','memoryRevision','MEMORY_REVISION_CONFLICT'],['expectedRegistryRevision','registryRevision','PLUGIN_REGISTRY_CONFLICT']])if(i[expected]!==v[actual])fail(code);
   if(i.expectedContextPolicyRevision!==v.effectivePolicy.revision)fail('MEMORY_POLICY_CONFLICT');
   const p=v.plugins[i.purpose];
+  if(!p)fail('CHAT_PARAMETER_HOST_REQUIRED');
+  if(i.purpose==='parameters'&&i.expectedParameterRevision!==v.parameterRevision)fail('PARAMETER_REVISION_CONFLICT');
   if(['enable','configure'].includes(i.action)){
    if(v.busy)fail('OFFLINE_SESSION_BUSY');if(v.pending)fail('JOINT_RUN_PENDING');
    if(!p.installed)fail('PLUGIN_NOT_INSTALLED');
-   if(['summary','memory'].includes(i.purpose)&&!v.models[i.purpose])fail(i.purpose==='memory'?'MEMORY_MODEL_REQUIRED':'SUMMARY_MODEL_REQUIRED');
+   if(!v.parameterSettings&&['summary','memory'].includes(i.purpose)&&!v.models[i.purpose])fail(i.purpose==='memory'?'MEMORY_MODEL_REQUIRED':'SUMMARY_MODEL_REQUIRED');
   }
   if(i.action==='configure'&&!v.effectivePolicy.authorization.history.enabled)fail('PLUGIN_NOT_AUTHORIZED');
   if(i.action==='enable'&&canonical(i.permissions)!==canonical(p.permissions))fail('PLUGIN_PERMISSION_MISMATCH');
@@ -85,6 +90,14 @@ export async function createJointSettings({directory,host,control,resolveRuntime
  const response=async(op,replayed=false)=>({state:op.state,intent:clone(op.intent),receipt:clone(op.receipt),replayed,settings:await view(op.intent.sessionId)});
  return Object.freeze({
   read:id=>serial(()=>view(id)),
+  // Hold the settings admission queue through a host-owned configuration write.
+  // This closes the gap between checking a journal and persisting its peer.
+  withOperation:(operationId,action)=>serial(async()=>{
+   const operations=(await journal()).data.operations;
+   if(operations.some(o=>o.state==='prepared'))fail('JOINT_SETTINGS_RESULT_PENDING');
+   if(operations.some(o=>o.intent.operationId===operationId))fail('JOINT_SETTINGS_OPERATION_COLLISION');
+   return action();
+  }),
   assertSettled:()=>serial(async()=>{if((await journal()).data.operations.some(o=>o.state==='prepared'))fail('JOINT_SETTINGS_RESULT_PENDING');}),
   assertOperationAvailable:id=>serial(async()=>{if((await journal()).data.operations.some(o=>o.intent.operationId===id))fail('JOINT_SETTINGS_OPERATION_COLLISION');}),
   change(value){const input=jointSettingsIntent(value);return serial(async()=>{

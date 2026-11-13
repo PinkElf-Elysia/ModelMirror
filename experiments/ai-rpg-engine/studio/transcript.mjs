@@ -58,6 +58,7 @@ export async function transcriptHttp({req,res,send,match,store,plugins}) {
         child.history.push({role:'user',content:turn.input},{role:'assistant',content:turn.raw});
       }
     }
+    if(store.prepareImportedSession)await store.prepareImportedSession(source,child);
     await store.requireRuntime(child);
     await plugins.commitResult(grant,()=>store.write(child));
     return {id,count:turns.length,skipped};

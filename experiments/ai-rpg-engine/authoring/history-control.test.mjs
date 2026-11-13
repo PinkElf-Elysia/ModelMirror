@@ -258,3 +258,10 @@ test('死进程锁默认不接管；显式恢复后保留死 owner 证据',async
   const c=await createAuthoringHistoryControl({directory:dir,lookupSession:()=>{},resolveRuntime:()=>{},recoverDeadOwner:true});
   try{assert.equal((await readdir(join(dir,'registry'))).filter(x=>x.startsWith('owner-dead-')).length,1);assert.equal((await readdir(join(dir,'ownership'))).filter(x=>x.startsWith('owner-dead-')).length,1);}finally{await c.close();}
 });
+
+for(const marker of [{pid:2147483647,token:7},{pid:2147483647,token:'valid',extra:true}])test('history recovery rejects malformed owner '+JSON.stringify(marker),async()=>{
+ const dir=await mkdtemp(join(root,'bad-owner-')),registry=join(dir,'registry');await mkdir(registry);
+ const file=join(registry,'owner.lock'),raw=JSON.stringify(marker);await writeFile(file,raw);
+ await assert.rejects(createAuthoringHistoryControl({directory:dir,lookupSession:()=>{},resolveRuntime:()=>{},recoverDeadOwner:true}),e=>['HISTORY_OWNER_UNKNOWN','AUTHORING_UNKNOWN_FIELD'].includes(e.code));
+ assert.equal(await readFile(file,'utf8'),raw);assert.deepEqual(await readdir(registry),['owner.lock']);
+});
