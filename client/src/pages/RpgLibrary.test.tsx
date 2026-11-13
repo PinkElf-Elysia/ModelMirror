@@ -38,7 +38,7 @@ it('unavailable artwork uses the same placeholder as a work with no cover',async
  vi.stubEnv('VITE_RPG_AUTHORING_PORT','');vi.stubGlobal('fetch',vi.fn(async()=>Response.json([])));
  render(<MemoryRouter><RpgPage/></MemoryRouter>);const card=screen.getByRole('article',{name:'金庸大世界'});
  const img=card.querySelector('img')!;fireEvent.error(img);expect(card.querySelector('img')).toBeNull();expect(card.querySelector('.rpg-story-art')).toHaveTextContent('金庸大世界');
- await screen.findByRole('article',{name:'地球 OL'});
+ await screen.findByRole('article',{name:'地球online'});
 });
 
 it('keeps a published card in its default position while updating its version badge and URL',async()=>{
