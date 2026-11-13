@@ -57,6 +57,10 @@ export async function openPublishedRuntime(store, reference) {
     implementationHash, artifactHashes: {...loadedArtifacts}, runtimeReady: false,
   });
   const runtimeHash = digest(descriptor);
+  // Exact 425ff762 implementation before registry-only upgrade support.
+  // Rebuild against this work's current immutable publication, never rewrite saves.
+  const previousArtifacts = {...loadedArtifacts, 'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27', 'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
+  const previousHash = digest({...descriptor, artifactHashes:previousArtifacts, implementationHash:digest(previousArtifacts)});
   async function verify() {
     if (digest(await artifactHashes()) !== implementationHash) fail('AUTHORING_RUNTIME_FILES_CHANGED_RESTART_REQUIRED');
     const current = await store.verifyConfiguration(ref.workId, ref.versionId);
@@ -73,6 +77,11 @@ export async function openPublishedRuntime(store, reference) {
     canonical(value);
     keys(value, ['format', 'workId', 'versionId', 'sessionId', 'runtimeHash', 'openingHash', 'resourceHash', 'openingText']);
     const expected = bind({sessionId: value.sessionId, openingText: value.openingText});
+    if (value.runtimeHash === previousHash) {
+      const identity = {...ref, sessionId:value.sessionId, runtimeHash:previousHash, openingHash:expected.openingHash};
+      const previous = {...expected, runtimeHash:previousHash, resourceHash:digest(identity)};
+      if (canonical(value) === canonical(previous)) return structuredClone(previous);
+    }
     if (canonical(value) !== canonical(expected)) fail('AUTHORING_RUNTIME_BINDING_MISMATCH');
     return structuredClone(expected);
   }

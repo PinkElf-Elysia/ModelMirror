@@ -186,7 +186,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     }
     const card=chatRoute?await archiveHost(chatRoute[1]):await xingjian();
     if(route==='api/plugins'&&req.method==='GET')return send(200,await card.plugins.catalog());
-    const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall)$/);
+    const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade)$/);
     if(install&&req.method==='POST'&&data?.pluginId===install[1]&&REVIEWED_PLUGIN_IDS.includes(install[1]))return send(200,await card.plugins.change(install[2],data));
     const cardId=chatRoute?chatRoute[1]:'xingjian';
     if(await archivePluginHttp({route,req,res,data,send,cardId,host:card,control:chatRoute?archiveControls[cardId]:xingjianControl,features:archiveFeatures,illustrations}))return;
@@ -229,7 +229,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     return send(200, {cardId: 'ancient', providerEnabled: false, openingHash: sha(messages[1].content), requestHash: sha(JSON.stringify(messages))});
    }
    if(pathname==='/rpg-app/api/plugins'&&req.method==='GET')return plugins?send(200,await plugins.catalog()):send(503,{error:pluginError});
-   const pluginAction=pathname.match(/^\/rpg-app\/api\/plugins\/([a-z0-9.-]+)\/(install|uninstall)$/);
+   const pluginAction=pathname.match(/^\/rpg-app\/api\/plugins\/([a-z0-9.-]+)\/(install|uninstall|upgrade)$/);
    if(pluginAction&&req.method==='POST'){
     if(!REVIEWED_PLUGIN_IDS.includes(pluginAction[1]))return send(404,{error:'PLUGIN_UNKNOWN'});
     if(data?.pluginId!==pluginAction[1])return send(400,{error:'PLUGIN_ID_BINDING'});

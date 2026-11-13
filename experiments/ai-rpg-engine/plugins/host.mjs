@@ -18,7 +18,8 @@ const isBinding = b => exact(b,bindingKeys) && /^\d+\.\d+\.\d+$/.test(b.version)
 const record = v => v && typeof v==='object' && !Array.isArray(v);
 const emptyPlugin = () => ({installed:null,grants:{}});
 const emptyState = () => ({format:2,revision:0,plugins:{},operations:{}});
-const validPlugin = p => exact(p,['installed','grants']) && (p.installed===null||isBinding(p.installed)) && record(p.grants) &&
+const validVersionEvent = e => exact(e,['action','from','to','at']) && ['install','upgrade','uninstall'].includes(e.action) && [e.from,e.to].every(b=>b===null||isBinding(b)) && typeof e.at==='string' && Number.isFinite(Date.parse(e.at));
+const validPlugin = p => exact(p,p.versions===undefined?['installed','grants']:['installed','grants','versions']) && (p.versions===undefined||(Array.isArray(p.versions)&&p.versions.length<=100&&p.versions.every(validVersionEvent))) && (p.installed===null||isBinding(p.installed)) && record(p.grants) &&
  Object.entries(p.grants).every(([key,g])=>id(key) && exact(g,['cardId','resourceHash','installationId','permissions','epoch','active']) &&
   id(g.cardId) && hash(g.resourceHash) && id(g.installationId) && id(g.epoch) && typeof g.active==='boolean' &&
   Array.isArray(g.permissions) && g.permissions.every(p=>typeof p==='string'));
@@ -134,7 +135,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
  }
  function authorized(s,entry) {
   const p=pluginState(entry.manifest.id),g=Object.hasOwn(p.grants,s.id)?p.grants[s.id]:null;
-  if(!sameBinding(p.installed,{version:entry.manifest.version,...entry}))throw fail('PLUGIN_NOT_INSTALLED');
+  if(!sameBinding(p.installed,{version:entry.manifest.version,...entry}))throw fail(p.installed?'PLUGIN_UPGRADE_REQUIRED':'PLUGIN_NOT_INSTALLED');
   if(!g?.active || g.installationId!==p.installed.installationId || g.cardId!==s.cardId || g.resourceHash!==s.resourceHash ||
       canonical(g.permissions)!==canonical(entry.manifest.permissions))throw fail('PLUGIN_NOT_AUTHORIZED',403);
   return g;
@@ -144,6 +145,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   return {...(entry.error?{id:pluginId,lastError:entry.error,available:false}:structuredClone(entry.manifest)),
    manifestSha256:entry.manifestSha256,installed:p.installed!==null,
    compatibleInstallation:!entry.error&&!!sameBinding(p.installed,{version:entry.manifest.version,...entry}),
+   installedBinding:structuredClone(p.installed),versionHistory:structuredClone(p.versions||[]),updateAvailable:!!p.installed&&!entry.error&&!sameBinding(p.installed,{version:entry.manifest.version,...entry}),
    installedVersion:p.installed?.version||null,dataLocation:'当前 RPG 服务的本地插件数据目录',execution:'first-party-trusted; not a sandbox'};
  })};}
  const parameterExpectation=value=>{
@@ -225,15 +227,15 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   },
   async sessionStatus(sessionId,pluginId=PLUGIN_ID){
    const entry=entryFor(pluginId),s=await sessionFor(sessionId,entry);let enabled=false;
-   try{authorized(s,entry);enabled=true;}catch{}
-   return {pluginId,registryRevision:state.revision,sessionRevision:s.revision,installed:!!pluginState(pluginId).installed,enabled,lastError:faults.get(keyFor(pluginId,sessionId))||null};
+   let reason=null;try{authorized(s,entry);enabled=true;}catch(e){reason=e.code;}
+   return {reason,configuredEnabled:!!pluginState(pluginId).grants[sessionId]?.active,pluginId,registryRevision:state.revision,sessionRevision:s.revision,installed:!!pluginState(pluginId).installed,enabled,lastError:faults.get(keyFor(pluginId,sessionId))||null};
   },
   async change(action,payload){
    const sessionAction=['enable','disable'].includes(action);
-   const fields=['operationId','pluginId','version','artifactSha256','manifestSha256','expectedRegistryRevision',...(sessionAction?['sessionId','expectedSessionRevision']:[]),...(action==='enable'?['permissions']:[])];
-   if(!['install','uninstall','enable','disable'].includes(action) || !exact(payload,fields) || !id(payload.operationId) || !KNOWN_PLUGIN_IDS.includes(payload.pluginId) ||
+   const fields=['operationId','pluginId','version','artifactSha256','manifestSha256','expectedRegistryRevision',...(sessionAction?['sessionId','expectedSessionRevision']:[]),...(['enable','upgrade'].includes(action)?['permissions']:[]),...(action==='upgrade'?['expectedInstalled']:[])];
+   if(!['install','uninstall','upgrade','enable','disable'].includes(action) || !exact(payload,fields) || !id(payload.operationId) || !KNOWN_PLUGIN_IDS.includes(payload.pluginId) ||
       !integer(payload.expectedRegistryRevision) || !hash(payload.artifactSha256) || !hash(payload.manifestSha256) || typeof payload.version!=='string' ||
-      (sessionAction&&(!id(payload.sessionId)||!integer(payload.expectedSessionRevision))))throw fail('PLUGIN_OPERATION_INVALID',400);
+      (sessionAction&&(!id(payload.sessionId)||!integer(payload.expectedSessionRevision))) || (action==='upgrade'&&!isBinding(payload.expectedInstalled)))throw fail('PLUGIN_OPERATION_INVALID',400);
    const input=structuredClone(payload),operationHash=sha(canonical({action,payload:input}));
    return serial(async()=>{
     const prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
@@ -242,7 +244,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
     if(!entry)throw fail('PLUGIN_UNKNOWN',404);
     if(input.expectedRegistryRevision!==state.revision)throw fail('PLUGIN_REGISTRY_CONFLICT');
     if(Object.keys(state.operations).length>=10000)throw fail('PLUGIN_OPERATION_LIMIT');
-    if(['install','enable'].includes(action)){
+    if(['install','enable','upgrade'].includes(action)){
      const fresh=entriesFrom(await loadCatalog()).get(pluginId);
      if(!fresh||fresh.error||entry.error)throw fail('PLUGIN_PACKAGE_UNAVAILABLE',503);
      if(!sameBinding(input,{version:fresh.manifest.version,...fresh}) || !sameBinding(input,{version:entry.manifest.version,...entry}))throw fail('PLUGIN_VERSION_MISMATCH');
@@ -251,6 +253,24 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
     if(action==='install'){
      if(p.installed)throw fail('PLUGIN_ALREADY_INSTALLED');
      target.installed={version:input.version,artifactSha256:input.artifactSha256,manifestSha256:input.manifestSha256,installationId:randomUUID()};
+    }else if(action==='upgrade'){
+     if(!p.installed)throw fail('PLUGIN_NOT_INSTALLED');
+     if(canonical(input.expectedInstalled)!==canonical(p.installed))throw fail('PLUGIN_INSTALLATION_CONFLICT');
+     if(sameBinding(input,p.installed))throw fail('PLUGIN_ALREADY_CURRENT');
+     if(canonical(input.permissions)!==canonical(entry.manifest.permissions))throw fail('PLUGIN_PERMISSION_MISMATCH',403);
+     // Preserve installation identity and each session's requested on/off state.
+     // Consent covers the reviewed target permissions shown by the upgrade UI.
+     for(const [sessionId,g] of Object.entries(p.grants)){
+      if(!g.active||g.installationId!==p.installed.installationId)continue;
+      const s=await lookupSession(sessionId);
+      if(!s||s.id!==sessionId)throw fail('PLUGIN_UPGRADE_SESSION_UNAVAILABLE');
+      if(s.busy||s.pending||running.has(keyFor(pluginId,sessionId)))throw fail('PLUGIN_UPGRADE_BUSY');
+     }
+     target.installed={...p.installed,version:input.version,artifactSha256:input.artifactSha256,manifestSha256:input.manifestSha256};
+     for(const g of Object.values(target.grants)){
+      if(g.installationId!==p.installed.installationId)continue;
+      g.permissions=entry.manifest.permissions.slice();g.epoch=randomUUID();
+     }
     }else if(action==='uninstall'){
      target.installed=null;for(const g of Object.values(target.grants)){g.active=false;g.epoch=randomUUID();}
     }else{
@@ -263,6 +283,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
      }
      target.grants[input.sessionId]={cardId:s.cardId,resourceHash:s.resourceHash,installationId:p.installed.installationId,permissions:entry.manifest.permissions.slice(),epoch:randomUUID(),active:action==='enable'};
     }
+    if(['install','upgrade','uninstall'].includes(action))target.versions=[...(p.versions||[]),{action,from:structuredClone(p.installed),to:structuredClone(target.installed),at:new Date().toISOString()}].slice(-100);
     next.revision++;next.operations[input.operationId]={hash:operationHash,revision:next.revision};
     try{await preserveLegacy();await atomicWrite(statePath,next);}catch{throw fail('PLUGIN_PERSIST_FAILED',503);}
     state=next;legacyBytes=null;

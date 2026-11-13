@@ -181,3 +181,15 @@ test('整份版本校验返回独立快照，每次重读资源并拒绝迟到�
   await rename(path,path+'.missing');
   await reject(()=>f.store.verifyConfiguration(f.ref.workId,f.ref.versionId),'AUTHORING_ASSET_MISSING');
 });
+
+
+test('pre-upgrade authored binding preserves its resource identity and rejects tampering',async t=>{
+ const f=await fixture(t),binding=f.runtime.bindSession({sessionId:'upgrade-save',openingText:'成年旅人的旅程'});
+ const artifacts={...f.runtime.descriptor.artifactHashes,'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27','authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
+ const runtimeHash=sha256(canonical({...f.runtime.descriptor,artifactHashes:artifacts,implementationHash:sha256(canonical(artifacts))}));
+ const identity={...f.ref,sessionId:binding.sessionId,runtimeHash,openingHash:binding.openingHash};
+ const saved={...binding,runtimeHash,resourceHash:sha256(canonical(identity))};
+ assert.deepEqual(f.runtime.requireBinding(saved),saved);await f.runtime.verify();
+ assert.throws(()=>f.runtime.requireBinding({...saved,openingText:'被篡改'}),/AUTHORING_RUNTIME_BINDING_MISMATCH/);
+ assert.throws(()=>f.runtime.requireBinding({...saved,resourceHash:'0'.repeat(64)}),/AUTHORING_RUNTIME_BINDING_MISMATCH/);
+});
