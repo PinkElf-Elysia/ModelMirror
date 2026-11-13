@@ -16,6 +16,9 @@ import {LANGUAGES, AUDIENCES, TAG_LIMIT, TAG_CHAR_LIMIT, tagKey, tagIssue, tagCa
 const $ = selector => document.querySelector(selector);
 const esc = editor.escapeHtml;
 const apiRoot = '/rpg-app/api/authoring';
+const publishedVersion = new URL(location.href).searchParams.get('version');
+const publishedMode = publishedVersion !== null;
+if(publishedMode)document.body.dataset.published='true';
 const creatorMode = document.body.dataset.experience === 'creator';
 const savedText = revision => creatorMode ? '已保存' : '已保存 · revision ' + revision;
 const clone = value => structuredClone(value);
@@ -27,6 +30,7 @@ let sessionPanel = null, playbackPanel = null;
 let draftWriteSettled = null;
 const busyButtons = new Map();
 const failureText = {
+  AUTHORING_PUBLISHED_READONLY:'当前是已发布作品；修改作品请打开创作工作台。',
   NETWORK_READ_FAILED:'暂未读取到最新状态。已显示的记录和输入仍保留，请稍后刷新。',
   AUTHORING_NUMBER_INVALID:'数值为空、格式无效或超出范围。请修正后保存，旧版本保持不变。',
   AUTHORING_CG_REPLAY_CONFLICT:'原文或作品配置与已冻结回放不一致。需明确生成新的 CG 回放，旧结果不会重抽。',
@@ -81,10 +85,10 @@ const describe = error => (failureText[error.code] || '操作未完成，请核�
 let previewGeneration=0,activePresentation=null,previewReply='',previewWorkId=null,previewRole='assistant';
 let previewCGUser='',previewCG=null,bgmMode='opening';
 export function cgReplayContext(value){return JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a<b?-1:a>b?1:0)):item);}
-const cgReplayKey=()=> 'modelmirror.authoring.cg-replay/'+work?.id;
+const cgReplayKey=()=> 'modelmirror.authoring.cg-replay/'+work?.id+(publishedMode?'/'+publishedVersion:'');
 function keepCGReplay(){try{sessionStorage.setItem(cgReplayKey(),JSON.stringify({reply:previewReply,user:previewCGUser,record:previewCG}));}catch{editor.toast('浏览器无法保留此份回放引用，刷新前请复制原文。');}}
 const previewMessages={SCRIPT_NOT_EXECUTED:'展示副本不执行此脚本，源码仍保留',RESOURCE_MISSING:'缺少本地资源',RESOURCE_REFERENCE_BLOCKED:'图片未配置本地资源映射；外部引用未加载',RESOURCE_INLINE_IMAGE_BLOCKED:'未加载内嵌 data 图片；请使用本地资源。内联静态 SVG 标签仍可展示',ELEMENT_REMOVED:'展示副本已移除不支持的元素',ATTRIBUTE_REMOVED:'展示副本已移除不支持的属性',LINK_BLOCKED:'外部跳转已阻止',INPUT_TYPE_REPLACED:'输入类型已改为普通文本'};
-const playerDraftKey=()=> 'modelmirror.authoring.player-draft/'+work?.id;
+const playerDraftKey=()=> 'modelmirror.authoring.player-draft/'+work?.id+(publishedMode?'/'+publishedVersion:'');
 function keepPlayerDraft(){try{if(work?.id&&$('#player-input').value.length<=240000)sessionStorage.setItem(playerDraftKey(),$('#player-input').value);}catch{editor.toast('浏览器未能保存玩家输入草稿，请自行复制保留。');}}
 function releasePresentation(value){if(value?.token)api('/presentations/release',{token:value.token}).catch(()=>{});}
 window.addEventListener('pagehide',()=>{
@@ -149,7 +153,7 @@ async function renderPreview(mode,createCG=false){
         cgRequest={...request,action:'create'};
       }else if(previewCG)cgRequest={...previewCG.request,action:'replay',user:cgUser};
     }
-    const result=await api('/presentations/prepare',{workId,expectedRevision:revision,document,mode,reply:replyText,...(mode==='reply'?{messageRole}:{}),...(cgRequest?{cg:cgRequest}:{}),viewport:{innerWidth:Math.max(1,Math.min(4096,$('#presentation-frame').clientWidth)),innerHeight:Math.max(320,Math.min(800,window.innerHeight-300)),devicePixelRatio:Math.max(.5,Math.min(3,window.devicePixelRatio))}});
+    const result=await api('/presentations/prepare',{workId,expectedRevision:revision,document,mode,reply:replyText,...(publishedMode?{versionId:publishedVersion}:{}),...(mode==='reply'?{messageRole}:{}),...(cgRequest?{cg:cgRequest}:{}),viewport:{innerWidth:Math.max(1,Math.min(4096,$('#presentation-frame').clientWidth)),innerHeight:Math.max(320,Math.min(800,window.innerHeight-300)),devicePixelRatio:Math.max(.5,Math.min(3,window.devicePixelRatio))}});
     if(generation!==previewGeneration||work?.id!==workId){releasePresentation(result);releasePresentation(previous);return;}
     if(work.revision!==revision||JSON.stringify(currentDocument())!==documentText||(mode==='reply'&&(previewReply!==replyText||previewRole!==messageRole||previewCGUser!==cgUser))){releasePresentation(result);throw {code:'AUTHORING_PRESENTATION_STALE'};}
     if(result.manifest.cg&&previewCG?.request.operationId===result.manifest.cg.plan.binding.operationId){previewCG.expiresAt=result.manifest.cg.expiresAt;keepCGReplay();}
@@ -164,7 +168,7 @@ async function renderPreview(mode,createCG=false){
     releasePresentation(previous);
     activePresentation={...result,frame,mode,workId,revision,documentText,replyText,messageRole,generation,scriptSequence:0,proposals:[]};
     frame.src=result.frameUrl;$('#presentation-frame').replaceChildren(frame);
-    $('#presentation-status').textContent=(mode==='opening'?'开局页面':'回复展示')+(creatorMode?' · '+(documentsEqual(document,work.draft)?'已保存草稿':'含未保存修改'):' · 当前编辑快照；未保存、未派发')+(result.manifest.cg?' · CG 已冻结，渲染不重抽':'');
+    $('#presentation-status').textContent=(mode==='opening'?'开局页面':'回复展示')+(publishedMode?' · 已发布版本 '+work.versions[0].number:creatorMode?' · '+(documentsEqual(document,work.draft)?'已保存草稿':'含未保存修改'):' · 当前编辑快照；未保存、未派发')+(result.manifest.cg?' · CG 已冻结，渲染不重抽':'');
     renderPresentationDiagnostics(result.manifest);
     syncChatBGM(true);
     renderSuggestionChoices(activePresentation);
@@ -312,7 +316,7 @@ function setBusy(value) {
     }
   }
 }
-function assetUrl(asset, version = null) {
+function assetUrl(asset, version = work?.publishedVersionId||null) {
   return apiRoot + '/works/' + work.id + '/assets/' + encodeURIComponent(asset.alias) + '?hash=' + asset.sha256 + (version ? '&version=' + version : '');
 }
 function images() {
@@ -329,7 +333,7 @@ function toView(doc) {
   return {
     schema:doc.format, name:doc.metadata.name, tags:clone(doc.metadata.tags), language:doc.metadata.language, audience:doc.metadata.audience,
     panelInstructions:doc.settings.variablePanel?.instructions??'',
-    autosave:doc.settings.autosave, orders:clone(doc.settings.orders),
+    autosave:publishedMode?false:doc.settings.autosave, orders:clone(doc.settings.orders),
     intro:doc.sources.introduction, description:doc.sources.description, system:doc.sources.system,
     prefix:doc.sources.prefix, suffix:doc.sources.suffix, css:doc.sources.outputCss,
     startupHtml:doc.sources.startupHtml,startupCss:doc.sources.startupCss,startupJs:doc.sources.startupJs,
@@ -344,6 +348,7 @@ function toView(doc) {
 }
 function currentDocument() {
   if (!work) return null;
+  if(publishedMode)return clone(work.draft);
   const view = editor.read(), doc = clone(work.draft);
   doc.metadata = {name:view.name,tags:clone(view.tags),language:view.language,audience:view.audience};
   for (const [field, path] of Object.entries({intro:'introduction',description:'description',system:'system',prefix:'prefix',suffix:'suffix',css:'outputCss',startupHtml:'startupHtml',startupCss:'startupCss',startupJs:'startupJs'})) doc.sources[path] = view[field];
@@ -579,13 +584,14 @@ function renderOther() {
   editor.bindEditors(); media.bindFields(); dialogueUI.render($('#dialogue-editor'));assistanceUI.renderBlocked($('#blocked-editor'));assistanceUI.renderSuggestions($('#suggestions-editor'));regexUI.render($('#regex-editor'));cgUI.render($('#cg-editor'));
 }
 async function loadWork(id, preserved = null) {
-  applyWork(await api('/works/' + id),preserved);
+  applyWork(await api('/works/' + id + (publishedMode?'/published?version='+encodeURIComponent(publishedVersion):'')),preserved);
 }
 function applyWork(next, preserved = null) {
   chatBGM.destroy();
   clearInputCheck();
   const id = next.id;
   work = next; validation = null; conflict = false;
+  if(publishedMode)document.title=work.draft.metadata.name+' · RPG';
   modelUI?.workChanged();
   const doc = preserved || work.draft;
   editor.load(toView(doc), images());
@@ -600,6 +606,7 @@ function applyWork(next, preserved = null) {
   setBusy(false);
 }
 function writable() {
+  if(publishedMode)throw {code:'AUTHORING_PUBLISHED_READONLY'};
   if (busy || pending) throw {code:'AUTHORING_OPERATION_PENDING'};
   if (conflict) throw {code:'AUTHORING_REVISION_CONFLICT'};
 }
@@ -766,26 +773,27 @@ async function inspectImport(payload,target) {
       }); return false;
     },'确认导入','取消');
 }
+function publishedHref(versionId){const url=new URL(location.href);url.searchParams.set('work',work.id);url.searchParams.set('version',versionId);url.hash='';return url.href;}
 async function versions() {
   if (!work) return;
   const current = await api('/works/' + work.id);
   validation = await api('/works/' + work.id + '/validation');
-  editor.openDialog(creatorMode?'作品版本':'版本与本地封存',(creatorMode?'<p>发布本地版本后，可以选择它开始新会话。已有会话保留原来的设定，后续草稿修改不会影响它们。</p>':'<p>版本保存不可变的配置与资源。<strong>当前仅封存数据，尚不可游玩。</strong>通用运行能力在 B6 接入。</p>') +
+  editor.openDialog(creatorMode?'作品版本':'版本与本地封存',(creatorMode?'<p>发布后自动显示在本机故事馆，可以选择它开始新会话。已有会话保留原来的设定，后续草稿修改不会影响它们。</p>':'<p>版本保存不可变的配置与资源。<strong>当前仅封存数据，尚不可游玩。</strong>通用运行能力在 B6 接入。</p>') +
     (editor.isDirty() ? '<p class="danger">请先保存未保存修改。</p>' : '') +
     (!validation.valid ? '<div class="validation-row"><strong>请先修复以下项目</strong>' + issueList(validation.issues) + '</div>' : '') +
     button(creatorMode?'发布当前草稿':'封存当前已保存草稿','seal','class="primary"' + ((!validation.valid || editor.isDirty() || conflict || pending) ? ' disabled' : '')) +
     '<h3>已发布版本</h3><div class="stack version-list">' +
-    (current.versions.length ? current.versions.map(v => '<div class="validation-row"><strong>版本 ' + v.number + '</strong><p class="hint">' + esc(v.createdAt.replace('T',' ').slice(0,16)) + ' UTC</p>' + button('导出版本配置','export-version','data-version="' + v.id + '"') + button('导出版本完整包','package-version','data-version="' + v.id + '"') + '<details><summary>版本校验信息</summary><p class="hint">来源 revision ' + v.sourceRevision + '<br>' + v.sha256 + '</p></details></div>').join('') : '<p class="hint">还没有发布版本。完成校验后，发布第一版即可开始新会话。</p>') + '</div>',null,undefined,'关闭');
+    (current.versions.length ? current.versions.map(v => '<div class="validation-row"><strong>版本 ' + v.number + '</strong><p class="hint">' + esc(v.createdAt.replace('T',' ').slice(0,16)) + ' UTC</p>' + '<a class="creator-help" href="'+esc(publishedHref(v.id))+'">打开此版本</a>' + button('导出版本配置','export-version','data-version="' + v.id + '"') + button('导出版本完整包','package-version','data-version="' + v.id + '"') + '<details><summary>版本校验信息</summary><p class="hint">来源 revision ' + v.sourceRevision + '<br>' + v.sha256 + '</p></details></div>').join('') : '<p class="hint">还没有发布版本。完成校验后，发布第一版即可开始新会话。</p>') + '</div>',null,undefined,'关闭');
 }
 async function seal() {
   writable();
   if (editor.isDirty() || !validation?.valid || validation.revision !== work.revision) throw {code:'AUTHORING_REVISION_CONFLICT'};
   const revision = work.revision;
-  editor.openDialog(creatorMode?'发布本地版本':'确认封存版本',creatorMode?'<p>将当前已保存的草稿与资源发布为固定版本。仅保存在本地，不会公开到外部网站，也不会调用模型。</p>':'<p>将当前 revision ' + revision + ' 封存为不可变数据快照。不会创建会话、游玩入口或调用模型。</p>',() => {
+  editor.openDialog(creatorMode?'发布本地版本':'确认封存版本',creatorMode?'<p>将当前已保存的草稿与资源发布为固定版本。首页将自动显示本版本的名称、简介与封面。仅保存在本地，不会公开到外部网站，也不会调用模型。</p>':'<p>将当前 revision ' + revision + ' 封存为不可变数据快照。不会创建会话、游玩入口或调用模型。</p>',() => {
     run(async () => {
       if (work.revision !== revision) throw {code:'AUTHORING_REVISION_CONFLICT'};
       await mutate('/works/' + work.id + '/publish',{});
-      await versions(); notice(creatorMode?'已发布本地版本，可在模型设置中开始新会话。':'版本数据已封存，运行能力尚未接入。');
+      await versions(); notice(creatorMode?'已发布到本机故事馆，返回首页即可看到入口。':'版本数据已封存，运行能力尚未接入。');
     }); return false;
   },creatorMode?'发布版本':'确认封存','取消');
 }
@@ -997,7 +1005,10 @@ editor.connect({
 });
 if(creatorMode){
  const home=document.createElement('a');home.className='creator-brand';home.textContent='镜 · RPG';home.setAttribute('aria-label','返回 RPG 故事馆');
- const destination=new URL(location.href);destination.port='5173';destination.pathname='/rpg';destination.search='';destination.hash='';home.href=destination.href;
+ const requestedLibrary=new URL(location.href).searchParams.get('library');
+ let libraryUrl=null;
+ try{const target=new URL(requestedLibrary);if(target.protocol==='http:'&&['127.0.0.1','localhost'].includes(target.hostname)&&target.pathname==='/rpg'&&!target.search&&!target.hash&&!target.username&&!target.password)libraryUrl=target.href;}catch{}
+ if(libraryUrl)home.href=libraryUrl;else{home.textContent='创作工作台';home.removeAttribute('aria-label');}
  $('.workspace-header').prepend(home);
  $('.work-identity').insertAdjacentHTML('afterbegin','<span class="creator-context">创作工作台</span>');
  $('.preview-pane').setAttribute('aria-label','作品预览');$('.preview-header strong').textContent='作品预览';
@@ -1026,6 +1037,15 @@ if(creatorMode){
    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
  });
+}
+if(publishedMode){
+ const edit=document.createElement('a');edit.className='creator-help';edit.textContent='编辑作品';
+ const url=new URL(location.href);url.searchParams.delete('version');edit.href=url.href;
+ $('.top-actions').append(edit);
+ const context=$('.creator-context');if(context)context.textContent='已发布作品';
+ $('.preview-pane').setAttribute('aria-label','作品游玩');$('.preview-header strong').textContent='作品游玩';
+ const note=document.createElement('p');note.className='published-version-note';note.textContent='新会话使用当前发布版本；已有会话保留原设定。选择模型与会话后，由你点击发送。';
+ $('.preview-header').after(note);
 }
 $('#mock-send').textContent='回复回放';$('#mock-send').title='打开原始回复展示，不派发模型请求';
 $('.preview-footnote').textContent=creatorMode?(document.body.dataset.execution==='controlled'?'点击发送才调用模型。':'离线演练 · 使用固定回复，不产生模型费用。'):'离线开局预览；作者脚本隔离运行。采用开局文字只填入输入框，不派发。';
@@ -1092,6 +1112,13 @@ async function start() {
   $('.workspace').hidden = true;
   setBusy(true);
   try {
+    if(publishedMode){
+      const target=new URL(location.href).searchParams.get('work');
+      if(!target||!/^work-[a-f0-9]{64}$/.test(target)||!/^version-[a-f0-9]{64}$/.test(publishedVersion))throw {code:'AUTHORING_VERSION_ID_INVALID'};
+      await loadWork(target);
+      editor.saved('已发布 · 版本 '+work.versions[0].number);
+      return;
+    }
     await openJournal();
     const state = await api('/state'); blank = state.blank;
     const records = await journal('read');

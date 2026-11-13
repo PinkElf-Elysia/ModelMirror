@@ -1,3 +1,4 @@
+import {modelSessionKey} from './session-selection.mjs';
 import {openHistorySettings} from './history-ui.mjs';
 // Browser-facing projection only. The host remains the authority for all choices.
 const purposes={story:'剧情',summary:'摘要',memory:'记忆宫殿'};
@@ -157,13 +158,13 @@ export function savedOperation(view,record){
   const change=view.session.models.changes.find(c=>c.intent.operationId===record.body.operationId);
   return !!change&&canonical(change.intent)===canonical(record.body);
 }
-const pendingKey=(id,op='')=>'modelmirror.authoring.model-pending/'+id+'/'+op;
-export function pendingOperation(storage,workId){
+const pendingKey=(id,op='',versionId=null)=>(versionId?'modelmirror.authoring.published-model-pending/'+id+'/'+versionId+'/':'modelmirror.authoring.model-pending/'+id+'/')+op;
+export function pendingOperation(storage,workId,versionId=null){
   try{
-    const key=Object.keys(storage).filter(key=>key.startsWith(pendingKey(workId))).sort()[0];
+    const key=Object.keys(storage).filter(key=>key.startsWith(pendingKey(workId,'',versionId))).sort()[0];
     if(!key)return null;
     const record=JSON.parse(storage.getItem(key));
-    if(!record||record.workId!==workId||!['create','configure'].includes(record.kind)||typeof record.body?.operationId!=='string'||key!==pendingKey(workId,record.body.operationId))fail('MODEL_UI_STORAGE_UNAVAILABLE');
+    if(!record||record.workId!==workId||!['create','configure'].includes(record.kind)||typeof record.body?.operationId!=='string'||key!==pendingKey(workId,record.body.operationId,versionId))fail('MODEL_UI_STORAGE_UNAVAILABLE');
     return record;
   }catch{fail('MODEL_UI_STORAGE_UNAVAILABLE');}
 }
@@ -196,7 +197,6 @@ export function withRecommendedProfile(document,profile){
   next.model.recommendations[profile.purpose]=copy(profile);return next;
 }
 Object.assign(messages,{PARAMETER_REVISION_CONFLICT:'预设库已被其他标签修改。名称和参数仍保留，请刷新预设后再保存。',PARAMETER_PRESET_CAPACITY:'已达到 100 份预设上限。现有预设保留。',PARAMETER_OPERATION_CAPACITY:'预设记录已达到容量上限，未覆盖原记录。',PARAMETER_PREFLIGHT_REJECTED:'预设未通过当前模型能力校验，请返回参数检查。',PARAMETER_PURPOSE_INVALID:'该配置属于其他用途，不能载入。',PARAMETER_PROFILE_INVALID:'这份参数配置格式不正确。',PARAMETER_LEGACY_RECOMMENDATION:'作品已有旧版推荐配置，请先在作品配置中明确处理；本次没有覆盖。',AUTHORING_REVISION_CONFLICT:'作品已被其他标签修改，请关闭面板，在作品中核对最新草稿。',AUTHORING_OPERATION_PENDING:'作品有保存结果待核对，请关闭面板后恢复原操作。',PARAMETER_PRESET_PENDING:'有预设保存结果待核对，请先打开预设核对原操作。'});
-const sessionKey=id=>'modelmirror.authoring.model-session/'+id;
 const path='/model-settings';
 export function createModelSettingsUI({button,api,getWork,getOpeningText,notice,getRecommendation,saveRecommendation}){
   const style=document.createElement('link');style.rel='stylesheet';style.href='./model-ui.css';document.head.append(style);
@@ -238,7 +238,7 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice,
   async function refreshView(c,preserve=false){
     if(!c.sessionId)return;
     const view=await api(path+'/sessions/'+c.sessionId);
-    if(view.session.binding.workId!==c.workId)fail('MODEL_UI_REFERENCE_MISMATCH');
+    if(view.session.binding.workId!==c.workId||(c.work.publishedVersionId&&view.session.binding.versionId!==c.work.publishedVersionId))fail('MODEL_UI_REFERENCE_MISMATCH');
     if(!current(c))return;
     const settingsPath=modelPluginSettingsPath(view.session);
     c.historyPending=settingsPath?!!(await api(settingsPath)).unconfirmed:false;
@@ -250,8 +250,8 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice,
     if(current(c)){c.catalog=result.catalog;c.realProvider=result.realProvider===true;return result.catalog;}
   }
   async function load(c){
-    c.pending=pendingOperation(localStorage,c.workId);
-    const id=read(sessionKey(c.workId));
+    c.pending=pendingOperation(localStorage,c.workId,c.work.publishedVersionId);
+    const id=read(modelSessionKey(c.workId,c.work.publishedVersionId));
     if(typeof id==='string'&&/^session-[a-f0-9]{64}$/.test(id))c.sessionId=id;
     if(c.sessionId)await refreshView(c);
     try{await catalog(c,true);}catch(error){c.catalog=null;c.catalogError=modelError(error);}
@@ -265,25 +265,25 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice,
       catch(error){if(current(c)){status(c,modelError(error));lock(c,false);}return;}
       if(!current(c))return;
     }
-    try{store(pendingKey(c.workId,record.body.operationId),record);}catch(error){status(c,modelError(error));lock(c,false);return;}
+    try{store(pendingKey(c.workId,record.body.operationId,c.work.publishedVersionId),record);}catch(error){status(c,modelError(error));lock(c,false);return;}
     c.pending=record;lock(c,true);status(c,'正在保存配置…');
     let persisted=false;
     try{
       const result=await api(path+(record.kind==='create'?'/sessions':'/configure'),record.body);
       if(record.kind==='create'){
         const id=result.session?.id;if(!/^session-[a-f0-9]{64}$/.test(id||''))fail('NETWORK_RESULT_UNKNOWN');
-        record.sessionId=id;c.sessionId=id;store(sessionKey(c.workId),id);
+        record.sessionId=id;c.sessionId=id;store(modelSessionKey(c.workId,c.work.publishedVersionId),id);
       }
       const view=await api(path+'/sessions/'+(record.sessionId||c.sessionId));
       if(!savedOperation(view,record))fail('NETWORK_RESULT_UNKNOWN');
-      store(pendingKey(c.workId,record.body.operationId),null);persisted=true;
+      store(pendingKey(c.workId,record.body.operationId,c.work.publishedVersionId),null);persisted=true;
       if(!current(c))return;
-      c.pending=pendingOperation(localStorage,c.workId);c.view=view;delete c.drafts[c.purpose];setDraft(c,c.purpose);render(c);status(c,c.pending?'已保存本次配置；另有原操作待核对，暂不能继续修改。':'已保存至本会话。未发送模型请求。');
+      c.pending=pendingOperation(localStorage,c.workId,c.work.publishedVersionId);c.view=view;delete c.drafts[c.purpose];setDraft(c,c.purpose);render(c);status(c,c.pending?'已保存本次配置；另有原操作待核对，暂不能继续修改。':'已保存至本会话。未发送模型请求。');
       button.textContent=c.typed?'模型与参数':view.session.models.current.story?.entry.name||'添加模型';
     }catch(error){
       // A definite validation rejection cannot have applied. Transport/storage outcomes retain intent.
       if(error.httpStatus&&error.httpStatus<500&&!/UNKNOWN|STORAGE|WRITE_FAILED|OWNER|PENDING/.test(error.code||'')){
-        try{store(pendingKey(c.workId,record.body.operationId),null);if(current(c))c.pending=null;}catch{/* Keep the original record. */}
+        try{store(pendingKey(c.workId,record.body.operationId,c.work.publishedVersionId),null);if(current(c))c.pending=null;}catch{/* Keep the original record. */}
       }
       if(current(c)){render(c);status(c,modelError(error));}
     }finally{if(current(c)){lock(c,false);if(!persisted&&c.pending)renderPending(c);}}
@@ -299,7 +299,7 @@ export function createModelSettingsUI({button,api,getWork,getOpeningText,notice,
         if(!current(c))return;
         if(result.found){
           if(!savedOperation(result.view,record))fail('MODEL_UI_REFERENCE_MISMATCH');
-          c.sessionId=result.view.session.id;store(sessionKey(c.workId),c.sessionId);store(pendingKey(c.workId,record.body.operationId),null);c.pending=pendingOperation(localStorage,c.workId);c.view=result.view;delete c.drafts[record.body.purpose];setDraft(c,c.purpose);render(c);status(c,c.pending?'已核对这份回执；另有原操作待核对，暂不能继续修改。':'已核对原配置回执，没有重新提交。');
+          c.sessionId=result.view.session.id;store(modelSessionKey(c.workId,c.work.publishedVersionId),c.sessionId);store(pendingKey(c.workId,record.body.operationId,c.work.publishedVersionId),null);c.pending=pendingOperation(localStorage,c.workId,c.work.publishedVersionId);c.view=result.view;delete c.drafts[record.body.purpose];setDraft(c,c.purpose);render(c);status(c,c.pending?'已核对这份回执；另有原操作待核对，暂不能继续修改。':'已核对原配置回执，没有重新提交。');
         }else{status(c,'未找到原配置回执。没有自动提交；可用原编号再次保存。');root.querySelector('[data-retry]').hidden=false;}
       }catch(error){status(c,modelError(error));}finally{if(current(c))lock(c,false);}
     };

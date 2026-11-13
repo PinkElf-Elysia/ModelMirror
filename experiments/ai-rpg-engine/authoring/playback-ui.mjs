@@ -1,3 +1,4 @@
+import {modelSessionKey} from './session-selection.mjs';
 import {mountVariableFrame,panelProblem} from './variable-frame-ui.mjs';
 import {createSpecialCGGallery} from './special-cg-ui.mjs';
 import {mountChatBGM} from './chat-bgm.mjs';
@@ -10,17 +11,16 @@ export function playbackSessionNotice(view){
  if(pending.length&&pending.every(r=>r.comparison))return '本轮对比仍在收束，请在对比面板查看进度。';
  return '有请求结果待核对，请使用上方“恢复原操作”。';
 }
-const sessionKey=workId=>'modelmirror.authoring.model-session/'+workId;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const problem=e=>({TURN_DISPLAY_PREVIOUS_REQUIRED:'请先回到前一回合恢复展示，再核对本轮。',TURN_DISPLAY_PENDING:'这轮展示尚未收束。原始剧情已保存，可恢复本轮展示。',TURN_DISPLAY_MISSING:'这轮展示尚未建立。原始剧情已保存，可恢复本轮展示。',OFFLINE_REVISION_CONFLICT:'会话已更新，请刷新状态后再恢复展示。',AUTHORING_PRESENTATION_CAPACITY:'展示缓存已满。可关闭其他预览后重新加载显示。',AUTHORING_CG_OUTPUT_CAPACITY:'本轮 CG 超出展示容量，未应用部分图片。完整剧情已保留。',PLAYBACK_SESSION_REFERENCE_INVALID:'浏览器中的会话引用无法读取，请在模型设置中重新选择。',TURN_DISPLAY_SOURCE_CONFLICT:'展示记录与原回合不一致，请保留记录并核对。'}[e?.code]||'展示暂未完成，原始剧情和输入已保留。请刷新状态或查看诊断。');
-export function playbackSessionId(storage,workId){
- let id;try{id=JSON.parse(storage.getItem(sessionKey(workId))||'null');}catch{throw {code:'PLAYBACK_SESSION_REFERENCE_INVALID'};}
+export function playbackSessionId(storage,workId,versionId=null){
+ let id;try{id=JSON.parse(storage.getItem(modelSessionKey(workId,versionId))||'null');}catch{throw {code:'PLAYBACK_SESSION_REFERENCE_INVALID'};}
  if(id!==null&&(typeof id!=='string'||!/^session-[a-f0-9]{64}$/.test(id)))throw {code:'PLAYBACK_SESSION_REFERENCE_INVALID'};
  return id;
 }
 // A saved-turn notification only changes the view for the selected work/session.
-export function savedTurnMatches(event,workId,storage){
- try{return !!workId&&event?.workId===workId&&event.sessionId===playbackSessionId(storage,workId);}catch{return false;}
+export function savedTurnMatches(event,workId,storage,versionId=null){
+ try{return !!workId&&event?.workId===workId&&event.sessionId===playbackSessionId(storage,workId,versionId);}catch{return false;}
 }
 // Each change owns its frames. A late response is released, never attached to a
 // different session/turn. Read-only polling reuses the exact same live frames.
@@ -101,12 +101,12 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
   if(!visible()||dead)return;if(loading){refreshAgain=true;forceAgain||=force;return;}clearTimeout(timer);loading=true;const gen=generation,w=getWork()?.id;
   try{
    if(!w){empty('新建或打开作品后，在此查看已保存的剧情。');return;}
-   const id=playbackSessionId(localStorage,w);
+   const id=playbackSessionId(localStorage,w,getWork()?.publishedVersionId);
    if(!id){gallery.close();view=null;sessionId=null;empty('先选择作品版本和模型，发送开局后，完整对话会保存在这里。');navigation();return;}
    if(id!==sessionId){gallery.close();view=null;empty('正在读取已保存的会话…');navigation();}
    const next=await api('/joint/sessions/'+id);
    if(gen!==generation||w!==getWork()?.id||!active)return;
-   if(next.session.binding.workId!==w)throw {code:'TURN_DISPLAY_SOURCE_CONFLICT'};
+   if(next.session.binding.workId!==w||(getWork()?.publishedVersionId&&next.session.binding.versionId!==getWork().publishedVersionId))throw {code:'TURN_DISPLAY_SOURCE_CONFLICT'};
    if(id!==sessionId){sessionId=id;selected=0;follow=true;currentKey=null;manager.clear();}
    view=next;const turns=view.session.turns;
    if(follow||selected<1)selected=turns.length;selected=Math.min(selected,turns.length);navigation();
@@ -137,9 +137,9 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
  $('[data-refresh]').onclick=()=>refresh(true);$('[data-recover]').onclick=recover;
  const visibility=()=>{music.update(track,{active:visible(),enter:false});if(visible())void refresh();else clearTimeout(timer);};
  const observer=new MutationObserver(visibility);observer.observe(pane,{attributes:true,attributeFilter:['class']});
- document.addEventListener('visibilitychange',visibility);window.addEventListener('resize',visibility);window.addEventListener('pageshow',e=>{if(e.persisted){dead=false;visibility();}});window.addEventListener('storage',e=>{if(e.key===sessionKey(workId)){generation++;void refresh();}});
+ document.addEventListener('visibilitychange',visibility);window.addEventListener('resize',visibility);window.addEventListener('pageshow',e=>{if(e.persisted){dead=false;visibility();}});window.addEventListener('storage',e=>{if(e.key===modelSessionKey(workId,getWork()?.publishedVersionId)){generation++;void refresh();}});
  window.addEventListener('authoring-session-changed',()=>{gallery.close();generation++;void refresh();});
- window.addEventListener('authoring-turn-saved',event=>{if(!savedTurnMatches(event.detail,getWork()?.id,localStorage))return;follow=true;generation++;active=true;activate();root.hidden=false;trigger.setAttribute('aria-pressed','true');void refresh();});
+ window.addEventListener('authoring-turn-saved',event=>{if(!savedTurnMatches(event.detail,getWork()?.id,localStorage,getWork()?.publishedVersionId))return;follow=true;generation++;active=true;activate();root.hidden=false;trigger.setAttribute('aria-pressed','true');void refresh();});
  window.addEventListener('pagehide',()=>{dead=true;clearTimeout(timer);music.destroy();for(const frame of manager.frames)fetch('/rpg-app/api/authoring/presentations/release',{method:'POST',headers:{'Content-Type':'application/json','X-Authoring-Request':'1'},body:JSON.stringify({token:frame.token}),keepalive:true}).catch(()=>{});manager.clear();});
  return {initialize(){navigation();},hide,workChanged(){const id=getWork()?.id;if(id!==workId){gallery.close();workId=id;view=null;sessionId=null;selected=0;follow=true;generation++;empty('正在读取作品的会话…');}if(active)void refresh();}};
 }

@@ -332,3 +332,20 @@ body[data-experience="creator"]{--blue:#386bc7;--focus:#3b76d4;--line:#d9e2ef;--
 @container creator-editor (max-width:420px){
  [data-experience="creator"] .creator-identity-choices{grid-template-columns:minmax(0,1fr);gap:16px}
 }
+
+/* Published entries use the existing session host with immutable work settings. */
+body[data-published="true"] .workspace{grid-template-columns:minmax(0,1fr);max-width:1200px;width:100%;margin:auto}
+body[data-published="true"] .edit-pane,
+body[data-published="true"] :is(#save-button,#publish-button,#gallery-button,#export-button,#works-button,#more-button,#preview-button,#close-preview,#scope-button),
+body[data-published="true"] [data-preview="assembly"],body[data-published="true"] [data-preview="reply"],body[data-published="true"] #mock-send{display:none!important}
+body[data-published="true"] .preview-pane{display:flex;position:static;width:100%;height:auto;min-height:0;border-left:0;transform:none;visibility:visible}
+body[data-published="true"] .published-version-note{font-size:13px;color:#59697c;padding:8px 20px;margin:0;border-bottom:1px solid #dce3ec}
+
+body[data-published="true"]{padding-bottom:0}
+body[data-published="true"] .workspace:after{display:none}
+body[data-published="true"] .top-actions .creator-help{display:inline-flex}
+@media(max-width:760px){body[data-published="true"] .workspace{display:grid}body[data-published="true"] .workspace-header{min-height:0}}
+
+body[data-published="true"] .preview-pane{overflow-y:auto}
+body[data-published="true"] .preview-scroll{flex-shrink:0;min-height:260px}
+body[data-published="true"] .composer{flex-shrink:0}

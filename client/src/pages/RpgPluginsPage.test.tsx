@@ -32,12 +32,11 @@ it('shows ten cards even when the status service fails, and does not dispatch a 
  const fetcher=vi.fn().mockRejectedValue(Error('offline'));vi.stubGlobal('fetch',fetcher);render(<MemoryRouter><RpgPage/></MemoryRouter>);
  for(const title of ['金庸大世界','龙族大世界','蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生','地球 OL','神临凡尘','超级修仙','行间'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
  for(const [card,title] of [['jinyong','金庸大世界'],['dragon-raja','龙族大世界'],['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
- const latest=within(screen.getByRole('region',{name:'新世界，等你入局'}));
- for(const title of ['金庸大世界','斗罗大陆','龙族大世界'])expect(latest.getByRole('link',{name:'进入'+title})).toBeInTheDocument();
- expect(latest.queryByRole('heading',{name:'蓝色大肥鱼'})).toBeNull();
- expect(within(screen.getByRole('region',{name:'创作助手'})).getByRole('link',{name:'进入蓝色大肥鱼'})).toHaveAttribute('href','/rpg/blue-fish');
+ const library=within(screen.getByRole('region',{name:'全部作品'}));
+ expect(library.getAllByRole('article')).toHaveLength(10);
+ for(const article of library.getAllByRole('article'))expect(article).toHaveClass('rpg-story-card');
  expect(screen.getByRole('link',{name:'插件市场'})).toHaveAttribute('href','/rpg/plugins');
- await screen.findByText(/部分存档暂时没有读到/);expect(fetcher).toHaveBeenCalledTimes(20);
+ await screen.findByText(/部分存档暂时读不到/);expect(fetcher).toHaveBeenCalledTimes(20);
  expect(fetcher.mock.calls.every(([,options])=>!options.method)).toBe(true);
  expect(document.body).not.toHaveTextContent(/验收|复刻|本轮剩余|行间暂不兼容/);
 });
