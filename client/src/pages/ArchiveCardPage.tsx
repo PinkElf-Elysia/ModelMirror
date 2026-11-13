@@ -6,6 +6,7 @@ import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-rep
 const titles={
   medieval:'中世纪真实人生',
   'ai-girls':'完蛋！我被AI娘包围了！',
+  'harry-potter':'哈利波特大世界（霍格沃兹）',
   jinyong:'金庸大世界',
   'blue-fish':'蓝色大肥鱼 · 创作助手',
   douluo:'斗罗大陆 · 魂师觉醒台',
