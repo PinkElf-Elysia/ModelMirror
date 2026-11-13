@@ -1,3 +1,4 @@
+import {appendCardRequirements} from './card-requirements.mjs';
 import {assembleHistoryRequest} from './history-assembly.mjs';
 import {assembleSummaryRequest,requireContextEvidence,commitSummaryStory} from './summary-assembly.mjs';
 import {assembleMemoryRequest,requireMemoryEvidence,commitMemoryStory,settleMemoryStory} from './memory-assembly.mjs';
@@ -12,7 +13,7 @@ export function createCardContext({cardId,assemble,state=null}){
   if(!Array.isArray(m)||m.length!==session.history.length+2||m[0]?.role!=='system'||typeof m[0].content!=='string'||!m[0].content.trim()||
    canonical(m.slice(1,-1))!==canonical(session.history)||m.at(-1)?.role!=='user'||typeof result.current!=='string'||result.current!==m.at(-1).content||
    m.some(x=>!x||Object.keys(x).sort().join(',')!=='content,role'||typeof x.content!=='string'))throw fail('CARD_CONTEXT_ASSEMBLY_INVALID');
-  return result;
+  return appendCardRequirements(session,result);
  };
  return Object.freeze({
   history:(s,i,p)=>assembleHistoryRequest(s,i,p,base),

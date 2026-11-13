@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdir,mkdtemp} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {join} from 'node:path';
+import {startAuthoringServer} from './server.mjs';
+import {ControlledProvider} from './controlled-provider.mjs';
+import {ControlPlaneModelControl,PARAMETER_SELECTION_FORMAT} from './model-control.mjs';
+import {PARAMETER_PROFILE,PARAMETER_CONFIG} from './generation-settings.mjs';
+import {blankDocument} from './contracts.mjs';
+import {jointSessionId} from './joint-session-state.mjs';
+import {formalComparisonControl} from './comparison-test-support.mjs';
+test('native authoring HTTP exposes trusted batch intent, rejects injected messages, and adopts exactly once',async t=>{
+ const remote=await formalComparisonControl(t),root=fileURLToPath(new URL('../.rpg04-work/c1b-http/',import.meta.url));await mkdir(root,{recursive:true});const directory=await mkdtemp(join(root,'run-'));
+ const control=new ControlPlaneModelControl({origin:remote.origin,serviceToken:remote.token});await control.refresh();const provider=await ControlledProvider.open({directory:join(directory,'provider'),origin:remote.origin,serviceToken:remote.token});
+ const server=await startAuthoringServer({directory:join(directory,'works'),modelSettings:{directory:join(directory,'sessions'),provider,control},historySettings:{directory:join(directory,'history')},jointSettings:{directory:join(directory,'joint'),allowance:{id:'http-test',limit:4}},playbackSettings:{directory:join(directory,'display')},comparisonSettings:{directory:join(directory,'comparison'),origin:remote.origin,serviceToken:remote.token}});t.after(async()=>{await server.close();await provider.close();});
+ const call=async(path,body,origin=server.origin)=>{const r=await fetch(server.origin+'/rpg-app/api/authoring'+path,body===undefined?{}:{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Authoring-Request':'1'},body:JSON.stringify(body)});return {status:r.status,value:await r.json()};},ok=async(path,body)=>{const r=await call(path,body);assert.equal(r.status,200,JSON.stringify(r.value));return r.value;};
+ const doc=blankDocument();doc.metadata.name='HTTP 测试作品';doc.metadata.audience='male';doc.sources.system='冻结 system';const work=await ok('/works',{operationId:'work',expectedRevision:null,document:doc}),v=await ok('/works/'+work.workId+'/publish',{operationId:'publish',expectedRevision:0});await ok('/model-settings/sessions',{operationId:'opening',expectedRevision:null,reference:{workId:work.workId,versionId:v.result.versionId},openingText:'港口',presetId:null});
+ const id=jointSessionId('opening'),catalog=await control.parameterCatalog(),e=catalog.models.find(m=>m.available),selection=temperature=>({format:PARAMETER_SELECTION_FORMAT,catalogRevision:catalog.revision,selectionId:e.selectionId,selectionRevision:e.selectionRevision,capabilityRevision:e.capabilityRevision,profile:{format:PARAMETER_PROFILE,purpose:'story',modelId:e.modelId,parameters:{format:PARAMETER_CONFIG,values:{temperature:{mode:'explicit',value:temperature}}}}});
+ const session=(await ok('/joint/sessions/'+id)).session;await ok('/model-settings/configure',{sessionId:id,operationId:'config',expectedRevision:session.revision,expectedModelRevision:session.models.revision,purpose:'story',choice:selection(.4)});
+ const base='/joint/comparisons/'+id,state=(await ok(base)).state,intent={sessionId:id,operationId:'compare',expectedContextRevision:state.contextRevision,expectedAuthorizationRevision:state.authorizationRevision,input:'港口',candidates:[{id:'a',choice:selection(.2)},{id:'b',choice:selection(.9)}]};
+ assert.notEqual((await call(base,{action:'create',intent:{...intent,messages:[{role:'system',content:'injected'}]}})).status,200);assert.equal((await call(base,{action:'create',intent},'https://foreign.invalid')).status,403);assert.equal((await remote.evidence()).calls.length,0);await ok(base,{action:'preflight',intent});assert.equal((await remote.evidence()).calls.length,0);
+ const started=await ok(base,{action:'create',intent});let batch;for(let i=0;i<400;i++){batch=await ok(base+'/'+started.plan.id);if(['awaiting-choice','blocked'].includes(batch.status))break;await new Promise(r=>setTimeout(r,25));}assert.equal(batch.status,'awaiting-choice',JSON.stringify(batch.events));const pick={operationId:'adopt',expectedContextRevision:batch.context.contextRevision,candidateId:'b'};await ok(base+'/'+batch.plan.id+'/adopt',pick);await ok(base+'/'+batch.plan.id+'/adopt',pick);assert.equal((await ok('/joint/sessions/'+id)).session.turns.length,1);assert.equal((await remote.evidence()).calls.length,2);
+});

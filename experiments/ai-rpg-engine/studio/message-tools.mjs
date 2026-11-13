@@ -56,6 +56,7 @@ export async function forkMessage(store, plugins, sessionId, data) {
       return {id:envelope.session.id};
     }
     const child = openingSession(source,operation,id);
+    if(store.prepareOpeningFork)await store.prepareOpeningFork(source,child);
     await store.requireRuntime(child);
     await plugins.commitResult(ticket,()=>store.write(child));
     return {id};

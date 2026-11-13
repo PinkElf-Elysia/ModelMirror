@@ -1,6 +1,6 @@
 // Browser write-ahead records for /5. Completed story is not completed work:
 // keep the parent intent until its background stages have settled.
-const endpoints={requirements:'/joint/requirements',send:'/joint/send',update:'/joint/update',settings:'/joint/settings/change',edit:'/joint/memory/edit',branch:'/joint/branch'};
+const endpoints={parameters:'/joint/parameters/configure',requirements:'/joint/requirements',send:'/joint/send',update:'/joint/update',settings:'/joint/settings/change',edit:'/joint/memory/edit',branch:'/joint/branch'};
 const terminal=new Set(['completed','paused','not_dispatched']);
 export function memoryRejectionMessage(job){
  if(job?.state!=='rejected'||job.diagnostic!=='MEMORY_PROPOSAL_FORBIDDEN'||!job.receipt?.result?.text)return null;
@@ -39,13 +39,21 @@ export function storyProblem(operation){
 const clone=v=>structuredClone(v),fail=code=>{throw {code};};
 const canon=v=>JSON.stringify(v,(_,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.keys(x).sort().map(k=>[k,x[k]])):x);
 const same=(a,b)=>canon(a)===canon(b),prefix=id=>'modelmirror.authoring.joint-pending/'+id+'/';
-export function jointTaskIntent(view,operationId,input=null){return {sessionId:view.session.id,operationId,expectedRevision:view.session.revision,
+export function jointTaskIntent(view,operationId,input=null){
+ if(view.session.generationParameters&&!view.parameterSettings?.authorization?.revision)fail('JOINT_PARAMETER_STATE_REQUIRED');
+ return {sessionId:view.session.id,operationId,expectedRevision:view.session.revision,
  expectedModelRevision:view.session.models.revision,expectedContextPolicyRevision:view.effectivePolicy.revision,
- expectedSummaryRevision:view.session.summary.snapshot.revision,expectedMemoryRevision:view.session.memory.snapshot.revision,kind:input===null?'update':'send',input};}
+ expectedSummaryRevision:view.session.summary.snapshot.revision,expectedMemoryRevision:view.session.memory.snapshot.revision,
+ ...(view.session.generationParameters?{expectedParameterAuthorizationRevision:view.parameterSettings.authorization.revision}:{}),kind:input===null?'update':'send',input};}
+export function parameterEditIntent(view,operationId,purpose,choice){
+ if(!view.session.generationParameters||!view.parameterSettings||!['story','summary','memory'].includes(purpose))fail('JOINT_PARAMETER_STATE_REQUIRED');
+ return {sessionId:view.session.id,operationId,expectedRevision:view.session.revision,expectedModelRevision:view.session.models.revision,
+  expectedParameterRevision:view.parameterSettings.revision,expectedPurposeRevision:view.parameterSettings.purposeRevisions[purpose],purpose,choice:clone(choice)};
+}
 export function pluginIntent(settings,purpose,action,operationId,config){return {purpose,action,sessionId:settings.sessionId,operationId,
  expectedRevision:settings.sessionRevision,expectedModelRevision:settings.modelRevision,expectedHistoryRevision:settings.historyRevision,
  expectedSummaryRevision:settings.summaryRevision,expectedMemoryRevision:settings.memoryRevision,expectedContextPolicyRevision:settings.effectivePolicy.revision,
- expectedRegistryRevision:settings.registryRevision,...(action==='enable'?{permissions:clone(settings.plugins[purpose].permissions)}:{}),...(action==='configure'?{config:clone(config)}:{})};}
+ expectedRegistryRevision:settings.registryRevision,...(purpose==='parameters'?{expectedParameterRevision:settings.parameterRevision}:{}),...(action==='enable'?{permissions:clone(settings.plugins[purpose].permissions)}:{}),...(action==='configure'?{config:clone(config)}:{})};}
 export function memoryEditIntent(view,operationId,change){return {sessionId:view.session.id,operationId,expectedRevision:view.session.revision,
  expectedMemoryRevision:view.session.memory.snapshot.revision,expectedContextPolicyRevision:view.effectivePolicy.revision,change:clone(change)};}
 export function branchIntent(view,operationId,turn,name){return {sessionId:view.session.id,operationId,expectedRevision:view.session.revision,
@@ -74,11 +82,16 @@ export function createJointClient({api,storage,sessionId,workId}){
  function checkRun(r,run){if(!run||run.operationId!==r.body.operationId||!same(run.intent,r.body))fail('JOINT_RECEIPT_MISMATCH');return terminal.has(run.state);}
  function checkEdit(r,version){const expected={expectedRevision:r.body.expectedRevision,expectedMemoryRevision:r.body.expectedMemoryRevision,change:r.body.change};
   if(version?.operationId!==r.body.operationId||version.kind!=='manual'||!same(version.edit,expected))fail('JOINT_RECEIPT_MISMATCH');}
+ function checkParameters(r,change){
+  if(!same(change?.intent,r.body)||change.revision!==r.body.expectedParameterRevision+1||change.purposeRevision!==r.body.expectedPurposeRevision+1||
+   change.receipt?.sessionId!==sessionId||change.receipt?.parameterRevision!==r.body.expectedParameterRevision||change.receipt?.capability!=='session.parameters.configure')fail('JOINT_RECEIPT_MISMATCH');
+ }
  function checkRequirements(r,change){if(!same(change?.intent,r.body)||change.revision!==r.body.expectedRequirementsRevision+1)fail('JOINT_RECEIPT_MISMATCH');}
  function checkSettings(r,result){if(!same(result?.intent,r.body)||result.settings?.sessionId!==sessionId||!['applied','not_applied','not_submitted'].includes(result.state)||
   (result.state==='applied'&&result.receipt?.operationId!==r.body.operationId))fail('JOINT_RECEIPT_MISMATCH');}
  function observe(value){const v=requireView(value);for(const r of pending()){
   if(r.kind==='send'||r.kind==='update'){const run=v.session.runs.find(x=>x.operationId===r.body.operationId);if(run&&checkRun(r,run))write(r,true);}
+  if(r.kind==='parameters'){const c=v.session.generationParameters?.changes.find(c=>c.intent.operationId===r.body.operationId);if(c){checkParameters(r,c);write(r,true);}}
   if(r.kind==='requirements'){const c=v.session.requirements?.changes.find(c=>c.intent.operationId===r.body.operationId);if(c){checkRequirements(r,c);write(r,true);}}
   if(r.kind==='edit'){const version=v.session.memory.snapshot.versions.find(x=>x.operationId===r.body.operationId);if(version){checkEdit(r,version);write(r,true);}}
  }return v;}
@@ -89,6 +102,7 @@ export function createJointClient({api,storage,sessionId,workId}){
   try{const result=await api(endpoints[kind],body);
    if(kind==='branch'){checkBranch(r,result);write(r,true);}
    else if(kind==='settings'){checkSettings(r,result);if(result.state==='applied')write(r,true);}
+   else if(kind==='parameters'){if(result.sessionId!==sessionId)fail('JOINT_RECEIPT_MISMATCH');checkParameters(r,result.change);write(r,true);}
    else if(kind==='requirements'){if(result.sessionId!==sessionId)fail('JOINT_RECEIPT_MISMATCH');checkRequirements(r,result.change);write(r,true);}
    else if(kind==='edit'){checkEdit(r,result.version);write(r,true);}
    else {if(result.sessionId!==sessionId)fail('JOINT_RECEIPT_MISMATCH');if(checkRun(r,result.run))write(r,true);}
@@ -99,6 +113,12 @@ export function createJointClient({api,storage,sessionId,workId}){
   }
  }
  async function recover(value){const r=checkRecord(clone(value));
+  if(r.kind==='parameters'){
+   const result=await api('/joint/parameters/reconcile',r.body);
+   if(result.sessionId!==sessionId||!same(result.intent,r.body)||!['applied','not_applied','unknown'].includes(result.state))fail('JOINT_RECEIPT_MISMATCH');
+   if(result.state==='applied'){checkParameters(r,result.change);write(r,true);return {state:'settled',result,record:r};}
+   if(result.change!==null)fail('JOINT_RECEIPT_MISMATCH');return {state:result.state,result,record:r};
+  }
   if(r.kind==='branch'){
    const result=await api('/joint/branch/reconcile',r.body);
    if(!same(result?.intent,r.body)||!['not_submitted','checkpoint_saved','completed'].includes(result.state))fail('JOINT_RECEIPT_MISMATCH');

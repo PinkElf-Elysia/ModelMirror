@@ -1,3 +1,4 @@
+import {openComparisonHost} from './comparison-host.mjs';
 import {prepareVariablePanel} from './variable-render.mjs';
 import {panelDefinition,initialPanelSnapshot} from './variable-panel.mjs';
 import {BranchCheckpoints} from './branch-storage.mjs';
@@ -11,6 +12,8 @@ import {AuthoringStore} from './store.mjs';
 import {OfflineSessionHost} from './offline-session.mjs';
 import {SummarySessionHost} from './summary-session.mjs';
 import {JointSessionHost} from './joint-session.mjs';
+import {CONTROLLED_MODE} from './controlled-receipt.mjs';
+import {ParameterSettingsStore} from './generation-settings.mjs';
 import {JointBudget} from './joint-budget.mjs';
 import {createJointSettings} from './joint-settings.mjs';
 import {createJointApi} from './joint-api.mjs';
@@ -98,7 +101,7 @@ async function page(origin, controlledModels = false, controlledHistory = false,
   if(controlledModels)result=result.replace('<strong>B1 作品与资源 · B5-E 聊天BGM</strong><span>离线回复支持插图、背景和聊天音乐；正式游玩、持久会话与实际请求尚未接入。</span>', '<strong>B1 作品与资源 · B6-E 模型配置</strong><span>模型配置保存至独立离线会话；本入口不发送真实请求，不自动启用插件。</span>');
   if(controlledHistory)result=result.replace('B6-E 模型配置','B6-G 会话插件').replace('不自动启用插件。','M1 须独立安装并授权。');
   if(controlledSummary)result=result.replace('</head>','<link rel="stylesheet" href="./session-ui.css"><script type="module" src="./session-ui.mjs"></script></head>');
-  if(controlledJoint)result=result.replace('</head>','<link rel="stylesheet" href="./session-ui.css"><link rel="stylesheet" href="./joint-ui.css"><script type="module" src="./joint-ui.mjs"></script></head>');
+  if(controlledJoint)result=result.replace('</head>','<link rel="stylesheet" href="./session-ui.css"><link rel="stylesheet" href="./joint-ui.css"><link rel="stylesheet" href="./comparison-ui.css"><script type="module" src="./joint-ui.mjs"></script></head>');
   if(creatorExperience)result=result.replace('<body data-authoring="persistent">','<body data-authoring="persistent" data-experience="creator">')
     .replace('<title>RPG 创作 · 作品与资源</title>','<title>RPG 创作工作台</title>')
     .replace('</head>','<link rel="stylesheet" href="./creator-experience.css"></head>')
@@ -110,11 +113,12 @@ async function page(origin, controlledModels = false, controlledHistory = false,
 }
 
 /** Isolated authoring server. Trusted model settings explicitly choose fixture or controlled execution. */
-export async function startAuthoringServer({directory, port = 0, recoverDeadOwner = false, fault, modelSettings = null, historySettings = null, summarySettings = null, jointSettings = null, playbackSettings = null, creatorExperience = false} = {}) {
-  if (typeof creatorExperience !== 'boolean') fail('AUTHORING_SERVER_OPTIONS');
+export async function startAuthoringServer({directory, port = 0, recoverDeadOwner = false, fault, modelSettings = null, historySettings = null, summarySettings = null, jointSettings = null, playbackSettings = null, creatorExperience = false, chatParameters = false, comparisonSettings = null} = {}) {
+  if (typeof creatorExperience !== 'boolean' || typeof chatParameters !== 'boolean') fail('AUTHORING_SERVER_OPTIONS');
+  if (chatParameters && (creatorExperience || !jointSettings || !modelSettings || !historySettings)) fail('CHAT_PARAMETER_SERVER_OPTIONS');
   if (!directory || !Number.isInteger(port) || port < 0 || port > 65535) fail('AUTHORING_SERVER_OPTIONS');
   const store = await AuthoringStore.open(directory, {recoverDeadOwner, ...(fault ? {fault} : {})});
-  let sessionHost=null,modelControl=null,historyControl=null,historyUI=null,summaryUI=null,jointUI=null,jointBudget=null,jointApi=null,turnPlayback=null,branchStore=null;
+  let sessionHost=null,modelControl=null,historyControl=null,historyUI=null,summaryUI=null,jointUI=null,jointBudget=null,jointApi=null,turnPlayback=null,branchStore=null,parameterPresets=null,comparisonHost=null;
   const presentations = createPresentationCache();
   let origin;
   try {
@@ -133,15 +137,17 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       keys(historySettings,['directory',...(Object.hasOwn(historySettings,'fault')?['fault']:[])]);
       if(!modelSettings||typeof historySettings.directory!=='string'||resolve(historySettings.directory)===resolve(directory)||resolve(historySettings.directory)===resolve(modelSettings.directory))fail('HISTORY_SETTINGS_OPTIONS');
       historyControl=await createAuthoringHistoryControl({directory:resolve(historySettings.directory,'control'),recoverDeadOwner,
-        lookupSession:id=>sessionHost.lookupSession(id),resolveRuntime:ref=>openPublishedRuntime(store,ref)});
+        lookupSession:id=>sessionHost.lookupSession(id),resolveRuntime:ref=>openPublishedRuntime(store,ref),generationParameters:chatParameters,modelComparison:comparisonSettings!==null});
     }
     if(modelSettings!==null){
       keys(modelSettings,['directory','provider','control']);
       if(typeof modelSettings.directory!=='string'||resolve(modelSettings.directory)===resolve(directory))fail('MODEL_SETTINGS_OPTIONS');
       modelControl=requireOfflineModelControl(modelSettings.control);
       sessionHost=await (jointSettings?JointSessionHost:summarySettings?SummarySessionHost:OfflineSessionHost).open({directory:modelSettings.directory,provider:modelSettings.provider,
-        modelControl,historyControl,...(jointBudget?{budget:jointBudget,branchStore}:{}),recoverDeadOwner,resolveRuntime:ref=>openPublishedRuntime(store,ref)});
+        modelControl,historyControl,...(jointBudget?{budget:jointBudget,branchStore,chatParameters}:{}),recoverDeadOwner,resolveRuntime:ref=>openPublishedRuntime(store,ref)});
     }
+    if((creatorExperience||chatParameters)&&sessionHost?.readiness?.mode===CONTROLLED_MODE&&typeof modelControl?.checkParameters==='function')
+      parameterPresets=await ParameterSettingsStore.open({directory:resolve(modelSettings.directory,'parameter-presets'),control:modelControl,recoverDeadOwner});
     // The M1 receipt contract has its own policy revision. Do not rewrite old receipts.
     const historyHost=summarySettings?{
       async read(id){const v=await sessionHost.read(id);return {...v,effectivePolicy:{...v.effectivePolicy,revision:v.historyConfigurationPolicyRevision}};},
@@ -158,7 +164,8 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       if(!jointApi||typeof playbackSettings.directory!=='string'||[directory,modelSettings.directory,historySettings.directory,jointSettings.directory].some(d=>resolve(d)===resolve(playbackSettings.directory)))fail('TURN_PLAYBACK_OPTIONS');
       turnPlayback=await TurnPlayback.open({...playbackSettings,recoverDeadOwner,host:sessionHost,resolveRuntime:ref=>openPublishedRuntime(store,ref),cache:presentations,origin:()=>origin});
     }
-  }catch(error){await turnPlayback?.close();await jointUI?.close();await summaryUI?.close();await historyUI?.close();await sessionHost?.close();await jointBudget?.close();await branchStore?.close();await historyControl?.close();await store.close();throw error;}
+    if(comparisonSettings!==null){if(!sessionHost||!jointBudget||!turnPlayback||sessionHost.readiness.realProvider!==true)fail('COMPARISON_HOST_REQUIRED');keys(comparisonSettings,['directory','origin','serviceToken']);comparisonHost=await openComparisonHost({...comparisonSettings,host:sessionHost,budget:jointBudget,playback:turnPlayback,recoverDeadOwner,presets:parameterPresets,preview:(s,b,t)=>turnPlayback.candidate(s,b,t)});}
+  }catch(error){await comparisonHost?.close();await parameterPresets?.close();await turnPlayback?.close();await jointUI?.close();await summaryUI?.close();await historyUI?.close();await sessionHost?.close();await jointBudget?.close();await branchStore?.close();await historyControl?.close();await store.close();throw error;}
   const cgReplays=createCGReplayCache();
   const scripts=new Map();
   const releaseScript=token=>{const record=scripts.get(token);if(record){record.runtime?.close();record.compiler?.close();scripts.delete(token);}return !!record;};
@@ -212,7 +219,13 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       if (!['GET', 'POST'].includes(req.method)) fail('AUTHORING_METHOD');
       if (req.method === 'POST' && (suppliedOrigin !== origin || req.headers['x-authoring-request'] !== '1')) fail('AUTHORING_ORIGIN_REJECTED');
       if (req.method === 'GET' && !path.startsWith(api + '/')) {
-        query(url, path === '/' ? ['work','version','library'] : []);
+        query(url, path === '/' ? ['work','version','library'] : path === '/chat' && chatParameters ? ['session'] : []);
+        if(path==='/chat'&&chatParameters){
+          if(!/^session-[a-f0-9]{64}$/.test(url.searchParams.get('session')||''))fail('OFFLINE_SESSION_NOT_FOUND');
+          return send('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>RPG · 会话参数</title><link rel="stylesheet" href="/chat-parameter-ui.css"><link rel="stylesheet" href="/comparison-ui.css"><script type="module" src="/chat-parameter-ui.mjs"></script></head><body><div data-chat-root><p role="status">正在读取会话…</p></div></body></html>',200,'text/html; charset=utf-8');
+        }
+        // Keep the creator root unavailable in chat mode; use the separate /chat surface.
+        if (path === '/' && chatParameters) fail('AUTHORING_ROUTE_NOT_FOUND');
         if (path === '/') return send(await page(origin,sessionHost!==null,!!historyUI,!!summaryUI,creatorExperience,!!jointApi,!!turnPlayback,sessionHost?.readiness?.realProvider===true), 200, 'text/html; charset=utf-8');
         const files = {
           '/styles.css': [resolve(here, '../authoring-prototype/styles.css'), 'text/css; charset=utf-8'],
@@ -247,6 +260,8 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
         if(summaryUI)for(const name of ['session-ui.mjs','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(turnPlayback)for(const name of ['playback-ui.mjs','playback-ui.css','special-cg-ui.mjs'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(jointApi)for(const name of ['joint-ui.mjs','joint-client.mjs','joint-ui.css','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
+        if(chatParameters)for(const name of ['chat-parameter-ui.mjs','chat-parameter-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
+        for(const name of ['comparison-ui.mjs','comparison-client.mjs','comparison-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if (!files[path]) fail('AUTHORING_ROUTE_NOT_FOUND');
         return send(await readFile(files[path][0]), 200, files[path][1]);
       }
@@ -259,12 +274,13 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
         if((await store.read(current.id)).revision!==current.revision){presentations.release(value.token);fail('AUTHORING_REVISION_CONFLICT');}
         return send(value);
       }
-      if(path===api+'/joint'&&req.method==='GET'){query(url,[]);return send({enabled:jointApi!==null,realProvider:sessionHost?.readiness?.realProvider===true,...(turnPlayback?{turnPlayback:true}:{})});}
+      if(path===api+'/joint'&&req.method==='GET'){query(url,[]);return send({comparison:!!comparisonHost,enabled:jointApi!==null,realProvider:sessionHost?.readiness?.realProvider===true,...(turnPlayback?{turnPlayback:true}:{}),...(chatParameters?{chatParameters:true}:{})});}
       if(path.startsWith(api+'/joint/')){
         if(!jointApi)fail('AUTHORING_ROUTE_NOT_FOUND');query(url,[]);
         const body=req.method==='POST'?await jsonBody(req,1024*1024):undefined;
         const route=path.slice((api+'/joint/').length);
         if(route.startsWith('playback/')){if(!turnPlayback)fail('AUTHORING_ROUTE_NOT_FOUND');return send(await turnPlayback.handle(req.method,route.slice(9),body));}
+        if(route.startsWith('comparisons/')){if(!comparisonHost)fail('AUTHORING_ROUTE_NOT_FOUND');return send(await comparisonHost.handle(req.method,route.slice(12),body));}
         const result=await jointApi.handle(req.method,route,body);
         if(turnPlayback&&req.method==='POST'&&route==='branch'){
           let display;try{display={state:'inherited',...await turnPlayback.inheritBranch(result.session.id)};}catch(e){display={state:'pending',diagnostic:e instanceof AuthoringError?e.code:'TURN_DISPLAY_RESULT_UNKNOWN'};}
@@ -311,7 +327,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
         fail('AUTHORING_ROUTE_NOT_FOUND');
       }
       if(path===api+'/model-settings'&&req.method==='GET'){
-        query(url,[]);return send({enabled:sessionHost!==null,realProvider:sessionHost?.readiness?.realProvider===true,pluginExecution:historyUI!==null});
+        query(url,[]);return send({enabled:sessionHost!==null,realProvider:sessionHost?.readiness?.realProvider===true,pluginExecution:historyUI!==null,...(parameterPresets?{presetsEnabled:true}:{}),...(chatParameters?{chatParameters:true}:{})});
       }
       if(path===api+'/history-settings'&&req.method==='GET'){
         query(url,[]);return send({enabled:historyUI!==null,realProvider:false});
@@ -332,11 +348,26 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       if(path.startsWith(api+'/model-settings/')){
         if(!sessionHost)fail('AUTHORING_ROUTE_NOT_FOUND');
         const route=path.slice((api+'/model-settings/').length);
+        if(route==='presets'||route==='presets/reconcile'){
+          if(!parameterPresets)fail('AUTHORING_ROUTE_NOT_FOUND');query(url,[]);
+          if(route==='presets'&&req.method==='GET'){
+            const state=await parameterPresets.listPresets();
+            return send({revision:state.revision,presets:state.current.map(p=>({id:p.id,name:p.name,revision:p.revision,profile:p.configuration.profile,capabilityRevision:p.configuration.selection.capabilityRevision}))});
+          }
+          if(req.method==='POST'){
+            const body=await jsonBody(req,256*1024);
+            if(route==='presets')return send(await parameterPresets.savePreset(body));
+            payloadFields(body,['operationId']);return send(await parameterPresets.recover('presets','presets',body.operationId));
+          }
+          fail('AUTHORING_METHOD');
+        }
         if(req.method==='GET'){
-          query(url,[]);
-          if(route==='catalog')return send({catalog:modelControl.list(),realProvider:sessionHost?.readiness?.realProvider===true});
+          query(url,['parameterVersion']);const parameterVersion=url.searchParams.get('parameterVersion')??'1';
+          if(!['1','2'].includes(parameterVersion))fail('PARAMETER_VERSION_INVALID');
+          if(parameterVersion==='2'&&sessionHost?.readiness?.mode!==CONTROLLED_MODE)fail('PARAMETER_CONTROL_V2_REQUIRED');
+          if(route==='catalog')return send({catalog:parameterVersion==='2'?await modelControl.parameterCatalog():modelControl.list(),realProvider:sessionHost?.readiness?.realProvider===true});
           const found=/^sessions\/(session-[a-f0-9]{64})(?:\/(models))?$/.exec(route);
-          if(found)return send(found[2]?await sessionHost.modelCatalog(found[1]):await sessionHost.read(found[1]));
+          if(found)return send(found[2]?await sessionHost.modelCatalog(found[1],Number(parameterVersion)):await sessionHost.read(found[1]));
           fail('AUTHORING_ROUTE_NOT_FOUND');
         }
         query(url,[]);const body=await jsonBody(req,256*1024);
@@ -348,6 +379,10 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
         }
         if(route==='check'){
           payloadFields(body,['choice']);
+          if(body.choice?.format==='modelmirror.rpg.parameter-selection/2'){
+            if(sessionHost?.readiness?.mode!==CONTROLLED_MODE)fail('PARAMETER_CONTROL_V2_REQUIRED');
+            return send({choice:await modelControl.selectParameters(body.choice),dispatched:false});
+          }
           let choice;
           try{choice=modelControl.select(body.choice);}catch(error){
             // Refresh only an expired host cache, keeping the caller's exact frozen selection.
@@ -358,7 +393,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
           return send({choice,dispatched:false});
         }
         if(route==='sessions'){await jointUI?.assertSettled();await jointUI?.assertOperationAvailable(body.operationId);return send(await sessionHost.create(body));}
-        if(route==='configure'){await jointUI?.assertSettled();await jointUI?.assertOperationAvailable(body.operationId);await historyUI?.assertSettled();await summaryUI?.assertSettled();await summaryUI?.assertOperationAvailable(body.operationId);return send(await sessionHost.configureModel(body));}
+        if(route==='configure'){if(chatParameters)return send(await jointUI.withOperation(body.operationId,()=>sessionHost.configureModel(body)));await jointUI?.assertSettled();await jointUI?.assertOperationAvailable(body.operationId);await historyUI?.assertSettled();await summaryUI?.assertSettled();await summaryUI?.assertOperationAvailable(body.operationId);return send(await sessionHost.configureModel(body));}
         if(route==='reconcile'){
           payloadFields(body,['sessionId','operationId','kind']);
           if(!isId(body.operationId)||!['create','configure'].includes(body.kind))fail('OFFLINE_OPERATION_INVALID');
@@ -599,7 +634,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
   try {
     await new Promise((ok, no) => { server.once('error', no); server.listen(port, '127.0.0.1', ok); });
     origin = 'http://127.0.0.1:' + server.address().port;
-  } catch (error) { clearInterval(scriptTimer);await turnPlayback?.close();await jointUI?.close();await summaryUI?.close();await historyUI?.close();await sessionHost?.close();await jointBudget?.close();await branchStore?.close();await historyControl?.close();await store.close();throw error; }
+  } catch (error) { clearInterval(scriptTimer);await comparisonHost?.close();await parameterPresets?.close();await turnPlayback?.close();await jointUI?.close();await summaryUI?.close();await historyUI?.close();await sessionHost?.close();await jointBudget?.close();await branchStore?.close();await historyControl?.close();await store.close();throw error; }
   let closePromise;
   return {
     origin,
@@ -609,6 +644,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       closePromise ??= (async () => {
         clearInterval(scriptTimer);for(const token of scripts.keys())releaseScript(token);
         await new Promise((ok, no) => server.close(error => error ? no(error) : ok()));
+        await comparisonHost?.close();await parameterPresets?.close();
         await jointUI?.close();
         await summaryUI?.close();
         await historyUI?.close();

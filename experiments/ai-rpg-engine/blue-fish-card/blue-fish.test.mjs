@@ -13,8 +13,16 @@ import {empty} from '../plugins/custom-config/public/config.mjs';
 import {modCatalog} from '../plugins/mod-panel/catalog.mjs';
 test('prompt integrity, rebranding and local vendor assets',async()=>{
  const source=JSON.parse(await readFile(new URL('./resources/source.json',import.meta.url)));
- assert.equal(sha(systemPrompt()),source.systemSha256);assert.equal(source.paragraphs,444);
- assert.ok(!systemPrompt().includes('知鱼'));assert.equal(source.extractedPromptSha256,source.systemSha256);
+ assert.equal(sha(systemPrompt()),source.systemSha256);assert.equal(source.paragraphs,550);
+ assert.doesNotMatch(systemPrompt(),/知鱼|风月/);
+ assert.equal(source.extractedPromptSha256,'7da1ce77ac4967819dabeabf563013005cd230b5ee1168b706bb6f11fc8d1229');
+ assert.equal(source.systemSha256,'deb2b0f61b5b59faa1f0272c14656b0c22db063662090f3b5b5e30b2a972d68a');
+ assert.equal(source.promptStatus,'unstable-intermediate');
+ assert.deepEqual(source.promptRevision.removedOriginalPhysicalLines,[3,4,5,6,7,8,97]);
+ assert.equal(source.promptRevision.awaitingFurtherOptimization,true);
+ assert.ok(systemPrompt().includes('<大肥鱼的交流身份>'));
+ assert.ok(systemPrompt().includes('<角色创作的正文呈现>'));
+ assert.ok(systemPrompt().includes('自称鱼鱼、本鱼'));
  for(const path of ['index.html','app.js']){
   const text=await readFile(new URL('./public/'+path,import.meta.url),'utf8');
   assert.doesNotMatch(text,/知鱼|AAA光合作用|Rikaku\.|cg-img\.pornai|xy\.rikaku|积分/);

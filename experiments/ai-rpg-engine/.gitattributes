@@ -8,3 +8,10 @@ tests/ui-host-dispatch-ledger.test.mjs whitespace=blank-at-eol,blank-at-eof,spac
 tests/ui-host-structured-schema.test.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 ui-host/dispatch-ledger.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 ui-host/structured-schema.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+
+# These accepted host bytes are part of frozen session source hashes.
+# Recognize CRLF endings, preserving every other default whitespace check.
+studio/memory-tasks.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+studio/summary-tasks.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+studio/message-tools.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+studio/transcript.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

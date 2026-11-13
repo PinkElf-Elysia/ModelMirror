@@ -1,0 +1,32 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.model-comparison",
+  "version": "1.0.0",
+  "name": "多模型对比",
+  "description": "本轮使用独立模型与参数生成候选，选择一份作为正式回复。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god",
+    "xingjian",
+    "ancient",
+    "cultivation",
+    "lord-of-mysteries",
+    "authored-work-v1"
+  ],
+  "capabilities": [
+    "ui.comparison-action",
+    "session.comparison.generate"
+  ],
+  "permissions": [
+    "session.comparison.generate",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/model-comparison.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "ed47a66c03fce4abf3826e95f6762c55c72622f5cce9385a7de813ace482bb0b"
+}

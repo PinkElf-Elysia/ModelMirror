@@ -1,3 +1,4 @@
+import {PARAMETER_DISPATCH_FAILURES} from './chat-parameters.mjs';
 import {canonical, keys, isId, isHash, sha256, fail} from './contracts.mjs';
 import {modelChoiceAt} from './model-control.mjs';
 import {historyStateAt} from './history-control.mjs';
@@ -14,7 +15,7 @@ const digest = v => sha256(canonical(v)), clone = v => structuredClone(v);
 const same = (a,b) => canonical(a) === canonical(b);
 const integer = v => Number.isSafeInteger(v) && v >= 0;
 const preparationErrors = ['MODEL_CONTEXT_CAPACITY','SUMMARY_MODEL_REQUIRED','SUMMARY_STATE_CAPACITY','SUMMARY_SOURCE_CAPACITY'];
-export const SUMMARY_LOCAL_FAILURES = Object.freeze(['SUMMARY_AUTHORIZATION_CHANGED','SUMMARY_MODEL_CHANGED','SUMMARY_SOURCE_CHANGED',
+export const SUMMARY_LOCAL_FAILURES = Object.freeze([...PARAMETER_DISPATCH_FAILURES,'SUMMARY_AUTHORIZATION_CHANGED','SUMMARY_MODEL_CHANGED','SUMMARY_SOURCE_CHANGED',
   'SUMMARY_REVISION_CONFLICT','MODEL_SELECTION_CHANGED','MODEL_SELECTION_UNAVAILABLE','MODEL_CAPABILITY_UNKNOWN','MODEL_CONTEXT_CAPACITY','OFFLINE_FIXTURE_MISSING']);
 // Worst-case JSON escaping and repeated raw receipts in the compression parent /
 // immutable version. This is storage headroom, not tokens or billed-call quota.

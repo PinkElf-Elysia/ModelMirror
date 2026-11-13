@@ -1,6 +1,6 @@
 import {createAuthoringApi} from './browser-api.mjs';
 import {authoringEditor as editor} from './app.mjs';
-import {createModelSettingsUI} from './model-ui.mjs';
+import {createModelSettingsUI,withRecommendedProfile} from './model-ui.mjs';
 import {recoveryTarget, blockedWorkRecord, resolveWorkRecovery, documentsEqual} from './recovery.mjs';
 import {createMediaUI, mediaReference} from './media-ui.mjs';
 import {chatBGMTrack,mountChatBGM} from './chat-bgm.mjs';
@@ -1062,7 +1062,15 @@ $('#gallery-button').onclick = () => gallery();
 $('#export-button').onclick = () => run(() => exportWork());
 $('#save-button').onclick = () => run(() => save());
 $('#publish-button').onclick = () => run(versions);
-const modelUI=createModelSettingsUI({button:$('#model-button'),api,getWork:()=>work,getOpeningText:()=>$('#player-input').value,notice});
+const modelUI=createModelSettingsUI({button:$('#model-button'),api,getWork:()=>work,getOpeningText:()=>$('#player-input').value,notice,
+  getRecommendation:purpose=>work?.draft.model.recommendations?.[purpose]||null,
+  async saveRecommendation(profile,workId){
+    writable();if(!work||work.id!==workId)throw {code:'MODEL_UI_REFERENCE_MISMATCH'};
+    if(dialogueUI.editing())throw {code:'AUTHORING_OPERATION_PENDING'};
+    const document=withRecommendedProfile(currentDocument(),profile),issue=metadataIssues(document.metadata)[0];if(issue)throw issue;
+    await mutate('/works/'+work.id+'/save',{document});
+  },
+});
 modelUI.initialize();
 $('#more-menu').innerHTML =
   button('导入作品','import','role="menuitem"') + button('查看 / 编辑配置 JSON','json','role="menuitem"') +

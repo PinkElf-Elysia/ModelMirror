@@ -7,6 +7,10 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
+from .rpg_parameters import (
+    CAPABILITY_FORMAT as TEXT_PARAMETER_CAPABILITIES_V2_FORMAT,
+    SUPPORTED_WIRE_PARAMETERS, validate_policy as typed_parameter_policy, supports_policy,
+)
 from .egress import ProviderEgressError
 from .repository import RouterRepositoryError, utc_now
 from .schemas import (
@@ -166,17 +170,17 @@ def _parameter_capabilities(record: dict) -> dict:
     try:
         declaration = record["parameter_capabilities"]
         if (not isinstance(declaration, dict) or set(declaration) != {"format", "policy"}
-                or declaration["format"] != TEXT_PARAMETER_CAPABILITIES_FORMAT):
+                or declaration["format"] not in (TEXT_PARAMETER_CAPABILITIES_FORMAT, TEXT_PARAMETER_CAPABILITIES_V2_FORMAT)):
             raise ValueError("parameter_capabilities_invalid")
-        policy = text_parameter_policy(declaration["policy"])
+        version_two = declaration["format"] == TEXT_PARAMETER_CAPABILITIES_V2_FORMAT
+        policy = (typed_parameter_policy if version_two else text_parameter_policy)(declaration["policy"])
         supported = record.get("supported_parameters")
-        if (not isinstance(supported, list) or any(not isinstance(x, str) for x in supported)
-                or any(f["wireName"] not in supported for f in policy["fields"].values())):
+        if not supports_policy(policy, supported):
             raise ValueError("parameter_capabilities_invalid")
         output = record.get("max_output_tokens")
         if type(output) is not int or policy["fields"]["maxOutputTokens"]["maximum"] > output:
             raise ValueError("parameter_capabilities_invalid")
-        return {"status": "declared", "format": TEXT_PARAMETER_CAPABILITIES_FORMAT, "policy": policy}
+        return {"status": "declared", "format": declaration["format"], "policy": policy}
     except (ValueError, TypeError, KeyError, OverflowError):
         return {"status": "invalid"}
 
@@ -255,7 +259,7 @@ def normalize_provider_catalog(
         parameters = record.get("supported_parameters")
         if isinstance(parameters, list) and all(isinstance(p, str) for p in parameters):
             metadata["supported_parameters"] = sorted(
-                set(parameters) & {"temperature", "top_p", "max_tokens", "max_completion_tokens"}
+                set(parameters) & SUPPORTED_WIRE_PARAMETERS
             )
         if "parameter_capabilities" in record:
             metadata["parameter_capabilities"] = _parameter_capabilities(record)
