@@ -85,3 +85,7 @@ npx.cmd vitest run --maxWorkers=1 src/pages/HarryPotterCard.test.ts src/pages/Ha
 - 聊天前端与主前端 `npm.cmd run build` 通过。主线既有帮助图片契约失败与构建告警仍按上文记录，本轮不扩展处理。
 - `verify-replay.mjs merge-806d8e6e-replay` 通过：旧四轮复制件强杀恢复相同，36 份 dispatch 和 8 个冻结文件不变；真实调用 0、凭据读取 0。
 - 哈利波特整个卡包相对 c5b5ab0d 无差异，作者提示词未改；新增差异仅为双方接线和主线故事馆展示适配。保留原预览证据，不将本次自动回归冒充新的人工界面全验收。
+
+推送前主线再次推进到 425ff762（失败回合恢复 #462），已自动合入。补验发现新主线兼容表未覆盖本 PR 修改的 studio/server.mjs：从历史提交 d9dd7094 取原始字节计算 SHA-256 dcbb09be866cacec44920f5fa31396431de211ff6b0140dedc695e287ffc5400，加入 recoveryBefore 与对应 baseline.artifacts。未改 expected runtime hash、测试断言、提示词或存档数据；完整旧 descriptor 验证和防篡改仍保留。
+
+最终补验 `node --test studio/failed-turn-compatibility.test.mjs studio/turn-failures.test.mjs studio/summary-tasks.test.mjs studio/session-lifecycle.test.mjs studio/illustration-persistence.test.mjs harry-potter-card/harry.test.mjs`：39/39 通过。第二次聊天前端构建通过。`merge-425ff762-replay` 再次确认旧四轮复制件恢复、36 份 dispatch 和 8 个冻结文件不变，无真实调用和凭据读取。
