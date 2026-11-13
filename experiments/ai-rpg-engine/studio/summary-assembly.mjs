@@ -1,3 +1,4 @@
+import {editedHistory,priorEdits} from './output-edits.mjs';
 import {assembleHistoryRequest} from './history-assembly.mjs';
 import {completeHistory} from './branch-archive.mjs';
 import {requireSummaryState,sealSummary,activeSummary,SUMMARY_WRAPPER} from './summary-state.mjs';
@@ -18,10 +19,10 @@ export function assembleSummaryRequest(s,input,policy,baseAssembly,state){
   // Imported turns are outside the local summary's coverage. Retain the
   // imported prefix selected by the history policy when replacing live history.
   const imported=original.messages.slice(1,original.messages.length-1-selectedTurns.length*2);
-  messages=[system,...imported,...structuredClone(s.history.slice(-2)),{role:'user',content:original.current}];
+  messages=[system,...imported,...structuredClone(editedHistory(s).slice(-2)),{role:'user',content:original.current}];
   selectedTurns=T?[T]:[];
  }
- const context={format:1,policy:structuredClone(policy),mode:policy.mode,totalTurns:s.turns.length,selectedTurns,selectedRequestIds:selectedTurns.map(n=>s.turns[n-1].requestId),summaryVersionId:m2?snapshot.activeVersionId:null,coveredThrough:m2?(activeSummary(snapshot)?.coveredThrough||0):0,summarySnapshot:snapshot,historyConfig:structuredClone(s.historyWindow.config),sourceHash:sha(canonical(s.history)),requestHash:sha(canonical(messages))};
+ const context={format:1,...(s.outputEdits?.length?{outputEditCount:s.outputEdits.length}:{}),policy:structuredClone(policy),mode:policy.mode,totalTurns:s.turns.length,selectedTurns,selectedRequestIds:selectedTurns.map(n=>s.turns[n-1].requestId),summaryVersionId:m2?snapshot.activeVersionId:null,coveredThrough:m2?(activeSummary(snapshot)?.coveredThrough||0):0,summarySnapshot:snapshot,historyConfig:structuredClone(s.historyWindow.config),sourceHash:sha(canonical(s.history)),requestHash:sha(canonical(messages))};
  return {...original,messages,contextPolicy:{...context,hash:sha(canonical(context))}};
 }
 // This receipt permits reconstruction without consulting today's grants or summary.
@@ -33,7 +34,7 @@ export function requireContextEvidence(s,baseAssembly,state){
   if(!c||!receipt||receipt.status!=='complete')throw fail('SUMMARY_TURN_BINDING_INVALID');
   const {hash,...body}=c;
   if(hash!==sha(canonical(body))||c.totalTurns!==i||c.sourceHash!==sha(canonical(s.history.slice(0,i*2)))||receipt.assemblyHash!==c.requestHash||canonical(receipt.contextPolicy)!==canonical(c)||canonical(t.historyPolicy?.config)!==canonical(c.historyConfig))throw fail('SUMMARY_TURN_BINDING_INVALID');
-  const prefix={...s,history:s.history.slice(0,i*2),turns:s.turns.slice(0,i),rollingSummary:c.summarySnapshot,historyWindow:{...s.historyWindow,config:c.historyConfig},modelState:{...s.modelState,revision:c.policy.modelRevision}};
+  const prefix={...s,outputEdits:priorEdits(s,c.outputEditCount),history:s.history.slice(0,i*2),turns:s.turns.slice(0,i),rollingSummary:c.summarySnapshot,historyWindow:{...s.historyWindow,config:c.historyConfig},modelState:{...s.modelState,revision:c.policy.modelRevision}};
   const rebuilt=assembleSummaryRequest(prefix,t.input,c.policy,baseAssembly,state);
   if(rebuilt.contextPolicy.hash!==c.hash||rebuilt.current!==s.history[i*2].content)throw fail('SUMMARY_TURN_BINDING_INVALID');
  }

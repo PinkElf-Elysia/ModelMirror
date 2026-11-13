@@ -27,7 +27,9 @@ import {settleStoryFailure} from './story-failure.mjs';
 import {createIllustrationWriter} from './illustration-rewrite.mjs';
 import {createIllustrations,imageService} from './illustrations.mjs';
 import {transcriptHttp} from './transcript.mjs';
-import {forkMessage,storyProgress} from './message-tools.mjs';
+import {preserveOutputEditRuntime} from './output-edit-compatibility.mjs';
+import {visibleTurns} from './output-edits.mjs';
+import {editOutput,forkMessage,storyProgress} from './message-tools.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {loadReviewedCatalog,ILLUSTRATIONS_ID,MESSAGE_TOOLS_ID,TRANSCRIPT_ID,canonical,sha,REVIEWED_PLUGIN_IDS,MODEL_SELECTOR_ID} from '../plugins/catalog.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -66,6 +68,8 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let godHost=null;
  if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl});}
+ preserveOutputEditRuntime(earth);
+ if(godHost)preserveOutputEditRuntime(godHost.store);
  let plugins=null,pluginError=null;
  try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
@@ -180,10 +184,11 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     if(data?.pluginId!==pluginAction[1])return send(400,{error:'PLUGIN_ID_BINDING'});
     return plugins?send(200,await plugins.change(pluginAction[2],data)):send(503,{error:pluginError});
    }
-   const messageTools=pathname.match(/^\/rpg-app\/(earth|god)\/api\/sessions\/([a-zA-Z0-9-]+)\/message-tools\/(fork|progress)$/);
+   const messageTools=pathname.match(/^\/rpg-app\/(earth|god)\/api\/sessions\/([a-zA-Z0-9-]+)\/message-tools\/(fork|progress|edit-output)$/);
    if(messageTools){
     const [,card,id,action]=messageTools,store=card==='earth'?earth:godHost?.store;
     if(!plugins||!store)return send(404,{error:'PLUGIN_HOST_UNAVAILABLE'});
+    if(action==='edit-output'&&req.method==='POST')return send(200,await editOutput(store,plugins,id,data));
     if(action==='fork'&&req.method==='POST')return send(200,await forkMessage(store,plugins,id,data));
     if(action==='progress'&&req.method==='GET'){
       const grant=await plugins.sessionStatus(id,'rpg.message-tools');
@@ -213,7 +218,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
      }
     }
 
-    const view=s=>({...projection(s),...(s.importedTurns?{importedTurns:s.importedTurns}:{}),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:s.turns.map(t=>({...t,html:cardDisplay(t.raw,'earth')}))});
+    const view=s=>({...projection(s),...(s.importedTurns?{importedTurns:s.importedTurns}:{}),...summaryProjection(s),...memoryProjection(s),runtime:earth.status(s),...(s.historyWindow?{historyWindow:{config:s.historyWindow.config,configRevision:s.historyWindow.revision,pendingOperationId:s.historyWindow.pending}}:{}),...(s.modelState?{modelSelection:{revision:s.modelState.revision,current:s.modelState.current}}:{}),...(s.provenance?{parentId:s.provenance.parentId,branchTurn:s.provenance.turn}:{}),turns:visibleTurns(s).map(t=>({...t,html:cardDisplay(t.raw,'earth')}))});
     if(memoryPalace&&await memoryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     if(rollingSummary&&await summaryHttp({route,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,store:earth,plugins,view,send}))return;
     const historyRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/history-window$/);

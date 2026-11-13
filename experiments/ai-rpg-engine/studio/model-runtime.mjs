@@ -8,7 +8,7 @@ import {canonical,sha,fail} from '../plugins/catalog.mjs';
 
 const root=new URL('../',import.meta.url);
 const contentPaths=['card-replica/lib/assembly.mjs','card-replica/resources/prompts.json','card-replica/resources/MANIFEST.json','card-replica/src/data.ts'];
-const extra=['studio/card-model-policy.mjs','studio/model-parameters.mjs','studio/model-runtime.mjs','studio/model-session-store.mjs','studio/model-branch-archive.mjs','studio/controlled-provider.mjs','studio/provider.mjs','studio/models.json','studio/versioned-store.mjs','studio/branch-archive.mjs','card-replica/lib/store.mjs',...contentPaths];
+const extra=['studio/output-edits.mjs','studio/card-model-policy.mjs','studio/model-parameters.mjs','studio/model-runtime.mjs','studio/model-session-store.mjs','studio/model-branch-archive.mjs','studio/controlled-provider.mjs','studio/provider.mjs','studio/models.json','studio/versioned-store.mjs','studio/branch-archive.mjs','card-replica/lib/store.mjs',...contentPaths];
 const artifacts=async()=>Object.fromEntries(await Promise.all(extra.map(async p=>[p,sha(await readFile(new URL(p,root)))])));
 const frozen=await artifacts();
 const descriptor={format:2,cardId:'earth',content:{author:earthRuntime.descriptor.author,cardArtifacts:Object.fromEntries(contentPaths.map(p=>[p,frozen[p]])),worldbook:earthRuntime.descriptor.worldbook},hostArtifacts:frozen,historyPolicy:'complete-raw-history',modelPolicy:'core-persisted-selection-v1'};

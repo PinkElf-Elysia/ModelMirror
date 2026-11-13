@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {activeSystem,loadFrozen} from '../card-replica/lib/assembly.mjs';
 import {models} from './provider.mjs';
 import {sha,canonical,fail} from '../plugins/catalog.mjs';
-const paths=['card-replica/lib/store.mjs','card-replica/lib/assembly.mjs','card-replica/resources/prompts.json','card-replica/resources/MANIFEST.json','card-replica/src/data.ts','card-replica/src/main.tsx','studio/provider.mjs','studio/models.json','studio/versioned-store.mjs','studio/branch-archive.mjs','studio/runtime-binding.mjs'];
+const paths=['studio/output-edits.mjs','card-replica/lib/store.mjs','card-replica/lib/assembly.mjs','card-replica/resources/prompts.json','card-replica/resources/MANIFEST.json','card-replica/src/data.ts','card-replica/src/main.tsx','studio/provider.mjs','studio/models.json','studio/versioned-store.mjs','studio/branch-archive.mjs','studio/runtime-binding.mjs'];
 const root=new URL('../',import.meta.url);
 async function artifacts(){return Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha(await readFile(new URL(p,root)))])));}
 const loaded=await artifacts();

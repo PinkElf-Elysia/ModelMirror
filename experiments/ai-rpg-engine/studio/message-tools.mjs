@@ -1,3 +1,4 @@
+import {requireOutputEdits} from './output-edits.mjs';
 import {canonical, sha, fail, MESSAGE_TOOLS_ID} from '../plugins/catalog.mjs';
 import {initialModelState} from './model-runtime.mjs';
 import {initialHistoryState} from './history-state.mjs';
@@ -83,4 +84,40 @@ export async function storyProgress(store,id,operationId,control,fixedProgress) 
   const value=await result.json();
   if(typeof value.text!=='string'||value.text.length>524288||value.text.includes(control.serviceToken))throw fail('MESSAGE_PROGRESS_INVALID');
   return {supported:true,text:value.text};
+}
+
+export async function editOutput(store,plugins,sessionId,data){
+  if(!data||Object.keys(data).sort().join(',')!=='operationId,revision,text,turn'||
+     !uuid.test(data.operationId)||!Number.isSafeInteger(data.revision)||data.revision<0||
+     !Number.isSafeInteger(data.turn)||data.turn<1||
+     typeof data.text!=='string'||!data.text.trim()||data.text.length>200000)throw fail('MESSAGE_EDIT_INVALID',400);
+  return store.exclusive(sessionId,async()=>{
+    const session=await store.read(sessionId);
+    await store.requireRuntime(session);
+    const grant=await plugins.sessionStatus(sessionId,MESSAGE_TOOLS_ID);
+    if(!grant.enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);
+    requireOutputEdits(session);
+    const digest=sha(canonical(data));
+    const prior=session.outputEdits?.find(edit=>edit.operationId===data.operationId);
+    if(prior){
+      if(prior.hash!==digest)throw fail('MESSAGE_EDIT_CONFLICT');
+      return {saved:true,revision:session.revision,replayed:true};
+    }
+    if(session.revision!==data.revision)throw fail('MESSAGE_HISTORY_CHANGED');
+    if(!session.turns[data.turn-1])throw fail('MESSAGE_TURN_INVALID',400);
+    const pending=operations=>Object.values(operations||{}).some(op=>['pending','unknown'].includes(op.status));
+    if(pending(session.requests)||pending(session.summaryTasks?.operations)||pending(session.memoryTasks?.operations)||
+       Object.entries(session.memoryLegacyInputs||{}).some(([key,op])=>op.status==='prepared'&&!session.summaryTasks?.operations?.[key])||
+       session.historyWindow?.pending||session.rollingSummary?.pending||session.memoryPalace?.pending)
+      throw fail('MESSAGE_EDIT_BUSY');
+    if((session.outputEdits?.length||0)>=1000)throw fail('MESSAGE_EDIT_LIMIT');
+    completeHistory(session);
+    const ticket=await plugins.invoke({pluginId:MESSAGE_TOOLS_ID,sessionId,capability:'session.message.edit',input:{turn:data.turn}});
+    session.outputEdits??=[];
+    session.outputEdits.push({operationId:data.operationId,hash:digest,requestId:session.turns[data.turn-1].requestId,
+      turn:data.turn,revision:data.revision,text:data.text,at:new Date().toISOString()});
+    session.revision++;
+    await plugins.commitResult(ticket,()=>store.write(session));
+    return {saved:true,revision:session.revision,replayed:false};
+  });
 }

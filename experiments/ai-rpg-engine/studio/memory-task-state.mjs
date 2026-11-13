@@ -1,3 +1,4 @@
+import {editedHistory} from './output-edits.mjs';
 import {canonical,sha,fail} from '../plugins/catalog.mjs';
 import {requireLibrary,applyModelChanges} from '../plugins/memory-palace.mjs';
 import {requireMemoryState,sealMemory} from './memory-state.mjs';
@@ -33,7 +34,8 @@ export function memorySource(s){
  completeHistory(s);const m=requireMemoryState(s);const capacity=requireLibrary(m.entries);if(capacity.full)throw fail('MEMORY_CAPACITY_FULL');
  const from=m.processedThrough+1,through=s.turns.length;
  const entries=m.entries.filter(e=>!e.deleted).sort((a,b)=>a.id<b.id?-1:1).map(e=>({id:e.id,version:e.version,...e.value,protected:e.protected}));
- const turns=s.turns.slice(m.processedThrough).map((_,i)=>{const number=from+i;return {number,user:s.history[(number-1)*2].content,assistant:s.history[(number-1)*2+1].content};});
+ const history=editedHistory(s);
+ const turns=s.turns.slice(m.processedThrough).map((_,i)=>{const number=from+i;return {number,user:s.history[(number-1)*2].content,assistant:history[(number-1)*2+1].content};});
  return {from,through,memoryRevision:m.revision,entries,turns};
 }
 export function memoryPlan(s,a,kind='send',validateModel=validChoice){

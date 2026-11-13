@@ -1,3 +1,4 @@
+import {editedHistory} from './output-edits.mjs';
 import {randomUUID} from 'node:crypto';
 import {VersionedSessionStore} from './versioned-store.mjs';
 import {bindRuntime} from './runtime-binding.mjs';
@@ -28,7 +29,7 @@ export class CardSessionStore extends VersionedSessionStore {
    if(Object.values(s.requests).some(r=>r.status==='pending'))throw fail('存在未确认请求，请先核对处理状态');
    if(s.revision!==revision)throw fail('CARD_SESSION_CONFLICT');
    if(s.mode!=='offline')throw fail('PROVIDER_DISABLED',403);
-   const a=this.adapter.assemble(s,input),controller=new AbortController();
+   const a=this.adapter.assemble({...s,history:editedHistory(s)},input),controller=new AbortController();
    this.running.set(id,controller);
    try{
     s.requests[requestId]={status:'pending',inputHash:sha(input),assemblyHash:sha(JSON.stringify(a.messages)),at:new Date().toISOString()};

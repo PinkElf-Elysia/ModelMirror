@@ -1,3 +1,4 @@
+import {priorEdits,visibleTurns} from './output-edits.mjs';
 import {assembleSummaryRequest,summarySnapshot} from './summary-assembly.mjs';
 import {completeHistory} from './branch-archive.mjs';
 import {requireMemoryState,sealMemory} from './memory-state.mjs';
@@ -17,7 +18,7 @@ export function requireMemorySnapshot(snapshot,turns,state){
 export function assembleMemoryRequest(s,input,policy,baseAssembly,state){
  completeHistory(s);const {memoryEnabled=false,baseRevision,...rest}=policy,basePolicy={...rest,revision:baseRevision||policy.revision};
  const base=assembleSummaryRequest(s,input,basePolicy,baseAssembly,state),usedSnapshot=memorySnapshot(s,state);
- const recall=memoryEnabled?recallMemories({entries:s.memoryPalace.entries,turns:s.turns,input}):null;
+ const recall=memoryEnabled?recallMemories({entries:s.memoryPalace.entries,turns:visibleTurns(s),input}):null;
  const messages=structuredClone(base.messages);
  if(recall?.entries.length)messages[0].content+=MEMORY_WRAPPER.replace('{entries}',()=>JSON.stringify(recall.entries));
  const memoryPolicy=seal({format:1,enabled:memoryEnabled,policyRevision:policy.revision,usedSnapshot,recall:recall?.record||null,baseRequestHash:base.contextPolicy.requestHash,requestHash:sha(canonical(messages))});
@@ -32,7 +33,7 @@ export function requireMemoryEvidence(s,baseAssembly,state){
   const t=s.turns[i],p=t.memoryPolicy,c=t.contextPolicy,r=s.requests?.[t.requestId]||s.provenance?.requestOrigins?.find(o=>o.requestId===t.requestId)?.record||s.source?.requestOrigins?.find(o=>o.requestId===t.requestId)?.record;
   if(!sealed(p)||!sealed(c)||!r||r.status!=='complete'||r.assemblyHash!==p.requestHash||canonical(r.memoryPolicy)!==canonical(p)||canonical(r.contextPolicy)!==canonical(c)||c.totalTurns!==i||canonical(t.historyPolicy?.config)!==canonical(c.historyConfig))throw fail('MEMORY_TURN_BINDING_INVALID');
   requireMemorySnapshot(p.usedSnapshot,s.turns.slice(0,i),state);
-  const prefix={...s,history:s.history.slice(0,i*2),turns:s.turns.slice(0,i),rollingSummary:c.summarySnapshot,historyWindow:{...s.historyWindow,config:c.historyConfig},modelState:{...s.modelState,revision:c.policy.modelRevision},memoryPalace:p.usedSnapshot.library,memoryTasks:standbyMemoryTasks(p.usedSnapshot.config)};
+  const prefix={...s,outputEdits:priorEdits(s,c.outputEditCount),history:s.history.slice(0,i*2),turns:s.turns.slice(0,i),rollingSummary:c.summarySnapshot,historyWindow:{...s.historyWindow,config:c.historyConfig},modelState:{...s.modelState,revision:c.policy.modelRevision},memoryPalace:p.usedSnapshot.library,memoryTasks:standbyMemoryTasks(p.usedSnapshot.config)};
   const rebuilt=assembleMemoryRequest(prefix,t.input,{...c.policy,baseRevision:c.policy.revision,memoryEnabled:p.enabled,revision:p.policyRevision},baseAssembly,state);
   if(rebuilt.contextPolicy.hash!==c.hash||rebuilt.memoryPolicy.hash!==p.hash||rebuilt.current!==s.history[i*2].content)throw fail('MEMORY_TURN_BINDING_INVALID');
   if(t.memorySettlement){

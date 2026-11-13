@@ -40,6 +40,7 @@ export class BranchArchive{
   const origins=turns.map(t=>source.provenance?.requestOrigins?.find(o=>o.requestId===t.requestId)||{sessionId:source.id,requestId:t.requestId,record:structuredClone(source.requests[t.requestId]||null)});
   // Generic session fields/configuration are retained; executable requests are not.
   const snapshot={history,turns,configuration:Object.fromEntries(Object.entries(source).filter(([k])=>!['id','name','created','revision','history','turns','requests','provenance','budget','ledger','plugins','grants'].includes(k))),runtime:structuredClone(source.runtime),source:{sessionId:source.id,revision:source.revision,turn,requestOrigins:origins,parent:structuredClone(source.provenance||null)}};
+  if(snapshot.configuration.outputEdits)snapshot.configuration.outputEdits=snapshot.configuration.outputEdits.filter(e=>turns.some(t=>t.requestId===e.requestId));
   const snapshotHash=sha(canonical(snapshot)),id=this.identity(source.id,input.operationId),created=new Date().toISOString();
   const session={...structuredClone(snapshot.configuration),id,name,created,revision:turn,history,turns,requests:{},provenance:{parentId:source.id,turn,snapshotHash,requestOrigins:origins}};
   return {format:1,operation:{input:structuredClone(input),hash:sha(canonical(input))},snapshotHash,snapshot,session,node:{pluginId:'rpg.branch-save',name,created}};
