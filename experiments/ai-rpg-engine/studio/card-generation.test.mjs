@@ -259,3 +259,22 @@ check('persistent requirements freeze by turn, survive restart, and cannot leak 
  assert.equal((await reopened.hosts.get('god').store.requirementsStatus(s.id)).text,st.text);await reopened.hosts.get('god').profile.context.verifyMemory(await reopened.hosts.get('god').store.read(s.id));
  assert.equal(f.tasks.length,2);
 });
+
+check('parameter host output editing keeps typed settings and receipts, without dispatch',async t=>{
+ const f=await fixture(t),store=f.h.hosts.get('earth').store,s=await store.create(inputFor('earth'));
+ await grant(f,s,'rpg.message-tools');await grant(f,s,'rpg.generation-parameters');
+ await save(f,store,s.id,'story',{temperature:{mode:'explicit',value:0.25}},'story');
+ await send(store,s.id);const before=await store.read(s.id),count=f.tasks.length;
+ let result;
+ const edit={operationId:randomUUID(),revision:before.revision,turn:1,text:'人工修订：旧码头开放。'};
+ await f.h.handle({pathname:'/rpg-app/earth/api/sessions/'+s.id+'/message-tools/edit-output',method:'POST',data:edit,query:new URLSearchParams(),send:(status,value)=>{assert.equal(status,200);result=value;}});
+ assert.equal(result.saved,true);assert.equal(f.tasks.length,count);
+ const after=await store.read(s.id);assert.deepEqual(after.generationParameters,before.generationParameters);assert.deepEqual(after.requests,before.requests);assert.deepEqual(after.turns,before.turns);
+ await send(store,s.id,'继续观察');const story=f.tasks.findLast(t=>t.purpose==='story');assert(story.messages.some(m=>m.role==='assistant'&&m.content===edit.text));
+ assert.equal(story.parameters.values.temperature.value,0.25);await store.requireRuntime(await store.read(s.id));
+ // Match the exact pre-edit generation-host descriptor, preserving all other bindings.
+ const prior=clone(s);for(const p of ['studio/output-edits.mjs','studio/message-tools.mjs','studio/default-summary-v2.mjs'])delete prior.runtime.descriptor.hostArtifacts[p];
+ prior.runtime.descriptor.hostArtifacts['studio/generation-cards.mjs']='6764cacd029b5f3723fbbc97f1b54353b05f22e09005e9a96fc52c062f7e6b4c';prior.runtime.hash=digest(prior.runtime.descriptor);
+ assert.equal(store.status(prior).compatible,true);await store.requireRuntime(prior);
+ prior.runtime.descriptor.hostArtifacts['card-replica/resources/prompts.json']='tampered';prior.runtime.hash=digest(prior.runtime.descriptor);assert.equal(store.status(prior).compatible,false);
+});

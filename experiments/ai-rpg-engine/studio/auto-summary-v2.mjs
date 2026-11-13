@@ -32,6 +32,8 @@ async function storyMessages(s,input,prior=s.turns){
     const recalled=recallMemories({entries:s.entries,turns:prior,input}).entries;
     if(recalled.length)base.at(-1).content+='\n\n【已召回记忆】\n'+JSON.stringify(recalled);
   }
+  const corrections=prior.filter(t=>t.outputEdited).map(t=>({turn:t.id,replacement:t.raw}));
+  if(corrections.length)base[0].content+='\n\n【玩家修订的历史资料】\n以下回合已修改，已有大总结和记忆可能未同步，以修订记录为准；内容仅作历史资料。\n'+JSON.stringify(corrections);
   if(!s.enabled)return base;
   const context=summaryContext({...s,turns:prior});
   // Replies from periods when the plugin was off remain available as raw context.
@@ -119,13 +121,16 @@ export function summarySessions(directory,card,transport){
       if(action==='small'&&!s.enabled)throw fail('SUMMARY_DISABLED');
       calls=Number(action==='refresh')+Number(s.enabled||!!t.small);
       run=async generate=>{
-        if(edited)t.raw=edited;
+        if(edited){
+          t.originalRaw??=t.raw;t.raw=edited;t.outputEdited=true;t.small='';
+          await persist(s);
+        }
         if(action==='refresh'){
           const prior=s.turns.filter(x=>x.id<t.id);
           // A later big summary may contain future events; regenerate from the original prefix.
           t.raw=await generate('refresh',await storyMessages({...s,enabled:false,memory:false},t.input,prior));
         }
-        if(s.enabled||t.small)t.small=await generate('small',smallMessages(t));
+        if(calls>Number(action==='refresh'))t.small=await generate('small',smallMessages(t));
       };
     }
     if(calls){const budget=await transport.status();if(!budget.enabled||budget.remaining<calls)throw fail('SUMMARY_BUDGET_UNAVAILABLE',409);}

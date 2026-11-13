@@ -24,7 +24,7 @@ export const godAdapter=Object.freeze({
  }
 });
 const root=new URL('../../',import.meta.url);
-const paths=['god-card/lib/plugins.mjs','god-card/resources/branch-save.manifest.json','plugins/branch-save.mjs','plugins/host.mjs','god-card/lib/assembly.mjs','god-card/lib/setup.mjs','god-card/lib/adapter.mjs','god-card/lib/http.mjs','studio/card-session-store.mjs','studio/server.mjs','studio/controlled-provider.mjs','god-card/resources/prompts.json','god-card/resources/MANIFEST.json','card-replica/lib/store.mjs','studio/versioned-store.mjs','studio/runtime-binding.mjs','studio/branch-archive.mjs'];
+const paths=['studio/output-edits.mjs','god-card/lib/plugins.mjs','god-card/resources/branch-save.manifest.json','plugins/branch-save.mjs','plugins/host.mjs','god-card/lib/assembly.mjs','god-card/lib/setup.mjs','god-card/lib/adapter.mjs','god-card/lib/http.mjs','studio/card-session-store.mjs','studio/server.mjs','studio/controlled-provider.mjs','god-card/resources/prompts.json','god-card/resources/MANIFEST.json','card-replica/lib/store.mjs','studio/versioned-store.mjs','studio/runtime-binding.mjs','studio/branch-archive.mjs'];
 const artifacts=async()=>Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha(await readFile(new URL(p,root)))])));
 const loaded=await artifacts();
 const descriptor={format:1,cardId:'god',artifacts:loaded,author:{system:loadFrozen().manifest.system.sha256,prefix:null,suffix:null,worldbook:null},model:{mode:'offline-only',selection:null,parameters:null},historyPolicy:'complete-raw-history'};
