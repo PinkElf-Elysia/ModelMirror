@@ -320,6 +320,8 @@ def test_parent_app_registers_rpg_routes_and_default_disabled(monkeypatch):
     assert registered == [('/api/rpg/v1/models', {'GET'}), ('/api/rpg/v1/progress/{session_id}/{request_id}', {'GET'}), ('/api/rpg/v1/chat/completions', {'POST'}),
                           ('/api/rpg/v1/authoring/models', {'GET'}), ('/api/rpg/v1/authoring/parameters/validate', {'POST'}),
                           ('/api/rpg/v1/authoring/readiness', {'GET'}), ('/api/rpg/v1/authoring/tasks', {'POST'}), ('/api/rpg/v1/authoring/tasks/{session_id}/{request_id}', {'GET'}),
+                          ('/api/rpg/v1/authoring/comparison-budget', {'GET'}), ('/api/rpg/v1/authoring/comparison-reservations', {'POST'}),
+                          ('/api/rpg/v1/authoring/comparison-reservations/{batch_id}', {'GET'}), ('/api/rpg/v1/authoring/comparison-reservations/{batch_id}/{action}', {'POST'}),
                           ('/api/rpg/v1/authoring/route', {'GET'}), ('/api/rpg/v1/authoring/route', {'PUT'})]
     monkeypatch.delenv('RPG_S2S_ENABLED', raising=False)
     monkeypatch.delenv('RPG_S2S_TOKEN', raising=False)

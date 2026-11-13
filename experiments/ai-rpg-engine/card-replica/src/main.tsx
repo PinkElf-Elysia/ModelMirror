@@ -26,7 +26,8 @@ function App(){
  const [tab,setTab]=useState(0),[spins,setSpins]=useState(0),[spinning,setSpinning]=useState(false),[story,setStory]=useState<number|null>(null),[gallery,setGallery]=useState(false);
  const [storyChars,setStoryChars]=useState(0);
  useEffect(()=>{if(story===null)return;setStoryChars(0);const text=deepStory[story];const handle=setInterval(()=>setStoryChars(n=>Math.min(n+1,text.length)),45);return()=>clearInterval(handle);},[story]);
- const [modal,setModal]=useState(''),[copied,setCopied]=useState(false),[notice,setNotice]=useState(''),[session,setSession]=useState<string|null>(null),[showHistory,setShowHistory]=useState(false);
+ const [modal,setModal]=useState(''),[copied,setCopied]=useState(false),[notice,setNotice]=useState(''),[session,setSession]=useState<string|null>(()=>{const id=new URL(location.href).searchParams.get('session');return id&&/^[a-zA-Z0-9-]{1,100}$/.test(id)?id:null;}),[showHistory,setShowHistory]=useState(false);
+ useEffect(()=>{const url=new URL(location.href);if(session)url.searchParams.set('session',session);else url.searchParams.delete('session');history.replaceState(null,'',url);},[session]);
  const [params,setParams]=useState({temperature:.7,top_p:.8,top_k:0,presence_penalty:0,frequency_penalty:0,max_tokens:runSettings.max_tokens,context:8192,thinking_budget:0});
  const timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const creating=useRef(false),[entering,setEntering]=useState(false);

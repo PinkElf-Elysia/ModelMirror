@@ -1,3 +1,4 @@
+import {validateParameterProfile, parameterIssues, validateParameterResolution} from './generation-settings.mjs';
 import {validateModelPluginReceipt} from './model-plugin.mjs';
 import {canonical, parseJson, keys, isId, isHash, sha256, fail} from './contracts.mjs';
 
@@ -5,6 +6,8 @@ export const MODEL_CATALOG_FORMAT = 'modelmirror.rpg.offline-model-catalog/1';
 export const MODEL_CHOICE_FORMAT = 'modelmirror.rpg.offline-model-choice/1';
 export const CONTROL_CATALOG_FORMAT = 'modelmirror.rpg.control-model-catalog/1';
 export const CONTROL_CHOICE_FORMAT = 'modelmirror.rpg.control-model-choice/1';
+export const PARAMETER_CHOICE_FORMAT = 'modelmirror.rpg.control-model-choice/2';
+export const PARAMETER_SELECTION_FORMAT = 'modelmirror.rpg.parameter-selection/2';
 const controlSource = 'control-plane-cache';
 export const MODEL_PURPOSES = Object.freeze(['story','summary','memory']);
 export const MODEL_CHANGE_LIMIT = 1000;
@@ -78,8 +81,52 @@ function catalogValue(value) {
   const body = {format:MODEL_CATALOG_FORMAT,source,...data};
   return {...body,revision:digest(body)};
 }
+function parameterEntry(e) {
+  keys(e,['selectionId','selectionRevision','modelId','name','available','contextLength','maxOutputTokens','parameterPolicy','parameterEvidence',...(Object.hasOwn(e,'capabilityRevision')?['capabilityRevision']:[])]);
+  if(!identity(e.selectionId)||!isHash(e.selectionRevision)||!text(e.modelId,200)||!text(e.name,200)||typeof e.available!=='boolean'||!['provider-declared','legacy-fixed','unknown','invalid'].includes(e.parameterEvidence))fail('MODEL_CONTROL_RESPONSE_INVALID');
+  for(const [key,max] of [['contextLength',100000000],['maxOutputTokens',1000000]])if(!(e[key]===null||Number.isSafeInteger(e[key])&&e[key]>0&&e[key]<=max))fail('MODEL_CONTROL_RESPONSE_INVALID');
+  if(e.parameterPolicy!==null) {
+    const p=e.parameterPolicy;keys(p,['kind','fields','exclusive','requires','lessThan','purposes']);
+    if(!isHash(e.capabilityRevision)||!['fixed','editable'].includes(p.kind)||!Array.isArray(p.exclusive)||p.exclusive.length>16||!Array.isArray(p.requires)||p.requires.length>32||!Array.isArray(p.lessThan)||p.lessThan.length>16||!Array.isArray(p.purposes)||p.purposes.some(v=>!MODEL_PURPOSES.includes(v)))fail('MODEL_CONTROL_RESPONSE_INVALID');
+    keys(p.fields,Object.keys(p.fields??{}));if(!Object.hasOwn(p.fields,'maxOutputTokens')||Object.keys(p.fields).length>11)fail('MODEL_CONTROL_RESPONSE_INVALID');
+    for(const f of Object.values(p.fields)) {
+      const extra=['number','integer'].includes(f.type)?['minimum','maximum']:f.type==='enum'?['options']:f.type==='text-list'?['minItems','maxItems','maxItemLength']:[];
+      keys(f,['type','required','default',...extra]);
+      if(!['number','integer','enum','boolean','text-list'].includes(f.type)||typeof f.required!=='boolean'||!['omit','value'].includes(f.default?.mode))fail('MODEL_CONTROL_RESPONSE_INVALID');
+      keys(f.default,f.default.mode==='omit'?['mode']:['mode','value']);
+    }
+  } else if(e.available)fail('MODEL_CONTROL_RESPONSE_INVALID');
+}
+function resolvedPolicy(profile,entry,resolution) {
+  validateParameterResolution(resolution,profile,entry.capabilityRevision);
+  keys(resolution.sources,Object.keys(entry.parameterPolicy.fields));
+  for(const [id,field] of Object.entries(entry.parameterPolicy.fields)) {
+    const setting=profile.parameters.values[id]??{mode:'default'},effective=resolution.effectiveParameters;
+    if(setting.mode==='default'&&(field.default.mode==='omit'?Object.hasOwn(effective,id):!Object.hasOwn(effective,id)||!same(effective[id],field.default.value)))fail('MODEL_CONTROL_RESPONSE_INVALID');
+  }
+}
+function parameterSelection(value) {
+  keys(value,['format','catalogRevision','selectionId','selectionRevision','capabilityRevision','profile']);
+  if(value.format!==PARAMETER_SELECTION_FORMAT||!identity(value.selectionId)||['catalogRevision','selectionRevision','capabilityRevision'].some(k=>!isHash(value[k])))fail('PARAMETER_SELECTION_INVALID');
+  validateParameterProfile(value.profile);return value;
+}
+function selectionIdentity(value) {return Object.fromEntries(['catalogRevision','selectionId','selectionRevision','capabilityRevision'].map(k=>[k,value[k]]));}
+export function modelChoiceInput(choice) {
+  const base={catalogRevision:choice.catalogRevision,selectionId:choice.entry.selectionId,selectionRevision:choice.entry.selectionRevision};
+  return choice.format===PARAMETER_CHOICE_FORMAT?{format:PARAMETER_SELECTION_FORMAT,...base,capabilityRevision:choice.entry.capabilityRevision,profile:copy(choice.parameterProfile)}:{...base,parameters:copy(choice.parameters)};
+}
 export function validateModelChoice(value) {
-  canonical(value); keys(value,['format','source','catalogId','catalogRevision','entry','parameters','wireParameters','sha256']);
+  canonical(value);
+  if(value?.format===PARAMETER_CHOICE_FORMAT) {
+    keys(value,['format','source','catalogId','catalogRevision','entry','parameters','wireParameters','parameterProfile','parameterResolution','sha256']);
+    const {sha256:hash,...body}=value;parameterEntry(value.entry);validateParameterProfile(value.parameterProfile);
+    if(value.source!==controlSource||!isId(value.catalogId)||!isHash(value.catalogRevision)||hash!==digest(body)||parameterIssues(value.parameterProfile,value.entry).length)fail('MODEL_CHOICE_CORRUPT');
+    resolvedPolicy(value.parameterProfile,value.entry,value.parameterResolution);
+    if(!same(value.parameters,value.parameterResolution.effectiveParameters)||!same(value.wireParameters,value.parameterResolution.wireParameters))fail('MODEL_CHOICE_CORRUPT');
+    if(value.entry.contextLength===null||value.entry.maxOutputTokens===null||value.parameters.maxOutputTokens>value.entry.maxOutputTokens)fail('MODEL_CAPABILITY_UNKNOWN');
+    return value;
+  }
+  keys(value,['format','source','catalogId','catalogRevision','entry','parameters','wireParameters','sha256']);
   const {sha256:hash,...body} = value;
   const originValid = (value.format === MODEL_CHOICE_FORMAT && value.source === source) || (value.format === CONTROL_CHOICE_FORMAT && value.source === controlSource && Object.hasOwn(value.entry ?? {},'parameterEvidence'));
   if (!originValid || !isId(value.catalogId) || !isHash(value.catalogRevision) || hash !== digest(body)) fail('MODEL_CHOICE_CORRUPT');
@@ -127,6 +174,7 @@ export class OfflineModelControl {
 // completion, catalog discovery, qualification, budget or automatic retry API.
 export class ControlPlaneModelControl {
   #origin; #token; #timeout; #ttl; #catalog=null; #expires=0; #refreshing=null; #epoch=0;
+  #parameters=null; #parameterExpires=0; #parameterEpoch=0; #parameterRefreshing=null;
   constructor(options) {
     keys(options,['origin','serviceToken',...(Object.hasOwn(options ?? {},'timeoutMs')?['timeoutMs']:[]),...(Object.hasOwn(options ?? {},'ttlMs')?['ttlMs']:[])]);
     const {origin,serviceToken,timeoutMs=5000,ttlMs=30000}=options;
@@ -161,6 +209,64 @@ export class ControlPlaneModelControl {
       fail(controller.signal.aborted?'MODEL_CONTROL_TIMEOUT':'MODEL_CONTROL_RESPONSE_INVALID');
     } finally {clearTimeout(timer);controller.abort();if(response?.body&&!response.body.locked)await response.body.cancel().catch(()=>{});}
   }
+  // v2 is opt-in and read-only. It does not replace or mutate the v1 cache.
+  async parameterCatalog() {
+    if(this.#parameterRefreshing)return copy(await this.#parameterRefreshing);
+    this.#parameterRefreshing=(async()=>{
+    // Keep the last verified snapshot during a read. Async selection/dispatch waits
+    // for the in-flight refresh; failures invalidate it instead of exposing stale data.
+    const epoch=++this.#parameterEpoch;
+    const value=await this.#request('models?parameterVersion=2');
+    try {
+      keys(value,['format','source','catalogId','models','revision']);
+      if(value.format!=='modelmirror.rpg.control-model-catalog/2'||value.source!==controlSource||!isId(value.catalogId)||!isHash(value.revision)||!Array.isArray(value.models)||value.models.length>1000)fail('MODEL_CONTROL_RESPONSE_INVALID');
+      const ids=new Set();
+      for(const e of value.models){parameterEntry(e);if(ids.has(e.selectionId))fail('MODEL_CONTROL_RESPONSE_INVALID');ids.add(e.selectionId);}
+      if(epoch!==this.#parameterEpoch)fail('MODEL_CATALOG_CHANGED');
+      this.#parameters=copy(value);this.#parameterExpires=performance.now()+this.#ttl;return copy(value);
+    } catch(error) {if(error.code==='MODEL_CATALOG_CHANGED')throw error;fail('MODEL_CONTROL_RESPONSE_INVALID');}
+    })();
+    try{return copy(await this.#parameterRefreshing);}catch(error){this.#parameters=null;this.#parameterExpires=0;throw error;}finally{this.#parameterRefreshing=null;}
+  }
+  async checkParameters(input) {
+    const value=copy(input);keys(value,['profile','selection']);validateParameterProfile(value.profile);
+    const selection=value.selection;keys(selection,['catalogRevision','selectionId','selectionRevision','capabilityRevision']);
+    if(!identity(selection.selectionId)||['catalogRevision','selectionRevision','capabilityRevision'].some(k=>!isHash(selection[k])))fail('PARAMETER_SELECTION_INVALID');
+    const c=await this.parameterCatalog();
+    if(c.revision!==selection.catalogRevision)fail('MODEL_CATALOG_CHANGED');
+    const entry=c.models.find(e=>e.selectionId===selection.selectionId);
+    if(!entry||entry.selectionRevision!==selection.selectionRevision)fail('MODEL_SELECTION_CHANGED');
+    if(entry.capabilityRevision!==selection.capabilityRevision)fail('MODEL_CAPABILITY_CHANGED');
+    let issues;try{issues=parameterIssues(value.profile,entry);}catch{fail('MODEL_CONTROL_RESPONSE_INVALID');}
+    if(issues.length)return {valid:false,issues,profile:copy(value.profile),resolution:null};
+    const request={format:'modelmirror.rpg.parameter-check-request/2',...selection,purpose:value.profile.purpose,parameters:value.profile.parameters};
+    if(Buffer.byteLength(canonical(request))>16384)fail('PARAMETER_CONFIG_CAPACITY');
+    const result=await this.#request('parameters/validate',request);
+    try {
+      keys(result,['format','catalogRevision','selectionId','selectionRevision','resolution','dispatched']);
+      if(result.format!=='modelmirror.rpg.parameter-check/2'||result.dispatched!==false||result.catalogRevision!==c.revision||result.selectionId!==entry.selectionId||result.selectionRevision!==entry.selectionRevision)fail('MODEL_CONTROL_RESPONSE_INVALID');
+      // Wait for an overlapping read, then compare the actual metadata.
+      if(this.#parameterRefreshing)await this.#parameterRefreshing;
+      // A concurrent read of identical metadata must not invalidate this check.
+      if(!this.#parameters||!same(this.#parameters,c))fail('MODEL_CATALOG_CHANGED');
+      resolvedPolicy(value.profile,entry,result.resolution);
+      return {valid:true,issues:[],profile:copy(value.profile),resolution:copy(result.resolution)};
+    } catch(error) {if(error.code==='MODEL_CATALOG_CHANGED')throw error;fail('MODEL_CONTROL_RESPONSE_INVALID');}
+  }
+  #currentParameters() {
+    if(!this.#parameters||performance.now()>=this.#parameterExpires)fail('MODEL_CONTROL_REFRESH_REQUIRED');return this.#parameters;
+  }
+  async selectParameters(input) {
+    const value=copy(input);parameterSelection(value);
+    const checked=await this.checkParameters({profile:value.profile,selection:selectionIdentity(value)});
+    if(!checked.valid)fail('PARAMETER_PREFLIGHT_REJECTED','',{issues:checked.issues});
+    if(this.#parameterRefreshing)await this.#parameterRefreshing;
+    const c=this.#currentParameters(),entry=c.models.find(e=>e.selectionId===value.selectionId);
+    if(c.revision!==value.catalogRevision||!entry)fail('MODEL_CATALOG_CHANGED');
+    const body={format:PARAMETER_CHOICE_FORMAT,source:controlSource,catalogId:c.catalogId,catalogRevision:c.revision,entry:copy(entry),
+      parameters:copy(checked.resolution.effectiveParameters),wireParameters:copy(checked.resolution.wireParameters),parameterProfile:copy(value.profile),parameterResolution:copy(checked.resolution)};
+    const choice={...body,sha256:digest(body)};validateModelChoice(choice);this.assertCurrent(choice);return choice;
+  }
   async refresh() {
     if(this.#refreshing)return this.#refreshing;
     this.#catalog=null;this.#expires=0;this.#epoch++;
@@ -193,12 +299,23 @@ export class ControlPlaneModelControl {
     return {...body,sha256:digest(body)};
   }
   assertCurrent(choice) {
-    validateModelChoice(choice);let c;try{c=this.#current();}catch(error){if(error.code==='MODEL_CONTROL_REFRESH_REQUIRED')fail('MODEL_SELECTION_UNAVAILABLE');throw error;}const entry=c.models.find(e=>e.selectionId===choice.entry.selectionId);
+    validateModelChoice(choice);let c;try{c=choice.format===PARAMETER_CHOICE_FORMAT?this.#currentParameters():this.#current();}catch(error){if(error.code==='MODEL_CONTROL_REFRESH_REQUIRED')fail('MODEL_SELECTION_UNAVAILABLE');throw error;}const entry=c.models.find(e=>e.selectionId===choice.entry.selectionId);
     if(choice.source!==controlSource||choice.catalogId!==c.catalogId||!entry||!same(entry,choice.entry))fail('MODEL_SELECTION_CHANGED');
+    if(choice.format===PARAMETER_CHOICE_FORMAT){if(parameterIssues(choice.parameterProfile,entry).length)fail('PARAMETER_PREFLIGHT_REJECTED');return true;}
     const reason=unavailable(entry);if(reason)fail(reason);return true;
   }
   async validate(choice) {
-    choice=copy(choice);this.assertCurrent(choice);const c=this.#current(),epoch=this.#epoch;
+    choice=copy(choice);if(choice.format===PARAMETER_CHOICE_FORMAT&&this.#parameterRefreshing)await this.#parameterRefreshing;this.assertCurrent(choice);
+    if(choice.format===PARAMETER_CHOICE_FORMAT) {
+      const c=this.#currentParameters(),selection=selectionIdentity({...modelChoiceInput(choice),catalogRevision:c.revision});
+      try {
+        const checked=await this.checkParameters({profile:choice.parameterProfile,selection});
+        if(!checked.valid)fail('PARAMETER_PREFLIGHT_REJECTED','',{issues:checked.issues});
+        if(!same(checked.resolution,choice.parameterResolution))fail('MODEL_PARAMETER_RESOLUTION_CHANGED');
+        if(this.#parameterRefreshing)await this.#parameterRefreshing;this.assertCurrent(choice);return copy(checked);
+      } catch(error) {this.#parameters=null;this.#parameterExpires=0;throw error;}
+    }
+    const c=this.#current(),epoch=this.#epoch;
     try {
       const result=await this.#request('parameters/validate',{catalogRevision:c.revision,selectionId:choice.entry.selectionId,selectionRevision:choice.entry.selectionRevision,parameters:choice.parameters});
       keys(result,['format','catalogRevision','selectionId','selectionRevision','wireParameters','dispatched']);
@@ -231,8 +348,12 @@ export function validateModelIntent(value) {
   canonical(value); keys(value,['sessionId','operationId','expectedRevision','expectedModelRevision','purpose','choice']);
   if (!isId(value.operationId) || !integer(value.expectedRevision) || !integer(value.expectedModelRevision) || !MODEL_PURPOSES.includes(value.purpose)) fail('MODEL_SETTING_INVALID');
   if (value.choice !== null) {
-    keys(value.choice,['catalogRevision','selectionId','selectionRevision','parameters']);
-    if (!isHash(value.choice.catalogRevision) || !identity(value.choice.selectionId) || !isHash(value.choice.selectionRevision)) fail('MODEL_SETTING_INVALID');
+    if(value.choice.format===PARAMETER_SELECTION_FORMAT) {
+      parameterSelection(value.choice);if(value.choice.profile.purpose!==value.purpose)fail('PARAMETER_PURPOSE_INVALID');
+    } else {
+      keys(value.choice,['catalogRevision','selectionId','selectionRevision','parameters']);
+      if (!isHash(value.choice.catalogRevision) || !identity(value.choice.selectionId) || !isHash(value.choice.selectionRevision)) fail('MODEL_SETTING_INVALID');
+    }
   }
   return structuredClone(value);
 }
@@ -257,7 +378,7 @@ export function validateModelState(value,sessionId,sessionRevision,resourceHash=
     else {
       validateModelChoice(change.choice);
       const c=change.choice;
-      if (!same(intent.choice,{catalogRevision:c.catalogRevision,selectionId:c.entry.selectionId,selectionRevision:c.entry.selectionRevision,parameters:c.parameters})) fail('MODEL_STATE_CORRUPT');
+      if (!same(intent.choice,modelChoiceInput(c))||(c.format===PARAMETER_CHOICE_FORMAT&&c.parameterProfile.purpose!==intent.purpose)) fail('MODEL_STATE_CORRUPT');
     }
   }
   for (const purpose of MODEL_PURPOSES) if (!same(value.current[purpose],modelChoiceAt(value,value.revision,purpose))) fail('MODEL_STATE_CORRUPT');

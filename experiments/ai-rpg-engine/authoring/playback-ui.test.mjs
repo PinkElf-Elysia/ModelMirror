@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {createPlaybackFrames,playbackSessionId,savedTurnMatches,playbackPollDelay} from './playback-ui.mjs';
+import {createPlaybackFrames,playbackSessionId,savedTurnMatches,playbackPollDelay,playbackSessionNotice} from './playback-ui.mjs';
 import {startAuthoringServer} from './server.mjs';
 import {OfflineFixtureProvider} from './offline-session.mjs';
 import {OfflineModelControl} from './model-control.mjs';
@@ -83,4 +83,14 @@ test('saved-turn view follows only the active work and original selected session
 test('仅进行中的后台工作轮询；闲置与未知结果等待显式操作',()=>{
  for(const v of [null,{busy:false},{busy:false,pending:true,status:'unknown'},{busy:false,pending:false,status:'completed'}])assert.equal(playbackPollDelay(v),null);
  assert.equal(playbackPollDelay({busy:true,pending:true}),2500);
+});
+
+
+test('comparison settlement notice does not masquerade as an unknown ordinary send',()=>{
+ const run={state:'running',comparison:{plan:{id:'comparison'}}};
+ assert.match(playbackSessionNotice({pending:true,session:{runs:[run]}}),/对比仍在收束/);
+ assert.equal(playbackSessionNotice({pending:false,session:{runs:[{...run,state:'completed'}]}}),'');
+ assert.match(playbackSessionNotice({pending:true,session:{runs:[{state:'unknown'}]}}),/恢复原操作/);
+ assert.match(playbackSessionNotice({pending:true}),/恢复原操作/);
+ assert.match(playbackSessionNotice({pending:true,session:{runs:[run,{state:'unknown'}]}}),/恢复原操作/);
 });

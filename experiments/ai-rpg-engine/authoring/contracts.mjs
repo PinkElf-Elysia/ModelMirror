@@ -1,3 +1,4 @@
+import {validateRecommendations} from './generation-settings.mjs';
 import {createHash} from 'node:crypto';
 import {validatePanelConfiguration, panelIssues} from './variable-panel.mjs';
 import {metadataIssues} from './metadata.mjs';
@@ -233,7 +234,12 @@ export function validateDocument(value) {
     if (!/^[gimsu]*$/.test(rule.flags) || new Set(rule.flags).size !== rule.flags.length) fail('AUTHORING_REGEX_FLAGS', p + '/flags');
   });
   validateCG(e.cg);
-  keys(value.model, ['selection', 'parameters'], '/model');
+  const recommendations=Object.hasOwn(value.model??{},'recommendations');
+  keys(value.model, ['selection', 'parameters',...(recommendations?['recommendations']:[])], '/model');
+  if(recommendations){
+    validateRecommendations(value.model.recommendations);
+    if(value.model.selection!==null||value.model.parameters!==null)fail('PARAMETER_RECOMMENDATIONS_AMBIGUOUS','/model');
+  }
   if (value.model.selection !== null) {
     keys(value.model.selection, ['catalogId', 'modelId'], '/model/selection');
     text(value.model.selection.catalogId, 200, '/model/selection/catalogId'); text(value.model.selection.modelId, 200, '/model/selection/modelId');

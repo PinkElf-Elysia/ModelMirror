@@ -1,6 +1,6 @@
 import {ChatView} from '../../../experiments/ai-rpg-engine/card-replica/src/chat';
 import React from 'react';
-import {render,screen,fireEvent,waitFor} from '@testing-library/react';
+import {render,screen,fireEvent,waitFor,act} from '@testing-library/react';
 import {it,expect,vi,afterEach,beforeEach} from 'vitest';
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',async()=>await import('react'));
 vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
@@ -34,11 +34,27 @@ it('successful polling does not erase an unknown settings write or replay it',as
  function Harness(){const h=useRollingSummary(session,()=>{});return <><button onClick={()=>h.perform('settings',{timing:'before',selectionId:'test',catalogRevision:'v1',text:null})}>写入</button><button onClick={()=>h.refresh()}>刷新</button><p>{h.error}</p><span>{h.pending?'未确认':'无待办'}</span></>;}
  render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'写入'}));await screen.findByText(/操作未完成/);fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findByText('未确认');expect(screen.getByText(/操作未完成/)).toBeInTheDocument();expect(posts).toHaveLength(1);
 });
-it('a delayed older status failure cannot replace the latest successful read',async()=>{
- const session:any={id:'s',revision:3,rollingSummary:{supported:true}};let rejectOld:(e:Error)=>void=()=>{},count=0;
- vi.stubGlobal('fetch',vi.fn(async()=>{if(++count===1)return new Promise((_resolve,reject)=>{rejectOld=reject;});return {ok:true,json:async()=>initial};}));
+it('overlapping refreshes join a slow status read and allow the next read after it settles',async()=>{
+ const session:any={id:'s',revision:3,rollingSummary:{supported:true}};let resolveRead:(value:any)=>void=()=>{};
+ const fetchStatus=vi.fn().mockImplementationOnce(()=>new Promise(resolve=>{resolveRead=resolve;})).mockResolvedValue({ok:true,json:async()=>initial});
+ vi.stubGlobal('fetch',fetchStatus);
  function Harness(){const h=useRollingSummary(session,()=>{});return <><button onClick={()=>h.refresh()}>刷新</button><p>{h.error}</p><span>{h.status?'可读取':'不可读取'}</span></>;}
- render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findByText('可读取');rejectOld(Error('old-outage'));await waitFor(()=>expect(screen.queryByText(/状态暂不可用/)).not.toBeInTheDocument());expect(screen.getByText('可读取')).toBeInTheDocument();
+ render(<Harness/>);await waitFor(()=>expect(fetchStatus).toHaveBeenCalledTimes(1));
+ fireEvent.click(screen.getByRole('button',{name:'刷新'}));fireEvent.click(screen.getByRole('button',{name:'刷新'}));
+ expect(fetchStatus).toHaveBeenCalledTimes(1);
+ await act(async()=>{resolveRead({ok:true,json:async()=>initial});});await screen.findByText('可读取');
+ fireEvent.click(screen.getByRole('button',{name:'刷新'}));await waitFor(()=>expect(fetchStatus).toHaveBeenCalledTimes(2));
+ expect(screen.queryByText(/状态暂不可用/)).not.toBeInTheDocument();
+});
+it('a late failure from a previous session cannot replace the new session successful read',async()=>{
+ let rejectOld:(e:Error)=>void=()=>{};
+ const fetchStatus=vi.fn(async(url:string)=>url.includes('/old/')?new Promise((_resolve,reject)=>{rejectOld=reject;}):{ok:true,json:async()=>initial});
+ vi.stubGlobal('fetch',fetchStatus);
+ function Harness({id}:{id:string}){const h=useRollingSummary({id,revision:3,rollingSummary:{supported:true}} as any,()=>{});return <><p>{h.error}</p><span>{h.status?'可读取':'不可读取'}</span></>;}
+ const view=render(<Harness id="old"/>);await waitFor(()=>expect(fetchStatus).toHaveBeenCalledTimes(1));
+ view.rerender(<Harness id="new"/>);await screen.findByText('可读取');
+ await act(async()=>{rejectOld(Error('old-outage'));});
+ expect(screen.queryByText(/状态暂不可用/)).not.toBeInTheDocument();expect(screen.getByText('可读取')).toBeInTheDocument();expect(fetchStatus).toHaveBeenCalledTimes(2);
 });
 
 it('compression failure shows retained raw and a single explicit retry with server-proven cost',()=>{

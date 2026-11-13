@@ -41,7 +41,7 @@ export function archiveChatOptions(env){
    jinyong:control('RPG_JINYONG_CHAT'),ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT'),douluo:control('RPG_DOULUO_CHAT'),'dragon-raja':control('RPG_DRAGON_CHAT')
  }};
 }
-export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null}={}){
+export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
@@ -65,12 +65,13 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  const summaryTransport=rollingSummary?await (memoryPalace?memoryHostTransport:summaryHostTransport)({directory,control:controlOptions,limit,store:earth,offlineGenerate}):null;
  if(rollingSummary)earth.control=summaryTransport;
  const earthBudget=async()=>{if(rollingSummary)return summaryTransport.status();const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await (rollingSummary?summaryTransport:control).status()).enabled}:b;};
+ const generationHost=generationCards?await (await import('./generation-cards.mjs')).createGenerationCards({...generationCards,transcript,illustrations:!!illustrationService}):null;
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let godHost=null;
  if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl,autoSummaryV2});}
  if(godHost)attachSessionLifecycle(godHost.store);
  let plugins=null,pluginError=null;
- try {plugins=await createPluginService({directory:join(directory,'plugins'),loadCatalog:async()=>{
+ try {plugins=await createPluginService({directory:join(directory,'plugins'),recoverDeadOwner:!!generationCards&&generationCards.recoverDeadOwner!==false,loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
   if(illustrationService)catalog.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
   if(transcript)catalog.push(await loadReviewedCatalog(TRANSCRIPT_ID));
@@ -148,13 +149,17 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     res.writeHead(200, {'Content-Type': image ? 'image/jpeg' : 'text/html; charset=utf-8'});
     return res.end(bytes);
    }
+   if(generationHost&&req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:await Promise.all([...generationHost.hosts.values()].map(h=>h.http.publicStatus()))});
    if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'jinyong',title:archiveNames.jinyong,enabled:!!archiveControls.jinyong},{id:'dragon-raja',title:archiveNames['dragon-raja'],enabled:!!archiveControls['dragon-raja']},{id:'douluo',title:archiveNames.douluo,enabled:!!archiveControls.douluo},{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    if(transfer&&transcript){
-    const host=transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
+    const host=generationHost?.hosts.get(transfer[1].split('/')[0])?{store:generationHost.hosts.get(transfer[1].split('/')[0]).store,plugins:generationHost.plugins}:transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
     attachSessionLifecycle(host.store);return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
    }
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   const typedPicture=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/illustrations\/([a-zA-Z0-9-]+)$/);
+   if(generationHost&&typedPicture&&illustrationService)return await illustrations({card:typedPicture[1],id:typedPicture[2],action:typedPicture[3],method:req.method,data,plugins:generationHost.plugins,store:generationHost.hosts.get(typedPicture[1]).store,res,send});
+   if(generationHost&&await generationHost.handle({pathname,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,send}))return;
    const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation|douluo|dragon-raja|jinyong)\/chat\/(.*)$/);
    if(chatRoute||pathname.startsWith('/rpg-app/xingjian/')){
     const route=chatRoute?chatRoute[2]:pathname.slice('/rpg-app/xingjian/'.length);
@@ -296,9 +301,9 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.jpg':'image/jpeg','.webp':'image/webp'}[extname(file)]||'application/octet-stream')});res.end(bytes);
   }catch(e){send(e.status||(e.code==='ENOENT'?404:400),{error:e.status?(e.code||e.message):'REQUEST_FAILED'});}
  });
- server.on('close',()=>{for(const host of archiveHosts.values())void host.then(card=>card.close()).catch(()=>{});void xingjianPromise?.then(card=>card.close()).catch(()=>{});void plugins?.close().catch(()=>{});});
+ server.on('close',()=>{void generationHost?.close().catch(()=>{});for(const host of archiveHosts.values())void host.then(card=>card.close()).catch(()=>{});void xingjianPromise?.then(card=>card.close()).catch(()=>{});void plugins?.close().catch(()=>{});});
  try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,host,ok);});}catch(e){await plugins?.close();throw e;}
- return {server,provider,earth,legacy,plugins,control,god:godHost?.store||null};
+ return {server,provider,earth,legacy,plugins,control,generationHost,god:godHost?.store||null};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';

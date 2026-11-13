@@ -1,5 +1,5 @@
 import {prepareVariablePanel} from './variable-render.mjs';
-import {panelSnapshot,panelVisibleReply} from './variable-panel.mjs';
+import {advancePanel,panelSnapshot,panelVisibleReply} from './variable-panel.mjs';
 import {randomBytes} from 'node:crypto';
 import {keys,canonical,sha256,fail,AuthoringError} from './contracts.mjs';
 import {checkSession} from './joint-session-state.mjs';
@@ -136,6 +136,20 @@ export class TurnPlayback {
   return {...this.#cache.put(compiled,token),frameUrl:base+'/presentations/frames/'+token,
    display:{id:record.id,state:record.state,resultHash:digest(record.result)},
    bgm:bgm?{asset:bgm,autoplay:record.result.bgmAutoplay,url:base+'/works/'+s.binding.workId+'/assets/'+encodeURIComponent(bgm.alias)+'?hash='+bgm.sha256+'&version='+s.binding.versionId}:null};
+ }
+ async candidate(sessionId,batch,task){
+  const {session:s}=await this.#host.read(sessionId),runtime=requirePublishedRuntime(await this.#resolve({workId:s.binding.workId,versionId:s.binding.versionId}));
+  runtime.requireBinding(s.binding);await runtime.verify();const config=runtime.configuration(),document=config.document,token=randomBytes(24).toString('hex');
+  const render={mode:'reply',html:task.result.raw,css:document.sources.outputCss,origin:this.#origin(),token,suggestions:document.enhancements.suggestions,presentation:document.settings.presentation,
+   binding:{sessionId,workId:s.binding.workId,versionId:s.binding.versionId,batchId:batch.plan.id,requestId:task.id,rawHash:task.result.rawHash}};
+  // Validate against this batch's frozen state, never the session's later state.
+  // This is a display projection only: no snapshot, CG or raw result is committed.
+  const frozen=batch.context?.source?.variables,panel=frozen?advancePanel(frozen.definition,frozen.state,render.html):null;
+  if(document.enhancements.displayRules.length||panel)render.displayProjection=await projectDisplayRules(panelVisibleReply(projectSuggestions(render.html,render.suggestions).display,panel),document.enhancements.displayRules,{role:'assistant'});
+  const discovery=await compilePresentationBounded(render),resources=[];
+  for(const alias of discovery.manifest.requestedAliases)if(config.assets.some(a=>a.alias===alias)){const v=await runtime.asset(alias);resources.push({...v.asset,bytes:v.bytes});}
+  const compiled=await compilePresentationBounded({...render,resources});
+  return {...this.#cache.put(compiled,token),frameUrl:base+'/presentations/frames/'+token};
  }
  async panel(input){
   keys(input,['sessionId','turnNumber']);

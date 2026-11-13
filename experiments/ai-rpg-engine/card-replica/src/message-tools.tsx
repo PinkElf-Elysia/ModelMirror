@@ -34,7 +34,7 @@ export function useMessageDisplay(id:string, enabled:boolean, request?:string, f
 
 export function wireRequest(session:Session,req:RequestRecord) {
   return session.rollingSummary?{operationId:req.requestId,expectedSessionRevision:req.revision,
-    expectedContextPolicyRevision:req.expectedContextPolicyRevision,
+    expectedContextPolicyRevision:req.expectedContextPolicyRevision,...(req.expectedGeneration?{expectedGeneration:req.expectedGeneration}:{}),
     ...(session.memoryPalace?{expectedMemoryRevision:req.expectedMemoryRevision}:{}),input:req.input}:req;
 }
 
@@ -42,7 +42,7 @@ export function wireRequest(session:Session,req:RequestRecord) {
 // Pending results retain the same request ID for explicit recovery.
 export async function sendFork(id:string,input:string,requestId:string) {
   const path='sessions/'+id, s:Session=await api(path);
-  const req:RequestRecord={requestId,revision:s.revision,input};
+  const req:RequestRecord={requestId,revision:s.revision,input,...(s.generationParameters?{expectedGeneration:s.generationParameters.expected}:{})};
   if(s.modelSelection)req.expectedSelectionRevision=s.modelSelection.revision;
   if(s.historyWindow)req.expectedHistoryPolicyRevision=(await api(path+'/history-window')).historyPolicyRevision;
   if(s.rollingSummary){
