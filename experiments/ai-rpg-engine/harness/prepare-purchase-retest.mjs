@@ -1,0 +1,21 @@
+
+import{readFile,writeFile,mkdir}from'node:fs/promises';import{join}from'node:path';import{fileURLToPath}from'node:url';
+import{hash}from'./contracts.mjs';import{binding,rules,adaptationReport}from'./earth-adapter.mjs';import{assembleShopContext}from'./context.mjs';
+const root=fileURLToPath(new URL('../',import.meta.url)),docs=join(root,'../../docs/ai-rpg-experiment/harness'),work=join(root,'.rpg04-work/harness-purchase-retest');
+const prior=JSON.parse(await readFile(join(root,'.rpg04-work/harness-real-plan/B-success-1.json'),'utf8'));
+const oldPlan=JSON.parse(await readFile(join(docs,'real-call-plan.json'),'utf8'));
+const record=structuredClone(prior.record),event={...prior.event,id:'B-purchase-repair-1'};
+record.binding=binding;record.rules=rules;record.events=[event];
+const assembled=await assembleShopContext(record,event,'narration'),messages=assembled.messages;
+const parameters=prior.parameters,model=prior.model;
+const bytes=v=>Buffer.byteLength(JSON.stringify(v),'utf8');
+const evidence={previousMessagesHash:hash(prior.messages),messagesHash:hash(messages),previousRequestBytes:bytes(prior.messages),requestBytes:bytes(messages),previousSystemCharacters:prior.messages[0].content.length,systemCharacters:messages[0].content.length,actualTokenCount:null,rawSourceUnchanged:binding.sourceHash===oldPlan.binding.sourceHash,manifestUnchanged:binding.manifestHash===oldPlan.binding.manifestHash,previousBinding:oldPlan.binding,binding};
+if(!evidence.rawSourceUnchanged||!evidence.manifestUnchanged)throw Error('ORIGINAL_SOURCE_CHANGED');
+const files=['harness/earth-adapter.mjs','harness/context.mjs','harness/stage-runner.mjs','harness/controlled-provider.mjs','harness/measurement.mjs','harness/measurement-budget.mjs','studio/controlled-provider.mjs'];
+const implementationHashes=Object.fromEntries(await Promise.all(files.map(async f=>[f,hash(await readFile(join(root,f),'utf8'))])));
+const row={id:event.id,variant:'B',case:'success',purpose:'narration',model,parametersHash:hash(parameters),messagesHash:hash(messages),fixture:event.id+'.json',openingHash:hash(record.session.characterText),input:'购买两个面包',admissionUnits:messages.reduce((n,m)=>n+Buffer.byteLength(m.content,'utf8')+32,256),reserveMicros:250000,expected:'complete visible narrative; balance=8800; bread=2; stock.bread=0; no second purchase'};
+const plan={format:'modelmirror.rpg.harness-real-call-plan/2',status:'AWAITING_USER_CONFIRMATION',authorizedCalls:0,authorizedCostMicros:0,baseCommit:oldPlan.baseCommit,binding,implementationHashes,model,parameters,pricing:oldPlan.pricing,limits:{maxCalls:1,maxCostMicros:250000,perRequestMicros:250000,inputAdmissionUnits:80000,outputTokens:16384,automaticRetries:0,automaticFallbacks:0,certificationCalls:0},requests:[row],authorization:'New confirmation required; previous 3-call budget is exhausted and not reused.',scope:'Only repaired tool-assisted purchase. No baseline rerun, no continuation rerun, no extra memory or parser calls. Use new isolated test record; never migrate old shop records.',acceptance:'Complete visible prose, readable scene and options, consistent host receipt; record tokens/cost/timing. Failure ends this one-call test with saved original evidence.',recovery:'Verified empty output is a terminal failure; incomplete or unbound evidence remains unknown. No automatic retry.'};
+await mkdir(work,{recursive:true});await writeFile(join(work,row.fixture),JSON.stringify({id:row.id,record,event,messages,model,parameters},null,2)+'\n');
+await writeFile(join(docs,'purchase-retest-plan.json'),JSON.stringify(plan,null,2)+'\n');
+await writeFile(join(docs,'purchase-repair-evidence.json'),JSON.stringify({...evidence,adaptation:adaptationReport()},null,2)+'\n');
+console.log(JSON.stringify({...evidence,previousBinding:undefined,binding:undefined,planHash:hash(plan),proposedCalls:1,proposedMaxUSD:0.25,actualCalls:0}));

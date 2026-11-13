@@ -1,0 +1,101 @@
+{
+  "previousMessagesHash": "0930e730f1a6ab1d0a9d59461229415e991fa1d089c7c5add591dddecdd7914b",
+  "messagesHash": "66fbfa3c6588ec17033654706ca78c782a97c740b9446237175fc6028d683336",
+  "previousRequestBytes": 65928,
+  "requestBytes": 3500,
+  "previousSystemCharacters": 34212,
+  "systemCharacters": 1139,
+  "actualTokenCount": null,
+  "rawSourceUnchanged": true,
+  "manifestUnchanged": true,
+  "previousBinding": {
+    "adapterVersion": "earth-shop-adapter/1",
+    "cardId": "earth",
+    "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+    "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+    "ruleVersion": "earth-corner-shop/1",
+    "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+    "adaptedHash": "c5fab7144ae0fba10f45eb89d96d559fda40d479a3637730ca7154512d81377c",
+    "ownedFields": [
+      "bank.balance",
+      "inventory.water",
+      "inventory.bread",
+      "inventory.notebook",
+      "shop.stock"
+    ]
+  },
+  "binding": {
+    "adapterVersion": "earth-shop-adapter/2",
+    "cardId": "earth",
+    "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+    "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+    "ruleVersion": "earth-corner-shop/1",
+    "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+    "adaptedHash": "1b2ce8fc373c7821505830cd3c132ca1a87b95fc84b0bba001677629bf85481e",
+    "ownedFields": [
+      "bank.balance",
+      "inventory.water",
+      "inventory.bread",
+      "inventory.notebook",
+      "shop.stock"
+    ]
+  },
+  "adaptation": {
+    "binding": {
+      "adapterVersion": "earth-shop-adapter/2",
+      "cardId": "earth",
+      "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+      "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+      "ruleVersion": "earth-corner-shop/1",
+      "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+      "adaptedHash": "1b2ce8fc373c7821505830cd3c132ca1a87b95fc84b0bba001677629bf85481e",
+      "ownedFields": [
+        "bank.balance",
+        "inventory.water",
+        "inventory.bread",
+        "inventory.notebook",
+        "shop.stock"
+      ]
+    },
+    "patches": [
+      {
+        "field": "system",
+        "from": "<div class=\"finance-item\"><span class=\"finance-label\">银行卡余额</span><span class=\"finance-val\">{XXXXX元}</span></div>",
+        "to": "<!-- 银行卡余额由宿主面板展示，此处不生成 -->",
+        "reason": "银行卡交易字段由宿主维护"
+      },
+      {
+        "field": "system",
+        "from": "<div class=\"inv-category\"><strong>包内：</strong>{背包/公文包/手提袋中的物品}</div>",
+        "to": "<div class=\"inv-category\"><strong>其他包内物品：</strong>{仅描述非商店受管物品，不列饮用水、面包、笔记本的数量}</div>",
+        "reason": "受管物品单独由宿主展示，其他物品仍由原卡描述"
+      },
+      {
+        "field": "prefix",
+        "from": "必须更新状态栏所有动态信息",
+        "to": "仅更新未被宿主接管的状态栏信息；银行卡余额及饮用水、面包、笔记本数量不由模型计算或输出",
+        "reason": "移除全部动态字段由模型重算的冲突"
+      }
+    ],
+    "purchaseNarration": {
+      "version": "settled-purchase/1",
+      "sourceSections": [
+        "# 世界观核心 → ## 回复规则",
+        "## 叙事风格 → # 输出格式"
+      ],
+      "scope": "committed purchases only; original card and ordinary story assembly unchanged"
+    },
+    "preserved": [
+      "world",
+      "style",
+      "perspective",
+      "length",
+      "worldbook-trigger-source",
+      "ordinary-story-first/continuation-prefix-semantics"
+    ],
+    "limitations": [
+      "不验证任意隐喻或自然语言中的全部事实",
+      "未接管字段沿用旧模式"
+    ]
+  }
+}

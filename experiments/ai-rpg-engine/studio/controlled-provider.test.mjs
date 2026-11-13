@@ -196,3 +196,19 @@ test('Luna wire and receipt use only approved max_tokens; other-model omission i
  assert.equal(await p.generate('earth',{...args,selection:luna,params:{max_tokens:16384}}),raw);
  assert.deepEqual((await p.evidence(args.sessionId,args.requestId)).record.parameters,{max_tokens:16384});assert.equal(calls,1);
 });
+
+for(const mode of ['empty','whitespace','missing-done','receipt-pending','bad-receipt','nonempty'])test('stop with blank content recovery: '+mode,async()=>{
+ const directory=await temp(),text=mode==='empty'?'':mode==='nonempty'?'partial':'\n ';
+ const control=await mockControl(directory,{onCall:({res,body})=>{
+  const v=result(body,text);if(mode==='missing-done')v.sse=v.sse.replace('data: [DONE]\n\n','');
+  Object.assign(v.receipt,{status:'failed_or_unknown',error:mode==='receipt-pending'?'rpg_receipt_pending':'rpg_incomplete_output',sseHash:sha(v.sse)});
+  if(mode==='bad-receipt')v.receipt.requestHash='wrong';res.statusCode=502;res.end(JSON.stringify(v));
+ }});
+ try{const p=await createControlledProvider({directory,...control,serviceToken:token,enabled:true,limit:1});
+  await assert.rejects(p.generate('earth',args));const out=await p.recoveredOutput(args.sessionId,args.requestId);
+  assert.equal(out.failureKnown,['empty','whitespace'].includes(mode));
+  if(out.failureKnown)assert.equal(out.failureCode,'PROVIDER_EMPTY_OUTPUT');
+  assert.equal(out.raw,text);assert.equal(control.wires.length,1);
+  await assert.rejects(p.generate('earth',args),/REQUEST_ALREADY_CLAIMED/);
+ }finally{await control.close();}
+});

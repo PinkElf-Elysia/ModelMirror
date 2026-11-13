@@ -1,0 +1,84 @@
+{
+  "format": "modelmirror.rpg.harness-offline-measure/1",
+  "measuredAt": "2026-11-13T17:13:30.679Z",
+  "realCalls": 0,
+  "warning": "Synthetic delay only. No prose-quality, live latency, token reduction or real-price conclusion.",
+  "rows": [
+    {
+      "provenance": "simulated-provider-local-host",
+      "memoryPlugins": false,
+      "feedbackMs": 43.39440000000002,
+      "bodyAvailableAt": 1794590009868,
+      "bodyCompleteMs": 188,
+      "bodyFirstTokenMs": null,
+      "bodyTimingMode": "buffered; first token not observed",
+      "allRequiredStagesMs": 234.84699999999998,
+      "calls": 1,
+      "costReportedMicros": 0,
+      "tokenUsage": null,
+      "assets": {
+        "balance": 8800,
+        "inventory": {
+          "bread": 2,
+          "notebook": 0,
+          "water": 0
+        },
+        "stock": {
+          "bread": 0,
+          "notebook": 1,
+          "water": 5
+        }
+      },
+      "stages": [
+        {
+          "purpose": "narration",
+          "durationMs": 107,
+          "attempts": 1
+        }
+      ]
+    },
+    {
+      "provenance": "simulated-provider-local-host",
+      "memoryPlugins": true,
+      "feedbackMs": 36.24549999999999,
+      "bodyAvailableAt": 1794590010180,
+      "bodyCompleteMs": 191,
+      "bodyFirstTokenMs": null,
+      "bodyTimingMode": "buffered; first token not observed",
+      "allRequiredStagesMs": 690.3625999999999,
+      "calls": 3,
+      "costReportedMicros": 0,
+      "tokenUsage": null,
+      "assets": {
+        "balance": 8800,
+        "inventory": {
+          "bread": 2,
+          "notebook": 0,
+          "water": 0
+        },
+        "stock": {
+          "bread": 0,
+          "notebook": 1,
+          "water": 5
+        }
+      },
+      "stages": [
+        {
+          "purpose": "memory",
+          "durationMs": 135,
+          "attempts": 1
+        },
+        {
+          "purpose": "narration",
+          "durationMs": 115,
+          "attempts": 1
+        },
+        {
+          "purpose": "summary-small",
+          "durationMs": 133,
+          "attempts": 1
+        }
+      ]
+    }
+  ]
+}

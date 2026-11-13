@@ -1,0 +1,322 @@
+{
+  "format": "modelmirror.rpg.harness-baseline/1",
+  "baseCommit": "d9dd7094bfbab9db3402e308b35c6da09c228de9",
+  "binding": {
+    "adapterVersion": "earth-shop-adapter/1",
+    "cardId": "earth",
+    "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+    "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+    "ruleVersion": "earth-corner-shop/1",
+    "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+    "adaptedHash": "c5fab7144ae0fba10f45eb89d96d559fda40d479a3637730ca7154512d81377c",
+    "ownedFields": [
+      "bank.balance",
+      "inventory.water",
+      "inventory.bread",
+      "inventory.notebook",
+      "shop.stock"
+    ]
+  },
+  "openingHash": "6f0294ac4b3595b0ede75265a620a7396a3711343e4a7e501de3979d9a529279",
+  "rulesHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+  "sourceHash": "a377e2879d73f2c2b78546082857a1a7395394a035bbe48b1a7b0835ad4b6141",
+  "conditions": {
+    "plugins": "off for primary A/B; separate matched-on cohort required",
+    "seed": null,
+    "parameters": "freeze at provider authorization",
+    "realCallsAuthorized": 0
+  },
+  "samples": [
+    {
+      "case": "success",
+      "variant": "A",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买两个面包",
+      "requestHash": "cc4e78df1feebd9282f10412d80093d77f9ab6e54f52d76fff5562e6064aa010",
+      "characters": 36266,
+      "utf8Bytes": 65130,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "success",
+      "variant": "B",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买两个面包",
+      "requestHash": "48d772c8bf7ea230e09ae513a73d5e353128ea987193c9d67347d889aea6bbf0",
+      "characters": 36657,
+      "utf8Bytes": 65935,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "insufficient-balance",
+      "variant": "A",
+      "openingHash": "70da907c76ae9587c3323e7004a857bd3a6e773ad030b77cbd8fbaeb7701b989",
+      "preActionAssets": {
+        "balance": 500,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买一个笔记本",
+      "requestHash": "13abee7ee5748faa37695307ed08b42de24bfbbf82f02dc5708c646e496f60be",
+      "characters": 36265,
+      "utf8Bytes": 65131,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "insufficient-balance",
+      "variant": "B",
+      "openingHash": "70da907c76ae9587c3323e7004a857bd3a6e773ad030b77cbd8fbaeb7701b989",
+      "preActionAssets": {
+        "balance": 500,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买一个笔记本",
+      "requestHash": "e682c197131408c3a458c2913d771b54c938d26b47f74f645c993b1c7afcdd21",
+      "characters": 36626,
+      "utf8Bytes": 65910,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "insufficient-stock",
+      "variant": "A",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买三个面包",
+      "requestHash": "082d65294264d4cc516d69630b426ff317ebe4fd25c0dab2acec0644f8c0c69a",
+      "characters": 36266,
+      "utf8Bytes": 65130,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "insufficient-stock",
+      "variant": "B",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "购买三个面包",
+      "requestHash": "93b82d90989363ccb48441fc4546c89b31a4383e03461481e6449add823fbcab",
+      "characters": 36623,
+      "utf8Bytes": 65901,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "ambiguous",
+      "variant": "A",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "给朋友带些面包吧",
+      "requestHash": "f1fac3747e8417cdf82216ce46ebce05723a476cd2b2419ab57e752e906addad",
+      "characters": 36268,
+      "utf8Bytes": 65136,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "ambiguous",
+      "variant": "B",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 10000,
+        "inventory": {
+          "water": 0,
+          "bread": 0,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 2,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "给朋友带些面包吧",
+      "requestHash": "21bc8d015f890c0aa895fd60f75a367dfbf1500f139ab001fac31471dc75f797",
+      "characters": 36591,
+      "utf8Bytes": 65881,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "continuation",
+      "variant": "A",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 8800,
+        "inventory": {
+          "water": 0,
+          "bread": 2,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 0,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "问店主附近有什么适合散步的地方",
+      "requestHash": "36070c40833f1d850d2fce7a6f84e8932c747fe84a945efab49cdc8c1c9b2dfe",
+      "characters": 36963,
+      "utf8Bytes": 66853,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    },
+    {
+      "case": "continuation",
+      "variant": "B",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "preActionAssets": {
+        "balance": 8800,
+        "inventory": {
+          "water": 0,
+          "bread": 2,
+          "notebook": 0
+        },
+        "stock": {
+          "water": 5,
+          "bread": 0,
+          "notebook": 1
+        }
+      },
+      "semanticAction": "问店主附近有什么适合散步的地方",
+      "requestHash": "35088439dde4c8f536cef6631baa7f37d05c3bdf8f016cebbb7cc5ab1b28a200",
+      "characters": 37316,
+      "utf8Bytes": 67688,
+      "inputTokens": null,
+      "outputTokens": null,
+      "cost": null,
+      "firstFeedbackMs": null,
+      "firstTextMs": null,
+      "completedMs": null,
+      "providerCalls": 0
+    }
+  ],
+  "interpretation": "Characters and bytes are offline request sizes, NOT tokens or provider prices. B adds an event contract; a reduction has not been demonstrated. Failed direct purchases dispatch zero narration calls; B text samples for failures are context audit fixtures, not planned dispatches."
+}
