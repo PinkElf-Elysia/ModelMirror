@@ -38,7 +38,7 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/jinyong');
   expect(screen.getByRole('link', {name: '插件市场'})).toHaveAttribute('href', '/rpg/plugins');
   const link = screen.queryByRole('link', {name: /打开创作工作台/});
-  if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/');
+  if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/?library=http%3A%2F%2F127.0.0.1%3A5173%2Frpg');
   else expect(link).toBeNull();
 });
 
@@ -62,13 +62,7 @@ it('keeps new releases, existing worlds and saved stories accessible when a host
   }));
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
   expect(await screen.findByRole('link',{name:/林澈的来信/})).toHaveAttribute('href','/rpg/dragon-raja/chat/'+sessionId);
-  const releases=within(screen.getByRole('region',{name:'新世界，等你入局'}));
-  expect(releases.getByRole('link',{name:'进入龙族大世界'})).toHaveAttribute('href','/rpg/dragon-raja');
-  const creators=within(screen.getByRole('region',{name:'创作助手'}));
-  const others=within(screen.getByRole('region',{name:'更多世界'}));
-  for(const world of worlds){
-    const group=['jinyong','dragon-raja','douluo'].includes(world.id)?releases:world.id==='blue-fish'?creators:others;
-    expect(group.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
-  }
+  const library=within(screen.getByRole('region',{name:'全部作品'}));
+  for(const world of worlds)expect(library.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
   expect(await screen.findByRole('button',{name:'重新读取'})).toBeEnabled();
 });

@@ -79,6 +79,7 @@ VERIFIED_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
 MANUAL_TRANSCRIPTION_PROFILES: dict[str, TranscriptionProfile] = {
     model_id: _STANDARD_TRANSCRIPTION_PROFILE
     for model_id in (
+        "x-ai/grok-stt-2.0",
         "nvidia/nemotron-3.5-transcribe",
         "moondream/parakeet-ultra",
         "mistralai/voxtral-small-transcribe-3-0",

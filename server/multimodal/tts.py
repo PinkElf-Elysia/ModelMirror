@@ -259,6 +259,7 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        "speechify/simba-3.5",
         "assemblyai/assemblyai-tts-1",
         "mistralai/voxtral-mini-tts-3-0",
         *HEYGEN_SPEECH_MODEL_IDS,
@@ -279,6 +280,28 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "speechify/simba-3.5": (
+        "geffen_32",
+        "alec",
+        "alfonso",
+        "alicia",
+        "alton",
+        "amon",
+        "ankit",
+        "anthony",
+        "archie",
+        "arun",
+        "beatrice_32",
+        "belinda",
+        "benjamin",
+        "bertha",
+        "beth",
+        "beverly",
+        "brenda",
+        "bridget",
+        "bwyneth",
+        "byronagent",
+    ),
     "assemblyai/assemblyai-tts-1": ("aai-jane", "aai-alba", "aai-anna", "aai-charles", "aai-eve", "aai-george", "aai-jean", "aai-mary", "aai-michael", "aai-paul", "aai-vera"),
     "mistralai/voxtral-mini-tts-3-0": (
         "en_paul_neutral", "fr_marie_neutral", "gb_jane_neutral", "gb_oliver_neutral",

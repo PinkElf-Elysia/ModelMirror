@@ -1,3 +1,4 @@
+import {modelSessionKey} from './session-selection.mjs';
 import {mountComparison} from './comparison-ui.mjs';
 import {attachSessionPanel} from './browser.mjs';
 import {memoryRejectionMessage,createJointClient,jointTaskIntent,pluginIntent,memoryEditIntent,branchIntent,requirementsEditIntent,storyProblem} from './joint-client.mjs';
@@ -55,7 +56,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  }
  const current=()=>workId===getWork()?.id;
  function pending(){return client?.pending()||[];}
- function blocked(){try{return !!pending().length||!!pendingModelOperation(localStorage,workId);}catch(e){error={text:errorText(e),code:e.code};return true;}}
+ function blocked(){try{return !!pending().length||!!pendingModelOperation(localStorage,workId,getWork()?.publishedVersionId);}catch(e){error={text:errorText(e),code:e.code};return true;}}
  const ready=()=>view&&!comparisonBlocked&&!reading&&!busy&&!view.busy&&!view.pending&&!blocked()&&!settings?.unconfirmed;
  function issue(e){error={text:errorText(e),code:e?.code||'NETWORK_RESULT_UNKNOWN'};render();
   if(mode==='edit'&&dialog?.open)dialog.querySelector('[data-validation]').textContent=error.text;
@@ -64,11 +65,13 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  async function refresh(){
   const gen=++generation,w=getWork();clearTimeout(timer);clearTimeout(estimateTimer);estimate=null;sendBody=null;
   if(!w){workId=null;client=null;view=null;settings=null;render();return;}workId=w.id;
-  let id;try{id=JSON.parse(localStorage.getItem('modelmirror.authoring.model-session/'+workId)||'null');}catch{throw {code:'JOINT_LOCAL_RECORD_INVALID'};}
+  let id;try{id=JSON.parse(localStorage.getItem(modelSessionKey(workId,getWork()?.publishedVersionId))||'null');}catch{throw {code:'JOINT_LOCAL_RECORD_INVALID'};}
   if(!id){selectRequirements(null);client=null;view=null;settings=null;render();return;}
   const candidate=createJointClient({api,storage:localStorage,sessionId:id,workId});
   reading=true;render();let v,s;try{[v,s]=await Promise.all([candidate.view(),api('/joint/settings/'+id)]);}finally{if(gen===generation)reading=false;}
-  if(gen!==generation||getWork()?.id!==w.id)return;selectRequirements(v.session.id);client=candidate;view=v;settings=s;syncComparison();render();
+  if(gen!==generation||getWork()?.id!==w.id)return;
+  if(w.publishedVersionId&&v.session.binding.versionId!==w.publishedVersionId)throw {code:'JOINT_LOCAL_RECORD_INVALID'};
+  selectRequirements(v.session.id);client=candidate;view=v;settings=s;syncComparison();render();
   if(view.busy)timer=setTimeout(()=>refresh().catch(issue),1000);else quote();
  }
  async function quote(kind='send'){
@@ -144,7 +147,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  async function switchSession(id){
   if(busy||!view)return;busy=true;error=null;render();
   try{
-   const key='modelmirror.authoring.model-session/'+workId,text=JSON.stringify(id);
+   const key=modelSessionKey(workId,getWork()?.publishedVersionId),text=JSON.stringify(id);
    try{localStorage.setItem(key,text);if(localStorage.getItem(key)!==text)throw Error();}catch{throw {code:'JOINT_LOCAL_STORAGE_UNAVAILABLE'};}
    close();try{await refresh();}catch{throw {code:'JOINT_STATE_REFRESH_FAILED'};}
    window.dispatchEvent(new CustomEvent('authoring-session-changed'));
