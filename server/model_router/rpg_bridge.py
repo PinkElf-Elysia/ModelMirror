@@ -17,6 +17,7 @@ from . import rpg_progress
 from .api import get_model_router_service
 from .chat_stable import ProviderChatStableService
 from .provider_catalog import text_parameter_policy, TEXT_PARAMETER_CAPABILITIES_FORMAT
+from . import rpg_parameters as typed_parameters
 
 router = APIRouter(prefix="/api/rpg/v1", tags=["rpg-service"])
 PARAMETERS = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 16384}
@@ -378,8 +379,23 @@ AUTHORING_CATALOG_SOURCE = "control-plane-cache"
 AUTHORING_CATALOG_LIMIT = 1000
 
 
-def _authoring_policy(meta, model):
+def _authoring_policy(meta, model, parameter_version=1):
     declaration = meta.get("parameter_capabilities")
+    if parameter_version == 2:
+        if isinstance(declaration, dict) and declaration.get("format") == typed_parameters.CAPABILITY_FORMAT:
+            try:
+                if set(declaration) != {"status", "format", "policy"} or declaration["status"] != "declared":
+                    raise ValueError("invalid")
+                policy = typed_parameters.validate_policy(declaration["policy"])
+                if (not typed_parameters.supports_policy(policy, meta.get("supported_parameters"))
+                        or type(meta.get("max_output_tokens")) is not int
+                        or policy["fields"]["maxOutputTokens"]["maximum"] > meta["max_output_tokens"]):
+                    raise ValueError("invalid")
+                return policy, "provider-declared"
+            except (TypeError, ValueError, KeyError, OverflowError):
+                return None, "invalid"
+        legacy, evidence = _authoring_policy(meta, model)
+        return (typed_parameters.upgrade_legacy(legacy) if legacy else None), evidence
     if "parameter_capabilities" in meta:
         try:
             if (not isinstance(declaration, dict) or set(declaration) != {"status", "format", "policy"}
@@ -445,15 +461,17 @@ def _authoring_observed_metadata(stable, policy, connection, row, meta):
         return meta
 
 
-def authoring_catalog(stable):
+def authoring_catalog(stable, parameter_version=1, *, include_private=False):
     """Read cached evidence only. Each connection/model is a distinct selection.
 
     Availability is a catalog admission snapshot, never a dispatch/budget permit.
     Unlike legacy catalog(), this does not advance a control-policy gate epoch.
     """
+    if parameter_version not in (1, 2):
+        raise HTTPException(422, "rpg_authoring_parameter_version")
     policy = stable.control.peek_policy()
     tenant = stable.router_service.tenant_id
-    items = []
+    items, private_policies = [], {}
     seen = set()
     for connection in stable.control.route_candidates(policy, "chat_text"):
         offset = 0
@@ -482,7 +500,7 @@ def authoring_catalog(stable):
                         qualification, reason = stable.control.current_qualification(connection_id=connection, model_id=model,
                                                                                      capability="chat_text", require_exact_model=True)
                 meta = _authoring_observed_metadata(stable, policy, connection, row, meta)
-                parameters, evidence = _authoring_policy(meta, model)
+                parameters, evidence = _authoring_policy(meta, model, parameter_version)
                 context, output = meta.get("context_length"), meta.get("max_output_tokens")
                 context = context if type(context) is int and 0 < context <= 100_000_000 else None
                 output = output if type(output) is int and 0 < output <= 1_000_000 else None
@@ -491,21 +509,32 @@ def authoring_catalog(stable):
                 binding = {"tenant": tenant, "connection": connection, "model": model, "policy": policy.policy_fingerprint,
                            "admitted": bool(admitted and error is None), "qualification": qualification, "reason": reason,
                            "refresh": row.get("last_refresh_id"), "metadata": meta, "parameterPolicy": parameters}
-                items.append({"selectionId": digest(["authoring", tenant, connection, model]), "selectionRevision": digest(binding),
-                              "modelId": model, "name": name, "available": bool(admitted and not error and qualification and compatible),
-                              "contextLength": context, "maxOutputTokens": output, "parameterPolicy": parameters,
-                              "parameterEvidence": evidence})
+                entry = {"selectionId": digest(["authoring", tenant, connection, model]), "selectionRevision": digest(binding),
+                         "modelId": model, "name": name, "available": bool(admitted and not error and qualification and compatible),
+                         "contextLength": context, "maxOutputTokens": output, "parameterPolicy": parameters,
+                         "parameterEvidence": evidence}
+                if parameter_version == 2:
+                    private_policies[entry["selectionId"]] = parameters
+                    entry["parameterPolicy"] = typed_parameters.public_policy(parameters) if parameters else None
+                    entry["capabilityRevision"] = digest({"selectionRevision": entry["selectionRevision"],
+                                                          "format": typed_parameters.CAPABILITY_FORMAT, "policy": parameters})
+                items.append(entry)
             if len(rows) < 500:
                 break
             offset += len(rows)
-    result = {"format": AUTHORING_CATALOG_FORMAT, "source": AUTHORING_CATALOG_SOURCE,
-              "catalogId": "rpg-" + digest([tenant, "authoring-models-v1"]), "models": items}
-    return {**result, "revision": digest(result)}
+    result = {"format": AUTHORING_CATALOG_FORMAT if parameter_version == 1 else "modelmirror.rpg.control-model-catalog/2",
+              "source": AUTHORING_CATALOG_SOURCE,
+              "catalogId": "rpg-" + digest([tenant, "authoring-models-v" + str(parameter_version)]), "models": items}
+    result = {**result, "revision": digest(result)}
+    if parameter_version == 2 and include_private:
+        # Internal execution only. The digest and HTTP projection exclude wire names.
+        result = {**result, "models": [{**e, "_parameterPolicy": private_policies[e["selectionId"]]} for e in items]}
+    return result
 
 
 @router.get("/authoring/models", dependencies=[Depends(require_service)])
-def authoring_models(stable=Depends(get_authoring_stable)):
-    return JSONResponse(authoring_catalog(stable), headers={"Cache-Control": "no-store"})
+def authoring_models(stable=Depends(get_authoring_stable), parameterVersion: int = 1):
+    return JSONResponse(authoring_catalog(stable, parameterVersion), headers={"Cache-Control": "no-store"})
 
 
 def _unique_json_object(pairs):
@@ -536,6 +565,19 @@ def authoring_parameters(entry, parameters):
     return {fields[key]["wireName"]: value for key, value in parameters.items()}
 
 
+def authoring_parameters_v2(entry, config, purpose, capability_revision):
+    if not entry["available"]:
+        raise HTTPException(409, "rpg_authoring_selection_unavailable")
+    if entry.get("capabilityRevision") != capability_revision:
+        raise HTTPException(409, "rpg_authoring_capability_changed")
+    try:
+        resolved = typed_parameters.resolve_parameters(entry["_parameterPolicy"], config, purpose)
+    except typed_parameters.ParameterError as exc:
+        raise HTTPException(422, exc.code) from None
+    body = {"format": "modelmirror.rpg.parameter-resolution/2", "capabilityRevision": capability_revision, **resolved}
+    return {**body, "sha256": digest(body)}
+
+
 @router.post("/authoring/parameters/validate", dependencies=[Depends(require_service)])
 async def validate_authoring_parameters(request: Request, stable=Depends(get_authoring_stable)):
     data = bytearray()
@@ -546,18 +588,29 @@ async def validate_authoring_parameters(request: Request, stable=Depends(get_aut
     try:
         value = json.loads(data, object_pairs_hook=_unique_json_object,
                            parse_constant=lambda _: (_ for _ in ()).throw(ValueError("non_finite")))
-        if (not isinstance(value, dict) or set(value) != {"catalogRevision", "selectionId", "selectionRevision", "parameters"}
-                or any(not isinstance(value[k], str) or not re.fullmatch(r"[a-f0-9]{64}", value[k])
-                       for k in ("catalogRevision", "selectionId", "selectionRevision"))):
+        version_two = isinstance(value, dict) and value.get("format") == "modelmirror.rpg.parameter-check-request/2"
+        expected = {"catalogRevision", "selectionId", "selectionRevision", "parameters"}
+        hashes = {"catalogRevision", "selectionId", "selectionRevision"}
+        if version_two:
+            expected.update(("format", "purpose", "capabilityRevision"))
+            hashes.add("capabilityRevision")
+        if (not isinstance(value, dict) or set(value) != expected
+                or any(not isinstance(value[k], str) or not re.fullmatch(r"[a-f0-9]{64}", value[k]) for k in hashes)
+                or (version_two and value["purpose"] not in ("story", "summary", "compression", "memory"))):
             raise ValueError("invalid")
     except (ValueError, UnicodeError, RecursionError):
         raise HTTPException(422, "rpg_authoring_request_invalid") from None
-    current = authoring_catalog(stable)
+    current = authoring_catalog(stable, 2, include_private=True) if version_two else authoring_catalog(stable)
     if value["catalogRevision"] != current["revision"]:
         raise HTTPException(409, "rpg_authoring_catalog_changed")
     entry = next((e for e in current["models"] if e["selectionId"] == value["selectionId"]), None)
     if not entry or entry["selectionRevision"] != value["selectionRevision"]:
         raise HTTPException(409, "rpg_authoring_selection_changed")
+    if version_two:
+        resolved = authoring_parameters_v2(entry, value["parameters"], value["purpose"], value["capabilityRevision"])
+        return JSONResponse({"format": "modelmirror.rpg.parameter-check/2", "catalogRevision": current["revision"],
+                             "selectionId": entry["selectionId"], "selectionRevision": entry["selectionRevision"],
+                             "resolution": resolved, "dispatched": False}, headers={"Cache-Control": "no-store"})
     wire = authoring_parameters(entry, value["parameters"])
     return JSONResponse({"format": "modelmirror.rpg.parameter-check/1", "catalogRevision": current["revision"],
                          "selectionId": entry["selectionId"], "selectionRevision": entry["selectionRevision"],
@@ -567,7 +620,10 @@ async def validate_authoring_parameters(request: Request, stable=Depends(get_aut
 # Separate durable authoring protocol; legacy card endpoints retain their contract.
 from .rpg_authoring_execution import register_authoring_execution
 register_authoring_execution(router, require_service, get_authoring_stable, authoring_catalog,
-                             authoring_parameters, _unique_json_object, digest)
+                             authoring_parameters, _unique_json_object, digest, authoring_parameters_v2)
+
+from .rpg_comparison import register_comparison_api
+register_comparison_api(router, require_service, get_authoring_stable, _unique_json_object)
 
 from .rpg_authoring_route import register_route_api
 register_route_api(router, require_service, get_stable, _unique_json_object)

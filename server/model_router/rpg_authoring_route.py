@@ -22,6 +22,7 @@ from .chat_stable import ProviderChatStableService, ProviderChatStableDispatch, 
 from .provider_chat import ProviderChatTarget
 from .repository import RouterRepositoryError, utc_now
 from .service import RouterServiceError
+from . import rpg_comparison as comparison
 
 FORMAT = "modelmirror.rpg.authoring-route/1"
 STRATEGY = "rpg_authoring_explicit"
@@ -100,7 +101,7 @@ class AuthoringRouteControl(ProviderChatControlService):
                     raise RouterServiceError("rpg_authoring_route_operation_conflict", "操作ID已用于不同配置。", status_code=409)
                 return saved["result"]
             current = _read(db, tenant)
-            if value["expectedRevision"] != current["revision"] or value["limit"] < current["spent"]:
+            if value["expectedRevision"] != current["revision"] or value["limit"] < current["spent"] + comparison.held(comparison.load(db, tenant)):
                 raise RouterServiceError("rpg_authoring_route_revision_or_budget_conflict", "配置已改变或额度小于已用次数。", status_code=409)
             row = db.execute("SELECT * FROM router_connections WHERE tenant_id=? AND id=?", (tenant,value["connectionId"])).fetchone()
             if row is None or not row["enabled"] or "chat" not in json.loads(row["scopes_json"]):
@@ -133,16 +134,23 @@ class AuthoringStableService(ProviderChatStableService):
     def __init__(self, router_service, *, transport=None):
         super().__init__(router_service)
         self.control = AuthoringRouteControl(router_service)
+        self._comparison_requests = {}
         if transport is not None:
             self.transport = transport
 
-    async def begin_rpg_authoring_certified(self, model_id, connection_id):
+    async def begin_rpg_authoring_certified(self, model_id, connection_id, *, comparison_request=None):
         policy = self.control.peek_policy()
         admitted, reason = self.control.route_admission(policy, model_id, scoped_certified=True)
         if not admitted or connection_id not in self.control.route_candidates(policy, "chat_text"):
             return ProviderChatStablePreflight(intercepted=True,error_code=reason or "rpg_authoring_selection_changed")
-        if policy.state["spent"] >= policy.state["limit"]:
-            return ProviderChatStablePreflight(intercepted=True,error_code="rpg_authoring_budget_exhausted")
+        with self.repository._lock, self.repository._connect() as db:
+            holds = comparison.held(comparison.load(db, self.router_service.tenant_id))
+            if comparison_request is not None:
+                batch, _ = comparison.validate_task(db, self.router_service.tenant_id, comparison_request)
+                if batch["plan"]["routeRevision"] != policy.revision:
+                    return ProviderChatStablePreflight(intercepted=True, error_code="rpg_authoring_selection_changed")
+            elif policy.state["spent"] + holds >= policy.state["limit"]:
+                return ProviderChatStablePreflight(intercepted=True,error_code="rpg_authoring_budget_exhausted")
         reconciled = self.repository.reconcile_chat_control_completions(self.router_service.tenant_id)
         if int(reconciled.get("pending",0)):
             return ProviderChatStablePreflight(intercepted=True,error_code="provider_chat_completion_reconciliation_pending")
@@ -159,6 +167,8 @@ class AuthoringStableService(ProviderChatStableService):
         self.repository.claim_chat_control_run(tenant,run_id=run_id,policy_fingerprint=policy.policy_fingerprint,capability="chat_text",requested_model=model_id,strategy=STRATEGY,gateway="rpg_scoped",is_real_user=True,primary_newapi=connection.kind=="newapi")
         self.repository.claim_chat_control_attempt(tenant,attempt_id=attempt_id,run_id=run_id,capability="chat_text",position=0,connection_id=connection_id,provider_kind=connection.kind,call_context=context)
         self._call_origins[attempt_id] = ("rpg_scoped", context)
+        if comparison_request is not None:
+            self._comparison_requests[attempt_id] = comparison_request
         return ProviderChatStablePreflight(intercepted=True,dispatch=ProviderChatStableDispatch(
             run_id=run_id,attempt_id=attempt_id,policy_fingerprint=policy.policy_fingerprint,strategy=STRATEGY,capability="chat_text",
             requested_model=model_id,target=target,connection_fingerprint=current,authorized=authorized,position=0,reason_codes=(),
@@ -181,8 +191,12 @@ class AuthoringStableService(ProviderChatStableService):
                         or state["connectionFingerprint"]!=dispatch.connection_fingerprint
                         or dispatch.requested_model not in state["modelIds"]):
                     raise RouterRepositoryError("rpg_authoring_route_changed")
-                if state["spent"]>=state["limit"]:
+                batch_request = self._comparison_requests.get(dispatch.attempt_id)
+                holds = comparison.held(comparison.load(db, tenant))
+                if state["spent"] >= state["limit"] or (batch_request is None and state["spent"] + holds >= state["limit"]):
                     raise RouterRepositoryError("rpg_authoring_budget_exhausted")
+                if batch_request is not None:
+                    comparison.validate_task(db, tenant, batch_request)
                 run=db.execute("SELECT * FROM provider_chat_runs WHERE tenant_id=? AND id=?",(tenant,dispatch.run_id)).fetchone()
                 attempt=db.execute("SELECT * FROM provider_chat_attempts WHERE tenant_id=? AND id=?",(tenant,dispatch.attempt_id)).fetchone()
                 if (run is None or attempt is None or run["gateway"]!="rpg_scoped" or run["strategy"]!=STRATEGY
@@ -201,6 +215,8 @@ class AuthoringStableService(ProviderChatStableService):
                 if cache.get((state["connectionId"],dispatch.requested_model))!=dispatch.connection_fingerprint or not expirations or now>=min(expirations):
                     raise RouterRepositoryError("rpg_authoring_route_changed")
                 db.execute("UPDATE provider_chat_attempts SET dispatched=1,updated_at=? WHERE tenant_id=? AND id=?",(now.isoformat(),tenant,dispatch.attempt_id))
+                if batch_request is not None:
+                    comparison.consume(db, tenant, batch_request, dispatch.attempt_id)
                 _save(db,_key(tenant),{**state,"spent":state["spent"]+1})
         except (RouterRepositoryError, RouterServiceError, ProviderCallContextError) as exc:
             code = getattr(exc, "code", None) or str(exc)

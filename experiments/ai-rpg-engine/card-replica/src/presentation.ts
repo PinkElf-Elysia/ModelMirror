@@ -18,6 +18,8 @@ export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cul
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={
+ 'rpg.generation-parameters':{name:'生成参数',group:'对话',icon:'调',description:'分别调整剧情、摘要和记忆的生成参数。',cost:'保存设置不调用模型',detail:'仅影响当前会话的后续请求。更换剧情模型不会修改摘要或记忆配置。'},
+ 'rpg.model-comparison':{name:'多模型对比',group:'对话',icon:'比',description:'为本轮生成多份候选，采用一份继续故事。',cost:'每份候选分别计费',detail:'候选使用同一份上下文；只有采用的回复进入正式剧情。未采用的结果与调用记录保留。'},
  'rpg.model-selector':{name:'模型选择',group:'对话',icon:'M',description:'为下一条消息换一个模型。',cost:'选择不调用模型',detail:'选择保存在当前会话。停用后保留已选模型，后续发送按该模型计费。'},
  'rpg.branch-save':{name:'分支存档',group:'对话',icon:'⑂',description:'从某个回合，试试另一种选择。',cost:'创建分支不调用模型',detail:'保留原对话，在新对话继续。新分支的插件可以单独启用。'},
  'rpg.message-tools':{name:'消息工具',group:'对话',icon:'↻',description:'复制回复、编辑输入，或重新生成。',cost:'重新生成会调用模型',detail:'编辑与重生成在新分支完成，原剧情保留。支持查看生成中的文字。'},

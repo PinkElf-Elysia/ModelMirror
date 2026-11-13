@@ -14,9 +14,10 @@ const root = new URL('../', import.meta.url);
 const sourcePaths = [
   'package-lock.json',
   'authoring/runtime-binding.mjs', 'authoring/runtime-plugins.mjs', 'authoring/store.mjs',
+  'authoring/generation-settings.mjs', 'authoring/model-control.mjs', 'authoring/model-plugin.mjs', 'authoring/session-storage.mjs',
   'authoring/variable-panel.mjs', 'authoring/variable-template-syntax.mjs', 'authoring/contracts.mjs', 'authoring/metadata.mjs', 'authoring/gallery.mjs', 'authoring/dialogue.mjs',
-  'plugins/catalog.mjs', 'plugins/host.mjs', 'plugins/transcript.mjs', 'plugins/message-tools.mjs', 'plugins/illustrations.mjs',
-  ...['branch-save', 'model-selector', 'history-window', 'rolling-summary', 'memory-palace']
+  'plugins/catalog.mjs', 'plugins/host.mjs', 'plugins/owner-lock.mjs', 'plugins/transcript.mjs', 'plugins/message-tools.mjs', 'plugins/illustrations.mjs',
+  ...['branch-save', 'model-selector', 'history-window', 'rolling-summary', 'memory-palace', 'generation-parameters', 'model-comparison']
     .flatMap(name => ['plugins/' + name + '.mjs', 'plugins/' + name + '.manifest.json']),
 ];
 async function artifactHashes() {

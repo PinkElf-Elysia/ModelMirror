@@ -130,3 +130,12 @@ PR #443 已合并（6977d86c）；只读核对共享后端的 chat_stable.py、r
 - 未运行：全量回归、生产构建、浏览器重放、截图补验、真实模型复测。早先基线实测结论不扩大为本次主线验收。
 
 初次本地检查发现运行时映射和帮助排序问题，均已修复并重跑对应检查；上述结果为修复后的最终状态。PR 保留 Draft 和已知检查限制，冲突状态以推送后的 GitHub 查询为准。
+
+
+### 同日主线再次前进：PR #455
+
+首次修复推送后，主线从 7b1f840c 前进到 d51c5991（PR #455，三用途生成参数与多模型对比），再次产生 chat.tsx、session-client.ts、plugins/host.mjs、studio/server.mjs 四处冲突。继续合入最新主线并保留参数、对比、锁恢复和状态提示逻辑；两版主线的精确运行时描述符均纳入兼容回归。
+
+新参数宿主会优先接管 earth/god 路由，因此将同一个 editOutput 动作接入 generation-cards，避免界面按钮落入 404。新宿主只在 earth/god 开放编辑；保存仍不派发模型，参数与 provider 回执不变。只接受精确 d51c5991 宿主源指纹的旧存档，保留提示词和 setup 完整性检查。没有修改其他工作树的参数/对比算法或共享配置。
+
+补验均为本地：card-generation.test.mjs 中 three purposes、stale revisions、HTTP contract 三项通过；新增 parameter host output editing 检查在修正旧版本夹具后通过（旧版本夹具从无新回执的初始会话构造，不能把当前回执改绑到旧 runtime）。output-edits.test.mjs 的 exact committed / runtime translation 两项在补齐最新主线映射后通过；其余 8 项编辑、分支、总结、版本恢复路径通过；该批初次结果为 8 通过、2 项映射失败，补齐映射后单独重跑这 2 项通过，不将初次失败日志删除或称为单次全绿。card-replica 的 npm.cmd run typecheck 再次通过。未重做真实调用、全量构建、浏览器截图；上一节已注明的客户端整体类型和帮助截图问题未在本批扩大修复。

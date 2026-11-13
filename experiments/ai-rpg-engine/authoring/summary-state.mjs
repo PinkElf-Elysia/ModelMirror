@@ -1,3 +1,4 @@
+import {taskModelChoice} from './chat-parameters.mjs';
 import {validateControlledReceipt,isControlledSession} from './controlled-receipt.mjs';
 import {checkSessionOrigin,originVersion} from './branch-origin.mjs';
 import {canonical, keys, isId, isHash, sha256, fail, LIMITS} from './contracts.mjs';
@@ -170,7 +171,7 @@ function effectiveResult(candidate,compression) {
   return compression.receipt.result.text;
 }
 function expectedTask(session,state,task,completedTurns=session.turns.length) {
-  const selected=modelChoiceAt(session.models,task.modelRevision,'summary');
+  const selected=taskModelChoice(session,task.modelRevision,'summary',task.operationId);
   if(!selected || !same(selected,task.modelChoice))fail('SUMMARY_MODEL_MISMATCH');
   return withTaskId(taskBody(session,state,{operationId:task.operationId,modelRevision:task.modelRevision,modelChoice:selected,authorization:task.authorization},sourceFor(session,state,completedTurns)));
 }
@@ -242,7 +243,7 @@ export function createSummaryTask(session,state,input) {
   assertAvailableOperation(session,input.operationId);
   const source=sourceFor(session,state);
   if(!source.needsUpdate)return {kind:'no-update',source};
-  const modelChoice=session.models.current.summary;if(!modelChoice)fail('SUMMARY_MODEL_REQUIRED');
+  const modelChoice=taskModelChoice(session,session.models.revision,'summary',input.operationId);if(!modelChoice)fail('SUMMARY_MODEL_REQUIRED');
   return withTaskId(taskBody(session,state,{operationId:input.operationId,modelRevision:session.models.revision,modelChoice,authorization:input.authorization},source));
 }
 export function commitSummaryUpdate(session,state,input) {
@@ -264,7 +265,7 @@ export function commitSummaryUpdate(session,state,input) {
   if(!same(task,expectedTask(session,state,task)))fail('SUMMARY_SOURCE_CHANGED');
   // A later summary-setting change invalidates this task even if the player
   // subsequently chooses the same value. Story/memory changes remain independent.
-  if(!same(session.models.current.summary,task.modelChoice) ||
+  if(!same(taskModelChoice(session,session.models.revision,'summary',task.operationId),task.modelChoice) ||
       session.models.changes.slice(task.modelRevision).some(c=>c.intent.purpose==='summary'))fail('SUMMARY_MODEL_CHANGED');
   const effectiveText=effectiveResult(candidate,compression);
   return append(state,{kind:'model',operationId:task.operationId,previousVersionId:state.activeVersionId,coveredThrough:task.source.targetThrough,

@@ -25,7 +25,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
  const authorizations=async id=>({memory:await plugins.memoryAuthorization(id),summary:await plugins.summaryAuthorization(id),history:await plugins.historyAuthorization(id)});
  const save=async s=>{s.memoryTasks.hash=sealMemoryTasks(s.memoryTasks).hash;await store.write(s);};
  async function read(id){const s=await store.read(id);if(!(await store.pluginSession(id)).memoryPalaceCompatible)throw fail('MEMORY_RUNTIME_INCOMPATIBLE');await store.requireRuntime(s);requireMemoryState(s);requireMemoryTasks(s);return s;}
- async function guard(s,op,action){return plugins.guardMemoryTask(s.id,op.authorization,async()=>{await store.requireRuntime(await store.read(s.id));return action();});}
+ async function guard(s,op,action,dispatch=false){return plugins.guardMemoryTask(s.id,op.authorization,async()=>{await store.requireRuntime(await store.read(s.id));return action();},dispatch&&transport.parameterFence?await transport.parameterFence(s,op):null);}
  async function choose(choice,id){
   if(!validChoice(choice))throw fail('MEMORY_MODEL_REQUIRED');
   const found=(await transport.catalog({sessionId:id})).find(m=>m.available&&m.model===choice.model&&(choice.kind==='fixed'||m.selectionId===choice.selectionId&&m.selectionRevision===choice.selectionRevision));
@@ -71,13 +71,13 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   if(stage.purpose==='compression'&&!candidate){op.skipped.push(stage.stageId);await save(s);return;}
   const v2=isV2SummaryStage(stage.stageId)?summaryV2Source(s,stage.stageId,op.input.summaryTurn):null;
   const source=v2?v2.binding:stage.purpose==='memory'?memorySource(s):stage.purpose==='story'?null:summaryUpdateSource(s);
-  const selection=await choose(stage.purpose==='memory'?s.memoryTasks.config.model:stage.purpose==='story'?s.modelState.current:s.rollingSummary.config.model||(v2?s.modelState.current:null),s.id);
+  const selection=transport.selectFrozen?await transport.selectFrozen(op,stage.purpose):await choose(stage.purpose==='memory'?s.memoryTasks.config.model:stage.purpose==='story'?s.modelState.current:s.rollingSummary.config.model||(v2?s.modelState.current:null),s.id);
   const story=stage.purpose==='story'?await buildStory(s,op.input.input,policyFor(s,op.authorization)):null;
   const messages=v2?v2.messages:stage.purpose==='memory'?[{role:'system',content:MEMORY_INSTRUCTION},{role:'user',content:JSON.stringify({entries:source.entries,turns:source.turns})}]:stage.purpose==='story'?story.messages:stage.purpose==='compression'?compressionMessages(compressionEvidence(candidate).raw):[{role:'system',content:SUMMARY_INSTRUCTION},{role:'user',content:JSON.stringify({previousSummary:source.previousSummary,completedTurns:source.source})}];
   if(candidate&&(canonical(source)!==canonical(candidate.source)||canonical(selection)!==canonical(candidate.selection)))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
   const task={...stage,sessionId:s.id,requestId:identity(s.id,op.input.operationId,stage.stageId),selection,messages:structuredClone(messages),messagesHash:sha(canonical(messages)),source,sourceHash:sha(canonical(source)),story,lease:op.leases.find(l=>l.stageId===stage.stageId),status:'pending',output:null,...(candidate?{candidate:structuredClone(candidate)}:{})};
   op.tasks.push(task);await save(s);
-  let result;try{result=await transport.execute(task,controller.signal,action=>guard(s,op,action));}catch{
+  let result;try{result=await transport.execute(task,controller.signal,action=>guard(s,op,action,true));}catch{
    task.status='unknown';throw fail('MEMORY_TASK_RESULT_UNKNOWN');
   }
   task.output=structuredClone(result);
@@ -111,6 +111,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
    }
    if(Object.keys(q.operations).length>=10000)throw fail('MEMORY_OPERATION_LIMIT');
    const op={sessionId:id,input:structuredClone(input),inputHash:sha(canonical(input)),kind:kind==='regenerate'?'update':kind,authorization:a,policyRevision:policy.revision,plan,reusedOverflow,status:'pending',tasks:[],leases:[],skipped:[],blockedPurpose:null,cancelRequested:false,error:null};
+   if(transport.freeze)op.generation=await transport.freeze(s,input,plan.map(p=>p.purpose));
    q.operations[input.operationId]=op;await save(s);const controller=new AbortController();store.running.set(id,controller);let preserveDisk=false;
    try{
     if(plan.length){op.leases=await transport.budget.reserve(reservationId(id,input.operationId),id,plan);await save(s);}

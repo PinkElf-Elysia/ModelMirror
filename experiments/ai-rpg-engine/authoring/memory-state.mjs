@@ -1,3 +1,4 @@
+import {taskModelChoice} from './chat-parameters.mjs';
 import {validateControlledReceipt} from './controlled-receipt.mjs';
 import {originVersion} from './branch-origin.mjs';
 import {canonical, parseJson, keys, isId, isHash, sha256, fail, LIMITS} from './contracts.mjs';
@@ -102,7 +103,7 @@ export function inspectMemoryResult(request,receipt){
 }
 function checkedCandidate(c){keys(c,['request','receipt','status','reason','operations']);if(!same(c,inspectMemoryResult(c.request,c.receipt)))fail('MEMORY_CANDIDATE_INVALID');return c;}
 function expectedTask(session,state,task,through=session.turns.length){
- const selected=modelChoiceAt(session.models,task.modelRevision,'memory');
+ const selected=taskModelChoice(session,task.modelRevision,'memory',task.operationId);
  if(!selected||!same(selected,task.modelChoice)||task.sessionRevision>session.revision||session.models.changes.slice(0,task.modelRevision).some(c=>c.intent.expectedRevision>=task.sessionRevision))fail('MEMORY_MODEL_MISMATCH');
  return identified(taskBody(session,state,{operationId:task.operationId,sessionRevision:task.sessionRevision,modelRevision:task.modelRevision,modelChoice:selected,authorization:task.authorization},sourceFor(session,state,through),task.format));
 }
@@ -156,7 +157,7 @@ export function createMemoryTask(session,state,input,format=MEMORY_TASK_FORMAT){
  operationAvailable(session,input.operationId);if(state.versions.some(v=>v.operationId===input.operationId))fail('MEMORY_OPERATION_COLLISION');
  const source=sourceFor(session,state);if(!source.turns.length)return {kind:'no-update',source};
  if(requireLibrary(state.entries).full)fail('MEMORY_CAPACITY_FULL');
- const modelChoice=session.models.current.memory;if(!modelChoice)fail('MEMORY_MODEL_REQUIRED');
+ const modelChoice=taskModelChoice(session,session.models.revision,'memory',input.operationId);if(!modelChoice)fail('MEMORY_MODEL_REQUIRED');
  return identified(taskBody(session,state,{operationId:input.operationId,sessionRevision:session.revision,modelRevision:session.models.revision,modelChoice,authorization:input.authorization},source,format));
 }
 export function commitMemoryUpdate(session,state,input){
@@ -168,7 +169,7 @@ export function commitMemoryUpdate(session,state,input){
  if(!authorization.enabled||!same(authorization,task.authorization))fail('MEMORY_AUTHORIZATION_CHANGED');
  if(task.memoryRevision!==state.revision)fail('MEMORY_REVISION_CONFLICT');
  if(!same(task,expectedTask(session,state,task)))fail('MEMORY_SOURCE_CHANGED');
- if(!same(session.models.current.memory,task.modelChoice)||session.models.changes.slice(task.modelRevision).some(c=>c.intent.purpose==='memory'))fail('MEMORY_MODEL_CHANGED');
+ if(!same(taskModelChoice(session,session.models.revision,'memory',task.operationId),task.modelChoice)||session.models.changes.slice(task.modelRevision).some(c=>c.intent.purpose==='memory'))fail('MEMORY_MODEL_CHANGED');
  const entries=proposedEntries(state,candidate);
  return append(state,entries,{kind:'model',operationId:task.operationId,previousVersionId:state.versions.at(-1)?.id??null,processedThrough:task.source.through,sourceHash:task.source.rawHash,entriesHash:digest(entries),result:clone(candidate),edit:null});
 }

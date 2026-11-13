@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>生成工作室 · RPG P0</title>
+<link rel="stylesheet" href="prototype.css">
+<script type="module" src="prototype.mjs"></script>
+</head>
+<body>
+<header class="labbar">
+  <span class="prototype-label"><span class="status-dot"></span>P0 交互原型 <span class="quiet">· 无模型调用</span></span>
+  <nav class="mode-tabs" aria-label="使用场景">
+    <button data-action="mode" data-mode="creator" aria-pressed="true">创作工作台</button>
+    <button data-action="mode" data-mode="chat" aria-pressed="false">卡片聊天</button>
+  </nav>
+  <details class="lab-options">
+    <summary>验收情景</summary>
+    <div class="lab-popover">
+      <label>候选结果<select id="scenario"><option value="success">全部完成</option><option value="partial">部分失败</option><option value="unknown">结果待核对</option><option value="adoption">采用结果待核对</option><option value="budget">额度不足</option></select></label>
+      <label><input id="m2" type="checkbox"> 启用 M2（演示）</label>
+      <label><input id="m3" type="checkbox" checked> 启用 M3（演示）</label>
+      <label><input id="backfill" type="checkbox"> M2 需要发送前补齐</label>
+      <button data-action="reset" class="text-button">重置本页示例</button>
+      <p>模型能力、正文和进度均为固定样例。不会连接控制面。</p>
+    </div>
+  </details>
+</header>
+<div id="app"></div>
+<div id="overlays"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

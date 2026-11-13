@@ -23,11 +23,11 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
  const active=new Map();
  async function save(s){s.summaryTasks=sealTasks(s.summaryTasks);await store.write(s);}
  async function auth(s){return {summary:await plugins.summaryAuthorization(s.id),history:await plugins.historyAuthorization(s.id)};}
- async function guard(s,operation,action){
+ async function guard(s,operation,action,dispatch=false){
   return plugins.guardSummaryTask(s.id,operation.authorization.summary.revision,async a=>{
    if((await plugins.historyAuthorization(s.id)).revision!==operation.authorization.history.revision)throw fail('HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH');
    await store.requireRuntime(await store.read(s.id));return action(a);
-  });
+  },dispatch&&transport.parameterFence?await transport.parameterFence(s,operation):null);
  }
  async function choose(choice,sessionId){
   const list=await transport.catalog({sessionId});const found=list.find(m=>m.available&&m.model===choice.model&&(choice.kind==='fixed'||m.selectionId===choice.selectionId&&m.selectionRevision===choice.selectionRevision));
@@ -55,20 +55,20 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
   if(controller.signal.aborted)throw fail('CANCELLED_BEFORE_DISPATCH');
   const source=purpose==='story'?null:summaryUpdateSource(s);
   if(purpose==='compression'&&canonical(candidate?.source)!==canonical(source))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
-  const selection=await choose(purpose!=='story'?requireSummaryState(s).config.model:s.modelState.current,s.id);
+  const selection=transport.selectFrozen?await transport.selectFrozen(operation,purpose):await choose(purpose!=='story'?requireSummaryState(s).config.model:s.modelState.current,s.id);
   const story=purpose==='story'?await buildStory(s,operation.input.input,effectiveContextPolicy(s,operation.authorization.summary,operation.authorization.history)):null;
   const messages=purpose==='compression'?compressionMessages(compressionEvidence(candidate).raw):purpose==='summary'?summaryMessages(source):story.messages;
   if(candidate&&canonical(candidate.selection)!==canonical(selection))throw fail('SUMMARY_COMPRESSION_SOURCE_CHANGED');
   const task={purpose,sessionId:s.id,requestId:taskId(s.id,operation.input.operationId,purpose),selection,messages:structuredClone(messages),messagesHash:sha(canonical(messages)),source,story,lease,status:'pending',output:null,...(candidate?{candidate:structuredClone(candidate)}:{})};
   operation.tasks.push(task);await save(s);
-  const result=await transport.execute(task,controller.signal,action=>guard(s,operation,action));
+  const result=await transport.execute(task,controller.signal,action=>guard(s,operation,action,true));
   task.output=structuredClone(result);
   if(controller.signal.aborted){task.status='cancelled';throw fail('CANCELLED');}
   try{await finishTask(s,operation,task,result);}catch(e){
    if(task.status==='pending')task.status=['SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH'].includes(e.code)?'revoked':e.code==='SUMMARY_TASK_RECEIPT_INVALID'?'unknown':'failed';throw e;
   }
  }
- async function work(id,input,kind,admission=input){
+ async function work(id,input,kind,admission=input,inheritedGeneration=null){
   return store.exclusive(id,async()=>{
    const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s,cardState?.validateModel),prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
    if(prior){if(prior.inputHash!==sha(canonical(input)))throw fail('SUMMARY_TASK_OPERATION_COLLISION');return {...structuredClone(prior),replayed:true};}
@@ -83,6 +83,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
    const reused=needs&&kind!=='send'?reusableOverflow(s,state,summaryUpdateSource(s)):null;
    const purposes=kind==='send'?[...(needs?['summary','compression']:[]),'story']:needs?(reused?['compression']:['summary','compression']):[];
    const operation={input:structuredClone(input),inputHash:sha(canonical(input)),kind,authorization,policyRevision:policy.revision,status:'pending',tasks:[],leases:[],error:null};
+   if(transport.freeze)operation.generation=inheritedGeneration?structuredClone(inheritedGeneration):await transport.freeze(s,input,[...purposes,...(kind==='send'&&authorization.summary.enabled?['summary','compression']:[])]);
    s.summaryTasks={...state,operations:{...state.operations,[input.operationId]:operation}};await save(s);
    const controller=new AbortController();store.running.set(id,controller);
    try{
@@ -109,7 +110,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
   const keys=['operationId','expectedSessionRevision','expectedContextPolicyRevision',...(send?['input']:[])];
   if(!exact(input,keys)||!operationId(input.operationId)||!revision(input.expectedSessionRevision)||typeof input.expectedContextPolicyRevision!=='string'||! /^[a-f0-9]{64}$/.test(input.expectedContextPolicyRevision)||(send&&(typeof input.input!=='string'||!input.input.trim()||input.input.length>20000)))throw fail('SUMMARY_TASK_INPUT_INVALID',400);
  }
- function launch(id,input,kind,admission=input){const promise=work(id,input,kind,admission);active.set(id,{kind,promise});promise.finally(()=>{if(active.get(id)?.promise===promise)active.delete(id);}).catch(()=>{});return promise;}
+ function launch(id,input,kind,admission=input,generation=null){const promise=work(id,input,kind,admission,generation);active.set(id,{kind,promise});promise.finally(()=>{if(active.get(id)?.promise===promise)active.delete(id);}).catch(()=>{});return promise;}
  const coordinator={
   async send(id,input){
    validate(input,true);input=structuredClone(input);if(!buildStory||!commitStory)throw fail('SUMMARY_ASSEMBLY_NOT_CONNECTED');
@@ -126,7 +127,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
     const s=await store.read(id),a=await auth(s);
     if(a.summary.enabled&&s.rollingSummary.config.timing==='after'&&summaryUpdateSource(s).needsUpdate){
      const policy=effectiveContextPolicy(s,a.summary,a.history),next={operationId:taskId(id,input.operationId,'background'),expectedSessionRevision:s.revision,expectedContextPolicyRevision:policy.revision};
-     launch(id,next,'background').catch(()=>{});
+     launch(id,next,'background',next,op.generation||null).catch(()=>{});
     }
    }
    return op;

@@ -31,7 +31,8 @@ test('only catalog revision drift of the same verified God runtime is accepted',
   const old=await createGodRealProfile(selection),current=await createGodRealProfile({...selection,selectionRevision:'new'});
   const store={status:current.status};preserveCatalogRevision(store,current.initialSelection(),godRealPolicy);
   const s={mode:'real',cardId:'god',characterText:'fixture',params:{},world:'fixture'};s.runtime=old.bind(s);
-  assert.equal(current.status(s).code,'RUNTIME_VERSION_MISMATCH');
+  // Current profile already admits the exact same route after catalog refresh.
+  assert.deepEqual(current.status(s),{compatible:true,code:null,hash:s.runtime.hash});
   const before=JSON.stringify(s);assert.deepEqual(store.status(s),{compatible:true,code:null,hash:s.runtime.hash});assert.equal(JSON.stringify(s),before);
   for(const mutate of [v=>v.runtime.descriptor.release='changed',v=>v.runtime.descriptor.models[0].parameters.temperature=0,v=>v.runtime.descriptor.models[0]=godRealPolicy.controlledChoice({...selection,selectionId:'other'})]){
     const v=structuredClone(s);mutate(v);v.runtime.hash=sha(canonical(v.runtime.descriptor));assert.equal(store.status(v).compatible,false);

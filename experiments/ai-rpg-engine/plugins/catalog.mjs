@@ -1,3 +1,4 @@
+import {invoke as comparisonInvoke} from './model-comparison.mjs';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {invoke as illustrationInvoke} from './illustrations.mjs';
@@ -8,6 +9,7 @@ import {invoke as modelInvoke} from './model-selector.mjs';
 import {invoke as historyInvoke} from './history-window.mjs';
 import {invoke as summaryInvoke} from './rolling-summary.mjs';
 import {invoke as memoryInvoke} from './memory-palace.mjs';
+import {invoke as parameterInvoke} from './generation-parameters.mjs';
 
 export const PLUGIN_ID = 'rpg.branch-save'; // Compatibility default for existing branch callers.
 export const MODEL_SELECTOR_ID = 'rpg.model-selector';
@@ -17,7 +19,12 @@ export const MEMORY_PALACE_ID = 'rpg.memory-palace';
 export const ILLUSTRATIONS_ID='rpg.illustrations';
 export const TRANSCRIPT_ID = 'rpg.transcript';
 export const MESSAGE_TOOLS_ID = 'rpg.message-tools';
+export const MODEL_COMPARISON_ID='rpg.model-comparison';
+export const GENERATION_PARAMETERS_ID = 'rpg.generation-parameters';
 export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID, MEMORY_PALACE_ID, MESSAGE_TOOLS_ID, TRANSCRIPT_ID, ILLUSTRATIONS_ID]);
+// Preserve the legacy advertised list: hosts must opt in only after wiring
+// parameter persistence and dispatch. Registry recognition is not compatibility.
+export const KNOWN_PLUGIN_IDS = Object.freeze([...REVIEWED_PLUGIN_IDS, GENERATION_PARAMETERS_ID, MODEL_COMPARISON_ID]);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -28,6 +35,11 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  [MODEL_COMPARISON_ID,{file:'model-comparison',invoke:comparisonInvoke,compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],permissions:['session.comparison.generate','ui.contribute'],capabilities:['ui.comparison-action','session.comparison.generate']}],
+  [GENERATION_PARAMETERS_ID, {file:'generation-parameters', invoke:parameterInvoke,
+    compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],
+    permissions:['model.parameters.read','session.parameters.configure','ui.contribute'],
+    capabilities:['ui.parameters-action','model.parameters.read','session.parameters.configure']}],
   [ILLUSTRATIONS_ID, {file:'illustrations', version:'1.1.0', invoke:illustrationInvoke,
     permissions:['session.completed.read','session.illustration.generate','session.illustration.rewrite','ui.contribute'],
     capabilities:['session.illustration.generate','session.illustration.rewrite']}],
@@ -69,7 +81,7 @@ export function verifyPackage(manifestBytes, artifactBytes) {
   if (!d || canonical(Object.keys(m).sort()) !== canonical(keys.slice().sort()) ||
       m.format !== 'modelmirror.rpg.reviewed-plugin' || m.formatVersion !== '1.0.0' ||
       m.version !== (d.version || '1.0.0') || m.hostVersion !== HOST_VERSION ||
-      canonical(m.compatibleCards) !== canonical([MESSAGE_TOOLS_ID,TRANSCRIPT_ID,ILLUSTRATIONS_ID].includes(m.id) ? ['earth','god'] : ['earth']) || canonical(m.permissions) !== canonical(d.permissions) ||
+      canonical(m.compatibleCards) !== canonical(d.compatibleCards ?? ([MESSAGE_TOOLS_ID,TRANSCRIPT_ID,ILLUSTRATIONS_ID].includes(m.id) ? ['earth','god'] : ['earth'])) || canonical(m.permissions) !== canonical(d.permissions) ||
       canonical(m.capabilities) !== canonical(d.capabilities) || m.network !== 'none' || m.modelAccess !== false || m.dataRetention !== 'retain' ||
       ['name','description','source','license'].some(k => typeof m[k] !== 'string' || !m[k].trim())) throw fail('PLUGIN_MANIFEST_INVALID');
   if (m.artifactSha256 !== sha(artifactBytes)) throw fail('PLUGIN_ARTIFACT_MISMATCH');
@@ -84,8 +96,9 @@ export async function loadReviewedCatalog(pluginId = PLUGIN_ID) {
   return {...entry, invoke:d.invoke};
 }
 // M2/M3 are advertised only by explicitly opted-in hosts, never legacy entrypoints.
-export async function loadReviewedPlugins({rollingSummary=false,memoryPalace=false,messageTools=false}={}) {
-  return Promise.all(REVIEWED_PLUGIN_IDS.filter(id=>id!==ILLUSTRATIONS_ID&&id!==TRANSCRIPT_ID&&(messageTools||id!==MESSAGE_TOOLS_ID)&&(rollingSummary||id!==ROLLING_SUMMARY_ID)&&(memoryPalace||id!==MEMORY_PALACE_ID)).map(async id => {
+export async function loadReviewedPlugins({rollingSummary=false,memoryPalace=false,messageTools=false,generationParameters=false,modelComparison=false}={}) {
+  const advertised=[...REVIEWED_PLUGIN_IDS,...(generationParameters?[GENERATION_PARAMETERS_ID]:[]),...(modelComparison?[MODEL_COMPARISON_ID]:[])];
+  return Promise.all(advertised.filter(id=>id!==ILLUSTRATIONS_ID&&id!==TRANSCRIPT_ID&&(messageTools||id!==MESSAGE_TOOLS_ID)&&(rollingSummary||id!==ROLLING_SUMMARY_ID)&&(memoryPalace||id!==MEMORY_PALACE_ID)).map(async id => {
     try {return await loadReviewedCatalog(id);} catch(e) {
       return {id,error:e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_PACKAGE_UNAVAILABLE'};
     }

@@ -58,7 +58,7 @@ const rejects=async(f,path,body,code)=>{const r=await f.req(path,body);assert.eq
 
 test('joint routes default off; no server modules or legacy session route exposed',async t=>{
  const directory=await mkdtemp(join(root,'off-')),server=await startAuthoringServer({directory});t.after(()=>server.close());
- assert.deepEqual(await(await fetch(server.origin+base+jp)).json(),{enabled:false,realProvider:false});
+ assert.deepEqual(await(await fetch(server.origin+base+jp)).json(),{enabled:false,realProvider:false,comparison:false});
  for(const p of [base+jp+'/sessions/'+id,'/joint-session.mjs','/joint-budget.mjs'])assert.equal((await fetch(server.origin+p)).status,404);
  const f=await fixture(t);assert.equal((await f.req('/sessions/'+id)).status,404);assert.equal((await f.req('/history-settings')).value.enabled,false);
 });

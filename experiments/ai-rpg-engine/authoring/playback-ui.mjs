@@ -3,6 +3,13 @@ import {createSpecialCGGallery} from './special-cg-ui.mjs';
 import {mountChatBGM} from './chat-bgm.mjs';
 const endpoint='/joint/playback';
 export const playbackPollDelay=view=>view?.busy?2500:null;
+export function playbackSessionNotice(view){
+ if(view?.busy)return '剧情已保存，后台整理中。';
+ if(!view?.pending)return '';
+ const pending=view.session?.runs?.filter(r=>['prepared','running','unknown'].includes(r.state))??[];
+ if(pending.length&&pending.every(r=>r.comparison))return '本轮对比仍在收束，请在对比面板查看进度。';
+ return '有请求结果待核对，请使用上方“恢复原操作”。';
+}
 const sessionKey=workId=>'modelmirror.authoring.model-session/'+workId;
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const problem=e=>({TURN_DISPLAY_PREVIOUS_REQUIRED:'请先回到前一回合恢复展示，再核对本轮。',TURN_DISPLAY_PENDING:'这轮展示尚未收束。原始剧情已保存，可恢复本轮展示。',TURN_DISPLAY_MISSING:'这轮展示尚未建立。原始剧情已保存，可恢复本轮展示。',OFFLINE_REVISION_CONFLICT:'会话已更新，请刷新状态后再恢复展示。',AUTHORING_PRESENTATION_CAPACITY:'展示缓存已满。可关闭其他预览后重新加载显示。',AUTHORING_CG_OUTPUT_CAPACITY:'本轮 CG 超出展示容量，未应用部分图片。完整剧情已保留。',PLAYBACK_SESSION_REFERENCE_INVALID:'浏览器中的会话引用无法读取，请在模型设置中重新选择。',TURN_DISPLAY_SOURCE_CONFLICT:'展示记录与原回合不一致，请保留记录并核对。'}[e?.code]||'展示暂未完成，原始剧情和输入已保留。请刷新状态或查看诊断。');
@@ -103,7 +110,7 @@ export function createPlaybackPanel({api,getWork,setInput,notice,activate}){
    if(id!==sessionId){sessionId=id;selected=0;follow=true;currentKey=null;manager.clear();}
    view=next;const turns=view.session.turns;
    if(follow||selected<1)selected=turns.length;selected=Math.min(selected,turns.length);navigation();
-   const sessionMessage=view.busy?'剧情已保存，后台整理中。':view.pending?'有请求结果待核对，请使用上方“恢复原操作”。':'';
+   const sessionMessage=playbackSessionNotice(view);
    if(!turns.length){setStatus(sessionMessage);empty(view.busy?'正在等待第一份完整剧情。':'填写开局并发送，开始这段故事。');return;}
    const turn=turns[selected-1];prepareTurn(turn);
    const status=await api(endpoint+'/status/'+sessionId+'/'+selected);

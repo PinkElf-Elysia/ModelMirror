@@ -112,3 +112,10 @@ it('does not show filtered source when the host intentionally returns an empty d
  const {container}=render(<SavedOutput raw="<think>private block</think>" html=""/>);
  expect(container).not.toHaveTextContent('private block');
 });
+
+it('presents legacy summary semantics from the session host without claiming summary v2',()=>{
+ render(<SessionPlugins market="/rpg/plugins" change={vi.fn()} open={vi.fn()} rows={[{id:'rpg.rolling-summary',name:'自动总结',enabled:true,installed:true,known:true,supported:true,locked:false,presentation:{name:'自动总结',description:'整理较早的剧情',cost:'按摘要策略计费',detail:'当前会话策略'}}]}/>);
+ expect(screen.getByRole('article',{name:'自动总结'})).toBeVisible();
+ expect(screen.queryByText('自动总结 2.0')).not.toBeInTheDocument();
+ expect(screen.getByText('按摘要策略计费',{exact:false})).toBeVisible();
+});

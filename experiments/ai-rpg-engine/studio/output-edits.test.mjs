@@ -173,11 +173,11 @@ test('main v2 chat uses edited sources for explicit small-summary rebuild and pr
 test('exact committed main runtime descriptors remain compatible without admitting prompt or setup drift',async()=>{
  const baseline=JSON.parse(await readFile(new URL('./output-edit-main-baseline.json',import.meta.url)));
  const imports=[['./runtime-binding.mjs','earthRuntime'],['./model-runtime.mjs','modelRuntime'],['./history-runtime.mjs','historyRuntime'],['./summary-runtime.mjs','summaryRuntime'],['./memory-runtime.mjs','memoryRuntime']];
- for(const [i,[path,name]] of imports.entries()){
+ for(const version of [baseline,...(baseline.additional||[])])for(const [i,[path,name]] of imports.entries()){
   const runtime=(await import(path))[name];
   const store={status:s=>s.runtime.hash!==sha(canonical(s.runtime.descriptor))||s.runtime.setupHash!=='frozen-setup'?{compatible:false,code:'RUNTIME_BINDING_INVALID'}:s.runtime.hash===runtime.hash?{compatible:true}:{compatible:false,code:'RUNTIME_VERSION_MISMATCH'}};
   preserveOutputEditRuntime(store);
-  const s={runtime:{...structuredClone(baseline.runtimes[i]),setupHash:'frozen-setup'}};
+  const s={runtime:{...structuredClone(version.runtimes[i]),setupHash:'frozen-setup'}};
   assert.equal(store.status(s).compatible,true,name);
   const changed=structuredClone(s),author=changed.runtime.descriptor.author||changed.runtime.descriptor.content.author;author.system='tampered';changed.runtime.hash=sha(canonical(changed.runtime.descriptor));
   assert.equal(store.status(changed).compatible,false,name+' prompt drift');

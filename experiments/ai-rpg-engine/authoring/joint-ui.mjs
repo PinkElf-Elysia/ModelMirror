@@ -1,3 +1,4 @@
+import {mountComparison} from './comparison-ui.mjs';
 import {attachSessionPanel} from './browser.mjs';
 import {memoryRejectionMessage,createJointClient,jointTaskIntent,pluginIntent,memoryEditIntent,branchIntent,requirementsEditIntent,storyProblem} from './joint-client.mjs';
 import {sessionPolicyText} from './session-client.mjs';
@@ -40,6 +41,11 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  const panel=document.createElement('section');panel.className='runtime-panel joint-panel';panel.setAttribute('aria-label','会话调试');document.querySelector('.preview-tabs').before(panel);
  const send=document.createElement('button');send.type='button';send.className='primary runtime-send';send.textContent=sendLabel;document.querySelector('.composer footer').append(send);
  const input=document.querySelector('#player-input');let workId=null,client=null,view=null,settings=null,busy=false,error=null,dialog=null,mode=null,estimate=null,sendBody=null,timer=null,estimateTimer=null,generation=0,quoteGeneration=0,retry=null,returnFocus=null,branchTurn=1,requirementsDraft=null,requirementsBase=null,requirementsOpen=false,reading=false,requirementsSessionId=null;
+ const comparisonRoot=document.createElement('div');document.querySelector('.composer footer').before(comparisonRoot);let comparison=null,comparisonSession=null,comparisonBlocked=false,comparisonAvailable=false;
+ api('/joint').then(r=>{comparisonAvailable=!!r.comparison;syncComparison();}).catch(()=>{});
+ function syncComparison(){const id=view?.session.id;if(id===comparisonSession)return;comparison?.dispose();comparison=null;comparisonSession=null;comparisonBlocked=false;if(!id||!comparisonAvailable)return;comparisonSession=id;
+  const base='/joint/comparisons/'+id;comparison=mountComparison(comparisonRoot,{api,base,sessionId:id,getInput,setInput,creator:true,onBlocked:value=>{if(comparisonBlocked===value)return;comparisonBlocked=value;render();if(!value)void quote();},onChange:async batch=>{const count=view?.session.turns.length??0;await refresh();if(view?.session.id!==id)return;const detail={workId,sessionId:id};if(view.session.turns.length>count)window.dispatchEvent(new CustomEvent('authoring-turn-saved',{detail}));else if(batch.status==='settled')window.dispatchEvent(new CustomEvent('authoring-session-changed',{detail}));},prepare:(b,c)=>api(base+'/'+b.plan.id+'/preview/'+c),release:token=>api('/presentations/release',{token})});
+ }
  const requirementsDrafts=new Map();
  function selectRequirements(id){
   if(id===requirementsSessionId)return;
@@ -50,7 +56,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  const current=()=>workId===getWork()?.id;
  function pending(){return client?.pending()||[];}
  function blocked(){try{return !!pending().length||!!pendingModelOperation(localStorage,workId);}catch(e){error={text:errorText(e),code:e.code};return true;}}
- const ready=()=>view&&!reading&&!busy&&!view.busy&&!view.pending&&!blocked()&&!settings?.unconfirmed;
+ const ready=()=>view&&!comparisonBlocked&&!reading&&!busy&&!view.busy&&!view.pending&&!blocked()&&!settings?.unconfirmed;
  function issue(e){error={text:errorText(e),code:e?.code||'NETWORK_RESULT_UNKNOWN'};render();
   if(mode==='edit'&&dialog?.open)dialog.querySelector('[data-validation]').textContent=error.text;
  }
@@ -62,7 +68,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
   if(!id){selectRequirements(null);client=null;view=null;settings=null;render();return;}
   const candidate=createJointClient({api,storage:localStorage,sessionId:id,workId});
   reading=true;render();let v,s;try{[v,s]=await Promise.all([candidate.view(),api('/joint/settings/'+id)]);}finally{if(gen===generation)reading=false;}
-  if(gen!==generation||getWork()?.id!==w.id)return;selectRequirements(v.session.id);client=candidate;view=v;settings=s;render();
+  if(gen!==generation||getWork()?.id!==w.id)return;selectRequirements(v.session.id);client=candidate;view=v;settings=s;syncComparison();render();
   if(view.busy)timer=setTimeout(()=>refresh().catch(issue),1000);else quote();
  }
  async function quote(kind='send'){
@@ -77,11 +83,12 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
   panel.innerHTML='<div class="runtime-heading"><strong>会话调试</strong><span class="runtime-mode">'+(controlled?'受控模型调试':'离线演练')+'</span><button type="button" data-refresh aria-label="刷新会话状态">刷新</button></div>';
   if(!view){panel.insertAdjacentHTML('beforeend','<p>'+(reading?'正在读取已保存的会话…':'选择作品版本和剧情模型后，即可开始。')+'</p><button type="button" data-models>配置模型与会话</button>');panel.querySelector('[data-models]').onclick=()=>openModels();}
   else{
-   document.querySelector('#model-button').textContent=view.session.models.current.story?.entry.name||'添加模型';
+   document.querySelector('#model-button').textContent=controlled?'模型与参数':view.session.models.current.story?.entry.name||'添加模型';
    panel.insertAdjacentHTML('beforeend','<div class="runtime-overview"><span>'+esc(sessionPolicyText(view))+(view.effectivePolicy.authorization.memory.enabled?' · 关键词记忆':'')+'</span><span>'+view.session.turns.length+' 回合</span></div><div class="runtime-actions runtime-primary-actions"><button type="button" data-plugins>会话插件</button><button type="button" data-memory>记忆条目</button><button type="button" data-records>对话与记录</button>'+(!view.session.turns.length?'<button type="button" data-opening>填入本会话开局</button>':'')+'</div><p class="joint-budget">本地额度剩余 '+view.budget.remaining+' 次'+(view.budget.reserved?' · 正在预留 '+view.budget.reserved+' 次':'')+(estimate?' · 本次最多 '+estimate.plan.maximumCalls+' 次':'')+'</p>');
    panel.querySelector('[data-plugins]').onclick=()=>open('plugins');panel.querySelector('[data-memory]').onclick=()=>open('memory');panel.querySelector('[data-records]').onclick=()=>open('records');
    const opening=panel.querySelector('[data-opening]');if(opening)opening.onclick=()=>{setInput(view.session.binding.openingText);input.focus();quote();};
-   if(view.busy)panel.insertAdjacentHTML('beforeend','<p role="status">正在处理，已完成的剧情会先保存…</p>');
+   if(comparisonBlocked&&!local&&!settings?.unconfirmed)panel.insertAdjacentHTML('beforeend','<p role="status">请在本轮对比中选择回复或核对进度。</p>');
+   else if(view.busy)panel.insertAdjacentHTML('beforeend','<p role="status">正在处理，已完成的剧情会先保存…</p>');
    else if(view.pending||local||settings?.unconfirmed)panel.insertAdjacentHTML('beforeend','<p class="runtime-warning">有结果待核对，不会自动重发。</p><button type="button" data-recover>恢复原操作</button>');
    else if(view.pauseReason){
     const detail=view.pauseReason==='MEMORY_UPDATE_FAILED'?memoryRejectionMessage(view.session.memory.jobs.at(-1)):null;
@@ -219,6 +226,6 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  input.addEventListener('input',()=>{clearTimeout(estimateTimer);estimate=null;sendBody=null;render();estimateTimer=setTimeout(()=>quote(),250);});
  document.addEventListener('close',e=>{if(e.target.matches('.model-settings-dialog'))refresh().catch(issue);},true);
  window.addEventListener('storage',e=>{if(e.key?.startsWith('modelmirror.authoring.'))refresh().catch(issue);});window.addEventListener('pagehide',()=>{clearTimeout(timer);clearTimeout(estimateTimer);});
- return {initialize(){refresh().catch(issue);},workChanged(){generation++;quoteGeneration++;selectRequirements(null);reading=false;close();view=null;settings=null;client=null;error=null;retry=null;workId=getWork()?.id||null;refresh().catch(issue);}};
+ return {initialize(){refresh().catch(issue);},workChanged(){comparison?.dispose();comparison=null;comparisonSession=null;comparisonBlocked=false;generation++;quoteGeneration++;selectRequirements(null);reading=false;close();view=null;settings=null;client=null;error=null;retry=null;workId=getWork()?.id||null;refresh().catch(issue);}};
 }
 attachSessionPanel(install);

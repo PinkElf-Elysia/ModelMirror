@@ -317,5 +317,328 @@
         "memoryWrapperHash": "acee2f664a82cba6c6c207428942d830f674b6bbe7356ec9bdaea9e6d4f4577a"
       }
     }
+  ],
+  "additional": [
+    {
+      "commit": "d51c5991",
+      "runtimes": [
+        {
+          "hash": "c8d905effd7d3752e429a40749eae7a3b4fdc73941226420825296fcd7259c0c",
+          "descriptor": {
+            "format": 1,
+            "cardId": "earth",
+            "artifacts": {
+              "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+              "card-replica/src/main.tsx": "afc62ec2eccad5735d1a1d1b19ff39f5a6bf4c7255b89d1e47857c9332965389",
+              "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+              "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+              "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+              "studio/branch-archive.mjs": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b",
+              "studio/runtime-binding.mjs": "ab90568f3825373888f66b0757990507fe9680fde6a1db25d595fd85f3c59b40"
+            },
+            "author": {
+              "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+              "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+              "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+              "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+            },
+            "model": {
+              "title": "地球 OL · 人生模拟器",
+              "model": "google/gemini-3.8-flash",
+              "provider": "Google AI Studio",
+              "transport": "openrouter",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "unsupported": [
+                "top_k",
+                "presence_penalty",
+                "frequency_penalty",
+                "thinking_budget"
+              ],
+              "contextPolicy": "retain-all",
+              "worldbook": "disabled-missing-author-metadata",
+              "providerSlug": "google-ai-studio"
+            },
+            "worldbook": "disabled-missing-author-metadata",
+            "historyPolicy": "complete-raw-history"
+          }
+        },
+        {
+          "hash": "b53021718dc0354715cee0bba8138a95586c8d88ea08d3660cd46cac6442b48b",
+          "descriptor": {
+            "format": 2,
+            "cardId": "earth",
+            "content": {
+              "author": {
+                "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+                "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+                "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+                "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+              },
+              "cardArtifacts": {
+                "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+                "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+                "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+                "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+              },
+              "worldbook": "disabled-missing-author-metadata"
+            },
+            "hostArtifacts": {
+              "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+              "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+              "studio/model-runtime.mjs": "f9c48f349527caa42952fe452996214fa333db09ab90e2b2ff01e90a043338ba",
+              "studio/model-session-store.mjs": "971ab21ae87206e622bca075b3fa358b5c173e458a564ac2ca7aa60d7877b56e",
+              "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+              "studio/controlled-provider.mjs": "d9134cf76066b6b3b424ae840d5e57b1db17420beb6ef605dea9f2b59025bf8a",
+              "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+              "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+              "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+              "studio/branch-archive.mjs": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b",
+              "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+            },
+            "historyPolicy": "complete-raw-history",
+            "modelPolicy": "core-persisted-selection-v1"
+          }
+        },
+        {
+          "hash": "685ddd67ce584db29bdb92894fddaeac316f8c5baaabf9276b1e2547f832ca4e",
+          "descriptor": {
+            "format": 3,
+            "cardId": "earth",
+            "content": {
+              "author": {
+                "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+                "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+                "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+                "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+              },
+              "cardArtifacts": {
+                "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+                "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+                "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+                "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+              },
+              "worldbook": "disabled-missing-author-metadata"
+            },
+            "hostArtifacts": {
+              "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+              "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+              "studio/model-runtime.mjs": "f9c48f349527caa42952fe452996214fa333db09ab90e2b2ff01e90a043338ba",
+              "studio/model-session-store.mjs": "971ab21ae87206e622bca075b3fa358b5c173e458a564ac2ca7aa60d7877b56e",
+              "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+              "studio/controlled-provider.mjs": "d9134cf76066b6b3b424ae840d5e57b1db17420beb6ef605dea9f2b59025bf8a",
+              "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+              "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+              "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+              "studio/branch-archive.mjs": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b",
+              "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+              "studio/history-provider.mjs": "2af5ae26583c806220c1c5bae11e40ed405ff2f3a47fb221708b1b219762799f",
+              "studio/server.mjs": "31d2630948fd124cb23e4a4b0718f3d7824546cce546d77cd6ae7f191528ffe0",
+              "studio/history-dispatch.mjs": "6c8a2c4fff5fd22841be952685dcf893c69ce26a8010493f3984867b3839a53a",
+              "studio/history-branch-archive.mjs": "14d8c46d520cbe77eab558572bb1a007b31c535a6932ba09296f0fa7df4b3c60",
+              "plugins/history-window.mjs": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868",
+              "plugins/history-window.manifest.json": "524a2bb00be6a61b236f7a04c242b9d44d3bb1923a87f2bb7b5cc8fd000cf84e",
+              "plugins/catalog.mjs": "8e3912af2c74ca86acb1f97cb5fd5df1f1c856ccdfadc90ea1bc22fb639a8828",
+              "plugins/host.mjs": "6d1f16f389b9a414f1304e090f21b157f8e35f29e125dd39da571dc9fde8b3b8",
+              "studio/history-state.mjs": "18b8d8b67cb62979d3e987a6f48509ddd639604c655098b06e586e7d394fb7d1",
+              "studio/history-runtime.mjs": "815910e1eab47fe1f7b96c3f30786629c2d22940cf0d46a1e8db4a000adaf00e",
+              "studio/history-assembly.mjs": "25c43ddcc2f1e4c1cc60e6b4200c5f6295de3e2e7b5abcc862f3417af12c44c8",
+              "studio/history-session-store.mjs": "70d752fcafa163e6d39d68395709443280c221cc3126e865656f591032d70895",
+              "studio/summary-v2-runtime-compat.mjs": "ba6a841b22528f78215c54c5c3778547d0d4ce8db090fc16cb379af5487bf46f",
+              "studio/free-opening-runtime-compat.mjs": "24a381982958a2146b35ca33c8c82313ef891ac1db24082827c25dd7aeef77a7"
+            },
+            "historyPolicy": "rpg.history-window/1",
+            "modelPolicy": "core-persisted-selection-v1",
+            "baseRuntimeHash": "b53021718dc0354715cee0bba8138a95586c8d88ea08d3660cd46cac6442b48b"
+          }
+        },
+        {
+          "hash": "8859b0e1910046de9f931f569f7225cba1df6270464ff3e2ce907775c181ded5",
+          "descriptor": {
+            "format": 4,
+            "cardId": "earth",
+            "content": {
+              "author": {
+                "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+                "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+                "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+                "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+              },
+              "cardArtifacts": {
+                "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+                "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+                "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+                "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+              },
+              "worldbook": "disabled-missing-author-metadata"
+            },
+            "hostArtifacts": {
+              "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+              "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+              "studio/model-runtime.mjs": "f9c48f349527caa42952fe452996214fa333db09ab90e2b2ff01e90a043338ba",
+              "studio/model-session-store.mjs": "971ab21ae87206e622bca075b3fa358b5c173e458a564ac2ca7aa60d7877b56e",
+              "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+              "studio/controlled-provider.mjs": "d9134cf76066b6b3b424ae840d5e57b1db17420beb6ef605dea9f2b59025bf8a",
+              "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+              "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+              "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+              "studio/branch-archive.mjs": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b",
+              "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+              "studio/history-provider.mjs": "2af5ae26583c806220c1c5bae11e40ed405ff2f3a47fb221708b1b219762799f",
+              "studio/server.mjs": "31d2630948fd124cb23e4a4b0718f3d7824546cce546d77cd6ae7f191528ffe0",
+              "studio/history-dispatch.mjs": "6c8a2c4fff5fd22841be952685dcf893c69ce26a8010493f3984867b3839a53a",
+              "studio/history-branch-archive.mjs": "14d8c46d520cbe77eab558572bb1a007b31c535a6932ba09296f0fa7df4b3c60",
+              "plugins/history-window.mjs": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868",
+              "plugins/history-window.manifest.json": "524a2bb00be6a61b236f7a04c242b9d44d3bb1923a87f2bb7b5cc8fd000cf84e",
+              "plugins/catalog.mjs": "8e3912af2c74ca86acb1f97cb5fd5df1f1c856ccdfadc90ea1bc22fb639a8828",
+              "plugins/host.mjs": "6d1f16f389b9a414f1304e090f21b157f8e35f29e125dd39da571dc9fde8b3b8",
+              "studio/history-state.mjs": "18b8d8b67cb62979d3e987a6f48509ddd639604c655098b06e586e7d394fb7d1",
+              "studio/history-runtime.mjs": "815910e1eab47fe1f7b96c3f30786629c2d22940cf0d46a1e8db4a000adaf00e",
+              "studio/history-assembly.mjs": "25c43ddcc2f1e4c1cc60e6b4200c5f6295de3e2e7b5abcc862f3417af12c44c8",
+              "studio/history-session-store.mjs": "70d752fcafa163e6d39d68395709443280c221cc3126e865656f591032d70895",
+              "studio/summary-v2-runtime-compat.mjs": "ba6a841b22528f78215c54c5c3778547d0d4ce8db090fc16cb379af5487bf46f",
+              "studio/free-opening-runtime-compat.mjs": "24a381982958a2146b35ca33c8c82313ef891ac1db24082827c25dd7aeef77a7",
+              "studio/summary-compression.mjs": "5f88708ff520e365ff15d5830ea196da576474491228bf13345cfa6c1ba3b695",
+              "studio/summary-host.mjs": "7fbe48b4084e8615d4ce929365ed30a2789424a888f5ac07117b5da3ff9f0f88",
+              "studio/summary-http.mjs": "9e1669daaca09c94f662cf0006a699f9820d2964784251e70ef01ffd9441cc66",
+              "studio/summary-assembly.mjs": "279c5f71f23ef5fd66703f3e0d796a61ec32af43d79df4950dcad9b2fad62e93",
+              "studio/summary-branch-archive.mjs": "a57aae0dbbe59244a8c06f2c3c0b3ae058c801db533b7c8fc79e440eab4901e7",
+              "studio/summary-operations.mjs": "b517dff677be8643fe83407627a45f96f2f8868fd56a2cf12ed82cb1ff681f08",
+              "plugins/rolling-summary.mjs": "3fc8f214a25cf2dfa7ed844a2af5ce05a8c2bd6d74f06c6de767dc88bc75784a",
+              "plugins/rolling-summary.manifest.json": "0c92650ba4f6f1548681305a4b8db44142ba2418aa8af595909f22ca78620320",
+              "studio/summary-state.mjs": "3198f0eed48f774f0ae349d2f29013818983f249b7accada2a469b0444cef8f4",
+              "studio/summary-runtime.mjs": "7806a25c18f8f0878374c84cfcda3b41f2fd971a8f1e927db01fd8a1bcea75ca",
+              "studio/summary-session-store.mjs": "fdd21d5bc5877e4003545d29a7b43b0c53d9aea874bc93e6df926fdc7067c853",
+              "studio/summary-tasks.mjs": "8eb82f8860831bab1513fb1ba9dd868b166259ba4405c9bab772ac0cba6bf7e9",
+              "studio/summary-budget.mjs": "abc61772e32bbb991af74695fd117c3f8bdaad50542ea674b7b4e841a1073b70",
+              "studio/summary-task-provider.mjs": "7f2928f5e4abe8cd7fc223c1817e61ba6013347cdba0cb4bb6e25dcf70c255f2",
+              "studio/default-summary-v2.mjs": "2098746629f630883a825e1cd5adfc3f4d207cd6dbd15970863114131b63ccf2",
+              "plugins/auto-summary-v2.mjs": "8e6e9da821f89a478471ec98b6b8c743e021780085c9a21f3c6cc62d80236aad"
+            },
+            "historyPolicy": "rpg.history-window/1",
+            "modelPolicy": "core-persisted-selection-v1",
+            "baseRuntimeHash": "685ddd67ce584db29bdb92894fddaeac316f8c5baaabf9276b1e2547f832ca4e",
+            "contextPolicy": "default:complete-raw-history; actual policy is per-session",
+            "summaryPolicy": "rpg.rolling-summary/1",
+            "summaryCompressionPolicy": "rpg.rolling-summary/overflow-1",
+            "compressionInstructionHash": "24a5130854d167103992a4e6adf9dedd31f99cab1d3e36b4763f39ac0489aad3",
+            "summaryInstructionHash": "5c14bf7dc2deb14c380394f7dc7d2cb7ffbd4dfea2e7b3cf502795f3f80601a8",
+            "summaryWrapperHash": "4c8f7a276aa9173cac9bd808791911359e4788f030d555f20b1bafbd1512009b"
+          }
+        },
+        {
+          "hash": "233feba0289df548574a7f0a6bba203c4f0c33d421eb26dc2d75df9d9da79e41",
+          "descriptor": {
+            "format": 5,
+            "cardId": "earth",
+            "content": {
+              "author": {
+                "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+                "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+                "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+                "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+              },
+              "cardArtifacts": {
+                "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+                "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+                "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+                "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+              },
+              "worldbook": "disabled-missing-author-metadata"
+            },
+            "hostArtifacts": {
+              "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+              "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+              "studio/model-runtime.mjs": "f9c48f349527caa42952fe452996214fa333db09ab90e2b2ff01e90a043338ba",
+              "studio/model-session-store.mjs": "971ab21ae87206e622bca075b3fa358b5c173e458a564ac2ca7aa60d7877b56e",
+              "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+              "studio/controlled-provider.mjs": "d9134cf76066b6b3b424ae840d5e57b1db17420beb6ef605dea9f2b59025bf8a",
+              "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+              "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+              "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+              "studio/branch-archive.mjs": "f6afcf958ba27c795fe069a7a1ce8da828a3d8b231a76de46b3a3a2964081a5b",
+              "card-replica/lib/store.mjs": "a14fd94f2e86f091d1088a256817c7724f3a4965d9effdaa3963ac12aa624bec",
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+              "studio/history-provider.mjs": "2af5ae26583c806220c1c5bae11e40ed405ff2f3a47fb221708b1b219762799f",
+              "studio/server.mjs": "31d2630948fd124cb23e4a4b0718f3d7824546cce546d77cd6ae7f191528ffe0",
+              "studio/history-dispatch.mjs": "6c8a2c4fff5fd22841be952685dcf893c69ce26a8010493f3984867b3839a53a",
+              "studio/history-branch-archive.mjs": "14d8c46d520cbe77eab558572bb1a007b31c535a6932ba09296f0fa7df4b3c60",
+              "plugins/history-window.mjs": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868",
+              "plugins/history-window.manifest.json": "524a2bb00be6a61b236f7a04c242b9d44d3bb1923a87f2bb7b5cc8fd000cf84e",
+              "plugins/catalog.mjs": "8e3912af2c74ca86acb1f97cb5fd5df1f1c856ccdfadc90ea1bc22fb639a8828",
+              "plugins/host.mjs": "6d1f16f389b9a414f1304e090f21b157f8e35f29e125dd39da571dc9fde8b3b8",
+              "studio/history-state.mjs": "18b8d8b67cb62979d3e987a6f48509ddd639604c655098b06e586e7d394fb7d1",
+              "studio/history-runtime.mjs": "815910e1eab47fe1f7b96c3f30786629c2d22940cf0d46a1e8db4a000adaf00e",
+              "studio/history-assembly.mjs": "25c43ddcc2f1e4c1cc60e6b4200c5f6295de3e2e7b5abcc862f3417af12c44c8",
+              "studio/history-session-store.mjs": "70d752fcafa163e6d39d68395709443280c221cc3126e865656f591032d70895",
+              "studio/summary-v2-runtime-compat.mjs": "ba6a841b22528f78215c54c5c3778547d0d4ce8db090fc16cb379af5487bf46f",
+              "studio/free-opening-runtime-compat.mjs": "24a381982958a2146b35ca33c8c82313ef891ac1db24082827c25dd7aeef77a7",
+              "studio/summary-compression.mjs": "5f88708ff520e365ff15d5830ea196da576474491228bf13345cfa6c1ba3b695",
+              "studio/summary-host.mjs": "7fbe48b4084e8615d4ce929365ed30a2789424a888f5ac07117b5da3ff9f0f88",
+              "studio/summary-http.mjs": "9e1669daaca09c94f662cf0006a699f9820d2964784251e70ef01ffd9441cc66",
+              "studio/summary-assembly.mjs": "279c5f71f23ef5fd66703f3e0d796a61ec32af43d79df4950dcad9b2fad62e93",
+              "studio/summary-branch-archive.mjs": "a57aae0dbbe59244a8c06f2c3c0b3ae058c801db533b7c8fc79e440eab4901e7",
+              "studio/summary-operations.mjs": "b517dff677be8643fe83407627a45f96f2f8868fd56a2cf12ed82cb1ff681f08",
+              "plugins/rolling-summary.mjs": "3fc8f214a25cf2dfa7ed844a2af5ce05a8c2bd6d74f06c6de767dc88bc75784a",
+              "plugins/rolling-summary.manifest.json": "0c92650ba4f6f1548681305a4b8db44142ba2418aa8af595909f22ca78620320",
+              "studio/summary-state.mjs": "3198f0eed48f774f0ae349d2f29013818983f249b7accada2a469b0444cef8f4",
+              "studio/summary-runtime.mjs": "7806a25c18f8f0878374c84cfcda3b41f2fd971a8f1e927db01fd8a1bcea75ca",
+              "studio/summary-session-store.mjs": "fdd21d5bc5877e4003545d29a7b43b0c53d9aea874bc93e6df926fdc7067c853",
+              "studio/summary-tasks.mjs": "8eb82f8860831bab1513fb1ba9dd868b166259ba4405c9bab772ac0cba6bf7e9",
+              "studio/summary-budget.mjs": "abc61772e32bbb991af74695fd117c3f8bdaad50542ea674b7b4e841a1073b70",
+              "studio/summary-task-provider.mjs": "7f2928f5e4abe8cd7fc223c1817e61ba6013347cdba0cb4bb6e25dcf70c255f2",
+              "studio/default-summary-v2.mjs": "2098746629f630883a825e1cd5adfc3f4d207cd6dbd15970863114131b63ccf2",
+              "plugins/auto-summary-v2.mjs": "8e6e9da821f89a478471ec98b6b8c743e021780085c9a21f3c6cc62d80236aad",
+              "studio/memory-runtime.mjs": "a51bc478295636c73a1aa78703dd1bc081a8e8cf1e9e183ac8cd653c1a3b9913",
+              "studio/memory-assembly.mjs": "98974c35513e7970cda4cd7eae3927105ba59ae63a116aa0d94f065fc554951d",
+              "studio/memory-branch-archive.mjs": "d1e7ab6e1df92d65dcf517ebf906b0b99da46dc0e6eea990f9ccc0907afacf18",
+              "studio/memory-session-store.mjs": "d138b795386392c74437ebbd6e6bf3d811b685783b84bc61e70b522431710cdd",
+              "studio/memory-state.mjs": "13e985e98cacd6788a23405c7b8895762e6a2ee4f752fc6f50b5e92a47b19954",
+              "studio/memory-task-state.mjs": "c08c01dbd27f4910254b4ef09365bfc8375c9e3f42f41952825a6752e2c7323f",
+              "studio/memory-tasks.mjs": "7881b79feea6c7e252145ab59917668668eb7c9a5fe9661a23c12199f0a06aaf",
+              "studio/memory-task-provider.mjs": "8872c4d97407d03129fa029ba516a0fc4b851f212667b9b6f0d61d5976ac8a62",
+              "studio/memory-budget.mjs": "fc4d30d31b784e015e97618d77ec877cfec6db760f949e1c0b51043c97cac980",
+              "plugins/memory-palace.mjs": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7",
+              "plugins/memory-palace.manifest.json": "402e5be29dc35ea2b77aa2ac4867d6a7fe6848ac1172666a9c6cfc61600f1104"
+            },
+            "historyPolicy": "rpg.history-window/1",
+            "modelPolicy": "core-persisted-selection-v1",
+            "baseRuntimeHash": "8859b0e1910046de9f931f569f7225cba1df6270464ff3e2ce907775c181ded5",
+            "contextPolicy": "default:complete-raw-history; actual policy and memory contributions are per-session",
+            "summaryPolicy": "rpg.rolling-summary/1",
+            "summaryCompressionPolicy": "rpg.rolling-summary/overflow-1",
+            "compressionInstructionHash": "24a5130854d167103992a4e6adf9dedd31f99cab1d3e36b4763f39ac0489aad3",
+            "summaryInstructionHash": "5c14bf7dc2deb14c380394f7dc7d2cb7ffbd4dfea2e7b3cf502795f3f80601a8",
+            "summaryWrapperHash": "4c8f7a276aa9173cac9bd808791911359e4788f030d555f20b1bafbd1512009b",
+            "memoryPolicy": "rpg.memory-palace/1",
+            "memoryTaskPolicy": "rpg.memory-palace/tasks-1",
+            "memoryInstructionHash": "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+            "memoryWrapperHash": "acee2f664a82cba6c6c207428942d830f674b6bbe7356ec9bdaea9e6d4f4577a"
+          }
+        }
+      ]
+    }
   ]
 }
