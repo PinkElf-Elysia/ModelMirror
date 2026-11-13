@@ -15,7 +15,7 @@ test('nested card documents load shared entry scripts and styles from the static
   const {server}=await start({port:0,directory:join(directory,'data'),cardDist:dist,enabled:false});
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const origin='http://127.0.0.1:'+server.address().port;
-  for(const path of ['earth/','xingjian/','ancient/chat/','cultivation/chat/','lord-of-mysteries/chat/','jinyong/chat/']){
+  for(const path of ['earth/','xingjian/','ancient/chat/','cultivation/chat/','lord-of-mysteries/chat/','jinyong/chat/','medieval/chat/']){
     const url=origin+'/rpg-app/'+path,document=await fetch(url);
     assert.equal(document.status,200);
     const assets=[...(await document.text()).matchAll(/(?:src|href)="([^"]+)"/g)].map(m=>new URL(m[1],url));

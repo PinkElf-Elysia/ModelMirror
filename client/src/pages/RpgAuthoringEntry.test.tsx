@@ -32,10 +32,11 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({cards: [{id: 'god'}]})));
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
   await screen.findByRole('heading', {name: '神临凡尘'});
+  expect(screen.getByRole('link', {name: '进入中世纪真实人生'})).toHaveAttribute('href', '/rpg/medieval');
   expect(screen.getByRole('link', {name: '进入斗罗大陆'})).toHaveAttribute('href', '/rpg/douluo');
   expect(screen.getByRole('link', {name: '进入蓝色大肥鱼'})).toHaveAttribute('href', '/rpg/blue-fish');
-  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(11);
-  expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/jinyong');
+  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(12);
+  expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/medieval');
   expect(screen.getByRole('link', {name: '插件市场'})).toHaveAttribute('href', '/rpg/plugins');
   const link = screen.queryByRole('link', {name: /打开创作工作台/});
   if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/?library=http%3A%2F%2F127.0.0.1%3A5173%2Frpg');
