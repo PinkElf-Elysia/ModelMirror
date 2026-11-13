@@ -5,8 +5,9 @@ import {summaryRuntime,summaryRuntimeStatus,bindSummaryRuntime} from './summary-
 import {memoryRuntime,memoryRuntimeStatus,bindMemoryRuntime} from './memory-runtime.mjs';
 import {preserveOutputEditRuntime} from './output-edit-compatibility.mjs';
 import {sha,canonical} from '../plugins/catalog.mjs';
-const baseline=JSON.parse(await readFile(new URL('./plugin-upgrade-baseline.json',import.meta.url)));
-for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus,2],['memory',memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus,3]])test(name+' plugin upgrade keeps exact binding and rejects tampered content/setup',()=>{
+for(const file of ['plugin-upgrade-baseline.json','plugin-upgrade-main-baseline.json']){
+const baseline=JSON.parse(await readFile(new URL('./'+file,import.meta.url)));
+for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus,2],['memory',memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus,3]])test(baseline.baseline+' '+name+' plugin upgrade keeps exact binding and rejects tampered content/setup',()=>{
  const source={characterText:'成年旅人',world:'表世界',params:{},mode:'offline'};
  source.runtime=bind(source);const saved=structuredClone(source),d=saved.runtime.descriptor;
  for(const [path,digest] of Object.entries(baseline.artifacts))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
@@ -19,3 +20,4 @@ for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSum
  assert.equal(store.status({...saved,characterText:'篡改设定'}).compatible,false);
  const badHash=structuredClone(saved);badHash.runtime.hash='0'.repeat(64);assert.equal(store.status(badHash).compatible,false);
 });
+}

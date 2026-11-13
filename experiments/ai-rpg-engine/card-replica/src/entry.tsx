@@ -3,7 +3,7 @@ import './styles.css';
 import './platform-shell.css';
 
 // Earth sessions bind the original entry bytes. Select the other cards before loading it.
-if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries|blue-fish|douluo|dragon-raja|jinyong|ai-girls|elderland|medieval)\/chat\/)/.test(location.pathname)) {
+if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries|blue-fish|douluo|dragon-raja|jinyong|ai-girls|medieval|elderland|harry-potter)\/chat\/)/.test(location.pathname)) {
   void import('./xingjian').then(({Xingjian}) => {
     createRoot(document.getElementById('root')!).render(<Xingjian/>);
   });
@@ -11,4 +11,8 @@ if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries|blue-fish|
   void import('./earth-session-host').then(({EarthSessionHost})=>createRoot(document.getElementById('root')!).render(<EarthSessionHost/>));
 } else {
   void import('./main');
+  void import('./shop').then(({ShopEntry})=>{
+    const mount=document.createElement('div');mount.className='shop-launcher';document.body.insertBefore(mount,document.getElementById('root'));
+    createRoot(mount).render(<ShopEntry opened={id=>{const url=new URL(location.href);url.searchParams.set('session',id);location.assign(url);}}/>);
+  });
 }

@@ -1,3 +1,5 @@
+// Optional shop host loads its implementation only when this capability is selected.
+const shopInvoke=async args=>(await import('./shop.mjs')).invoke(args);
 import {invoke as comparisonInvoke} from './model-comparison.mjs';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -24,7 +26,7 @@ export const GENERATION_PARAMETERS_ID = 'rpg.generation-parameters';
 export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID, MEMORY_PALACE_ID, MESSAGE_TOOLS_ID, TRANSCRIPT_ID, ILLUSTRATIONS_ID]);
 // Preserve the legacy advertised list: hosts must opt in only after wiring
 // parameter persistence and dispatch. Registry recognition is not compatibility.
-export const KNOWN_PLUGIN_IDS = Object.freeze([...REVIEWED_PLUGIN_IDS, GENERATION_PARAMETERS_ID, MODEL_COMPARISON_ID]);
+export const KNOWN_PLUGIN_IDS = Object.freeze([...REVIEWED_PLUGIN_IDS, GENERATION_PARAMETERS_ID, MODEL_COMPARISON_ID, 'rpg.shop']);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -35,6 +37,7 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  ['rpg.shop',{file:'shop',invoke:shopInvoke,compatibleCards:['earth'],permissions:['session.shop.purchase','ui.contribute'],capabilities:['ui.shop-action','session.shop.purchase']}],
   [MODEL_COMPARISON_ID,{file:'model-comparison',invoke:comparisonInvoke,compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],permissions:['session.comparison.generate','ui.contribute'],capabilities:['ui.comparison-action','session.comparison.generate']}],
   [GENERATION_PARAMETERS_ID, {file:'generation-parameters', invoke:parameterInvoke,
     compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],

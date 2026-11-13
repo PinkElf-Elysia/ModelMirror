@@ -1,0 +1,2360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>哈利·波特 · 魔法世界建卡</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&family=Noto+Serif+SC:wght@600;900&family=Cinzel:wght@400;700;900&family=EB+Garamond:ital,wght@0,400;0,700;1,400&family=Pinyon+Script&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+--parchment:#F5E9CF;--parchment-dark:#EBDAB6;--parchment-deeper:#E0CB9E;
+--crimson:#740001;--crimson-light:#A63D3D;--crimson-deep:#520000;
+--lake-blue:#740001;--lake-light:#A63D3D;--lake-deep:#520000;
+--amber:#C9952B;--amber-light:#DFAD3F;--amber-glow:#F0C94E;
+--gilt:#B8860B;--gilt-light:#D4A537;--gilt-glow:#E8C65A;
+--ink:#3C2415;--ink-muted:#6B4F3A;--border:#5A3826;
+--shadow-sm:2px 2px 6px rgba(60,36,21,0.15);
+--shadow-md:3px 3px 10px rgba(60,36,21,0.2),0 1px 3px rgba(60,36,21,0.1);
+--shadow-lg:5px 5px 18px rgba(60,36,21,0.25),0 2px 6px rgba(60,36,21,0.12);
+--shadow-hover:6px 6px 20px rgba(60,36,21,0.3),0 3px 8px rgba(60,36,21,0.15);
+--mythic:#B8860B;--legendary:#6B3FA0;--epic:#740001;--rare:#4A8C5C;--common:#7A7A8A;
+}
+body{font-family:'Noto Sans SC',sans-serif;background-image:url('https://pic1.imgdb.cn/i/034cGBwsa6K8MbYlnGuEyT.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden;}
+.opening-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;cursor:pointer;overflow:hidden;background:#1a1a24;}
+.opening-container{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a24;}
+.opening-bg{width:100%;height:100%;max-width:1200px;max-height:675px;background-image:url('https://pic1.imgdb.cn/i/034cGCElQ0cnQc8oOwvWd9.gif');background-size:contain;background-position:center;background-repeat:no-repeat;filter:blur(10px);transition:filter 1.5s ease-out;}
+.opening-screen.open .opening-bg{filter:blur(0);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#1a1a24;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:var(--amber-light);font-size:13px;z-index:10;animation:blink 1.5s infinite;opacity:0.6;letter-spacing:2px;}
+@keyframes blink{0%,100%{opacity:0.4;}50%{opacity:0.8;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;min-height:100vh;position:relative;}.main-container.active{display:block;}
+.content-wrapper{position:relative;z-index:2;max-width:940px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:32px 22px;background:var(--parchment);border:3px solid var(--border);margin-bottom:20px;position:relative;box-shadow:var(--shadow-lg);}
+.main-title::before{content:'';position:absolute;top:0;left:12%;right:12%;height:2px;background:linear-gradient(90deg,transparent,var(--gilt),transparent);}
+.main-title::after{content:'';position:absolute;bottom:0;left:12%;right:12%;height:2px;background:linear-gradient(90deg,transparent,var(--gilt),transparent);}
+.main-title .title-en{font-family:'Pinyon Script','EB Garamond',cursive;font-size:clamp(24px,4.5vw,32px);letter-spacing:2px;color:var(--lake-blue);margin-bottom:6px;font-weight:400;line-height:1.3;}
+.main-title h1{font-family:'Noto Serif SC','EB Garamond',serif;font-size:clamp(22px,5vw,34px);font-weight:900;letter-spacing:5px;color:var(--ink);}
+.main-title p{margin-top:8px;font-size:clamp(14px,2.4vw,17px);color:var(--ink-muted);letter-spacing:2px;font-family:'Pinyon Script','EB Garamond',cursive;font-style:normal;}
+.main-title .motto{display:inline-block;margin-top:12px;padding:6px 20px;border-top:1px solid var(--lake-blue);border-bottom:1px solid var(--amber);font-family:'EB Garamond',serif;font-style:italic;font-size:12px;letter-spacing:3px;color:var(--ink);background:linear-gradient(90deg,rgba(116,0,1,0.06),rgba(201,149,43,0.06));}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:var(--parchment);border:3px solid var(--border);box-shadow:var(--shadow-md);-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.tab-nav::-webkit-scrollbar{height:4px;}.tab-nav::-webkit-scrollbar-thumb{background:var(--border);}
+.tab-btn{flex:0 0 auto;min-width:88px;padding:14px 14px;background:transparent;border:none;border-right:1px solid rgba(60,36,21,0.2);font-family:inherit;font-size:clamp(12px,1.8vw,13px);font-weight:700;cursor:pointer;transition:all 0.25s;white-space:nowrap;color:var(--ink);position:relative;letter-spacing:1px;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(184,134,11,0.12);}
+.tab-btn.active{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,0.15);}
+.tab-btn.completed::after{content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--amber);}
+.tab-content{display:none;background:var(--parchment);border:3px solid var(--border);padding:26px;box-shadow:var(--shadow-lg);position:relative;}
+.tab-content::before{content:'';position:absolute;top:8px;right:8px;width:25px;height:25px;border-top:2px solid var(--lake-blue);border-right:2px solid var(--lake-blue);opacity:0.4;}
+.tab-content::after{content:'';position:absolute;bottom:8px;left:8px;width:25px;height:25px;border-bottom:2px solid var(--amber);border-left:2px solid var(--amber);opacity:0.4;}
+.tab-content.active{display:block;animation:slideIn 0.3s ease forwards;}
+@keyframes slideIn{0%{opacity:0;transform:translateY(12px);}100%{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'Noto Serif SC','EB Garamond',serif;font-size:clamp(18px,3.5vw,24px);font-weight:900;margin-bottom:6px;padding-bottom:10px;border-bottom:3px solid var(--border);position:relative;display:inline-block;letter-spacing:2px;}
+.section-title::after{content:'';position:absolute;bottom:-3px;left:0;width:60px;height:3px;background:linear-gradient(90deg,var(--lake-blue),var(--amber));}
+.section-title-en{font-family:'Cinzel',serif;font-size:12px;letter-spacing:4px;color:#8A6508;margin-bottom:20px;font-weight:700;}
+.info-box{background:linear-gradient(135deg,var(--parchment-dark),var(--parchment));border:2px solid var(--border);padding:18px;margin-bottom:16px;box-shadow:var(--shadow-sm);position:relative;}
+.info-box::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,var(--gilt),var(--amber));}
+.info-box.blue::before{background:var(--lake-blue);}
+.info-box.gold::before{background:var(--amber);}
+.info-box h3{font-size:15px;margin-bottom:6px;color:var(--lake-deep);font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.info-box.gold h3{color:var(--gilt);}
+.info-box .en-sub{font-family:'EB Garamond',serif;font-style:italic;font-size:11px;color:var(--gilt);letter-spacing:3px;margin-bottom:10px;display:block;}
+.info-box p,.info-box li{font-size:13px;line-height:1.85;color:var(--ink);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:6px;}
+.info-box li::before{content:'❖';position:absolute;left:0;color:var(--amber);font-size:9px;top:4px;}
+.info-box.blue li::before{color:var(--lake-blue);}
+.info-box li strong{color:var(--ink);}
+.accent-blue{color:var(--lake-deep);font-weight:700;}
+.accent-gold{color:var(--gilt);font-weight:700;}
+.soul-intro{background:linear-gradient(135deg,#FAF7F2,var(--parchment));border:3px solid var(--border);padding:26px;margin-bottom:22px;box-shadow:var(--shadow-lg);position:relative;}
+.soul-intro::before{content:'"';position:absolute;top:8px;left:14px;font-size:60px;color:var(--lake-blue);opacity:0.2;font-family:'EB Garamond',serif;line-height:1;}
+.soul-intro p{font-size:14px;line-height:2;margin-bottom:10px;text-indent:2em;}
+.soul-intro p:last-child{margin-bottom:0;}
+.soul-intro p.emphasis{font-weight:700;color:var(--ink);text-indent:0;margin-top:16px;padding-top:14px;border-top:1px dashed rgba(60,36,21,0.3);font-family:'Noto Serif SC',serif;font-size:15px;letter-spacing:1px;text-align:center;}
+.intro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px;}
+.intro-grid .info-box{margin-bottom:0;}
+.chapter-jump{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding:10px;background:var(--parchment-dark);border:2px solid var(--border);}
+.chapter-jump-btn{flex:0 0 auto;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-family:'EB Garamond',serif;font-weight:700;font-size:13px;color:var(--ink);transition:all 0.2s;}
+.chapter-jump-btn:hover{background:var(--amber-light);color:#fff;}
+.chapter-jump-btn.selected{background:var(--lake-blue);color:#fff;border-color:var(--border);}
+.chapter-card{background:var(--parchment);border:2px solid var(--border);outline:1px solid rgba(184,134,11,0.5);outline-offset:-8px;margin-bottom:12px;position:relative;box-shadow:var(--shadow-sm);transition:all 0.25s;overflow:hidden;}
+.chapter-card.selected{border-color:var(--amber);border-width:3px;box-shadow:var(--shadow-lg);background:linear-gradient(135deg,#FBF7EE,var(--parchment));}
+.chapter-card-head{padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:background 0.2s;user-select:none;}
+.chapter-card-head:hover{background:rgba(116,0,1,0.06);}
+.chapter-card-head .cc-title{font-family:'Noto Serif SC',serif;font-size:17px;font-weight:900;color:var(--ink);letter-spacing:1px;}
+.chapter-card-head .cc-title small{display:block;font-size:11px;font-weight:400;color:var(--lake-deep);margin-top:3px;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.chapter-card-head .cc-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.cc-arrow{font-size:12px;transition:transform 0.2s;color:var(--ink-muted);}
+.chapter-card.open .cc-arrow{transform:rotate(90deg);}
+.select-chapter-btn{padding:7px 14px;background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;border:2px solid var(--border);font-family:inherit;font-weight:700;font-size:11px;cursor:pointer;letter-spacing:1px;box-shadow:var(--shadow-sm);white-space:nowrap;}
+.select-chapter-btn:hover{transform:translateY(-1px);}
+.select-chapter-btn.active{background:linear-gradient(135deg,var(--amber),var(--amber-light));}
+.chapter-card-body{display:none;padding:0 20px 20px;}
+.chapter-card.open .chapter-card-body{display:block;animation:slideIn 0.25s ease;}
+.chapter-desc{font-size:13px;line-height:1.85;color:var(--ink);margin-bottom:12px;padding:12px;background:var(--parchment-dark);border-left:4px solid var(--lake-blue);}
+.chapter-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;}
+.chapter-tag{font-size:11px;padding:2px 8px;background:rgba(116,0,1,0.08);border:1px solid rgba(116,0,1,0.3);color:var(--lake-deep);}
+.chapter-sub h4{font-size:13px;color:var(--gilt);margin:12px 0 8px;font-family:'Noto Serif SC',serif;letter-spacing:1px;padding-bottom:4px;border-bottom:1px dashed rgba(60,36,21,0.3);}
+.entry-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;}
+.entry-item{padding:10px 12px;background:var(--parchment-dark);border:2px solid transparent;border-left:3px solid var(--amber);font-size:12px;line-height:1.6;cursor:pointer;transition:all 0.2s;}
+.entry-item:hover{background:#FBF7EE;border-color:var(--gilt);}
+.entry-item.selected{background:linear-gradient(135deg,#FBF7EE,var(--parchment));border-color:var(--amber);border-width:2px;border-left-width:4px;box-shadow:var(--shadow-sm);}
+.entry-item .ttl{font-weight:900;color:var(--ink);}
+.entry-item .sel-mark{display:none;font-size:10px;color:var(--gilt);font-weight:700;margin-top:3px;}
+.entry-item.selected .sel-mark{display:block;}
+.custom-entry-row{margin-top:10px;padding:10px;background:var(--parchment-dark);border:1px dashed var(--gilt);}
+.custom-entry-row .lbl{font-size:11px;color:var(--gilt);letter-spacing:2px;margin-bottom:6px;font-weight:700;}
+.custom-entry-row input{width:100%;padding:8px;border:1px solid var(--border);background:#fff;font-family:inherit;font-size:12px;color:var(--ink);}
+.custom-entry-row button{margin-top:6px;padding:5px 12px;background:var(--amber);color:#fff;border:none;cursor:pointer;font-size:11px;font-family:inherit;}
+.form-section{margin-bottom:24px;}
+.form-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--lake-blue);font-family:'Noto Serif SC',serif;letter-spacing:1px;color:var(--ink);}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px;color:var(--ink);letter-spacing:1px;}
+.form-group .field-hint{color:var(--ink-muted);font-size:11px;font-weight:400;margin-left:6px;letter-spacing:0;}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:11px;border:2px solid var(--border);background:var(--parchment);font-family:inherit;font-size:13px;transition:all 0.2s;color:var(--ink);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(116,0,1,0.2);border-color:var(--lake-blue);}
+.form-group textarea{min-height:90px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-size:13px;transition:all 0.2s;}
+.radio-group label:hover{background:var(--parchment-dark);}
+.radio-group input:checked+span{font-weight:bold;color:var(--lake-deep);}
+.radio-group input{accent-color:var(--lake-blue);}
+.checkbox-group{display:flex;gap:8px;flex-wrap:wrap;}
+.checkbox-group label{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-size:13px;transition:all 0.2s;}
+.checkbox-group label:hover{background:var(--parchment-dark);}
+.checkbox-group input{accent-color:var(--lake-blue);width:16px;height:16px;}
+.checkbox-group input:checked+span{font-weight:bold;color:var(--lake-deep);}
+.mode-switch{display:flex;gap:0;margin-bottom:22px;border:3px solid var(--border);background:var(--parchment-dark);}
+.mode-btn{flex:1;padding:14px;background:transparent;color:var(--ink);border:none;cursor:pointer;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;letter-spacing:3px;transition:all 0.25s;}
+.mode-btn:hover{background:rgba(116,0,1,0.08);}
+.mode-btn.active[data-mode="original"]{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;}
+.mode-btn.active[data-mode="canon"]{background:linear-gradient(135deg,var(--amber),var(--amber-light));color:#fff;}
+.canon-section{display:none;}.canon-section.visible{display:block;}
+.canon-search-wrap{position:relative;margin-bottom:16px;}
+.canon-search{width:100%;padding:12px 14px;border:2px solid var(--border);background:var(--parchment);font-family:inherit;font-size:13px;color:var(--ink);}
+.canon-search:focus{outline:none;box-shadow:0 0 0 3px rgba(116,0,1,0.2);border-color:var(--lake-blue);}
+.canon-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--parchment);border:2px solid var(--border);border-top:none;max-height:260px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);}
+.canon-dropdown.visible{display:block;}
+.canon-dropdown-item{padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(60,36,21,0.1);transition:background 0.15s;}
+.canon-dropdown-item:hover{background:rgba(116,0,1,0.1);}
+.canon-dropdown-item .cdi-name{font-weight:700;color:var(--ink);}
+.canon-dropdown-item .cdi-desc{font-size:11px;color:var(--ink-muted);margin-top:2px;}
+.canon-group{margin-bottom:12px;border:2px solid var(--border);background:var(--parchment);overflow:hidden;}
+.canon-group-head{padding:11px 14px;background:var(--parchment-dark);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.canon-group-head:hover{background:var(--parchment-deeper);}
+.canon-group-head .cnt{font-size:11px;color:#8A6508;font-weight:normal;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.canon-group-head .arrow{font-size:11px;transition:transform 0.2s;}
+.canon-group.open .arrow{transform:rotate(90deg);}
+.canon-group-body{display:none;padding:14px;}
+.canon-group.open .canon-group-body{display:block;}
+.canon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
+.canon-item{padding:9px 12px;background:var(--parchment);border:2px solid var(--border);font-size:12px;cursor:pointer;transition:all 0.2s;color:var(--ink);font-weight:600;line-height:1.5;}
+.canon-item:hover{border-color:var(--lake-blue);background:#F8F4ED;transform:translateY(-1px);}
+.canon-item.selected{border-color:var(--amber);border-width:3px;padding:7px 10px;background:linear-gradient(135deg,#FBF7EE,var(--parchment));color:var(--gilt);font-weight:900;}
+.canon-item .ci-desc{font-size:10px;color:var(--ink-muted);font-weight:400;margin-top:3px;line-height:1.4;}
+.canon-item.hidden{display:none;}
+.ability-cat{margin-bottom:10px;border:2px solid var(--border);background:var(--parchment);overflow:hidden;}
+.ability-cat-head{padding:12px 15px;background:linear-gradient(90deg,rgba(184,134,11,0.12),rgba(201,149,43,0.05));cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.ability-cat-head:hover{background:linear-gradient(90deg,rgba(184,134,11,0.18),rgba(201,149,43,0.09));}
+.ability-cat-head .cnt{font-size:11px;color:#8A6508;font-weight:normal;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.ability-cat-head .arrow{font-size:11px;transition:transform 0.2s;color:var(--amber);}
+.ability-cat.open .arrow{transform:rotate(90deg);}
+.ability-cat-body{display:none;padding:14px;}
+.ability-cat.open .ability-cat-body{display:block;}
+.ability-cat-body .hint{font-size:11px;color:var(--ink-muted);margin-bottom:10px;font-style:italic;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;}
+.ability-item{display:flex;align-items:flex-start;padding:12px;background:var(--parchment);border:2px solid var(--border);transition:all 0.2s;cursor:pointer;gap:10px;}
+.ability-item:hover{background:#F8F4ED;border-color:var(--lake-blue);}
+.ability-item input{margin-top:3px;accent-color:var(--lake-blue);width:16px;height:16px;flex-shrink:0;}
+.ability-item .item-body{flex:1;}
+.ability-item .abname{font-size:12.5px;font-weight:700;margin-bottom:4px;color:var(--ink);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.ability-item .abtier{font-family:'EB Garamond',serif;font-size:10px;color:var(--gilt);padding:1px 6px;background:rgba(184,134,11,0.1);letter-spacing:1px;font-weight:700;}
+.ability-item .abdesc{font-size:11.5px;color:var(--ink-muted);line-height:1.55;}
+.ability-item .abuser{font-size:11px;color:var(--lake-deep);margin-top:3px;font-style:italic;}
+.ability-item.selected{background:linear-gradient(135deg,#F7EFE3,var(--parchment));border-color:var(--lake-blue);border-width:3px;padding:10px;box-shadow:var(--shadow-sm);}
+.custom-ab-box{margin-top:20px;padding:20px;background:var(--parchment-dark);border:2px solid var(--border);border-left:4px solid var(--gilt);}
+.custom-ab-box h4{font-size:14px;margin-bottom:14px;color:var(--ink);font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.talent-section{text-align:center;padding:20px;}
+.roll-btn{padding:18px 46px;font-size:16px;font-weight:900;font-family:'Noto Serif SC',serif;background:linear-gradient(135deg,var(--lake-blue),var(--lake-deep));color:#fff;border:3px solid var(--border);cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-lg),0 0 20px rgba(116,0,1,0.25);letter-spacing:5px;}
+.roll-btn:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover),0 0 30px rgba(116,0,1,0.35);}
+.roll-btn:active{transform:translateY(1px);box-shadow:var(--shadow-sm);}
+.roll-btn.rolling{animation:shake 0.5s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px) rotate(-1deg);}75%{transform:translateX(4px) rotate(1deg);}}
+.talent-pool{display:none;margin-top:26px;}.talent-pool.visible{display:block;}
+.talent-pool h3{font-size:15px;margin-bottom:10px;font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.talent-count{font-size:13px;color:var(--ink-muted);margin-bottom:14px;}
+.talent-list{display:grid;gap:10px;max-height:560px;overflow-y:auto;overflow-x:hidden;padding:12px;background:var(--parchment-dark);border:2px solid var(--border);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+.talent-item{display:flex;align-items:flex-start;padding:14px;background:var(--parchment);border:2px solid rgba(60,36,21,0.25);cursor:pointer;transition:all 0.2s;text-align:left;}
+.talent-item:hover{border-color:var(--border);}
+.talent-item.selected{border-width:3px;padding:13px;}
+.talent-item.mythic{border-color:var(--mythic);background:linear-gradient(135deg,#FDF8E8,#FFFBF0,var(--parchment));box-shadow:0 0 14px rgba(184,134,11,0.4),inset 0 0 16px rgba(232,198,90,0.12);animation:mythicGlow 2.5s ease-in-out infinite;position:relative;}
+.talent-item.mythic::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gilt-glow),var(--gilt),var(--gilt-glow),transparent);animation:shimmer 3s linear infinite;}
+@keyframes mythicGlow{0%,100%{box-shadow:0 0 14px rgba(184,134,11,0.4),inset 0 0 16px rgba(232,198,90,0.12);}50%{box-shadow:0 0 24px rgba(212,165,55,0.6),0 0 36px rgba(184,134,11,0.25),inset 0 0 24px rgba(232,198,90,0.2);}}
+@keyframes shimmer{0%{opacity:0.4;transform:translateX(-100%);}50%{opacity:1;}100%{opacity:0.4;transform:translateX(100%);}}
+.talent-item.mythic.selected{box-shadow:3px 3px 12px var(--mythic),0 0 20px rgba(212,165,55,0.5);}
+.talent-item.legendary{border-color:var(--legendary);background:linear-gradient(135deg,#F6F2FA,var(--parchment));box-shadow:0 0 8px rgba(107,63,160,0.15);}
+.talent-item.legendary.selected{box-shadow:3px 3px 8px var(--legendary);}
+.talent-item.epic{border-color:var(--epic);background:linear-gradient(135deg,#F7EFE3,var(--parchment));box-shadow:0 0 6px rgba(43,94,158,0.1);}
+.talent-item.epic.selected{box-shadow:3px 3px 8px var(--epic);}
+.talent-item.rare{border-color:var(--rare);background:linear-gradient(135deg,#F2F8F2,var(--parchment));}
+.talent-item.rare.selected{box-shadow:3px 3px 8px var(--rare);}
+.talent-item.common{border-color:var(--common);}
+.talent-item.common.selected{box-shadow:3px 3px 8px var(--common);}
+.talent-item input{margin-right:12px;margin-top:3px;width:16px;height:16px;accent-color:var(--lake-blue);flex-shrink:0;}
+.talent-info{flex:1;}
+.talent-name{font-weight:bold;font-size:14px;margin-bottom:5px;display:flex;align-items:center;gap:8px;font-family:'Noto Serif SC',serif;flex-wrap:wrap;}
+.talent-badge{font-size:10px;padding:2px 8px;color:#fff;letter-spacing:1.5px;font-weight:700;}
+.talent-badge.mythic{background:linear-gradient(135deg,var(--gilt-glow),var(--gilt),#8B6914);color:#FFF8E0;text-shadow:0 1px 0 rgba(0,0,0,0.2);box-shadow:0 0 6px rgba(184,134,11,0.5);}
+.talent-badge.legendary{background:var(--legendary);}
+.talent-badge.epic{background:var(--epic);}
+.talent-badge.rare{background:var(--rare);}
+.talent-badge.common{background:var(--common);}
+.talent-desc{font-size:12px;color:var(--ink);line-height:1.65;}
+.talent-effect{font-size:11.5px;color:var(--lake-deep);margin-top:4px;line-height:1.6;font-style:italic;}
+.preview-box{background:var(--parchment);border:3px solid var(--border);padding:22px;font-size:13px;line-height:1.85;white-space:pre-wrap;word-break:break-word;max-height:600px;overflow-y:auto;margin-bottom:20px;font-family:'Courier New',monospace;box-shadow:var(--shadow-md);color:var(--ink);}
+.copy-btn{display:block;width:100%;max-width:320px;margin:0 auto;padding:16px 40px;font-size:16px;font-weight:900;font-family:'Noto Serif SC',serif;background:linear-gradient(135deg,var(--lake-blue),var(--lake-deep));color:#fff;border:none;cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-md);letter-spacing:4px;}
+.copy-btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:2px dashed rgba(60,36,21,0.25);}
+.nav-btn{padding:12px 26px;font-size:13px;font-weight:700;font-family:inherit;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;letter-spacing:2px;}
+.nav-btn.prev{background:var(--parchment);color:var(--ink);}
+.nav-btn.next{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;box-shadow:var(--shadow-sm);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:18px;background:var(--border);color:var(--amber-light);font-size:12px;position:relative;z-index:2;letter-spacing:3px;font-family:'EB Garamond',serif;font-style:italic;}
+@media(max-width:600px){
+.content-wrapper{padding:10px;}
+.tab-content{padding:14px;}
+.form-row{grid-template-columns:1fr;}
+.entry-list{grid-template-columns:1fr;}
+.ability-grid{grid-template-columns:1fr;}
+.intro-grid{grid-template-columns:1fr;}
+.canon-grid{grid-template-columns:1fr;}
+.nav-buttons{flex-direction:column;gap:10px;}
+.nav-btn{width:100%;text-align:center;}
+.main-title{padding:22px 14px;}
+.main-title h1{letter-spacing:3px;}
+.chapter-jump{gap:4px;padding:8px;}
+.chapter-jump-btn{padding:7px 10px;font-size:12px;}
+.chapter-card-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:8px;}
+.talent-list{max-height:400px;}
+.roll-btn{padding:15px 30px;font-size:14px;letter-spacing:3px;}
+.copy-btn{padding:14px 24px;font-size:14px;}
+}
+.jump-group-sep{flex:0 0 auto;padding:0 10px;display:flex;align-items:center;font-family:'Noto Serif SC',serif;font-weight:900;font-size:12px;letter-spacing:3px;color:var(--gilt);border-right:2px solid var(--border);margin-right:2px;}
+.chapter-group-head{display:flex;align-items:baseline;gap:12px;padding:18px 4px 10px;margin-top:8px;border-bottom:3px double var(--border);}
+.chapter-group-head .cgh-cn{font-family:'Noto Serif SC',serif;font-size:20px;font-weight:900;letter-spacing:6px;color:var(--ink);}
+.chapter-group-head .cgh-en{font-family:'Cinzel',serif;font-size:11px;letter-spacing:4px;color:var(--lake-deep);font-style:italic;}
+*,*::before,*::after{box-sizing:border-box;}
+body{overflow-x:hidden;}
+.tab-content,.info-box,.soul-intro,.chapter-card,.canon-group,.ability-cat,.talent-item,.ability-item,.canon-item,.entry-item,.form-group,.preview-box,.custom-ab-box,.mode-switch,.tab-nav{min-width:0;}
+.form-group input,.form-group select,.form-group textarea,.preview-box,.talent-desc,.talent-effect,.abdesc,.abname,.chapter-desc,.info-box p,.info-box li,.soul-intro p{word-break:break-word;overflow-wrap:anywhere;}
+.canon-grid,.intro-grid,.entry-list,.ability-grid,.form-row{min-width:0;}
+.canon-grid>*,.intro-grid>*,.entry-list>*,.ability-grid>*,.form-row>*{min-width:0;}
+.tab-nav{max-width:100%;}
+.chapter-jump{max-width:100%;}
+
+/* ============ HP 魔法世界·基础美化增量 ============ */
+.wax-seal{width:52px;height:52px;margin:0 auto 10px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#8E2F2B,#740001 62%,#520000);border:3px solid var(--gilt);display:flex;align-items:center;justify-content:center;color:#F0D080;font-size:22px;line-height:1;box-shadow:var(--shadow-md),inset 0 0 10px rgba(0,0,0,0.4);}
+.section-title::after{content:'❦';position:absolute;right:-30px;bottom:6px;font-size:17px;color:var(--gilt);}
+.tab-btn.active{box-shadow:inset 0 -3px 0 var(--amber);}
+::selection{background:rgba(116,0,1,0.18);}
+.chapter-card.selected{box-shadow:var(--shadow-lg),0 0 18px rgba(184,134,11,0.28);}
+.roll-btn{border:3px solid var(--gilt);}
+.tab-content{background:var(--parchment);background-image:radial-gradient(ellipse at 18% 0%,rgba(184,134,11,0.07),transparent 55%),radial-gradient(ellipse at 100% 100%,rgba(116,0,1,0.05),transparent 50%);}
+.section-title-en{position:relative;}
+.section-title-en::after{content:'';position:absolute;left:0;bottom:-6px;width:64px;height:1px;background:linear-gradient(90deg,var(--gilt),transparent);}
+
+/* ============ v3 书信风增量 ============ */
+.chapter-card.selected::after{content:'⚡\fe0e';position:absolute;bottom:14px;right:14px;width:30px;height:30px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#8E2F2B,#740001 62%,#520000);border:2px solid var(--gilt);display:flex;align-items:center;justify-content:center;color:#F0D080;font-size:13px;box-shadow:var(--shadow-sm);}
+.chip-grid{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px;}
+.chip-label{font-size:12px;color:#8A6508;letter-spacing:2px;margin-top:8px;font-family:'EB Garamond',serif;font-style:italic;}
+.chip{padding:6px 13px;background:var(--parchment-dark);border:1.5px solid rgba(90,56,38,0.45);cursor:pointer;font-size:12.5px;color:var(--ink);font-family:'Noto Serif SC',serif;transition:all 0.18s;user-select:none;}
+.chip:hover{border-color:var(--gilt);background:var(--parchment-deeper);}
+.chip.selected{background:linear-gradient(135deg,var(--lake-blue),var(--lake-deep));color:#fff;border-color:var(--lake-deep);}
+.chip.selected::after{content:' ✓';}
+
+/* ============ v4 魔杖卡片 ============ */
+.wand-card{border:1.5px solid rgba(184,134,11,0.5);background:var(--parchment-dark);padding:12px 14px;margin-top:10px;}
+.wand-card-head{display:flex;justify-content:space-between;align-items:center;font-family:'Noto Serif SC',serif;font-weight:700;font-size:13px;color:var(--ink);letter-spacing:1px;}
+.wand-del{cursor:pointer;color:var(--lake-blue);font-size:12px;font-weight:400;}
+.wand-del:hover{text-decoration:underline;}
+.wand-add-btn{margin-top:10px;padding:8px 18px;font-size:12px;}
+
+/* ============ v5 下拉面板选择器 ============ */
+.picker{border:1.5px solid rgba(90,56,38,0.45);background:var(--parchment-dark);margin-top:6px;}
+.picker-head{padding:9px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:var(--ink);user-select:none;font-family:'Noto Serif SC',serif;}
+.picker-head .arrow{font-size:11px;transition:transform 0.2s;color:var(--gilt);}
+.picker.open .picker-head .arrow{transform:rotate(90deg);}
+.picker-body{display:none;border-top:1px dashed rgba(90,56,38,0.35);padding:6px 8px;max-height:230px;overflow-y:auto;}
+.picker.open .picker-body{display:block;}
+.picker-item{padding:6px 10px;font-size:12.5px;cursor:pointer;display:flex;justify-content:space-between;color:var(--ink);font-family:'Noto Serif SC',serif;}
+.picker-item:hover{background:rgba(184,134,11,0.12);}
+.picker-item.selected{color:var(--lake-blue);font-weight:700;}
+.picker-item.selected::after{content:'✓';}
+.picker-item.custom-toggle{color:#8A6508;font-style:italic;}
+.picker-tags{color:#8A6508;font-weight:400;font-size:12px;}
+
+/* ============ v10 材料注解 ============ */
+.wand-wood-desc{font-size:11.5px;color:#8A6508;margin-top:5px;font-style:italic;font-family:'EB Garamond','Noto Serif SC',serif;letter-spacing:0.5px;}
+.picker-item{flex-direction:column;align-items:flex-start;}
+.picker-item .pi-name{font-weight:400;}
+.picker-item.selected .pi-name{font-weight:700;}
+.picker-item .pi-desc{display:block;font-size:11px;color:var(--ink-muted);font-weight:400;margin-top:2px;line-height:1.5;}
+.picker-item.selected .pi-desc{color:rgba(116,0,1,0.7);}
+</style>
+</head>
+<body>
+<div class="opening-screen" id="opening">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置 · 开启来信</div>
+</div>
+<div class="main-container" id="main">
+<div class="content-wrapper">
+<div class="main-title">
+<div class="wax-seal">⚡&#xfe0e;</div>
+<div class="title-en">Harry Potter · The Wizarding World</div>
+<h1>哈利·波特魔法世界</h1>
+<p>Hogwarts · Wands · Houses · Destiny</p>
+<div class="motto">— 猫头鹰来信 · 九又四分之三 · 魔杖选择巫师 —</div>
+</div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="worldview">世界</button>
+<button class="tab-btn" data-tab="era">作品</button>
+<button class="tab-btn" data-tab="character">角色</button>
+<button class="tab-btn" data-tab="ability">能力</button>
+<button class="tab-btn" data-tab="fate">命运</button>
+<button class="tab-btn" data-tab="preview">此生</button>
+</div>
+<!-- ============ TAB: 世界观 ============ -->
+<div class="tab-content active" id="tab-worldview">
+<h2 class="section-title">序章 · 这是什么</h2>
+<div class="section-title-en">PROLOGUE · THE WIZARDING WORLD</div>
+<div class="soul-intro">
+<p>有人在<span class="accent-blue">小惠金区女贞路4号</span>的楼梯下碗橱里长大，十一岁生日那天被巨人撞开房门，第一次听见"你是一个巫师"；有人在<span class="accent-gold">破釜酒吧</span>后的小天井里举起魔杖，看砖墙旋开成拱道，第一次踏进对角巷的鹅卵石街道；有人在<span class="accent-blue">国王十字车站</span>的第九与第十站台之间闭上眼推车冲向隔墙，蒸汽红光里，霍格沃茨特快正等在那里。</p>
+<p>这个世界就在你身边——魔法社会自<span class="accent-gold">1692年《国际保密法》</span>起彻底隐匿于现实之中：霍格沃茨藏在苏格兰高地，对角巷藏在伦敦闹市，阿兹卡班孤悬北海。麻瓜看不见、进不来；巫师看不见手机信号，却有猫头鹰、飞路网与画像传讯。魔法仅存在于巫师血脉：麻瓜绝无施法可能，巫师家庭也会生出无魔力的"哑炮"。魔杖选择巫师，咒语皆有代价，黑魔法每用一次便腐蚀一分灵魂；而源于自愿牺牲的爱的魔法，是任何黑魔法都无法破解的最强防御。</p>
+<p>你可以做任何事：戴上分院帽，在格兰芬多、斯莱特林、拉文克劳、赫奇帕奇之间开始七年学业；加入校队追金色飞贼，为学院杯拼到最后一场；考下O.W.L.与N.E.W.T.，进魔法部当傲罗，或去圣芒戈做治疗师；跟随纽特·斯卡曼德的足迹研究神奇动物；也可以只是一只猫头鹰、一根魔杖、一间对角巷的小店——在巫师世界过平凡而滚烫的一生。</p>
+<p><span class="accent-blue">死亡不可复活，选择皆有代价。</span>你的血统、你的学院、你的魔杖、你在战争与和平之间站的位置——这些选择会从根本上改变你的故事。这个世界没有"重来"的机会，时间转换器也救不回所有东西。</p>
+<p class="emphasis">你将以何种姿态，推开这扇门？</p>
+</div>
+<h2 class="section-title">一、魔法本源</h2>
+<div class="section-title-en">MAGIC · ORIGIN & PRICE</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>魔法血脉（一切的根源）</h3>
+<span class="en-sub">BLOOD & GIFT</span>
+<ul>
+<li><strong>血脉承载</strong>：魔法仅存于巫师血脉，麻瓜无任何施法可能；巫师家庭亦会生出无魔力的「哑炮」。</li>
+<li><strong>智慧种族</strong>：家养小精灵、妖精、马人、摄魂怪各有独立魔法体系，不受巫师规则约束（小精灵无杖施法，可在霍格沃茨自由幻影移形）。</li>
+<li><strong>无意识魔法</strong>：幼年巫师在极端情绪下会魔法暴走——这是天赋的证明，也是管教的起点。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>魔杖规则</h3>
+<span class="en-sub">THE WAND CHOOSES</span>
+<ul>
+<li><strong>魔杖选择巫师</strong>：适配度越高，威力越强、失误越少（奥利凡德家族自公元前382年制杖）。</li>
+<li><strong>杖芯三上乘</strong>：凤凰羽毛（最稀有、主动性最强）、龙的神经（Dragon Heartstring，又译“龙心弦”“龙的心脏腱索”；力量最盛、最易倒向黑魔法）、独角兽毛（最稳定忠诚）。</li>
+<li><strong>忠诚转移</strong>：使用未击败原主人的魔杖威力大减；正面击败（缴械即可），魔杖重新效忠——老魔杖只认纯粹的胜负传承。</li>
+<li><strong>孪生杖芯</strong>：同源同兽的两根魔杖相遇必然相斥，触发闪回咒。</li>
+<li>无魔杖时施法十不存一；稳定无杖魔法是传奇档专属。</li>
+</ul>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>甘普变形法则五例外</h3>
+<span class="en-sub">GAMP'S LAW</span>
+<ul>
+<li>不可凭空变出<strong>食物</strong>（只可增殖、变形已有食物）。</li>
+<li>不可<strong>复活死者</strong>——复活石唤回的只是影子。</li>
+<li>不可变出<strong>魔法物品</strong>与妖精铸造的金加隆。</li>
+<li>不可永久将死物化为活物。</li>
+<li>不可无中生有、不可改变物品数量。</li>
+<li><em>（官方仅明言"食物"一项，其余四项为本库跑团补完口径。）</em></li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>力量的代价 · 爱与牺牲</h3>
+<span class="en-sub">THE PRICE & THE SHIELD</span>
+<ul>
+<li><strong>杀戮撕裂灵魂</strong>；黑魔法每用一次便腐蚀一分心智，长期使用者永久丧失共情。</li>
+<li><strong>时间转换器</strong>：单次回溯上限约五小时，超期将被时间撕碎；严禁改写重大历史。</li>
+<li>强行施展远超自身水平的魔法必然失败或失控；极端情绪可致无意识魔法暴走。</li>
+<li><strong>爱与牺牲</strong>：源于自愿牺牲的爱的魔法是最强的黑魔法防御，无法刻意制造、无法被任何黑魔法破解。</li>
+</ul>
+</div>
+</div>
+<div class="info-box">
+<h3>通用机制名录</h3>
+<span class="en-sub">MECHANISMS INDEX</span>
+<ul>
+<li><strong>幻影移形</strong>：成年巫师考取执照后方可使用的瞬间移动；霍格沃茨全域禁制；失误导致分体。</li>
+<li><strong>守护神咒</strong>：以正面情感凝聚守护体，摄魂怪唯一天敌，难度远在O.W.L.之上，肉身守护神是天赋标志。</li>
+<li><strong>无声咒</strong>：不出声施法的高阶技巧，可隐藏攻击意图，精英巫师的入场券。</li>
+<li><strong>阿尼马格斯</strong>：自主变形动物的变形术，需数年苦练且须向魔法部登记——二十世纪登记在册仅七人。</li>
+<li><strong>大脑封闭术与摄神取念</strong>：封闭与侵入心智的对抗技艺，当世双绝是斯内普与伏地魔。</li>
+<li><strong>不可饶恕咒</strong>：夺魂咒、钻心咒、索命咒，须以真实恶意驱动；对人使用者判处阿兹卡班终身监禁；无咒可挡，只能躲避、物理遮挡或偏移。</li>
+<li><strong>魂器</strong>：以杀戮撕裂灵魂封入器物换取不死，最邪恶的黑魔法——细则为最高机密，严禁谈论。</li>
+</ul>
+</div>
+<h2 class="section-title">二、巫师等级（双轨制）</h2>
+<div class="section-title-en">WIZARDING LEVELS</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>官方认证（原著官方体系）</h3>
+<span class="en-sub">OFFICIAL CREDENTIALS</span>
+<ul>
+<li><strong>O.W.L.</strong>：五年级普通巫师等级考试；<strong>N.E.W.T.</strong>：七年级终极巫师考试——巫师社会唯一公认能力文凭。</li>
+<li><strong>成绩六等</strong>：O优秀 / E良好 / A及格 / P差 / D极差 / T巨怪。</li>
+<li><strong>职业资格</strong>：傲罗要求至少五门N.E.W.T.高分（含黑魔法防御术、魔药学、变形学）；治疗师、记忆注销员、解咒员各有入职门槛。</li>
+<li><strong>荣誉身份</strong>：梅林爵士团勋章（一至三级）、威森加摩成员、教授职称。</li>
+<li>认证是社会评价，不等于实战力（洛哈特奖状等身、实战为零）。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>综合战力（跑团判定尺）</h3>
+<span class="en-sub">COMBAT SCALE</span>
+<ul>
+<li><strong>传奇</strong>：当世仅邓布利多、伏地魔、格林德沃三人。稳定无杖无声施法，单人可压制数十名精英（参照1996年魔法部正厅之战）。封闭集合，任何角色不得轻易升入。</li>
+<li><strong>大师</strong>：稳定无声施法，可敌三至五名普通成年巫师（参照麦格、斯内普、穆迪一档）。</li>
+<li><strong>精英</strong>：战斗职业者——傲罗、核心食死徒、资深打击手。</li>
+<li><strong>普通</strong>：完成学业的成年巫师，仅掌握职业相关魔法。</li>
+<li><strong>特殊规格</strong>：家养小精灵、妖精、摄魂怪（非守护神不可伤）、巨人与龙等，按实际威胁单独标注。</li>
+<li>在校学生不入此档，能力上限按年级阈值判定。</li>
+</ul>
+</div>
+</div>
+<h2 class="section-title">三、社会规则</h2>
+<div class="section-title-en">SOCIETY · THE STATUTE</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>表里两面的社会</h3>
+<span class="en-sub">TWO WORLDS</span>
+<ul>
+<li>麻瓜看不见魔法世界；魔法部对目击者做记忆注销，魔法事件对外伪装为事故或天灾。</li>
+<li>电子设备在霍格沃茨等魔法浓郁区域完全失灵；巫师以猫头鹰、飞路网、守护神传讯、画像与幽灵传递信息。</li>
+<li><strong>未成年管制</strong>：十七岁以下巫师身带踪丝，校外施法初犯警告信，再犯开除学籍、折断魔杖；霍格沃茨校内不受踪丝限制。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>治理 · 血统 · 货币</h3>
+<span class="en-sub">ORDER & GALLEONS</span>
+<ul>
+<li><strong>英国魔法部</strong>为唯一合法政府（部长办公室及七大司）；<strong>威森加摩</strong>为最高法庭；<strong>阿兹卡班</strong>为最高监狱（1996年夏前由摄魂怪看守）；《预言家日报》为官方喉舌。</li>
+<li><strong>血统与阶级</strong>：纯血世家（神圣二十八族）话语权极大；麻瓜出身者遭隐性歧视（蔑称"泥巴种"），法律明面禁止血统歧视；文凭与战绩是上升通道。</li>
+<li><strong>货币</strong>：1加隆＝17西可＝493纳特，古灵阁可兑换麻瓜货币；魔法材料与稀有道具是真正的硬通货。</li>
+<li><strong>智慧种族</strong>：家养小精灵受主仆契约（赠衣即自由）；妖精掌古灵阁（制品归属权永归制作者）；马人避世观星；摄魂怪以吸食快乐为食。</li>
+</ul>
+</div>
+</div>
+<h2 class="section-title">四、战斗与裁决</h2>
+<div class="section-title-en">COMBAT · DUEL RULES</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>先手与情报即生死</h3>
+<span class="en-sub">INFORMATION IS LIFE</span>
+<ul>
+<li>先手优势极大；未知咒语与生物能力威胁倍增，弱点被摸清则威胁骤降。</li>
+<li>巫师不轻易亮底牌——首次展现的未知能力杀伤力最大。</li>
+<li><strong>无绝对碾压（传奇之下）</strong>：等级差可被战术、地形、魔杖适配、魔药道具与偷袭弥补；未开防御的巫师被麻瓜枪械命中同样致命。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>咒语相克与代价铁则</h3>
+<span class="en-sub">COUNTERS & COSTS</span>
+<ul>
+<li><strong>盔甲护身</strong>可挡大部分中低阶伤害咒，挡不住索命咒与大范围物理攻击；<strong>除你武器</strong>是最通用反制，可直接夺取魔杖忠诚。</li>
+<li><strong>守护神咒</strong>是摄魂怪唯一天敌；不可饶恕咒无咒可挡。</li>
+<li>不适配的魔杖威力骤降；黑魔法累计腐蚀灵魂，不可逆。</li>
+<li>福灵剂过量致狂妄失智；复方汤剂仅维持一小时、仅限人类变形，误用动物毛发将半兽化。</li>
+<li>死亡不可复活——冥想盆只存记忆，复活石唤回的只是影子。</li>
+</ul>
+</div>
+</div>
+<h2 class="section-title">五、势力总览</h2>
+<div class="section-title-en">FACTIONS OF THE WIZARDING WORLD</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>英国本土</h3>
+<span class="en-sub">BRITAIN</span>
+<ul>
+<li><strong>霍格沃茨魔法学校</strong>：格兰芬多、斯莱特林、拉文克劳、赫奇帕奇四学院，英国与爱尔兰生源。</li>
+<li><strong>英国魔法部</strong>：部长办公室及七大司——魔法法律执行司、魔法事故和灾害司、神奇动物管理控制司、国际魔法合作司、魔法交通司、魔法体育运动司、神秘事务司。</li>
+<li><strong>威森加摩</strong>（最高法庭）｜<strong>凤凰社</strong>（邓布利多领导的反伏地魔秘密组织）｜<strong>食死徒</strong>（臂烙黑魔标记）。</li>
+<li><strong>圣芒戈魔法伤病医院</strong>｜<strong>阿兹卡班监狱</strong>｜<strong>古灵阁巫师银行</strong>（妖精经营）。</li>
+<li><strong>刊物</strong>：预言家日报（含晚报、星期天版）、《唱唱反调》、《女巫周刊》。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>神圣二十八族与世界</h3>
+<span class="en-sub">SACRED TWENTY-EIGHT & BEYOND</span>
+<ul>
+<li><strong>神圣二十八族</strong>：1930年代初匿名出版的《纯血统名录》册定的二十八家"真正纯血"世家——非官方名录，纯血主义者奉为权威；冈特、克劳奇已绝嗣，布莱克男系将绝，韦斯莱家以列名为耻。</li>
+<li><strong>外国魔法学校</strong>：注册老牌名校共11所，8所具名——布斯巴顿（法国）、德姆斯特朗（北欧）、伊尔弗莫尼（美国）、魔法所（日本）、瓦加度（乌干达）、卡斯特罗布舍（巴西）、科尔多夫斯托列茨（俄罗斯）；另3所校名从未公开。</li>
+<li><strong>各国政府与国际机构</strong>：美国魔法国会（MACUSA）、法国魔法部、国际巫师联合会。</li>
+<li><strong>魔法地点</strong>：对角巷、翻倒巷、霍格莫德村（英国唯一纯巫师村落）、9¾站台、尖叫棚屋。</li>
+</ul>
+</div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 作品 ============ -->
+<div class="tab-content" id="tab-era">
+<h2 class="section-title">选择作品</h2>
+<div class="section-title-en">CHOOSE YOUR STORY</div>
+<div class="info-box"><p>选择你要投入的作品。全部作品按故事时间线严格顺承排列：前传序列（1890-1932）→ 正篇七部曲（1991-1998）→ 后日谈（约2008年起）。点击卡片展开作品简介与入场时机，节点直接点选即可；前传与后日谈均可独立开团。</p></div>
+<div class="chapter-jump" id="chapter-jump"></div>
+<div id="chapter-cards"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 角色 ============ -->
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">角色创建</h2>
+<div class="section-title-en">CHARACTER · PROFILE BUILDING</div>
+<div class="info-box" id="cur-chapter-box">
+<h3>当前作品</h3>
+<p id="cur-chapter-text">尚未选择作品</p>
+</div>
+<div class="mode-switch">
+<button class="mode-btn active" data-mode="original" onclick="switchMode('original')">❖ 原创角色</button>
+<button class="mode-btn" data-mode="canon" onclick="switchMode('canon')">❖ 扮演原著</button>
+</div>
+<div class="canon-section" id="canon-section">
+<div class="info-box gold">
+<h3>原著人物扮演</h3>
+<p>从全作品 274 位人物（含宠物伙伴）中选择一位。输入关键词搜索，或展开分组浏览。选定后仍可在下方修改具体细节。</p>
+</div>
+<div class="canon-search-wrap">
+<input type="text" class="canon-search" id="canon-search" placeholder="输入角色名搜索（如：哈利、斯内普、纽特、海德薇…）" oninput="filterCanon(this.value)">
+<div class="canon-dropdown" id="canon-dropdown"></div>
+</div>
+<div id="canon-list"></div>
+<div class="form-section" style="margin-top:20px;">
+<div class="form-group">
+<label>扮演补充 <span class="field-hint">（额外设定、细节、备注）</span></label>
+<textarea id="canon-supplement" rows="5" placeholder="例：&#10;· 想修改角色的某项设定&#10;· 追加原著未提及的细节&#10;· 特殊关系或隐藏背景&#10;· 其他任何补充……"></textarea>
+</div>
+</div>
+</div>
+<div id="original-section">
+<div class="form-section">
+<h3>基础信息</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="哈利、赫敏、纽特……"></div>
+<div class="form-group"><label>年龄</label><input type="number" id="char-age" placeholder="按所选作品时点计算" min="0" max="999"></div>
+</div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+<label><input type="radio" name="gender" value="女"><span>女</span></label>
+<label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+</div>
+</div>
+<div class="form-group"><label>现居地 <span class="field-hint">（城镇 / 地标）</span></label>
+<select id="char-origin" onchange="toggleCustom('origin',this.value)"></select>
+<div class="custom-input" id="custom-origin-wrap"><input type="text" id="custom-origin" placeholder="填写你想设定的地点"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>血统与出身</h3>
+<div class="form-row">
+<div class="form-group"><label>家族</label>
+<select id="family" onchange="toggleCustom('family',this.value)"></select>
+<div class="custom-input" id="custom-family-wrap"><input type="text" id="custom-family" placeholder="输入自定义家族"></div>
+</div>
+<div class="form-group"><label>血统</label>
+<select id="race" onchange="toggleCustom('race',this.value)"></select>
+<div class="custom-input" id="custom-race-wrap"><input type="text" id="custom-race" placeholder="输入自定义血统"></div>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>出生地</label>
+<input type="text" id="nation" list="birthplace-list" placeholder="可自填，如：伦敦、戈德里克山谷、霍格莫德、中国香港……">
+<datalist id="birthplace-list">
+<option value="伦敦"></option><option value="戈德里克山谷"></option><option value="奥特里·圣卡奇波尔"></option><option value="小惠金区（女贞路）"></option><option value="蜘蛛尾巷（考克沃斯）"></option><option value="霍格莫德村"></option><option value="小汉格顿"></option><option value="汉吉斯"></option><option value="康沃尔郡"></option><option value="德文郡"></option><option value="苏格兰高地"></option><option value="威尔士"></option><option value="爱尔兰"></option><option value="法国"></option><option value="美国"></option>
+</datalist>
+</div>
+</div>
+<div class="form-group"><label>出身补充 <span class="field-hint">（家庭环境、家族背景、成长氛围）</span></label>
+<textarea id="social-class" rows="3" placeholder="例：神圣二十八族冈特家旁支，但父亲是麻瓜；或：伦敦麻瓜家庭，父母都是牙医；或：破釜酒吧楼上长大的孩子……"></textarea>
+</div>
+</div>
+<div class="form-section">
+<h3>身份与学院</h3>
+<div class="form-row">
+<div class="form-group"><label>身份类型</label>
+<select id="identity" onchange="toggleCustom('identity',this.value);applyIdentityMode()"></select>
+<div class="custom-input" id="custom-identity-wrap"><input type="text" id="custom-identity" placeholder="输入自定义身份"></div>
+</div>
+<div class="form-group" id="year-group" style="display:none;"><label>年级</label>
+<select id="school-year"></select>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group" id="house-group"><label id="house-label">学院</label>
+<select id="house" onchange="toggleCustom('house',this.value)"></select>
+<div class="custom-input" id="custom-house-wrap"><input type="text" id="custom-house" placeholder="输入自定义学院/学校"></div>
+<div class="hint-text" id="house-hint"></div>
+</div>
+
+</div>
+</div>
+<div class="form-section">
+<h3>魔杖与宠物</h3>
+<div class="form-group"><label id="wand-label">魔杖</label>
+<div id="wand-list"></div>
+<button class="nav-btn next wand-add-btn" onclick="addWand()">+ 继续添加魔杖</button>
+<div class="hint-text" id="wand-hint"></div>
+</div>
+<div class="form-group"><label id="pet-label">宠物 <span class="field-hint">（可多选）</span></label>
+<div class="picker" id="pet-picker">
+<div class="picker-head"><span class="picker-tags" id="pet-tags">（点击展开选择宠物）</span><span class="arrow">▶</span></div>
+<div class="picker-body" id="pet-picker-body"></div>
+</div>
+<div style="display:none;margin-top:8px;" id="custom-pet-wrap"><input type="text" id="custom-pet" placeholder="自定义宠物（九尾狐、自拟神奇生物……）"></div>
+<div style="margin-top:8px;"><input type="text" id="pet-name" placeholder="宠物名字（可选，多只可用顿号隔开）"></div>
+<div class="hint-text" id="pet-hint"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>巫师水平</h3>
+<div class="form-row">
+<div class="form-group"><label>官方认证 <span class="field-hint">（魔法部公认资历）</span></label>
+<select id="certification" onchange="toggleCustom('certification',this.value)"></select>
+<div class="custom-input" id="custom-certification-wrap"><input type="text" id="custom-certification" placeholder="输入自定义认证"></div>
+</div>
+<div class="form-group"><label>综合战力 <span class="field-hint">（跑团判定尺·非官方）</span></label>
+<select id="power-level"></select>
+</div>
+</div>
+<div class="form-group"><label>战力备注</label><input type="text" id="power-note" placeholder="擅长决斗 · 魔药天才 · 魁地奇找球手……"></div>
+</div>
+<div class="form-section">
+<h3>入局契机</h3>
+<div class="form-group">
+<select id="entry-reason" onchange="toggleCustom('reason',this.value)"></select>
+<div class="custom-input" id="custom-reason-wrap"><input type="text" id="custom-reason" placeholder="输入自定义契机"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>外貌与性情</h3>
+<div class="form-group"><label>外貌</label><textarea id="char-appearance" placeholder="绿眸乱发戴眼镜 / 铂金发尖脸 / 红发雀斑高个子……"></textarea></div>
+<div class="form-group"><label>性格</label><textarea id="char-personality" placeholder="勇敢、毒舌、谨慎、忠诚、好胜……"></textarea></div>
+<div class="form-group"><label>兴趣爱好</label><input type="text" id="char-hobby" placeholder="魁地奇 · 巫师棋 · 泡图书馆 · 照料神奇动物……"></div>
+<div class="form-group"><label>随身物品 <span class="field-hint">（魔杖之外）</span></label><textarea id="char-belongings" placeholder="飞天扫帚 · 双面镜 · 一大袋比比多味豆……"></textarea></div>
+<div class="form-group"><label>背景故事</label><textarea id="char-background" placeholder="身世、家庭、入学经历、重要转折……"></textarea></div>
+<div class="form-group"><label>当前处境 / 开局场景</label><textarea id="char-scene" placeholder="刚收到录取信 · 特快列车上找座位 · 魔法部第一天上班……"></textarea></div>
+</div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 能力 ============ -->
+<div class="tab-content" id="tab-ability">
+<h2 class="section-title">能力</h2>
+<div class="section-title-en">SPELLS · SUBJECTS · TALENTS · EQUIPMENT</div>
+<div class="info-box" id="ability-intro"><p>必修与选修学科请设置掌握程度，其余能力直接勾选即可。体系分为十二类：必修科目 / 选修科目 / 基础与实用咒语 / 决斗与防御 / 恶作剧与玩笑咒语 / 治疗与后勤 / 高阶技艺 / 黑魔法与禁咒【慎用】 / 特殊天赋 / 魔法装备与道具 / 电影与影视扩展 / 官方授权游戏扩展。原十类以七部小说正典及通用魔法技艺为主；电影与官方授权游戏扩展单独分区并逐项标注来源，不与小说专属咒语混同。未经证实的同人自创咒语不收录；原作未公开效果或咒文的项目会在说明中注明。</p></div>
+<div id="ability-sections"></div>
+<div class="form-section">
+<h3>守护神</h3>
+<div class="form-group"><label>守护神形态 <span class="field-hint">（呼神护卫的实体形态）</span></label>
+<select id="patronus" onchange="toggleCustom('patronus',this.value)"></select>
+<div class="custom-input" id="custom-patronus-wrap"><input type="text" id="custom-patronus" placeholder="输入自定义守护神形态"></div>
+<div class="hint-text" id="patronus-hint"></div>
+</div>
+</div>
+<div class="custom-ab-box">
+<h4>❖ 自创魔法 / 独门咒语</h4>
+<div class="form-group"><label>名称</label><input type="text" id="custom-ab-name" placeholder="如：原创咒语 · 家传秘术 · 改良魔药 ……"></div>
+<div class="form-group"><label>说明</label><textarea id="custom-ab-desc" rows="2" placeholder="效果、施放条件、代价……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomAbility()">+ 添加自创魔法</button>
+<div id="custom-ab-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 命运 ============ -->
+<div class="tab-content" id="tab-fate">
+<h2 class="section-title">命运</h2>
+<div class="section-title-en">FATE · THE WAND CHOOSES</div>
+<div class="info-box gold">
+<h3>平衡类命运天赋 · 老版复刻</h3>
+<ul>
+<li>每次抽取获得 <strong>10 条</strong> 天赋，从中选择 <strong>3 条</strong>；与下方新版命运池独立抽取、独立选择</li>
+<li>沿用老版概率：神话 <strong>0.5%</strong> ／ 传说 <strong>4%</strong> ／ 史诗 <strong>10%</strong> ／ 稀有 <strong>25%</strong> ／ 寻常 <strong>60.5%</strong></li>
+<li>老版 59 项天赋完整收录，不含跨作品能力；可反复重抽，直到满意为止</li>
+</ul>
+</div>
+<div class="talent-section">
+<button class="roll-btn" id="balanced-roll-btn" onclick="rollBalancedTalents()">抽 · 取 · 平 · 衡 · 天 · 赋</button>
+</div>
+<div class="talent-pool" id="balanced-talent-pool">
+<h3>平衡类命运天赋 · Balanced Fate</h3>
+<p class="talent-count">请从以下 10 条中选择 3 条（已选：<span id="balanced-talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="balanced-talent-list"></div>
+</div>
+<div class="info-box">
+<h3>新版命运抽取规则</h3>
+<ul>
+<li>每次抽取获得 <strong>8 条</strong> 命运卡，从中选择 <strong>3 条</strong> 作为核心际遇</li>
+<li>神话档概率约 <strong>15-20%</strong>，首个保底神话</li>
+<li>稀有度对应阶位：灰·寻常 ／ 绿·稀有 ／ 绯·史诗 ／ 紫·传说 ／ 金·神话（神话档为跨作品命运）</li>
+<li>命运不锁能力、不锁阵营，仅决定你的身世、羁绊与际遇走向</li>
+<li>可反复重抽，直到满意为止；亦可自创独门命运</li>
+</ul>
+</div>
+<div class="talent-section">
+<button class="roll-btn" id="roll-btn" onclick="rollTalents()">投 · 出 · 命 · 运</button>
+</div>
+<div class="talent-pool" id="talent-pool">
+<h3>命运池 · Fate Pool</h3>
+<p class="talent-count">请从以下 8 条中选择 3 条（已选：<span id="talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="talent-list"></div>
+</div>
+<div class="custom-ab-box">
+<h4>❖ 自创命运 / 私人际遇</h4>
+<div class="form-group"><label>命运名称</label><input type="text" id="custom-tl-name" placeholder="如：分院帽的迟疑 · 奥利凡德的异闻……"></div>
+<div class="form-group"><label>说明 / 效果</label><textarea id="custom-tl-desc" rows="2" placeholder="内容与效果……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomTalent()">+ 添加自创命运</button>
+<div id="custom-tl-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 此生 ============ -->
+<div class="tab-content" id="tab-preview">
+<h2 class="section-title">此生 · 角色档案</h2>
+<div class="section-title-en">ARCHIVE · FINAL PROFILE</div>
+<div class="preview-box" id="preview-box"></div>
+<button class="copy-btn" onclick="copyPreview()">复 · 制 · 此 · 生</button>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button></div>
+</div>
+</div><!-- end content-wrapper -->
+</div><!-- end main-container -->
+<footer>HARRY POTTER · 魔 法 世 界</footer>
+<script>
+// ==================== STATE ====================
+const state={
+currentTab:'worldview',
+selectedChapter:null,
+selectedEntry:null,
+mode:'original',
+canonChar:null,
+selectedAbilities:new Set(),
+subjectLevels:{},
+customAbilities:[],
+customTalents:[],
+rolledBalancedTalents:[],
+selectedBalancedTalents:[],
+rolledTalents:[],
+selectedTalents:[],
+wands:[],
+pets:new Set(),
+petCustomOn:false
+};
+const TABS=['worldview','era','character','ability','fate','preview'];
+// ==================== CHAPTER DATA ====================
+const chapterData={
+prequel:[
+{id:'hogwarts-legacy',name:'霍格沃茨之遗',year:'1890–1891学年',subtitle:'古代魔法与妖精叛乱',
+desc:'一名能看见并操控"古代魔法"的五年级插班生入学霍格沃茨，在魔咒学教授伊莱扎·菲戈引导下通过四守护者试炼；妖精叛军领袖兰洛克与黑巫师维克多·卢克伍德觊觎地底"最终仓库"的古代魔法——1891年春叛军攻校，菲戈教授战死。本作为游戏原创设定（非罗琳原著）：时间线比正篇早一百年，校长是菲尼亚斯·奈杰勒斯·布莱克，古代魔法体系、舆图密室与守护者传承由此而来。主角的姓名、性别、外貌、学院皆可自定。',
+tags:['古代魔法','四守护者','兰洛克','菲戈教授','菲尼亚斯·布莱克'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'fantastic-beasts',name:'神奇动物在哪里',year:'1926年12月',subtitle:'纽约·皮箱与默然者',
+desc:'神奇动物学家纽特·斯卡曼德携皮箱抵达纽约短暂停留，皮箱与麻鸡雅各布·科瓦尔斯基的箱子调包、神奇生物出逃；暗线是美国魔法国会（MACUSA）追查的"默然者"连环袭击——真凶是被收养的沉默少年克雷登斯·拜尔本，而国会安全部长珀西瓦尔·格雷维斯竟是盖勒特·格林德沃的变形伪装。本作拉开前传序列与格林德沃阴影的序幕。',
+tags:['纽特·斯卡曼德','蒂娜','奎妮','雅各布','克雷登斯','格林德沃'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'crimes-of-grindelwald',name:'神奇动物：格林德沃之罪',year:'1927年',subtitle:'伦敦→巴黎·血盟现世',
+desc:'格林德沃押送途中越狱赴欧，暗中布局巴黎，目标是把默然者克雷登斯收为己用；纽特受邓布利多之托寻回克雷登斯。拉雪兹公墓集会上格林德沃第一次亮出革命蓝图，莉塔·莱斯特兰奇殒命蓝焰，奎妮越界追随——而嗅嗅偷回的一枚小坠瓶，藏着邓布利多与格林德沃少年时结下的血盟。',
+tags:['血盟','拉雪兹公墓集会','莉塔·莱斯特兰奇','纳吉尼','马戏团'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'secrets-of-dumbledore',name:'神奇动物：邓布利多之谜',year:'1932年',subtitle:'桂林→柏林→不丹·选举博弈',
+desc:'格林德沃被国际巫师联合会无罪开释并参选最高领袖，以僵尸麒麟操控选举；邓布利多小队全球奔走破局。克雷登斯身世揭晓——他是阿不福思·邓布利多之子；血盟在"一攻一护"的悖论中自行碎裂，邓布利多与格林德沃首度正面交手。影视正史至此为止，1945年二人的传奇决斗仅有文字正史。',
+tags:['麒麟','国际巫师联合会','血盟碎裂','阿不福思','不丹'],
+entries:['剧情开始','剧情中期','剧情后期']}
+],
+main:[
+{id:'hp1',name:'哈利·波特与魔法石',year:'1991–1992学年',subtitle:'大难不死的男孩入学',
+desc:'主线1991年7月31日至1992年6月。一岁在索命咒下生还的哈利·波特收到霍格沃茨录取信，初入魔法世界，分院进入格兰芬多，与罗恩、赫敏结成铁三角；法力尽失的伏地魔寄生在奇洛教授后脑潜入霍格沃茨，图谋盗取魔法石炼制长生不老药以复生——哈利第一次挫败伏地魔，穿过魔鬼网、飞天钥匙、巫师棋与厄里斯魔镜的关卡守住魔法石。',
+tags:['铁三角结成','奇洛','魔法石','厄里斯魔镜','分院帽'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp2',name:'哈利·波特与密室',year:'1992–1993学年',subtitle:'斯莱特林的继承人',
+desc:'1992年7月至1993年6月，二年级。家养小精灵多比拦路警告未果，斯莱特林的密室五十年后再次被开启，蛇怪连环石化"泥巴种"，血字恐吓笼罩全校——一切源于一本汤姆·马沃罗·里德尔的旧日记：十六岁伏地魔记忆体的首次现世（本作未出现"魂器"一词，严禁点破）。哈利以蛇佬腔开启密室，格兰芬多宝剑斩杀蛇怪，凤凰福克斯的眼泪救命。',
+tags:['蛇怪','日记','多比','蛇佬腔','曼德拉草'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp3',name:'哈利·波特与阿兹卡班的囚徒',year:'1993–1994学年',subtitle:'小天狼星越狱',
+desc:'1993年7月至1994年6月，三年级。小天狼星·布莱克从阿兹卡班越狱，摄魂怪进驻霍格沃茨；一桩十三年前的"叛徒旧案"在尖叫棚屋彻底翻转——真凶小矮星·彼得化鼠逃逸，伏地魔的仆从重新上路。本年度新黑魔法防御术教授莱姆斯·卢平教授守护神咒；赫敏持时间转换器修读双倍课程，最终一夜救下两条性命。',
+tags:['小天狼星','摄魂怪','守护神咒','时间转换器','活点地图'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp4',name:'哈利·波特与火焰杯',year:'1994–1995学年',subtitle:'三强争霸赛·黑魔复活',
+desc:'1994年8月至1995年6月，四年级。停办二百余年的三强争霸赛在霍格沃茨重启，布斯巴顿与德姆斯特朗到访；14岁的哈利被阴谋投进火焰杯成为第四名勇士。匈牙利树蜂、人鱼湖底、迷宫惊魂——学年尽头，伏地魔在小汉格顿里德尔墓地复活，塞德里克·迪戈里遇害，魔法部拒绝承认。战争与谎言同时开局。',
+tags:['三强争霸赛','塞德里克','假穆迪','墓地复活','门钥匙'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp5',name:'哈利·波特与凤凰社',year:'1995–1996学年',subtitle:'O.W.L.年·地下反抗军',
+desc:'1995年8月至1996年6月，五年级（O.W.L.年）。魔法部拒绝承认伏地魔归来，转而政治接管霍格沃茨——乌姆里奇的"教育令"独裁与哈利的地下反抗军D.A.；伏地魔暗中图谋神秘事务司的预言球，小天狼星战死帷幔；福吉亲眼目睹伏地魔，真相大白，第二次巫师战争正式开幕。',
+tags:['乌姆里奇','D.A.','神秘事务司之战','预言球','帷幔'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp6',name:'哈利·波特与混血王子',year:'1996–1997学年',subtitle:'魂器之谜·天文塔之夜',
+desc:'1996年7月至1997年7月，六年级。战争公开化；邓布利多右手焦黑、自知只剩一年寿命，全年以冥想盆私教课向哈利揭开汤姆·里德尔的过去与"魂器"之谜；德拉科·马尔福领命刺杀邓布利多。1997年6月30日天文塔之夜，斯内普依二人密约杀死邓布利多，并向哈利自揭身份——"我就是混血王子"。',
+tags:['魂器','冥想盆私教课','混血王子课本','天文塔','牢不可破的誓言'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'hp7',name:'哈利·波特与死亡圣器',year:'1997–1998',subtitle:'猎杀魂器·最终决战',
+desc:'1997年7月27日至1998年5月2日，尾声2017年9月1日。哈利十七岁成年，放弃返校，与罗恩、赫敏流亡全英猎杀魂器；魔法部沦陷，霍格沃茨由斯内普出任校长、卡罗兄妹执教施暴；纳威与金妮重组D.A.转入地下抵抗。魂器逐一销毁、死亡圣器真相揭晓——1998年5月2日霍格沃茨决战，伏地魔终亡。',
+tags:['七个波特','猎杀魂器','死亡圣器','霍格沃茨大战','禁林赴死'],
+entries:['剧情开始','剧情中期','剧情后期']}
+],
+sequel:[
+{id:'magic-awakened',name:'哈利·波特：魔法觉醒',year:'约2008年起',subtitle:'大战十年后·新生入学',
+desc:'霍格沃茨大战（1998年）约十年后，米勒娃·麦格任校长时期的霍格沃茨。网易获华纳授权的手游，主线剧情为手游原创：一年级新生（玩家自创）入学，正史角色设定与正篇一致（职务按本时点）——麦格任校长，海格仍为猎场看守，弗立维、斯拉格霍恩、霍琦执教，哈利·波特以魔法部傲罗局长身份客串引路，纳威·隆巴顿任草药课教授（客串）。手游原创角色：卡珊德拉·沃雷、艾薇·沃灵顿、温尼菲尔德·沃灵顿、丹尼尔·佩杰、洛蒂·特纳等。',
+tags:['麦格校长','手游原创主线','决斗俱乐部','卡珊德拉','艾薇·沃灵顿'],
+entries:['剧情开始','剧情中期','剧情后期']},
+{id:'cursed-child',name:'哈利·波特与被诅咒的孩子',year:'2017–2020',subtitle:'下一代·时间转换器',
+desc:'序幕2017年9月1日九又四分之三站台，主体2020年夏末至秋（阿不思·西弗勒斯·波特四年级）。官方第八个故事，舞台剧剧本体裁：阿不思与斯科皮厄斯·马尔福为"纠正历史"盗用时间转换器，两度改写三强争霸赛酿出至暗时间线；幕后黑手戴尔菲妮·里德尔——伏地魔与贝拉特里克斯之女——欲回1981年亲手改写那一夜。父与子、过去与现在的和解。',
+tags:['阿不思·西弗勒斯','斯科皮厄斯','戴尔菲妮','时间转换器','至暗时间线'],
+entries:['剧情开始','剧情中期','剧情后期']}
+]
+};
+// ==================== CANON CHARACTERS ====================
+const canonCharacters={
+'正篇·霍格沃茨学生':[
+['哈利·波特','大难不死的男孩、绿眸乱发、孪生杖芯'],
+['罗恩·韦斯莱','红发雀斑、巫师棋全校顶级、守门员'],
+['赫敏·格兰杰','万事通、麻瓜出身、图书馆常驻'],
+['德拉科·马尔福','铂金少爷、斯莱特林、尖脸'],
+['秋·张','拉文克劳找球手、初恋、天鹅守护神'],
+['金妮·韦斯莱','红发棕眸、蝙蝠精魔咒、追球手'],
+['纳威·隆巴顿','圆脸、健忘、草药学天才'],
+['卢娜·洛夫古德','疯姑娘、萝卜耳环、黄油啤酒项链'],
+['奥利弗·伍德','魁地奇队长、守门员、学院杯执念'],
+['弗雷德·韦斯莱','双胞胎、恶作剧、把戏坊'],
+['乔治·韦斯莱','双胞胎、恶作剧、把戏坊'],
+['珀西·韦斯莱','级长徽章、角框眼镜、野心'],
+['威克多尔·克鲁姆','鹰钩鼻、浓眉、外八字'],
+['塞德里克·迪戈里','高鼻梁、黑发灰眸、绅士风度'],
+['拉文德·布朗','金发、罗-罗、占卜课迷妹'],
+['帕瓦蒂·佩蒂尔','黑发美人、占卜课信徒、圣诞舞会'],
+['帕德玛·佩蒂尔','黑发美人、级长徽章、安静的姐姐'],
+['西莫·斐尼甘','沙色头发、爱尔兰口音、爆炸'],
+['迪安·托马斯','黑人、西汉姆联、画横幅'],
+['科林·克里维','相机、小粉丝、石化'],
+['丹尼斯·克里维','落水新生、巨乌贼、弟弟'],
+['迈克尔·科纳','黑发、金妮前男友、拉文克劳'],
+['罗米达·万尼','巧克力坩埚、爱情魔药、大胆'],
+['潘西·帕金森','哈巴狗脸、级长徽章、调查行动组'],
+['文森特·克拉布','矮胖、长臂、厉火'],
+['格雷戈里·高尔','大块头、猩猩臂、青苔石头'],
+['西奥多·诺特','独行侠、看得见夜骐、时间转换器'],
+['贾斯廷·芬列里','卷发、伊顿公学、麻瓜出身'],
+['汉娜·艾博','粉红脸蛋、金发小辫、破釜酒吧老板娘'],
+['苏珊·博恩斯','金色长辫、博恩斯家、分体的腿'],
+['厄尼·麦克米兰','公文腔、野猪守护神、级长徽章'],
+['布莱斯·扎比尼','深色皮肤、狭长棕眼、七任亡夫的母亲'],
+['马库斯·弗林特','大板牙、巨怪脸、球场流氓'],
+['扎卡赖斯·史密斯','金发翘鼻、毒舌解说、蝙蝠精咒受害者'],
+['罗杰·戴维斯','英俊队长、芙蓉的舞伴、茶馆亲亲'],
+['安东尼·戈德斯坦','级长、D.A.创始成员、安静可靠'],
+['玛丽埃塔·艾克莫','告密生、SNEAK、红金卷发'],
+['佩内洛·克里瓦特','褐色长鬈发、女神、珀西的秘密'],
+['考迈克·麦克拉根','魁梧、粗硬头发、权贵叔叔'],
+['凯蒂·贝尔','追球手元老、蛋白石项链、圣芒戈数月'],
+['安吉丽娜·约翰逊','高挑黑发、长辫、队长'],
+['艾丽娅·斯平内特','追球手铁三角、回校参战'],
+['李·乔丹','脏辫、解说腔、大河'],
+['加布里埃尔·德拉库尔','银发小女孩、湖底人质、伴娘'],
+],
+'正篇·教职工与校长':[
+['阿不思·邓布利多','半月眼镜、歪鼻子、湛蓝眼睛'],
+['西弗勒斯·斯内普','混血王子、大脑封闭术史上最强、牝鹿守护神'],
+['鲁伯·海格','混血巨人、鼹鼠皮大衣、岩皮饼'],
+['米勒娃·麦格','方眼镜、花斑猫、发髻'],
+['菲利乌斯·弗立维','书堆上的教授、尖嗓子、决斗冠军'],
+['波莫娜·斯普劳特','补丁尖顶帽、泥土指甲、龙粪肥'],
+['西比尔·特里劳妮','大眼镜、珠串披巾、雪利酒味'],
+['霍拉斯·斯拉格霍恩','海象胡子、大肚子、鼻涕虫俱乐部'],
+['吉德罗·洛哈特','迷人微笑、遗忘咒、畅销作家'],
+['波皮·庞弗雷','灰发蓝眼、白帽披风、生骨灵'],
+['伊尔玛·平斯','秃鹫脸、羊皮纸皮肤、禁书区'],
+['威尔米娜·格拉普兰','灰白短发、突出下巴、烟斗'],
+['阿格斯·费尔奇','灯泡凸眼、洛丽丝夫人、铁链手铐'],
+['罗兰达·霍琦','灰色短发、黄色鹰眼、银箭'],
+],
+'正篇·凤凰社与盟友':[
+['莱姆斯·卢平','狼人、月亮脸、花白头发'],
+['小天狼星·布莱克','大脚板、英俊、灰眸'],
+['阿拉斯托·穆迪','魔眼、木腿、时刻保持警惕'],
+['尼法朵拉·唐克斯','易容马格斯、粉发、傲罗'],
+['莫丽·韦斯莱','母亲、红发、织毛衣'],
+['亚瑟·韦斯莱','红发渐秃、麻瓜迷、福特安格利亚'],
+['比尔·韦斯莱','长马尾、尖牙耳环、解咒员'],
+['查理·韦斯莱','驯龙人、罗马尼亚、灼伤疤'],
+['金斯莱·沙克尔','光头、金耳环、深沉嗓音'],
+['阿不福思·邓布利多','山羊、猪头酒吧、镜子碎片'],
+['蒙顿格斯·弗莱奇','顿格、罗圈腿、烟酒臭'],
+['芙蓉·德拉库尔','银发蓝眼、媚娃血统、法式傲慢'],
+['费格太太','猫狸子、卷心菜味、紫藤路'],
+['奥利姆·马克西姆','大骨头、黑缎子、蛋白石'],
+['埃非亚斯·多吉','呼哧呼哧、傻帽子、讣告'],
+['斯多吉·波德摩','方下巴、稻草色头发、夺魂冤案'],
+['爱米琳·万斯','深绿披肩、典雅、后院命案'],
+['海丝佳·琼斯','乌黑头发、粉脸颊、质问德思礼家'],
+['德达洛·迪歌','紫高帽、尖嗓门、那一鞠躬'],
+['安多米达·唐克斯','浅褐色软发、除名、像贝拉但更慈祥'],
+['泰德·唐克斯','麻瓜出身、邋遢鬼、流亡'],
+],
+'正篇·魔法部':[
+['康奈利·福吉','圆顶礼帽、装聋作哑、第三顺位'],
+['鲁弗斯·斯克林杰','老狮子、金属丝眼镜、战时部长'],
+['多洛雷斯·乌姆里奇','粉色癞蛤蟆、惩罚羽毛笔、Hem-Hem'],
+['老巴蒂·克劳奇','牙刷小胡子、一板一眼、语言天才'],
+['卢多·巴格曼','粉嘟嘟圆脸、赌瘾、解说腔'],
+['阿莫斯·迪戈里','棕胡子、以子为傲、丧子之痛'],
+['约翰·德力士','灰白硬发、不苟言笑、全优傲罗'],
+['格丝尔达·玛奇班','百年考官、考过邓布利多、辞职抗议'],
+['艾伯特·伦考恩','黑色卷发、大胡子、恶名'],
+['雷吉·卡特莫尔','生病的雪貂、维修工、三个孩子'],
+['马法尔达·霍普柯克','警告信、灰发小个子、淡紫色汤剂'],
+['玛丽·卡特莫尔','黑发圆髻、审讯席、奥利凡德的魔杖'],
+['伯莎·乔金斯','八卦女王、记忆咒创伤、阿尔巴尼亚'],
+['阿米莉亚·博恩斯','方下巴、单片眼镜、公正'],
+['皮尔斯·辛克尼斯','傀儡部长、夺魂咒、小胡子'],
+['布罗德里克·博德','灰黄哀伤、夺魂傀儡、魔鬼网盆栽'],
+['德克·克莱斯韦尔','妖精联络处、假家谱、逃亡'],
+],
+'正篇·食死徒与黑阵营':[
+['伏地魔','黑魔王、蛇脸、七个魂器'],
+['贝拉特里克斯·莱斯特兰奇','黑魔标记、狂热、钻心咒'],
+['卢修斯·马尔福','铂金长发、蛇头手杖、操纵术'],
+['纳西莎·马尔福','金发蓝眼、母亲、那一谎'],
+['小矮星·彼得','虫尾巴、斑斑、叛徒'],
+['小巴蒂·克劳奇','假穆迪、死士、复方汤剂'],
+['芬里尔·格雷伯克','狼人、尖牙、专咬孩子'],
+['安东宁·多洛霍夫','扭曲长脸、紫色火焰、卢平的终结者'],
+['伊戈尔·卡卡洛夫','山羊胡、污点证人、偏心裁判'],
+['奥古斯都·卢克伍德','缄默人、间谍、两度越狱'],
+['特拉弗斯','灭门血债、银行寒暄、越狱常客'],
+['穆尔塞伯','两代人、夺魂咒、斯内普同窗'],
+['诺特先生','元老、鳏夫、墓地召唤'],
+['吉本','黑魔标记、误杀、同僚的咒语'],
+['沃尔顿·麦克尼尔','行刑斧、磨刀声、一小撮黑胡子'],
+['索芬·罗尔','金发大块头、误杀队友、咖啡馆伏击'],
+['斯卡比奥','长发乱须、围巾、赏金打手'],
+['阿米库斯·卡罗','矮胖肿胀脸、喘息笑声、体罚'],
+['阿莱克托·卡罗','矮壮小女人、麻瓜研究（歪曲版）、被卢娜放倒'],
+['亚克斯利','满脸横肉、银丝长袍、夺魂辛克尼斯'],
+['奎里纳斯·奇洛','紫头巾、大蒜味、口吃'],
+['罗道夫斯·莱斯特兰奇','矮而健壮、面无表情、血统婚姻'],
+['拉巴斯坦·莱斯特兰奇','弟弟、黯淡的星、酷刑案'],
+],
+'正篇·幽灵画像与魔法生灵':[
+['哭泣的桃金娘','爱哭的幽灵、盥洗室主人、密室第一个受害者'],
+['胖夫人','守门画像、口令、粉裙子'],
+['卡多根爵士','骑士画像、疯狂口令、小矮马'],
+['拉环','尖胡子、细长手指、金库向导'],
+['格洛普','十六英尺、蕨色卷发、海格的弟弟'],
+['胖修士','矮胖修士、笑眯眯、治天花'],
+['格雷女士','高傲美丽、黑色伤口、冠冕'],
+['差点没头的尼克','皱领、插羽毛的帽子、四十五下钝斧'],
+['血人巴罗','银色血迹、锁链、忏悔'],
+['皮皮鬼','钟形帽、橙蝴蝶结、水枪'],
+['卡斯伯特·宾斯','穿黑板、吸尘器腔调、妖精叛乱'],
+['埃弗拉','苍白面孔、黑色短刘海、画像情报网'],
+['戴丽丝·德文特','银发老女巫、两地画像、治疗师出身的校长'],
+['沃尔布加·布莱克','尖叫画像、帷幔、纯血至上'],
+['维奥莱特','苍白瘦削、酒友、八卦传送带'],
+['费伦泽','白金色头发、湛蓝双眼、奶油色马身'],
+['多比','网球绿眼、袜子、自由的小精灵'],
+['克利切','罗圈腿、挂坠盒、小主人的秘密'],
+['闪闪','恐高、黄油啤酒、解雇冤案'],
+['贝恩','黑毛马人、暴躁、教条捍卫者'],
+['玛格仁','灰白胡须、首领、星象'],
+],
+'正篇·魔法界众生':[
+['谢诺菲留斯·洛夫古德','棉花糖白发、对眼、死亡圣器项链'],
+['加里克·奥利凡德','苍白月亮眼、记杖如神、公元前382年'],
+['博金先生','油腻嗓音、弯腰驼背、见钱眼开'],
+['卡拉克塔库斯·伯克','10加隆、捡漏、挂坠盒经手人'],
+['摩金夫人','矮胖微笑、紫罗兰色、量体台'],
+['多丽丝·科克福德','老女巫、握手、见证者'],
+['福洛林·福斯科','免费冰淇淋、中世纪巫术通、幽灵情节'],
+['罗丝默塔','三把扫帚、黄油啤酒、夺魂咒'],
+['厄恩·普兰','厚眼镜、猫头鹰脸、车技感人'],
+['斯坦·桑帕克','招风耳、粉刺、伦敦腔'],
+['手推车女巫','南瓜馅饼、尖刺手指、守门人'],
+['格里戈维奇','白发白须、老魔杖上一手、窗台上的金发少年'],
+['丽塔·斯基特','金发大波浪、鳄鱼皮手袋、速记羽毛笔'],
+['巴希达·巴沙特','魔法史作者、姑婆、糊涂的老人'],
+['汤姆','秃顶没牙、吧台、对角巷1号'],
+],
+'正篇·麻瓜与平民':[
+['弗农·德思礼','大胡子、没脖子、女贞路4号'],
+['佩妮·德思礼','长脖子、马脸、嫉妒'],
+['达力·德思礼','胖表哥、小霸王、拳击冠军'],
+['玛姬·德思礼','玛姬姑妈、气球、牛头犬利皮'],
+['梅森先生','建筑商、晚宴、大主顾'],
+['梅森夫人','怕鸟、布丁、崩溃尖叫'],
+['皮尔·波奇斯','鼠脸、帮闲、抓胳膊的'],
+],
+'正篇·往昔与传奇':[
+['詹姆·波特','尖头叉子、牡鹿阿尼马格斯、活点地图'],
+['马沃罗·冈特','末代家主、死蛇钉门、两件传家宝'],
+['莫芬·冈特','缺牙、死蛇、栽赃'],
+['梅洛普·冈特','斜视、10加隆、迷情剂'],
+['老汤姆·里德尔','乡绅之子、骑马、英俊傲慢'],
+['赫普兹巴·史密斯','金杯、挂坠盒、霍奇'],
+['弗兰克·布莱斯','老园丁、跛脚、二战老兵'],
+['莉莉·波特','深红长发、绿杏眼、牺牲保护'],
+['戈德里克·格兰芬多','红发狮鬃、决斗家、宝剑与分院帽'],
+['萨拉查·斯莱特林','猴脸长须雕像、蛇佬腔、密室与蛇怪'],
+['罗伊纳·拉文克劳','黑发白肤、智慧冠冕、母女悲剧'],
+['赫尔加·赫奇帕奇','丰满温暖、金杯、厨房之母'],
+['阿利安娜·邓布利多','金发蓝眼、失控、三人决斗'],
+['尼古拉斯·弗拉梅尔','魔法石之父、六百岁、巴黎故居'],
+['佩雷纳尔·勒梅','弗拉梅尔之妻、喷泉另一半名字、六百年婚姻'],
+],
+'神奇动物系列（前传）':[
+['盖勒特·格林德沃','金发魔王、血盟、老魔杖前主人'],
+['纽特·斯卡曼德','小雀斑、孔雀蓝大衣、皮箱'],
+['蒂娜·戈德斯坦','波波头、风衣大领子、劝诫者'],
+['奎妮·戈德斯坦','金发甜心、天生摄神取念、时尚'],
+['雅各布·科瓦尔斯基','圆脸憨厚、烘焙坊、贷款被拒'],
+['克雷登斯·拜尔本','锅盖头、皮带伤痕、默默然'],
+['忒修斯·斯卡曼德','战争英雄、傲罗主任、爱拥抱'],
+['莉塔·莱斯特兰奇','深肤美人、换婴、博格特是溺水的弟弟'],
+['尤瑟夫·卡玛','血誓、塞内加尔裔、卧底'],
+['塞拉菲娜·皮克科瑞','四院争抢、长角水蛇、忘忧水宣言'],
+['玛丽·卢·拜尔本','清道夫后裔、皮带、宣讲台'],
+['珀西瓦尔·格雷维斯','被顶替的人、下落不明、初代傲罗后裔'],
+['安东·沃格尔','灰白头发、绥靖、无罪开释'],
+['维森西娅·桑托斯','麒麟鞠躬、巴西部长、众望所归'],
+['刘洮','中国候选人、鹰巢大典、华服长者'],
+['拉莉·希克斯','哈莱姆、雷鸟学院、与邓布利多通信的小女孩'],
+['温达·罗齐尔','黑玫瑰、罗齐尔家、忠诚信徒'],
+['邦缇·布罗德克','棕色短发、手提箱、暗恋'],
+['贡纳·格里姆森','北欧大汉、双面赏金、杜加德之死'],
+['斯肯德','怪胎秀、司仪腔、展品'],
+['伊尔玛·杜加德','旧仆人、收养经办人、一盒旧物'],
+['亨利·肖参议员','参议员、筹款晚宴、傲慢'],
+['老亨利·肖','报业大亨、丧子、目击者'],
+['兰登·肖','花花公子、怪胎、唯一相信的人'],
+['阿伯纳西','内应、复方汤剂替身、越狱大戏'],
+['鲁道夫·斯皮尔曼','押送代表、扔下云层、最早警报'],
+['托基尔·特拉弗斯','司长、手铐、撤职'],
+['克拉尔','糙汉子、迟疑、蓝焰吞噬'],
+['阿基里斯·托利弗','傲罗、约会对象、对照组'],
+['莫迪丝蒂·拜尔本','跳绳歌谣、洋娃娃、唯一的暖色'],
+['查斯提蒂·拜尔本','顺从的姐姐、传单、幸存者'],
+],
+'霍格沃茨之遗':[
+['伊莱扎·菲戈','魔法理论课、妻子的遗志、导师'],
+['玛蒂尔达·韦斯莱','红发副校长、格兰芬多院长、变形课'],
+['菲尼亚斯·奈杰勒斯·布莱克','最不受欢迎校长、山羊胡、画像传讯'],
+['波西瓦尔·拉克汉姆','守护者之首、第一试炼、高塔'],
+['查尔斯·卢克伍德','卢克伍德城堡、双重位面试炼、家族之耻的先祖'],
+['尼欧弗·菲兹杰拉德','故事书试炼、光与影、温和坚定'],
+['桑·巴卡尔','第四试炼、索命咒、最狠的守护者'],
+['塞巴斯蒂安·萨鲁','棕发棕眼、双胞胎妹妹、黑魔法歧路'],
+['奥米尼斯·冈特','盲眼贵公子、浅金近白、蛇佬腔'],
+['伊西多拉·莫加纳克','抽离痛苦、最终仓库、被终结的教授'],
+['兰洛克','妖精叛军、导师的日志、杀弟'],
+['维克多·卢克伍德','黑巫师帮派、卢克伍德后裔、翻脸'],
+['安妮·萨鲁','双胞胎妹妹、费德罗特、诅咒'],
+['所罗门·萨鲁','前傲罗、双标、暴躁叔叔'],
+['娜特赛·欧奈','瞪羚、瓦加度转学生、偷猎者的噩梦'],
+['波皮·斯威汀','赫奇帕奇、高翼、偷猎者的对头'],
+['阿米特·塔卡','望远镜、天文台、星星通'],
+['米丽亚姆·菲戈','菲戈的妻子、古代魔法研究者、引信'],
+['罗德高克','弟弟、日志、矿洞'],
+['迪科','有求必应屋、捕猎袋、小老头精灵'],
+['戴娜·赫卡特','前缄默人、老化、实战课堂'],
+['米拉贝尔·加里克','全游戏第一美人、温室、大蒜谐音'],
+['亚伯拉罕·罗南','飞来咒课堂、乐天派、被吐槽的教授'],
+['穆迪娃·奥奈','瓦加度、真先知、母女'],
+['萨蒂亚瓦蒂·沙阿','天文塔、星象解读、夜课'],
+['贝·豪温','皓莺、林场看守、应声落地'],
+['艾索普·夏普','前傲罗、跛腿、退役徽章'],
+['古川小夜','魔法所调任、职业球员、飞行课'],
+['理查德·杰克多','幽灵学生、遗迹墓穴、安息'],
+['伊梅尔达·雷耶斯','计时赛擂主、扫帚竞速、斯莱特林的好胜心'],
+['埃弗雷特·克洛普顿','捣蛋鬼、翘课邀请、古川夫人的咆哮'],
+],
+'被诅咒的孩子·下一代':[
+['阿不思·西弗勒斯·波特','黑发绿眼、斯莱特林、小思'],
+['斯科皮厄斯·马尔福','金发银灰眼、书呆子、谣言受害者'],
+['罗丝·格兰杰-韦斯莱','红发、学霸、追球手'],
+['戴尔菲妮·里德尔','银发蓝梢、卜鸟纹身、无杖飞行'],
+['阿斯托利亚·马尔福','血咒、金色卷发、开明的母亲'],
+['泰迪·卢平','蓝绿色头发、易容马格斯、孤儿'],
+['莉莉·卢娜·波特','红发小女儿、卢娜之名、活泼'],
+['詹姆·小天狼星·波特','长子、格兰芬多、大喇叭'],
+['雨果·格兰杰-韦斯莱','红发、小儿子、松弛感'],
+['维克托娃·韦斯莱','银发、媚娃血统、站台一吻'],
+['克莱格·鲍克','级长、猫头鹰棚屋、无辜的代价'],
+],
+'魔法觉醒（手游原创）':[
+['卡珊德拉·沃雷','金发大小姐、天生斯莱特林、雷雨云'],
+['艾薇·沃灵顿','魔咒天才、爱忘事、消失咒之谜'],
+['费舍尔·弗雷','弗雷兄弟、双子跟班、恶作剧'],
+['科尔比·弗雷','弗雷兄弟、双子跟班、恶作剧'],
+['丹尼尔·佩杰','魔药手、胆小自卑、阿兹卡班的母亲'],
+['洛蒂·特纳','小画家、满身颜料、神秘蝴蝶'],
+['凯文·法雷尔','书呆子、学习优秀、讨厌冒险'],
+['罗宾·西斯尔斯韦特','魁地奇主力、高个子、重义气'],
+['温尼菲尔德·沃灵顿','孪生姐姐、消失咒反弹、下落不明'],
+],
+'宠物伙伴（非人类）':[
+['海德薇（雪鸮）','雪白黑斑、琥珀色眼睛、圣海德薇'],
+['克鲁克山（姜黄色大猫）','压扁脸、瓶刷子尾巴、猫狸子血统'],
+['斑斑（伪宠物）','灰老鼠、缺趾、十二年'],
+['小猪朱薇琼（小猫头鹰）','毛茸茸的飞贼、亢奋、只认小猪'],
+['埃罗尔（老猫头鹰）','灰色老家伙、撞窗、吼叫信配送员'],
+['赫梅斯（鸣角鸮）','鸣角鸮、级长奖励、一本正经'],
+['福克斯（凤凰）','猩红金色、尾羽杖芯、眼泪疗伤'],
+['纳吉尼（大蛇）','血咒宿主、四米巨蛇、活体魂器'],
+['牙牙（野猪猎犬）','黑色大狗、雷声大、胆子小'],
+['洛丽丝夫人（管理员之猫）','灯泡黄眼、骨瘦如柴、移动监控'],
+['巴克比克（枯萎之翼）','灰色鹰头马身、先鞠躬再靠近、死刑冤案'],
+['莱福（蟾蜍）','蟾蜍、失踪专业户、记忆训练的陪练'],
+['阿囡（侏儒蒲）','紫色绒毛球、侏儒蒲、把戏坊出品'],
+['利皮（牛头犬）','牛头犬、姑妈的心肝、上树'],
+['踢踢（猫狸子）','猫狸子、卷心菜味、哑炮邻居的猫'],
+]
+};
+
+const originOptions={
+'伦敦':['破釜酒吧（对角巷入口）','对角巷','翻倒巷','格里莫广场12号','蜘蛛尾巷','国王十字车站·9¾站台','魔法部（白厅地下）','圣芒戈','伦敦麻瓜街区'],
+'魔法村落与宅邸':['霍格莫德村','戈德里克山谷','奥特里·圣卡奇波尔（陋居）','小惠金区（女贞路）','贝壳小屋（康沃尔）','马尔福庄园（威尔特郡）','小汉格顿','汉吉斯'],
+'霍格沃茨校内':['格兰芬多塔楼','斯莱特林地牢','拉文克劳塔楼','赫奇帕奇地下室','教工宿舍','海格小屋','禁林边缘'],
+'外地与海外':['爱尔兰','苏格兰高地（校外）','法国','美国','欧洲大陆其他地区','其他国家和地区']
+};
+const familyOptions=['布莱克家族','马尔福家族','韦斯莱家族','冈特家族','莱斯特兰奇家族','隆巴顿家族','波特家族','神圣二十八族其他姓氏','普通巫师家庭','麻瓜家庭','无家族/孤儿'];
+const raceOptions=['纯血','混血','麻瓜出身','哑炮','混血媚娃','其他'];
+const nationOptions={
+'英格兰':['伦敦','戈德里克山谷','奥特里·圣卡奇波尔','小惠金区','蜘蛛尾巷（考克沃斯）','小汉格顿','汉吉斯','康沃尔郡','德文郡','托普村'],
+'苏格兰·威尔士·爱尔兰':['苏格兰高地','威尔士','爱尔兰','北爱尔兰'],
+'海外':['法国','美国','德国','北欧','东欧','亚洲','非洲','其他大洲']
+};
+const classOptions={
+'巫师家庭':['神圣二十八族世家','普通纯血家庭','混血巫师家庭','麻瓜出身者家庭（父母均为巫师）','单亲巫师家庭','由巫师亲属抚养'],
+'麻瓜家庭':['普通麻瓜家庭','富裕麻瓜家庭','麻瓜寄养/收养家庭'],
+'特殊情况':['巫师孤儿院','自幼流离','家族衰落的纯血后裔','其他']
+};
+const identityOptions={
+'学生':['待入学新生','在校学生','已毕业巫师','肄业/提前离校'],
+'魔法部体系':['傲罗','打击手','魔法法律执行司职员','魔法事故和灾害司职员','神奇动物管理控制司职员','魔法交通司职员','魔法体育运动司职员','国际魔法合作司职员','神秘事务司缄默人','记忆注销员','部长办公室职员','威森加摩成员'],
+'凤凰社（活跃期 1970-1981 ／ 1995-1998）':['凤凰社·普通成员','凤凰社·核心成员','凤凰社·先遣警卫'],
+'黑魔法阵营（活跃期 1970年代-1981 ／ 1995-1998）':['食死徒·普通成员','食死徒·核心成员','黑魔法阵营追随者'],
+'公共机构':['治疗师（圣芒戈）','圣芒戈职员','古灵阁解咒员','古灵阁职员','预言家日报记者','唱唱反调撰稿人','阿兹卡班狱方'],
+'魔法界职业':['霍格沃茨教授','霍格沃茨教职工','神奇动物学家','魔杖制作师','魔药师','炼金术师','对角巷/霍格莫德店主','破釜酒吧/三把扫帚从业者','职业魁地奇选手','骑士公共汽车乘务'],
+'其他':['自由职业者','黑巫师（在逃）','狼人','幽灵（已故）','画像（已故）','家养小精灵','妖精','马人','麻瓜','其他']
+};
+const reasonOptions=['收到霍格沃茨录取信','正常开学/返校','家族安排或传承','工作任职（魔法部/圣芒戈/古灵阁/学校等）','追寻某个秘密或线索','被卷入突发事件','受人所托','逃亡/躲避追捕','目睹了不该看到的事','纯粹偶然'];
+const houseOptions={
+'霍格沃茨':['格兰芬多','斯莱特林','拉文克劳','赫奇帕奇'],
+'伊尔弗莫尼':['雷鸟','猫豹','长角水蛇','地精'],
+'其他':['其他魔法学校','尚未分院','未就读魔法学校']
+};
+const yearOptions=['一年级','二年级','三年级','四年级','五年级（O.W.L.年）','六年级','七年级（N.E.W.T.年）'];
+const certOptions=['无','O.W.L.在读（五年级）','O.W.L.已通过','N.E.W.T.已通过','幻影显形执照','傲罗资格','治疗师资格','梅林爵士团勋章','威森加摩成员','教授职称','其他'];
+const powerOptions=['未定','传奇（封闭档·原著三人档）','大师（麦格/斯内普/穆迪一档）','精英（傲罗/核心食死徒）','普通（完成学业的成年巫师）','在校学生（按年级阈值）','特殊规格（精灵/妖精/摄魂怪等）'];
+const petOptions=['无','猫头鹰','雪鸮','仓鸮','雕鸮','猫','黑猫','橘猫','狸花猫','猫狸子','蟾蜍','老鼠','嗅嗅','护树罗锅','火蜥蜴','角驼兽','月痴兽','其他'];
+const wandWoodData=[
+{n:'冬青木',d:'保护之木，最适合需要克服冲动与愤怒的主人——哈利·波特的魔杖'},
+{n:'紫杉木',d:'掌握生死之力，绝不选择平庸或胆小的主人——伏地魔的魔杖'},
+{n:'接骨木',d:'最稀有、恶名最盛，对主人最苛刻——老魔杖的用材'},
+{n:'山楂木',d:'矛盾复杂之木，适合内心冲突的主人；治疗与诅咒皆擅长——德拉科的魔杖'},
+{n:'柳木',d:'治愈潜力出众，适合内心怀有不安全感的主人——罗恩的魔杖'},
+{n:'葡萄藤木',d:'适合有远大目标、深藏不露的主人——赫敏的魔杖'},
+{n:'樱桃木',d:'威力致命之木，配龙的心腱需极强自控——纳威的新魔杖'},
+{n:'栗木',d:'特性随杖芯与主人变化极大，适合驯兽师与草药学家'},
+{n:'榆木',d:'准确性最高、事故最少，适合优雅灵巧的主人'},
+{n:'胡桃木',d:'适合聪明的主人；一旦落入黑巫师手中最为危险——贝拉特里克斯的魔杖'},
+{n:'鹅耳枥木',d:'适应主人的魔法风格，忠于其准则与激情——克鲁姆的魔杖'},
+{n:'花楸木',d:'防御与保护之名木，偏爱纯洁正直之心'},
+{n:'山毛榉木',d:'适合睿智开阔的主人；在狭隘者手中发挥不出'},
+{n:'雪松木',d:'忠诚坚毅；被激怒时是可怕的对手'},
+{n:'柏木',d:'与勇气和自我牺牲相连，主人多敢直面死亡——卢平的魔杖'},
+{n:'乌木',d:'适合有勇气坚持自我的主人，决斗与变形术俱佳'},
+{n:'枞木',d:'幸存者之木，主人多经历过生死考验，专注坚毅'},
+{n:'落叶松木',d:'赋予勇气与自信，为主人带来力量'},
+{n:'银椴木',d:'与摄神取念和预言天赋相连，十九世纪备受追捧'},
+{n:'云杉木',d:'难伺候之木，只适合意志坚强、手法果断的主人'},
+{n:'梧桐木',d:'好奇求知之木，适合爱学习、爱冒险的主人'},
+{n:'松木',d:'独立之木，适合特立独行的主人，对无声咒敏感'},
+{n:'桤木',d:'不屈不挠，适合乐于助人者，擅长非语言咒语'},
+{n:'白蜡木',d:'忠诚固执，只认原主、不宜转赠——塞德里克与查理的旧杖'},
+{n:'橡木',d:'力量、勇气与忠诚之木，主人多坚毅可靠——海格的魔杖'},
+{n:'红橡木',d:'适合反应快、机智的主人，决斗利器'},
+{n:'红杉木',d:'稀有之木，传闻为主人带来逆境中的好运'},
+{n:'桃花心木',d:'柔韧灵活，适合变形术——詹姆·波特的魔杖'},
+{n:'黄檀木',d:'温暖优雅，适合魅力型巫师——芙蓉·德拉库尔的魔杖'},
+{n:'月桂木',d:'追求荣耀，不容忍懒惰的主人，受辱时会防御性放电'},
+{n:'枫木',d:'喜欢旅行与探索的主人，能成就大事'},
+{n:'苹果木',d:'强大之木，适合有崇高理想的主人，不适合黑魔法'},
+{n:'梨木',d:'弹性好、极耐用，适合热心慷慨的主人'},
+{n:'杨木',d:'正直可靠，适合道德清晰的主人'},
+{n:'山杨木',d:'适合意志坚定、有决心的主人，决斗好手与革命者之木'},
+{n:'金合欢木',d:'难伺候，只为主人一人服务，不适合咋咋呼呼的魔法'},
+{n:'榛木',d:'敏感之木，映照主人情绪，适合情感真挚者'},
+{n:'山茱萸木',d:'顽皮活泼，喜欢有趣的主人，拒绝无聊'},
+{n:'黑刺李木',d:'战士之木，与主人共历磨难后羁绊极深——哈利断杖后曾使用'}
+];
+const wandCoreData=[
+{n:'凤凰羽毛',d:'最稀有，魔法范围最广，主动性最强、最难驯服——哈利与伏地魔的杖芯'},
+{n:'龙的神经',d:'Dragon Heartstring，又译“龙心弦”“龙的心脏腱索”；力量最盛、学咒最快，最易倒向黑魔法——赫敏与贝拉特里克斯的杖芯'},
+{n:'独角兽毛',d:'最稳定忠诚，最不易施展黑魔法，忠于原主——罗恩、德拉科、纳威的杖芯'},
+{n:'夜骐尾毛',d:'不稳定、属性成谜，唯有直面死亡者可得——老魔杖的杖芯'},
+{n:'媚娃头发',d:'喜怒无常，欧洲大陆多见，奥利凡德本人不用——芙蓉的杖芯（外祖母的头发）'},
+{n:'雷鸟尾羽',d:'北美杖芯，力量强大，能感知危险——制杖师希柯巴·沃尔夫所用'},
+{n:'猫豹毛发',d:'北美杖芯，敏捷强壮——制杖师约翰内斯·琼克尔所用'},
+{n:'长角水蛇角',d:'北美杖芯，与蛇佬腔亲和，能警示危险——伊索尔特的魔杖杖芯'},
+{n:'怀特河怪背脊刺',d:'北美杖芯，优雅而有力——制杖师蒂亚戈·奎塔纳所用'},
+{n:'湿地狼人毛发',d:'北美杖芯，传闻危险暗黑——制杖师维奥莱塔·博韦所用'}
+];
+const patronusOptions=['无','鹿','牡鹿','母鹿','狗','大狗','猎犬','狼','狐狸','猫','兔子','野兔','水獭','獾','马','骏马','天鹅','鹰','猫头鹰','乌鸦','喜鹊','蜂鸟','海豚','鲨鱼','蛇','狮子','老虎','豹','熊','野猪','公牛','山羊','驯鹿','麋鹿','蜜獾','浣熊','松鼠','刺猬','蝙蝠','鹤','孔雀','凤凰','独角兽','夜骐','鹰头马身有翼兽','嗅嗅','护树罗锅','驺吾','雷鸟','龙','狮鹫','人马','火蜥蜴','蝴蝶','白鸽','海鸥','信天翁','企鹅','海豹','乌龟','蜥蜴','猴子','大象','犀牛','河马','鳄鱼','蝎子','螳螂','蜻蜓','甲虫','蜜蜂','白虎','黑豹','雪狼','银狐','金雕','白鹤','麒麟','九尾狐','月兔','三足乌'];
+
+// ==================== ABILITY DATA ====================
+const abilityData=[
+{cat:'必修科目（霍格沃茨）',items:[
+{n:'魔咒学',d:'学习各种实用咒语的施放，从漂浮咒到守护神咒'},
+{n:'变形术',d:'将一种物体变成另一种物体的魔法艺术，需要精准咒语与意念控制'},
+{n:'魔药学',d:'调制各种神奇药剂，需要精确的配方和耐心'},
+{n:'黑魔法防御术',d:'学习抵御黑魔法和黑暗生物的技巧'},
+{n:'草药学',d:'研究魔法植物及其用途，在温室中培育各种神奇植物'},
+{n:'魔法史',d:'了解魔法世界的历史，由宾斯教授（幽灵）讲授'},
+{n:'天文学',d:'在天文塔观测星象与天体运行'},
+{n:'飞行课',d:'学习骑乘飞天扫帚的基础课程（一年级）'}
+]},
+{cat:'选修科目（三年级起）',items:[
+{n:'占卜学',d:'通过茶叶、水晶球等预测未来的神秘艺术'},
+{n:'算术占卜',d:'用数字和数学方法预测未来'},
+{n:'古代魔文',d:'解读古老的魔法符文，理解其中蕴含的力量'},
+{n:'神奇动物保护',d:'照料和了解各种魔法生物'},
+{n:'麻瓜研究',d:'了解非魔法人类的生活方式和科技'}
+]},
+{cat:'基础与实用咒语',items:[
+{n:'荧光闪烁',d:'魔杖尖端点亮照明；反咒为「诺克斯」熄灯'},
+{n:'羽加迪姆·勒维奥萨',d:'悬浮咒，让物体浮空移动——一年级第一课'},
+{n:'阿拉霍洞开',d:'开锁咒，可开启多数普通及魔法锁具；对专门施加反开锁防护的对象无效'},
+{n:'飞来咒',d:'速速飞来，隔空召来目标物品'},
+{n:'恢复如初',d:'修复破损物品的通用咒'},
+{n:'清理一新',d:'清洁去污，打扫专用'},
+{n:'火焰熊熊',d:'生火咒，点燃火焰'},
+{n:'清水如泉',d:'魔杖涌出清水'},
+{n:'防水防湿',d:'使物品防水防湿（雨天飞行必备）'},
+{n:'快快禁锢',d:'锁定咒，锁死门窗'},
+{n:'声音洪亮',d:'放大音量；反咒为“悄声细语”'},
+{n:'泡头咒',d:'头部生成保护气泡，水下正常呼吸活动——三强争霸赛第二项同款'},
+{n:'咒立停',d:'终止进行中的咒语效果——解咒的基本功'},
+{n:'一忘皆空',d:'遗忘咒，抹除或修改记忆——洛哈特的翻车名咒'},
+{n:'四分五裂',d:'切割咒，撕裂或分开目标物体'},
+{n:'复制成双',d:'复制咒，将物品复制成双——古灵阁财宝疯狂复制同款'},
+{n:'驱逐麻瓜咒',d:'让麻瓜自动绕开的场地遮蔽咒——魔法场所标配'},
+{n:'幻身咒',d:'变色龙式隐身伪装，傲罗潜行标配'},
+{n:'给我指路',d:'定向咒，魔杖变指南针指向正北——火焰杯迷宫认路同款'},
+{n:'诺克斯',d:'Nox；熄灭杖尖光芒，是“荧光闪烁”的反咒'},
+{n:'急急现形',d:'Aparecium；显现隐形墨水及被魔法隐藏的文字'},
+{n:'消隐无踪（Deletrius）',d:'Deletrius；消除“闪回前咒”重现的咒语影像'},
+{n:'消失不见（Evanesco）',d:'Evanesco；使目标物体消失，属于变形术中的消失咒'},
+{n:'速速变大',d:'Engorgio；使目标体积膨胀增大'},
+{n:'速速缩小',d:'Reducio；使目标体积缩小，可用于解除膨胀效果'},
+{n:'放大咒',d:'Enlargement Charm；使目标放大，原作未给出具体咒文'},
+{n:'生长咒',d:'Growth Charm；使目标生长或增大，原作未给出具体咒文'},
+{n:'掘进三尺',d:'Defodio；挖掘或切削岩石等坚固材料'},
+{n:'幻形石板',d:'Duro；使目标物体硬化'},
+{n:'应声落地',d:'Descendo；使目标物体向下移动或降落'},
+{n:'滑道平平',d:'Glisseo；将楼梯等坡面变成平滑滑道'},
+{n:'云咒撤回',d:'Meteolojinx Recanto；解除魔法造成的局部降雨等天气效果'},
+{n:'物体移动咒（Locomotor）',d:'Locomotor；令指定物体按施咒者指示移动，可接物体名称'},
+{n:'Mobiliarbus 移物咒',d:'Mobiliarbus；使物体移动到指定位置，不同于巫师的幻影移形'},
+{n:'僵尸飘行',d:'Mobilicorpus；使人体悬浮并移动'},
+{n:'标记显现',d:'Flagrate；以火焰般的痕迹书写或标出记号'},
+{n:'悄声细语',d:'Quietus；使声音恢复低小，是“声音洪亮”的反咒'},
+{n:'无声无息',d:'Silencio；使目标暂时失声，区别于施咒技巧“无声咒”'},
+{n:'原形立现',d:'Specialis Revelio；探查物体隐藏的性质与魔法痕迹'},
+{n:'竖立成形',d:'Erecto；使帐篷等结构迅速竖立、搭建完成'},
+{n:'收拾',d:'Pack；使行李物品自动归整并打包'},
+{n:'变色咒',d:'Colovaria；改变目标物体的颜色'},
+{n:'快乐咒',d:'Cheering Charm；使目标心情愉快，原作未给出具体咒文'},
+{n:'减震咒',d:'Cushioning Charm；缓冲冲击，常用于飞天扫帚'},
+{n:'淘干咒',d:'Drought Charm；排除或蒸干目标水分，原作未给出具体咒文'},
+{n:'生发咒',d:'Hair-thickening Charm；使头发变得更浓密，原作未给出具体咒文'},
+{n:'悬停咒',d:'Hover Charm；使物体悬浮并按意愿移动'},
+{n:'续满咒',d:'Refilling Charm；将容器中的内容物重新注满'},
+{n:'永久粘贴咒',d:'Permanent Sticking Charm；使物品长期乃至永久粘附，难以取下'},
+{n:'超感咒',d:'Supersensory Charm；增强施咒目标的感官能力'},
+{n:'牢固咒',d:'Unbreakable Charm；使物体不易破损'},
+{n:'火焰冻结咒',d:'Flame-Freezing Charm；使火焰不再灼伤受保护的目标'},
+{n:'气象咒',d:'Atmospheric Charm；改变局部天气或室内气象，原作未给出具体咒文'},
+{n:'防作弊咒',d:'Anti-Cheating Spell；施加于考试用品等对象，防止作弊'},
+{n:'冰冻咒',d:'Freezing Charm；冻结或凝住目标，原作未给出具体咒文'},
+{n:'编织咒',d:'Knitting Charm；使编织针等工具自动编织'},
+{n:'热气咒',d:'Hot-Air Charm；从杖尖产生热气流'},
+{n:'转换咒',d:'Switching Spell；交换两个目标的位置，属于变形术，原作未给出具体咒文'},
+{n:'左右分离',d:'Dissendium；使目标向两侧分开，可开启独眼女巫雕像的秘密通道'},
+{n:'消迹咒',d:'Obliteration Charm；消除足迹等行动痕迹'},
+{n:'抓握咒',d:'Gripping Charm；使物体更易于握持，魁地奇球上可见应用'}
+]},
+{cat:'决斗与防御',items:[
+{n:'除你武器',d:'缴械咒，击飞或解除对手手中的武器；是否改变魔杖效忠取决于具体情境，并非必然'},
+{n:'盔甲护身',d:'铁甲咒，可挡大部分中低阶伤害咒（挡不住索命咒）'},
+{n:'昏昏倒地',d:'昏迷咒，击昏目标'},
+{n:'统统石化',d:'全身束缚咒，使目标僵硬倒地'},
+{n:'障碍重重',d:'障碍咒，迟滞对方行动'},
+{n:'滑稽滑稽',d:'驱逐博格特的咒语，把恐惧变成笑料'},
+{n:'粉身碎骨',d:'粉碎咒，炸碎障碍物'},
+{n:'霹雳爆炸',d:'爆炸咒，轰开目标'},
+{n:'统统加护',d:'大范围强化防护罩（霍格沃茨保卫战同款）'},
+{n:'锁舌封喉',d:'封住对方舌头，使其无法念咒（混血王子发明）'},
+{n:'倒挂金钟',d:'将人倒吊空中（混血王子发明）'},
+{n:'呼神护卫',d:'守护神咒，正面情感凝聚守护体，摄魂怪唯一天敌——难度远在O.W.L.之上'},
+{n:'咧嘴呼啦啦',d:'呵痒咒，中咒者大笑不止——决斗俱乐部哈利对德拉科的成名咒'},
+{n:'乌龙出洞',d:'召唤一条黑蛇——决斗俱乐部马尔福的成名咒'},
+{n:'飞鸟群群',d:'Avis；从杖尖召唤一群飞鸟'},
+{n:'万弹齐发',d:'Oppugno；驱使物体或召唤出的飞鸟连续攻击目标'},
+{n:'腿立僵停死',d:'锁腿咒，双腿僵硬并拢倒地——一年级的老牌束缚咒'},
+{n:'金钟落地',d:'倒挂金钟的反咒，将被吊起者放下'},
+{n:'力松劲泄',d:'松绑咒，解除束缚与缠绕'},
+{n:'混淆视听',d:'Confundo；使目标困惑、感知与判断失真'},
+{n:'飞沙走石',d:'Expulso；以强烈爆炸冲击损毁或击飞目标'},
+{n:'房塌地陷',d:'Deprimo；破坏建筑或地面结构，形成塌陷与缺口'},
+{n:'速速禁锢',d:'Incarcerous；召唤绳索捆绑目标'},
+{n:'掩目蔽视',d:'Obscuro；以蒙眼布遮挡目标视线'},
+{n:'降敌陷阱',d:'Cave Inimicum；为营地等区域施加防护与警戒，防范入侵者'},
+{n:'石墩出动',d:'Piertotum Locomotor；激活雕像与铠甲，使其按命令行动或守卫'},
+{n:'超强盔甲护身',d:'Protego Horribilis；施加强力的区域防护结界'},
+{n:'平安镇守',d:'Salvio Hexia；为指定区域施加防护'},
+{n:'固若金汤',d:'Fianto Duri；强化并延长既有防护结界'},
+{n:'驱逐敌方',d:'Repello Inimicum；阻挡并驱退敌方，常与区域防护结界配合'},
+{n:'年龄线',d:'Age Line；设置年龄限制界线，阻止不符合条件者越过'},
+{n:'反侵入恶咒',d:'Anti-intruder Jinx；阻止翻墙、飞入等入侵行为'},
+{n:'啸叫咒',d:'Caterwauling Charm；入侵者触发后发出高声警报'},
+{n:'侵入者咒',d:'Intruder Charm；探测入侵者并发出警报'},
+{n:'防扰咒',d:'Imperturbable Charm；使门等对象形成防穿透、隔音的魔法屏障'},
+{n:'测盗咒',d:'Stealth-Sensoring Charm；探测以魔法伪装或隐秘接近的对象'},
+{n:'反幻影移形咒',d:'Anti-Disapparition Jinx；阻止目标或区域内的人幻影移形'},
+{n:'烈火咒',d:'Flagrante Curse；使被施咒物体在触碰时产生高温，用于防盗与防护'},
+{n:'眼疾咒',d:'Conjunctivitis Curse；造成眼部疼痛与视力障碍'},
+{n:'蜇人咒',d:'Stinging Hex／Stinging Jinx；造成蜇刺般疼痛与肿胀'},
+{n:'电击咒',d:'Shock Spell；以魔法电击目标，原作未给出具体咒文'},
+{n:'绊腿咒',d:'Trip Jinx；使目标绊倒'},
+{n:'投掷咒',d:'Hurling Hex；使飞天扫帚剧烈震动并试图甩下骑手'},
+{n:'人形显身',d:'Homenum Revelio；探测附近是否存在人类，用于反潜行与警戒'}
+]},
+{cat:'恶作剧与玩笑咒语',items:[
+{n:'塔朗泰拉舞',d:'中咒者双腿不受控地狂跳踢踏舞——决斗俱乐部同款'},
+{n:'门牙赛大棒',d:'门牙失控疯长——有解咒，赫敏顺势修好了自己的门牙'},
+{n:'火烤热辣辣',d:'中咒者皮肤冒出大片难看疔疮'},
+{n:'蝙蝠精魔咒',d:'鼻屎变成大蝙蝠扑脸——金妮·韦斯莱的招牌恶咒'},
+{n:'软腿咒',d:'双腿瞬间瘫软发不上力'},
+{n:'闭耳塞听',d:'耳中塞满嗡嗡声、听不见旁人说话——混血王子发明'},
+{n:'兰花盛开',d:'魔杖尖端绽出一束鲜花'},
+{n:'瓦迪瓦西',d:'发射咒，把小物件高速弹射出去——卢平用它把口香糖射进皮皮鬼鼻孔'},
+{n:'佩斯奇皮克西·佩斯特诺米',d:'Peskipiksi Pesternomi；洛哈特试图用来驱赶小精灵，原作未证明其有效'},
+{n:'胡言乱语咒',d:'Babbling Curse；使目标控制不住地胡言乱语'},
+{n:'吐鼻涕虫咒',d:'Slug-vomiting Charm；使目标吐出鼻涕虫，罗恩曾因断杖反弹而中招'},
+{n:'魔法雪球',d:'Bewitched Snowballs；使雪球自动连续飞掷并攻击目标'},
+{n:'伸展恶咒',d:'Stretching Jinx；原作仅提及名称，具体效果与施法方式未详述'},
+{n:'玉米片皮肤咒',d:'Cornflake Skin Charm；使目标皮肤呈现玉米片状外观'},
+{n:'耳朵萎缩咒',d:'Ear-Shrivelling Curse；使目标耳朵皱缩'}
+]},
+{cat:'治疗与后勤',items:[
+{n:'愈合如初',d:'治疗咒（Episkey），平复小伤口与疼痛；粉碎性骨折等重伤需生骨灵'},
+{n:'生骨灵使用',d:'再生骨骼的魔药（庞弗雷夫人的招牌）'},
+{n:'常用魔药配制',d:'疥疮药水、安眠剂、提神剂等基础药剂'},
+{n:'白鲜香精使用',d:'促进伤口愈合的魔法香精'},
+{n:'急救魔法',d:'战场应急处理，止血定痛'},
+{n:'费尔拉包扎咒',d:'唤出绷带与夹板自动包扎固定伤处——卢平给罗恩接断腿同款'},
+{n:'快快复苏',d:'让昏迷者苏醒的复苏咒'},
+{n:'安咳消',d:'Anapneo；疏通气道，解除噎呛'},
+{n:'旋风扫净',d:'Tergeo；清除血迹、污物等，适合局部清洁'},
+{n:'速速愈合',d:'Vulnera Sanentur；用于愈合“神锋无影”等造成的伤口，斯内普曾以此救治德拉科'}
+]},
+{cat:'高阶技艺',items:[
+{n:'无声咒',d:'不出声施法，隐藏攻击意图——精英巫师的入场券'},
+{n:'幻影移形',d:'瞬间移动；须按规定学习并考取执照，霍格沃茨设有反幻影移形禁制'},
+{n:'大脑封闭术',d:'封闭心智、抵御摄神取念，需极强自控'},
+{n:'摄神取念',d:'侵入并读取他人心智与记忆，高手只需目光接触'},
+{n:'阿尼马格斯',d:'自主变形动物，需多年训练并须向魔法部登记；二十世纪英国魔法部在册者仅七人'},
+{n:'无杖魔法',d:'无魔杖施法，极少数巫师能够稳定掌握；本作跑团将稳定无杖列入传奇档'},
+{n:'炼金术入门',d:'物质转化的古老学问，魔法石为其顶点'},
+{n:'魔杖学鉴赏',d:'辨识木材、杖芯与适配，奥利凡德级的眼光'},
+{n:'高阶魔药配制',d:'复方汤剂、吐真剂、迷情剂、福灵剂级别的酿造手艺'},
+{n:'闪回前咒',d:'Prior Incantato；使魔杖按逆序重现最近施过的咒语'},
+{n:'闪回咒原理',d:'Priori Incantatem；理解同源杖芯魔杖对决时的逆向闪回现象，并非普通攻击咒'},
+{n:'门托斯',d:'Portus；将普通物品制成门钥匙'},
+{n:'无痕伸展咒',d:'Undetectable Extension Charm；扩大容器内部空间而不改变外部形态'},
+{n:'赤胆忠心咒',d:'Fidelius Charm；将秘密藏于守密人的灵魂中，除非守密人主动泄露，否则他人无法得知'},
+{n:'变化咒',d:'Protean Charm；使多个关联物件同步变化，邓布利多军联络硬币即为其应用'},
+{n:'恢复人形咒',d:'Homorphus Charm；据称可使狼人暂时恢复人形，原作未给出具体咒文'},
+{n:'无生命物召唤咒',d:'Inanimatus Conjurus Spell；原作仅列为高阶变形术作业，具体效果未公开，不依据名称自行补写'},
+{n:'牢不可破的誓言',d:'Unbreakable Vow；由立誓双方与见证人完成的魔法誓约，背誓将导致死亡'},
+{n:'随行幻影移形',d:'Side-Along Apparition；携带他人共同完成现形与幻影移形'},
+{n:'障眼法',d:'Bedazzling Hex；以障眼方式隐藏目标，可用于隐形衣制作，并非真正令物体消失'},
+{n:'隐形咒',d:'Invisibility Spell；使目标隐形，原作未给出具体咒文'},
+{n:'人迹追踪咒',d:'Homonculous Charm；在地图等载体上追踪目标移动'}
+]},
+{cat:'黑魔法与禁咒【慎用】',items:[
+{n:'夺魂咒',d:'魂魄出窍，全面操纵心智——不可饶恕咒，对人使用即阿兹卡班终身监禁'},
+{n:'钻心咒',d:'钻心剜骨，造成极致痛楚——不可饶恕咒，须真实恶意驱动'},
+{n:'索命咒',d:'阿瓦达索命，中者通常立即死亡，普通护盾无法抵挡；爱的牺牲保护等属于特殊例外'},
+{n:'厉火',d:'失控的魔火，可焚毁魂器亦可焚毁施术者自身'},
+{n:'神锋无影',d:'隐形利刃切割（混血王子发明），伤口难以愈合'},
+{n:'黑魔法器物识别',d:'辨识与防护黑魔法物品的知识（傲罗与古玩商必修）'},
+{n:'尸骨再现',d:'召出黑魔标记——食死徒的签名，绿色骷髅口吐巨蟒'},
+{n:'飞行咒',d:'无扫帚肉身飞行——伏地魔与斯内普后期的独门本领，传奇档'},
+{n:'掏肠咒',d:'Entrail-Expelling Curse；将目标内脏排出体外的危险诅咒'},
+{n:'变形拷刑',d:'Transmogrifian Torture；原作仅提及名称，具体效果与施法方式未公开'},
+{n:'多洛霍夫的诅咒',d:'Antonin Dolohov’s Curse；多洛霍夫使用的紫色火焰诅咒，可造成严重内伤，具体咒文未公开'},
+{n:'禁忌咒',d:'Taboo；将特定词语设为禁忌，说出者会暴露位置并引来追踪者'},
+{n:'魂器制作【禁忌】',d:'以谋杀分裂灵魂并将碎片封入器物的黑魔法；具体仪式在原作中未公开'},
+{n:'阴尸制造与操控【禁忌】',d:'以黑魔法操纵尸体，使其成为受控的阴尸；并非真正复活，火与光可将其驱退'}
+]},
+{cat:'特殊天赋',items:[
+{n:'蛇佬腔',d:'与蛇类对话的血统天赋（斯莱特林血脉标志）'},
+{n:'易容马格斯',d:'天生变形者，无需魔杖随心改变容貌体态'},
+{n:'先知血脉',d:'不定期不受控地吐露真预言（特里劳妮家族同款）'},
+{n:'无杖魔法天赋',d:'偶尔能在没有魔杖时施展简单咒语，极少数巫师才有'},
+{n:'非语言咒语天赋',d:'默念咒语成功率远超同龄人，决斗占优'},
+{n:'魔法生物通感',d:'能感知魔法生物的情绪和意图'},
+{n:'扫帚直觉',d:'骑乘飞天扫帚时天生的平衡感与反应能力'},
+{n:'决斗反应',d:'魔法对战时反应极快，能预判对手动作'},
+{n:'魔药直觉',d:'能凭直觉改良魔药配方，偶有奇效'},
+{n:'变形天赋',d:'变形术格外简单，复杂变形也能轻松完成'},
+{n:'记忆宫殿',d:'出色记忆力，背咒语和配方事半功倍'},
+{n:'动物亲和',d:'神奇动物对你有天然好感'}
+]},
+{cat:'魔法装备与道具',items:[
+{n:'飞天扫帚',d:'横扫/光轮/火弩箭——型号与性能自填'},
+{n:'隐形衣',d:'普通隐形衣可由幻身咒、障眼法或隐形兽毛等制成，会随时间失效；传说中的完美隐形衣为死亡圣器'},
+{n:'活点地图',d:'实时显示霍格沃茨内所有人位置与密道（"我庄严宣誓我不干好事"）'},
+{n:'双面镜',d:'成对镜子，跨距离通话'},
+{n:'窥镜',d:'侦测附近的敌意与可疑人物'},
+{n:'照妖镜',d:'映出逼近的敌人身影'},
+{n:'龙皮手套',d:'防火防烫，处理危险材料与神奇动物必备'},
+{n:'飞天扫帚护理箱',d:'扫帚保养全套工具'},
+{n:'魔法帐篷',d:'外小内大的折叠帐篷（世界杯同款）'},
+{n:'冥想盆',d:'审阅记忆的器物（校长级配置）'},
+{n:'时间转换器',d:'魔法部神秘事务司封存管制——持有本身就是事件'}
+]},
+{cat:'电影与影视扩展',items:[
+{n:'眼镜修复如初（Oculus Reparo）',d:'【电影《魔法石》】Oculus Reparo；赫敏用于修复哈利的眼镜'},
+{n:'拉克南·因弗拉梅（Lacarnum Inflamarae）',d:'【电影《魔法石》】Lacarnum Inflamarae；从杖尖喷出火焰，赫敏用来点燃斯内普的长袍'},
+{n:'明亮如昼（Lumos Solem）',d:'【电影《魔法石》】Lumos Solem；产生阳光般的强光，可对付怕光的植物'},
+{n:'全部定身（Immobulus）',d:'【电影《密室》】Immobulus；使目标暂时停止活动，赫敏用于定住康沃尔郡小精灵'},
+{n:'维拉维托（Vera Verto）',d:'【电影《密室》】Vera Verto；将小动物变形为高脚杯'},
+{n:'修骨咒（Brackium Emendo）',d:'【电影《密室》】Brackium Emendo；洛哈特试图修复断臂，却错误地消除了臂骨'},
+{n:'悬空翻转（Everte Statum）',d:'【电影《密室》】Everte Statum；将目标击飞并翻转'},
+{n:'烟消云散升天去（Alarte Ascendare）',d:'【电影《密室》】Alarte Ascendare；将目标高高抛起'},
+{n:'蜘蛛退散（Arania Exumai）',d:'【电影《密室》】Arania Exumai；击退蜘蛛，哈利在禁林使用'},
+{n:'蛇影无踪化黑烟（Vipera Evanesca）',d:'【电影《密室》】Vipera Evanesca；使蛇消失，斯内普用于决斗俱乐部'},
+{n:'箱子打开（Cistem Aperio）',d:'【电影《密室》】Cistem Aperio；炸开或打开箱柜、容器'},
+{n:'终极荧光闪烁（Lumos Maxima）',d:'【电影《阿兹卡班囚徒》】Lumos Maxima；产生比荧光闪烁更强的光亮'},
+{n:'减震止速（Arresto Momentum）',d:'【电影及官方授权游戏】Arresto Momentum；降低移动目标的速度，可用于缓冲坠落'},
+{n:'秘密显形（Reveal Your Secrets）',d:'【电影《阿兹卡班囚徒》】Reveal Your Secrets；斯内普尝试让活点地图显露秘密但未成功，不宜视为通用显形咒'},
+{n:'爆破隆隆（Bombarda）',d:'【电影及官方授权游戏】Bombarda；在目标处造成爆炸'},
+{n:'上升（Ascendio）',d:'【电影《火焰杯》】Ascendio；将施咒者或目标向上推动'},
+{n:'红色火花（Periculum）',d:'【电影《火焰杯》】Periculum；从杖尖发射红色火花或信号弹'},
+{n:'渐弱缩小（Diminuendo）',d:'【电影《凤凰社》】Diminuendo；使目标缩小，邓布利多军训练时使用'},
+{n:'强力爆破（Bombarda Maxima）',d:'【电影《凤凰社》】Bombarda Maxima；爆破隆隆的强化版本，造成更强爆炸'},
+{n:'协调·连接·开通（Harmonia Nectere Passus）',d:'【电影《混血王子》】Harmonia Nectere Passus；德拉科用于修复消失柜'},
+{n:'火神开道（Partis Temporus）',d:'【电影《混血王子》】Partis Temporus；使火焰或魔法屏障向两侧分开，形成通道'},
+{n:'超强盔甲护身·电影版（Protego Maxima）',d:'【电影《死亡圣器（下）》】Protego Maxima；强化版盔甲护身，用于构建大范围防护'},
+{n:'阿贝托（Aberto）',d:'【神奇动物电影】Aberto；开启上锁的门或容器'},
+{n:'云雾缥缈（Nebulus）',d:'【神奇动物电影】Nebulus；产生浓密旋雾以隐蔽行动'},
+{n:'风旋骤卷（Ventus）',d:'【神奇动物电影】Ventus；产生定向强风'},
+{n:'咒术解除（Surgito）',d:'【神奇动物电影】Surgito；解除目标身上的魅惑或咒语效果'},
+{n:'踪迹通通显形（Appare Vestigium）',d:'【神奇动物电影】Appare Vestigium；显示近期的魔法活动、足迹与踪迹'},
+{n:'踪迹寻源（Avenseguim）',d:'【神奇动物电影】Avenseguim；把留有目标特征的物品变成追踪媒介'},
+{n:'纸张修复（Papyrus Reparo）',d:'【神奇动物电影】Papyrus Reparo；修复撕裂的纸张与文件'},
+{n:'火盾护身（Protego Diabolica）',d:'【神奇动物电影】Protego Diabolica；以黑魔法火焰形成防护圈，效忠者可通过，敌对者会被焚毁'},
+{n:'玻璃碎碎（Finestra）',d:'【神奇动物电影】Finestra；使玻璃破碎或形成缺口'},
+{n:'闭而不语（Oscausi）',d:'【神奇动物电影】Oscausi；阻止目标发声，电影中表现为封住嘴巴'},
+{n:'统统复原（Reverte）',d:'【神奇动物电影】Reverte；将物品恢复到先前状态'},
+{n:'即刻旋转（Circumrota）',d:'【神奇动物电影】Circumrota；使目标旋转或转向'}
+]},
+{cat:'官方授权游戏扩展',items:[
+{n:'击退咒（Flipendo）',d:'【官方授权游戏】Flipendo；击退并翻转目标，也常用于触发机关'},
+{n:'斯科奇净化咒（Skurge）',d:'【EA老游戏】Skurge；清除幽灵灵质、霉菌等残留物'},
+{n:'海绵化咒（Spongify）',d:'【EA老游戏】Spongify；使特定物体表面变得柔软并富有弹性'},
+{n:'维迪米利奥斯（Verdimillious）',d:'【EA老游戏】Verdimillious；产生绿色魔法能量，可用于战斗、揭示或生成平台，效果随版本而异'},
+{n:'维米利奥斯（Vermillious）',d:'【EA老游戏】Vermillious；产生红色魔法火花，用于攻击'},
+{n:'鼻涕不止咒（Mucus ad Nauseam）',d:'【EA老游戏】Mucus ad Nauseam；使目标流鼻涕、打喷嚏，部分版本表现为持续伤害'},
+{n:'含糊不清咒（Mimblewimble）',d:'【EA老游戏】Mimblewimble；使舌头打结、言语含糊'},
+{n:'烟雾咒（Fumos）',d:'【EA老游戏】Fumos；产生烟雾以遮蔽视线'},
+{n:'信息显形咒（Informous）',d:'【EA老游戏】Informous；获取敌人或神奇生物的资料'},
+{n:'阿维福斯（Avifors）',d:'【EA老游戏】Avifors；将小型物体或生物变成鸟'},
+{n:'摄取牵拉咒（Carpe Retractum）',d:'【EA老游戏】Carpe Retractum；以魔法光索将目标拉近，或把施咒者拉向固定目标'},
+{n:'龙变术（Draconifors）',d:'【EA老游戏】Draconifors；将龙形雕像变为可暂时操控的小龙'},
+{n:'兔变术（Lapifors）',d:'【EA老游戏】Lapifors；将兔形雕像变为可暂时操控的兔子；官方资料也将其列为变形咒'},
+{n:'寒冰咒（Glacius）',d:'【官方授权游戏】Glacius；以寒气冻结目标，部分版本会提高后续攻击伤害'},
+{n:'驱逐咒（Depulso）',d:'【官方授权游戏】Depulso；将目标推离施咒者，是飞来咒的反向应用'},
+{n:'斯纳弗利福斯（Snufflifors）',d:'【EA《阿兹卡班囚徒》主机版】Snufflifors；把攻击人的小书变成老鼠'},
+{n:'双重荧光（Lumos Duo）',d:'【EA《阿兹卡班囚徒》主机版】Lumos Duo；形成更强、更集中的光束，用于对付特定黑暗生物'},
+{n:'鹿角咒（Anteoculatia）',d:'【官方授权游戏及补充资料】Anteoculatia；使目标头部长出鹿角'},
+{n:'脱发咒（Calvorio）',d:'【乐高哈利波特】Calvorio；使目标脱发或秃头'},
+{n:'头颅膨胀咒（Engorgio Skullus）',d:'【乐高哈利波特】Engorgio Skullus；使目标头部异常膨胀'},
+{n:'昆虫恶咒（Entomorphis）',d:'【官方授权游戏】Entomorphis；使目标暂时呈现昆虫形态'},
+{n:'植物生成咒（Herbifors）',d:'【乐高哈利波特】Herbifors；生成或催生植物'},
+{n:'多彩变形咒（Multicorfors）',d:'【乐高哈利波特】Multicorfors；改变目标颜色或外观色彩'},
+{n:'头颅缩小咒（Redactum Skullus）',d:'【乐高哈利波特】Redactum Skullus；使异常膨胀的头部缩小，也可作为头颅膨胀咒的反咒'},
+{n:'鸭子变形咒（Ducklifors）',d:'【官方授权游戏】Ducklifors；将目标变成鸭子'},
+{n:'泡泡困锁咒（Ebublio）',d:'【官方授权游戏】Ebublio；以大型泡泡包裹并困住目标'},
+{n:'粘合咒（Epoximise）',d:'【官方授权卡牌及游戏】Epoximise；把两个物体牢固粘合'},
+{n:'喷嚏咒（Steleus）',d:'【官方授权游戏】Steleus；使目标持续打喷嚏'},
+{n:'坠地咒（Orbis）',d:'【官方授权游戏】Orbis；将空中目标拉向或压向地面'},
+{n:'水涌咒（Aqua Eructo）',d:'【官方授权游戏】Aqua Eructo；从杖尖产生并控制水流'},
+{n:'闪电咒（Baubillious）',d:'【官方授权卡牌及游戏】Baubillious；产生电流或闪电攻击目标'},
+{n:'充气咒（Inflatus）',d:'【官方授权游戏】Inflatus；使目标膨胀'},
+{n:'雷雨咒（Meteolojinx）',d:'【官方授权游戏】Meteolojinx；制造局部雷雨或风暴'},
+{n:'挠痒咒（Titillando）',d:'【官方授权卡牌及游戏】Titillando；使目标发痒，部分版本兼具削弱效果'},
+{n:'歌唱咒（Cantis）',d:'【官方授权游戏及补充资料】Cantis；使目标不由自主地唱歌'},
+{n:'南瓜套头咒（Melefors）',d:'【霍格沃茨之谜等官方授权游戏】Melefors；使目标头部变成或被套上南瓜'},
+{n:'发色变换咒（Crinus Muto）',d:'【霍格沃茨之谜等官方授权游戏】Crinus Muto；改变头发颜色与造型'},
+{n:'侦测显形（Revelio）',d:'【官方游戏及影视】Revelio；显露隐藏目标、伪装或魔法痕迹，具体表现随作品而异'},
+{n:'勒维奥索（Levioso）',d:'【霍格沃茨之遗】Levioso；使敌人或物体悬浮，不同于可精细移物的羽加迪姆·勒维奥萨'},
+{n:'变形咒（Transformation）',d:'【官方授权游戏】Transformation；将敌人或物体变成其他形态'},
+{n:'古代魔法（Ancient Magic）',d:'【霍格沃茨之遗】Ancient Magic；积蓄能量后发动高破坏力攻击，可破除护盾'},
+{n:'古代魔法投掷（Ancient Magic Throw）',d:'【霍格沃茨之遗】Ancient Magic Throw；抓取并投掷战场物体或敌人武器'},
+{n:'陈设召唤咒（Conjuring Spell）',d:'【霍格沃茨之遗】Conjuring Spell；在有求必应屋内召唤家具与陈设'},
+{n:'陈设改造咒（Altering Spell）',d:'【霍格沃茨之遗】Altering Spell；改变有求必应屋内陈设的形态与特征'},
+{n:'基础施法（Basic Cast）',d:'【霍格沃茨之遗】Basic Cast；连续发射基础魔法攻击，属于游戏的基础战斗机制'}
+]}
+];
+
+// ==================== BALANCED TALENT POOL · OLD VERSION ====================
+const balancedTalentPool=[
+{name:'咒语亲和',desc:'学习新咒语的速度比常人更快，魔咒课上总能第一个掌握新咒语。',rarity:'common'},
+{name:'扫帚直觉',desc:'骑乘飞天扫帚时有着天生的平衡感和反应能力。',rarity:'common'},
+{name:'草药之手',desc:'魔法植物在你的照料下总是长得格外茂盛。',rarity:'common'},
+{name:'动物亲和',desc:'神奇动物对你有天然的好感，更容易接近和安抚它们。',rarity:'common'},
+{name:'记忆宫殿',desc:'拥有出色的记忆力，背诵咒语和魔药配方事半功倍。',rarity:'common'},
+{name:'夜视敏锐',desc:'在黑暗环境中视力比常人更好。',rarity:'common'},
+{name:'方向感知',desc:'几乎不会迷路，对空间方位有天生的敏感。',rarity:'common'},
+{name:'药剂味觉',desc:'能通过品尝辨别魔药的成分和品质。',rarity:'common'},
+{name:'结界感知',desc:'能感觉到附近的防护咒和魔法屏障。',rarity:'common'},
+{name:'魔法痕迹感知',desc:'能察觉到残留在物体或地点上的魔法痕迹。',rarity:'common'},
+{name:'无杖魔法天赋',desc:'偶尔能在没有魔杖的情况下施展简单咒语，这是极少数巫师才有的能力。',rarity:'rare'},
+{name:'非语言咒语天赋',desc:'默念咒语的成功率远高于同龄人，在决斗中占据优势。',rarity:'rare'},
+{name:'飞行天才',desc:'天生的飞行高手，第一次骑扫帚就能自如操控。',rarity:'rare'},
+{name:'魔药直觉',desc:'能凭直觉改良魔药配方，有时会有意想不到的效果。',rarity:'rare'},
+{name:'变形天赋',desc:'变形术对你来说格外简单，复杂的变形也能轻松完成。',rarity:'rare'},
+{name:'决斗反应',desc:'在魔法对战时反应速度极快，能预判对手的动作。',rarity:'rare'},
+{name:'魔法生物通感',desc:'能感知魔法生物的情绪和意图。',rarity:'rare'},
+{name:'隐匿气息',desc:'你的存在感很低，不易被发现，适合潜行。',rarity:'rare'},
+{name:'魔力感知',desc:'能感知他人魔力的强弱和波动。',rarity:'rare'},
+{name:'幻象抗性',desc:'不易被幻象和迷惑咒语影响。',rarity:'rare'},
+{name:'诅咒抗性',desc:'对诅咒类魔法有一定的天然抵抗力。',rarity:'rare'},
+{name:'占卜灵感',desc:'偶尔会有关于未来的模糊预感。',rarity:'rare'},
+{name:'符文解读',desc:'古代魔文对你来说如同母语般直观。',rarity:'rare'},
+{name:'水下适应',desc:'能在水中憋气更久，水下行动自如。',rarity:'rare'},
+{name:'高空适应',desc:'完全不恐高，在高空中反而更加冷静。',rarity:'rare'},
+{name:'蛇佬腔',desc:'能与蛇类交流的稀有能力，通常与斯莱特林血脉有关。',rarity:'epic'},
+{name:'易容马格斯',desc:'能随意改变自己的外貌，无需魔药或咒语。极其罕见的天生能力。',rarity:'epic'},
+{name:'阿尼马格斯潜质',desc:'拥有变成动物的天赋，经过修炼可以成为阿尼马格斯。',rarity:'epic'},
+{name:'摄神取念天赋',desc:'能窥探他人思想的天赋，需要谨慎使用。',rarity:'epic'},
+{name:'大脑封闭术天赋',desc:'天生能屏蔽他人对你思想的入侵。',rarity:'epic'},
+{name:'先知之眼',desc:'偶尔能预见未来的片段，虽然往往模糊不清。',rarity:'epic'},
+{name:'通灵体质',desc:'能感知幽灵和亡魂的存在，有时能看到常人看不到的东西。',rarity:'epic'},
+{name:'凤凰泪免疫',desc:'曾被凤凰之泪治愈，对大多数毒素有抗性。',rarity:'epic'},
+{name:'魔杖共鸣',desc:'魔杖在你手中能发挥出超常的威力。',rarity:'epic'},
+{name:'黑魔法亲和',desc:'学习黑魔法的速度异常快，但也更容易被黑暗诱惑。',rarity:'epic'},
+{name:'守护神强化',desc:'你的守护神异常强大，能抵御多个摄魂怪。',rarity:'epic'},
+{name:'无痕幻影移形',desc:'幻影移形时几乎没有声音，来去无踪。',rarity:'epic'},
+{name:'多重咒语',desc:'能同时维持多个咒语的效果，需要极强的魔力控制。',rarity:'epic'},
+{name:'魔法印记',desc:'你施放的咒语带有独特的魔法印记，可被识别。',rarity:'epic'},
+{name:'古魔法感知',desc:'能看见常人看不见的古魔法痕迹，世界在你眼中有着不同的色彩。',rarity:'legendary'},
+{name:'古魔法操控',desc:'能操控失落已久的古魔法力量，这种能力几百年才出现一次。',rarity:'legendary'},
+{name:'死亡圣器感应',desc:'能感知死亡圣器的存在，仿佛与死神有着某种联系。',rarity:'legendary'},
+{name:'命运之子',desc:'在关键时刻总有奇迹发生，仿佛命运本身在眷顾你。',rarity:'legendary'},
+{name:'魔法契约者',desc:'与某种强大的魔法生物建立了灵魂契约。',rarity:'legendary'},
+{name:'时间敏感',desc:'能感知时间的异常流动，对时间魔法有特殊的敏感。',rarity:'legendary'},
+{name:'血脉诅咒携带者',desc:'携带着家族的古老诅咒，这既是负担也是力量的源泉。',rarity:'legendary'},
+{name:'预言之子',desc:'有一个关于你的预言存在，你的命运与魔法世界的未来紧密相连。',rarity:'legendary'},
+{name:'不可饶恕咒抗性',desc:'对三大不可饶恕咒有微弱的抵抗力，效果会减弱。',rarity:'legendary'},
+{name:'灵魂稳固',desc:'你的灵魂异常稳固，魂器和摄魂怪对你的影响大大减弱。',rarity:'legendary'},
+{name:'死亡主人',desc:'拥有同时掌控三件死亡圣器的潜质，传说中只有真正的死亡主人才能做到。',rarity:'mythic'},
+{name:'梅林后裔',desc:'血脉中流淌着梅林的力量，魔力深不可测，是数百年一遇的天才。',rarity:'mythic'},
+{name:'凤凰之心',desc:'拥有凤凰般的重生能力，在遭受致命伤害后能浴火重生一次。',rarity:'mythic'},
+{name:'时间行者',desc:'天生能感知时间的流动，拥有操控时间的潜质，这是最危险也最强大的能力之一。',rarity:'mythic'},
+{name:'命运编织者',desc:'你的选择会影响世界线的走向，你是历史的关键节点。',rarity:'mythic'},
+{name:'原初魔法',desc:'能使用魔杖发明之前的原始魔法，这是最古老、最纯粹的魔法形式。',rarity:'mythic'},
+{name:'四巨头血脉',desc:'同时继承了霍格沃茨四位创始人的血脉，这在理论上是不可能的。',rarity:'mythic'},
+{name:'魔法本源',desc:'你的魔力没有上限，会随着年龄和经验持续增长，潜力无穷。',rarity:'mythic'},
+{name:'世界之眼',desc:'能看见魔法世界的本质和规则，理解魔法运作的根本原理。',rarity:'mythic'},
+{name:'不死者契约',desc:'与死亡本身签订了契约，寿命远超常人，但代价未知。',rarity:'mythic'}
+];
+// ==================== TALENT POOL ====================
+// ==================== TALENT POOL ====================
+const talentPool={
+mythic:[
+{name:'替身「世界（The World）」',desc:'DIO所持有的近距离力量型人型替身，射程10米，战吼「無駄無駄無駄無駄！！！」，发动咏唱「砸瓦鲁多！！！」',effect:'核心能力为全域时间停止，静止时空中仅DIO可自由行动；初觉醒仅停一瞬，随颈部伤口愈合逐步延长，最终战达5秒，吸收乔瑟夫血液后延长至9秒；发动时触发专属JOJO画风突变——面部棱角锋利、嘴唇厚立体、睫毛浓密、肌肉血管夸张强化、发型突破物理呈锐角立体，周身漂浮ゴゴゴ/ドドド拟声字符，女性躯体亦转为刚硬肌肉几何形态；能力解除后画风维持3分钟，期间肉体获究极强化'},
+{name:'暗影君王',desc:'出自《我独自升级》，是九大君王中执掌死亡与暗影的顶级权能，觉醒后瞳孔转为暗紫色，周身常绕黑色暗影雾气，是作品设定里的天花板级能力之一',effect:'核心能力为暗影提取，可从被自身击杀的目标尸体上提取暗影，转化为绝对忠诚的暗影士兵，士兵保留生前全部能力且不会背叛，被打散后可在影子中重新凝聚；可将所有暗影储存在自身影子里随时召唤，展开君王领域时领域内所有暗影士兵全属性提升50%；衍生能力包括影步（在任意影子间瞬移）、暗影互换（和己方暗影士兵交换位置）、暗影潜行（融入他人影子完全隐蔽）；存在使用限制：无法提取实力远超自身的目标暗影，目标死亡超过1小时提取失败，同时维持的暗影士兵数量受自身魔力上限约束，君王领域最多维持10分钟，暗影互换冷却3小时，强光环境下暗影能力整体削弱30%'},
+{name:'万花筒写轮眼',desc:'宇智波一族顶级血继限界，需经历至亲羁绊断裂的强烈负面情绪刺激开眼，瞳孔呈独特万花筒状花纹，不同开眼者花纹与专属能力存在差异，基础能力远凌驾于三勾玉写轮眼之上',effect:'共通能力包含极致动态洞察、可复制非血继限界的忍术体术、操控五感的顶级视觉幻术；双眼齐开可召唤实体化查克拉战神须佐能乎，根据开眼者不同附带专属瞳术（不灭火焰天照、精神空间月读、时空间神威等）；每次使用都会不可逆损伤视力，频繁催动会逐步失明直至彻底失去光芒，仅移植直系血亲万花筒进化为永恒万花筒可消除失明诅咒，非宇智波血脉使用者查克拉消耗翻倍'},
+{name:'王之财宝',desc:'英雄王吉尔伽美什的标志性宝具，连通黄金之都的钥匙之剑，金色门扉后收纳着世间一切珍宝的原典，是人类智慧与财富的终极象征，彰显着最古之王"收集天下所有宝物"的绝对王权',effect:'等级E~A++，本质是"人类智慧的原典"本身，连通空间可自由取出宝库中收藏的所有宝具原型与人类发明雏形；能将无数宝具如子弹般高速射出，魔力效率极高且可针对任何从者弱点攻击，射出的宝具会自动回收；内藏天之锁、维摩那、众神之盾等数不清的神造兵装与奇珍异宝，除了全新概念造物与外星文明产物外几乎无所不包，收藏的财宝越多威力便越强'},
+{name:'处女座黄金圣衣',desc:'拥有处女座黄金圣衣与沙加之力，佛陀转世、最接近神的男人的黄金圣斗士传承，身披处女座黄金圣衣，天生能与神佛对话，七岁参悟生死，圣域唯一不靠女神之血、纯以自力觉醒第八感阿赖耶识的圣斗士',effect:'小宇宙修炼：燃烧体内宇宙大爆炸之力，第七感达光速境界拳速每秒一亿拳，第八感阿赖耶识超越生死、自由穿梭任意空间与冥界；天魔降伏：掌心燃烧小宇宙轰然爆发金色光柱，可远程轰击，威力足以轰塌半座宫殿；六道轮回：将对手灵魂强行放逐至地狱、饿鬼、畜生、修罗、人间、天道六界之一，亲受无尽折磨直至精神崩溃；天舞宝轮：睁眼解放的最大奥义，展开无数曼荼罗构成攻防一体战阵，入阵者不能攻击也无法逃离，被依次剥夺视觉、听觉、嗅觉、味觉、触觉直至第六感；天空霸邪·魑魅魍魉：召唤魑魅魍魉恶灵群扑噬敌人；不动明王：合拢的穹顶防御壁，连一丝小宇宙都不泄露，绝对防御；唵：以梵音真言释放小宇宙冲击波；闭目蓄能：平时闭眼封闭视觉以积蓄小宇宙，睁眼之时全力解放，力量暴涨'},
+{name:'最终兵器·阿波罗',desc:'战略型万能天使伊卡洛斯的最终兵器，以太阳神之名命名的黑色大弓，从虚空中召唤显现，弓身漆黑，箭身上萦绕着紫黑色的火焰，拉弓时能量汇聚成毁灭之光',effect:'阿波罗：拉开漆黑大弓，凝聚紫黑色火焰的超高能光箭射出，命中后引发范围极其巨大的爆炸，一击足以毁灭一个国家，远古时代曾一箭击毁巴比伦塔'},
+{name:'无限剑制',desc:'卫宫所持有的固有结界，咏唱咒文后将现实改写为插满无数无主宝剑的红色荒野，地平线跃动火焰、天空中巨大齿轮回转，犹如炼铁厂般的心象世界，结界内储存上千把宝具，可自由取出并如箭矢般同时射出轰击。咏唱："I am the bone of my sword.（此身为剑所成）Steel is my body, and fire is my blood.（钢铁为身，火焰为血）I have created over a thousand blades.（手制之剑已达千余）Unknown to Death, nor known to Life.（不为死所知，亦不为生所知）Have withstood pain to create many weapons.（曾承受痛苦创造诸多武器）Yet, those hands will never hold anything.（然而，手中已空无一物）So as I pray, Unlimited Blade Works.（故如我祈求，无限剑制）"'},
+{name:'投影魔术',desc:'卫宫的专属魔术，只要目视过一次的武器即可解析构造并完美复制，复制品比原版下降一个等级，连宝具持有者的武技与记忆也一并读取，防具亦可投影但消耗数倍魔力，复制过的武器会登录于无限剑制中随时取用',effect:'干将·莫邪：阴阳一对的黑白夫妻双剑，近身战爱用武具，可强化延伸为超长剑Overedge，双剑齐装提升对物理与魔术防御；鹤翼三连：投影三对雌雄剑从前后方同时夹击的三段连击；伪·螺旋剑CaladbolgⅡ：改造凯尔特魔剑为箭矢射出，幻想崩坏引爆后威力足以轰平三座山丘；赤原猎犬Hrunting：只要射手存活便永不停止追击的追尾魔箭，被击落也会反复袭击；炽天覆七重圆环Rho Aias：七片花瓣状结界盾，每片匹敌古代城墙，对投掷兵器拥有绝对防御力；幻想崩坏Broken Phantasm：将投影宝具当箭射出并引爆其全部魔力，用完即弃的高威力轰炸'},
+{name:'两面宿傩之力',desc:'拥有千年前诅咒之王两面宿傩的全部术式，四手两面的鬼神，天生双胞胎融合的异形身体，天上天下唯我独尊，拥有全作最顶尖的咒力量与战斗天赋，看一眼就能学会对手招式',effect:'御厨子·解：看不见的连打斩击，对生物与非生物均有极大杀伤；御厨子·捌：自动解析目标咒力与强度，调节至一刀必杀的斩击；捌·蜘蛛之网：接触地面将捌扩散，一击粉碎整片大地；世界斩断之斩击：将"解"的对象扩展至空间与存在本身，连空间一起斩断，无视一切防御，咏唱"龙鳞""反发""成双之流星"后以掌指定方向发动；竈·開（万死之炎）：以解与捌为前置工序，双手凝炎化为火弓射出，一击秒杀漏瑚与魔虚罗，亦可令领域内粉尘附爆形成温压轰炸；伏魔御厨子：不封闭结界的开放式领域，半径200米必中，对无咒力者施解、有咒力者施捌，无止境斩击至粉碎，效果可延伸至他人领域外侧；领域展延：体表薄膜中和敌方必中与术式；弥虚葛笼：简易领域原型，抵消领域必中；反转术式：正向咒力治愈肉体，亦可治人；十种影法术：夺舍伏黑后可召唤魔虚罗等式神并利用其适应能力习得新招；黑闪：咒力打击伴空间扭曲，威力成倍暴涨'},
+{name:'至尊法师之力',desc:'拥有古一法师的全部能力，卡玛泰姬至尊法师的秘术传承，从宇宙环境能量、异维度存在与自身精神中汲取魔力，精通白魔法与黑暗维度之力，自带阿戈摩托之眼（时间宝石）',effect:'维度能量操控：汲取异维度魔神与宇宙秘能，投射、转化、塑形魔法能量；镜像维度：将空间折叠重组为镜面迷宫，城市翻转扭曲，可在其中战斗而不波及现实，亦能囚禁敌人；塞拉芬之盾/陶形曼陀罗：展开多层魔法法阵护盾，可挡物理与能量攻击；次元传送：以悬戒开启传送门，跨空间甚至跨维度瞬移；星体投射：灵魂出窍化为无形灵体，不可触碰、无需呼吸进食，可攻击他人灵魂；幻象与催眠：制造逼真幻术、催眠控心，范围覆盖全球；浮空飞行与念动力：凌空悬浮、隔空驭物；能量鞭刃：将秘能塑成鞭、刃等武器近战；黑暗维度汲取：抽取多玛姆黑暗维度之力延寿并获得近乎无限的魔力；时间宝石·阿戈摩托之眼：操控时间流向，可令目标倒流或快进、制造无限时间循环、窥见未来的无数种可能'},
+{name:'天元突破·红莲螺岩',desc:'拥有西蒙的螺旋力与红莲螺岩，螺旋力是由意志与进化产生的无限能量，信念越强力量越大，可无中生有创造物质；以金色核心钻头启动颜面螺岩，能钻透并同化夺取任何机体，随螺旋力燃烧不断进化变大',effect:'螺旋力：意志产生的无限能量，可无中生有、自我修复、展开力场、吸收伤害并指数级适应进化；核心钻头：金色钥匙，启动螺岩并增幅螺旋力；螺岩同化：钻头钻入任何机体即可夺取控制权并强制合体，从敌机到战舰乃至月球皆可夺取；Giga Drill Break：凝聚螺旋力化为巨型钻头贯穿一切的必杀技，随信念无限变大；红莲螺岩→方舟红莲螺岩→超银河红莲螺岩→天元突破红莲螺岩→超天元突破红莲螺岩：从十米机器人一路进化到超越宇宙的终极机体，最终形态以无限螺旋力凝聚，钻头比可观测宇宙还大，可攻击过去现在未来、篡改概率、粉碎多维现实'},
+{name:'无限手套',desc:'召唤集齐六颗无限宝石的无限手套，金色金属手套上镶嵌着空间、心灵、现实、力量、时间、灵魂六颗宝石，握拳响指即可将六宝石之力合一，拥有改写整个宇宙现实的全能之力',effect:'空间宝石（蓝）：操控空间，任意传送自身与物体、开启虫洞、扭曲空间距离，辅以力量宝石可近乎全在；心灵宝石（黄）：操控心智、读心洗脑、精神幻术，大幅提升智力与精神力，甚至赋予生命；现实宝石（红）：凭意志改写现实法则，将想象化为真实、物质随意转化，可将武器变为泡泡或分解一切；力量宝石（紫）：操控并释放毁天灭地的宇宙能量，徒手碎星、力量倍增，并增幅其余五颗宝石的威力；时间宝石（绿）：操控时间流向，倒流、快进、静止或循环时间，自由穿越过去未来，窥见一切可能；灵魂宝石（橙）：操控灵魂与生死，可抽取、封印灵魂，内含灵魂世界口袋维度；六石合一·响指：握拳打响指将六宝石之力同时释放，可凭一个念头抹除或复活宇宙中半数生命，乃至随心所欲重塑整个宇宙的现实'},
+{name:'八岐血裔·神纹解放',desc:'身具八岐大蛇本源血统，常态下双臂环刻深色蛇形咒纹臂环、胸口镌有深蓝八岐放射纹印，肌肤隐伏淡蛇鳞暗纹，发色与瞳孔与常人无异；全力释放血脉之力时发色尽数转为银白，赤红蛇形竖瞳彻底显现，周身咒纹灼亮浮起，恒常萦绕淡紫虚无粒子浮空，外泄神气场令凡俗物质近身自崩',effect:'血脉解放后解锁湮灭黑粒子、空间折跃、掏魂夺魄、地脉灵柱、虚无屏障、意念操控、天灾引动全套核心权能，三大终结奥义可发动覆面光能打击、展开虚无领域、引动灭世级生态重置冲击；单日仅可稳定维持解放状态30分钟'},
+{name:'电击使·超电磁炮',desc:'Lv5等级电击使能力，可自由操纵十亿伏特高压电流与电磁波，核心杀招为以金属硬币为弹丸借电磁力加速至3倍音速发射的超电磁炮，命中附带高温熔化与冲击波，衍生可操控铁砂成剑、释放雷击、干涉电子设备、展开电磁屏障、踏空高速移动',effect:'常规硬币炮射速每分钟8发，单发可击穿2米厚钢板，全力输出可召唤落雷级范围雷击、释放10米范围电磁脉冲瘫痪电子设备'},
+{name:'五条悟咒术体系',desc:'现代最强咒术师五条悟的完整能力集合，以天生六眼为核心，覆盖防御、攻击、治疗、领域全维度',effect:'①无下限咒术（被动防御）：将「阿基里斯与乌龟」悖论具象化，接近本体之物速度无限衰减永不可触，配合反转术式可自动全时防护；②术式顺转「苍」制造吸引力（小型黑洞）兼具空间压缩瞬移，反转「赫」释放两倍威力的排斥力，虚式「茈」以假想质量切割空间为顶级破坏技；③领域展开「无量空处」向目标大脑灌注无限无效信息使其过载失能，仅触碰本体者免疫；④天赋「六眼」360度感知咒力、使自身咒力消耗趋近于零；⑤反转术式生成正能量治疗，濒死激发后自动运转为无下限永久供能'},
+{name:'镜花水月斩魄刀',desc:'蓝染惣右介的佩刀，幻觉系最强斩魄刀，拥有实体，始解语「碎裂吧，镜花水月」',effect:'核心能力为「完全催眠」：目标只要亲眼目睹过一次始解瞬间，即永久成为催眠对象，此后无论距离多远，蓝染再次解放即可远程激活；可完全支配目标视听嗅味触五感，并欺骗灵压与精神探测，既能无中生有制造幻象，也能将任意物体/人员伪装成他物；被催眠者对幻象绝对信任，即使现实与认知严重矛盾也会自动合理化，无法凭理性挣脱'},
+{name:'Decade驱动器',desc:'拥有假面骑士Decade的Decade驱动器与骑士卡片，变身者门矢士（小明哥），被称为"破坏所有骑士的存在"，品红色骑士，核心力量次元壁与生俱来、不依赖腰带，可自由穿梭平行世界',effect:'骑士卡片：假面驾驭可变身为历代骑士，攻击驾驭使用其武器技能，最终攻击驾驭发动对应必杀；次元壁：与生俱来的能力，自由穿梭平行世界，可攻可防可传送；驾驭卡盒剑：可变形为剑与枪，藏有无尽卡片；次元踢：穿过十面卡片光墙，破坏力30吨；激情态（战鬼）：接受破坏者身份后鬼化，无需变身即可使用其他骑士能力，次元踢超光速；完全形态（神主牌）：通过K-Touch召唤历代骑士最终形态之力'},
+{name:'欧布圆环',desc:'拥有欧布奥特曼的欧布圆环（Orb Ring），传说中的变身装置，读取两张奥特融合卡即可融合两位奥特曼的力量变身，浪客红凯使用，史上首位靠历代奥特曼力量融合变身的奥特英雄',effect:'重光形态（斯佩修姆哉佩利敖）：初代+迪迦，丰富光线技能与超能力；燃烧炸弹（Burnmite）：泰罗+梦比优斯，火焰力量与肉搏；疾风形态（Hurricane Slash）：杰克+赛罗，高速格斗与头镖；暗耀形态（Thunder Breastar）：佐菲+贝利亚，光与暗融合的狂暴力量；欧布起源：红凯原本的力量，手持欧布至高圣剑，可发动土水风火四元素之力，必杀欧布至高圣剑；三位一体（Orb Trinity）：银河+维克特利+艾克斯三奥融合的究极形态'},
+{name:'梦比优斯气息',desc:'拥有梦比优斯奥特曼的梦比优斯气息（Mebium Brace），奥特之父授予的赤色万能气息手镯，装备左腕，中央红色水晶球转动即可释放能源变身或施展技能',effect:'梦比姆射线：双手组成∞字形发射的必杀光线；梦比姆光剑：气息延伸出的光之剑；勇者形态（Mebius Brave）：与希卡利的骑士气息一体化，胸口金色线条，梦比姆光剑强化为梦比姆骑士光剑；炎之勇者形态（Mebius Burning Brave）：全身缠绕火焰，必杀梦比姆爆裂为火焰炸弹；凤凰勇者形态（Mebius Phoenix Brave）：与希卡利及GUYS全员友情羁绊融合的最强形态，金红蓝三色，不死鸟般的力量'},
+{name:'奥特赛罗眼镜',desc:'拥有赛罗奥特曼的奥特赛罗眼镜（Ultra Zero Eye），取下眼镜按下扳机即可变身，赛文之子、雷欧亲传弟子，光之国最年轻的最强战士，可借助戴拿与高斯之力切换形态',effect:'赛罗头镖：头顶双头刃，可投掷可合体为等离子火花斩；艾梅利姆切割与集束射线：额头光束与L字型必杀光线；强壮日冕赛罗：赤红力量形态，融合戴拿强壮型与高斯日冕型，近战爆发与火焰攻击；月神奇迹赛罗：深蓝速度形态，融合戴拿奇迹型与高斯月神型，超高速移动与超能力；光辉赛罗：金色形态，可操控时间倒流与时间停止；终极赛罗：装备帕拉吉之盾，可穿越时空，最终究极赛罗一击毁灭行星；超限赛罗：使用新世代胶囊变身的强化形态'},
+{name:'奥特眼镜X',desc:'拥有赛文X的奥特眼镜X（Ultra Eye X），红色眼镜型变身器，戴上即可变身为赛文在平行世界的姿态，肌肉强化、外形凶悍，战斗风格凌厉，绝大多数敌人变身即秒杀',effect:'头镖：头顶飞刃，以奥特念力操控白热化飞出切割敌人，亦可取下当刀劈砍；艾梅利姆光线：额头光束灯发射的高热光线；集束射线：双臂组合发射的L字型强力光线；奥特念力：以念力操控物体、束缚敌人；体格强化：相比原版赛文肌肉与力量大幅增强，格斗碾压'},
+{name:'进化信赖者',desc:'拥有奈克瑟斯奥特曼的进化信赖者（Evoltruster），外形为收纳于暗纹鞘中的短剑，只有被选中的适能者才能拔出，拔出高举时释放极光同化变身，可展开美塔领域将战斗转移至亚空间',effect:'幼年形态（Anphans）：银灰色基础形态，双臂武装可吸收敌人攻击转化为光弹反弹；红色青年形态（Junis）：红色完全体，必杀层叠光线·风暴，可展开美塔领域；蓝色青年形态（Junis Blue）：蓝色速度型，必杀弓箭光束，可发射板形光线之羽；诺亚奥特曼：究极最终形态，背后诺亚之翼可穿越时空，拥有Noa The Final等究极技能，被称为宇宙第一缕光'},
+{name:'神光棒',desc:'拥有迪迦奥特曼的神光棒（Sparklence），超古代光之巨人的变身器，将棒身展开举过头顶即可化身为光，变身后可自由切换三种基础形态，活动时间约三分钟',effect:'复合型：红紫金银四色基础形态，力量速度均衡，必杀哉佩利敖光线为L字型蓝白色光线；强力型：红色形态，力量与防御强化，擅长肉搏，必杀迪拉修姆光流为红色高热光球；空中型：蓝紫色形态，速度与空战最强，必杀兰帕尔特光弹为蓝色光箭；闪耀迪迦：全身金色光芒的能量全开形态，光线威力大幅强化；黑暗迪迦：超古代原本的黑暗形态，可吸收黑暗力量'},
+{name:'圣剑剑刃驱动器',desc:'拥有假面骑士Saber的圣剑剑刃驱动器与火炎剑烈火，变身者神山飞羽真，炎之剑士，将奇幻驾驭书插入驱动器拔刀变身，右半身寄宿神兽"勇气飞龙"之力，以火炎剑烈火斩裂邪恶，可搭配不同奇幻书切换形态',effect:'勇气飞龙形态：基础形态，拳9.8吨、踢19.2吨，圣焰可治愈正者、烧尽邪物，剑技必杀火焰十字斩、踢技必杀火龙蹴击破；奇幻驾驭书连组：可同时装填神兽、生物、故事三类奇幻书变身联组形态；十圣刃（Xross Saber）：最终形态，使用刃王剑十圣刃变身，拳64.7吨、踢110.8吨、百米0.6秒，全身银河色，联结火炎剑烈火、水势剑流水、雷鸣剑黄雷等十把圣剑之力自在解放，必杀刃王创星斩可修复世界或挥出星云级斩击，踢技必杀银河大爆发'},
+{name:'双子座黄金圣衣',desc:'拥有双子座黄金圣衣与撒加之力，第三宫双子宫守护者，黄金圣斗士中被誉为"神之化身"的最强者之一，拥有善恶双重人格，兼具压倒性物理攻击与精神支配能力，第七感光速战斗',effect:'银河星爆（Galaxian Explosion）：双子座最大奥义，瞬间爆发极限小宇宙，能量集中倾泻于对手，威力足以粉碎银河群星，可跨界远程攻击、范围巨大不可闪避；异次元空间（Another Dimension）：以小宇宙压缩扭曲时空，打开通往异界的裂缝，将对手放逐至不属于这个宇宙的未知次元，若无法找到出口将漂流至数万亿光年外万劫不复；幻胧魔皇拳：传说中的精神系禁拳，直接作用于对手脑神经，可支配其意志、制造幻觉、削弱战斗力，除非眼前有人死去否则无法解除；光速拳：第七感境界的光速连击；双重人格：善与恶两面交替，黑化时战力更加凶暴冷酷'},
+{name:'时空驱动器',desc:'拥有假面骑士时王的时空驱动器与驾驭表头，变身者常磐庄吾，立志成为至仁至善的魔王，装填历代骑士表头即可借用其力；搭配逢魔时王驱动器可变身究极形态逢魔时王',effect:'驾驭表头：装填历代骑士表头使用其能力与必杀；时间操控：停止、回溯、加速时间，穿梭过去未来，强制传送任意目标；崇皇时王：金色浮雕形态，拥有全平成骑士之力，可从历史召唤前辈助阵并定格回溯其时间；逢魔时王：究极形态，拳108.3吨、踢324.9吨、百米0.1秒，持有全骑士之力，念动力、冲击波、尘埃化，一念释放任意骑士必杀，不死不灭、超脱时间'},
+{name:'Zeztz驱动器',desc:'拥有假面骑士ZZZ的Zeztz驱动器与梦胶囊，佩戴于胸前挎带，变身者万津莫，拥有与生俱来的明晰梦之力，入睡后在梦境世界成为无敌特工，装填不同梦胶囊可变身各种形态，对抗侵入现实的噩梦怪人"梦魇"',effect:'明晰梦：自由操控梦境，在梦中全知全能；肌体冲击形态：基础形态，拳6.8吨、踢13.6吨，必杀Impact Vanish为三段踢击形成ZZZ能量体；灾厄崩灭形态：装填双魇梦胶囊，以纯粹崩坏之力摧毁对象，Triple Zeztzer机枪每分钟千发；超梦形态：最强形态，数据计测不能，自由穿梭梦境与现实，可将梦境事物具象化、将敌人攻击化为梦境，必杀Rise Great Vanish'},
+{name:'矢量操作',desc:'所有指向我的伤害，都会原封不动返还给你',effect:'操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球'},
+{name:'琦玉修炼法',desc:'原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成',effect:'突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真'},
+{name:'氪星血脉觉醒',desc:'你是流落异世界的氪星人后裔',effect:'黄太阳辐射下解锁钢铁躯体、热视线、飞行、超速自愈'},
+{name:'禁书目录·茵蒂克丝',desc:'拥有魔法禁书目录茵蒂克丝的能力，银发绿瞳的英国清教修女，以完全记忆能力在脑中封印十万三千本魔道书，身穿"移动教会"修道服，体内搭载防卫系统"自动书记（John\'s Pen）"',effect:'十万三千本魔道书：任何魔法看一眼即可解析构造、看穿弱点并找出对策；自动书记（John\'s Pen）：生命受威胁时强制启动，意识消失、眼中浮现魔法阵，任意运用魔道书知识即兴组合对抗魔术，连未知力量都能瞬间解析反击；移动教会：杜林圣骸布织成的修道服，教宗级结界，核弹级防御，物理与魔法攻击全部吸收；强制咏唱：干涉敌方咏唱令其魔法失误甚至夺取控制权；魔灭之声：指出十字教教义矛盾，听见的教徒人格瓦解；龙王的叹息：空间龟裂中射出白色光束，可击毁太空中的卫星，连幻想杀手都无法完全消除；丰饶神之剑：光粒子浮空西洋剑，自动战斗、从未失败'},
+{name:'星之圣剑',desc:'为击败毁灭星辰之外敌而铸造的黄金圣剑，阶级EX。剑身设十三拘束，由骑士王本人与十二位圆桌骑士各立一道封印，每道对应一个解放条件。真名解放时须满足半数以上即七条拘束方可完全发挥，否则按已解封印数量部分解放',effect:'平时即无坚不摧的黄金圣剑。解放时喊出"十三拘束解放，圆桌决议开始"，满足条件的封印逐条崩解，每解一道威力倍增。完全解放（七条以上）放出创世级黄金光柱，可轰碎星辰级外敌，威力覆盖千人；部分解放（三至六条）已可平推要塞'},
+{name:'乖离剑·EA',desc:'吉尔伽美什所持EX级对界神造兵装，剑身无传统剑刃，为三段对应天、地、冥界的圆柱结构逆向回转构成，是开天辟地时代遗存的创世之剑，无法被任何投影、复制类能力复刻，可从王之财宝中随意念瞬间召出',effect:'真名解放「天地乖离开辟之星」时，超高速回转压缩风压形成时空断层，释放撕裂世界的创世级冲击，并非普通斩击而是直接粉碎空间结构，可直接击溃固有结界，最大出力可达地壳变动级威力，最大覆盖捕捉千人；真名解放需消耗巨量魔力，全力解放后10分钟内无法再次催动，攻击无法被常规物理/魔力防御格挡，可杀伤神性、不死性单位'},
+{name:'地爆天星',desc:'轮回眼专属EX级封印瞳术，六道仙人封印十尾时所用创世之术，以此术抽出十尾躯壳封入岩球形成月球；需双手将查克拉浓缩为黑色引力核心，非轮回眼持有者强行使用会遭极大反噬',effect:'黑球升空产生超引力，强行吸引范围内一切物质形成巨大岩球，将目标封入核心以引力碾碎封印，可同时释放多个捕捉尾兽，亦可作陨石砸击；六道版需阴阳之力共施，可封印大筒木级存在并形成月球；核心被足够强力攻击命中即破解，单次需巨量查克拉，无法连续发动'},
+{name:'直死之魔眼',desc:'型月世界因果律级魔眼，需经历真正死亡且有净眼资质者才可觉醒，原型为凯尔特魔神巴罗尔之眼，真祖死徒中都不曾出现的神话级能力，两仪式与远野志贵持有',effect:'眼中万物浮现有死线死点，沿线划过即造成不可防御、不可再生、不可治愈的致命伤，刺中死点则存在直接终结；不是物理切断而是直接引发「死亡」结果，无视硬度、防御、不死性，连未来、概念都能斩；必须亲手触及，无法理解其死的存在无效，过度使用会烧坏大脑'},
+{name:'歪曲之魔眼',desc:'《空之境界》浅上藤乃所持最上级异能魔眼，被评为魔眼中的稀有品，本质是空间干涉系超能力，以视线为媒介在物体上开启回转轴，发动咒文「凶まがれ」',effect:'左眼左回转、右眼右回转，单眼可将注视物体任意扭曲弯折，双眼同开两轴交于一点即可从交界处直接捻断，无视硬度、防御与距离，纯物理破坏力在直死之上；后期觉醒透视能力可扭曲视野外、障碍物后的目标；只能扭曲物质存在，无法影响概念'},
+{name:'幻想杀手',desc:'《魔法禁书目录》上条当麻右手所宿神秘之力，既非超能力也非魔法，不散发AIM力场还会抹消周围异能，被视为世界的校正基准，学园都市登录为Level 0无能力者',effect:'右手触碰即可抹消一切异能——超能力、魔法、神之奇迹、结界、诅咒、祝福甚至运气，是所有异能者的绝对天敌；抹消有速度上限，对量级过大的异能需时间抵消，范围仅限右手接触处，对纯物理攻击、自然现象和普通人无效，连自身好运也一并抹消'},
+{name:'天空坠落',desc:'《OVERLORD》超位魔法之一，凌驾第十位阶之上，不耗MP但有团队共享冷却，吟唱长可用氪金道具取消前摇，NPC无法使用，安兹对夏提雅战起手大招',effect:'从天空召唤巨大超高温光柱落下，温度高到将森林碳化、大地结晶、万物化灰，对不死族也造成大伤害，纯火力在超位魔法中名列前茅，缺点是前摇长、不能连放、百级玩家一天也只能用数次'},
+{name:'黑山羊母神的幼崽',desc:'《OVERLORD》超位魔法，来源克苏鲁神话森之黑山羊，安兹在王国军前发动的践踏级法术，范围覆盖数万大军，最具视觉冲击力的超位魔法之一',effect:'召唤数只近百级巨大黑山羊幼崽，其践踏本身就是地形级灾害，自动追击敌人并造成恐慌debuff，召唤物数量随范围内死者数增加，被践踏区域化为血肉泥潭，王国一战召唤五只，数万大军瞬间溃败'},
+{name:'世界道具·二十',desc:'《OVERLORD》YGGDRASIL全服仅200件世界级道具中最强的20件，威力足以破坏游戏平衡，因此设定为用一次即消失，随机出现在九世界某处，只有世界级道具能抵抗世界级道具',effect:'每件「二十」都是规则级能力，「朗基努斯」可将目标从存在中彻底抹除，代价是自身也消失，连复活道具都无效，「世界意志」平时只是根棍棒，却随敌人强度无限成长，设定上一件就能攻下纳萨力克大坟墓'},
+{name:'誓约胜利之剑',desc:'阿尔托莉雅所持最大宝具，等级A++，对城宝具，范围1~99，最大捕捉1000人。星造神造兵装，立于圣剑顶点，与魔剑Gram并称。乃人类"愿其如此"之想念于星球内精炼而成的"最强幻想"',effect:'真名解放Excalibur，将魔力化为光，经收束·加速增大运动量，放出金色光柱。正面命中可夷平城堡，余波烧蚀地面，最大杀伤千人，曾一击蒸发河面。蓄力三息，放完魔力大耗。有龙心者可连发但间隔数刻，凡人一日约一发'},
+{name:'十二符咒',desc:'十二生肖符咒，捏紧激活，每枚各赋一种神力',effect:'鼠符咒：赋予无生命之物生命与意识；牛符咒：力大无穷，物理破坏力暴增；虎符咒：平衡调和所有符咒之力，可将人阴阳分离为善恶分身；兔符咒：超音速移动，超越光速可穿越时空；龙符咒：喷射炎爆冲击波，怒气越高威力越强；蛇符咒：光学隐身，可令多人或巨物一同隐形；马符咒：治愈一切伤病，修复任何损坏物体；羊符咒：灵魂出窍，可入梦托梦、附身空躯；猴符咒：将自己或他人任意变形为动物；鸡符咒：念力浮空与隔空移物，配兔符咒可飞行；狗符咒：不老不死，免疫一切致死伤害；猪符咒：双眼发射高温镭射光束'},
+{name:'超级赛亚人血脉',desc:'战斗民族赛亚人的血统，天生好战、食量惊人、衰老缓慢，每次从濒死边缘复活战斗力都会大幅提升，有尾巴者注视满月（吸收1700万布鲁兹波）可变身巨猿、力量翻十倍',effect:'巨猿化：有尾赛亚人看满月变身巨型猿猴，力量×10；超级赛亚人：金发倒竖、碧眼，战力×50，极度愤怒时觉醒；超级赛亚人2：发丝更锐、气焰喷射、周身缠绕闪电，战力×100；超级赛亚人3：长发及腰、眉毛消失，战力×400；超级赛亚人之神：红发瘦身，踏入神之领域，具备自愈能力；超级赛亚人蓝：超神基础上再变超赛，蓝发蓝瞳，掌控神之气；传说中的超级赛亚人：绿发、肌肉膨胀，狂暴状态下力量随战斗持续暴涨'},
+{name:'红龙之血',desc:'阿尔托莉雅·潘德拉贡生来持有龙之因子，心脏即龙的魔术炉心。Pendragon之名本就是红龙之意',effect:'被动。你不需要魔术回路，只要血液循环、吸一口气，就能自动生成魔力，是与一般魔术师完全不同次元的"魔术炉心"，魔力量远超常人。附带对魔力A：当代最高位魔术师也难用魔术伤你。可使用魔力放出A：将魔力灌入武器或四肢瞬间爆发。弱点是龙属性——遇到有杀龙传说的武器，受到的伤害加倍'},
+{name:'四次元百宝袋',desc:'哆啦A梦腹部同款的半圆白色口袋——正式名称"机器人专用四次元空间内藏秘密道具收藏口袋"，里面是无穷大的四次元空间',effect:'可从中取出各式道具：任意门（说出目的地即可抵达，但有距离限制）、竹蜻蜓（反重力飞行，续航约八小时）、缩小灯/放大灯、桃太郎饭团、空气炮等；念出道具名或想着功能即可取物——但道具总有缺点和意外，小心用'},
+{name:'动感超人套装',desc:'《蜡笔小新》中动感超人的全套战斗服——红蓝配色的英雄战衣，穿上即获得动感超人的全套能力',effect:'招牌终结技「动感光波（Action Beam）」：肘部集中能量形成高热量射线并附带高压电流，作为最后一击使用；另有高空打击的「动感一击」组合技；正义英雄的体魄与格斗能力齐备'}
+],
+legendary:[
+{name:'大难不死的生还者',desc:'幼年时有人以生命为你挡下致命一击——牺牲保护自此烙进你的血脉，索命咒对你总差最后一寸',effect:'对致死级黑魔法有一次"奇迹生还"的叙事豁免；身上留有淡淡的印记；但你的名字会被某些存在记住——这份保护从不白给'},
+{name:'孪生杖芯',desc:'你的魔杖杖芯与某位大人物的魔杖取自同源（同一只凤凰的尾羽、同一条龙的神经）——两根魔杖相遇必然相斥',effect:'决斗中触发闪回咒时，双方都无法真正伤害对方，却会看见彼此最不愿示人的记忆片段；你与"另一根魔杖"的主人命运从此纠缠'},
+{name:'斯莱特林的血脉',desc:'你是萨拉查·斯莱特林旁支的后裔——蛇佬腔在你梦里苏醒，你能听懂爬行动物的低语',effect:'可与蛇类对话，能开启斯莱特林留下的机关与密室；血统一旦曝光：纯血主义者拉拢你，正派人士提防你'},
+{name:'隐形衣的血统',desc:'家族阁楼里压着一件传了不知多少代的旧斗篷——雨水不沾、岁月不旧，是传说中佩弗利尔工艺的遗物',effect:'持有一件永不失效的完美隐形衣（非普通幻身咒制品）；但"死亡的主人"的传说，开始有人顺着家谱找上你'},
+{name:'预言指向之人',desc:'某条未被记录的预言里有一个与你吻合的身影——出生时节、父母、印记，全部对得上',effect:'大事件总会把你卷进中心；你的关键选择会不成比例地改变走向——但预言从不说明你是哪一边'},
+{name:'易容马格斯',desc:'天生的变形者，无需魔杖与咒语即可改变容貌体态——血脉里流着极稀有的天赋（尼法朵拉·唐克斯同款）',effect:'外貌、声音、体型随心变化；易容耗神，情绪剧烈波动时会露馅；魔法部希望你登记'},
+{name:'默然者的幸存者',desc:'童年被压抑的魔法在你体内凝结成黑暗力量，而你活过了绝大多数默然者活不过的年纪',effect:'情绪失控时释放默默然（大范围无差别破坏）；学会与它共处则化为惊人魔力，一味压抑则蚕食生命'}
+],
+epic:[
+{name:'未登记的阿尼马格斯',desc:'数年苦练，你终于能在动物形态与人形间自由转换——而魔法部的登记册上没有你的名字',effect:'一种固定动物形态（鹰/猫/犬等），可自由出入巫师不便之处；一旦被发现，面临阿兹卡班'},
+{name:'先知的血脉',desc:'你的家族出过真正的先知（特里劳妮家族、卡珊德拉一脉）——你偶尔会"看见"，不是你想要，是它自己来',effect:'不定期不受控地吐露真预言；日常占卜天赋远超常人；说出的预言自己往往记不住'},
+{name:'狼人之咬',desc:'月圆之夜你会失去自我、化身为狼——这是童年一次意外留下的印记',effect:'月圆变身（不可控、有伤人风险）；平时五感超群、恢复力惊人；狼毒药剂是每月的救命绳，社会歧视如影随形'},
+{name:'火弩箭的主人',desc:'一把世界级飞天扫帚属于你：火弩箭，十秒内从零加速到一百五十英里',effect:'顶级飞行性能，魁地奇职业级装备；它太惹眼——每个找球手都想知道你是哪来的钱'},
+{name:'活点地图的新持有者',desc:'一张会在月光下显出字迹的旧羊皮纸落入你手中："我庄严宣誓我不干好事"',effect:'实时显示霍格沃茨内所有人的位置与密道；但它不会告诉你，当年画它的人是谁'},
+{name:'凤凰的认可',desc:'一只凤凰在你最绝望的夜晚落在你肩头，眼泪滴在你的伤口上',effect:'凤凰眼泪可解百毒、疗愈重伤，歌声予人勇气；凤凰择主而栖——它随时可能离开'},
+{name:'古灵阁金库的继承',desc:'你继承了一座编号极老的古灵阁金库——里面除了加隆，还有祖上留下的、连妖精都不愿多谈的东西',effect:'可观财富＋一件祖传魔法物品；金库深处的东西，希望你永远不要打开它'}
+],
+rare:[
+{name:'神圣二十八族后裔',desc:'你的姓氏在《纯血统名录》上——家族名声既是通行证，也是枷锁',effect:'纯血圈层的人脉与入场券；家族的立场与债务同时压上你的肩'},
+{name:'哑炮家庭走出的巫师',desc:'全家唯一会魔法的人——猫头鹰来信那天，全家又惊又惧',effect:'在巫师与麻瓜两套规则间长大；家人对你的世界永远隔着一层'},
+{name:'麻瓜出身的天才',desc:'牙医、教师或工人家庭出身——第一次接触魔法，你就展现出惊人的悟性',effect:'课业悟性极高；但要同时应付巫师世界的偏见与麻瓜家人的不解'},
+{name:'魁地奇天才',desc:'第一次抓扫帚就像长在扫帚上——院队已经在打听你的名字',effect:'飞行天赋顶尖；魁地奇为你打开圈子，也把你推到看台风口浪尖'},
+{name:'魔药世家',desc:'家里三代开魔药铺，你从小闻着疥疮药水的味道长大',effect:'魔药学起步即远超同龄人；斯拉格霍恩式的人物会喜欢你'},
+{name:'傲罗之子',desc:'父母之一是傲罗——你的童年睡前故事，是缉拿黑巫师的实录',effect:'见识与警觉远超同龄人；父母的旧仇家也记得你家的门牌'}
+],
+common:[
+{name:'普通巫师家庭',desc:'父母都是普通巫师，在对角巷给你买了第一根魔杖——一切从正常开始',effect:'没有包袱也没有捷径；正常的家庭，正常的开学'},
+{name:'麻瓜家庭的普通新生',desc:'直到猫头鹰撞碎窗户，全家都以为魔法只是童话',effect:'两个世界的新鲜感都是你的；寒暑假回家要解释的东西很多'},
+{name:'破釜酒吧的常客后代',desc:'你在吧台后面长大——全对角巷的八卦，你都听过一耳朵',effect:'消息灵通、人面熟；酒客的闲话有时比预言家日报更准'},
+{name:'圣芒戈实习生',desc:'刚穿上治疗师的青绿袍子——能从一锅疥疮药水里分辨出三种火候',effect:'基础治疗魔法与药材知识；医院的走廊里什么都能撞见'},
+{name:'魔法部小职员之子',desc:'父母是司里不起眼的小职员——你知道部里哪台升降梯最靠谱',effect:'熟悉体制内的门路与公文腔；部的风向变了，你家最先知道'},
+{name:'霍格莫德村民',desc:'从小看惯了每学期的学生潮——三把扫帚的老板娘认识你',effect:'对霍格沃茨外围地形烂熟；村子里的成年巫师都是你的眼线'},
+{name:'翻倒巷长大的孩子',desc:'你在博金-博克的柜台后面见过太多不该看的东西——胆子比谁都大',effect:'对黑魔法器物有本能的辨识与戒心；这条巷子的人脉不光彩，但有用'}
+]
+};
+// ==================== END OF PART 2 (all data complete) ====================
+// ==================== INTERACTIONS ====================
+// --- Opening ---
+(function(){
+const __opening=document.getElementById('opening');
+let __opStarted=false;
+function __finishOpening(){
+if(__opening.classList.contains('fade-out'))return;
+__opening.classList.add('fade-out');
+setTimeout(()=>{__opening.style.display='none';document.getElementById('main').classList.add('active');},1000);
+}
+__opening.addEventListener('click',function(){
+if(!__opStarted){
+__opStarted=true;
+this.classList.add('open');
+const __h=this.querySelector('.skip-hint');if(__h)__h.textContent='再点一次 · 跳过';
+setTimeout(__finishOpening,5000);
+}else{__finishOpening();}
+});
+})();
+// --- Tab Navigation ---
+document.querySelectorAll('.tab-btn').forEach(b=>{
+b.addEventListener('click',function(){switchTab(this.dataset.tab);});
+});
+function switchTab(t){
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+document.querySelector('[data-tab="'+t+'"]').classList.add('active');
+document.getElementById('tab-'+t).classList.add('active');
+state.currentTab=t;
+if(t==='preview')generatePreview();
+if(t==='character')updateChapterDisplay();
+window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){const i=TABS.indexOf(state.currentTab);if(i<TABS.length-1)switchTab(TABS[i+1]);}
+function prevTab(){const i=TABS.indexOf(state.currentTab);if(i>0)switchTab(TABS[i-1]);}
+// --- Chapters ---
+function renderChapters(){
+const jump=document.getElementById('chapter-jump');
+const cards=document.getElementById('chapter-cards');
+jump.innerHTML='';cards.innerHTML='';
+const groups=[
+{key:'prequel',label:'前传序列',en:'PREQUEL · 1890–1932',list:chapterData.prequel},
+{key:'main',label:'正篇七部曲',en:'MAIN STORY · 1991–1998',list:chapterData.main},
+{key:'sequel',label:'后日谈',en:'EPILOGUE · 2008–2020',list:chapterData.sequel}
+];
+groups.forEach(g=>{
+if(!g.list||!g.list.length)return;
+const sep=document.createElement('div');sep.className='jump-group-sep';sep.textContent=g.label;jump.appendChild(sep);
+g.list.forEach(ch=>{
+const btn=document.createElement('button');
+btn.className='chapter-jump-btn'+(state.selectedChapter===ch.id?' selected':'');
+btn.textContent=ch.name;
+btn.onclick=()=>{toggleChapter(ch.id);const el=document.getElementById('ch-'+ch.id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});};
+jump.appendChild(btn);
+});
+const head=document.createElement('div');
+head.className='chapter-group-head';
+head.innerHTML='<span class="cgh-cn">'+g.label+'</span><span class="cgh-en">'+g.en+'</span>';
+cards.appendChild(head);
+g.list.forEach(ch=>{
+const isSel=state.selectedChapter===ch.id;
+const card=document.createElement('div');
+card.className='chapter-card'+(isSel?' selected open':'');card.id='ch-'+ch.id;
+const entriesHTML=ch.entries.map(ev=>{
+const isE=isSel&&state.selectedEntry===ev;
+return '<div class="entry-item'+(isE?' selected':'')+'" onclick="selectEntry(\''+ch.id+'\',\''+ev+'\')"><div class="ttl">'+ev+'</div><div class="sel-mark">✓ 已选为入场时机</div></div>';
+}).join('');
+card.innerHTML='<div class="chapter-card-head" onclick="toggleChapter(\''+ch.id+'\')"><div class="cc-title">'+ch.name+'<small>'+ch.year+' · '+ch.subtitle+'</small></div><div class="cc-right"><button class="select-chapter-btn'+(isSel?' active':'')+'" onclick="event.stopPropagation();selectChapter(\''+ch.id+'\')">'+(isSel?'✓ 已选':'选此作品')+'</button><span class="cc-arrow">▶</span></div></div><div class="chapter-card-body"><div class="chapter-desc">'+ch.desc+'</div><div class="chapter-tags-row">'+ch.tags.map(t=>'<span class="chapter-tag">'+t+'</span>').join('')+'</div><div class="chapter-sub"><h4>入场时机</h4><div class="entry-list">'+entriesHTML+'</div></div><div class="custom-entry-row"><div class="lbl">❖ 自定义入场时机</div><input type="text" id="ce-'+ch.id+'" placeholder="描述你切入的具体时间点或场景……"><button onclick="setCustomEntry(\''+ch.id+'\',document.getElementById(\'ce-'+ch.id+'\').value)">设为入场时机</button></div></div>';
+cards.appendChild(card);
+});
+});
+}
+function toggleChapter(id){
+document.querySelectorAll('.chapter-card').forEach(c=>{if(c.id!=='ch-'+id)c.classList.remove('open');});
+document.getElementById('ch-'+id).classList.toggle('open');
+}
+function selectChapter(id){
+if(state.selectedChapter===id){state.selectedChapter=null;state.selectedEntry=null;}
+else{state.selectedChapter=id;state.selectedEntry=null;}
+document.querySelector('[data-tab="era"]').classList.toggle('completed',!!state.selectedChapter);
+renderChapters();
+}
+function selectEntry(chId,ev){
+state.selectedChapter=chId;state.selectedEntry=ev;
+document.querySelector('[data-tab="era"]').classList.add('completed');
+renderChapters();
+}
+function setCustomEntry(chId,val){
+val=val.trim();if(!val)return;
+state.selectedChapter=chId;state.selectedEntry=val;
+document.querySelector('[data-tab="era"]').classList.add('completed');
+renderChapters();
+}
+function updateChapterDisplay(){
+const el=document.getElementById('cur-chapter-text');
+if(state.selectedChapter){
+const all=[...chapterData.prequel,...chapterData.main,...chapterData.sequel];
+const ch=all.find(x=>x.id===state.selectedChapter);
+let s=ch.name+'（'+ch.year+'）';
+if(state.selectedEntry)s+=' · 节点：'+state.selectedEntry;
+el.textContent=s;
+}else el.textContent='尚未选择作品';
+}
+// --- Mode Switch ---
+function switchMode(m){
+state.mode=m;
+document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+document.querySelector('.mode-btn[data-mode="'+m+'"]').classList.add('active');
+document.getElementById('original-section').style.display=m==='original'?'block':'none';
+document.getElementById('canon-section').classList.toggle('visible',m==='canon');
+}
+// --- Canon Characters with Search Dropdown ---
+let allCanonFlat=[];
+function buildCanonFlat(){
+allCanonFlat=[];
+Object.keys(canonCharacters).forEach(group=>{
+canonCharacters[group].forEach(item=>{
+const name=Array.isArray(item)?item[0]:item;
+const desc=Array.isArray(item)?item[1]:'';
+allCanonFlat.push({name,desc,group});
+});
+});
+}
+function renderCanonList(){
+const container=document.getElementById('canon-list');container.innerHTML='';
+Object.keys(canonCharacters).forEach((group,idx)=>{
+const items=canonCharacters[group];
+const div=document.createElement('div');div.className='canon-group'+(idx===0?' open':'');
+const gridHTML=items.map(item=>{
+const name=Array.isArray(item)?item[0]:item;
+const desc=Array.isArray(item)?item[1]:'';
+return '<div class="canon-item" data-canon="'+name+'"><span>'+name+'</span>'+(desc?'<div class="ci-desc">'+desc+'</div>':'')+'</div>';
+}).join('');
+div.innerHTML='<div class="canon-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+group+' <span class="cnt">'+items.length+'</span></span><span class="arrow">▶</span></div><div class="canon-group-body"><div class="canon-grid">'+gridHTML+'</div></div>';
+container.appendChild(div);
+});
+container.querySelectorAll('.canon-item').forEach(it=>{
+it.addEventListener('click',()=>{
+container.querySelectorAll('.canon-item').forEach(x=>x.classList.remove('selected'));
+it.classList.add('selected');
+state.canonChar=it.dataset.canon;
+document.querySelector('[data-tab="character"]').classList.add('completed');
+document.getElementById('canon-search').value=state.canonChar;
+document.getElementById('canon-dropdown').classList.remove('visible');
+});
+});
+}
+function filterCanon(query){
+const dropdown=document.getElementById('canon-dropdown');
+if(!query.trim()){dropdown.classList.remove('visible');return;}
+const q=query.toLowerCase();
+const matches=allCanonFlat.filter(c=>c.name.toLowerCase().includes(q)||c.desc.toLowerCase().includes(q));
+if(matches.length===0){dropdown.innerHTML='<div class="canon-dropdown-item"><span class="cdi-name">无匹配结果</span></div>';dropdown.classList.add('visible');return;}
+dropdown.innerHTML=matches.slice(0,15).map(c=>'<div class="canon-dropdown-item" data-name="'+c.name+'"><span class="cdi-name">'+c.name+'</span><span class="cdi-desc">'+c.desc+' — '+c.group+'</span></div>').join('');
+dropdown.classList.add('visible');
+dropdown.querySelectorAll('.canon-dropdown-item').forEach(item=>{
+item.addEventListener('click',()=>{
+const name=item.dataset.name;
+if(!name)return;
+state.canonChar=name;
+document.getElementById('canon-search').value=name;
+dropdown.classList.remove('visible');
+document.querySelector('[data-tab="character"]').classList.add('completed');
+// highlight in list
+document.querySelectorAll('.canon-item').forEach(x=>{
+x.classList.toggle('selected',x.dataset.canon===name);
+});
+});
+});
+}
+// Close dropdown on outside click
+document.addEventListener('click',function(e){
+const wrap=document.querySelector('.canon-search-wrap');
+if(wrap&&!wrap.contains(e.target)){
+document.getElementById('canon-dropdown').classList.remove('visible');
+}
+});
+// --- Select Fill ---
+function fillSelect(id,data,groupMode){
+const sel=document.getElementById(id);sel.innerHTML='<option value="">(请选择)</option>';
+if(groupMode){
+Object.keys(data).forEach(g=>{
+const og=document.createElement('optgroup');og.label=g;
+const arr=Array.isArray(data[g])?data[g]:[data[g]];
+arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;og.appendChild(o);});
+sel.appendChild(og);
+});
+}else{
+data.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});
+}
+const cus=document.createElement('option');cus.value='custom';cus.textContent='❖ 自定义…';sel.appendChild(cus);
+}
+function toggleCustom(type,val){
+const el=document.getElementById('custom-'+type+'-wrap');
+if(el)el.classList.toggle('visible',val==='custom');
+}
+// --- Abilities ---
+const SUBJECT_CATS=new Set(['必修科目（霍格沃茨）','选修科目（三年级起）']);
+const subjectLevelData={
+0:{label:'未修',desc:'不录入预览'},
+1:{label:'初学',desc:'了解基本概念，实践时仍需要指导'},
+2:{label:'掌握',desc:'能够独立完成常规课业和基础应用'},
+3:{label:'熟练',desc:'能够稳定运用进阶知识，处理较复杂的问题'},
+4:{label:'精通',desc:'能够深入应用、指导他人或开展独立研究'},
+5:{label:'专精',desc:'达到专业研究或教学水平，可处理本学科高难度问题'}
+};
+function renderAbilities(){
+const c=document.getElementById('ability-sections');c.innerHTML='';
+abilityData.forEach(sec=>{
+const isSubject=SUBJECT_CATS.has(sec.cat);
+const getCount=()=>sec.items.filter(it=>{
+const key=sec.cat+'|'+it.n;
+return isSubject?Boolean(state.subjectLevels[key]):state.selectedAbilities.has(key);
+}).length;
+const selCount=getCount();
+const div=document.createElement('div');div.className='ability-cat';
+const hint=isSubject?'点击卡片或下拉框设置掌握程度；未修不会写入预览':'点击卡片直接勾选/取消';
+div.innerHTML='<div class="ability-cat-head" onclick="this.parentNode.classList.toggle(&quot;open&quot;)"><span>'+sec.cat+' <span class="cnt">'+selCount+'/'+sec.items.length+'</span></span><span class="arrow">▶</span></div><div class="ability-cat-body"><p class="hint">'+hint+'</p><div class="ability-grid"></div></div>';
+const grid=div.querySelector('.ability-grid');
+sec.items.forEach(it=>{
+const key=sec.cat+'|'+it.n;
+let userLine=it.u?'<div class="abuser">— '+it.u+'</div>':'';
+if(isSubject){
+const currentLevel=state.subjectLevels[key]||0;
+const currentMeta=subjectLevelData[currentLevel];
+const item=document.createElement('div');item.className='ability-item subject-item'+(currentLevel?' selected':'');
+const options=Object.keys(subjectLevelData).map(lv=>'<option value="'+lv+'"'+(Number(lv)===currentLevel?' selected':'')+'>'+subjectLevelData[lv].label+(lv==='0'?'（不录入）':'')+'</option>').join('');
+item.innerHTML='<div class="item-body"><div class="abname">'+it.n+'<span class="abtier subject-badge">'+currentMeta.label+'</span></div><div class="abdesc">'+(it.d||'')+'</div>'+userLine+'<div class="abuser subject-current">'+(currentLevel?currentMeta.label+'——'+currentMeta.desc:'未修，不录入预览')+'</div><div class="form-group" style="margin:8px 0 0;"><select class="subject-level" aria-label="'+it.n+'掌握程度">'+options+'</select></div></div>';
+const select=item.querySelector('select');
+select.addEventListener('click',e=>e.stopPropagation());
+select.addEventListener('change',()=>{
+const lv=Number(select.value);
+if(lv)state.subjectLevels[key]=lv;else delete state.subjectLevels[key];
+const meta=subjectLevelData[lv];
+item.classList.toggle('selected',Boolean(lv));
+item.querySelector('.subject-badge').textContent=meta.label;
+item.querySelector('.subject-current').textContent=lv?meta.label+'——'+meta.desc:'未修，不录入预览';
+div.querySelector('.cnt').textContent=getCount()+'/'+sec.items.length;
+});
+item.addEventListener('click',e=>{if(e.target!==select)select.focus();});
+grid.appendChild(item);
+}else{
+const isSel=state.selectedAbilities.has(key);
+const item=document.createElement('label');item.className='ability-item'+(isSel?' selected':'');
+item.innerHTML='<input type="checkbox" '+(isSel?'checked':'')+'><div class="item-body"><div class="abname">'+it.n+'</div><div class="abdesc">'+(it.d||'')+'</div>'+userLine+'</div>';
+const cb=item.querySelector('input');
+item.addEventListener('click',e=>{
+if(e.target!==cb){e.preventDefault();cb.checked=!cb.checked;}
+if(cb.checked)state.selectedAbilities.add(key);else state.selectedAbilities.delete(key);
+item.classList.toggle('selected',cb.checked);
+div.querySelector('.cnt').textContent=getCount()+'/'+sec.items.length;
+});
+grid.appendChild(item);
+}
+});
+c.appendChild(div);
+});
+}
+function addCustomAbility(){
+const n=document.getElementById('custom-ab-name').value.trim();
+const d=document.getElementById('custom-ab-desc').value.trim();
+if(!n)return;
+state.customAbilities.push({id:Date.now(),name:n,desc:d});
+document.getElementById('custom-ab-name').value='';
+document.getElementById('custom-ab-desc').value='';
+renderCustomAb();
+}
+function renderCustomAb(){
+const c=document.getElementById('custom-ab-list');
+if(!state.customAbilities.length){c.innerHTML='';return;}
+c.innerHTML=state.customAbilities.map(a=>'<div class="info-box blue" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+a.name+'</strong>'+(a.desc?'<p style="font-size:12px;color:var(--ink-muted);margin-top:6px;line-height:1.6;">'+a.desc+'</p>':'')+'<button onclick="state.customAbilities=state.customAbilities.filter(x=>x.id!=='+a.id+');renderCustomAb();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--lake-blue);color:#fff;border:none;cursor:pointer;">删除</button></div>').join('');
+}
+function addCustomTalent(){
+const n=document.getElementById('custom-tl-name').value.trim();
+const d=document.getElementById('custom-tl-desc').value.trim();
+if(!n)return;
+state.customTalents.push({id:Date.now(),name:n,desc:d});
+document.getElementById('custom-tl-name').value='';
+document.getElementById('custom-tl-desc').value='';
+renderCustomTl();
+}
+function renderCustomTl(){
+const c=document.getElementById('custom-tl-list');
+if(!state.customTalents.length){c.innerHTML='';return;}
+c.innerHTML=state.customTalents.map(a=>'<div class="info-box gold" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+a.name+'</strong>'+(a.desc?'<p style="font-size:12px;color:var(--ink-muted);margin-top:6px;line-height:1.6;">'+a.desc+'</p>':'')+'<button onclick="state.customTalents=state.customTalents.filter(x=>x.id!=='+a.id+');renderCustomTl();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--amber);color:#fff;border:none;cursor:pointer;">删除</button></div>').join('');
+}
+// --- Balanced Talents（老版 10 选 3，独立卡池） ---
+function rollBalancedTalents(){
+const btn=document.getElementById('balanced-roll-btn');btn.classList.add('rolling');btn.disabled=true;
+setTimeout(()=>{
+state.rolledBalancedTalents=[];state.selectedBalancedTalents=[];
+const pools={mythic:[],legendary:[],epic:[],rare:[],common:[]};
+balancedTalentPool.forEach(t=>pools[t.rarity].push(t));
+for(let i=0;i<10;i++){
+const r=Math.random()*100;
+let rarity;
+if(r<0.5)rarity='mythic';
+else if(r<4.5)rarity='legendary';
+else if(r<14.5)rarity='epic';
+else if(r<39.5)rarity='rare';
+else rarity='common';
+let available=pools[rarity].filter(t=>!state.rolledBalancedTalents.some(x=>x.name===t.name));
+if(!available.length)available=balancedTalentPool.filter(t=>!state.rolledBalancedTalents.some(x=>x.name===t.name));
+if(!available.length)continue;
+const t=available[Math.floor(Math.random()*available.length)];
+state.rolledBalancedTalents.push({...t});
+}
+const ro={mythic:0,legendary:1,epic:2,rare:3,common:4};
+state.rolledBalancedTalents.sort((a,b)=>ro[a.rarity]-ro[b.rarity]);
+renderBalancedTalents();
+btn.classList.remove('rolling');btn.disabled=false;
+document.getElementById('balanced-talent-pool').classList.add('visible');
+},1200);
+}
+function renderBalancedTalents(){
+const list=document.getElementById('balanced-talent-list');list.innerHTML='';
+state.selectedBalancedTalents=[];
+document.getElementById('balanced-talent-selected-count').textContent='0';
+const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'寻常'};
+state.rolledBalancedTalents.forEach((t,idx)=>{
+const item=document.createElement('div');
+item.className='talent-item '+t.rarity;
+item.innerHTML='<input type="checkbox" id="bt-'+idx+'"><div class="talent-info"><div class="talent-name">'+t.name+'<span class="talent-badge '+t.rarity+'">'+rn[t.rarity]+'</span></div><div class="talent-desc">'+t.desc+'</div></div>';
+const cb=item.querySelector('input');
+item.addEventListener('click',e=>{if(e.target===cb)return;cb.click();});
+cb.addEventListener('change',()=>{
+if(cb.checked){
+if(state.selectedBalancedTalents.length>=3){cb.checked=false;return;}
+state.selectedBalancedTalents.push(t);item.classList.add('selected');
+}else{
+state.selectedBalancedTalents=state.selectedBalancedTalents.filter(s=>s.name!==t.name);
+item.classList.remove('selected');
+}
+document.getElementById('balanced-talent-selected-count').textContent=state.selectedBalancedTalents.length;
+if(state.selectedBalancedTalents.length===3)document.querySelector('[data-tab="fate"]').classList.add('completed');
+});
+list.appendChild(item);
+});
+}
+// --- Talents ---
+function rollTalents(){
+const btn=document.getElementById('roll-btn');btn.classList.add('rolling');btn.disabled=true;
+setTimeout(()=>{
+state.rolledTalents=[];state.selectedTalents=[];
+for(let i=0;i<8;i++){
+let pool,rarity;
+if(i===0){pool=talentPool.mythic;rarity='mythic';}
+else{
+const r=Math.random()*100;
+if(r<15){pool=talentPool.mythic;rarity='mythic';}
+else if(r<32){pool=talentPool.legendary;rarity='legendary';}
+else if(r<55){pool=talentPool.epic;rarity='epic';}
+else if(r<80){pool=talentPool.rare;rarity='rare';}
+else{pool=talentPool.common;rarity='common';}
+}
+let t,a=0;
+do{t=pool[Math.floor(Math.random()*pool.length)];a++;}
+while(state.rolledTalents.some(x=>x.name===t.name)&&a<30);
+state.rolledTalents.push({...t,rarity});
+}
+const ro={mythic:0,legendary:1,epic:2,rare:3,common:4};
+state.rolledTalents.sort((a,b)=>ro[a.rarity]-ro[b.rarity]);
+renderTalents();
+btn.classList.remove('rolling');btn.disabled=false;
+document.getElementById('talent-pool').classList.add('visible');
+},1200);
+}
+function renderTalents(){
+const list=document.getElementById('talent-list');list.innerHTML='';
+state.selectedTalents=[];
+document.getElementById('talent-selected-count').textContent='0';
+const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'寻常'};
+state.rolledTalents.forEach((t,idx)=>{
+const item=document.createElement('div');
+item.className='talent-item '+t.rarity;
+item.innerHTML='<input type="checkbox" id="t-'+idx+'"><div class="talent-info"><div class="talent-name">'+t.name+'<span class="talent-badge '+t.rarity+'">'+rn[t.rarity]+'</span></div><div class="talent-desc">'+t.desc+'</div>'+(t.effect?'<div class="talent-effect">效果：'+t.effect+'</div>':'')+'</div>';
+const cb=item.querySelector('input');
+item.addEventListener('click',e=>{if(e.target===cb)return;cb.click();});
+cb.addEventListener('change',()=>{
+if(cb.checked){
+if(state.selectedTalents.length>=3){cb.checked=false;return;}
+state.selectedTalents.push(t);item.classList.add('selected');
+}else{
+state.selectedTalents=state.selectedTalents.filter(s=>s.name!==t.name);
+item.classList.remove('selected');
+}
+document.getElementById('talent-selected-count').textContent=state.selectedTalents.length;
+if(state.selectedTalents.length===3)document.querySelector('[data-tab="fate"]').classList.add('completed');
+});
+list.appendChild(item);
+});
+}
+// --- Preview ---
+function generatePreview(){
+const gv=id=>{const el=document.getElementById(id);return el?el.value.trim():'';};
+const gr=n=>{const el=document.querySelector('input[name="'+n+'"]:checked');return el?el.value:'';};
+const cmap={'social-class':'class','entry-reason':'reason'};
+const gsel=(id)=>{let v=gv(id);if(v==='custom')v=gv('custom-'+(cmap[id]||id.replace('char-','')))||'自定义';return v||'—';};
+let chapter='—',entry='—';
+if(state.selectedChapter){
+const all=[...chapterData.prequel,...chapterData.main,...chapterData.sequel];
+const ch=all.find(x=>x.id===state.selectedChapter);
+chapter=ch.name+'（'+ch.year+'）· '+ch.subtitle;
+entry=state.selectedEntry||'未定';
+}
+const houseLabel=document.getElementById('house-label').textContent.replace(/（.*?）/g,'');
+let canon='';
+if(state.mode==='canon'&&state.canonChar)canon='\n【原著扮演】'+state.canonChar;
+let abLines=[];
+abilityData.forEach(sec=>{
+if(SUBJECT_CATS.has(sec.cat)){
+const sel=sec.items.filter(it=>state.subjectLevels[sec.cat+'|'+it.n]);
+if(sel.length){
+abLines.push('【'+sec.cat+'】');
+sel.forEach((n,i)=>{
+const meta=subjectLevelData[state.subjectLevels[sec.cat+'|'+n.n]];
+abLines.push('  '+(i+1)+'. '+n.n+'：'+meta.label+'——'+meta.desc);
+});
+}
+return;
+}
+const sel=sec.items.filter(it=>state.selectedAbilities.has(sec.cat+'|'+it.n));
+if(sel.length){
+abLines.push('【'+sec.cat+'】');
+sel.forEach((n,i)=>{
+abLines.push('  '+(i+1)+'. '+n.n);
+if(n.d)abLines.push('     效果：'+n.d);
+});
+}
+});
+state.customAbilities.forEach((a,i)=>{
+if(i===0)abLines.push('【自创魔法】');
+abLines.push('  '+(i+1)+'. '+a.name+(a.desc?' — '+a.desc:''));
+});
+const ri={mythic:'【神话】',legendary:'【传说】',epic:'【史诗】',rare:'【稀有】',common:'【寻常】'};
+let balancedTl='';
+if(state.selectedBalancedTalents.length){
+balancedTl='—— 平衡类命运天赋（老版） ——\n'+state.selectedBalancedTalents.map((t,i)=>(i+1)+'. '+ri[t.rarity]+t.name+'\n   '+t.desc).join('\n\n')+'\n';
+}
+let talentText='—';
+if(state.selectedTalents.length){
+talentText=state.selectedTalents.map((t,i)=>(i+1)+'. '+ri[t.rarity]+t.name+'\n   '+t.desc+(t.effect?'\n   效果：'+t.effect:'')).join('\n\n');
+}
+let cusTl='';
+if(state.customTalents.length){
+cusTl='\n\n【自创命运】\n'+state.customTalents.map((t,i)=>(i+1)+'. '+t.name+(t.desc?'\n   '+t.desc:'')).join('\n');
+}
+let wand='—';
+const circledN=['①','②','③','④','⑤','⑥'];
+const wl=state.wands.map((w,idx)=>{
+const woodTxt=w.wood?w.wood+(((wandWoodData.find(o=>o.n===w.wood)||{}).d)?'（'+wandWoodData.find(o=>o.n===w.wood).d+'）':''):'';
+const coreTxt=[...w.cores].map(cn=>{const cd=(wandCoreData.find(o=>o.n===cn)||{}).d||'';return cd?cn+'（'+cd+'）':cn;}).join('、');
+const parts=[woodTxt,coreTxt,w.length].filter(x=>x&&x!=='').join(' · ');
+if(!parts&&!w.note)return null;
+return circledN[idx]+' '+parts+(w.note?' — '+w.note:'');
+}).filter(Boolean);
+if(wl.length)wand=wl.join('\n');
+let petArr=[...state.pets];
+if(state.petCustomOn&&gv('custom-pet'))petArr.push(gv('custom-pet'));
+let pet=petArr.join('、')||'—';
+if(pet!=='—'&&pet!=='无'&&gv('pet-name'))pet+='（'+gv('pet-name')+'）';
+const year=gv('school-year');
+const sep='═'.repeat(52);
+const p=sep+'\n     哈利·波特魔法世界·角色创建（保持思维链折叠标签正常运行）\n'+sep+'\n【作品】'+chapter+'\n【入场时机】'+entry+canon+'\n—— 基础信息 ——\n姓名：'+(gv('char-name')||(state.canonChar||'—'))+'\n性别：'+(state.mode==='canon'?'—':gr('gender')||'—')+' · 年龄：'+(state.mode==='canon'?'—':gv('char-age')||'—')+'\n现居地：'+gsel('char-origin')+'\n—— 血统与出身 ——\n家族：'+gsel('family')+'\n血统：'+gsel('race')+'\n出生地：'+gsel('nation')+'\n出身补充：'+(gv('social-class')||'—')+'\n—— 身份与学院 ——\n身份类型：'+gsel('identity')+(year?'\n年级：'+year:'')+'\n'+houseLabel+'：'+gsel('house')+'\n—— 魔杖 ——\n'+wand+(wand==='—'?'':(document.getElementById('wand-label').textContent.indexOf('期望')>=0?'\n（期望的组合，以奥利凡德实际相配为准）':''))+'\n—— 宠物 ——\n'+pet+'\n—— 巫师水平 ——\n官方认证：'+gsel('certification')+'\n综合战力：'+(gv('power-level')||'—')+'\n备注：'+(gv('power-note')||'—')+'\n—— 入局契机 ——\n'+gsel('entry-reason')+'\n—— 外貌与性情 ——\n外貌：'+(gv('char-appearance')||'—')+'\n性格：'+(gv('char-personality')||'—')+'\n爱好：'+(gv('char-hobby')||'—')+'\n—— 随身物品 ——\n'+(gv('char-belongings')||'—')+'\n—— 背景故事 ——\n'+(gv('char-background')||'—')+'\n—— 当前处境 ——\n'+(gv('char-scene')||'—')+'\n—— 学业与能力 ——\n'+(abLines.length?abLines.join('\n'):'—')+'\n—— 守护神 ——\n'+gsel('patronus')+'\n'+balancedTl+'—— 命运三重底色 ——\n'+talentText+cusTl+(gv('canon-supplement')?'\n—— 扮演补充 ——\n'+gv('canon-supplement'):'')+'\n'+sep+'\n      HARRY POTTER · 魔法世界建卡\n'+sep;
+document.getElementById('preview-box').textContent=p;
+}
+
+// --- 魔杖（可添加多根） ---
+function addWand(){
+state.wands.push({wood:'',cores:new Set(),length:'',note:''});
+renderWands();
+}
+function removeWand(idx){
+if(state.wands.length<=1)return;
+state.wands.splice(idx,1);
+renderWands();
+}
+function renderWands(){
+const c=document.getElementById('wand-list');if(!c)return;
+c.innerHTML='';
+const circled=['①','②','③','④','⑤','⑥'];
+state.wands.forEach((w,idx)=>{
+const card=document.createElement('div');card.className='wand-card';
+card.innerHTML='<div class="wand-card-head"><span>魔杖 '+(circled[idx]||'·')+'</span>'+(idx>0?'<span class="wand-del" onclick="removeWand('+idx+')">× 移除</span>':'')+'</div>'
++'<div class="chip-label">杖身木材 Wood（单选）</div>'
++'<div class="chip-label" style="margin-top:10px;">杖芯 Core（可多选）</div>';
+c.appendChild(card);
+// 木材：单选下拉
+const wpick=document.createElement('div');wpick.className='picker';
+wpick.innerHTML='<div class="picker-head"><span class="picker-tags">'+(w.wood||'（点击展开选择杖身木材·单选）')+'</span><span class="arrow">▶</span></div><div class="picker-body"></div>';
+wpick.querySelector('.picker-head').addEventListener('click',()=>wpick.classList.toggle('open'));
+const wpb=wpick.querySelector('.picker-body');
+wandWoodData.forEach(o=>{
+const it=document.createElement('div');it.className='picker-item'+(w.wood===o.n?' selected':'');
+it.innerHTML='<span class="pi-name">'+o.n+'</span><span class="pi-desc">'+o.d+'</span>';
+it.addEventListener('click',()=>{
+state.wands[idx].wood=(state.wands[idx].wood===o.n?'':o.n);
+wpb.querySelectorAll('.picker-item').forEach(x=>x.classList.remove('selected'));
+if(state.wands[idx].wood)it.classList.add('selected');
+wpick.querySelector('.picker-tags').textContent=state.wands[idx].wood||'（点击展开选择杖身木材·单选）';
+if(state.wands[idx].wood)wpick.classList.remove('open');
+});
+wpb.appendChild(it);
+});
+card.insertBefore(wpick, card.children[2]);
+// 杖芯：下拉面板多选
+const picker=document.createElement('div');picker.className='picker';
+picker.innerHTML='<div class="picker-head"><span class="picker-tags">'+([...w.cores].join('、')||'（点击展开选择杖芯）')+'</span><span class="arrow">▶</span></div><div class="picker-body"></div>';
+picker.querySelector('.picker-head').addEventListener('click',()=>picker.classList.toggle('open'));
+const pb=picker.querySelector('.picker-body');
+wandCoreData.forEach(o=>{
+const v=o.n;
+const it=document.createElement('div');it.className='picker-item'+(w.cores.has(v)?' selected':'');
+it.innerHTML='<span class="pi-name">'+v+'</span><span class="pi-desc">'+o.d+'</span>';
+it.addEventListener('click',()=>{
+w.cores.has(v)?w.cores.delete(v):w.cores.add(v);
+it.classList.toggle('selected');
+picker.querySelector('.picker-tags').textContent=[...w.cores].join('、')||'（点击展开选择杖芯）';
+});
+pb.appendChild(it);
+});
+card.appendChild(picker);
+// 长度 + 备注
+const row=document.createElement('div');row.className='form-row';row.style.marginTop='8px';
+row.innerHTML='<div class="form-group"><input type="text" class="form-input" placeholder="长度，例：11英寸"></div><div class="form-group"><input type="text" class="form-input" placeholder="魔杖备注（来历、手感、特殊表现……）"></div>';
+card.appendChild(row);
+const inputs=row.querySelectorAll('input');
+inputs[0].value=w.length;inputs[0].addEventListener('input',e=>{state.wands[idx].length=e.target.value;});
+inputs[1].value=w.note;inputs[1].addEventListener('input',e=>{state.wands[idx].note=e.target.value;});
+});
+}
+
+// --- 碎片多选 ---
+function buildChips(containerId, options, setName, noneValue){
+const c=document.getElementById(containerId);if(!c)return;
+c.innerHTML='';
+options.forEach(v=>{
+const chip=document.createElement('div');chip.className='chip'+(state[setName].has(v)?' selected':'');chip.textContent=v;
+chip.addEventListener('click',()=>{
+if(noneValue&&v===noneValue){state[setName].clear();state[setName].add(v);}
+else{if(noneValue)state[setName].delete(noneValue);state[setName].has(v)?state[setName].delete(v):state[setName].add(v);}
+buildChips(containerId,options,setName,noneValue);
+});
+c.appendChild(chip);
+});
+}
+
+// --- 宠物面板（多选 + 自定义） ---
+function renderPetPicker(){
+const pk=document.getElementById('pet-picker');
+if(pk&&!pk.dataset.bound){pk.dataset.bound='1';pk.querySelector('.picker-head').addEventListener('click',()=>pk.classList.toggle('open'));}
+const body=document.getElementById('pet-picker-body');if(!body)return;
+body.innerHTML='';
+const tags=document.getElementById('pet-tags');
+const refresh=()=>{
+const arr=[...state.pets];
+if(state.petCustomOn&&document.getElementById('custom-pet').value.trim())arr.push(document.getElementById('custom-pet').value.trim());
+tags.textContent=arr.join('、')||'（点击展开选择宠物）';
+};
+petOptions.forEach(v=>{
+if(v==='其他')return;
+const it=document.createElement('div');it.className='picker-item'+(state.pets.has(v)?' selected':'');it.textContent=v;
+it.addEventListener('click',()=>{
+if(v==='无'){state.pets.clear();state.pets.add(v);}
+else{state.pets.delete('无');state.pets.has(v)?state.pets.delete(v):state.pets.add(v);}
+renderPetPicker();
+});
+body.appendChild(it);
+});
+const cu=document.createElement('div');cu.className='picker-item custom-toggle'+(state.petCustomOn?' selected':'');
+cu.textContent='❖ 自定义宠物…';
+cu.addEventListener('click',()=>{
+state.petCustomOn=!state.petCustomOn;
+document.getElementById('custom-pet-wrap').style.display=state.petCustomOn?'':'none';
+cu.classList.toggle('selected');
+refresh();
+});
+body.appendChild(cu);
+refresh();
+}
+
+// --- 身份联动：未入学=期望，已入学/毕业=持有 ---
+function applyIdentityMode(){
+const v=(document.getElementById('identity').value||'');
+let mode='other';
+if(v.indexOf('待入学')>=0)mode='newStudent';
+else if(v.indexOf('在校学生')>=0||v.indexOf('学生')>=0)mode='student';
+else if(v.indexOf('已毕业')>=0||v.indexOf('肄业')>=0)mode='graduate';
+else if(v.indexOf('教授')>=0||v.indexOf('教职工')>=0)mode='teacher';
+const houseLabel=document.getElementById('house-label');
+const houseHint=document.getElementById('house-hint');
+const wandLabel=document.getElementById('wand-label');
+const wandHint=document.getElementById('wand-hint');
+const petHint=document.getElementById('pet-hint');
+const patronusHint=document.getElementById('patronus-hint');
+const yearGroup=document.getElementById('year-group');
+const abilityIntro=document.getElementById('ability-intro');
+yearGroup.style.display=(mode==='student'||v.indexOf('肄业')>=0||v.indexOf('提前离校')>=0)?'':'none';
+if(mode==='student'){document.getElementById('house-group').style.display='';}
+if(mode==='newStudent'){
+document.getElementById('house-group').style.display='';
+houseLabel.textContent='期望学院';
+houseHint.textContent='分院帽将决定你的最终归属——期望只是期望';
+wandLabel.textContent='期望的魔杖';
+wandHint.textContent='尚未前往奥利凡德？可以留空，或写下你期望的组合——魔杖选择巫师';
+petHint.textContent='霍格沃茨允许携带猫头鹰、猫或蟾蜍（其余种类需特别说明）';
+patronusHint.textContent='守护神咒通常在高年级才会学习，新生可以留空';
+abilityIntro.innerHTML='<p>你还未入学——以下勾选的是你<strong>期望学习的科目、期望拥有的物品</strong>。分院仪式与奥利凡德之后，一切自有分晓。</p>';
+}else{
+const neverSchool=['麻瓜','妖精','马人','家养小精灵'];
+const isNever=neverSchool.some(x=>v===x);
+document.getElementById('house-group').style.display=isNever?'none':'';
+houseLabel.textContent=(mode==='graduate'||mode==='teacher'||mode==='other')?'曾就读学院':'学院';
+houseHint.textContent='';
+wandLabel.textContent='魔杖';
+wandHint.textContent='';
+petHint.textContent='';
+patronusHint.textContent=(mode==='student')?'低年级尚未学习守护神咒，可留空':'';
+abilityIntro.innerHTML='<p>直接勾选你<strong>已经掌握 / 持有</strong>的内容即可。体系分为十类：必修科目 / 选修科目 / 基础与实用咒语 / 决斗与防御 / 恶作剧与玩笑咒语 / 治疗与后勤 / 高阶技艺 / 黑魔法与禁咒【慎用】 / 特殊天赋 / 魔法装备与道具。</p>';
+}
+}
+
+// --- Copy ---
+function copyPreview(){
+const text=document.getElementById('preview-box').textContent;
+const btn=document.querySelector('.copy-btn');
+const done=()=>{const o=btn.textContent;btn.textContent='已 · 复 · 制';setTimeout(()=>btn.textContent=o,2000);};
+if(navigator.clipboard){navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));}
+else fallbackCopy(text,done);
+}
+function fallbackCopy(text,cb){
+const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();
+try{document.execCommand('copy');cb();}catch(e){}
+document.body.removeChild(ta);
+}
+// ==================== INIT ====================
+window.addEventListener('DOMContentLoaded',()=>{
+buildCanonFlat();
+renderChapters();
+renderCanonList();
+fillSelect('char-origin',originOptions,true);
+fillSelect('family',familyOptions,false);
+fillSelect('race',raceOptions,false);
+fillSelect('nation',nationOptions,true);
+fillSelect('identity',identityOptions,true);
+fillSelect('house',houseOptions,true);
+fillSelect('school-year',yearOptions,false);
+fillSelect('certification',certOptions,false);
+fillSelect('entry-reason',reasonOptions,false);
+fillSelect('patronus',patronusOptions,false);
+const pl=document.getElementById('power-level');
+pl.innerHTML=powerOptions.map((o,i)=>i===0?'<option value="">'+o+'</option>':'<option>'+o+'</option>').join('');
+addWand();
+renderPetPicker();
+document.getElementById('custom-pet').addEventListener('input',()=>{
+const arr=[...state.pets];
+if(state.petCustomOn&&document.getElementById('custom-pet').value.trim())arr.push(document.getElementById('custom-pet').value.trim());
+document.getElementById('pet-tags').textContent=arr.join('、')||'（点击展开选择宠物）';
+});
+renderAbilities();
+applyIdentityMode();
+});
+</script>
+</body>
+</html>

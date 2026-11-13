@@ -1,0 +1,80 @@
+{
+  "format": "modelmirror.rpg.harness-real-call-plan/2",
+  "status": "AWAITING_USER_CONFIRMATION",
+  "authorizedCalls": 0,
+  "authorizedCostMicros": 0,
+  "baseCommit": "d9dd7094bfbab9db3402e308b35c6da09c228de9",
+  "binding": {
+    "adapterVersion": "earth-shop-adapter/2",
+    "cardId": "earth",
+    "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+    "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+    "ruleVersion": "earth-corner-shop/1",
+    "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+    "adaptedHash": "1b2ce8fc373c7821505830cd3c132ca1a87b95fc84b0bba001677629bf85481e",
+    "ownedFields": [
+      "bank.balance",
+      "inventory.water",
+      "inventory.bread",
+      "inventory.notebook",
+      "shop.stock"
+    ]
+  },
+  "implementationHashes": {
+    "harness/earth-adapter.mjs": "06a5b16a2d77748c61dbab76832c32179eaf8e43a08179c0a84a874c2cc9a822",
+    "harness/context.mjs": "cb45256411b6790ca77a9c0dfcd263829640f4ec1470fc1861b09d6645ed4ff2",
+    "harness/stage-runner.mjs": "2b455c49b93a94e608b41bc6ae4734b69979a42d8c0529cc25efd955f396a200",
+    "harness/controlled-provider.mjs": "f6bc0eed852f4fc2f7cc2a9a22a48bb383fbd913c0ec4ab9bd905da006d2e6d5",
+    "harness/measurement.mjs": "2e4c3abb948290048c9999f6774e57db12119c621161bdc4659e309a0b951379",
+    "harness/measurement-budget.mjs": "2c0743a3b5a890542e0576d33752937efc5c188a57426749d21947a6b648d9b8",
+    "studio/controlled-provider.mjs": "f4ef3cb449a164eeedf34e7ce9c93d03662e700b82083bbaf6c73a94e33c3c28"
+  },
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "pricing": {
+    "currency": "USD",
+    "inputPerMillion": 0.75,
+    "outputPerMillion": 3.75,
+    "cachedInputPerMillion": 0.075,
+    "observedAt": "2026-11-13",
+    "providerTag": "google-ai-studio",
+    "serviceTier": "standard",
+    "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+    "billingAuthoritative": false
+  },
+  "limits": {
+    "maxCalls": 1,
+    "maxCostMicros": 250000,
+    "perRequestMicros": 250000,
+    "inputAdmissionUnits": 80000,
+    "outputTokens": 16384,
+    "automaticRetries": 0,
+    "automaticFallbacks": 0,
+    "certificationCalls": 0
+  },
+  "requests": [
+    {
+      "id": "B-purchase-repair-1",
+      "variant": "B",
+      "case": "success",
+      "purpose": "narration",
+      "model": "google/gemini-3.8-flash",
+      "parametersHash": "7d4172a501553bc11619b08a19c264ddbd91d3fa6bd857b336143807ae724c1f",
+      "messagesHash": "66fbfa3c6588ec17033654706ca78c782a97c740b9446237175fc6028d683336",
+      "fixture": "B-purchase-repair-1.json",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "input": "购买两个面包",
+      "admissionUnits": 3647,
+      "reserveMicros": 250000,
+      "expected": "complete visible narrative; balance=8800; bread=2; stock.bread=0; no second purchase"
+    }
+  ],
+  "authorization": "New confirmation required; previous 3-call budget is exhausted and not reused.",
+  "scope": "Only repaired tool-assisted purchase. No baseline rerun, no continuation rerun, no extra memory or parser calls. Use new isolated test record; never migrate old shop records.",
+  "acceptance": "Complete visible prose, readable scene and options, consistent host receipt; record tokens/cost/timing. Failure ends this one-call test with saved original evidence.",
+  "recovery": "Verified empty output is a terminal failure; incomplete or unbound evidence remains unknown. No automatic retry."
+}

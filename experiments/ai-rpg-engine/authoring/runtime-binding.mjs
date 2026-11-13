@@ -57,10 +57,15 @@ export async function openPublishedRuntime(store, reference) {
     implementationHash, artifactHashes: {...loadedArtifacts}, runtimeReady: false,
   });
   const runtimeHash = digest(descriptor);
-  // Exact 425ff762 implementation before registry-only upgrade support.
-  // Rebuild against this work's current immutable publication, never rewrite saves.
-  const previousArtifacts = {...loadedArtifacts, 'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27', 'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
-  const previousHash = digest({...descriptor, artifactHashes:previousArtifacts, implementationHash:digest(previousArtifacts)});
+  // Exact pre-upgrade bindings on deployed 425ff762 and merged c9db3034.
+  // Rebuild against this work's immutable publication; retain its resource identity.
+  const previousHashes = [
+    {'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27','plugins/catalog.mjs':'a6f955f96c1417efe9f3e2c334d045f0b4376b53bc7eaa04d773818c13072486'},
+    {'plugins/host.mjs':'bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd'},
+  ].map(before=>{
+    const artifacts={...loadedArtifacts,...before,'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
+    return digest({...descriptor,artifactHashes:artifacts,implementationHash:digest(artifacts)});
+  });
   async function verify() {
     if (digest(await artifactHashes()) !== implementationHash) fail('AUTHORING_RUNTIME_FILES_CHANGED_RESTART_REQUIRED');
     const current = await store.verifyConfiguration(ref.workId, ref.versionId);
@@ -77,7 +82,8 @@ export async function openPublishedRuntime(store, reference) {
     canonical(value);
     keys(value, ['format', 'workId', 'versionId', 'sessionId', 'runtimeHash', 'openingHash', 'resourceHash', 'openingText']);
     const expected = bind({sessionId: value.sessionId, openingText: value.openingText});
-    if (value.runtimeHash === previousHash) {
+    if (previousHashes.includes(value.runtimeHash)) {
+      const previousHash = value.runtimeHash;
       const identity = {...ref, sessionId:value.sessionId, runtimeHash:previousHash, openingHash:expected.openingHash};
       const previous = {...expected, runtimeHash:previousHash, resourceHash:digest(identity)};
       if (canonical(value) === canonical(previous)) return structuredClone(previous);

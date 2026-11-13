@@ -53,6 +53,7 @@ async function atomicWrite(path,value) {
  finally {if(file)await file.close();await unlink(temporary).catch(e=>{if(e.code!=='ENOENT')throw e;});}
 }
 function outputValid(pluginId,capability,value,session,input) {
+ if(pluginId==='rpg.shop')return capability==='ui.shop-action'?exact(input,[])&&canonical(value)===canonical({kind:'shop-action',action:'shop',label:'街角杂货店'}):capability==='session.shop.purchase'&&exact(input,['actionHash'])&&hash(input.actionHash)&&canonical(value)===canonical({kind:'shop-intent',sessionId:session.id,actionHash:input.actionHash});
  if(pluginId===MODEL_COMPARISON_ID){
   if(capability==='ui.comparison-action')return exact(input,[])&&canonical(value)===canonical({kind:'comparison-action',action:'model-comparison',label:'本轮对比'});
   return capability==='session.comparison.generate'&&exact(input,['batchHash'])&&hash(input.batchHash)&&canonical(value)===canonical({kind:'comparison-request',sessionId:session.id,batchHash:input.batchHash});
@@ -126,6 +127,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
   const s=await lookupSession(sessionId);
   if(!s || s.id!==sessionId || !integer(s.revision) || !integer(s.completedTurns) || !hash(s.resourceHash))throw fail('PLUGIN_SESSION_INVALID',400);
   if(!entry.manifest.compatibleCards.includes(s.cardId))throw fail('PLUGIN_CARD_INCOMPATIBLE');
+  if(entry.manifest.id==='rpg.shop'&&s.shopCompatible!==true)throw fail('SHOP_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===MODEL_COMPARISON_ID&&s.comparisonCompatible!==true)throw fail('COMPARISON_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===GENERATION_PARAMETERS_ID&&(s.generationParametersCompatible!==true||!integer(s.parameterRevision)))throw fail('PARAMETER_RUNTIME_INCOMPATIBLE');
   if(entry.manifest.id===MEMORY_PALACE_ID&&s.memoryPalaceCompatible!==true)throw fail('MEMORY_RUNTIME_INCOMPATIBLE');
@@ -326,7 +328,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
    return serial(async()=>{for(const r of results)await host.validateResult(r);try{return await commit();}finally{for(const r of results)tickets.get(r.pluginId)?.delete(r.ticket);}});
   },
   async commitResult(result,commit){
-   if(typeof commit!=='function'||!['session.illustration.generate','session.illustration.rewrite','session.transcript.import','session.message.fork','session.message.edit','session.branch.prepare','session.model.select','session.parameters.configure','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request','session.memory.revise','session.memory.configure','session.memory.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
+   if(typeof commit!=='function'||!['session.shop.purchase','session.illustration.generate','session.illustration.rewrite','session.transcript.import','session.message.fork','session.message.edit','session.branch.prepare','session.model.select','session.parameters.configure','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request','session.memory.revise','session.memory.configure','session.memory.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
    return serial(async()=>{await host.validateResult(result);try{return await commit();}finally{tickets.get(result.pluginId)?.delete(result.ticket);}});
   },
   async close(){if(closed)return;closed=true;await queue;tickets.clear();await lock.close();},
