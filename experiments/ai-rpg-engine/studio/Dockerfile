@@ -12,6 +12,9 @@ COPY ui-host ./ui-host
 COPY docs/RPG04_PROTOCOL_RUNTIME.txt ./docs/RPG04_PROTOCOL_RUNTIME.txt
 COPY plugins ./plugins
 COPY ancient-card ./ancient-card
+COPY jinyong-card ./jinyong-card
+COPY blue-fish-card ./blue-fish-card
+COPY douluo-card ./douluo-card
 COPY god-card/public ./god-card/public
 COPY god-card/lib ./god-card/lib
 COPY god-card/resources ./god-card/resources
@@ -20,6 +23,9 @@ COPY xingjian-card ./xingjian-card
 COPY lord-of-mysteries-card/public ./lord-of-mysteries-card/public
 COPY lord-of-mysteries-card/resources ./lord-of-mysteries-card/resources
 COPY lord-of-mysteries-card/assembly.mjs ./lord-of-mysteries-card/assembly.mjs
+COPY dragon-raja-card/public ./dragon-raja-card/public
+COPY dragon-raja-card/resources ./dragon-raja-card/resources
+COPY dragon-raja-card/assembly.mjs ./dragon-raja-card/assembly.mjs
 COPY studio ./studio
 COPY ui/package.json ui/package-lock.json ./ui/
 RUN npm ci --prefix ui

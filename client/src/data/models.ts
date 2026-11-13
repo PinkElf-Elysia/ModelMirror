@@ -1,4 +1,4 @@
-﻿// Merged with OpenRouter model catalog on 2026-11-05T02:03:43.732Z.
+﻿// Merged with OpenRouter model catalog on 2026-11-06T16:08:23.818Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -226,6 +226,168 @@ interface RawCatalogModel {
 
 const rawCatalogModels: RawCatalogModel[] = [
   {
+    "id": "parallel/decisions-fast",
+    "canonical_slug": "parallel/decisions-fast-20261106",
+    "name": "Parallel: Decisions Fast",
+    "raw_description": "Decisions Fast is Parallel's web-grounded Decisions model. Instead of generating text, it reads the content passed as `state` (text or JSON), researches the live web, and returns typed answers to...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1793940659,
+    "expiration_date": null,
+    "model_author": "Parallel"
+  },
+  {
+    "id": "google/gemini-omni-1.2-flash",
+    "canonical_slug": "google/gemini-omni-1.2-flash-20261105",
+    "name": "Google: Gemini Omni 1.2 Flash",
+    "raw_description": "Gemini Omni 1.2 Flash is Google's native multimodal video generation and editing model, the successor to Gemini Omni 1.1 Flash. It generates clips up to 15 seconds long with native...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 1.5,
+      "output": 9
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text",
+      "video"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "seed",
+      "temperature",
+      "top_p"
+    ],
+    "created": 1793898961,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true,
+    "note": "专用异步视频生成入口，支持首尾帧；使用带音频的分辨率费率，源视频编辑和 task 扩展尚未适配，等待人工生成验证。"
+  },
+  {
+    "id": "openrouter/auto",
+    "canonical_slug": "openrouter/auto",
+    "name": "Auto Router",
+    "raw_description": "Auto is OpenRouter’s flagship model router, built for general-purpose usage. It adapts to each request, choosing cost-optimal models and adjusting reasoning effort. It balances task difficulty, benchmark results, live prices,...",
+    "context_length": 2000000,
+    "pricing": {
+      "input": -1000000,
+      "output": -1000000
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "audio",
+      "file",
+      "video"
+    ],
+    "output_modalities": [
+      "text",
+      "image"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "prediction",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_a",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+      "web_search_options"
+    ],
+    "created": 1793885889,
+    "expiration_date": null,
+    "model_author": "OpenRouter"
+  },
+  {
+    "id": "openrouter/auto-code",
+    "canonical_slug": "openrouter/auto-code",
+    "name": "Auto Code",
+    "raw_description": "Auto Code is OpenRouter’s router built specifically for coding agents and harnesses. It uses the same routing engine as the [Auto Router](https://openrouter.ai/openrouter/auto), with every request treated as part of an...",
+    "context_length": 2000000,
+    "pricing": {
+      "input": -1000000,
+      "output": -1000000
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "audio",
+      "file",
+      "video"
+    ],
+    "output_modalities": [
+      "text",
+      "image"
+    ],
+    "tokenizer": "Router",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_completion_tokens",
+      "max_tokens",
+      "min_p",
+      "parallel_tool_calls",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_a",
+      "top_k",
+      "top_logprobs",
+      "top_p",
+      "verbosity"
+    ],
+    "created": 1793884321,
+    "expiration_date": null,
+    "model_author": "OpenRouter",
+    "note": "OpenRouter 编程路由，费用由实际选中的模型决定；不提供独立图片生成工作台。",
+    "pricing_basis_override": "dynamic"
+  },
+  {
     "id": "openai/gpt-image-2.6-sunburst",
     "canonical_slug": "openai/gpt-image-2.6-sunburst-20261104",
     "name": "OpenAI: GPT Image 2.6 Sunburst",
@@ -288,6 +450,41 @@ const rawCatalogModels: RawCatalogModel[] = [
     "expiration_date": null,
     "model_author": "OpenAI",
     "note": "专用图片生成/编辑入口，最多 10 张输出、16 张参考图；按图片端点 Token 费率计价，文本/图片输入/图片输出分别为 $5/$8/$30 每百万 Token。生成前不能可靠估算总价；未执行真实调用。"
+  },
+  {
+    "id": "google/gemini-omni-1.1-flash",
+    "canonical_slug": "google/gemini-omni-1.1-flash-20260911",
+    "name": "Google: Gemini Omni 1.1 Flash",
+    "raw_description": "Gemini Omni 1.1 Flash is Google's native multimodal video generation and editing model, the generally available successor to Gemini Omni Flash Preview. It is suited for text-to-video, image-to-video, first and...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 1.5,
+      "output": 9
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text",
+      "video"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "seed",
+      "temperature",
+      "top_p"
+    ],
+    "created": 1793825668,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true,
+    "note": "专用异步视频生成入口，支持首尾帧；使用带音频的分辨率费率，源视频编辑和 task 扩展尚未适配，等待人工生成验证。"
   },
   {
     "id": "ricursiveai/ripple-65b-preview",
@@ -690,7 +887,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Nemotron 3.5 Transcribe is an open-weight speech recognition model from NVIDIA, a 30B mixture-of-experts with about 4B active parameters. It transcribes recordings of up to one hour in 40 languages,...",
     "context_length": 0,
     "pricing": {
-      "input": 33.300000000000004,
+      "input": 16.666700000000002,
       "output": 0
     },
     "input_modalities": [
@@ -704,11 +901,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1793235111,
     "expiration_date": null,
     "model_author": "NVIDIA",
-    "note": "专用音频转写；约 $0.11988/小时。本站使用标准音频转写输入，仅返回文本；不开放说话人分离、翻译或提示词扩展，等待人工验证。",
+    "note": "专用音频转写；约 $0.06000012/小时。本站使用标准音频转写输入，仅返回文本；不开放说话人分离、翻译或提示词扩展，等待人工验证。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "audio_hour",
-      "usd": 0.11988
+      "usd": 0.06000012
     }
   },
   {
@@ -1398,8 +1595,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
+      "input": 0.075,
+      "output": 0.3,
       "time_overrides": [
         {
           "utc_start": 1500,
@@ -1493,8 +1690,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2,
+      "input": 0.15,
+      "output": 0.6,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -1843,7 +2040,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Beam 1.0 is Reflection's open-weight reasoning model for coding and long-horizon agentic workflows. It uses a sparse mixture-of-experts architecture with 501B total and 23B active parameters per token, and a...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.25,
+      "input": 0.3,
       "output": 1
     },
     "input_modalities": [
@@ -5475,7 +5672,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Pro family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.1035,
+      "input": 0.0999,
       "output": 8
     },
     "input_modalities": [
@@ -6032,8 +6229,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.045,
-      "output": 0.5
+      "input": 0.051,
+      "output": 0.5670000000000001
     },
     "input_modalities": [
       "text",
@@ -6880,8 +7077,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.834,
-      "output": 2.501,
+      "input": 0.7505999999999999,
+      "output": 2.2509,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -7049,7 +7246,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GLM Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0285,
+      "input": 0.028399999999999998,
       "output": 0.0923
     },
     "input_modalities": [
@@ -7424,8 +7621,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.21559999999999999,
-      "output": 0.6468
+      "input": 0.44,
+      "output": 1.32
     },
     "input_modalities": [
       "text",
@@ -8347,8 +8544,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.11499999999999999,
-      "output": 4.6
+      "input": 0.1165,
+      "output": 4.66
     },
     "input_modalities": [
       "text"
@@ -8764,6 +8961,45 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "ByteDance"
   },
   {
+    "id": "inclusionai/ling-3.0-tiny",
+    "canonical_slug": "inclusionai/ling-3.0-tiny-20260806",
+    "name": "inclusionAI: Ling 3.0 Tiny",
+    "raw_description": "Ling 3.0 Tiny is a mixture-of-experts model from InclusionAI, with 1.3B active parameters out of 7.9B total. It is designed for responsive agents, instruction following, and multi-turn conversations, with switchable...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.015,
+      "output": 0.045
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1786034890,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "inclusionai/ling-3.0-tiny:free",
     "canonical_slug": "inclusionai/ling-3.0-tiny-20260806",
     "name": "inclusionAI: Ling 3.0 Tiny (free)",
@@ -8997,8 +9233,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.059,
-      "output": 0.3
+      "input": 0.04972,
+      "output": 0.14916
     },
     "input_modalities": [
       "text"
@@ -9043,7 +9279,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.059,
+      "input": 0.049999999999999996,
       "output": 0.3
     },
     "input_modalities": [
@@ -11086,8 +11322,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -11492,7 +11728,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs"
     ],
     "created": 1782264713,
-    "expiration_date": null,
+    "expiration_date": 1796083200,
     "model_author": "OpenAI"
   },
   {
@@ -13814,8 +14050,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.18239999999999998,
-      "output": 9.7471
+      "input": 0.1529,
+      "output": 10.1522
     },
     "input_modalities": [
       "text",
@@ -14304,8 +14540,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 1.5999999999999999,
-      "output": 3.1999999999999997
+      "input": 0.851556,
+      "output": 1.703112
     },
     "input_modalities": [
       "text"
@@ -15352,8 +15588,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.03,
-      "output": 0.091
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -15960,8 +16196,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
     "context_length": 204800,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.21,
+      "output": 0.84
     },
     "input_modalities": [
       "text"
@@ -15989,7 +16225,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1773836697,
-    "expiration_date": 1793836800,
+    "expiration_date": null,
     "model_author": "MiniMax",
     "reasoning_declared": true
   },
@@ -16223,8 +16459,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "NVIDIA Nemotron 3 Super is a 120B-parameter open hybrid MoE model, activating just 12B parameters for maximum compute efficiency and accuracy in complex multi-agent applications. Built on a hybrid Mamba-Transformer...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 2.4
+      "input": 0.075,
+      "output": 0.39999999999999997
     },
     "input_modalities": [
       "text"
@@ -20147,7 +20383,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "verbosity"
     ],
     "created": 1760624583,
-    "expiration_date": null,
+    "expiration_date": 1796083200,
     "model_author": "OpenAI",
     "reasoning_declared": true
   },
@@ -21140,7 +21376,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Next-80B-A3B-Instruct is an instruction-tuned chat model in the Qwen3-Next series optimized for fast, stable responses without “thinking” traces. It targets complex tasks across reasoning, code generation, knowledge QA, and multilingual...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09999999999999999,
+      "input": 0.09,
       "output": 1.1
     },
     "input_modalities": [
@@ -21633,7 +21869,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1754922288,
-    "expiration_date": null,
+    "expiration_date": 1798675200,
     "model_author": "Z.ai",
     "reasoning_declared": true
   },
@@ -21813,8 +22049,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.012,
-      "output": 0.043000000000000003
+      "input": 0.024999999999999998,
+      "output": 0.092
     },
     "input_modalities": [
       "text"
@@ -21889,8 +22125,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.018,
-      "output": 0.09
+      "input": 0.03,
+      "output": 0.13
     },
     "input_modalities": [
       "text"
@@ -24881,8 +25117,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.2574,
-      "output": 1.0287
+      "input": 0.32,
+      "output": 0.8899999999999999
     },
     "input_modalities": [
       "text"
@@ -25021,8 +25257,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and instruction tuned generative model in 70B (text in/text out). The Llama 3.3 instruction tuned text only model...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.19999999999999998,
-      "output": 0.52
+      "input": 0.59,
+      "output": 0.7899999999999999
     },
     "input_modalities": [
       "text"
@@ -25619,7 +25855,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1727222400,
-    "expiration_date": null,
+    "expiration_date": 1795132800,
     "model_author": "Meta"
   },
   {
@@ -25656,7 +25892,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1727222400,
-    "expiration_date": null,
+    "expiration_date": 1795132800,
     "model_author": "Meta"
   },
   {
@@ -26632,57 +26868,6 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "OpenAI"
   },
   {
-    "id": "openrouter/auto",
-    "canonical_slug": "openrouter/auto",
-    "name": "Auto Router",
-    "raw_description": "The Auto Router automatically selects the best model for your prompt, powered by the wisdom of the market. It routes you based on what the OpenRouter community collectively spends on...",
-    "context_length": 2000000,
-    "pricing": {
-      "input": -1000000,
-      "output": -1000000
-    },
-    "input_modalities": [
-      "text",
-      "image",
-      "audio",
-      "file",
-      "video"
-    ],
-    "output_modalities": [
-      "text",
-      "image"
-    ],
-    "tokenizer": "Router",
-    "supported_parameters": [
-      "frequency_penalty",
-      "include_reasoning",
-      "logit_bias",
-      "logprobs",
-      "max_tokens",
-      "min_p",
-      "prediction",
-      "presence_penalty",
-      "reasoning",
-      "reasoning_effort",
-      "repetition_penalty",
-      "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
-      "temperature",
-      "tool_choice",
-      "tools",
-      "top_a",
-      "top_k",
-      "top_logprobs",
-      "top_p",
-      "web_search_options"
-    ],
-    "created": 1699401600,
-    "expiration_date": null,
-    "model_author": "OpenRouter"
-  },
-  {
     "id": "openai/gpt-3.5-turbo-instruct",
     "canonical_slug": "openai/gpt-3.5-turbo-instruct",
     "name": "OpenAI: GPT-3.5 Turbo Instruct",
@@ -27498,8 +27683,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.15
+      "input": 0.112,
+      "output": 0.33599999999999997
     },
     "input_modalities": [
       "text",
@@ -27513,7 +27698,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -27528,7 +27712,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1789021285,
@@ -30017,6 +30200,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "nvidia/llama-3.3-nemotron-super-49b-v1.5",
   "nvidia/nemotron-3-nano-30b-a3b:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3.5-content-safety:free",
   "nvidia/nemotron-nano-12b-v2-vl:free",
   "nvidia/nemotron-nano-9b-v2",
   "nvidia/nemotron-nano-9b-v2:free",
@@ -30123,6 +30307,7 @@ function pricingTimeWindows(
 
 function getPricingBasis(raw: RawCatalogModel): PricingBasis {
   if (raw.id.endsWith(":free") || raw.id === "openrouter/free") return "free";
+  if (raw.id === "parallel/decisions-fast") return "request";
   if (raw.pricing_basis_override) return raw.pricing_basis_override;
   if (
     raw.output_modalities.some((modality) =>
@@ -30353,6 +30538,7 @@ const VERIFIED_SPEECH_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_VIDEO_MODEL_IDS = new Set([
+  "google/gemini-omni-1.1-flash", "google/gemini-omni-1.2-flash",
   "tbc/mischief-1",
   "alibaba/wan-3.0",
   "alibaba/wan-3.0-prime",
@@ -30390,7 +30576,7 @@ function inferOperations(raw: RawCatalogModel): ModelOperation[] {
   if (
     outputs.has("image") &&
     raw.id !== "openrouter/auto" &&
-    raw.id !== "openrouter/auto-beta"
+    raw.id !== "openrouter/auto-beta" && raw.id !== "openrouter/auto-code"
   ) {
     operations.add("generate_image");
   }
@@ -30911,6 +31097,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "parallel/decisions-fast",
+  "google/gemini-omni-1.1-flash", "google/gemini-omni-1.2-flash", "openrouter/auto-code", "inclusionai/ling-3.0-tiny",
   "ricursiveai/ripple-65b-preview", "openai/gpt-image-2.5-flare", "openai/gpt-image-2.5-sunburst",
   "tencent/hy4",
   "morph/reflex",

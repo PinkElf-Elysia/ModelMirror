@@ -6,6 +6,8 @@ export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, ".");
   return {
     plugins: [react()],
+    // Shared RPG components may also have their standalone package installed.
+    resolve: { dedupe: ["react", "react-dom"] },
     build: {
       chunkSizeWarningLimit: 4500,
     },

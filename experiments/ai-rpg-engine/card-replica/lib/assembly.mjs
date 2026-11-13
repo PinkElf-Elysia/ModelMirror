@@ -48,9 +48,11 @@ export function matchWorldbook({body='',world,enabledIds=[]},rules=worldbookRule
   return rules.filter(r=>enabledIds.includes(r.id)&&r.world===world&&r.terms.some(term=>body.includes(term))).filter(r=>{if(seen.has(r.sha256))return false;seen.add(r.sha256);return true;});
 }
 export function assemble({characterText,input,history=[],world='表世界',enabledRuleIds=[]}){
-  if(typeof characterText!=='string'||!characterText.trim()||typeof input!=='string'||!input.trim())throw Error('Character and input required');
+  if(typeof characterText!=='string'||typeof input!=='string'||!input.trim())throw Error('Character text and input required');
   if(!Array.isArray(history)||history.some((m,i)=>m.role!==(i%2?'assistant':'user')||typeof m.content!=='string')||history.length%2)throw Error('Only complete ordered history can continue');
   const triggered=matchWorldbook({world,body:history.at(-1)?.content||'',enabledIds:enabledRuleIds});
-  const current=history.length ? prompts.prefix+'\n'+input+'\n'+prompts.suffix+triggered.map(r=>'\n'+r.text).join('') : characterText+'\n\n'+input;
+  // New chats keep characterText empty. Optional archives live in the editable
+  // composer; old saves retain their original first-turn assembly contract.
+  const current=history.length ? prompts.prefix+'\n'+input+'\n'+prompts.suffix+triggered.map(r=>'\n'+r.text).join('') : characterText ? characterText+'\n\n'+input : input;
   return {messages:[{role:'system',content:activeSystem},...history.map(m=>({role:m.role,content:m.content})),{role:'user',content:current}],current,triggered:triggered.map(r=>({id:r.id,sha256:r.sha256})),sourceHash:hash(activeSystem)};
 }

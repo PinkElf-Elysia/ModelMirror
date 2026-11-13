@@ -13,7 +13,7 @@
   </head>
   <body>
     <header class="heading">
-      <h1>自定义配置</h1>
+      <div><p class="workspace-kicker">RPG · 配置工作台</p><h1>自定义配置</h1></div>
       <button id="exit" aria-label="关闭">×</button>
     </header>
     <nav aria-label="配置范围">
@@ -28,6 +28,7 @@
         ><button id="clear" class="danger">清空自定义配置</button
         ><input type="file" id="file" accept=".json,application/json" hidden />
       </section>
+      <nav class="config-jumps" aria-label="配置内容"><a href="#prompts">提示词</a><a href="#book">世界书</a><a href="#rules">文字替换</a><a href="#appearance">外观与记忆</a></nav>
       <p class="hint">
         为防止误删，提示词、前置词、后置词或世界书内容中至少保留一个字符。清空只影响当前草稿。
       </p>

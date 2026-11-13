@@ -1,0 +1,12 @@
+{
+  "cardId": "douluo",
+  "source": "https://afengy.cash/zh/explore/installed/5dab2efe-0bf7-4790-8087-c8e7a06a3d54",
+  "docxSha256": "0ec86936d1574d54fd5ef22ae4bec885ab14894552d9f67cd50c97fba4b72502",
+  "extraction": "OOXML body paragraphs in order; tabs and line breaks preserved; paragraph separator LF; no text edits",
+  "system": {
+    "sha256": "5d70b0b40030c4367bd383a629d87e379c7a3d0fbb948888e5dcb43b8fc9dbf3",
+    "characters": 31812,
+    "paragraphs": 1465
+  },
+  "htmlSha256": "20bf2177e5202a60d4366c9b7a85c822a3d3cc7e8b06a5b40ba8a410157cc2d5"
+}

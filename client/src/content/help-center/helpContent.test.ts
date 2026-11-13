@@ -48,10 +48,12 @@ describe("help center content catalog", () => {
       "review-decisions-sol-batch",
       "review-elevenlabs-batch",
       "play-god-card",
+      "play-jinyong-card",
       "play-rpg-cards",
       "create-rpg-cg-gallery",
       "create-rpg-variable-panel",
       "edit-rpg-reply",
+      "manage-rpg-history",
       "branch-rpg-story",
       "choose-rpg-model",
       "use-rpg-memory-palace",
@@ -87,7 +89,11 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["edit-rpg-reply", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    const historyGuide = helpArticles.find((article) => article.slug === "manage-rpg-history");
+    expect(historyGuide?.verifiedCommit).toBe("479cd636");
+    expect(historyGuide?.content).toContain("保留版本并重新生成");
+    expect(searchHelpContent("回收站").some((item) => item.id === "manage-rpg-history")).toBe(true);
     expect(helpArticles.find(article => article.slug === "edit-rpg-reply")?.verifiedCommit).toBe("d9f20fe6");
     const visionGuide = helpArticles.find((article) => article.slug === "review-vision-image-decisions");
     expect(visionGuide?.verifiedCommit).toBe("ae2493e2");
@@ -106,9 +112,9 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("继续跟踪").some((entry) => entry.id === "recover-workflow-run")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "review-elevenlabs-batch")?.verifiedCommit).toBe("70a01640");
     expect(helpArticles.find((article) => article.slug === "review-decisions-sol-batch")?.verifiedCommit).toBe("e5a808a6");
-    expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("61b6eea8");
+    expect(helpArticles.find((article) => article.slug === "set-rpg-history-window")?.verifiedCommit).toBe("d9f20fe6");
     const rpgGuide = helpArticles.find((article) => article.slug === "play-rpg-cards");
-    expect(rpgGuide?.verifiedCommit).toBe("56e47104");
+    expect(rpgGuide?.verifiedCommit).toBe("856a6dd0");
     expect(rpgGuide?.content).toContain("导出完整作品包");
     expect(searchHelpContent("创作工作台").some((item) => item.id === "play-rpg-cards")).toBe(true);
     expect(searchHelpContent("CG 画廊").some((item) => item.id === "create-rpg-cg-gallery")).toBe(true);
@@ -261,7 +267,7 @@ describe("help center content catalog", () => {
     expect(searchHelpContent("分支存档").some((entry) => entry.id === "branch-rpg-story")).toBe(true);
     const guide = helpArticles.find((article) => article.slug === "branch-rpg-story");
     expect(guide?.relatedRoutes).toContain("/rpg/plugins");
-    expect(guide?.content).toContain("安装与启用是两个动作");
+    expect(guide?.content).toContain("安装与会话启用是两个动作");
     expect(guide?.content).toContain("不会增加额度");
     expect(guide?.content).toContain("恢复创建结果");
     const topic = helpModules.flatMap((module) => module.topics).find((item) => item.id === "rpg");

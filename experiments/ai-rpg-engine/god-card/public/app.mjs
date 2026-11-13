@@ -146,6 +146,6 @@ $('fab').addEventListener('click',()=>{setOpen('scripture',true);sections.get('s
 window.addEventListener('storage',e=>{if(e.key===key){writable=false;$('draftStatus').textContent='其他标签页修改了草稿；本页暂停保存，请先复制内容再刷新';}});
 refreshButtons();renderBible();
 if(location.pathname.startsWith('/rpg-app/god/setup/')&&window.parent!==window){
- const create=button('使用天书创建离线会话',()=>{if(!writable){toast('请先核对草稿存储状态');return;}window.parent.postMessage({type:'god-setup-create',setup:state},location.origin);},'primary');
+ const create=button('以此档案进入独立聊天',()=>{if(!writable){toast('请先核对草稿存储状态');return;}window.parent.postMessage({type:'god-setup-create',text:serializeSetup(state)},location.origin);},'primary');
  create.id='createSession';bibleSection.append(create);
 }

@@ -7,5 +7,7 @@ server/agent_upstream/provenance/*.json text eol=lf
 # Preserve the bytes used by the RPG host's source hashes, including Windows line endings.
 experiments/ai-rpg-engine/authoring/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 experiments/ai-rpg-engine/authoring-prototype/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
-experiments/ai-rpg-engine/studio/server.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/studio/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/god-card/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/xingjian-card/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 client/src/pages/RpgPage.tsx whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+ARG VITE_RPG_AUTHORING_PORT=""
 RUN npm run build
 
 FROM node:22-alpine

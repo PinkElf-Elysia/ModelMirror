@@ -38,6 +38,7 @@ test("bundled samples are card-specific and assemble whole documents in catalog 
     "xingjian",
     "cultivation",
     "lord-of-mysteries",
+    "dragon-raja",
   ])
     assert.deepEqual(await resolveMods(card, ["common.rationality.v1"]), [
       all[3],

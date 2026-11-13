@@ -1,7 +1,7 @@
 import {useRef,useState} from 'react';
 import {parse,serialize,MAX_BYTES} from '../../plugins/transcript.mjs';
 import {Modal} from './modal';
-import {cardStoragePrefix} from './session-client';
+import {archiveRoot} from './session-client';
 
 const errors:Record<string,string>={
   TRANSCRIPT_TOO_LARGE:'文件超过 10 MB。',TRANSCRIPT_TOO_MANY:'文件超过 500 轮。',
@@ -17,7 +17,7 @@ export function TranscriptTools({id,name,disabled,opened}:{id:string;name:string
   const [dialog,setDialog]=useState(false),[target,setTarget]=useState(''),[file,setFile]=useState<File|null>(null);
   const [preview,setPreview]=useState<{count:number;skipped:number}|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   const version=useRef(0),op=useRef(''),lock=useRef(false);
-  const path='/rpg-app/'+cardStoragePrefix()+'/api/sessions/'+id+'/transcript/';
+  const path=archiveRoot()+'api/sessions/'+id+'/transcript/';
   async function select(f:File|null){
     const current=++version.current;setPreview(null);setFile(f);op.current=crypto.randomUUID();setError('');
     if(!f)return;

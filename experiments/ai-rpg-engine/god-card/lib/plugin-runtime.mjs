@@ -1,5 +1,7 @@
 import {readFile} from 'node:fs/promises';
 import {memoryRuntime} from '../../studio/memory-runtime.mjs';
+import {beforeSummaryV2} from '../../studio/summary-v2-runtime-compat.mjs';
+import {beforeFreeOpening} from '../../studio/free-opening-runtime-compat.mjs';
 import {createModelPolicy} from '../../studio/card-model-policy.mjs';
 import {createCardState} from '../../studio/card-state.mjs';
 import {createCardContext} from '../../studio/card-context.mjs';
@@ -21,12 +23,14 @@ const artifacts=async()=>Object.fromEntries(await Promise.all(paths.map(async p=
 const frozen=await artifacts();
 const descriptor={format:5,cardId:'god',release:'god-plugins-offline-v1',author:{system:loadFrozen().manifest.system.sha256,prefix:null,suffix:null,worldbook:null},hostArtifacts:frozen,models:offlineModels,mode:'offline-only',contextPolicy:'default:complete-raw-history; actual policy is per-session'};
 const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){if(canonical(await artifacts())!==canonical(frozen))throw fail('RUNTIME_FILES_CHANGED_RESTART_REQUIRED');loadFrozen();}};
+const previousHash=sha(canonical(beforeSummaryV2(descriptor)));
+const beforeOpeningHash=sha(canonical(beforeFreeOpening(descriptor)));
 export const godPluginProfile=Object.freeze({
  state,context,modelPolicy,runtime,create:godAdapter.create,initialSelection:()=>modelPolicy.controlledChoice(offlineModels[0]),
  bind:s=>({format:5,hash:runtime.hash,descriptor:structuredClone(descriptor),setupHash:setupHash(s)}),
  status(s){
   if(s.cardId!=='god'||s.runtime?.format!==5)return {compatible:false,code:'GOD_PLUGIN_RUNTIME_INCOMPATIBLE'};
   if(s.runtime.hash!==sha(canonical(s.runtime.descriptor))||s.runtime.setupHash!==setupHash(s))return {compatible:false,code:'RUNTIME_BINDING_INVALID'};
-  return s.runtime.hash===runtime.hash?{compatible:true,code:null,hash:runtime.hash}:{compatible:false,code:'RUNTIME_VERSION_MISMATCH'};
+  return [runtime.hash,previousHash,beforeOpeningHash].includes(s.runtime.hash)?{compatible:true,code:null,hash:s.runtime.hash}:{compatible:false,code:'RUNTIME_VERSION_MISMATCH'};
  }
 });

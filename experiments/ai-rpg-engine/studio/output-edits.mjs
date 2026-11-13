@@ -37,7 +37,8 @@ export function priorEdits(session,count=0){
 export function outputCorrections(session){
   requireOutputEdits(session);
   const through=Math.max(session.rollingSummary?.versions?.at(-1)?.coveredThrough||0,
-    session.memoryPalace?.processedThrough||0);
+    session.memoryPalace?.processedThrough||0,session.autoSummaryV2?.through||0,session.autoSummaryV2?.covered||0,
+    ...(session.autoSummaryV2?.turns||[]).map(t=>t.id));
   const turns=session.turns.slice(0,through).flatMap((turn,i)=>
     session.outputEdits?.some(e=>e.requestId===turn.requestId)
       ?[{turn:i+1,previous:turn.raw,replacement:replyText(session,turn)}]:[]);

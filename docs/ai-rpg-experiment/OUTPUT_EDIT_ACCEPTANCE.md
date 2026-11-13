@@ -111,3 +111,22 @@ PR #443 已合并（6977d86c）；只读核对共享后端的 chat_stable.py、r
 
 
 发布合并检查已确认：git merge-tree --write-tree --name-only HEAD origin/main 报告 10 个文件冲突，未修改工作树。涉及 helpContent.test.ts、help-center/index.ts、AutoSummarySession.tsx（主线已删除）、card-replica/src/chat.tsx、session-client.ts，以及 studio 下 auto-summary-v2.test.mjs、history-assembly.mjs、memory-assembly.mjs、server.mjs、summary-assembly.mjs。PR 以 Draft 提交：功能与证据可审阅，但不可直接合并；整合统一聊天和处理旧运行时指纹仍待完成。本次不将冲突解决或最新主线兼容性写成通过。
+
+
+## 2026-11-13 主线冲突修复（取代上节待整合状态）
+
+用户随后明确要求使用命令行解决列出的 10 个冲突。已合入 origin/main@7b1f840c，保留主线统一聊天、流式渲染、当前模型重新生成及历史版本/回收站；AutoSummarySession.tsx 按主线删除。帮助条目与测试保留双方内容，没有恢复旧入口或重复实现共享路由修复。
+
+必要的语义合并：空白开局的历史选择使用修订文本；旧请求重建同时保留修订次数与 2.0 快照；统一 2.0 的显式小总结重算读取修订正文，旧总结续聊带修订说明；重新生成截断被移除回合的修订，历史版本恢复带回对应修订。编辑按钮仅显示在本次实现的 earth/god 宿主。精确兼容映射增加主线源字节及五个主线运行时描述符，完整内容/设置/指纹校验保留，不通配放开版本。
+
+当前统一聊天保存编辑仍不调用模型，不自动重算小总结；用户可在已有总结界面明确重算。旧独立 2.0 导入实验的自动小总结行为仅作为历史测试证据，不冒充新入口行为。先前记忆残留冲突和情绪补写限制仍然有效。本次冲突修复未派发任何真实模型调用、未改共享默认配置、未部署。
+
+本地检查（仅为本次代码合并；不重做真实模型验收）：
+
+- 通过：node --test --test-reporter=spec experiments/ai-rpg-engine/studio/output-edits.test.mjs experiments/ai-rpg-engine/studio/auto-summary-v2.test.mjs experiments/ai-rpg-engine/studio/default-summary-v2.test.mjs experiments/ai-rpg-engine/studio/session-lifecycle.test.mjs。29 passed，0 failed；包含统一 2.0、版本恢复和五个主线精确描述符/篡改拒绝检查。
+- 通过：card-replica 目录 npm.cmd run typecheck。
+- 失败：client 目录 npx.cmd vitest run --configLoader runner --maxWorkers=1 --fileParallelism=false src/content/help-center/helpContent.test.ts src/pages/RpgOutputEditor.test.tsx。19 passed、1 failed。输出编辑器通过；剩余帮助截图基线检查失败，main 中 manage-rpg-history 元数据为 479cd636，但引用 /help-center/fbe65f12/regen.png。已直接核对 origin/main 的文章和目录包含同一不一致，未改断言或补造截图。
+- 失败：client 目录 npm.cmd run typecheck，TS7016：stream-output.tsx 导入 stream-dom.mjs 缺少声明。该模块及 tsconfig 与 origin/main 相同，主线没有对应声明文件；未扩展本次范围修复。未声称在另一完整主线环境重新运行过此命令。
+- 未运行：全量回归、生产构建、浏览器重放、截图补验、真实模型复测。早先基线实测结论不扩大为本次主线验收。
+
+初次本地检查发现运行时映射和帮助排序问题，均已修复并重跑对应检查；上述结果为修复后的最终状态。PR 保留 Draft 和已知检查限制，冲突状态以推送后的 GitHub 查询为准。

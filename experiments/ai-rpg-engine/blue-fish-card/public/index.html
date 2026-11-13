@@ -1,0 +1,1654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>肥鱼助手</title>
+    <link href="/rpg-app/blue-fish/vendor/mdi.css" rel="stylesheet">
+    <script src="/rpg-app/blue-fish/vendor/sortable.min.js"></script>
+	<style>
+		:root {
+			/* --- 布局变量 --- */
+			--sidebar-width: 15em;
+			--sidebar-width-collapsed: 4.5em;
+			--header-height: 145px;
+			--indentation-unit: 2em;
+			/* --- 字体变量 --- */
+			--font-family-sans: 'Noto Sans SC', sans-serif;
+			--font-family-editor: 'Nunito', sans-serif;
+			/* --- [核心改造] 白天模式 (Light Theme) 颜色变量 --- */
+			--color-bg-primary: #f0f7ff;
+			--color-bg-secondary: #f4f9ff;
+			--color-bg-card: #ffffff;
+			--color-bg-card-translucent: rgba(255, 255, 255, 0.95);
+			--color-bg-input: #f0f7ff;
+			--color-bg-input-focus: #ffffff;
+			--color-bg-hover: #f0f7ff;
+			--color-bg-active: rgba(255, 255, 255, 0.2);
+			--color-bg-backdrop: rgba(0, 0, 0, 0.5);
+			--color-text-primary: #2c3e50;
+			--color-text-secondary: #78909c;
+			--color-text-inverted: #ffffff;
+			--color-text-board: #006064;
+			--color-text-placeholder: #999;
+			--color-border: #e3eaf3;
+			--color-border-input: #d9eaff;
+			--color-border-board: #b2ebf2;
+			--color-accent-primary: #007bff;
+			--color-accent-secondary: #89cff0;
+			--color-accent-board: #00838f;
+			--color-accent-success: #2ecc71;
+			--color-accent-error: #e74c3c;
+			--color-shadow: rgba(44, 62, 80, 0.08);
+			/* [新增] 主题化渐变和背景URL */
+			--sidebar-bg-gradient: linear-gradient(180deg, #00b4db, #0083b0);
+			--wavy-background-url: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%230099ff" fill-opacity="0.1" d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,128C672,107,768,85,864,90.7C960,96,1056,128,1152,133.3C1248,139,1344,117,1392,106.7L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>');
+			/* 开屏动画的主题颜色变量 */
+			--splash-door-left-bg: linear-gradient(135deg, #4da3ff, #007bff);
+			--splash-door-right-bg: linear-gradient(135deg, #ffffff, #f0f7ff);
+			--splash-fill-text-shadow-color: rgba(255, 255, 255, 0.7);
+		}
+		html.dark-mode {
+			/* --- [核心改造] 夜间模式 (Dark Theme) 颜色变量 --- */
+			--color-bg-primary: #1d2a48;
+			--color-bg-secondary: #1a253f;
+			--color-bg-card: #2a3959;
+			--color-bg-card-translucent: rgba(42, 57, 89, 0.95);
+			--color-bg-input: #1d2a48;
+			--color-bg-input-focus: #2a3959;
+			--color-bg-hover: #3a4a6c;
+			--color-bg-active: rgba(0, 0, 0, 0.2);
+			--color-bg-backdrop: rgba(0, 0, 0, 0.6);
+			--color-text-primary: #e0e6f0;
+			--color-text-secondary: #a0aec0;
+			--color-text-inverted: #ffffff;
+			--color-text-board: #c8b070;
+			--color-text-placeholder: #6a737d;
+			--color-border: #4a5568;
+			--color-border-input: #3a4a6c;
+			--color-border-board: #c8b070;
+			--color-accent-primary: #c8b070;
+			--color-accent-secondary: #a09366;
+			--color-accent-board: #c8b070;
+			--color-accent-success: #48bb78;
+			--color-accent-error: #f56565;
+			--color-shadow: rgba(0, 0, 0, 0.3);
+			/* [新增] 主题化渐变和背景URL */
+			--sidebar-bg-gradient: linear-gradient(180deg, #2a3959, #1d2a48);
+			--wavy-background-url: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 320"><path fill="%23c8b070" fill-opacity="0.05" d="M0,96L48,112C96,128,192,160,288,165.3C384,171,480,149,576,128C672,107,768,85,864,90.7C960,96,1056,128,1152,133.3C1248,139,1344,117,1392,106.7L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"></path></svg>');
+			/* 开屏动画的主题颜色变量 */
+			--splash-door-left-bg: linear-gradient(135deg, #d4c488, #c8b070);
+			--splash-door-right-bg: linear-gradient(135deg, #2a3959, #1a253f);
+			--splash-fill-text-shadow-color: rgba(0, 84, 166, 0.6);
+		}
+		html, body {
+			margin: 0;
+			padding: 0;
+			height: 100%;
+			font-family: var(--font-family-sans);
+			background-color: var(--color-bg-primary);
+			overflow: hidden;
+			transition: background-color 0.3s ease, color 0.3s ease;
+		}
+		*:not(path) {
+			transition: background-color 0.3s ease, color 0.2s ease, border-color 0.3s ease, fill 0.2s ease, stroke 0.2s ease, box-shadow 0.3s ease;
+		}
+		.app-container {
+			display: flex;
+			height: 100vh;
+		}
+		.sidebar-nav {
+			width: var(--sidebar-width-collapsed);
+			background: var(--sidebar-bg-gradient); /* [修改] 使用新的渐变变量 */
+			color: var(--color-text-inverted);
+			display: flex;
+			flex-direction: column;
+			transition: width 0.3s ease-in-out;
+			flex-shrink: 0;
+			overflow: hidden;
+			z-index: 200;
+		}
+		/* ... 此处到 .content-area 的代码无变化 ... */
+		.sidebar-nav:hover { width: var(--sidebar-width); }
+		.sidebar-header { padding: 1.2em 1em; display: flex; align-items: center; height: 2.5em; }
+		.logo-icon { flex-shrink: 0; width: 2.5em; height: 2.5em; border-radius: 50%; background: url('/rpg-app/blue-fish/logo.png') center/cover; margin-right: 0.8em; }
+		.sidebar-logo { display: flex; align-items: center; opacity: 0; transition: opacity 0.3s ease; white-space: nowrap; }
+		.sidebar-nav:hover .sidebar-logo { opacity: 1; }
+		.logo-text { font-size: 1.2em; font-weight: 700; }
+		.sidebar-menu { list-style: none; padding: 0; margin: 1em 0; flex-grow: 1; }
+		.menu-item a { display: flex; align-items: center; height: 3em; padding: 0 1.5em; color: var(--color-text-inverted); text-decoration: none; transition: background 0.2s ease; white-space: nowrap; }
+		.menu-item a:hover { background: var(--color-bg-active); }
+		.menu-item.active a { background: var(--color-bg-active); border-left: 4px solid var(--color-text-inverted); padding-left: calc(1.5em - 4px); }
+		.menu-icon { font-size: 1.5em; width: 1.5em; text-align: center; margin-right: 1em; flex-shrink: 0; }
+		.menu-text { opacity: 0; transition: opacity 0.2s ease; font-weight: 500; }
+		.sidebar-nav:hover .menu-text { opacity: 1; }
+		.content-area {
+			flex-grow: 1;
+			overflow-y: auto;
+			height: 100vh;
+		}
+		.panel {
+			display: none;
+			height: 100%;
+		}
+		.panel.active {
+			display: block;
+			animation: fadeIn 0.5s ease-in-out;
+		}
+		@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+		.prompt-editor-panel {
+			padding: 0;
+			color: var(--color-text-primary);
+			height: 100%;
+			overflow: hidden;
+		}
+		#board {
+			background: var(--color-bg-primary);
+			line-height: 1.6;
+			display: flex;
+			flex-direction: column;
+			min-height: 100%;
+		}
+		#board * { margin: 0; padding: 0; box-sizing: border-box; font-family: var(--font-family-sans); }
+		#board .main-bg {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			background: var(--wavy-background-url) no-repeat bottom; /* [修改] 使用新的URL变量 */
+			background-size: cover;
+			z-index: -1;
+			transition: filter 0.3s ease;
+		}
+		html.dark-mode #board .main-bg { filter: brightness(0.8); } /* 保持一个轻微的压暗效果 */
+		#board .header {
+			background: var(--sidebar-bg-gradient); /* [修改] 与侧边栏保持一致 */
+			color: var(--color-text-inverted);
+			text-align: center;
+			padding: 2em;
+			box-shadow: 0 4px 15px var(--color-shadow);
+		}
+		/* ... 此处到 .theme-switcher-pc 的代码已全面应用变量，保持结构不变 ... */
+		#board .header .avatar { width: 180px; height: 180px; margin: 0 auto 20px; border-radius: 50%; background: url('/rpg-app/blue-fish/logo.png') center/cover; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); animation: float 3s ease-in-out infinite; }
+		@keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
+		/* [新增] 制作组签名彩蛋：虚影头像 + hover 故障字 ID（clip-path 切片 + 双伪元素克隆，渐变底用透明克隆变体） */
+		#board .header .credits-stage { position: relative; width: fit-content; margin: 0 auto; }
+		#board .header .credits-stage .avatar { position: relative; z-index: 1; }
+		#board .header .credit-ghost { position: absolute; top: 15px; width: 150px; height: 150px; border-radius: 50%; object-fit: cover; opacity: 0.7; z-index: 0; transition: opacity 0.45s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15); pointer-events: none; }
+		#board .header .credit-ghost-left { right: calc(50% + 70px); animation: float 3s 0.5s ease-in-out infinite; }
+		#board .header .credit-ghost-right { left: calc(50% + 70px); animation: float 3s 1s ease-in-out infinite; }
+		#board .header .credit-id { position: absolute; z-index: 2; font-weight: 700; font-style: italic; letter-spacing: 0.05em; white-space: nowrap; opacity: 0; visibility: hidden; transition: opacity 0.45s ease, visibility 0.45s; pointer-events: none; }
+		#board .header .credit-id::before, #board .header .credit-id::after { content: attr(data-text); position: absolute; top: 0; width: 100%; height: 100%; overflow: hidden; clip-path: inset(0 0 100% 0); }
+		#board .header .credit-id::before { left: -2px; text-shadow: -3px 0 var(--credit-ch1); }
+		#board .header .credit-id::after { left: 2px; text-shadow: 3px 0 var(--credit-ch2); }
+		#board .header .credit-id-left { color: #FFE9A8; --credit-ch1: #C9A6F0; --credit-ch2: #3D8BFF; font-size: 2.1em; right: calc(50% + 115px); top: 55%; }
+		#board .header .credit-id-right { color: #FF9838; --credit-ch1: #FFE9A8; --credit-ch2: #9B6BE0; font-size: 2.1em; left: calc(50% + 115px); top: 5%; }
+		#board .header .header-text { position: relative; }
+		#board .header .header-text h1, #board .header .header-text p { transition: opacity 0.45s ease; }
+		#board .header .credit-id-center { color: #ffffff; --credit-ch1: #FFD98E; --credit-ch2: #B79CE4; font-size: 2em; left: 0; right: 0; text-align: center; top: calc(50% - 0.75em); }
+		#board .header:hover .credit-ghost { opacity: 0; }
+		#board .header:hover .credit-id { opacity: 1; visibility: visible; animation: credit-jolt 5s infinite; }
+		#board .header:hover .header-text h1, #board .header:hover .header-text p { opacity: 0; }
+		#board .header:hover .credit-id::before { animation: credit-noise-a 3.1s linear infinite alternate-reverse; }
+		#board .header:hover .credit-id::after { animation: credit-noise-b 2.3s linear infinite alternate-reverse; }
+		@keyframes credit-noise-a {
+			0% { clip-path: inset(38% 0 52% 0); transform: translateX(-2px); }
+			10% { clip-path: inset(8% 0 82% 0); transform: translateX(1px); }
+			20% { clip-path: inset(74% 0 14% 0); transform: translateX(-3px); }
+			30% { clip-path: inset(22% 0 62% 0); transform: translateX(2px); }
+			40% { clip-path: inset(88% 0 4% 0); transform: translateX(-1px); }
+			50% { clip-path: inset(4% 0 86% 0); transform: translateX(3px); }
+			60% { clip-path: inset(50% 0 34% 0); transform: translateX(-2px); }
+			70% { clip-path: inset(66% 0 20% 0); transform: translateX(1px); }
+			80% { clip-path: inset(14% 0 74% 0); transform: translateX(-1px); }
+			90% { clip-path: inset(80% 0 8% 0); transform: translateX(2px); }
+			100% { clip-path: inset(28% 0 58% 0); transform: translateX(-3px); }
+		}
+		@keyframes credit-noise-b {
+			0% { clip-path: inset(62% 0 24% 0); transform: translateX(2px); }
+			10% { clip-path: inset(16% 0 70% 0); transform: translateX(-1px); }
+			20% { clip-path: inset(84% 0 6% 0); transform: translateX(3px); }
+			30% { clip-path: inset(40% 0 46% 0); transform: translateX(-2px); }
+			40% { clip-path: inset(6% 0 84% 0); transform: translateX(1px); }
+			50% { clip-path: inset(70% 0 16% 0); transform: translateX(-3px); }
+			60% { clip-path: inset(26% 0 60% 0); transform: translateX(2px); }
+			70% { clip-path: inset(90% 0 2% 0); transform: translateX(-1px); }
+			80% { clip-path: inset(34% 0 52% 0); transform: translateX(1px); }
+			90% { clip-path: inset(12% 0 76% 0); transform: translateX(-2px); }
+			100% { clip-path: inset(56% 0 30% 0); transform: translateX(3px); }
+		}
+		@keyframes credit-jolt {
+			0%, 94%, 100% { transform: none; }
+			95% { transform: skewX(-12deg); }
+			96% { transform: skewX(8deg) translateX(-2px); }
+			97% { transform: translateX(2px); }
+		}
+		@media (max-width: 768px) {
+			#board .header .credit-ghost { width: 100px; height: 100px; top: 40px; }
+			#board .header .credit-ghost-left { right: calc(50% + 45px); }
+			#board .header .credit-ghost-right { left: calc(50% + 45px); }
+			#board .header .credit-id-left, #board .header .credit-id-right { font-size: 1.3em; }
+			#board .header .credit-id-left { right: calc(50% + 75px); }
+			#board .header .credit-id-right { left: calc(50% + 75px); }
+		}
+		#board .content-wrapper { display: flex; max-width: 1600px; margin: 2em auto 0; padding: 0 1.25em; gap: 1.25em; flex: 1; position: relative; }
+		#board .main-content { flex: 1; min-width: 0; max-width: 1000px; }
+		#board .sidebar { width: 240px; min-width: 240px; margin-left: 1.25em; }
+		#board .sidebar-fixed { position: sticky; top: 2em; width: 240px; display: flex; flex-direction: column; gap: 1.25em; margin-bottom: 1em; }
+		#board .function-card { background: var(--color-bg-card-translucent); border-radius: 0.9375em; padding: 1em; box-shadow: 0 4px 15px var(--color-shadow); backdrop-filter: blur(10px); border: 1px solid color-mix(in srgb, var(--color-border) 20%, transparent); }
+		#board .function-title { color: var(--color-text-board); font-size: 1.125em; margin-bottom: 1.25em; padding-bottom: 0.625em; border-bottom: 2px solid var(--color-border-board); display: flex; align-items: center; }
+		#board .function-title i { margin-right: 0.2em; font-size: 1.375em; }
+		#board .quick-access { display: flex; flex-direction: column; gap: 0.75em; }
+		#board .quick-item { background: var(--color-bg-primary); border-radius: 0.75em; padding: 0.75em; text-align: left; transition: all 0.3s ease; cursor: pointer; border: 1px solid transparent; display: flex; align-items: center; gap: 0.5em; }
+		#board .quick-item:hover { transform: translateX(5px); border-color: var(--color-border-board); background: var(--color-bg-card); box-shadow: 0 5px 15px var(--color-shadow); }
+		#board .quick-item i { font-size: 1.25em; color: var(--color-accent-board); margin-bottom: 0; }
+		#board .quick-item .full-text { display: block; color: var(--color-text-board); font-weight: 500; font-size: 0.9em; }
+		#board .quick-item .short-text { display: none; }
+		#board .quick-item small { display: block; color: var(--color-text-secondary); font-size: 0.75em; }
+		#board .item-text { flex: 1; }
+		#board .section { background: var(--color-bg-card-translucent); border-radius: 0.9375em; margin-bottom: 1.5625em; padding: 1.5625em; box-shadow: 0 4px 15px var(--color-shadow); }
+		#board .section-title { color: var(--color-text-board); font-size: 1.5em; margin-bottom: 1.25em; padding-bottom: 0.625em; border-bottom: 2px solid var(--color-border-board); display: flex; align-items: center; }
+		#board .section-title i { margin-right: 0.625em; font-size: 1.75em; }
+		#board .feature-content { background: var(--color-bg-card); border-radius: 0.625em; padding: 1.25em; margin-top: 0.9375em; box-shadow: 0 2px 5px var(--color-shadow); }
+		#board .feature-content:hover { transform: translateX(5px); box-shadow: 2px 4px 10px var(--color-shadow); }
+		#board .feature-content h4 { color: var(--color-accent-board); margin-bottom: 0.9375em; font-size: 1.125em; display: flex; align-items: center; }
+		#board .feature-content h4 i { margin-right: 0.5em; font-size: 1.25em; }
+		#board .content-detail p { color: var(--color-text-secondary); margin: 0.625em 0; padding-left: 1.25em; position: relative; }
+		#board .content-detail p::before { content: '•'; position: absolute; left: 0.3125em; color: var(--color-accent-board); }
+		#board .footer { background: var(--sidebar-bg-gradient); color: var(--color-text-inverted); text-align: center; padding: 0.9375em 0; box-shadow: 0 -4px 10px var(--color-shadow); margin-top: auto; }
+		#board .footer i { margin-right: 0.5em; }
+		#board .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--color-bg-backdrop); backdrop-filter: blur(0.5em); z-index: 9999; }
+		#board .modal-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: var(--color-bg-card-translucent); padding: 1.5em; border-radius: 1em; width: 80%; max-width: 40em; max-height: 80vh; overflow-y: auto; box-shadow: 0 0.5em 1.5em var(--color-shadow); opacity: 0; transition: all 0.3s ease; z-index: 10000; font-size: 1em; }
+		#board .modal.active { display: block; }
+		#board .modal.active .modal-content { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+		#board .modal-content h2 { color: var(--color-text-board); margin-bottom: 1em; border-bottom: 2px solid var(--color-border-board); padding-bottom: 0.5em; }
+		#board .modal-content p { color: var(--color-text-secondary); margin-bottom: 0.8em; line-height: 1.5; }
+		#board .modal-content ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
+		#board .modal-content li { color: var(--color-text-secondary); margin-bottom: 0.5em; line-height: 1.5; }
+		#board .modal-content strong { color: var(--color-accent-board); }
+		#board .close-button { position: absolute; right: 1em; top: 0.2em; background: none; border: none; font-size: 0.5em; cursor: pointer; color: var(--color-text-board); transition: transform 0.2s; z-index: 10001; }
+		#board .close-button:hover { transform: rotate(90deg); }
+		#board .modal-content button { background-color: var(--color-accent-board); color: var(--color-text-inverted); padding: 0.6em 1em; border: none; border-radius: 0.5em; cursor: pointer; transition: background-color 0.3s ease; margin-top: 1em; display: inline-block; }
+		#board .modal-content button:hover { filter: brightness(0.9); }
+		#prompt-editor-panel { font-family: var(--font-family-editor); background-color: var(--color-bg-secondary); color: var(--color-text-primary); line-height: 1.6; }
+		#prompt-editor-panel * { box-sizing: border-box; margin: 0; padding: 0; }
+		#prompt-editor-panel #prompt-editor-l4m5n6o7 { display: flex; flex-direction: column; height: 100%; }
+		#prompt-editor-panel .editor-header { background-color: var(--color-bg-card); padding: 0.5em 1.5em; border-bottom: 1px solid var(--color-border); box-shadow: 0 2px 8px var(--color-shadow); position: relative; width: 100%; z-index: 100; flex-shrink: 0; }
+		#prompt-editor-panel .header-row { display: flex; align-items: center; min-height: 45px; flex-wrap: wrap; }
+		#prompt-editor-panel .header-row-1 { justify-content: center; }
+		#prompt-editor-panel .header-row-2, #prompt-editor-panel .header-row-3 { border-top: 1px solid var(--color-border); gap: 0.5em; }
+		#prompt-editor-panel #file-name { font-size: 1.1em; font-weight: 600; padding: 0.2em 0.5em; border-radius: 4px; outline: none; cursor: text; color: var(--color-text-primary); }
+		#prompt-editor-panel #file-name:hover, #prompt-editor-panel #file-name:focus { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel .icon-btn { position: relative; background: none; border: none; padding: 0.6em; border-radius: 8px; cursor: pointer; }
+		#prompt-editor-panel .icon-btn:disabled { cursor: not-allowed; opacity: 0.4; }
+		#prompt-editor-panel .icon-btn svg { width: 22px; height: 22px; stroke: var(--color-text-primary); stroke-width: 1.5; fill: none; vertical-align: middle; }
+		#prompt-editor-panel .icon-btn:hover:not(:disabled) { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel .icon-btn::after { content: attr(data-tooltip); position: absolute; bottom: 125%; left: 50%; transform: translateX(-50%); background-color: var(--color-text-primary); color: var(--color-bg-card); padding: 0.3em 0.7em; border-radius: 4px; font-size: 0.8em; white-space: nowrap; opacity: 0; visibility: hidden; transition: opacity 0.2s ease 0.1s, visibility 0.2s ease 0.1s; }
+		#prompt-editor-panel .icon-btn:hover::after { opacity: 1; visibility: visible; }
+		#prompt-editor-panel .toolbar-group { position: relative; }
+		#prompt-editor-panel .sub-menu { display: none; position: absolute; top: calc(100% + 5px); left: 0; background-color: var(--color-bg-card); border-radius: 8px; box-shadow: 0 4px 12px var(--color-shadow); padding: 0.5em; z-index: 101; flex-direction: column; gap: 0.5em; }
+		#prompt-editor-panel .sub-menu.active { display: flex; }
+		#prompt-editor-panel .sub-menu-btn { background: none; border: 1px solid var(--color-border); padding: 0.5em 0.8em; border-radius: 6px; cursor: pointer; font-weight: 600; color: var(--color-text-primary); }
+		#prompt-editor-panel .sub-menu-btn:hover { background-color: var(--color-bg-secondary); border-color: var(--color-accent-secondary); }
+		#prompt-editor-panel #title-submenu { flex-direction: row; flex-wrap: wrap; width: 180px; }
+		#prompt-editor-panel .editor-main { display: flex; gap: 1.5em; height: calc(100% - var(--header-height)); padding: 1.5em; flex-grow: 1; }
+		#prompt-editor-panel #workspace { flex: 1; min-width: 0; overflow-y: auto; height: 100%; padding: 15px 1em 15px 0; }
+		#prompt-editor-panel #preview-container { flex-basis: 45%; flex-shrink: 0; height: 100%; position: sticky; top: 1.5em; }
+		#prompt-editor-panel .preview-wrapper { background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 12px; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+		#prompt-editor-panel .preview-header { display: flex; justify-content: space-between; align-items: center; padding: 0.8em 1em; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+		#prompt-editor-panel .preview-header h2 { font-size: 1.1em; color: var(--color-accent-primary); margin: 0; }
+		#prompt-editor-panel .font-size-control { display: flex; align-items: center; gap: 0.5em; }
+		#prompt-editor-panel .font-size-btn { color: var(--color-accent-primary); cursor: pointer; font-weight: bold; user-select: none; }
+		#prompt-editor-panel .font-size-btn:hover { transform: scale(1.2); }
+		#prompt-editor-panel #preview-font-size { font-weight: bold; padding: 0.1em 0.3em; border-radius: 4px; outline: none; min-width: 2em; text-align: center; color: var(--color-text-primary); background-color: transparent; }
+		#prompt-editor-panel #preview-font-size:focus { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel #preview-output { flex-grow: 1; border: none; padding: 1em; font-family: monospace; font-size: 14px; background-color: transparent; resize: none; white-space: pre-wrap; color: var(--color-text-primary); }
+		#prompt-editor-panel .sortable-ghost { opacity: 0.4; background: var(--color-accent-secondary); border: 1px dashed var(--color-accent-primary); }
+		#prompt-editor-panel .module-wrapper { padding-left: var(--indentation-unit); border-left: 2px solid var(--color-border); margin-top: 0.5em; min-height: 20px; }
+		#prompt-editor-panel .module-card { background-color: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 8px; padding: 1em; box-shadow: 0 1px 3px var(--color-shadow); position: relative; }
+		#prompt-editor-panel .module-card + .module-card, #prompt-editor-panel .module-card + .module-wrapper, #prompt-editor-panel .module-wrapper + .module-card { margin-top: 0.8em; }
+		#prompt-editor-panel .module-card.collapsed .module-wrapper { display: none; }
+		#prompt-editor-panel .module-tag { position: absolute; top: -10px; left: 10px; background-color: var(--color-accent-secondary); color: white; padding: 0.1em 0.6em; font-size: 0.75em; font-weight: 600; border-radius: 10px; }
+		#prompt-editor-panel .module-header { display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em; padding-top: 0.5em; }
+		#prompt-editor-panel .drag-handle { cursor: grab; color: #bdc3c7; }
+		#prompt-editor-panel .drag-handle:active { cursor: grabbing; }
+		#prompt-editor-panel .collapse-btn { background: none; border: none; cursor: pointer; padding: 0.3em; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+		#prompt-editor-panel .collapse-btn:hover { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel .collapse-btn svg { width: 18px; height: 18px; fill: var(--color-accent-primary); }
+		#prompt-editor-panel .module-card.collapsed .collapse-btn svg { transform: rotate(-90deg); }
+		#prompt-editor-panel .module-content textarea, #prompt-editor-panel .code-lang-input { width: 100%; border: none; outline: none; font-family: var(--font-family-editor); font-size: 1em; padding: 0.5em; background-color: var(--color-bg-secondary); border-radius: 4px; color: var(--color-text-primary); }
+		#prompt-editor-panel .module-content textarea { overflow-y: hidden; min-height: calc(1.6em + 1em); resize: none; }
+		#prompt-editor-panel .code-lang-input { margin-bottom: 0.5em; }
+		#prompt-editor-panel .list-item.sortable-ghost { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel .list-item-drag-handle { cursor: grab; color: #ccc; padding: 0 0.3em; }
+		#prompt-editor-panel .list-item-drag-handle:active { cursor: grabbing; }
+		#prompt-editor-panel .list-type-toggle { cursor: pointer; font-weight: bold; color: var(--color-accent-primary); user-select: none; width: 2.5em; text-align: center; }
+		#prompt-editor-panel .indent-btn { color: var(--color-accent-primary); cursor: pointer; font-size: 1.2em; user-select: none; }
+		#prompt-editor-panel .indent-btn:hover:not(.disabled) { transform: scale(1.2); }
+		#prompt-editor-panel .indent-btn.disabled { color: #bdc3c7; cursor: not-allowed; }
+		#prompt-editor-panel .indent-level { font-weight: bold; color: var(--color-text-primary); }
+		#prompt-editor-panel .delete-list-item-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 1.2em; padding: 0 0.3em; }
+		#prompt-editor-panel .delete-list-item-btn:hover { color: var(--color-accent-error); }
+		#prompt-editor-panel .add-list-item-btn { display: block; margin-top: 0.5em; background: none; border: 1px dashed var(--color-border); color: var(--color-accent-primary); padding: 0.5em; border-radius: 6px; cursor: pointer; text-align: center; }
+		#prompt-editor-panel .delete-btn { position: absolute; top: 10px; right: 10px; background: none; border: none; cursor: pointer; font-size: 1.2em; color: #bdc3c7; }
+		#prompt-editor-panel .modal-btn { padding: 0.7em 1.5em; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; font-size: 0.9em; }
+		#prompt-editor-panel .modal-btn:active { transform: scale(0.98); }
+		#prompt-editor-panel .modal-btn.primary { background-color: var(--color-accent-primary); color: white; }
+		#prompt-editor-panel .modal-btn.primary:hover { filter: brightness(0.85); }
+		#prompt-editor-panel .modal-btn.secondary { background-color: var(--color-border); color: var(--color-text-primary); }
+		#prompt-editor-panel .modal-btn.secondary:hover { filter: brightness(0.9); }
+		#prompt-editor-panel .modal-btn.danger { background-color: transparent; color: var(--color-accent-error); border: 1px solid var(--color-border); }
+		#prompt-editor-panel .modal-btn.danger:hover { background-color: var(--color-accent-error); color: white; border-color: var(--color-accent-error); }
+		#prompt-editor-panel .modal-input, #prompt-editor-panel .modal-textarea { width: 100%; padding: 0.8em 1em; border: 1px solid var(--color-border); border-radius: 8px; font-family: var(--font-family-editor); font-size: 1em; background-color: var(--color-bg-input); color: var(--color-text-primary); }
+		#prompt-editor-panel .modal-input:focus, #prompt-editor-panel .modal-textarea:focus { outline: none; border-color: var(--color-accent-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 15%, transparent); background-color: var(--color-bg-input-focus); }
+		#prompt-editor-panel .modal-textarea { resize: vertical; min-height: 80px; }
+		#prompt-editor-panel .file-input-wrapper { position: relative; display: inline-block; width: 100%; }
+		#prompt-editor-panel #import-file-input { position: absolute; left: -9999px; }
+		#prompt-editor-panel .file-input-label { display: block; text-align: center; padding: 0.7em 1.5em; background-color: var(--color-accent-success); color: white; border-radius: 8px; cursor: pointer; }
+		#prompt-editor-panel .file-input-label:hover { filter: brightness(0.9); }
+		#prompt-editor-panel #import-divider { text-align: center; margin: 1em 0; color: var(--color-text-placeholder); }
+		#prompt-editor-panel #context-menu { position: fixed; display: none; flex-direction: column; background-color: var(--color-bg-card); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); padding: 0.5em; z-index: 2000; }
+		#prompt-editor-panel .context-menu-btn { background: none; border: none; padding: 0.6em 1em; text-align: left; cursor: pointer; border-radius: 4px; font-size: 0.9em; white-space: nowrap; color: var(--color-text-primary); }
+		#prompt-editor-panel .context-menu-btn:hover { background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel .context-menu-divider { height: 1px; background-color: var(--color-border); margin: 0.4em 0; }
+		#prompt-editor-panel .editor-main.preview-hidden #preview-container { display: none; }
+		#prompt-editor-panel #custom-function-list, #prompt-editor-panel #template-list { max-height: 35vh; overflow-y: auto; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: 8px; padding: 0.5em; margin: 1em 0 1.5em 0; }
+		#prompt-editor-panel .window-container { position: fixed; display: none; flex-direction: column; border-radius: 12px; background-color: var(--color-bg-card); box-shadow: 0 10px 30px var(--color-shadow); border: 1px solid var(--color-border); overflow: hidden; min-width: 250px; min-height: 150px; font-size: 16px; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60vw; aspect-ratio: 1 / 1; max-height: 85vh; }
+		#prompt-editor-panel .window-header { display: flex; justify-content: space-between; align-items: center; padding: 0.5em 1em; background-color: var(--color-bg-secondary); border-bottom: 1px solid var(--color-border); cursor: move; user-select: none; flex-shrink: 0; }
+		#prompt-editor-panel .window-title { font-weight: 700; font-size: 1em; color: var(--color-accent-primary); }
+		#prompt-editor-panel .window-close-btn { background: none; border: none; font-size: 1.5em; line-height: 1; cursor: pointer; color: #aaa; padding: 0.2em; border-radius: 50%; }
+		#prompt-editor-panel .window-close-btn:hover { background-color: var(--color-accent-error); color: white; }
+		#prompt-editor-panel .window-content { padding: 1.5em; overflow-y: auto; flex-grow: 1; }
+		#prompt-editor-panel .resize-handle { position: absolute; right: 0; bottom: 0; width: 1em; height: 1em; cursor: se-resize; background: linear-gradient(135deg, transparent 50%, var(--color-border) 50%); max-height: 85vh; }
+		#prompt-editor-panel .find-replace-grid { display: grid; grid-template-columns: 1fr auto; gap: 1em; }
+		#prompt-editor-panel .find-replace-main { display: flex; flex-direction: column; gap: 1em; }
+		#prompt-editor-panel .find-replace-actions { display: flex; flex-direction: column; gap: 0.8em; }
+		#prompt-editor-panel .find-replace-actions .modal-btn { width: 100%; }
+		#prompt-editor-panel .find-options { border: 1px solid var(--color-border); border-radius: 8px; padding: 0.8em; margin-top: 0.5em; }
+		#prompt-editor-panel .find-options legend { font-weight: 600; font-size: 0.9em; padding: 0 0.5em; color: var(--color-accent-primary); }
+		#prompt-editor-panel .find-label { display: flex; align-items: center; gap: 0.5em; cursor: pointer; font-size: 0.9em; }
+		#prompt-editor-panel .input-with-counter { position: relative; display: flex; align-items: center; }
+		#prompt-editor-panel .input-with-counter .modal-input { flex-grow: 1; }
+		#prompt-editor-panel #find-counter { position: absolute; right: 0.5em; top: 50%; transform: translateY(-50%); color: var(--color-text-secondary); font-size: 0.9em; user-select: none; background-color: var(--color-bg-secondary); padding: 0.2em 0.5em; border-radius: 4px; }
+		#prompt-editor-panel #custom-dialog-window .window-content { text-align: center; }
+		#prompt-editor-panel #custom-dialog-message { margin-bottom: 1.5em; font-size: 1.1em; white-space: pre-line; }
+		/* [新增] 代码清理浮窗 */
+		#code-cleaner-window .cleaner-options { display: flex; flex-wrap: wrap; gap: 0.4em 1.2em; margin-bottom: 1em; }
+		#code-cleaner-window .modal-textarea { min-height: 9em; }
+		#code-cleaner-window .cleaner-stats { margin: 0.8em 0; font-size: 0.9em; color: var(--color-text-secondary); }
+		#code-cleaner-window .cleaner-actions { display: flex; gap: 1em; justify-content: flex-end; margin-top: 1em; flex-wrap: wrap; }
+		#prompt-editor-panel .window-header-btns { display: flex; align-items: center; gap: 0.2em; }
+		#prompt-editor-panel .window-maximize-btn { background: none; border: none; cursor: pointer; color: #aaa; padding: 0.3em; border-radius: 6px; display: flex; align-items: center; }
+		#prompt-editor-panel .window-maximize-btn:hover { background-color: var(--color-bg-hover); color: var(--color-accent-primary); }
+		#prompt-editor-panel .window-container.maximized { top: 0 !important; left: 0 !important; transform: none !important; width: 100vw !important; height: 100vh !important; max-height: 100vh; aspect-ratio: auto; border-radius: 0; }
+		#prompt-editor-panel .window-container.maximized .resize-handle { display: none; }
+		/* 窗口全屏时输入/输出框平分剩余高度 */
+		#code-cleaner-window.maximized .window-content { display: flex; flex-direction: column; }
+		#code-cleaner-window.maximized .cleaner-box { flex: 1 1 0; min-height: 0; display: flex; }
+		#code-cleaner-window.maximized .cleaner-box .modal-textarea { flex: 1; min-height: 0; }
+		/* 输入/结果框：去掉原生拖拽角，右上角全屏按钮 */
+		#code-cleaner-window .cleaner-box { position: relative; }
+		#code-cleaner-window .cleaner-box .modal-textarea { resize: none; display: block; width: 100%; }
+		#code-cleaner-window .cleaner-box-fs-btn { position: absolute; top: 0.4em; right: 0.9em; background: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; color: var(--color-text-secondary); padding: 0.25em 0.35em; display: flex; align-items: center; opacity: 0.65; }
+		#code-cleaner-window .cleaner-box-fs-btn:hover { opacity: 1; color: var(--color-accent-primary); }
+		/* 单框全屏：铺满整个浮窗（浮窗随之最大化） */
+		#code-cleaner-window .cleaner-box.box-fullscreen { position: absolute; top: 0; right: 0; bottom: 0; left: 0; z-index: 20; background: var(--color-bg-card); padding: 1em; display: flex; }
+		#code-cleaner-window .cleaner-box.box-fullscreen .modal-textarea { flex: 1; min-height: 0; height: auto; }
+		#code-cleaner-window .cleaner-box.box-fullscreen .cleaner-box-fs-btn { top: 1.5em; right: 2em; opacity: 0.95; padding: 0.5em 0.6em; background: var(--color-bg-secondary); border-color: var(--color-accent-primary); color: var(--color-accent-primary); box-shadow: 0 2px 10px var(--color-shadow); }
+		#prompt-editor-panel #custom-dialog-input { width: 100%; margin-bottom: 1em; }
+		#prompt-editor-panel #custom-dialog-buttons { display: flex; justify-content: center; gap: 1em; }
+		#prompt-editor-panel .table-module-content { overflow-x: auto; }
+		#prompt-editor-panel .table-module-content table { border-collapse: collapse; width: 100%; }
+		#prompt-editor-panel .table-module-content th, #prompt-editor-panel .table-module-content td { border: 1px solid var(--color-border); }
+		#prompt-editor-panel .table-module-content textarea { background: none; padding: 0.5em; text-align: center; min-height: 2.6em; }
+		#prompt-editor-panel .details-summary { display: flex; align-items: center; gap: 0.5em; }
+		#prompt-editor-panel .details-summary textarea { flex-grow: 1; }
+		#prompt-editor-panel #help-window .window-content { font-size: 0.9em; }
+		#prompt-editor-panel #help-window details { margin-bottom: 1em; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden; }
+		#prompt-editor-panel #help-window summary { font-weight: 700; cursor: pointer; padding: 0.8em 1em; background-color: var(--color-bg-secondary); }
+		#prompt-editor-panel #help-window .help-content { padding: 1em; }
+		#prompt-editor-panel #help-window .help-content p, #prompt-editor-panel #help-window .help-content h4 { margin-bottom: 0.5em; }
+		#prompt-editor-panel #help-window .help-content h4 { margin-top: 1em; font-size: 1.1em; color: var(--color-accent-primary); border-bottom: 1px solid var(--color-border); padding-bottom: 0.3em;}
+		#prompt-editor-panel #help-window .help-content code { background-color: var(--color-border); padding: 0.2em 0.4em; border-radius: 4px; }
+		#prompt-editor-panel #templates-window .window-footer { display: flex; gap: 1em; justify-content: flex-end; padding-top: 1.5em; border-top: 1px solid var(--color-border); }
+		.theme-switcher-pc {
+			margin-top: auto;
+			padding: 1em 0; /* [修改] 移除左右padding */
+			display: flex; /* [新增] */
+			justify-content: center; /* [新增] 水平居中 */
+		}
+        .theme-switcher-pc .theme-btn {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4em;
+            position: relative;
+            width: 3.5em;
+            height: 1.8em;
+            box-sizing: content-box;
+        }
+        .theme-switcher-pc .theme-btn svg {
+            width: 1.5em;
+            height: 1.5em;
+            color: #f1c40f;
+            position: absolute;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        /* [新增] 为调试工具图标设置与主题切换图标一致的样式 */
+        .dev-console-trigger .theme-btn .icon-dev {
+            width: 1.5em;
+            height: 1.5em;
+            color: #f1c40f; /* 与主题切换的太阳图标颜色保持一致 */
+            stroke: currentColor; /* [新增] 确保SVG的线条颜色是我们定义的color */
+        }
+		.dev-console-trigger .theme-btn {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.4em;
+            position: relative;
+            width: 3.5em;
+            height: 1.8em;
+            box-sizing: content-box;
+        }
+        /* 默认(白天)显示太阳 */
+        .theme-switcher-pc .icon-sun { opacity: 1; transform: scale(1); }
+        .theme-switcher-pc .icon-moon { opacity: 0; transform: scale(0); }
+        /* 暗黑模式下显示月亮 */
+        html.dark-mode .theme-switcher-pc .icon-sun { opacity: 0; transform: scale(0); }
+        html.dark-mode .theme-switcher-pc .icon-moon { opacity: 1; transform: scale(1); }
+		.mobile-nav, .mobile-theme-switcher-container {
+			display: none;
+		}
+		.mobile-tools-sidebar {
+			display: none;
+		}
+		@media (max-width: 768px) {
+			.theme-switcher-pc {
+				display: none;
+			}
+			/* [新增] 移动端主题切换按钮容器 */
+			.mobile-theme-switcher-container {
+				display: block;
+				position: fixed;
+				top: 3em; /* 位于汉堡菜单下方 */
+				left: 0.5em;
+				z-index: 60;
+			}
+			/* [新增] 移动端主题切换按钮本身 */
+			.mobile-theme-btn {
+				width: 2.5em;
+				height: 2.5em;
+				background-color: var(--color-accent-board);
+				border: none;
+				border-radius: 0.5em;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				cursor: pointer;
+				padding: 0;
+				color: white;
+			}
+			.mobile-theme-btn svg {
+				width: 1.5em;
+				height: 1.5em;
+			}
+            /* 默认(白天)显示太阳 */
+            .mobile-theme-btn .icon-sun { display: block; }
+            .mobile-theme-btn .icon-moon { display: none; }
+            /* 暗黑模式下显示月亮 */
+            html.dark-mode .mobile-theme-btn .icon-sun { display: none; }
+            html.dark-mode .mobile-theme-btn .icon-moon { display: block; }
+			.sidebar-nav {
+				display: none;
+			}
+			.content-area {
+				width: 100%;
+			}
+			#board .content-wrapper {
+				flex-direction: column;
+			}
+			#board .sidebar {
+				width: 100%;
+				margin-left: 0;
+			}
+			#board .sidebar-fixed {
+				position: static;
+				width: 100%;
+			}
+			.mobile-nav {
+				display: block;
+				position: fixed;
+				top: 0.5em;
+				left: 0.5em;
+				z-index: 500;
+			}
+			.mobile-nav-toggle {
+				width: 2.5em;
+				height: 2.5em;
+				background-color: var(--color-accent-board);
+				border: none;
+				border-radius: 0.5em;
+				display: flex;
+				flex-direction: column;
+				justify-content: space-around;
+				padding: 0.6em;
+				cursor: pointer;
+				transition: transform 0.3s ease;
+			}
+			.mobile-nav-toggle span {
+				width: 100%;
+				height: 3px;
+				background-color: white;
+				border-radius: 2px;
+			}
+			.mobile-nav-toggle.active {
+				transform: rotate(180deg);
+			}
+			.mobile-nav-menu {
+				display: none;
+				position: absolute;
+				top: 100%;
+				left: 0;
+				background-color: var(--color-bg-card);
+				border-radius: 0.5em;
+				box-shadow: 0 4px 15px var(--color-shadow);
+				padding: 0.5em;
+				margin-top: 0.5em;
+				width: max-content;
+				z-index: 500;
+			}
+			.mobile-nav-menu.active {
+				display: block;
+			}
+			.mobile-nav-menu a {
+				display: block;
+				padding: 0.8em 1.2em;
+				color: var(--color-text-primary);
+				text-decoration: none;
+				border-radius: 4px;
+			}
+			.mobile-nav-menu a:hover {
+				background-color: var(--color-bg-secondary);
+			}
+			#prompt-editor-panel { --header-height: auto; }
+			#prompt-editor-panel .editor-header { position: static; display: flex; flex-wrap: wrap; padding: 0.5em 0.8em; align-items: center; box-shadow: 0 1px 4px var(--color-shadow); }
+			#prompt-editor-panel .editor-main { margin-top: 0; flex: 1; min-height: 0; padding: 1em; }
+			#prompt-editor-panel .header-row { border-top: none !important; min-height: auto; padding: 0; width: 100%; }
+			#prompt-editor-panel .header-row-1 {
+				justify-content: center;
+				padding-left: 4em;
+				padding-right: 4em;
+			}
+			#prompt-editor-panel #file-name {
+				margin-right: 0;
+				text-align: center;
+			}
+			#prompt-editor-panel .header-row-2 {
+				display: none;
+			}
+			#prompt-editor-panel .header-row-3 {
+				padding-top: 0.5em;
+				justify-content: center;
+			}
+			#prompt-editor-panel .icon-btn { padding: 0.4em; }
+			#prompt-editor-panel .icon-btn svg { width: 20px; height: 20px; }
+			#prompt-editor-panel #preview-container { position: relative; top: 0; flex-basis: auto; height: 100%; display: none; }
+			#prompt-editor-panel #workspace { display: flex; flex-direction: column; }
+			#prompt-editor-panel .editor-main.mobile-preview-active #workspace { display: none; }
+			#prompt-editor-panel .editor-main.mobile-preview-active #preview-container { display: flex; width: 100%; flex: 1 1 auto; padding: 0; }
+			#prompt-editor-panel .editor-main.mobile-preview-active .preview-wrapper { width: 100%; }
+			#prompt-editor-panel .find-replace-grid { grid-template-columns: 1fr; }
+			#prompt-editor-panel .window-container { width: 90vw; height: auto; max-height: 85vh; top: 5vh; left: 5vw; transform: none; font-size: 14px; }
+			#prompt-editor-panel .resize-handle { display: none; }
+			.mobile-tools-sidebar {
+				display: block;
+				position: fixed;
+				top: 0.5em;
+				right: 0.5em;
+				z-index: 60;
+			}
+			.mobile-tools-toggle {
+				width: 2.5em;
+				height: 2.5em;
+				background-color: var(--color-accent-board);
+				border: none;
+				border-radius: 0.5em;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				cursor: pointer;
+				padding: 0;
+			}
+			.mobile-tools-sidebar.active .mobile-tools-toggle {
+				transform: rotate(180deg);
+			}
+			.mobile-tools-toggle svg {
+				width: 1.5em;
+				height: 1.5em;
+				stroke: var(--color-text-inverted);
+				stroke-width: 2;
+				fill: none;
+			}
+			.mobile-tools-panel {
+				position: absolute;
+				top: calc(100% + 0.5em);
+				right: 0;
+				max-height: 80vh;
+				overflow-y: auto;
+				scrollbar-width: none;
+				-ms-overflow-style: none;
+				background:
+					linear-gradient(var(--color-bg-card) 30%, rgba(255, 255, 255, 0)) 0 0,
+					linear-gradient(rgba(255, 255, 255, 0), var(--color-bg-card) 70%) 0 100%,
+					radial-gradient(farthest-side at 50% 0, color-mix(in srgb, var(--color-accent-board) 30%, transparent), rgba(0, 0, 0, 0)) 0 0,
+					radial-gradient(farthest-side at 50% 100%, color-mix(in srgb, var(--color-accent-board) 30%, transparent), rgba(0, 0, 0, 0)) 0 100%,
+					var(--color-bg-card-translucent);
+				background-repeat: no-repeat;
+				background-size: 100% 40px, 100% 40px, 100% 15px, 100% 15px, 100% 100%;
+				background-attachment: local, local, scroll, scroll, scroll;
+				display: flex;
+				flex-direction: column;
+				gap: 0.4em;
+				padding: 0.5em;
+				backdrop-filter: blur(8px);
+				border-radius: 0.8em;
+				box-shadow: 0 5px 15px var(--color-shadow);
+				opacity: 0;
+				transform: translateY(-10px);
+				visibility: hidden;
+			}
+			.mobile-tools-panel::-webkit-scrollbar {
+				display: none;
+			}
+			.mobile-tools-sidebar.active .mobile-tools-panel {
+				opacity: 1;
+				transform: translateY(0);
+				visibility: visible;
+			}
+			#prompt-editor-panel #workspace .module-card {
+				background-color: var(--color-bg-card) !important;
+				border: 1px solid var(--color-border) !important;
+				box-shadow: 0 1px 4px var(--color-shadow) !important;
+				border-radius: 6px 0 0 6px !important;
+				margin: 0 0 0.6em 0 !important;
+				padding: 0.8em 0 0.8em 0.8em;
+			}
+			#prompt-editor-panel .module-card > .module-header,
+			#prompt-editor-panel .module-card > .module-content {
+				padding-right: 0.8em;
+			}
+			#prompt-editor-panel .module-wrapper {
+				position: relative;
+				padding-left: 0.6em;
+				margin: 0 !important;
+				border: none !important;
+			}
+			#prompt-editor-panel .module-wrapper::before {
+				content: '';
+				position: absolute;
+				left: 0em;
+				top: 0;
+				bottom: 0;
+				width: 3px;
+				border-radius: 3px;
+			}
+			html.dark-mode #prompt-editor-panel .module-wrapper::before {
+				filter: brightness(0.7);
+			}
+			#prompt-editor-panel > .module-wrapper::before { background-color: #89cff0; }
+			#prompt-editor-panel .module-wrapper .module-wrapper::before { background-color: #98fb98; }
+			#prompt-editor-panel .module-wrapper .module-wrapper .module-wrapper::before { background-color: #fffacd; }
+			#prompt-editor-panel .module-wrapper .module-wrapper .module-wrapper .module-wrapper::before { background-color: #dda0dd; }
+			#prompt-editor-panel .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper::before { background-color: #ffc09f; }
+			#prompt-editor-panel .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper::before { background-color: #a0e7e5; }
+			#prompt-editor-panel .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper .module-wrapper::before { background-color: #ffb6c1; }
+			#prompt-editor-panel .module-content textarea,
+			#prompt-editor-panel .code-lang-input,
+			#prompt-editor-panel .list-item-input {
+				background-color: var(--color-bg-input);
+				border-radius: 4px;
+				padding: 0.5em 0.6em;
+				border: 1px solid var(--color-border-input);
+			}
+			#prompt-editor-panel .module-content textarea:focus,
+			#prompt-editor-panel .code-lang-input:focus,
+			#prompt-editor-panel .list-item-input:focus {
+				background-color: var(--color-bg-input-focus);
+				border-color: var(--color-accent-primary);
+				box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent-primary) 15%, transparent);
+			}
+			#prompt-editor-panel .list-item {
+				display: flex;
+				flex-wrap: wrap;
+				justify-content: space-between;
+				align-items: center;
+				padding: 0.5em 0;
+			}
+			#prompt-editor-panel .list-item-controls,
+			#prompt-editor-panel .delete-list-item-btn {
+				order: 1;
+			}
+			#prompt-editor-panel .list-item-input {
+				width: 100%;
+				order: 2;
+				margin-top: 0.6em;
+			}
+			#prompt-editor-panel .list-item-controls {
+				display: flex;
+				align-items: center;
+				gap: 0.5em;
+			}
+			#prompt-editor-panel .list-item-controls > span {
+				font-size: 1em;
+				padding: 0 0.2em;
+			}
+			#prompt-editor-panel .list-type-toggle {
+				width: auto;
+				min-width: 1.5em;
+				position: relative;
+				cursor: pointer;
+			}
+			#prompt-editor-panel .list-type-toggle::before {
+				content: '';
+				position: absolute;
+				inset: -0.5em;
+			}
+			#prompt-editor-panel .delete-list-item-btn {
+				padding: 0 0.4em;
+			}
+		}
+		/* --- 开屏动画样式 --- */
+/* --- 在 :root {} 中添加 --- */
+:root {
+    --splash-frame-bg-color: #e9f2fa; /* 白天模式下，画框的实心背景色 */
+    --splash-frame-border-color: #a8c0d8; /* 白天模式下，画框的边框颜色 */
+    --splash-highlight-shadow: 0 0 10px rgba(0, 123, 255, 0.4);
+}
+/* --- 在 html.dark-mode {} 中添加 --- */
+html.dark-mode {
+    --splash-frame-bg-color: #3a4a6c; /* 夜晚模式下，画框的实心背景色 */
+    --splash-frame-border-color: #e6d5a1; /* 夜晚模式下，画框的边框颜色 */
+    --splash-highlight-shadow: 0 0 15px rgba(200, 176, 112, 0.5);
+}
+		#splash-screen {
+			position: fixed;
+			top: 0;
+			left: 0;
+			width: 100vw;
+			height: 100vh;
+			background-color: var(--color-bg-primary);
+			z-index: 99999;
+			overflow: hidden;
+			transition: background-color 0.3s ease;
+		}
+		.splash-door {
+			position: absolute;
+			top: 0;
+			width: 50%;
+			height: 100%;
+			transition: background-image 0.3s ease;
+		}
+		#splash-door-left {
+			position: relative;
+			left: 0;
+			background-image:
+				var(--splash-door-left-bg);
+			transform: translateX(-100%);
+		}
+		#splash-door-right {
+			right: 0;
+			background-image: var(--splash-door-right-bg);
+			transform: translateX(100%);
+		}
+		html.dark-mode #splash-door-right {
+		}
+		/* 这是画框两个“半圆”的通用样式 */
+		#splash-door-left::before,
+		#splash-door-right::before {
+			content: '';
+			position: absolute;
+			top: 30%;
+			transform: translateY(-50%);
+			width: 4em; /* 画框半径 (总直径为10em) */
+			height: 8em; /* 画框直径 */
+			background-color: var(--splash-frame-bg-color); /* 画框的实心背景色 */
+		}
+		/* 左门上的“右半边”画框 */
+		#splash-door-left::before {
+			right: 0; /* 贴在左门的右边缘 */
+			border-radius: 5em 0 0 5em; /* 左半圆 */
+			border: 4px solid var(--splash-frame-border-color); /* 画框的边框 */
+			border-right: none; /* 拼接处不需要边框 */
+		}
+		/* 右门上的“左半边”画框 */
+		#splash-door-right::before {
+			left: 0; /* 贴在右门的左边缘 */
+			border-radius: 0 5em 5em 0; /* 右半圆 */
+			border: 4px solid var(--splash-frame-border-color); /* 画框的边框 */
+			border-left: none; /* 拼接处不需要边框 */
+		}
+		#splash-content {
+			position: absolute;
+			top: 0;
+			left: 0;
+			width: 100%;
+			height: 100%;
+			z-index: 1;
+			opacity: 0;
+		}
+		#splash-logo-container {
+			position: absolute;
+			top: 30%;
+			left: 50%;
+			transform: translate(-50%, -50%);
+			width: 8em;
+			height: 8em;
+			border-radius: 50%;
+			overflow: hidden;
+			background-color: var(--color-bg-card);
+			box-shadow: 0 0 20px var(--color-shadow);
+		}
+		#splash-logo-carousel {
+			width: 100%;
+			height: 100%;
+			background-size: cover;
+			background-position: center;
+		}
+		#splash-text-container {
+			position: absolute;
+			top: 30%;
+			left: 50%;
+			width: 100%;
+			text-align: center;
+			transform: translate(-50%, 5.5em);
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+			font-size: 1.5em;
+			color: var(--color-text-primary);
+			font-weight: 600;
+			letter-spacing: 0.05em;
+			text-shadow: 1px 1px 3px var(--color-shadow);
+		}
+		#splash-text-container .fill-blank {
+			display: inline-block;
+			font-weight: 700;
+			color: var(--color-accent-primary);
+			text-shadow: 0 0 8px var(--splash-fill-text-shadow-color);
+		}
+		html.dark-mode #splash-text-container .fill-blank {
+			text-shadow: 0 0 8px var(--color-accent-primary), 0 0 15px var(--splash-fill-text-shadow-color);
+        }
+		.splash-highlight-line {
+			font-weight: 700;
+			color: var(--color-accent-primary);
+			text-shadow: 0 0 8px var(--splash-fill-text-shadow-color);
+			text-align: center;
+			/* [核心修正] auto 的左右外边距会使其在父容器中水平居中 */
+			margin: 0.5em auto;
+			opacity: 0;
+			transform: scale(0.5);
+			/* [核心修正] table 既能像 block 一样换行，又能像 inline-block 一样自适应内容宽度 */
+			display: table;
+			padding: 0.2em 0.6em;
+			border-radius: 8px;
+			border: 2px solid var(--color-accent-primary);
+			box-shadow: var(--splash-highlight-shadow);
+			background-color: var(--color-bg-card);
+		}
+		.splash-highlight-line.filled {
+			animation: fill-text 0.5s ease-out forwards;
+		}
+		.splash-inline-highlight {
+			display: inline-block;
+			font-weight: 700; /* [新增] 与铭牌统一字重 */
+			color: var(--color-accent-primary);
+			text-shadow: 0 0 8px var(--splash-fill-text-shadow-color);
+			opacity: 0;
+			transform: scale(0.8);
+			transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+			/* [新增] 复制铭牌样式，添加外边框和底色 */
+			padding: 0.2em 0.6em;
+			border-radius: 8px;
+			border: 2px solid var(--color-accent-primary);
+			box-shadow: var(--splash-highlight-shadow);
+			background-color: var(--color-bg-card);
+			margin: 0 0.2em; /* [新增] 添加轻微的左右边距，避免与文字贴太近 */
+		}
+		.splash-inline-highlight.visible {
+			opacity: 1;
+			transform: scale(1);
+		}
+		.splash-post-text {
+			opacity: 0;
+			transform: translateY(15px);
+			transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+		}
+		.splash-post-text.visible {
+			opacity: 1;
+			transform: translateY(0);
+		}
+		/* 动画触发类 */
+		#splash-door-left.is-closing { animation: slideInFromLeft 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards; }
+		#splash-door-right.is-closing { animation: slideInFromRight 0.8s cubic-bezier(0.7, 0, 0.3, 1) forwards; }
+		#splash-content.is-visible { animation: content-fade-in 0.5s 0.6s ease-out forwards; }
+		#splash-door-left.is-opening { animation: slideOutToLeft 0.8s 0.2s cubic-bezier(0.7, 0, 0.3, 1) forwards; }
+		#splash-door-right.is-opening { animation: slideOutToRight 0.8s 0.2s cubic-bezier(0.7, 0, 0.3, 1) forwards; }
+		#splash-content.is-hiding { animation: content-fade-out 0.5s ease-in forwards; }
+		#splash-logo-carousel.carousel { animation-name: logo-carousel; animation-timing-function: steps(1, end); animation-iteration-count: infinite; }
+		.fill-blank.filled { animation: fill-text 0.5s ease-out forwards; }
+		.splash-text-segment {
+			display: inline; /* 普通文本默认为行内元素 */
+			opacity: 0;
+			transform: translateY(5px); /* 从下方轻微上移 */
+			transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+		}
+		.splash-text-segment.visible {
+			opacity: 1;
+			transform: translateY(0);
+		}
+		/* 动画关键帧 */
+		@keyframes slideInFromLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+		@keyframes slideInFromRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+		@keyframes slideOutToLeft { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+		@keyframes slideOutToRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
+		@keyframes content-fade-in { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+		@keyframes content-fade-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-20px); } }
+		@keyframes fill-text {
+    from {
+        opacity: 0;
+        transform: scale(0.5);
+        text-shadow: 0 0 20px var(--color-accent-primary), 0 0 30px var(--splash-fill-text-shadow-color);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+/* --- [新增] 开发者调试工具样式 --- */
+.dev-console-trigger {
+    padding: 1em 0;
+    display: flex;
+    justify-content: center;
+    margin-top: 0.5em; /* [新增] 在调试按钮上方增加一点间距 */
+}
+#dev-console-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 100000;
+    font-family: var(--font-family-sans);
+}
+.dev-console-backdrop {
+    width: 100%;
+    height: 100%;
+    background: var(--color-bg-backdrop);
+    backdrop-filter: blur(5px);
+}
+.dev-console-window {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 50vw;
+    max-height: 70vh;
+    background: var(--color-bg-card);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px var(--color-shadow);
+    border: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+}
+.dev-console-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.8em 1.2em;
+    border-bottom: 1px solid var(--color-border);
+}
+.dev-console-header h3 {
+    margin: 0;
+    font-size: 1.1em;
+    color: var(--color-accent-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+#dev-console-close-btn {
+    background: none;
+    border: none;
+    font-size: 2em;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    padding: 0;
+}
+.dev-console-content {
+    padding: 1.5em;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5em;
+    overflow-y: auto; /* [新增] 当内容超出时，自动显示垂直滚动条 */
+    flex-grow: 1; /* [新增] 允许此区域填充父容器的所有剩余垂直空间 */
+    min-height: 0; /* [新增] 配合flex-grow，确保在内容收缩时也能正确计算高度以显示滚动条 */
+}
+.dev-console-content fieldset {
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1em 1.5em 1.5em;
+    margin: 0;
+}
+.dev-console-content legend {
+    font-weight: 600;
+    padding: 0 0.5em;
+    color: var(--color-text-primary);
+}
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+    gap: 1em;
+    margin-top: 1em;
+}
+.form-group {
+    display: flex;
+    flex-direction: column;
+}
+.form-group label {
+    font-size: 0.85em;
+    margin-bottom: 0.4em;
+    color: var(--color-text-secondary);
+}
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 0.6em;
+    border: 1px solid var(--color-border-input);
+    border-radius: 6px;
+    background: var(--color-bg-input);
+    color: var(--color-text-primary);
+    font-size: 1em;
+    text-align: center;
+}
+.form-group input[type="number"]:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+    background: var(--color-bg-input-focus);
+}
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    cursor: pointer;
+    user-select: none;
+}
+.dev-console-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1em;
+    padding: 1em 1.2em;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-bg-secondary);
+    border-radius: 0 0 12px 12px;
+}
+.dev-console-footer button {
+    padding: 0.7em 1.5em;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+.dev-console-footer .btn-primary {
+    background: var(--color-accent-primary);
+    color: var(--color-text-inverted);
+}
+.dev-console-footer .btn-secondary {
+    background: var(--color-border);
+    color: var(--color-text-primary);
+}
+	</style>
+<link rel="stylesheet" href="/rpg-app/blue-fish/adaptation.css"></head>
+<body>
+<!-- 开屏动画容器 -->
+<div id="splash-screen">
+    <div class="splash-door" id="splash-door-left"></div>
+    <div class="splash-door" id="splash-door-right"></div>
+    <div id="splash-content">
+        <div id="splash-logo-container">
+            <div id="splash-logo-carousel"></div>
+        </div>
+        <div id="splash-text-container">
+            子非鱼，安<span class="fill-blank"> __ __ </span>之乐
+        </div>
+    </div>
+</div>
+<!-- 移动端汉堡菜单 (正确位置) -->
+<div class="mobile-nav">
+    <button class="mobile-nav-toggle">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+    <div class="mobile-nav-menu">
+        <a href="#" data-target="main-panel">主面板</a>
+        <a href="#" data-target="prompt-editor-panel">Prompt 编辑器</a>
+    </div>
+	<div class="mobile-theme-switcher-container">
+		<button class="mobile-theme-btn" id="theme-toggle-mobile" title="切换主题">
+			<svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+			<svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+		</button>
+	</div>
+</div>
+<div class="app-container">
+    <nav class="sidebar-nav">
+        <div class="sidebar-header">
+            <div class="logo-icon"></div>
+            <div class="sidebar-logo">
+                <span class="logo-text">肥鱼助手</span>
+            </div>
+        </div>
+        <ul class="sidebar-menu">
+            <li class="menu-item active" data-target="main-panel">
+                <a href="javascript:void(0);">
+                    <i class="mdi mdi-home-variant menu-icon"></i>
+                    <span class="menu-text">主面板</span>
+                </a>
+            </li>
+            <li class="menu-item" data-target="prompt-editor-panel">
+                <a href="javascript:void(0);">
+                    <i class="mdi mdi-pencil-ruler menu-icon"></i>
+                    <span class="menu-text">Prompt 编辑器</span>
+                </a>
+            </li>
+        </ul>
+		<div class="dev-console-trigger" style="display: none;">
+			<button class="theme-btn" id="dev-console-btn" title="开发者调试">
+                <!-- [修改] 移除了内联 style 属性，并添加了 class="icon-dev" -->
+				<svg class="icon-dev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+				</svg>
+			</button>
+		</div>
+        <div class="theme-switcher-pc">
+            <button class="theme-btn" id="theme-toggle-pc" title="切换主题">
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            </button>
+        </div>
+    </nav>
+    <main class="content-area">
+        <div id="main-panel" class="panel active">
+            <div id="board">
+                <div class="main-bg"></div>
+                <header class="header">
+                    <div class="credits-stage">
+                        <img class="credit-ghost credit-ghost-left" src="/rpg-app/blue-fish/logo.png" alt="" loading="lazy" onerror="this.style.display='none'">
+                        <img class="credit-ghost credit-ghost-right" src="/rpg-app/blue-fish/logo.png" alt="" loading="lazy" onerror="this.style.display='none'">
+                        <div class="avatar"></div>
+                        <span class="credit-id credit-id-left" data-text="大肥鱼">大肥鱼</span>
+                        <span class="credit-id credit-id-right" data-text="蓝色大肥鱼">蓝色大肥鱼</span>
+                    </div>
+                    <div class="header-text">
+                        <h1>欢迎来到蓝色大肥鱼的世界~</h1>
+                        <p>让我们一起探索无限可能！</p>
+                        <span class="credit-id credit-id-center" data-text="闲余">闲余</span>
+                    </div>
+                </header>
+                <div class="content-wrapper">
+                    <div class="main-content">
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-creation"></i> 创意写作</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-book-open-page-variant"></i> 小说创作</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以进行各种类型的小说创作，包括但不限于：</p>
+                                    <p>仙侠</p>
+                                    <p>武侠</p>
+                                    <p>都市</p>
+                                    <p>奇幻</p>
+                                    <p>科幻</p>
+                                    <p>言情</p>
+                                    <p>..等等各种类型</p>
+                                    <p>只需告诉肥鱼你想要的故事类型、主题、人物设定等，肥鱼就能为你创作精彩的故事~</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-image-multiple"></i> AI 生图</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-palette"></i> 图像生成</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以根据你提供的文字描述生成各种类型的图像，包括但不限于：人物、动物、风景、物品等。你只需要清晰地描述你想要生成的图像，肥鱼就能将其转化为视觉作品。这项技能是从蓝色大肥鱼那里学习来的，提供了绝佳的灵感和技术支持呢！</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-code-tags"></i> HTML 美化</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-language-html5"></i> 代码设计</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以帮助你美化和优化 HTML 代码。你只需要将你的文案或者 HTML 代码粘贴给肥鱼，并说明你的需求，肥鱼就能为你生成更规范、更美观的代码。这项功能加入蓝色大肥鱼提供的提示词，让肥鱼的代码美化能力变得更加出色了！</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-format-list-bulleted-type"></i> 提示词辅助设计</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-lightbulb-on-outline"></i> 提示词设计</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以帮助你设计和优化 AI 提示词，提高提示词的效果和效率。你只需要告诉肥鱼你想要生成的提示词类型、主题、角色等信息，肥鱼就能为你生成合适的提示词模板。</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-school-outline"></i> AI 基础做卡教学</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-book-open-variant"></i> 模板教学</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以为你提供 AI 提示词模板的教学，帮助你理解模板的各个部分及其作用，并引导你逐步填写。</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-translate"></i> 多语言翻译</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-web"></i> 文本翻译</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以进行多语言翻译，只需将需要翻译的文本和目标语言告诉肥鱼即可。</p>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section">
+                            <h2 class="section-title"><i class="mdi mdi-account-multiple"></i> 人设与世界观生成</h2>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-account-circle"></i> 生成人设</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以根据你提供的关键词或需求，生成详细的人物设定，包括人物的姓名、年龄、外貌、性格、背景故事等。</p>
+                                </div>
+                            </div>
+                            <div class="feature-content">
+                                <h4><i class="mdi mdi-earth"></i> 生成世界观</h4>
+                                <div class="content-detail">
+                                    <p>肥鱼可以根据你提供的关键词或需求，生成完整的世界观设定，包括世界的地理环境、历史背景、文化习俗、科技水平等。</p>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="sidebar">
+                        <div class="sidebar-fixed">
+                            <div class="function-card">
+                                <div class="function-title">
+                                    <i class="mdi mdi-lightning-bolt"></i> 使用指南
+                                </div>
+                                <div class="quick-access">
+                                    <div class="quick-item" onclick="openModal('writing-modal')">
+                                        <i class="mdi mdi-pencil-box-multiple"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">创意写作</span>
+                                            <span class="short-text">写作</span>
+                                            <small>让文字绽放光彩</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('ai-drawing-modal')">
+                                        <i class="mdi mdi-image-multiple"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">AI 生图</span>
+                                            <span class="short-text">生图</span>
+                                            <small>点亮你的创意</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('html-modal')">
+                                        <i class="mdi mdi-code-braces"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">HTML 美化</span>
+                                            <span class="short-text">美化</span>
+                                            <small>优化你的代码</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('prompt-modal')">
+                                        <i class="mdi mdi-format-list-bulleted-type"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">提示词辅助设计</span>
+                                            <span class="short-text">制卡</span>
+                                            <small>做一张简单的卡</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('ai-teaching-modal')">
+                                        <i class="mdi mdi-school-outline"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">AI 基础做卡教学</span>
+                                            <span class="short-text">教学</span>
+                                            <small>入门 AI 做卡</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('translation-modal')">
+                                        <i class="mdi mdi-translate"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">多语言翻译</span>
+                                            <span class="short-text">翻译</span>
+                                            <small>跨越语言障碍</small>
+                                        </div>
+                                    </div>
+                                    <div class="quick-item" onclick="openModal('character-world-modal')">
+                                        <i class="mdi mdi-account-multiple"></i>
+                                        <div class="item-text">
+                                            <span class="full-text">人设与世界观生成</span>
+                                            <span class="short-text">设定</span>
+                                            <small>构建你的故事世界</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <footer class="footer">
+                    <i class="mdi mdi-information"></i> 如果肥鱼搞错了或拒绝了您的请求，请发送指令 "🐟" 让肥鱼重新帮助您哦～
+                </footer>
+                <div id="writing-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('writing-modal')">×</button>
+                        <h2>创意写作</h2>
+                        <p><strong>使用说明</strong>: 为了获得更理想的创作结果，请尽量提供以下信息：</p>
+                        <ul>
+                            <li>故事类型（例如，奇幻、科幻、言情、武侠、都市、恐怖、推理等）</li>
+                            <li>主题</li>
+                            <li>人物设定（姓名、性格、背景等）</li>
+                            <li>情节梗概（可选）</li>
+                            <li>其他特殊要求（例如，风格、基调、目标读者等）</li>
+                        </ul>
+                        <p>无需触发关键词，只需要提到写小说、写剧本、写诗、写文案、创作小说等一切关于创作相关的词汇</p>
+                    </div>
+                </div>
+                <div id="ai-drawing-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('ai-drawing-modal')">×</button>
+                        <h2>AI 生图</h2>
+                        <p><strong>使用说明</strong>: 请清晰地描述您想要生成的图像，包括但不限于：</p>
+                        <ul>
+                            <li>主题（例如，人物、动物、风景、物品等）</li>
+                            <li>内容（例如，一个穿着宇航服的猫）</li>
+                            <li>风格（例如，写实、卡通、抽象等）</li>
+                            <li>艺术家（例如，毕加索、梵高等）</li>
+                            <li>其他特殊要求（例如，颜色、尺寸、比例等）</li>
+                        </ul>
+                        <p><strong>触发关键词</strong>: 【生图】</p>
+                    </div>
+                </div>
+                <div id="html-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('html-modal')">×</button>
+                        <h2>HTML 美化</h2>
+                        <p><strong>使用说明</strong>: 请粘贴您的文案或者原 HTML 代码，并尽可能详细地描述您的需求，例如：</p>
+                        <ul>
+                            <li>优化目标（例如，提高可读性、改善布局、添加交互效果等）</li>
+                            <li>样式风格（例如，现代、简约、复古等）</li>
+                            <li>其他特殊要求（例如，颜色、字体、动画等）</li>
+                        </ul>
+                        <p><strong>触发关键词</strong>: HTML、html</p>
+                    </div>
+                </div>
+                <div id="prompt-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('prompt-modal')">×</button>
+                        <h2>提示词辅助设计</h2>
+                        <p><strong>使用说明</strong>: 请告诉肥鱼您想要生成的提示词类型（例如大世界、角色卡等）、主题、角色等信息，肥鱼将尽力满足您的需求</p>
+                        <p><strong>触发关键词</strong>: 【提示词辅助设计】</p>
+                    </div>
+                </div>
+                <div id="ai-teaching-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('ai-teaching-modal')">×</button>
+                        <h2>AI 基础做卡教学</h2>
+                        <p><strong>使用说明</strong>: 请提出您关于 AI 提示词模板的任何问题，肥鱼将竭诚为您解答。</p>
+                        <p><strong>触发关键词</strong>: 【AI教学】</p>
+                    </div>
+                </div>
+                <div id="translation-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('translation-modal')">×</button>
+                        <h2>多语言翻译</h2>
+                        <p><strong>使用说明</strong>: 请提供需要翻译的文本和目标语言。您还可以指定翻译的风格，例如正式、口语化等。</p>
+                        <p><strong>触发关键词</strong>: 翻译</p>
+                    </div>
+                </div>
+                <div id="character-world-modal" class="modal">
+                    <div class="modal-content">
+                        <button class="close-button" onclick="closeModal('character-world-modal')">×</button>
+                        <h2>人设与世界观生成</h2>
+                        <p><strong>使用说明</strong>: 请提供您想生成的类型、风格、主题等信息。肥鱼将根据您的需求生成详细的人物设定或完整的世界观设定。</p>
+                        <p><strong>触发关键词</strong>: 【生成人设】、【生成世界观】</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="prompt-editor-panel" class="panel">
+            <div id="prompt-editor-l4m5n6o7">
+                <header class="editor-header">
+                     <div class="header-row header-row-1">
+                        <span id="file-name" contenteditable="true">未命名</span>
+                    </div>
+					<!-- 移动端侧滑功能菜单 -->
+					<div class="mobile-tools-sidebar">
+						<button class="mobile-tools-toggle">
+							<svg viewBox="0 0 24 24">
+								<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+								<circle cx="12" cy="12" r="3"></circle>
+							</svg>
+						</button>
+						<div class="mobile-tools-panel">
+							<!-- 这里会用JS把第一排的按钮复制进来 -->
+						</div>
+					</div>
+                    <div class="header-row header-row-2">
+                        <button class="icon-btn" id="chat-document-btn" aria-label="带入聊天" data-tooltip="带入聊天">↗</button>
+<button class="icon-btn" id="new-btn" data-tooltip="新建"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg></button>
+                        <button class="icon-btn" id="save-draft-btn" data-tooltip="保存"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></button>
+                        <button class="icon-btn" id="load-draft-btn" data-tooltip="文件夹"><svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></button>
+                        <button class="icon-btn" id="find-btn" data-tooltip="查找 (Ctrl+F)"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></button>
+                        <!-- [修复] 交换导入导出图标 -->
+                        <button class="icon-btn" id="import-btn" data-tooltip="导入"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 5 17 10"></polyline><line x1="12" y1="5" x2="12" y2="17"></line></svg></button>
+                        <button class="icon-btn" id="export-btn" data-tooltip="导出"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 10 12 15 7 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+                        <button class="icon-btn" id="copy-btn" data-tooltip="复制"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
+                        <button class="icon-btn" id="cleaner-btn" data-tooltip="代码清理"><svg viewBox="0 0 24 24"><path d="M9.59 4.59A2 2 0 1 1 11 8H2"></path><path d="M17.73 7.73A2.5 2.5 0 1 1 19.5 12H2"></path><path d="M12.59 19.41A2 2 0 1 0 14 16H2"></path></svg></button>
+                        <button class="icon-btn" id="templates-btn" data-tooltip="模板库"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg></button>
+                        <button class="icon-btn" id="settings-btn" data-tooltip="自定义菜单"><svg viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg></button>
+                        <button class="icon-btn" id="help-btn" data-tooltip="帮助"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
+                        <button class="icon-btn" id="toggle-preview-btn" data-tooltip="切换预览区">
+                            <svg id="preview-icon-on" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            <svg id="preview-icon-off" viewBox="0 0 24 24" style="display:none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                        </button>
+                        <button class="icon-btn" id="undo-btn" data-tooltip="撤销 (Ctrl+Z)" disabled><svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>
+                        <button class="icon-btn" id="redo-btn" data-tooltip="重做 (Ctrl+Y)" disabled><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
+                    </div>
+                    <div class="header-row header-row-3">
+                        <div class="toolbar-group">
+                            <button class="icon-btn" data-menu="title" data-tooltip="标题"><svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg></button>
+                            <div class="sub-menu" id="title-submenu">
+                                <button class="sub-menu-btn" data-type="title" data-level="1">H1</button> <button class="sub-menu-btn" data-type="title" data-level="2">H2</button> <button class="sub-menu-btn" data-type="title" data-level="3">H3</button>
+                                <button class="sub-menu-btn" data-type="title" data-level="4">H4</button> <button class="sub-menu-btn" data-type="title" data-level="5">H5</button> <button class="sub-menu-btn" data-type="title" data-level="6">H6</button>
+                            </div>
+                        </div>
+                        <button class="icon-btn" data-type="text" data-tooltip="文本"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></button>
+                        <button class="icon-btn" data-type="list" data-tooltip="列表"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg></button>
+                        <button class="icon-btn" data-type="code" data-tooltip="代码块"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></button>
+                        <button class="icon-btn" data-type="table" data-tooltip="表格"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="3" x2="9" y2="21"></line></svg></button>
+                        <button class="icon-btn" data-type="details" data-tooltip="折叠框"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><polyline points="9 9 12 12 15 9"></polyline></svg></button>
+                    </div>
+                </header>
+                <main class="editor-main">
+                    <div id="workspace"></div>
+                    <div id="preview-container">
+                         <div class="preview-wrapper">
+                            <div class="preview-header">
+                                <h2>实时预览哦～</h2>
+                                <div class="font-size-control">
+                                    <span class="font-size-btn" id="decrease-font">-</span>
+                                    <span id="preview-font-size" contenteditable="true">14</span>
+                                    <span class="font-size-btn" id="increase-font">+</span>
+                                </div>
+                            </div>
+                            <textarea id="preview-output" readonly></textarea>
+                        </div>
+                    </div>
+                </main>
+                <div id="drafts-window" class="window-container" data-initial-width="600" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">我的文件夹</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content"><ul id="draft-list" class="modal-list"></ul></div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="import-window" class="window-container" data-initial-width="600" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">导入Markdown / JSON</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content">
+                        <div class="file-input-wrapper"><label for="import-file-input" class="file-input-label">从文件选择...</label><input type="file" id="import-file-input" accept=".md, .txt, .json"></div>
+                        <p id="import-divider">或</p>
+                        <textarea id="import-textarea" class="modal-textarea" placeholder="在此处粘贴Markdown文本或角色卡JSON..."></textarea>
+                        <div style="text-align: right; margin-top: 1.5em;"><button id="confirm-import-btn" class="modal-btn primary">确认导入</button></div>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="code-cleaner-window" class="window-container" data-initial-width="720" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">代码清理</span><span class="window-header-btns"><button class="window-maximize-btn" id="cleaner-maximize-btn" title="全屏 / 还原"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"></path><path d="M21 8V5a2 2 0 0 0-2-2h-3"></path><path d="M16 21h3a2 2 0 0 0 2-2v-3"></path><path d="M3 16v3a2 2 0 0 0 2 2h3"></path></svg></button><button class="window-close-btn">&times;</button></span></div>
+                    <div class="window-content">
+                        <div class="cleaner-options">
+                            <label class="find-label"><input type="checkbox" id="cleaner-opt-entity" checked>转义还原（自动检测）</label>
+                            <label class="find-label"><input type="checkbox" id="cleaner-opt-blank" checked>清除空行</label>
+                            <label class="find-label"><input type="checkbox" id="cleaner-opt-html" checked>HTML注释</label>
+                            <label class="find-label"><input type="checkbox" id="cleaner-opt-css" checked>CSS注释</label>
+                            <label class="find-label"><input type="checkbox" id="cleaner-opt-js" checked>JS注释</label>
+                        </div>
+                        <div class="cleaner-box">
+                            <textarea id="cleaner-input" class="modal-textarea" placeholder="在此粘贴代码，自动清理（<pre>/模板字符串等内容自动保护）…"></textarea>
+                            <button class="cleaner-box-fs-btn" title="全屏编辑（Esc 退出）"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+                        </div>
+                        <div id="cleaner-stats" class="cleaner-stats"></div>
+                        <div class="cleaner-box">
+                            <textarea id="cleaner-output" class="modal-textarea" readonly placeholder="清理结果…"></textarea>
+                            <button class="cleaner-box-fs-btn" title="全屏查看（Esc 退出）"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg></button>
+                        </div>
+                        <div class="cleaner-actions">
+                            <button id="cleaner-load-desc-btn" class="modal-btn secondary">从详细介绍读入</button>
+                            <button id="cleaner-write-desc-btn" class="modal-btn secondary">写回详细介绍</button>
+                            <button id="cleaner-copy-btn" class="modal-btn primary">复制结果</button>
+                        </div>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="settings-window" class="window-container" data-initial-width="600" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">自定义菜单</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content">
+                        <h3>我的功能</h3><div id="custom-function-list" class="modal-list"></div><hr style="margin: 1.5em 0; border: none; border-top: 1px solid var(--border-color);">
+                        <h3>添加 / 编辑功能</h3>
+                        <form id="custom-function-form">
+                            <input type="hidden" id="function-id">
+                            <div class="modal-form-group"><label for="function-name">功能名称</label><input type="text" id="function-name" class="modal-input" placeholder="e.g., 变量包裹" required></div>
+                            <div class="modal-form-group"><label for="function-search">查找 (正则表达式)</label><input type="text" id="function-search" class="modal-input" placeholder="e.g., (.+)" required></div>
+                            <div class="modal-form-group"><label for="function-replace">替换 (使用$1,$2...引用)</label><input type="text" id="function-replace" class="modal-input" placeholder="e.g., {{$1}} (留空即删除)"></div>
+                            <div style="text-align: right; margin-top: 1em; display: flex; gap: 1em; justify-content: flex-end;"><button type="button" id="update-default-functions-btn" class="modal-btn primary">更新（25_09_30）</button><button type="button" id="restore-default-functions-btn" class="modal-btn secondary">恢复默认</button><button type="submit" class="modal-btn primary">保存功能</button></div>
+                        </form>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="find-replace-window" class="window-container" data-initial-width="500" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">查找与替换</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content">
+                        <div class="find-replace-grid">
+                            <div class="find-replace-main">
+                                <div class="modal-form-group"><label for="find-input">查找内容:</label><div class="input-with-counter"><input type="text" id="find-input" class="modal-input"><span id="find-counter">(0/0)</span></div></div>
+                                <div class="modal-form-group"><label for="replace-input">替换为:</label><input type="text" id="replace-input" class="modal-input"></div>
+                                <fieldset class="find-options"><legend>选项</legend><div><label class="find-label"><input type="checkbox" id="find-opt-case">匹配大小写</label></div></fieldset>
+                            </div>
+                            <div class="find-replace-actions"><button id="find-prev-btn" class="modal-btn secondary">上一个</button><button id="find-next-btn" class="modal-btn secondary">下一个</button><button id="find-replace-btn" class="modal-btn primary">替换</button><button id="find-replace-all-btn" class="modal-btn primary">替换全部</button></div>
+                        </div>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="context-menu"></div>
+                <div id="custom-dialog-window" class="window-container" data-initial-width="400" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">提示</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content"><p id="custom-dialog-message"></p><input type="text" id="custom-dialog-input" class="modal-input" style="display: none;"><div id="custom-dialog-buttons"></div></div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="templates-window" class="window-container" data-initial-width="600" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">模板库</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content">
+                        <div id="template-list" class="modal-list"></div>
+                         <div class="window-footer"><button id="update-default-templates-btn" class="modal-btn primary">更新（25_10_08）</button><button id="restore-default-templates-btn" class="modal-btn secondary">恢复默认</button><button id="create-template-btn" class="modal-btn primary">从当前内容创建模板</button></div>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+                <div id="help-window" class="window-container" data-initial-width="700" data-initial-font-size="16">
+                    <div class="window-header"><span class="window-title">帮助中心</span><button class="window-close-btn">&times;</button></div>
+                    <div class="window-content">
+                        <p>本文档详细说明编辑器的界面组成和功能，帮助用户高效掌握各项操作。</p>
+                        <details open><summary>一、编辑器的三个主要区域</summary><div class="help-content"><h4>1. 功能区 (顶部工具栏)</h4><p>功能区位于界面的最上方，包含所有全局操作按钮和模块添加按钮。用户的新建、保存、导入、导出、模板操作以及模块创建都在此处完成。</p><h4>2. 工作区 (主要编辑区域)</h4><p>工作区位于界面的左侧，是用户编写和编辑内容的地方。所有模块（如标题、文本、列表等）都以独立的编辑卡片形式呈现，用户可在其中输入内容、拖拽排序和调整层级。</p><h4>3. 预览区 (右侧区域)</h4><p>预览区位于界面的右侧，会实时显示根据工作区内容生成的Markdown文本。这里显示的就是导出与复制时得到的最终版本。用户可根据需要选择隐藏或显示预览区。</p></div></details>
+                        <details><summary>二、功能区按钮说明</summary><div class="help-content"><h4>文件管理相关</h4><p><strong>新建</strong>：清空当前工作区所有内容，在空白状态下开始新的文档。操作时会有确认提示，避免误删。</p><p><strong>保存</strong>：将当前内容保存到浏览器的本地存储，文件会以用户输入的名称保存，可在之后通过文件夹功能重新加载。</p><p><strong>文件夹</strong>：打开用户保存的所有本地草稿列表。在列表中可以选择加载某个草稿或删除草稿。</p><h4>文本处理相关</h4><p><strong>查找</strong>：在整个文档中检索字符串。支持大小写匹配，并可进行替换或全部替换，能作用于被折叠的内容。</p><p><strong>导入</strong>：从本地上传<code>.md</code>、<code>.txt</code>或<code>.json</code>文件，或直接粘贴Markdown文本 / 角色卡setting JSON。识别为角色卡JSON时会按字段分区载入（基础信息、前后置、世界书、内置CSS、详细介绍等），全部原始字段完整暂存、导出时原样带回。导入会覆盖当前工作区内容。</p><p><strong>导出</strong>：将文档以Markdown导出；若已导入角色卡，会弹出格式选择，可导出完整的角色卡setting JSON（分区修改自动回填）。沙箱环境无法下载文件时自动转为复制到剪贴板，并给出"记事本粘贴→另存为.json"的分步指引。</p><p><strong>复制</strong>：将文档内容转换后的完整Markdown文本复制到剪贴板，方便粘贴到其他应用。</p><h4>模板和自定义功能</h4><p><strong>代码清理</strong>：清理HTML/JS/CSS代码中的空行、注释，并可自动还原被转义的代码。详见下方"四、代码清理"。</p><p><strong>模板库</strong>：管理常用文档结构。用户可以将当前文档保存为模板，也可以加载已有模板。</p><p><strong>设置</strong>：管理“自定义菜单”。通过配置正则表达式查找和替换规则，用户可以自定义右键菜单中的功能。</p><p><strong>帮助</strong>：打开帮助说明，展示核心操作提示。</p><h4>视图与编辑控制</h4><p><strong>显隐预览区</strong>：切换预览区的显示状态。桌面端用于扩大编辑区域，移动端则在工作区和预览区之间切换。</p><p><strong>撤销</strong>：回退上一步操作，支持多次连续撤销。</p><p><strong>重做</strong>：恢复被撤销的操作。</p></div></details>
+                        <details><summary>三、模块类别与交互逻辑</summary><div class="help-content"><h4>模块类别和作用</h4><p><strong>标题</strong>：分为H1到H6六个级别。标题不仅是文本块，也用来形成文档层级结构。低级别标题会自动归属于上级标题。</p><p><strong>文本</strong>：普通文字模块，用于书写段落说明。</p><p><strong>列表</strong>：支持有序与无序两种样式。列表项可以多级缩进，形成层级结构。</p><p><strong>代码块</strong>：用于展示代码或不应被转义的文本，可以指定编程语言。</p><p><strong>表格</strong>：创建行列结构的表格，单元格可独立输入文本。</p><p><strong>折叠框</strong>：可将多条内容收起，仅保留标题，方便管理长文档。</p><h4>工作区交互逻辑说明</h4><p><strong>模块嵌套规则</strong>：高级别标题（如H1）可以包含更低级别的模块（如H2、文本、列表）。低级别标题不能作为高级别标题的“父级”。系统会阻止错误的层级嵌套。在低级标题下方创建更高级别标题时，系统会自动调整，保持正确的结构。</p><p><strong>列表缩进操作</strong>：列表项前有缩进按钮。点击“增加缩进”会将该项作为上一项的子项。点击“减少缩进”会将该项从子项退回到上一级。第一项或顶级项的减少缩进按钮不可用。</p><p><strong>列表有序与无序切换</strong>：列表项前的标记可以点击切换。在无序（“•”符号）和有序（数字编号）之间切换时，系统会自动调整编号，不需手动管理。</p></div></details>
+                        <details><summary>四、代码清理</summary><div class="help-content"><h4>这是做什么的</h4><p>给HTML/JS/CSS代码瘦身：清除空行和注释，降低角色卡描述代码的体积与消耗；还能自动修复"整段代码被转义"的粘贴事故（就是 <code>&amp;lt;div&amp;gt;</code> 这种尖括号变成字符的情况）。</p><h4>怎么用</h4><p>点工具栏"代码清理"图标打开浮窗，把代码粘贴进上方输入框——<strong>无需点任何按钮，自动处理</strong>。五个开关随时切换、实时重算：</p><p><strong>转义还原（自动检测）</strong>：只有当代码几乎没有正常的 <code>&lt;</code>、且行首出现 <code>&amp;lt;</code> 时，才会判定为"被整体转义的代码"并还原。正常代码里的合法实体不会被误动。若统计行出现"转义还原 N 处"而你不想要，关掉此开关即可。</p><p><strong>清除空行 / HTML注释 / CSS注释 / JS注释</strong>：各自独立开关，按需组合。</p><p>中间的<strong>统计行</strong>会明示这次删了什么：还原实体数、空行数、三类注释数、字符变化和百分比。<strong>复制前先扫一眼统计</strong>，变化幅度异常时请对比检查。</p><p>代码较长时，点输入框/结果框<strong>右上角的全屏按钮</strong>可将该框放大到整个屏幕查看或编辑（全屏中编辑照样实时清理），按<strong>Esc</strong>或再点一次退出；标题栏的全屏按钮则是整个浮窗的全屏切换。</p><h4>哪些内容不会被清（保护区）</h4><p>以下位置的"注释样"文字和空行是<strong>作品内容的一部分</strong>，引擎会自动保护、绝不清理：<code>&lt;pre&gt;</code>/<code>&lt;textarea&gt;</code> 等标签的显示内容、非JS用途的 <code>&lt;script&gt;</code>（如JSON数据）、SVG的CDATA、JS模板字符串内部。所以"清理后注释数比预想少"通常不是漏了，而是那些注释本来就不该删。</p><h4>安全性</h4><p>删除只发生在上下文和边界都百分百确定的注释上；未闭合的注释、字符串一律原样保留——<strong>宁可不删，绝不吞代码</strong>。清理是幂等的：对清理过的代码再清一遍，不会再有任何变化。输入框内容永远不会被修改，随时可以回退比对。</p><h4>与角色卡联动</h4><p>先用"导入"载入角色卡setting JSON，然后：<strong>从详细介绍读入</strong>——把"详细介绍（description）"代码块内容一键填入清理器；<strong>写回详细介绍</strong>——确认后用清理结果覆盖该分区（可Ctrl+Z撤销）。之后用"导出→角色卡JSON"，拿到的就是包含清理结果的完整setting。全程不用离开编辑器。</p></div></details>
+                    </div>
+                    <div class="resize-handle"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+<!-- [新增] 开发者调试面板 -->
+<div id="dev-console-panel" style="display: none;">
+    <div class="dev-console-backdrop"></div>
+    <div class="dev-console-window">
+        <div class="dev-console-header">
+            <h3><i class="mdi mdi-bug"></i> 开发者调试工具</h3>
+            <button id="dev-console-close-btn">&times;</button>
+        </div>
+        <div class="dev-console-content">
+			<fieldset>
+				<legend>调试开关</legend>
+				<div class="form-group">
+					<label class="checkbox-label">
+						<input type="checkbox" id="debug-enable-toggle"> 启用调试模式
+					</label>
+				</div>
+			</fieldset>
+<fieldset>
+    <legend>时间机器</legend>
+    <!-- [修改] 第一个容器，只放年月日 -->
+    <div class="form-grid">
+        <div class="form-group"><label for="debug-year">年</label><input type="number" id="debug-year" placeholder="YYYY"></div>
+        <div class="form-group"><label for="debug-month">月</label><input type="number" id="debug-month" placeholder="MM"></div>
+        <div class="form-group"><label for="debug-day">日</label><input type="number" id="debug-day" placeholder="DD"></div>
+    </div>
+    <!-- [新增] 第二个容器，只放时分，并稍微增加一点上边距 -->
+    <div class="form-grid" style="margin-top: 0.5em;">
+        <div class="form-group"><label for="debug-hour">时</label><input type="number" id="debug-hour" placeholder="HH"></div>
+        <div class="form-group"><label for="debug-minute">分</label><input type="number" id="debug-minute" placeholder="mm"></div>
+    </div>
+</fieldset>
+            <fieldset>
+                <legend>状态控制</legend>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="debug-first-visit"> 模拟首次访问
+                    </label>
+                </div>
+            </fieldset>
+        </div>
+        <div class="dev-console-footer">
+            <button id="dev-console-reset-btn" class="btn-secondary">重置所有</button>
+            <button id="dev-console-apply-btn" class="btn-primary">应用并刷新</button>
+        </div>
+    </div>
+</div>
+<script src="/rpg-app/blue-fish/bridge.js"></script>
+</body>
+</html>

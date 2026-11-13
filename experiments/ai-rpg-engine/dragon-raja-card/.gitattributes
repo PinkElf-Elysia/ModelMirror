@@ -1,0 +1,5 @@
+*.mjs text eol=lf
+*.html text eol=lf
+resources/*.json text eol=lf
+*.md text eol=lf
+.gitattributes text eol=lf

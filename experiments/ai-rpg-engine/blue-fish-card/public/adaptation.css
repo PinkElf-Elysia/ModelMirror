@@ -1,0 +1,9 @@
+/* User supplied artwork is framed with CSS; original pixels remain intact. */
+.logo-icon,#board .header .avatar {background-color:#eaf7ff!important;background-size:150% auto!important;background-position:50% 18%!important;}
+#splash-logo-carousel:not(.carousel){background-color:#eaf7ff!important;background-size:150% auto!important;background-position:50% 18%!important;}
+.credit-ghost{object-fit:cover;object-position:50% 18%;background:#eaf7ff;border-radius:50%;}
+#board .header h1 {overflow-wrap:anywhere;}
+#storage-notice {position:fixed;bottom:12px;left:12px;right:12px;padding:12px;background:#fff1cc;color:#533900;z-index:10001;border:1px solid #b78a36;border-radius:6px;}
+.icon-btn:focus-visible,a:focus-visible,button:focus-visible{outline:3px solid #207fb3;outline-offset:3px;}
+@media (max-width:600px){.modal-window{max-width:calc(100vw - 24px)!important;} #board .header h1{font-size:1.8rem;} .credit-id{font-size:1.2rem!important;}}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important;} #splash-screen{display:none!important;}}

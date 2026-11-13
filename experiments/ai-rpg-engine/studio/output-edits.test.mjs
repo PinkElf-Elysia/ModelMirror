@@ -11,10 +11,10 @@ import {fileURLToPath} from 'node:url';
 import {preserveOutputEditRuntime} from './output-edit-compatibility.mjs';
 import {sha,canonical} from '../plugins/catalog.mjs';
 
-async function fixture(t,card,features=true){
+async function fixture(t,card,features=true,autoSummaryV2=false){
  const root=new URL('../.rpg04-work/output-edit/',import.meta.url);
  await mkdir(root,{recursive:true});const directory=await mkdtemp(join(fileURLToPath(root),'case-'));
- const host=await start({port:0,directory,messageTools:true,transcript:true,memoryPalace:features,godCard:true,godPlugins:features,godBranches:true});
+ const host=await start({port:0,directory,autoSummaryV2,messageTools:true,transcript:true,memoryPalace:features,godCard:true,godPlugins:features,godBranches:true});
  t.after(async()=>{await host.plugins.close();await new Promise(r=>host.server.close(r));});
  const store=card==='earth'?host.earth:host.god,calls=[];
  if(features){const execute=store.control.execute;store.control.execute=async(task,...args)=>{calls.push(structuredClone(task));return execute(task,...args);};}
@@ -139,4 +139,48 @@ test('pending legacy intent, invalid input and revoked commit never save an edit
  await assert.rejects(editOutput(store,plugins,'session',{...input,turn:2}),/MESSAGE_TURN_INVALID/);
  revoked=true;await assert.rejects(editOutput(store,plugins,'session',input),/PLUGIN_REVOKED/);
  assert.equal(writes,0);assert.deepEqual(session,base);
+});
+
+
+test('main v2 chat uses edited sources for explicit small-summary rebuild and preserves edits across history restore',async t=>{
+ const f=await fixture(t,'earth',true,true);
+ await f.grant('rpg.message-tools');await f.grant('rpg.rolling-summary');
+ await f.send();await f.send();
+ let s=await f.store.read(f.s.id);const original=structuredClone(s.turns),summary=structuredClone(s.autoSummaryV2),count=f.calls.length;
+ for(const [turn,text] of [[1,'修订一：旧码头开放'],[2,'修订二：周岚在钟楼']]){
+  await f.api(f.path+'/message-tools/edit-output',{operationId:randomUUID(),turn,revision:s.revision,text});s=await f.store.read(s.id);
+ }
+ assert.equal(f.calls.length,count);assert.deepEqual(s.autoSummaryV2,summary);assert.deepEqual(s.turns,original);
+ let status=await f.api(f.path+'/rolling-summary');
+ await f.api(f.path+'/rolling-summary/v2-regenerate',{operationId:randomUUID(),expectedSessionRevision:status.sessionRevision,expectedContextPolicyRevision:status.effectivePolicy.revision,summaryTurn:2});
+ await f.store.memoryTasks.wait(s.id);
+ const small=f.calls.findLast(c=>c.stageId==='round-summary-small');
+ assert(small.messages.some(m=>m.content.includes('修订二：周岚在钟楼')));
+ assert.equal(f.calls.filter(c=>c.purpose==='story').length,2);
+ await f.send();
+ const story=f.calls.findLast(c=>c.purpose==='story');assert(story.messages[0].content.includes('修订一：旧码头开放'));assert(story.messages[0].content.includes('修订二：周岚在钟楼'));
+ s=await f.store.read(s.id);await f.store.requireRuntime(s);
+ const rewind={action:'rewind',operationId:randomUUID(),expectedRevision:s.revision,turn:2};
+ await f.api(f.path+'/lifecycle',rewind);
+ let current=await f.store.read(s.id);assert.equal(current.turns.length,1);assert.equal(current.outputEdits.length,1);await f.store.requireRuntime(current);
+ assert.equal((await f.api(f.path)).turns[0].raw,'修订一：旧码头开放');
+ await f.send(s.id,'重新选择路线');current=await f.store.read(s.id);await f.store.requireRuntime(current);
+ await f.api(f.path+'/lifecycle',{action:'restore-version',operationId:randomUUID(),expectedRevision:current.revision,versionId:rewind.operationId});
+ current=await f.store.read(s.id);assert.equal(current.outputEdits.length,2);assert.equal(current.turns.length,3);await f.store.requireRuntime(current);
+ assert.equal((await f.api(f.path)).turns[1].raw,'修订二：周岚在钟楼');
+});
+
+test('exact committed main runtime descriptors remain compatible without admitting prompt or setup drift',async()=>{
+ const baseline=JSON.parse(await readFile(new URL('./output-edit-main-baseline.json',import.meta.url)));
+ const imports=[['./runtime-binding.mjs','earthRuntime'],['./model-runtime.mjs','modelRuntime'],['./history-runtime.mjs','historyRuntime'],['./summary-runtime.mjs','summaryRuntime'],['./memory-runtime.mjs','memoryRuntime']];
+ for(const [i,[path,name]] of imports.entries()){
+  const runtime=(await import(path))[name];
+  const store={status:s=>s.runtime.hash!==sha(canonical(s.runtime.descriptor))||s.runtime.setupHash!=='frozen-setup'?{compatible:false,code:'RUNTIME_BINDING_INVALID'}:s.runtime.hash===runtime.hash?{compatible:true}:{compatible:false,code:'RUNTIME_VERSION_MISMATCH'}};
+  preserveOutputEditRuntime(store);
+  const s={runtime:{...structuredClone(baseline.runtimes[i]),setupHash:'frozen-setup'}};
+  assert.equal(store.status(s).compatible,true,name);
+  const changed=structuredClone(s),author=changed.runtime.descriptor.author||changed.runtime.descriptor.content.author;author.system='tampered';changed.runtime.hash=sha(canonical(changed.runtime.descriptor));
+  assert.equal(store.status(changed).compatible,false,name+' prompt drift');
+  assert.equal(store.status({...s,runtime:{...s.runtime,setupHash:'tampered'}}).compatible,false,name+' setup drift');
+ }
 });

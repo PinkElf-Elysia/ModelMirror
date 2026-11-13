@@ -1,0 +1,31 @@
+{
+  "cardId": "jinyong",
+  "name": "金庸大世界",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/529c4fe0-dec0-4cbf-948d-5ed9341afd80",
+  "capturedAt": "2026-11-06",
+  "sourceDocx": {
+    "name": "金庸提示词.docx",
+    "sha256": "238355902cad8e5c82b7f86b6dce7582edff3487c832600e746782deca3df981"
+  },
+  "system": {
+    "file": "system.txt",
+    "sha256": "343b7772770b489c4a0867f0deadf0294b2c5505c1b1a82508ddcf9d2cc81a98",
+    "paragraphs": 1041,
+    "characters": 20552,
+    "extraction": "word/document.xml direct body paragraphs; concatenate w:t; preserve blank paragraphs with LF; no trim or semantic changes"
+  },
+  "sourceHtml": {
+    "file": "original.html",
+    "sha256": "c0102c68d37e857433aa1e0a8f104ed284c9143e5ab76d2c3cd4d17319c2135e",
+    "utf16Length": 90573
+  },
+  "files": {
+    "public/background.jpg": "6200b8c3cfd3e4fa0db112b8ddb63605aa9ffed8d17aca3d7f5cfba70fff99e5",
+    "public/index.html": "6bb663b3ae09baee2dd2f1f07b5df0ea0c3f2c10485a3d7f148210ed1ddffa17"
+  },
+  "adaptations": [
+    "Local background URL",
+    "Remove browser-ignored remote font import",
+    "Explicit opening handoff button; copying remains copy-only"
+  ]
+}

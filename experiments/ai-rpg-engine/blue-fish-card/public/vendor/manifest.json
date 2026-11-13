@@ -1,0 +1,28 @@
+{
+  "sortable.min.js": {
+    "url": "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js",
+    "sha256": "8a9889aecc2f011e15031fed87eeb35ac75e62655a7b4889ba247ee8ea872474"
+  },
+  "SORTABLE-LICENSE.txt": {
+    "url": "https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/LICENSE",
+    "sha256": "e94dfc31e800d169257569db270457c9f028440c9ccae41e7eb78b2db18f1298",
+    "vendoredSha256": "199071e94a4d6ba6f634acd6020842efc55161b9fb639a432c50da687781219d",
+    "adaptation": "Line endings normalized to LF; license text unchanged."
+  },
+  "mdi.css": {
+    "url": "https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/css/materialdesignicons.min.css",
+    "sha256": "b89606bf42acdeb4f05cff729f63f2f0574e87011d4aa5a05253a3bfcd7461bf",
+    "vendoredSha256": "1f433a0511b26c1b9a952d2e6f2f983a5d34fde97421b104e198b37f66674049",
+    "adaptation": "Font source rewritten to the local WOFF2 file; other formats removed."
+  },
+  "materialdesignicons-webfont.woff2": {
+    "url": "https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/fonts/materialdesignicons-webfont.woff2",
+    "sha256": "c1c004a90e60a31becd3ca261781c3a13a2937b5b26338fd8dd89e10ab562849"
+  },
+  "MDI-LICENSE.txt": {
+    "url": "https://cdn.jsdelivr.net/npm/@mdi/font@7.2.96/LICENSE",
+    "sha256": "f3bc8715bad84b26396bb42d2abd11f919cf58163be158eab79ecbaabf84cdf2",
+    "vendoredSha256": "3bae6305bcaa6d10219b999f65c342034c2d40b1c0e8567fa08605e73ccba829",
+    "adaptation": "Line endings normalized to LF; license text unchanged."
+  }
+}
