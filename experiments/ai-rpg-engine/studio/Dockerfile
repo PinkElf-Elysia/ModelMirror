@@ -14,6 +14,7 @@ COPY plugins ./plugins
 COPY authoring ./authoring
 COPY ancient-card ./ancient-card
 COPY jinyong-card ./jinyong-card
+COPY medieval-card ./medieval-card
 COPY blue-fish-card ./blue-fish-card
 COPY ai-girls-card ./ai-girls-card
 COPY douluo-card ./douluo-card

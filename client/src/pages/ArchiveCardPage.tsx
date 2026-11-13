@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  medieval:'中世纪真实人生',
   'ai-girls':'完蛋！我被AI娘包围了！',
   jinyong:'金庸大世界',
   'blue-fish':'蓝色大肥鱼 · 创作助手',
