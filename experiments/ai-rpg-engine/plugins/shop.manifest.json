@@ -1,0 +1,26 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.shop",
+  "version": "1.0.0",
+  "name": "交互商店",
+  "description": "由宿主结算购买，交易记录与叙事分别恢复。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth"
+  ],
+  "capabilities": [
+    "ui.shop-action",
+    "session.shop.purchase"
+  ],
+  "permissions": [
+    "session.shop.purchase",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/shop.mjs",
+  "license": "UNLICENSED (repository first-party source)",
+  "artifactSha256": "69226e7af3642bf13d11c9feae5ccb8a736f034fe829341bc8b4294f8508a0ed"
+}

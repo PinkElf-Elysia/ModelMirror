@@ -11,4 +11,8 @@ if (/^\/rpg-app\/(xingjian\/|(?:ancient|cultivation|lord-of-mysteries|blue-fish|
   void import('./earth-session-host').then(({EarthSessionHost})=>createRoot(document.getElementById('root')!).render(<EarthSessionHost/>));
 } else {
   void import('./main');
+  void import('./shop').then(({ShopEntry})=>{
+    const mount=document.createElement('div');mount.className='shop-launcher';document.body.insertBefore(mount,document.getElementById('root'));
+    createRoot(mount).render(<ShopEntry opened={id=>{const url=new URL(location.href);url.searchParams.set('session',id);location.assign(url);}}/>);
+  });
 }

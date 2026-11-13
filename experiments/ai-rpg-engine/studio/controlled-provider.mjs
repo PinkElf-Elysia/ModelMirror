@@ -31,7 +31,9 @@ async function boundedJSON(response) {
 
 // This adapter is server-only. B3 supplies a persisted, authorized session selection.
 // Sharing the existing card directory keeps old and controlled transports on one budget.
-export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch, reserveSlot=null, cardId='earth', modelPolicy=null, catalogModels=null, parameterProfile=null}) {
+export async function createControlledProvider({directory, baseURL, serviceToken, enabled=false, limit=0, fetcher=fetch, reserveSlot=null, cardId='earth', modelPolicy=null, catalogModels=null, parameterProfile=null, measurement=null}) {
+  if(measurement!==null&&(!Number.isInteger(measurement.pollIntervalMs)||measurement.pollIntervalMs<10||measurement.pollIntervalMs>2000))throw fail('CONTROL_MEASUREMENT_INVALID');
+  const meter=measurement?await import('../harness/measurement.mjs'):null;
   if(parameterProfile!==null&&(parameterProfile!=='god-long-v1'||cardId!=='god'))throw fail('CONTROL_PARAMETER_PROFILE_INVALID');
   if(cardId!=='earth'&&!modelPolicy)throw fail('CONTROL_MODEL_POLICY_REQUIRED');
   if(modelPolicy&&(modelPolicy.cardId!==cardId||typeof modelPolicy.parametersFor!=='function'||typeof modelPolicy.sameParameters!=='function'))throw fail('CONTROL_MODEL_POLICY_INVALID');
@@ -99,8 +101,22 @@ export async function createControlledProvider({directory, baseURL, serviceToken
       requestedModel:selection.model,parameters:parametersFor(selection.model),retries:0};
     await save('reservation.json',reservation); await save('request.json',wire);
     let raw='',sse='',receipt=null,httpStatus=null,error=null;
+    const started=performance.now(),startedAt=new Date().toISOString();
+    const timing=meter?{source:'host-progress-observation',startedAt,pollIntervalMs:measurement.pollIntervalMs,firstContentObservedMs:null,lastEmptyObservationMs:null,completedMs:null,polls:0,pollErrors:0,clock:'performance.now',providerFirstTokenMs:null}:null;
+    const observing=new AbortController();let observation=null;
+    async function observe(){
+      while(!observing.signal.aborted){
+        try{const response=await request('progress/'+encodeURIComponent(sessionId)+'/'+encodeURIComponent(requestId),undefined,AbortSignal.any([observing.signal,AbortSignal.timeout(4000)]));
+          if(!response.ok)throw Error('progress');const value=await boundedJSON(response);timing.polls++;
+          if(typeof value.text!=='string'||value.text.length>524288||value.text.includes(serviceToken))throw Error('progress');
+          const elapsed=performance.now()-started;if(meter.visibleText(value.text)){timing.firstContentObservedMs??=elapsed;break;}timing.lastEmptyObservationMs=elapsed;
+        }catch{if(!observing.signal.aborted)timing.pollErrors++;}
+        if(!observing.signal.aborted)await new Promise(resolve=>{const done=()=>{clearTimeout(timer);observing.signal.removeEventListener('abort',done);resolve();};const timer=setTimeout(done,measurement.pollIntervalMs);observing.signal.addEventListener('abort',done,{once:true});});
+      }
+    }
     try {
       if(signal?.aborted) throw fail('CANCELLED');
+      if(meter)observation=observe();
       const response=beforeDispatch?await (await beforeDispatch(()=>request('chat/completions',wire,signal),sha(wire))).response:await request('chat/completions',wire,signal); httpStatus=response.status;
       const value=await boundedJSON(response);
       if(typeof value.raw==='string') raw=value.raw;
@@ -116,9 +132,10 @@ export async function createControlledProvider({directory, baseURL, serviceToken
       const safe=['CONTROL_RECEIPT_INVALID','CONTROL_FAILED_OR_UNKNOWN','CONTROL_MODEL_MISMATCH','CONTROL_RESPONSE_INVALID','CONTROL_RESPONSE_TOO_LARGE','CANCELLED'];
       error=signal?.aborted?'CANCELLED':safe.includes(e.code)?e.code:'CONTROL_TRANSPORT_FAILED_OR_UNKNOWN';
     }
+    if(timing){timing.completedMs=performance.now()-started;observing.abort();await observation;if(timing.firstContentObservedMs===null&&meter.visibleText(raw)){timing.firstContentObservedMs=timing.completedMs;timing.source='host-buffered-completion-observation';}}
     if([raw,sse,JSON.stringify(receipt)].some(text=>text?.includes(serviceToken))) {raw='';sse='';receipt=null;error='CREDENTIAL_ECHO_BLOCKED';}
     await save('response.txt',raw);await save('response.sse',sse);
-    await save('result.json',{...reservation,status:error?'failed_or_unknown':'complete',rawHash:sha(raw),sseHash:sha(sse),httpStatus,receipt,error,manual:'pending'});
+    await save('result.json',{...reservation,status:error?'failed_or_unknown':'complete',rawHash:sha(raw),sseHash:sha(sse),httpStatus,receipt,error,manual:'pending',...(timing?{measurement:{timing,usage:meter.usageFromSSE(sse)}}:{})});
     if(error) throw fail(error);
     return raw;
   }
@@ -135,7 +152,7 @@ export async function createControlledProvider({directory, baseURL, serviceToken
         status:result.status,requestedModel:result.requestedModel,actualModel:r?.actualModel??result.actualModel??null,
         parameters:result.parameters,rawHash:result.rawHash,requestHash:result.requestHash,
         gateway:r?.gateway??null,runId:r?.runId??null,attemptId:r?.attemptId??null,
-        selectionId:result.selectionId??null,selectionRevision:result.selectionRevision??null}});
+        selectionId:result.selectionId??null,selectionRevision:result.selectionRevision??null,...(result.measurement?{measurement:result.measurement}:{})}});
     }
     if(matches.length>1) throw fail('MODEL_RECEIPT_AMBIGUOUS');
     return matches[0]??null;
@@ -156,12 +173,12 @@ export async function createControlledProvider({directory, baseURL, serviceToken
     const r=result.receipt;
     const terminal=r?.dispatched===true&&r.status==='failed_or_unknown'&&r.error==='rpg_incomplete_output'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&
       r.gateway==='rpg_scoped'&&r.requestHash===result.controlRequestHash&&r.rawHash===result.rawHash&&r.sseHash===result.sseHash&&r.requestedModel===result.requestedModel&&r.actualModel===result.requestedModel&&r.selectionId===result.selectionId&&r.selectionRevision===result.selectionRevision&&sameParameters(result.requestedModel,r.parameters)&&r.retries===0&&
-      done===1&&streamValid&&streamRaw===raw&&sse.endsWith('\n\n')&&['content_filter','length'].includes(finishReason);
+      done===1&&streamValid&&streamRaw===raw&&sse.endsWith('\n\n')&&(['content_filter','length'].includes(finishReason)||finishReason==='stop'&&!raw.trim());
     const rejected=r?.dispatched===false&&r.status==='failed'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&result.httpStatus===409&&
       ['rpg_fallback_limit_exhausted','rpg_route_unavailable','rpg_selection_changed'].includes(r.error)&&raw===''&&sse===''&&
       r.gateway==='rpg_scoped'&&r.requestHash===result.controlRequestHash&&r.rawHash===result.rawHash&&r.sseHash===result.sseHash&&r.requestedModel===result.requestedModel&&r.actualModel===null&&r.selectionId===result.selectionId&&r.selectionRevision===result.selectionRevision&&sameParameters(result.requestedModel,r.parameters)&&r.retries===0;
-    const failureCode=rejected?(r.error==='rpg_fallback_limit_exhausted'?'CONTROL_BUDGET_EXHAUSTED':'CONTROL_PREFLIGHT_REJECTED'):terminal?(finishReason==='content_filter'?'PROVIDER_CONTENT_FILTERED':'PROVIDER_OUTPUT_TRUNCATED'):null;
-    return {raw,finishReason,evidence:found,failureCode,failureKnown:!!rejected||!!terminal||r?.dispatched===true&&(r.status==='failed'||r.status==='complete'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&!raw.trim())};
+    const failureCode=rejected?(r.error==='rpg_fallback_limit_exhausted'?'CONTROL_BUDGET_EXHAUSTED':'CONTROL_PREFLIGHT_REJECTED'):terminal?(finishReason==='content_filter'?'PROVIDER_CONTENT_FILTERED':finishReason==='stop'?'PROVIDER_EMPTY_OUTPUT':'PROVIDER_OUTPUT_TRUNCATED'):null;
+    return {raw,finishReason,evidence:found,...(result.measurement?{measurement:result.measurement}:{}),failureCode,failureKnown:!!rejected||!!terminal||r?.dispatched===true&&(r.status==='failed'||r.status==='complete'&&result.error==='CONTROL_FAILED_OR_UNKNOWN'&&!raw.trim())};
   }
   return {catalog,generate,status,evidence,recoveredOutput};
 }

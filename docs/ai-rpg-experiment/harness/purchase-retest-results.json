@@ -1,0 +1,133 @@
+{
+  "id": "B-purchase-repair-1",
+  "model": "google/gemini-3.8-flash",
+  "provider": "Google AI Studio",
+  "status": "succeeded",
+  "finishReason": "stop",
+  "calls": 1,
+  "reportedUSD": 0.01036575,
+  "feeCeilingUSD": 0.25,
+  "usage": {
+    "inputTokens": 906,
+    "outputTokens": 2583,
+    "totalTokens": 3489,
+    "cachedInputTokens": 0,
+    "cacheWriteTokens": 0,
+    "reasoningTokens": 1104,
+    "reportedCostMicros": 10366,
+    "currency": "USD",
+    "source": "provider-sse",
+    "issues": [],
+    "generationId": "gen-1794593777-k0IZZX89LFGEHVsXMy4A",
+    "model": "google/gemini-3.8-flash",
+    "usageFrames": 1,
+    "streamComplete": true
+  },
+  "timing": {
+    "source": "host-progress-observation",
+    "startedAt": "2026-11-13T18:16:12.165Z",
+    "pollIntervalMs": 250,
+    "firstContentObservedMs": 19218.446,
+    "lastEmptyObservationMs": 18938.7048,
+    "completedMs": 36290.4315,
+    "polls": 52,
+    "pollErrors": 1,
+    "clock": "performance.now",
+    "providerFirstTokenMs": null
+  },
+  "bodyCharacters": 1500,
+  "options": 5,
+  "rawHash": "7c2711830db40835725846ea2425744629766cabb6155bc74a7e384b0156c5ca",
+  "transaction": {
+    "before": {
+      "balance": 10000,
+      "inventory": {
+        "bread": 0,
+        "notebook": 0,
+        "water": 0
+      },
+      "stock": {
+        "bread": 2,
+        "notebook": 1,
+        "water": 5
+      }
+    },
+    "after": {
+      "balance": 8800,
+      "inventory": {
+        "bread": 2,
+        "notebook": 0,
+        "water": 0
+      },
+      "stock": {
+        "bread": 0,
+        "notebook": 1,
+        "water": 5
+      }
+    },
+    "receipt": {
+      "id": "B-purchase-repair-1",
+      "kind": "purchase",
+      "outcome": "committed",
+      "reason": null,
+      "productId": "bread",
+      "quantity": 2,
+      "total": 1200,
+      "changes": {
+        "balance": -1200,
+        "inventory": {
+          "bread": 2
+        },
+        "stock": {
+          "bread": -2
+        }
+      },
+      "before": {
+        "balance": 10000,
+        "inventory": {
+          "bread": 0,
+          "notebook": 0,
+          "water": 0
+        },
+        "stock": {
+          "bread": 2,
+          "notebook": 1,
+          "water": 5
+        }
+      },
+      "after": {
+        "balance": 8800,
+        "inventory": {
+          "bread": 2,
+          "notebook": 0,
+          "water": 0
+        },
+        "stock": {
+          "bread": 0,
+          "notebook": 1,
+          "water": 5
+        }
+      },
+      "at": "2026-11-13T18:17:49.288Z",
+      "stateBefore": 0,
+      "stateAfter": 1,
+      "ruleVersion": "earth-corner-shop/1",
+      "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+      "narration": {
+        "status": "ready",
+        "attempts": [],
+        "raw": null,
+        "error": null
+      }
+    },
+    "repeatedDebit": false
+  },
+  "checks": {
+    "visibleCompleteBody": true,
+    "managedStateConflict": null,
+    "noSecondDebit": true,
+    "noAutomaticRetry": true
+  },
+  "humanAcceptance": "pending",
+  "preview": "http://127.0.0.1:18764/#B-purchase-repair-1"
+}
