@@ -96,7 +96,7 @@ async function controlFixture(t,options={}) {
 async function fixture(t,options={}){
  const directory=options.directory||await mkdtemp(join(tmpdir(),'rpg-six-card-'));await mkdir(directory,{recursive:true});
  const f=await controlFixture(t,{...options,captureDirectory:directory});
- const config={directory:join(directory,'sessions'),budgetDirectory:join(directory,'budget'),origin:f.origin,serviceToken:token,defaultModel:'synthetic/story',recoverDeadOwner:!!options.recoverDeadOwner,limits:Object.fromEntries(Object.keys(GENERATION_CARDS).map(k=>[k,30]))};
+ const config={speech:!!options.speech,directory:join(directory,'sessions'),budgetDirectory:join(directory,'budget'),origin:f.origin,serviceToken:token,defaultModel:'synthetic/story',recoverDeadOwner:!!options.recoverDeadOwner,limits:Object.fromEntries(Object.keys(GENERATION_CARDS).map(k=>[k,30]))};
  const h=await createGenerationCards({...config,control:f.control});t.after(()=>h.close());return {...f,h,config,directory};
 }
 const inputFor=id=>id==='earth'?{characterText:'姓名：林舟\n身份：成年旅行者',world:'表世界'}:id==='god'?{setup:newSetup()}:{opening:'姓名：林舟\n身份：成年旅行者'};
@@ -277,4 +277,20 @@ check('parameter host output editing keeps typed settings and receipts, without 
  prior.runtime.descriptor.hostArtifacts['studio/generation-cards.mjs']='6764cacd029b5f3723fbbc97f1b54353b05f22e09005e9a96fc52c062f7e6b4c';prior.runtime.hash=digest(prior.runtime.descriptor);
  assert.equal(store.status(prior).compatible,true);await store.requireRuntime(prior);
  prior.runtime.descriptor.hostArtifacts['card-replica/resources/prompts.json']='tampered';prior.runtime.hash=digest(prior.runtime.descriptor);assert.equal(store.status(prior).compatible,false);
+});
+
+check('optional speech works across typed cards and exact pre-speech saves remain compatible',async t=>{
+ const f=await fixture(t,{speech:true});
+ const baseline=JSON.parse(await readFile(new URL('./speech-baseline.fixture.json',import.meta.url),'utf8'));
+ for(const card of Object.keys(GENERATION_CARDS)){
+  const store=f.h.hosts.get(card).store,s=await store.create(inputFor(card));
+  const old=clone(s);old.runtime.descriptor.hostArtifacts=baseline.generationArtifacts;old.runtime.hash=sha256(canonical(old.runtime.descriptor));
+  assert.equal(store.status(old).compatible,true,card+' baseline');
+  const drift=clone(old);drift.runtime.descriptor.hostArtifacts['studio/card-context.mjs']='0'.repeat(64);drift.runtime.hash=sha256(canonical(drift.runtime.descriptor));assert.equal(store.status(drift).compatible,false,card+' drift');
+  await grant(f,s,'rpg.speech');
+  const ticket=await f.h.plugins.invoke({sessionId:s.id,pluginId:'rpg.speech',capability:'session.speech.generate',input:{}});
+  assert.equal((await f.h.plugins.commitResult(ticket,()=>({ok:true}))).ok,true);
+  assert.deepEqual(await store.read(s.id),s,card+' story unchanged');
+ }
+ assert.equal(f.tasks.length,0);
 });

@@ -1,0 +1,27 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.speech",
+  "version": "1.0.0",
+  "name": "沉浸语音",
+  "description": "手动提取已完成的回复，编辑文字并生成语音；保存音频与调用记录。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god"
+  ],
+  "capabilities": [
+    "session.speech.generate"
+  ],
+  "permissions": [
+    "session.completed.read",
+    "session.speech.generate",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/speech.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "a96478d011ec139a689a7a9ac41d459e2482cbfb96b01ab3dcd75c49f343500a"
+}

@@ -1,3 +1,4 @@
+import {beforeSpeechDescriptor} from '../studio/speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {canonical,sha,fail,loadReviewedPlugins,loadReviewedCatalog,TRANSCRIPT_ID,ILLUSTRATIONS_ID} from '../plugins/catalog.mjs';
@@ -37,7 +38,7 @@ export async function createJinyongHost(directory,control,{cardId,name,system,au
     // A catalog refresh may change only its revision. Sending still requires the
     // current exact selection; reading a reviewed save does not grant dispatch.
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return [descriptor,previousJinyongDescriptor(descriptor)].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
+    return [descriptor,previousJinyongDescriptor(descriptor),beforeSpeechDescriptor(descriptor,'jinyong-card/host.mjs')].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){
@@ -57,7 +58,7 @@ export async function createJinyongHost(directory,control,{cardId,name,system,au
   const {store}=integrated;
   store.autoSummaryV2=autoSummaryV2;
   const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:async()=>{
-    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools});
+    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools,speech:!!pluginFeatures.speech});
     if(pluginFeatures.transcript)entries.push(await loadReviewedCatalog(TRANSCRIPT_ID));
     if(pluginFeatures.illustrations)entries.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
     return entries.map(entry=>{

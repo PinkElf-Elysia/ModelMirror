@@ -1,3 +1,4 @@
+import {invoke as speechInvoke} from './speech.mjs';
 import {invoke as comparisonInvoke} from './model-comparison.mjs';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
@@ -19,12 +20,13 @@ export const MEMORY_PALACE_ID = 'rpg.memory-palace';
 export const ILLUSTRATIONS_ID='rpg.illustrations';
 export const TRANSCRIPT_ID = 'rpg.transcript';
 export const MESSAGE_TOOLS_ID = 'rpg.message-tools';
+export const SPEECH_ID='rpg.speech';
 export const MODEL_COMPARISON_ID='rpg.model-comparison';
 export const GENERATION_PARAMETERS_ID = 'rpg.generation-parameters';
 export const REVIEWED_PLUGIN_IDS = Object.freeze([PLUGIN_ID, MODEL_SELECTOR_ID, HISTORY_WINDOW_ID, ROLLING_SUMMARY_ID, MEMORY_PALACE_ID, MESSAGE_TOOLS_ID, TRANSCRIPT_ID, ILLUSTRATIONS_ID]);
 // Preserve the legacy advertised list: hosts must opt in only after wiring
 // parameter persistence and dispatch. Registry recognition is not compatibility.
-export const KNOWN_PLUGIN_IDS = Object.freeze([...REVIEWED_PLUGIN_IDS, GENERATION_PARAMETERS_ID, MODEL_COMPARISON_ID]);
+export const KNOWN_PLUGIN_IDS = Object.freeze([...REVIEWED_PLUGIN_IDS, GENERATION_PARAMETERS_ID, MODEL_COMPARISON_ID, SPEECH_ID]);
 export const HOST_VERSION = '1.0.0';
 export const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 export const fail = (code, status = 409) => Object.assign(Error(code), {code, status});
@@ -35,6 +37,7 @@ export const canonical = value => JSON.stringify(value, function(key, item) {
   return item;
 });
 const definitions = new Map([
+  [SPEECH_ID,{file:'speech',invoke:speechInvoke,compatibleCards:['earth','god'],permissions:['session.completed.read','session.speech.generate','ui.contribute'],capabilities:['session.speech.generate']}],
   [MODEL_COMPARISON_ID,{file:'model-comparison',invoke:comparisonInvoke,compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],permissions:['session.comparison.generate','ui.contribute'],capabilities:['ui.comparison-action','session.comparison.generate']}],
   [GENERATION_PARAMETERS_ID, {file:'generation-parameters', invoke:parameterInvoke,
     compatibleCards:['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','authored-work-v1'],
@@ -96,8 +99,8 @@ export async function loadReviewedCatalog(pluginId = PLUGIN_ID) {
   return {...entry, invoke:d.invoke};
 }
 // M2/M3 are advertised only by explicitly opted-in hosts, never legacy entrypoints.
-export async function loadReviewedPlugins({rollingSummary=false,memoryPalace=false,messageTools=false,generationParameters=false,modelComparison=false}={}) {
-  const advertised=[...REVIEWED_PLUGIN_IDS,...(generationParameters?[GENERATION_PARAMETERS_ID]:[]),...(modelComparison?[MODEL_COMPARISON_ID]:[])];
+export async function loadReviewedPlugins({rollingSummary=false,memoryPalace=false,messageTools=false,generationParameters=false,modelComparison=false,speech=false}={}) {
+  const advertised=[...REVIEWED_PLUGIN_IDS,...(speech?[SPEECH_ID]:[]),...(generationParameters?[GENERATION_PARAMETERS_ID]:[]),...(modelComparison?[MODEL_COMPARISON_ID]:[])];
   return Promise.all(advertised.filter(id=>id!==ILLUSTRATIONS_ID&&id!==TRANSCRIPT_ID&&(messageTools||id!==MESSAGE_TOOLS_ID)&&(rollingSummary||id!==ROLLING_SUMMARY_ID)&&(memoryPalace||id!==MEMORY_PALACE_ID)).map(async id => {
     try {return await loadReviewedCatalog(id);} catch(e) {
       return {id,error:e.code?.startsWith('PLUGIN_')?e.code:'PLUGIN_PACKAGE_UNAVAILABLE'};
