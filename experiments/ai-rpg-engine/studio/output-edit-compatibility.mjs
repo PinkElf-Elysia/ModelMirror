@@ -84,6 +84,7 @@ const latestBases=["c8d905effd7d3752e429a40749eae7a3b4fdc73941226420825296fcd725
 const oldBases=["05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca", "e31d4ff9cd656eb8abf8cb766ecc223b9e7b3548c0b7f179cabe0f2aebae0bbf", "f2a62c8c08b197bae80eb3cf0b76b7b7d013067acd092b417754b961f4e3ae18", "8b9ea914d2c847521c6a69220b3b5cc5bbb595b94ee803e402789269a0e86fed", "923d2b170eb3246da01ca9508000e0858ecd6ee9107de05683fc96eeaff37875"];
 // Exact main d9dd7094 fingerprints before failed-turn recovery.
 const recoveryBefore={
+  "studio/server.mjs": "dcbb09be866cacec44920f5fa31396431de211ff6b0140dedc695e287ffc5400",
   "studio/summary-tasks.mjs": "8eb82f8860831bab1513fb1ba9dd868b166259ba4405c9bab772ac0cba6bf7e9",
   "studio/memory-session-store.mjs": "d138b795386392c74437ebbd6e6bf3d811b685783b84bc61e70b522431710cdd",
   "studio/memory-tasks.mjs": "7881b79feea6c7e252145ab59917668668eb7c9a5fe9661a23c12199f0a06aaf",

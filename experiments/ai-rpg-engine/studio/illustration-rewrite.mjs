@@ -2,6 +2,7 @@ import {createControlledProvider as createMedievalProvider} from '../medieval-ca
 import {join} from 'node:path';
 import {createControlledProvider} from './controlled-provider.mjs';
 import {createControlledProvider as createJinyongProvider} from '../jinyong-card/transport/controlled-provider.mjs';
+import {createControlledProvider as createHarryPotterProvider} from '../harry-potter-card/transport/controlled-provider.mjs';
 import {parametersFor,sameParameters} from './model-parameters.mjs';
 import {models} from './provider.mjs';
 import {fail} from '../plugins/catalog.mjs';
@@ -19,8 +20,8 @@ export async function createIllustrationWriter(directory,config){
   if(!config)return null;
   const model=config.model||models.earth.model;
   const providers=new Map();
-  for(const cardId of ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','douluo','dragon-raja','jinyong','elderland','medieval']){
-    providers.set(cardId,await (cardId==='medieval'?createMedievalProvider:cardId==='jinyong'?createJinyongProvider:createControlledProvider)({...config,directory:join(directory,'illustration-rewrites'),cardId,
+  for(const cardId of ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','douluo','dragon-raja','jinyong','medieval','elderland','harry-potter']){
+    providers.set(cardId,await (cardId==='harry-potter'?createHarryPotterProvider:cardId==='medieval'?createMedievalProvider:cardId==='jinyong'?createJinyongProvider:createControlledProvider)({...config,directory:join(directory,'illustration-rewrites'),cardId,
       catalogModels:[model],modelPolicy:{cardId,parametersFor,sameParameters}}));
   }
   return {

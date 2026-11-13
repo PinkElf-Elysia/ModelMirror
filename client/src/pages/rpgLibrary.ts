@@ -11,6 +11,7 @@ const libraryCovers:Record<string,string>={
 };
 // Display copy stays outside the immutable card runtime used by existing saves.
 const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:string}>={
+  'harry-potter':{description:'收到霍格沃茨的来信，选择作品、血统与魔杖，在魔法世界展开属于自己的故事。'},
   elderland:{description:'踏入艾尔德兰，在王国、遗迹与荒野间冒险，用剑与魔法走出自己的道路。'},
   medieval:{description:'回到公元四至十五世纪，从出身与技艺起步，在生计、信仰和战乱间经营一生。'},
   jinyong:{description:'走进金庸笔下的江湖，拜师学艺、结交群侠，在恩怨与抉择中写下自己的武林传奇。'},
