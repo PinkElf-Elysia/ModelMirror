@@ -36,7 +36,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
  async function finishTask(s,operation,task,result){
   task.output=structuredClone(result);const record=result.evidence?.record;
   if(!record||record.status!=='complete'){
-   task.status=!result.dispatched||result.failureKnown?'failed':'unknown';throw fail(task.status==='unknown'?'SUMMARY_TASK_RESULT_UNKNOWN':'SUMMARY_TASK_FAILED');
+   task.status=!result.dispatched||result.failureKnown?'failed':'unknown';throw fail(task.status==='unknown'?'SUMMARY_TASK_RESULT_UNKNOWN':result.failureCode||'SUMMARY_TASK_FAILED');
   }
   if(record.sessionId!==s.id||record.requestId!==task.requestId||record.requestedModel!==task.selection.model||canonical(record.parameters)!==canonical(task.selection.parameters)||record.rawHash!==sha(result.raw))throw fail('SUMMARY_TASK_RECEIPT_INVALID');
   if(task.purpose!=='story'){
@@ -70,7 +70,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
  }
  async function work(id,input,kind,admission=input,inheritedGeneration=null){
   return store.exclusive(id,async()=>{
-   const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s,cardState?.validateModel),prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
+   const s=await store.read(id);await store.requireSummarySession(s);if(s.dismissedRequests?.[input.operationId])throw fail('REQUEST_DISMISSED',409);const state=requireTaskState(s,cardState?.validateModel),prior=Object.hasOwn(state.operations,input.operationId)?state.operations[input.operationId]:null;
    if(prior){if(prior.inputHash!==sha(canonical(input)))throw fail('SUMMARY_TASK_OPERATION_COLLISION');return {...structuredClone(prior),replayed:true};}
    if(admit)await admit(s);
    if(summaryTaskBlock(s)||s.historyWindow.pending||s.rollingSummary.pending||Object.values(s.requests).some(r=>r.status==='pending'))throw fail('SUMMARY_TASK_UNCONFIRMED');
@@ -96,7 +96,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
     operation.status='complete';s.summaryTasks.blocked=null;
    }catch(e){
     const last=operation.tasks.at(-1);operation.status=controller.signal.aborted?'cancelled':last?.status==='unknown'?'unknown':last?.status==='revoked'?'revoked':'failed';
-    operation.error=['BUDGET_EXHAUSTED','MODEL_SELECTION_UNAVAILABLE','SUMMARY_OUTPUT_REJECTED','SUMMARY_COMPRESSION_REJECTED','SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH','SUMMARY_TASK_RESULT_UNKNOWN','CANCELLED'].includes(e.code)?e.code:'SUMMARY_TASK_FAILED';
+    operation.error=['PROVIDER_CONTENT_FILTERED','PROVIDER_OUTPUT_TRUNCATED','BUDGET_EXHAUSTED','MODEL_SELECTION_UNAVAILABLE','SUMMARY_OUTPUT_REJECTED','SUMMARY_COMPRESSION_REJECTED','SUMMARY_AUTHORIZATION_CHANGED','HISTORY_AUTHORIZATION_CHANGED_BEFORE_DISPATCH','SUMMARY_TASK_RESULT_UNKNOWN','CANCELLED'].includes(e.code)?e.code:'SUMMARY_TASK_FAILED';
     // Summary failure blocks future automatic work. Story failure can reuse a committed summary.
     if(last&&last.purpose!=='story'||kind!=='send'||!last&&needs&&e.code!=='BUDGET_EXHAUSTED')s.summaryTasks.blocked=input.operationId;
    }finally{
@@ -138,7 +138,7 @@ export function createSummaryTasks({store,plugins,transport,buildStory=null,comm
   async recover(id,key){
    if(!operationId(key))throw fail('SUMMARY_TASK_INPUT_INVALID',400);if(active.has(id))throw fail('SESSION_BUSY');
    return store.exclusive(id,async()=>{
-    const s=await store.read(id);await store.requireSummarySession(s);const state=requireTaskState(s,cardState?.validateModel),op=Object.hasOwn(state.operations,key)?state.operations[key]:null;
+    const s=await store.read(id);await store.requireSummarySession(s);if(s.dismissedRequests?.[key])return {status:'cancelled'};const state=requireTaskState(s,cardState?.validateModel),op=Object.hasOwn(state.operations,key)?state.operations[key]:null;
     if(!op)return {status:'not-found'};if(!pending.has(op.status))return structuredClone(op);
     s.summaryTasks=state;
     for(const task of op.tasks){if(task.status==='complete')continue;

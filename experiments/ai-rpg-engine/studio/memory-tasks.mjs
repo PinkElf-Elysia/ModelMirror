@@ -92,6 +92,7 @@ export function createMemoryTasks({store,plugins,transport,buildStory=null,commi
   return store.exclusive(id,async()=>{
    const s=await read(id),q=s.memoryTasks,prior=Object.hasOwn(q.operations,input.operationId)?q.operations[input.operationId]:null;
    if(prior){if(prior.inputHash!==sha(canonical(input)))throw fail('MEMORY_TASK_OPERATION_COLLISION');const result={...structuredClone(prior),replayed:true};front.resolve(result);return result;}
+   if(s.dismissedRequests?.[input.operationId])throw fail('REQUEST_DISMISSED',409);
    unconfirmed(s);const a=await authorizations(id),policy=policyFor(s,a),v2=usesV2(a);
    if(s.revision!==admission.expectedSessionRevision||s.memoryPalace.revision!==admission.expectedMemoryRevision||policy.revision!==admission.expectedContextPolicyRevision)throw fail('MEMORY_TASK_REVISION_CONFLICT');
    if(kind==='regenerate'&&!v2)throw fail('PLUGIN_NOT_AUTHORIZED',403);

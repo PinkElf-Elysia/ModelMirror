@@ -15,7 +15,7 @@ function StoryCard({work:w,info}:{work:LibraryWork;info?:WorldState}){
  const label='进入'+w.name,hasArt=!!w.art&&!failed;
  const content=<>
   <div className={'rpg-story-art'+(hasArt?'':' rpg-story-art--type')} data-tone={coverTone(w.id)}>
-   {hasArt?<img src={w.art} style={{objectPosition:/landscape/i.test(w.art)?'50% 50%':'50% 20%'}} crossOrigin={w.source==='published'?'anonymous':undefined} alt="" loading="lazy" onError={()=>setFailed(true)}/>:<><span className="rpg-cover-title" aria-hidden="true">{w.name}</span><span className="rpg-cover-initial" aria-hidden="true">{Array.from(w.name.trim())[0]||w.mark}</span><span className="rpg-cover-genre" aria-hidden="true">{w.tags[0]||'原创故事'}</span></>}
+   {hasArt?<img src={w.art} style={{objectPosition:w.artPosition||(/landscape/i.test(w.art)?'50% 50%':'50% 20%')}} crossOrigin={w.source==='published'?'anonymous':undefined} alt="" loading="lazy" onError={()=>setFailed(true)}/>:<><span className="rpg-cover-title" aria-hidden="true">{w.name}</span><span className="rpg-cover-initial" aria-hidden="true">{Array.from(w.name.trim())[0]||w.mark}</span><span className="rpg-cover-genre" aria-hidden="true">{w.tags[0]||'原创故事'}</span></>}
    {w.source==='published'&&<span className="rpg-published-badge">我的作品 · v{w.version}</span>}
    <span className="rpg-story-enter" aria-hidden="true">进入 →</span>
   </div>
@@ -75,7 +75,7 @@ export default function RpgPage(){
  if(cardId==='ancient')return <AncientCardPage/>;
  if(cardId==='cultivation')return <CultivationCard/>;
  if(cardId)return <RpgShell><h1>没有找到这个世界</h1><Link className="rpg-button" to="/rpg">返回故事馆</Link></RpgShell>;
- const saved=worlds.flatMap(w=>(state[w.id]?.sessions||[]).slice(0,1).map(s=>({world:w,session:s})));
+ const saved=builtinWorks.flatMap(w=>(state[w.id]?.sessions||[]).slice(0,1).map(s=>({world:w,session:s})));
  const all=[...published.slice().sort((a,b)=>a.id.localeCompare(b.id)),...builtinWorks];
  const needle=query.trim().toLocaleLowerCase();
  const visible=all.filter(w=>(source==='all'||w.source===source)&&[w.name,w.description,...w.tags].some(text=>text.toLocaleLowerCase().includes(needle)));

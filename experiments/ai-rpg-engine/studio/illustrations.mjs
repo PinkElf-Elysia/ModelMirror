@@ -2,6 +2,7 @@ import {mkdir,readFile,readdir,writeFile} from 'node:fs/promises';
 import {dirname,join} from 'node:path';
 import {canonical,sha,fail,ILLUSTRATIONS_ID} from '../plugins/catalog.mjs';
 import {atomicJson} from './branch-archive.mjs';
+import {publishVersion} from './session-lifecycle.mjs';
 
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const media=new Set(['image/png','image/jpeg','image/webp','image/svg+xml']);
@@ -105,14 +106,16 @@ export function createIllustrations(directory,service,writer=null){
         await writeFile(join(path,'asset'),bytes,{flag:'wx',mode:0o600});
         Object.assign(job,{state:'complete',mediaType:item.media_type,bytes:bytes.length,assetHash:sha(bytes),actualModel:result.actual_model,requestId:result.request_id,costUsd:result.usage?.cost_usd??null,costKind:result.usage?.cost_kind??'unavailable'});
       }catch(e){job.state=e.code==='IMAGE_REQUEST_REJECTED'?'failed':'unknown';job.error=job.state==='failed'?'IMAGE_REQUEST_REJECTED':'IMAGE_OUTCOME_UNKNOWN';}
-      finally{try{await atomicJson(join(path,'job.json'),job);}finally{active.delete(path);}}
+      // Retry only publication of the same durable record on transient file locks.
+      // Keep the job active until publication settles; never repeat generate().
+      finally{try{await atomicJson(join(path,'job.json'),job,publishVersion);}finally{active.delete(path);}}
     }
     const result=await plugins.commitResult(ticket,async()=>{
       if(active.has(path))return existing();
       if([...active].some(p=>dirname(p)===folder))throw fail('IMAGE_BUSY');
       await mkdir(folder,{recursive:true});
       try{await mkdir(path);}catch(e){if(e.code==='EEXIST')return existing();throw e;}
-      await atomicJson(join(path,'job.json'),job);active.add(path);
+      await atomicJson(join(path,'job.json'),job,publishVersion);active.add(path);
       void finish().catch(()=>{});return {...job};
     });
     return send(202,result);

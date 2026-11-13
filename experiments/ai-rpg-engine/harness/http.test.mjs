@@ -3,7 +3,7 @@ import{start}from'../studio/server.mjs';import{initialAssets}from'./shop-rules.m
 test('HTTP preview, branched activation, memory pipeline and legacy isolation',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'shop-http-'));
  const app=await start({port:0,directory,shop:true,enabled:false,limit:0});const base='http://127.0.0.1:'+app.server.address().port;
- t.after(async()=>{await app.shop.close();await new Promise(r=>app.server.close(r));await app.plugins?.close();assert.ok(resolve(directory).startsWith(resolve(tmpdir())+'\\shop-http-'));await rm(directory,{recursive:true,force:true});});
+ t.after(async()=>{await app.shop.close();await new Promise(r=>app.server.close(r));await app.closed;await app.plugins?.close();assert.ok(resolve(directory).startsWith(resolve(tmpdir())+'\\shop-http-'));await rm(directory,{recursive:true,force:true});});
  async function req(path,body){const response=await fetch(base+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json',Origin:base}:{},...(body?{body:JSON.stringify(body)}:{})});const data=await response.json();return {status:response.status,data};}
  assert.equal((await fetch(base+'/rpg-app/earth/?session=shop-start')).status,200);
  const original=await app.earth.create({characterText:'姓名：林川',world:'表世界',params:{},mode:'offline'}),frozen=JSON.stringify(await app.earth.read(original.id));
@@ -23,7 +23,7 @@ test('HTTP preview, branched activation, memory pipeline and legacy isolation',a
 test('shop prototype is unavailable unless the isolated host opts in',async t=>{
  const directory=await mkdtemp(join(tmpdir(),'shop-http-disabled-'));
  const app=await start({port:0,directory,enabled:false,limit:0});
- t.after(async()=>{await new Promise(r=>app.server.close(r));await app.plugins?.close();assert.ok(resolve(directory).startsWith(resolve(tmpdir())+'\\shop-http-disabled-'));await rm(directory,{recursive:true,force:true});});
+ t.after(async()=>{await new Promise(r=>app.server.close(r));await app.closed;await app.plugins?.close();assert.ok(resolve(directory).startsWith(resolve(tmpdir())+'\\shop-http-disabled-'));await rm(directory,{recursive:true,force:true});});
  assert.equal(app.shop,null);
  const base='http://127.0.0.1:'+app.server.address().port;
  assert.equal((await fetch(base+'/rpg-app/earth/api/shop/status')).status,404);

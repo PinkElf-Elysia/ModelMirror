@@ -11,5 +11,5 @@ const directory=resolve(root,'.rpg04-work/'+(profile==='repair-v2'?'harness-shop
 const app=await start({port,directory,shop:{recoverDeadOwner:true},enabled:false,limit:0,origins:['http://127.0.0.1:'+port,'http://localhost:'+port]});
 installCustomConfig(app.server,['http://127.0.0.1:'+port,'http://localhost:'+port],join(directory,'custom-config'));
 console.log('Offline shop preview: http://127.0.0.1:'+port+'/rpg-app/earth/?session=shop-start');
-async function close(){await app.shop.close();await new Promise(resolve=>app.server.close(resolve));process.exit(0);}
+async function close(){await app.shop.close();await new Promise(resolve=>app.server.close(resolve));await app.closed;process.exit(0);}
 process.once('SIGINT',close);process.once('SIGTERM',close);

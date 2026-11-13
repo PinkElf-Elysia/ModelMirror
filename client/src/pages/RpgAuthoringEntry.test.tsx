@@ -4,7 +4,7 @@ import {MemoryRouter, Route, Routes} from 'react-router-dom';
 import {afterEach, expect, it, vi} from 'vitest';
 import type {ReactNode} from 'react';
 import RpgPage from './RpgPage';
-import {worlds} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
+import {builtinWorks} from './rpgLibrary';
 import {localAuthoringHref} from './rpgAuthoringLink';
 
 vi.mock('../components/PageContainer', () => ({default: ({children}: {children: ReactNode}) => <main>{children}</main>}));
@@ -31,11 +31,11 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   vi.stubEnv('VITE_RPG_AUTHORING_PORT', enabled ? '18624' : '');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({cards: [{id: 'god'}]})));
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
-  await screen.findByRole('heading', {name: '神临凡尘'});
+  await screen.findByRole('heading', {name: '上帝模拟器'});
   expect(screen.getByRole('link', {name: '进入中世纪真实人生'})).toHaveAttribute('href', '/rpg/medieval');
   expect(screen.getByRole('link', {name: '进入斗罗大陆'})).toHaveAttribute('href', '/rpg/douluo');
   expect(screen.getByRole('link', {name: '进入蓝色大肥鱼'})).toHaveAttribute('href', '/rpg/blue-fish');
-  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(13);
+  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(14);
   expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/elderland');
   expect(screen.getByRole('link', {name: '插件市场'})).toHaveAttribute('href', '/rpg/plugins');
   const link = screen.queryByRole('link', {name: /打开创作工作台/});
@@ -64,6 +64,6 @@ it('keeps new releases, existing worlds and saved stories accessible when a host
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
   expect(await screen.findByRole('link',{name:/林澈的来信/})).toHaveAttribute('href','/rpg/dragon-raja/chat/'+sessionId);
   const library=within(screen.getByRole('region',{name:'全部作品'}));
-  for(const world of worlds)expect(library.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
+  for(const world of builtinWorks)expect(library.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
   expect(await screen.findByRole('button',{name:'重新读取'})).toBeEnabled();
 });
