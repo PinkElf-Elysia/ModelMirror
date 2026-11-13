@@ -1,3 +1,4 @@
+import {isElderlandAsset,serveElderland} from '../elderland-card/assets.mjs';
 import {attachSessionLifecycle,sessionLifecycleHttp} from './session-lifecycle.mjs';
 import {cultivationHttp} from '../cultivation-card/host.mjs';
 import {MemorySessionStore} from './memory-session-store.mjs';
@@ -40,7 +41,7 @@ export function archiveChatOptions(env){
    ?{baseURL:env.RPG_CONTROL_URL,serviceToken:env.RPG_S2S_TOKEN,enabled:true,limit:Number(env[prefix+'_CALL_LIMIT']||0)}:null;
  const rewrite=control('RPG_ILLUSTRATION_REWRITE');
  return {rewriteControl:rewrite&&{...rewrite,model:env.RPG_ILLUSTRATION_REWRITE_MODEL},xingjianControl:control('RPG_XINGJIAN'),archiveControls:{
-   jinyong:control('RPG_JINYONG_CHAT'),ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT'),douluo:control('RPG_DOULUO_CHAT'),'dragon-raja':control('RPG_DRAGON_CHAT')
+   elderland:control('RPG_ELDERLAND_CHAT'),jinyong:control('RPG_JINYONG_CHAT'),ancient:control('RPG_ANCIENT_CHAT'),cultivation:control('RPG_CULTIVATION_CHAT'),'lord-of-mysteries':control('RPG_MYSTERIES_CHAT'),douluo:control('RPG_DOULUO_CHAT'),'dragon-raja':control('RPG_DRAGON_CHAT')
  }};
 }
 export async function start({port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null}={}){
@@ -110,11 +111,12 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
  let xingjianPromise;
  const xingjian=()=>xingjianPromise??=import('../xingjian-card/host.mjs').then(m=>openArchive(join(directory,'xingjian',xingjianControl?'real':'offline'),dir=>m.createXingjian(dir,xingjianControl,autoSummaryV2,archiveFeatures))).catch(e=>{xingjianPromise=null;throw e;});
  const archiveHosts=new Map();
- const archiveNames={jinyong:'金庸大世界','dragon-raja':'龙族大世界',douluo:'斗罗大陆 · 魂师觉醒台','ancient':'古代人生 · 命运卷轴','lord-of-mysteries':'诡秘之主大世界','cultivation':'超级修仙大世界'};
+ const archiveNames={elderland:'西幻大世界 · 艾尔德兰',jinyong:'金庸大世界','dragon-raja':'龙族大世界',douluo:'斗罗大陆 · 魂师觉醒台','ancient':'古代人生 · 命运卷轴','lord-of-mysteries':'诡秘之主大世界','cultivation':'超级修仙大世界'};
  async function archiveHost(id){
   if(!archiveHosts.has(id)){
    const init=async()=>{
-    const system=id==='jinyong'?(await import('../jinyong-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
+    const system=id==='elderland'?(await import('../elderland-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
+     id==='jinyong'?(await import('../jinyong-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
      id==='douluo'?(await import('../douluo-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
      id==='ancient'?(await import('../ancient-card/assembly.mjs')).assemble({input:'档案'})[0].content:
      id==='cultivation'?(await (await import('../cultivation-card/host.mjs')).assembleOpening('档案'))[0].content:
@@ -135,6 +137,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
   res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
   try{
    const assetPath=new URL(req.url,'http://rpg').pathname;
+   if(req.method==='GET'&&isElderlandAsset(assetPath))return await serveElderland(req,res,assetPath);
    // Opaque sandbox frames send cross-site/null-origin media requests. Only
    // the explicitly named public assets may bypass the API origin guard.
    if(req.method==='GET'&&assetPath.startsWith('/rpg-app/douluo/assets/')){
@@ -143,9 +146,10 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    }
    const allowed=new Set(origins.length?origins:[`http://127.0.0.1:${server.address().port}`]);
    if(req.headers['sec-fetch-site']==='cross-site'||(req.headers.origin&&!allowed.has(req.headers.origin)))return send(403,{error:'ORIGIN_REJECTED'});
-   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god|xingjian|(?:ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong)\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/transcript\/(import|export)$/);
+   const transfer=new URL(req.url,'http://rpg').pathname.match(/^\/rpg-app\/(earth|god|xingjian|(?:ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland)\/chat)\/api\/sessions\/([a-zA-Z0-9-]{1,80})\/transcript\/(import|export)$/);
    if(req.method!=='GET'&&(!allowed.has(req.headers.origin)||req.headers['content-type']!==(transfer?.[3]==='import'?'text/plain':'application/json')))return send(403,{error:'ORIGIN_REJECTED'});
    const pathname=new URL(req.url,'http://rpg').pathname;
+   if(req.method==='GET'&&pathname==='/rpg-app/elderland/')return await serveElderland(req,res,pathname,[...allowed]);
    if (req.method === 'GET' && ['/rpg-app/ancient/', '/rpg-app/ancient/landscape.jpg'].includes(pathname)) {
     const image = pathname.endsWith('.jpg');
     const bytes = await readFile(join(root, 'ancient-card', image ? 'landscape.jpg' : 'index.html'));
@@ -154,7 +158,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
     return res.end(bytes);
    }
    if(generationHost&&req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:await Promise.all([...generationHost.hosts.values()].map(h=>h.http.publicStatus()))});
-   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'jinyong',title:archiveNames.jinyong,enabled:!!archiveControls.jinyong},{id:'dragon-raja',title:archiveNames['dragon-raja'],enabled:!!archiveControls['dragon-raja']},{id:'douluo',title:archiveNames.douluo,enabled:!!archiveControls.douluo},{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
+   if(req.method==='GET'&&pathname==='/rpg-app/api/status')return send(200,{cards:[{id:'elderland',title:archiveNames.elderland,enabled:!!archiveControls.elderland},{id:'jinyong',title:archiveNames.jinyong,enabled:!!archiveControls.jinyong},{id:'dragon-raja',title:archiveNames['dragon-raja'],enabled:!!archiveControls['dragon-raja']},{id:'douluo',title:archiveNames.douluo,enabled:!!archiveControls.douluo},{id:'lord-of-mysteries',title:archiveNames['lord-of-mysteries'],enabled:!!archiveControls['lord-of-mysteries']},{id:'ancient',title:'古代人生 · 命运卷轴',enabled:false,remaining:0,used:0},{id:'cultivation',title:'超级修仙大世界',...(cultivation?await cultivation.status():{enabled:false,remaining:0,used:0})},...await Promise.all(Object.keys(models).map(async id=>({id,...models[id],...await (id==='earth'?earthBudget():provider.status(id))}))),...(godHost?[await godHost.publicStatus()]:[])]});
    if(transfer&&transcript){
     const host=generationHost?.hosts.get(transfer[1].split('/')[0])?{store:generationHost.hosts.get(transfer[1].split('/')[0]).store,plugins:generationHost.plugins}:transfer[1]==='earth'?{store:earth,plugins}:transfer[1]==='god'?{store:godHost?.store,plugins}:transfer[1]==='xingjian'?await xingjian():await archiveHost(transfer[1].split('/')[0]);
     attachSessionLifecycle(host.store);return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
@@ -164,7 +168,7 @@ export async function start({port=18420,host='127.0.0.1',directory=resolve(root,
    const typedPicture=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/illustrations\/([a-zA-Z0-9-]+)$/);
    if(generationHost&&typedPicture&&illustrationService)return await illustrations({card:typedPicture[1],id:typedPicture[2],action:typedPicture[3],method:req.method,data,plugins:generationHost.plugins,store:generationHost.hosts.get(typedPicture[1]).store,res,send});
    if(generationHost&&await generationHost.handle({pathname,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,send}))return;
-   const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation|douluo|dragon-raja|jinyong)\/chat\/(.*)$/);
+   const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation|douluo|dragon-raja|jinyong|elderland)\/chat\/(.*)$/);
    if(chatRoute||pathname.startsWith('/rpg-app/xingjian/')){
     const route=chatRoute?chatRoute[2]:pathname.slice('/rpg-app/xingjian/'.length);
     if(req.method==='GET' && ((!chatRoute&&route==='card')||route==='')){

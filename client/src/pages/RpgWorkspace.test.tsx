@@ -19,6 +19,7 @@ it.each([
  ['douluo','/rpg-app/douluo/chat/'],['blue-fish','/rpg-app/blue-fish/chat/'],
  ['dragon-raja','/rpg-app/dragon-raja/chat/'],
  ['jinyong','/rpg-app/jinyong/chat/'],
+ ['elderland','/rpg-app/elderland/chat/'],
  ['ai-girls','/rpg-app/ai-girls/chat/'],
 ] as const)('keeps the saved session URL and embedded host for %s', (card,root)=>{
  const {container}=render(<MemoryRouter initialEntries={['/rpg/'+card+'/chat/'+id]}><Routes>
