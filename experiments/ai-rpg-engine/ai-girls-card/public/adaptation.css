@@ -1,0 +1,4 @@
+/* Original layout and motion are retained; only the local music control is added. */
+#musicToggle{border:1px solid #acbeea;border-radius:5px;background:#17213c;color:#fff;font:700 11px sans-serif;padding:8px 6px;cursor:pointer;white-space:nowrap}
+#musicToggle:focus-visible,button:focus-visible,#splash:focus-visible{outline:3px solid #ffdb85;outline-offset:4px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

@@ -4,10 +4,10 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {createChatDraft} from '../../../experiments/ai-rpg-engine/card-replica/src/start-chat';
 import {ChatView} from '../../../experiments/ai-rpg-engine/card-replica/src/chat';
 import {readClientState} from '../../../experiments/ai-rpg-engine/card-replica/src/session-client';
-const cards=['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong'];
+const cards=['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls'];
 afterEach(()=>{vi.unstubAllGlobals();localStorage.clear();window.history.replaceState({},'','/');});
 function host(card:string){
- const root='/rpg-app/'+card+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong'].includes(card)?'/chat/':'/');
+ const root='/rpg-app/'+card+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls'].includes(card)?'/chat/':'/');
  window.history.replaceState({},'',root);
  const session={id:'00000000-0000-4000-8000-000000000001',name:'新故事',characterText:'',mode:'offline',revision:0,runtime:{compatible:true},turns:[],requests:{}};
  const writes:{path:string;body:any}[]=[];

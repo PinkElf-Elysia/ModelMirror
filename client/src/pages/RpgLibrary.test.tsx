@@ -13,7 +13,7 @@ it('automatically lists published works, filters and refreshes without creating 
  render(<MemoryRouter><RpgPage/></MemoryRouter>);
  const entry=await screen.findByRole('article',{name:'雾港来信'});
  expect(entry).toHaveClass('rpg-story-card');expect(within(entry).getByRole('link')).toHaveAttribute('href',workbenchHref('18484',window.location,work));
- expect(screen.getAllByRole('article')).toHaveLength(11);
+ expect(screen.getAllByRole('article')).toHaveLength(12);
  fireEvent.change(screen.getByRole('searchbox',{name:'搜索作品'}),{target:{value:'本地冒险'}});expect(screen.getAllByRole('article')).toHaveLength(1);
  fireEvent.change(screen.getByRole('searchbox',{name:'搜索作品'}),{target:{value:''}});
  fireEvent.change(screen.getByRole('combobox',{name:'来源'}),{target:{value:'published'}});expect(screen.getAllByRole('article')).toHaveLength(1);
