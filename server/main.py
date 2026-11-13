@@ -3416,6 +3416,8 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "heygen/heygen-decision-1",
+        "heygen/heygen-decision-1-turbo",
         "google/gemini-decision-1",
         "perplexity/pplx-decider-v1.3:free",
         "perplexity/pplx-decider-flash-v1.3:free",

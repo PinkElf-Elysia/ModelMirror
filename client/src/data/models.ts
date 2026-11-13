@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-13T04:13:40.045Z.
+// Merged with OpenRouter model catalog on 2026-11-13T12:32:52.752Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,52 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "heygen/heygen-decision-1-turbo",
+    "canonical_slug": "heygen/heygen-decision-1-turbo-20261112",
+    "name": "HeyGen: HeyGen Decision Turbo",
+    "raw_description": "HeyGen Decision 1 Turbo is a lower-cost variant of [HeyGen Decision 1](/heygen/heygen-decision-1) from HeyGen, with the same question types (`noul`, `choice`, and `score`) over text and images. It suits high-volume...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.09,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794530513,
+    "expiration_date": null,
+    "model_author": "HeyGen"
+  },
+  {
+    "id": "heygen/heygen-decision-1",
+    "canonical_slug": "heygen/heygen-decision-1-20261112",
+    "name": "HeyGen: HeyGen Decision",
+    "raw_description": "HeyGen Decision 1 is a decision model from HeyGen. It reads text and images and answers a set of named questions in one request, returning typed answers with probabilities: a...",
+    "context_length": 131072,
+    "pricing": {
+      "input": 0.14,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794530508,
+    "expiration_date": null,
+    "model_author": "HeyGen"
+  },
   {
     "id": "bytedance-seed/seedream-5-5",
     "canonical_slug": "bytedance-seed/seedream-5-5-20261112",
@@ -1009,6 +1055,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "structured_outputs",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
       "top_logprobs",
       "top_p"
@@ -1229,8 +1277,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Ripple-65B-Preview by ricursiveAI, a 65B model with native tool calling, served in BF16.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.19999999999999998,
-      "output": 0.6
+      "input": 0.09999999999999999,
+      "output": 0.3
     },
     "input_modalities": [
       "text"
@@ -1537,6 +1585,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "structured_outputs",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
       "top_logprobs",
       "top_p"
@@ -2072,8 +2122,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.2375,
-      "output": 8.4114
+      "input": 2,
+      "output": 10
     },
     "input_modalities": [
       "text",
@@ -2517,85 +2567,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2,
-      "time_overrides": [
-        {
-          "utc_start": 0,
-          "utc_end": 0,
-          "utc_days": [
-            "saturday",
-            "sunday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 0,
-          "utc_end": 100,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 100,
-          "utc_end": 400,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 400,
-          "utc_end": 600,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        },
-        {
-          "utc_start": 600,
-          "utc_end": 1000,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.3,
-          "output": 1.2
-        },
-        {
-          "utc_start": 1000,
-          "utc_end": 0,
-          "utc_days": [
-            "monday",
-            "tuesday",
-            "wednesday",
-            "thursday",
-            "friday"
-          ],
-          "input": 0.15,
-          "output": 0.6
-        }
-      ]
+      "input": 0.038000000000000006,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -6367,17 +6340,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
-      "frequency_penalty",
       "include_reasoning",
       "max_tokens",
-      "presence_penalty",
       "reasoning",
       "reasoning_effort",
-      "repetition_penalty",
       "response_format",
-      "seed",
-      "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -7866,7 +7833,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.06,
-      "output": 0.15
+      "output": 0.25
     },
     "input_modalities": [
       "text"
@@ -11527,8 +11494,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -14924,8 +14893,10 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
+      "max_completion_tokens",
       "max_tokens",
       "min_p",
+      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -15395,8 +15366,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.9552599999999999,
-      "output": 1.9105199999999998
+      "input": 0.8999999999999999,
+      "output": 1.5
     },
     "input_modalities": [
       "text"
@@ -16442,8 +16413,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0765,
-      "output": 0.255
+      "input": 0.09,
+      "output": 0.3
     },
     "input_modalities": [
       "image",
@@ -17431,8 +17402,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.095,
-      "output": 0.13899999999999998
+      "input": 0.024,
+      "output": 0.035
     },
     "input_modalities": [
       "text",
@@ -18275,10 +18246,10 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "minimax/minimax-m2.5-20260211",
     "name": "MiniMax: MiniMax M2.5",
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
-    "context_length": 200000,
+    "context_length": 198000,
     "pricing": {
       "input": 0.27,
-      "output": 1.08
+      "output": 0.95
     },
     "input_modalities": [
       "text"
@@ -18604,7 +18575,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1769728337,
-    "expiration_date": null,
+    "expiration_date": 1794700800,
     "model_author": "StepFun",
     "reasoning_declared": true
   },
@@ -21577,7 +21548,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1759794479,
-    "expiration_date": null,
+    "expiration_date": 1794700800,
     "model_author": "Qwen",
     "reasoning_declared": true
   },
@@ -23703,7 +23674,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1751987664,
-    "expiration_date": null,
+    "expiration_date": 1794700800,
     "model_author": "Tencent",
     "reasoning_declared": true
   },
@@ -31563,6 +31534,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "anthropic/claude-opus-4.7-fast",
   "anthropic/claude-opus-4.8-fast",
   "anthropic/claude-opus-5-fast",
+  "apodex/apodex-1.1-mini:free",
   "arcee-ai/coder-large",
   "arcee-ai/maestro-reasoning",
   "arcee-ai/trinity-mini",
@@ -31586,7 +31558,9 @@ const uncertainCatalogModelIds = new Set<string>([
   "inception/mercury-decide:free",
   "inclusionai/ling-2.6-1t",
   "inclusionai/ling-2.6-flash",
+  "inclusionai/ling-3.0-flash-fin",
   "inclusionai/ling-3.0-flash-fin:free",
+  "inclusionai/ling-3.0-flash-sante",
   "inclusionai/ling-3.0-flash-sante:free",
   "inclusionai/ling-3.0-flash-vl:free",
   "inclusionai/ling-3.0-flash:free",
@@ -32524,6 +32498,7 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "heygen/heygen-decision-1", "heygen/heygen-decision-1-turbo",
   "bytedance-seed/seedream-5-5",
   "perplexity/pplx-decider-flash-v1.3:free",
   "perplexity/pplx-decider-v1.3:free",

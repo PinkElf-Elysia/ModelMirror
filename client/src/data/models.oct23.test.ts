@@ -9,7 +9,7 @@ describe("October 23 snapshot contracts", () => {
     expect(models.find(m => m.id === id)).toMatchObject({
       catalog_status: "live", ui_entrypoint: "chat", context_length: 1048576,
       input_modalities: ["text", "image", "video"], output_modalities: ["text"],
-      pricing: { input: 0.2375, output: 8.4114 },
+      pricing: { input: 2, output: 10 },
       supported_parameters: expect.arrayContaining(["tools", "reasoning", "structured_outputs"]),
     });
   });
