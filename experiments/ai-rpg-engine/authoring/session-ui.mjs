@@ -1,3 +1,4 @@
+import {modelSessionKey} from './session-selection.mjs';
 import {attachSessionPanel} from './browser.mjs';
 import {createSessionClient,sessionPolicyText,summarySettingsIntent,summaryTaskIntent,storyIntent} from './session-client.mjs';
 import {pendingOperation as pendingModelOperation} from './model-ui.mjs';
@@ -17,7 +18,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  const current=()=>getWork()?.id===loadedWork;
  const pending=()=>client?.pending()||[];
  const notify=(text,code='',tone='warning')=>{error={text,code,tone};render();};
- function localBlocked(){try{return !!pending().length||!!pendingModelOperation(localStorage,loadedWork);}catch(e){error={text:sessionError(e),code:e.code};return true;}}
+ function localBlocked(){try{return !!pending().length||!!pendingModelOperation(localStorage,loadedWork,getWork()?.publishedVersionId);}catch(e){error={text:sessionError(e),code:e.code};return true;}}
  function serverPending(){if(!view)return[];const s=view.session;return [
   ...s.operations.filter(o=>['prepared','dispatching','unknown'].includes(o.state)).map(o=>({kind:'send',workId:loadedWork,sessionId,body:o.intent})),
   ...s.summary.jobs.filter(j=>['prepared','dispatching','unknown','compression_dispatching','compression_unknown'].includes(j.state)).map(j=>({kind:'update',workId:loadedWork,sessionId,body:j.intent})),
@@ -26,12 +27,13 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  function recordIsCurrent(){return client&&view&&!busy&&!localBlocked()&&!view.busy&&!view.pending&&!settings?.unconfirmed;}
  async function refresh(silent=false){
   const gen=++generation,work=getWork();clearTimeout(timer);loading=true;if(!work?.id){loadedWork=null;view=null;settings=null;client=null;sessionId=null;loading=false;render();return;}
-  loadedWork=work.id;let id;try{id=JSON.parse(localStorage.getItem('modelmirror.authoring.model-session/'+work.id)||'null');}catch{throw {code:'SESSION_LOCAL_RECORD_INVALID'};}
+  loadedWork=work.id;let id;try{id=JSON.parse(localStorage.getItem(modelSessionKey(work.id,work.publishedVersionId))||'null');}catch{throw {code:'SESSION_LOCAL_RECORD_INVALID'};}
   if(id!==null&&(typeof id!=='string'||!/^session-[a-f0-9]{64}$/.test(id)))throw {code:'SESSION_LOCAL_RECORD_INVALID'};
   if(!id){view=null;settings=null;sessionId=null;client=null;loading=false;render();return;}
   const candidate=createSessionClient({api,storage:localStorage,sessionId:id,workId:work.id});
   const [next,summary]=await Promise.all([candidate.view(),api('/summary-settings/sessions/'+id)]);
   if(gen!==generation||getWork()?.id!==work.id)return;
+  if(work.publishedVersionId&&next.session.binding.versionId!==work.publishedVersionId)throw {code:'SESSION_LOCAL_RECORD_INVALID'};
   sessionId=id;client=candidate;view=next;settings=summary;loading=false;
   if(!silent)error=null;render();
   if(view.busy)timer=setTimeout(()=>refresh(true).catch(showError),1000);

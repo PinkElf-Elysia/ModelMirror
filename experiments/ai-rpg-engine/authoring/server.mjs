@@ -6,6 +6,7 @@ import {readFile} from 'node:fs/promises';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {resolve, dirname} from 'node:path';
 import {randomBytes} from 'node:crypto';
+import {isLoopbackOrigin,listPublished,publishedWork} from './library.mjs';
 import {AuthoringStore} from './store.mjs';
 import {OfflineSessionHost} from './offline-session.mjs';
 import {SummarySessionHost} from './summary-session.mjs';
@@ -167,7 +168,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
     const references=requestedAliases||presentationAliases(html,css),resources=[];
     for(const asset of current.assets){
       if(!references.includes(asset.alias))continue;
-      const frozen=await store.getAsset(current.id,asset.alias);
+      const frozen=await store.getAsset(current.id,asset.alias,current.publishedVersionId||null);
       if(frozen.asset.sha256!==asset.sha256)fail('AUTHORING_REVISION_CONFLICT');
       resources.push({...frozen.asset,bytes:frozen.bytes});
     }
@@ -190,11 +191,28 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       const url = new URL(req.url, origin), path = url.pathname;
       if (url.origin !== origin || /%2f|%5c|%00/i.test(path)) fail('AUTHORING_PATH_INVALID');
       const suppliedOrigin = req.headers.origin, site = req.headers['sec-fetch-site'];
-      if ((suppliedOrigin && suppliedOrigin !== origin) || site === 'cross-site') fail('AUTHORING_ORIGIN_REJECTED');
+      // Only display metadata and the selected published cover cross the loopback boundary.
+      // All drafts, resource libraries, runtime APIs and writes retain same-origin checks.
+      const libraryRead = req.method === 'GET' && (path === api+'/library' || /^\/rpg-app\/api\/authoring\/library\/work-[a-f0-9]{64}\/version-[a-f0-9]{64}\/cover$/.test(path));
+      const libraryOrigin = libraryRead && isLoopbackOrigin(suppliedOrigin);
+      if (!libraryOrigin && ((suppliedOrigin && suppliedOrigin !== origin) || site === 'cross-site')) fail('AUTHORING_ORIGIN_REJECTED');
+      if (libraryOrigin) { res.setHeader('Access-Control-Allow-Origin',suppliedOrigin); res.setHeader('Vary','Origin'); }
+      if (libraryRead) {
+        query(url,[]);
+        if (path === api+'/library') return send({format:'modelmirror.rpg.library/1',works:await listPublished(store)});
+        const [,workId,versionId] = path.match(/library\/(work-[a-f0-9]{64})\/(version-[a-f0-9]{64})\/cover$/);
+        const snapshot = await store.exportConfiguration(workId,versionId);
+        const alias = snapshot.document.settings.media.cover;
+        if (!alias) fail('AUTHORING_ASSET_NOT_FOUND');
+        const {asset,bytes} = await store.getAsset(workId,alias,versionId);
+        if (!asset.mediaType.startsWith('image/')) fail('AUTHORING_ASSET_NOT_FOUND');
+        if (libraryOrigin) res.setHeader('Cross-Origin-Resource-Policy','cross-origin');
+        return send(bytes,200,asset.mediaType);
+      }
       if (!['GET', 'POST'].includes(req.method)) fail('AUTHORING_METHOD');
       if (req.method === 'POST' && (suppliedOrigin !== origin || req.headers['x-authoring-request'] !== '1')) fail('AUTHORING_ORIGIN_REJECTED');
       if (req.method === 'GET' && !path.startsWith(api + '/')) {
-        query(url, path === '/' ? ['work'] : []);
+        query(url, path === '/' ? ['work','version','library'] : []);
         if (path === '/') return send(await page(origin,sessionHost!==null,!!historyUI,!!summaryUI,creatorExperience,!!jointApi,!!turnPlayback,sessionHost?.readiness?.realProvider===true), 200, 'text/html; charset=utf-8');
         const files = {
           '/styles.css': [resolve(here, '../authoring-prototype/styles.css'), 'text/css; charset=utf-8'],
@@ -218,6 +236,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
           '/display-regex-ui.mjs': [resolve(here, 'display-regex-ui.mjs'), 'text/javascript; charset=utf-8'],
           '/display-regex-ui.css': [resolve(here, 'display-regex-ui.css'), 'text/css; charset=utf-8'],
           '/history-ui.mjs': [resolve(here, 'history-ui.mjs'), 'text/javascript; charset=utf-8'],
+          '/session-selection.mjs': [resolve(here, 'session-selection.mjs'), 'text/javascript; charset=utf-8'],
           '/model-ui.mjs': [resolve(here, 'model-ui.mjs'), 'text/javascript; charset=utf-8'],
           '/model-ui.css': [resolve(here, 'model-ui.css'), 'text/css; charset=utf-8'],
           '/browser.mjs': [resolve(here, 'browser.mjs'), 'text/javascript; charset=utf-8'],
@@ -369,12 +388,13 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       }
       if(req.method==='POST'&&path===api+'/presentations/prepare'){
         query(url,[]);
-        const body=await jsonBody(req);payloadFields(body,['workId','expectedRevision','document','mode','reply',...(Object.hasOwn(body,'viewport')?['viewport']:[]),...(Object.hasOwn(body,'messageRole')?['messageRole']:[]),...(Object.hasOwn(body,'cg')?['cg']:[])]);
+        const body=await jsonBody(req);payloadFields(body,['workId','expectedRevision','document','mode','reply',...(Object.hasOwn(body,'versionId')?['versionId']:[]),...(Object.hasOwn(body,'viewport')?['viewport']:[]),...(Object.hasOwn(body,'messageRole')?['messageRole']:[]),...(Object.hasOwn(body,'cg')?['cg']:[])]);
         if(Object.hasOwn(body,'messageRole')&&(body.mode!=='reply'||!['assistant','user'].includes(body.messageRole)))fail('AUTHORING_PRESENTATION_ROLE');
         if(body.viewport)validateViewport(body.viewport);
-        const current=await store.read(body.workId);
+        const current=Object.hasOwn(body,'versionId')?await publishedWork(store,body.workId,body.versionId):await store.read(body.workId);
         if(current.revision!==body.expectedRevision)fail('AUTHORING_REVISION_CONFLICT');
         const document=validateDocument(body.document);
+        if(current.publishedVersionId && canonical(document)!==canonical(current.draft))fail('AUTHORING_REVISION_CONFLICT');
         if(typeof body.reply!=='string')fail('AUTHORING_TEXT_INVALID','/reply');
         let html=body.mode==='opening'?(document.sources.startupHtml||document.sources.introduction):body.reply;
         const css=body.mode==='opening'?document.sources.startupCss:document.sources.outputCss;
@@ -412,7 +432,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
           }
           const compiled=await compile({...renderInput,resources});
           if(record){record.html=html;record.compiled=compiled;}
-          if((await store.read(current.id)).revision!==current.revision)fail('AUTHORING_REVISION_CONFLICT');
+          if(!current.publishedVersionId&&(await store.read(current.id)).revision!==current.revision)fail('AUTHORING_REVISION_CONFLICT');
           return send({...presentations.put(compiled,token),frameUrl:api+'/presentations/frames/'+token});
         }catch(error){releaseScript(token);throw error;}
       }
@@ -428,7 +448,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
         if(record.sequence>=36000)fail('AUTHORING_SCRIPT_CAPACITY');
         record.pending=true;
         try{
-          if((await store.read(record.current.id)).revision!==record.current.revision)fail('AUTHORING_REVISION_CONFLICT');
+          if(!record.current.publishedVersionId&&(await store.read(record.current.id)).revision!==record.current.revision)fail('AUTHORING_REVISION_CONFLICT');
           const output=await record.runtime.step(body.event);
           const unchanged=output.html===record.html&&!output.platform.effects.some(c=>c[0]==='media'&&c[2]==='play'||c[0]==='reflow');
           let compiled;
@@ -441,7 +461,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
             compiled=await record.compiler.compile({...input,resources});
           }
           if(scripts.get(body.token)!==record)fail('AUTHORING_SCRIPT_CLOSED');
-          if((await store.read(record.current.id)).revision!==record.current.revision)fail('AUTHORING_REVISION_CONFLICT');
+          if(!record.current.publishedVersionId&&(await store.read(record.current.id)).revision!==record.current.revision)fail('AUTHORING_REVISION_CONFLICT');
           presentations.replace(body.token,compiled);
           record.html=output.html;record.compiled=compiled;
           const result={sequence:body.sequence,patch:unchanged?{unchanged:true,platform:output.platform}:compiled.patch,manifest:compiled.manifest,proposals:output.proposals};
@@ -532,8 +552,9 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       if (!match) fail('AUTHORING_ROUTE_NOT_FOUND');
       const [, workId, action = ''] = match;
       if (req.method === 'GET') {
-        query(url, action === 'export' ? ['kind', 'version'] : action.startsWith('assets/') ? ['version', 'hash'] : []);
+        query(url, action === 'published' ? ['version'] : action === 'export' ? ['kind', 'version'] : action.startsWith('assets/') ? ['version', 'hash'] : []);
         if (action === '') return send(await store.read(workId));
+        if (action === 'published') return send(await publishedWork(store,workId,url.searchParams.get('version')));
         if (action === 'validation') return send(await store.validate(workId));
         if (action === 'export') {
           const kind = url.searchParams.get('kind') || 'configuration', version = url.searchParams.get('version');

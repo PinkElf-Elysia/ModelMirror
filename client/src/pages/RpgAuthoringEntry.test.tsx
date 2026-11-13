@@ -34,11 +34,11 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   await screen.findByRole('heading', {name: '神临凡尘'});
   expect(screen.getByRole('link', {name: '进入斗罗大陆'})).toHaveAttribute('href', '/rpg/douluo');
   expect(screen.getByRole('link', {name: '进入蓝色大肥鱼'})).toHaveAttribute('href', '/rpg/blue-fish');
-  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(9);
-  expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/douluo');
+  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(10);
+  expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/jinyong');
   expect(screen.getByRole('link', {name: '插件市场'})).toHaveAttribute('href', '/rpg/plugins');
   const link = screen.queryByRole('link', {name: /打开创作工作台/});
-  if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/');
+  if (enabled) expect(link).toHaveAttribute('href', 'http://127.0.0.1:18624/?library=http%3A%2F%2F127.0.0.1%3A5173%2Frpg');
   else expect(link).toBeNull();
 });
 
@@ -62,12 +62,7 @@ it('keeps new releases, existing worlds and saved stories accessible when a host
   }));
   render(<MemoryRouter><RpgPage/></MemoryRouter>);
   expect(await screen.findByRole('link',{name:/林澈的来信/})).toHaveAttribute('href','/rpg/dragon-raja/chat/'+sessionId);
-  const releases=within(screen.getByRole('region',{name:'探索与创作'}));
-  expect(releases.getByRole('link',{name:'进入龙族大世界'})).toHaveAttribute('href','/rpg/dragon-raja');
-  const others=within(screen.getByRole('region',{name:'更多世界'}));
-  for(const world of worlds){
-    const group=['dragon-raja','douluo','blue-fish'].includes(world.id)?releases:others;
-    expect(group.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
-  }
+  const library=within(screen.getByRole('region',{name:'全部作品'}));
+  for(const world of worlds)expect(library.getByRole('link',{name:'进入'+world.name})).toHaveAttribute('href','/rpg/'+world.id);
   expect(await screen.findByRole('button',{name:'重新读取'})).toBeEnabled();
 });
