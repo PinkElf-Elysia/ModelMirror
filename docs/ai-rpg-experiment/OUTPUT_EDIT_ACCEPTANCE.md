@@ -108,3 +108,6 @@ PR #443 已合并（6977d86c）；只读核对共享后端的 chat_stable.py、r
 发布核对时 origin/main 为 7b1f840c，而功能及模型实测基线仍为 d9f20fe6。主线其后已接入统一聊天自动总结 2.0、流式排版及当前模型重新生成；与本分支有 14 个文件重叠。为保留用户批准的“旧结构主会话＋独立导入 2.0”验收范围，本次不擅自扩大为新主线集成实现；PR 明示该兼容性尚未验证。若存在合并冲突，保留为 Draft 待集成，不以旧测试结果宣称可直接合并。
 
 提交仅含消息工具输出编辑、相关适配与测试、显式 opt-in 的 low 测试适配器、帮助文章和本记录。运行会话、模型正文、SSE、账本、诊断脚本、密钥、构建产物和日志保留在忽略目录，不进入 PR；其他工作树已合并的路由修复不重复提交。停用隔离入口即可停止 low 覆盖；功能回退前须保存带 outputEdits 的会话及修订版导出，旧代码可能只展示 provider 原文。
+
+
+发布合并检查已确认：git merge-tree --write-tree --name-only HEAD origin/main 报告 10 个文件冲突，未修改工作树。涉及 helpContent.test.ts、help-center/index.ts、AutoSummarySession.tsx（主线已删除）、card-replica/src/chat.tsx、session-client.ts，以及 studio 下 auto-summary-v2.test.mjs、history-assembly.mjs、memory-assembly.mjs、server.mjs、summary-assembly.mjs。PR 以 Draft 提交：功能与证据可审阅，但不可直接合并；整合统一聊天和处理旧运行时指纹仍待完成。本次不将冲突解决或最新主线兼容性写成通过。
