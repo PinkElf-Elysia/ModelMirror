@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中世纪真实人生 · 角色构建</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&family=Cinzel:wght@400;700;900&family=EB+Garamond:ital,wght@0,400;0,700;1,400&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+--parchment:#F5EBD7;--parchment-dark:#EFE4CC;--parchment-deeper:#E8DCC0;
+--ink-blue:#3B5580;--ink-blue-light:#4C6A9C;
+--gilt:#C89B3C;--gilt-light:#DFB55F;
+--vermillion:#B84A3E;--moss:#6B8447;
+--ink:#3D2E1F;--ink-muted:#6E5B44;--border:#4A3728;
+--shadow-sm:2px 2px 6px rgba(74,55,40,0.2);
+--shadow-md:3px 3px 10px rgba(74,55,40,0.25),0 1px 3px rgba(74,55,40,0.15);
+--shadow-lg:5px 5px 18px rgba(74,55,40,0.3),0 2px 6px rgba(74,55,40,0.18);
+--shadow-hover:6px 6px 20px rgba(74,55,40,0.35),0 3px 8px rgba(74,55,40,0.2);
+--mythic:#A8763A;--legendary:#8C5E3A;--epic:#3B5580;--rare:#6B8447;--common:#8B7B65;
+}
+body{font-family:'Noto Sans SC',sans-serif;background-color:#3B5C3B;background-image:url('https://pic1.imgdb.cn/i/033zgVTXCoKk1QKtrygy0v.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden;}
+.opening-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;cursor:pointer;overflow:hidden;background:#1a0e08;}
+.opening-container{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a0e08;}
+.opening-bg{width:100%;height:100%;max-width:1200px;max-height:675px;background-image:url('https://pic1.imgdb.cn/i/033zgYzFxQB3mnFyFCpGmf.jpg');background-size:contain;background-position:center;background-repeat:no-repeat;filter:blur(10px);transition:filter 1.5s ease-out;}
+.opening-screen.open .opening-bg{filter:blur(0);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#1a0e08;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:var(--gilt);font-size:13px;z-index:10;animation:blink 1.5s infinite;opacity:0.6;letter-spacing:2px;}
+@keyframes blink{0%,100%{opacity:0.4;}50%{opacity:0.8;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;min-height:100vh;position:relative;}.main-container.active{display:block;}
+.content-wrapper{position:relative;z-index:2;max-width:940px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:30px 20px;background:var(--parchment);border:3px solid var(--border);margin-bottom:20px;position:relative;box-shadow:var(--shadow-lg);border-radius:2px;}
+.main-title::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--gilt),transparent);}
+.main-title::after{content:'';position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--gilt),transparent);}
+.main-title h1{font-family:'EB Garamond','Cinzel','Noto Sans SC',serif;font-size:clamp(24px,5vw,38px);font-weight:900;letter-spacing:4px;color:var(--ink);}
+.main-title p{margin-top:8px;font-size:13px;color:var(--ink-muted);letter-spacing:3px;font-family:'EB Garamond',serif;font-style:italic;}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:var(--parchment);border:3px solid var(--border);box-shadow:var(--shadow-md);-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.tab-nav::-webkit-scrollbar{height:4px;}.tab-nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.tab-btn{flex:0 0 auto;min-width:80px;padding:14px 14px;background:transparent;border:none;border-right:1px solid rgba(74,55,40,0.2);font-family:inherit;font-size:clamp(12px,1.8vw,13px);font-weight:700;cursor:pointer;transition:all 0.25s;white-space:nowrap;color:var(--ink);position:relative;}
+.tab-btn:last-child{border-right:none;}.tab-btn:hover{background:rgba(200,155,60,0.12);}
+.tab-btn.active{background:linear-gradient(135deg,var(--ink-blue),var(--ink-blue-light));color:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,0.2);}
+.tab-btn.completed::after{content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--moss);}
+.tab-content{display:none;background:var(--parchment);border:3px solid var(--border);padding:25px;box-shadow:var(--shadow-lg);position:relative;border-radius:2px;}
+.tab-content::before{content:'';position:absolute;top:8px;right:8px;width:25px;height:25px;border-top:2px solid var(--gilt);border-right:2px solid var(--gilt);opacity:0.5;}
+.tab-content::after{content:'';position:absolute;bottom:8px;left:8px;width:25px;height:25px;border-bottom:2px solid var(--gilt);border-left:2px solid var(--gilt);opacity:0.5;}
+.tab-content.active{display:block;animation:slideIn 0.3s ease forwards;}
+@keyframes slideIn{0%{opacity:0;transform:translateY(12px);}100%{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'EB Garamond','Cinzel','Noto Sans SC',serif;font-size:clamp(18px,3.5vw,24px);font-weight:900;margin-bottom:18px;padding-bottom:10px;border-bottom:3px solid var(--border);position:relative;display:inline-block;}
+.section-title::after{content:'';position:absolute;bottom:-3px;left:0;width:60px;height:3px;background:var(--gilt);}
+.info-box{background:linear-gradient(135deg,var(--parchment-dark),var(--parchment));border:2px solid var(--border);padding:18px;margin-bottom:18px;box-shadow:var(--shadow-sm);border-radius:2px;}
+.info-box h3{font-size:15px;margin-bottom:10px;color:var(--ink-blue);font-family:'EB Garamond',serif;letter-spacing:1px;}
+.info-box p,.info-box li{font-size:13px;line-height:1.85;}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:6px;}
+.info-box li::before{content:'❦';position:absolute;left:0;color:var(--gilt);font-size:11px;top:3px;}
+.accent{color:var(--vermillion);font-weight:700;}
+.soul-intro{background:linear-gradient(135deg,#FAF3E3,var(--parchment));border:3px solid var(--border);padding:28px;margin-bottom:24px;box-shadow:var(--shadow-lg);border-radius:2px;position:relative;}
+.soul-intro::before{content:'"';position:absolute;top:10px;left:16px;font-size:60px;color:var(--gilt);opacity:0.3;font-family:'EB Garamond',serif;line-height:1;}
+.soul-intro p{font-size:14px;line-height:2;margin-bottom:12px;text-indent:2em;}
+.soul-intro p:last-child{margin-bottom:0;}
+.soul-intro p.emphasis{font-weight:700;color:var(--ink);text-indent:0;margin-top:16px;padding-top:14px;border-top:1px dashed rgba(74,55,40,0.3);font-family:'EB Garamond',serif;font-size:15px;letter-spacing:1px;}
+.century-timeline{display:flex;gap:6px;margin-bottom:20px;overflow-x:auto;padding:10px;background:var(--parchment-dark);border:2px solid var(--border);border-radius:2px;}
+.century-jump{flex:0 0 auto;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-family:'EB Garamond',serif;font-weight:700;font-size:14px;color:var(--ink);transition:all 0.2s;border-radius:2px;}
+.century-jump:hover{background:var(--gilt-light);color:var(--ink);}
+.century-jump.selected{background:var(--vermillion);color:#fff;border-color:var(--ink);}
+.century-card{background:var(--parchment);border:2px solid var(--border);margin-bottom:12px;position:relative;box-shadow:var(--shadow-sm);border-radius:2px;transition:all 0.25s;overflow:hidden;}
+.century-card.selected{border-color:var(--vermillion);border-width:3px;box-shadow:var(--shadow-lg);background:linear-gradient(135deg,#FCF5E4,var(--parchment));}
+.century-card-head{padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:background 0.2s;user-select:none;}
+.century-card-head:hover{background:rgba(200,155,60,0.08);}
+.century-card-head .cc-title{font-family:'EB Garamond','Cinzel',serif;font-size:17px;font-weight:900;color:var(--ink);}
+.century-card-head .cc-title small{display:block;font-size:11px;font-weight:400;color:var(--ink-muted);margin-top:2px;font-style:italic;letter-spacing:1px;}
+.century-card-head .cc-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.cc-arrow{font-size:12px;transition:transform 0.2s;color:var(--ink-muted);}
+.century-card.open .cc-arrow{transform:rotate(90deg);}
+.select-century-btn{padding:7px 14px;background:linear-gradient(135deg,var(--vermillion),#CE5A4E);color:#fff;border:2px solid var(--border);font-family:inherit;font-weight:700;font-size:11px;cursor:pointer;letter-spacing:1px;border-radius:2px;box-shadow:var(--shadow-sm);white-space:nowrap;}
+.select-century-btn:hover{transform:translateY(-1px);}
+.select-century-btn.active{background:var(--moss);}
+.century-card-body{display:none;padding:0 20px 20px;}
+.century-card.open .century-card-body{display:block;animation:slideIn 0.25s ease;}
+.century-atmosphere{font-size:13px;line-height:1.85;color:var(--ink);margin-bottom:14px;padding:12px;background:var(--parchment-dark);border-left:4px solid var(--gilt);border-radius:2px;}
+.century-sub h4{font-size:13px;color:var(--ink-blue);margin:12px 0 8px;font-family:'EB Garamond',serif;letter-spacing:1px;padding-bottom:4px;border-bottom:1px dashed rgba(74,55,40,0.3);}
+.event-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;}
+.event-item{padding:8px 10px;background:var(--parchment-dark);border:2px solid transparent;border-left:3px solid var(--vermillion);font-size:12px;line-height:1.6;border-radius:2px;cursor:pointer;transition:all 0.2s;}
+.event-item:hover{background:#FCF5E4;border-color:var(--gilt);}
+.event-item.selected{background:linear-gradient(135deg,#FCF5E4,var(--parchment));border-color:var(--vermillion);border-width:2px;border-left-width:4px;box-shadow:var(--shadow-sm);}
+.event-item .yr{font-weight:900;color:var(--vermillion);margin-right:6px;font-family:'EB Garamond',serif;}
+.event-item .ttl{font-weight:700;}
+.event-item .dsc{color:var(--ink-muted);font-size:11px;margin-top:2px;}
+.event-item .sel-mark{display:none;font-size:10px;color:var(--moss);font-weight:700;margin-top:3px;}
+.event-item.selected .sel-mark{display:block;}
+.power-tier{margin-bottom:10px;}
+.power-tier-title{font-size:11px;color:var(--ink-muted);letter-spacing:2px;margin-bottom:4px;text-transform:uppercase;}
+.power-tags{display:flex;flex-wrap:wrap;gap:6px;}
+.power-tag{padding:5px 12px;font-size:12px;background:var(--parchment-dark);border:1px solid rgba(74,55,40,0.4);border-radius:12px;cursor:default;transition:all 0.2s;}
+.power-tag.major{border-color:var(--vermillion);background:rgba(184,74,62,0.08);}
+.power-tag.medium{border-color:var(--ink-blue);background:rgba(59,85,128,0.08);}
+.power-tag.minor{border-color:var(--moss);background:rgba(107,132,71,0.08);}
+.century-currency{margin-top:10px;padding:10px;background:var(--parchment-dark);border:1px dashed var(--border);font-size:12px;line-height:1.7;border-radius:2px;}
+.century-currency strong{color:var(--gilt);font-family:'EB Garamond',serif;letter-spacing:1px;}
+.form-section{margin-bottom:25px;}
+.form-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--ink-blue);font-family:'EB Garamond',serif;letter-spacing:1px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px;color:var(--ink);}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:11px;border:2px solid var(--border);background:var(--parchment);font-family:inherit;font-size:13px;transition:all 0.2s;border-radius:2px;color:var(--ink);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(59,85,128,0.2);border-color:var(--ink-blue);}
+.form-group textarea{min-height:90px;resize:vertical;}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-size:13px;transition:all 0.2s;border-radius:2px;}
+.radio-group label:hover{background:#FCF5E4;}
+.radio-group input:checked+span{font-weight:bold;color:var(--ink-blue);}
+.radio-group input{accent-color:var(--ink-blue);}
+.era-badge{display:inline-block;padding:8px 16px;background:linear-gradient(135deg,var(--ink-blue),var(--ink-blue-light));color:#fff;border-radius:2px;font-family:'EB Garamond',serif;font-weight:700;letter-spacing:2px;font-size:14px;box-shadow:var(--shadow-sm);}
+.era-badge.empty{background:var(--parchment-deeper);color:var(--ink-muted);}
+.era-notice{padding:15px;background:linear-gradient(135deg,#F8ECD4,var(--parchment));border:2px dashed var(--border);margin-bottom:20px;font-size:13px;line-height:1.7;border-radius:2px;}
+.tag-container{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.tag-btn{padding:5px 12px;font-size:12px;background:var(--parchment);border:2px solid rgba(74,55,40,0.3);cursor:pointer;transition:all 0.2s;border-radius:12px;font-family:inherit;color:var(--ink);}
+.tag-btn:hover{border-color:var(--gilt);background:#FCF5E4;}
+.tag-btn.selected{border-color:var(--ink-blue);background:rgba(59,85,128,0.12);font-weight:bold;color:var(--ink-blue);}
+.tag-btn.custom{border-color:var(--gilt);background:rgba(200,155,60,0.15);font-weight:bold;color:var(--ink);}
+.tag-btn.custom:hover{background:rgba(200,155,60,0.28);}
+.tag-btn.out-of-era{opacity:0.4;filter:grayscale(0.5);}
+.tag-btn.female-flag::after{content:' ♀';color:var(--vermillion);font-size:11px;}
+.custom-input-row{display:flex;gap:8px;margin-top:10px;}
+.custom-input-row input{flex:1;min-width:0;padding:10px;border:2px solid var(--border);background:var(--parchment);font-size:13px;border-radius:2px;font-family:inherit;color:var(--ink);transition:border-color 0.25s,box-shadow 0.25s;}
+.custom-input-row input:focus{outline:none;box-shadow:0 0 0 3px rgba(59,85,128,0.2);border-color:var(--ink-blue);}
+.custom-input-row input.flash-ok{border-color:var(--moss);box-shadow:0 0 0 3px rgba(107,132,71,0.3);}
+.custom-input-row input.flash-err{border-color:var(--vermillion);box-shadow:0 0 0 3px rgba(184,74,62,0.3);}
+.custom-add-btn{padding:10px 18px;background:linear-gradient(135deg,var(--ink-blue),var(--ink-blue-light));color:#fff;border:2px solid var(--border);font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;border-radius:2px;white-space:nowrap;transition:all 0.2s;letter-spacing:1px;}
+.custom-add-btn:hover{transform:translateY(-1px);box-shadow:var(--shadow-sm);}
+.custom-add-btn:active{transform:translateY(1px);}
+.custom-add-btn.flash{background:var(--moss);}
+.job-search{width:100%;padding:10px;margin-bottom:10px;border:2px solid var(--border);background:var(--parchment);font-size:13px;font-family:inherit;border-radius:2px;}
+.era-toggle{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px;background:var(--parchment-dark);border:1px dashed var(--border);font-size:12px;border-radius:2px;}
+.era-toggle label{display:flex;align-items:center;gap:6px;cursor:pointer;}
+.job-cat,.ability-cat{margin-bottom:10px;border:2px solid var(--border);background:var(--parchment);border-radius:2px;overflow:hidden;}
+.job-cat-head,.ability-cat-head{padding:11px 14px;background:var(--parchment-dark);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'EB Garamond',serif;font-weight:700;font-size:14px;color:var(--ink);transition:background 0.2s;user-select:none;}
+.job-cat-head:hover,.ability-cat-head:hover{background:var(--parchment-deeper);}
+.job-cat-head .cnt,.ability-cat-head .cnt{font-size:11px;color:var(--ink-muted);font-weight:normal;font-family:'Noto Sans SC',sans-serif;}
+.job-cat-head .arrow,.ability-cat-head .arrow{font-size:11px;transition:transform 0.2s;}
+.job-cat.open .arrow,.ability-cat.open .arrow{transform:rotate(90deg);}
+.job-cat-body,.ability-cat-body{display:none;padding:14px;}
+.job-cat.open .job-cat-body,.ability-cat.open .ability-cat-body{display:block;}
+.ability-cat-body .hint{font-size:11px;color:var(--ink-muted);margin-bottom:10px;}
+.custom-jobs-box{margin-top:10px;padding:10px;background:var(--parchment-dark);border:1px dashed var(--gilt);border-radius:2px;}
+.custom-jobs-box .cjb-title{font-size:11px;color:var(--gilt);letter-spacing:2px;margin-bottom:8px;font-weight:700;}
+.npc-block{margin-bottom:16px;padding:16px;background:var(--parchment-dark);border:2px solid var(--border);border-radius:2px;position:relative;}
+.npc-block h4{font-size:13px;color:var(--ink-blue);margin-bottom:10px;font-family:'EB Garamond',serif;}
+.npc-remove{position:absolute;top:10px;right:10px;padding:4px 10px;font-size:11px;background:var(--vermillion);color:#fff;border:none;cursor:pointer;border-radius:3px;}
+.add-npc-btn{padding:12px 24px;font-size:13px;font-weight:700;font-family:inherit;background:var(--parchment);border:2px dashed var(--border);cursor:pointer;transition:all 0.2s;border-radius:2px;letter-spacing:1px;color:var(--ink-blue);}
+.add-npc-btn:hover{background:#FCF5E4;border-color:var(--gilt);}
+.ability-section{margin-bottom:28px;}
+.ability-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--ink-blue);font-family:'EB Garamond',serif;letter-spacing:1px;}
+.ability-section p.hint{font-size:11px;color:var(--ink-muted);margin-bottom:10px;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+.ability-item{display:flex;flex-direction:column;padding:11px;background:var(--parchment);border:2px solid var(--border);transition:all 0.2s;border-radius:2px;}
+.ability-item .abname{font-size:12px;font-weight:700;margin-bottom:6px;color:var(--ink);}
+.ability-item .abdesc{font-size:11px;color:var(--ink-muted);margin-bottom:8px;line-height:1.5;}
+.ability-item.selected{background:#FCF5E4;border-color:var(--ink-blue);border-width:3px;padding:10px;box-shadow:var(--shadow-sm);}
+.ability-level{display:flex;gap:4px;margin-top:auto;}
+.ability-level button{flex:1;padding:5px 4px;font-size:11px;font-family:inherit;background:var(--parchment-dark);border:1px solid var(--border);cursor:pointer;transition:all 0.15s;border-radius:2px;color:var(--ink);}
+.ability-level button:hover{background:var(--parchment-deeper);}
+.ability-level button.chosen{background:var(--ink-blue);color:#fff;font-weight:700;border-color:var(--ink);}
+.ability-level button.master.chosen{background:var(--vermillion);}
+.ability-level button.expert.chosen{background:var(--gilt);color:var(--ink);}
+.talent-section{text-align:center;padding:20px;}
+.roll-btn{padding:20px 50px;font-size:17px;font-weight:900;font-family:'EB Garamond','Cinzel',serif;background:linear-gradient(135deg,var(--gilt),var(--gilt-light));color:var(--ink);border:3px solid var(--border);cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-lg),0 0 20px rgba(200,155,60,0.3);letter-spacing:3px;border-radius:2px;}
+.roll-btn:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover),0 0 30px rgba(200,155,60,0.4);}
+.roll-btn:active{transform:translateY(1px);box-shadow:var(--shadow-sm);}
+.roll-btn.rolling{animation:shake 0.5s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px) rotate(-1deg);}75%{transform:translateX(4px) rotate(1deg);}}
+.talent-pool{display:none;margin-top:28px;}.talent-pool.visible{display:block;}
+.talent-pool h3{font-size:15px;margin-bottom:14px;font-family:'EB Garamond',serif;}
+.talent-count{font-size:13px;color:var(--ink-muted);margin-bottom:14px;}
+.talent-list{display:grid;gap:10px;max-height:520px;overflow-y:auto;padding:12px;background:var(--parchment-dark);border:2px solid var(--border);border-radius:2px;}
+.talent-item{display:flex;align-items:flex-start;padding:14px;background:var(--parchment);border:2px solid rgba(74,55,40,0.3);cursor:pointer;transition:all 0.2s;text-align:left;border-radius:2px;}
+.talent-item:hover{border-color:var(--border);}
+.talent-item.selected{border-width:3px;padding:13px;}
+.talent-item.mythic{border-color:var(--mythic);background:linear-gradient(135deg,#FBF3DA,var(--parchment));box-shadow:0 0 12px rgba(168,118,58,0.25);animation:mythicGlow 3s infinite;}
+@keyframes mythicGlow{0%,100%{box-shadow:0 0 12px rgba(168,118,58,0.25);}50%{box-shadow:0 0 20px rgba(168,118,58,0.4);}}
+.talent-item.mythic.selected{box-shadow:3px 3px 8px var(--mythic),0 0 15px rgba(168,118,58,0.3);}
+.talent-item.legendary{border-color:var(--legendary);background:linear-gradient(135deg,#F7EBD9,var(--parchment));box-shadow:0 0 8px rgba(140,94,58,0.2);}
+.talent-item.legendary.selected{box-shadow:3px 3px 8px var(--legendary);}
+.talent-item.epic{border-color:var(--epic);background:linear-gradient(135deg,#EFF2F8,var(--parchment));box-shadow:0 0 6px rgba(59,85,128,0.15);}
+.talent-item.epic.selected{box-shadow:3px 3px 8px var(--epic);}
+.talent-item.rare{border-color:var(--rare);background:linear-gradient(135deg,#F1F4E8,var(--parchment));}
+.talent-item.rare.selected{box-shadow:3px 3px 8px var(--rare);}
+.talent-item.common{border-color:var(--common);}
+.talent-item.common.selected{box-shadow:3px 3px 8px var(--common);}
+.talent-item input{margin-right:12px;margin-top:3px;width:16px;height:16px;accent-color:var(--ink-blue);flex-shrink:0;}
+.talent-info{flex:1;}
+.talent-name{font-weight:bold;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:8px;font-family:'EB Garamond',serif;}
+.talent-badge{font-size:10px;padding:2px 8px;border-radius:10px;color:#fff;letter-spacing:1px;}
+.talent-badge.mythic{background:linear-gradient(135deg,var(--mythic),#C0894A);}
+.talent-badge.legendary{background:var(--legendary);}
+.talent-badge.epic{background:var(--epic);}
+.talent-badge.rare{background:var(--rare);}
+.talent-badge.common{background:var(--common);}
+.talent-desc{font-size:11px;color:var(--ink-muted);line-height:1.6;}
+.talent-effect{font-size:11px;color:var(--ink-blue);margin-top:4px;line-height:1.6;}
+.preview-box{background:var(--parchment);border:3px solid var(--border);padding:22px;font-size:13px;line-height:1.85;white-space:pre-wrap;word-break:break-all;max-height:600px;overflow-y:auto;margin-bottom:20px;font-family:'Courier New',monospace;box-shadow:var(--shadow-md);border-radius:2px;}
+.preview-box:empty::before{content:'请完成前面的步骤后查看预览...';color:var(--ink-muted);font-family:'Noto Sans SC',sans-serif;}
+.copy-btn{display:block;width:100%;max-width:300px;margin:0 auto;padding:16px 40px;font-size:16px;font-weight:900;font-family:'EB Garamond','Cinzel',serif;background:linear-gradient(135deg,var(--ink-blue),var(--ink-blue-light));color:#fff;border:none;cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-md);letter-spacing:3px;border-radius:2px;}
+.copy-btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:2px dashed rgba(74,55,40,0.3);}
+.nav-btn{padding:13px 28px;font-size:13px;font-weight:700;font-family:inherit;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;border-radius:2px;letter-spacing:2px;}
+.nav-btn.prev{background:var(--parchment);color:var(--ink);}.nav-btn.next{background:linear-gradient(135deg,var(--ink-blue),var(--ink-blue-light));color:#fff;box-shadow:var(--shadow-sm);}
+.nav-btn:hover{transform:translateY(-2px);}.nav-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:20px;background:var(--border);color:var(--gilt-light);font-size:11px;position:relative;z-index:2;letter-spacing:2px;font-family:'EB Garamond',serif;}
+@media(max-width:600px){.content-wrapper{padding:10px;}.tab-content{padding:14px;}.form-row{grid-template-columns:1fr;}.event-list{grid-template-columns:1fr;}.ability-grid{grid-template-columns:1fr;}.nav-buttons{flex-direction:column;gap:10px;}.nav-btn{width:100%;text-align:center;}.custom-add-btn{padding:10px 14px;font-size:12px;}}
+</style>
+</head>
+<body>
+<div class="opening-screen" id="opening">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置 · 开启此生</div>
+</div>
+<div class="main-container" id="main">
+<div class="content-wrapper">
+<div class="main-title"><h1>MEDIVM VITA</h1><p>中世纪 · 真实人生</p></div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="worldview">中世纪</button>
+<button class="tab-btn" data-tab="era">时代</button>
+<button class="tab-btn" data-tab="character">角色</button>
+<button class="tab-btn" data-tab="ability">技艺</button>
+<button class="tab-btn" data-tab="fate">命运</button>
+<button class="tab-btn" data-tab="preview">此生</button>
+</div>
+<!-- ===== 世界观 ===== -->
+<div class="tab-content active" id="tab-worldview">
+<h2 class="section-title">这是什么</h2>
+<div class="soul-intro">
+<p>这是一个与历史完全一致的世界。没有剧本，没有主角光环，没有道德滤镜。你只是公元四到十五世纪之间的一个普通人，周围的每个人都有自己的性格、目的和生活。</p>
+<p>你可以做任何事：</p>
+<p>在村庄里娶妻生子，日出而作日落而息，一辈子没走出过十里路。去修道院抄写经书，在烛光下度过安静的四十年。跟着商队穿越阿尔卑斯山，在香槟集市上跟佛兰德人讨价还价。加入十字军东征，在沙漠里渴死或者在耶路撒冷城下吃箭。嫁给一个你不认识的男人因为你父亲欠了他的债。在黑死病来的那年跑去另一个城市，结果发现那里死得更快。攒够钱赎回自由身，然后发现自由比农奴还饿。当上修道院院长统治一片土地。在码头偷东西，被抓住砍了一只手。凑一笔钱读法律，十年后成为公证人。去朝圣。去当兵。去酿啤酒。去造反。</p>
+<p>也可以什么都不做。窝在茅屋里度日，等到秋天看收成够不够过冬。</p>
+<p>世界不会等你。你不行动，别人也在过自己的生活。你伤害过的人会记仇，你帮过的人未必报恩。国王在打仗，瘟疫在蔓延，教皇在开除人的教籍——这些事不管你参不参与都会发生。所有选择都有代价，所有代价都很真实。</p>
+<p class="emphasis">你想成为什么样的人，就去做什么样的事。这辈子只有一次。</p>
+</div>
+<h2 class="section-title">中世纪的真实</h2>
+<div class="info-box">
+<h3>社会的形状</h3>
+<ul>
+<li><strong>三等级理论</strong>：祈祷的（教士）、作战的（贵族）、劳作的（其他所有人）。这是当时人对世界的解释框架。</li>
+<li><strong>农奴与自由农</strong>：西欧到12世纪后农奴制逐渐松动，城市空气使人自由（一年零一天规则）。</li>
+<li><strong>市民阶层</strong>：11世纪后城市复兴，行会控制着几乎所有城市职业。</li>
+<li><strong>骑士与贵族</strong>：12世纪后骑士从职业变身份，贵族头衔可继承但也可通过服役获得。</li>
+<li><strong>教士</strong>：约占人口3-5%，从教皇到乡村神父，是唯一大规模识字的阶层。</li>
+<li><strong>奴隶</strong>：西欧12世纪后逐渐消失，地中海、东欧、伊斯兰世界一直存在。</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>身体与死亡</h3>
+<ul>
+<li><strong>寿命</strong>：出生婴儿平均寿命约30-35岁（婴儿死亡率高拉低平均），活过5岁的人预期能活到50-60岁。</li>
+<li><strong>婴儿死亡率</strong>：约30-50%活不到成年。</li>
+<li><strong>瘟疫</strong>：6世纪查士丁尼大瘟疫、14世纪黑死病、之后每一代人几乎都要经历一次。</li>
+<li><strong>医术</strong>：放血、草药、祷告是主流。外科医生和理发师是同一群人。</li>
+<li><strong>生育</strong>：产妇死亡率约5-10%，一辈子生6-10个孩子活下来2-4个是常态。</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>信仰的空气</h3>
+<p>宗教不是"信不信"的问题，是<span class="accent">呼吸的空气</span>。教堂钟声划分一天的时间，圣人节日划分一年的日历，洗礼、婚礼、临终涂油划分一生。不信神的人极少，"无神论者"这个概念要到很晚才出现。异端不是不信，是信错了。</p>
+<ul style="margin-top:8px;">
+<li>1054年前：基督教尚未正式分裂，但东西方已实际疏离</li>
+<li>1054年后：天主教（西方）/ 东正教（东方）</li>
+<li>7世纪后：伊斯兰教在地中海南岸、伊比利亚半岛崛起</li>
+<li>犹太教：一直存在于欧洲各城市的隔都</li>
+<li>北欧多神教：11世纪前仍是主流，之后逐渐基督教化</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>识字与语言</h3>
+<ul>
+<li><strong>识字率</strong>：西欧5-10世纪不到1%，到15世纪城市男性约10-20%。</li>
+<li><strong>拉丁语</strong>：教会、法律、学术的通用语。会拉丁语=有文化。</li>
+<li><strong>各地方言</strong>：日常口语。文学作品到12世纪后才开始用方言写。</li>
+<li><strong>阿拉伯语</strong>：伊斯兰世界通用语，12世纪后成为科学翻译源头。</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>女性的位置</h3>
+<p>不假装它是平等的时代。但女性也不全是被侮辱与被损害的：农妇酿酒、市场卖菜；商人遗孀继承生意进入行会；修道院院长治理一片土地；女领主在丈夫出征时统治整个采邑。<strong>贫穷女性反而比贵族女性有更多经济自由</strong>——因为她们必须干活。</p>
+</div>
+<div class="info-box">
+<h3>法律与私刑</h3>
+<ul>
+<li><strong>血仇</strong>：早期中世纪普遍，家族有责任为死者报仇。</li>
+<li><strong>神明裁判</strong>：13世纪前流行，握烧红铁块、河水浸泡等。</li>
+<li><strong>教会法</strong>：管辖婚姻、遗嘱、教士犯罪，与世俗法并行。</li>
+<li><strong>刑罚</strong>：斩首（贵族）、绞刑（平民）、火刑（异端）、剁手（盗贼）、切鼻（叛徒）。监狱主要是审判前羁押，不是长期惩罚。</li>
+<li><strong>庇护权</strong>：进入教堂可免于世俗追捕40天。</li>
+</ul>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" disabled>上一步</button>
+<button class="nav-btn next" onclick="nextTab()">选择时代</button>
+</div>
+</div>
+<!-- ===== 时代 ===== -->
+<div class="tab-content" id="tab-era">
+<h2 class="section-title">选择时代</h2>
+<div class="info-box"><p>选择你投胎的世纪。点击卡片展开详情，点击事件可直接选定该时代+节点。你可以随时切换或取消。</p></div>
+<div class="century-timeline" id="century-timeline"></div>
+<div id="century-cards"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ===== 角色 ===== -->
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">此生</h2>
+<div class="era-notice" id="era-notice">
+<strong>当前时代：</strong><span id="cur-era" class="era-badge empty">尚未选择</span>
+<span id="cur-event-display" style="display:none;margin-left:12px;font-size:12px;color:var(--vermillion);font-weight:700;"></span>
+<p style="margin-top:8px;font-size:12px;color:var(--ink-muted);">建议先在"时代"页选定世纪，字段会按时代自动适配。也可自由填写不受限。</p>
+</div>
+<div class="form-section">
+<h3>基本</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="例：约翰、玛蒂尔达、优斯提尼阿、伊本·优素福..."></div>
+<div class="form-group"><label>出生年份</label><input type="text" id="char-year" placeholder="例：1066 · 1347 · 812"></div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>年龄（起始）</label><input type="number" id="char-age" placeholder="25" min="0" max="120"></div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked onchange="onGenderChange()"><span>男</span></label>
+<label><input type="radio" name="gender" value="女" onchange="onGenderChange()"><span>女</span></label>
+<label><input type="radio" name="gender" value="其他" onchange="onGenderChange()"><span>其他</span></label>
+</div></div>
+</div>
+<div class="form-group"><label>健康状况</label><input type="text" id="char-health" placeholder="例：健康 · 腿有旧疾 · 天花麻脸 · 天生跛足..."></div>
+<div class="form-group"><label>外貌</label><textarea id="char-appearance" placeholder="发色、身高、体格、伤疤、常穿的衣物..."></textarea></div>
+</div>
+<div class="form-section">
+<h3>血统 / 民族</h3>
+<p style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">可多选（混血）。金色=自定义。</p>
+<div class="tag-container" id="ethnicity-tags"></div>
+<div class="custom-input-row">
+<input type="text" id="custom-ethnicity" placeholder="自定义血统">
+<button type="button" class="custom-add-btn" onclick="addCustom('ethnicity')">+ 添加</button>
+</div>
+</div>
+<div class="form-section">
+<h3>时代与地理</h3>
+<div class="form-row">
+<div class="form-group"><label>政权 / 国家</label>
+<select id="polity"><option value="">（先选定时代）</option></select>
+<input type="text" id="custom-polity" placeholder="或自定义" style="margin-top:6px;width:100%;padding:10px;border:2px solid var(--border);background:var(--parchment);font-size:13px;border-radius:2px;">
+</div>
+<div class="form-group"><label>开局节点</label>
+<select id="event-node"><option value="">（先选定时代）</option></select>
+<p style="font-size:10px;color:var(--ink-muted);margin-top:4px;">此下拉与"时代"页联动，改动会同步高亮。</p>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>出生地</label><input type="text" id="char-birthplace" placeholder="例：巴黎西堤岛、诺森布里亚某农庄..."></div>
+<div class="form-group"><label>现居地</label><input type="text" id="char-residence" placeholder="现在住在哪里"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>社会阶层</h3>
+<p style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">可多选。金色=自定义。</p>
+<div class="tag-container" id="class-tags"></div>
+<div class="custom-input-row">
+<input type="text" id="custom-class" placeholder="自定义阶层">
+<button type="button" class="custom-add-btn" onclick="addCustom('class')">+ 添加</button>
+</div>
+</div>
+<div class="form-section">
+<h3>信仰</h3>
+<p style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">灰化=所选时代罕见。金色=自定义。</p>
+<div class="tag-container" id="faith-tags"></div>
+<div class="custom-input-row">
+<input type="text" id="custom-faith" placeholder="自定义信仰">
+<button type="button" class="custom-add-btn" onclick="addCustom('faith')">+ 添加</button>
+</div>
+</div>
+<div class="form-section">
+<h3>身份 / 职业</h3>
+<p style="font-size:11px;color:var(--ink-muted);margin-bottom:10px;">可多选。<strong>♀</strong>=女性历史常见。灰化=时代外。点击类别标题展开/折叠。</p>
+<input type="text" class="job-search" id="job-search" placeholder="🔍 搜索身份 / 职业..." oninput="filterJobs()">
+<div class="era-toggle"><label><input type="checkbox" id="show-out-of-era" onchange="renderJobs()"><span>显示时代外身份</span></label></div>
+<div id="job-categories"></div>
+<div class="custom-input-row">
+<input type="text" id="custom-job" placeholder="自定义身份 / 职业">
+<button type="button" class="custom-add-btn" onclick="addCustom('job')">+ 添加</button>
+</div>
+<div id="custom-job-list"></div>
+</div>
+<div class="form-section">
+<h3>婚姻与家庭</h3>
+<div class="form-row">
+<div class="form-group"><label>婚姻状况</label><input type="text" id="char-marriage" placeholder="未婚 / 已婚 / 丧偶 / 教士独身..."></div>
+<div class="form-group"><label>子女</label><input type="text" id="char-children" placeholder="例：三子二女（活两个）"></div>
+</div>
+<div class="form-group"><label>家庭 / 家族背景</label><textarea id="char-family" placeholder="父母、兄弟姐妹、家族历史..."></textarea></div>
+</div>
+<div class="form-section">
+<h3>财产</h3>
+<div class="form-row">
+<div class="form-group"><label>财富水平</label><input type="text" id="char-wealth" placeholder="赤贫 / 温饱 / 小康 / 富裕 / 巨富"></div>
+<div class="form-group"><label>具体财产</label><input type="text" id="char-property" placeholder="五英亩地一头牛 · 城中铺子 · 三艘商船..."></div>
+</div>
+</div>
+<div class="form-section">
+<h3>教育 / 语言</h3>
+<div class="form-group"><label>受教育程度</label><input type="text" id="char-education" placeholder="文盲 / 教区学校 / 修道院学堂 / 博洛尼亚大学法学..."></div>
+<div class="form-group"><label>掌握语言</label><input type="text" id="char-languages" placeholder="家乡方言、拉丁语（读写）、希腊语（口语）..."></div>
+</div>
+<div class="form-section">
+<h3>性格 / 目标 / 背景</h3>
+<div class="form-group"><label>性格</label><textarea id="char-personality" placeholder="虔诚 / 世故 / 暴躁 / 忠诚 / 贪财..."></textarea></div>
+<div class="form-group"><label>目标 / 心结</label><input type="text" id="char-dream" placeholder="为父报仇 / 赎回自由 / 抵达耶路撒冷..."></div>
+<div class="form-group"><label>背景故事</label><textarea id="char-background" placeholder="出身、成长、师承、重要经历..."></textarea></div>
+</div>
+<div class="form-section" id="npc-section">
+<h3>重要人物（NPC）</h3>
+<p style="font-size:11px;color:var(--ink-muted);margin-bottom:14px;">添加你生命中的重要人物——家人、仇人、领主、教父、爱人……</p>
+<div id="npc-list"></div>
+<button type="button" class="add-npc-btn" onclick="addNPC()">+ 添加人物</button>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ===== 技艺 ===== -->
+<div class="tab-content" id="tab-ability">
+<h2 class="section-title">技艺</h2>
+<div class="info-box"><p>没有魔法，只有真实的手艺与本事。点击类别展开，选择熟练度：<strong>新手 / 熟练 / 精通 / 大师</strong>。留空=不会。</p></div>
+<div id="ability-sections"></div>
+<div class="ability-section" style="margin-top:24px;">
+<h3>自定义技艺</h3>
+<div class="form-group"><label>名称</label><input type="text" id="custom-ab-name" placeholder="驯隼术、修道院密码、蒙古骑射..."></div>
+<div class="form-group"><label>说明</label><textarea id="custom-ab-desc" rows="2" placeholder="怎么会的、掌握到什么程度..."></textarea></div>
+<button class="roll-btn" onclick="addCustomAbility()" style="padding:12px 30px;font-size:14px;letter-spacing:1px;">添加</button>
+<div id="custom-ab-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ===== 命运 ===== -->
+<div class="tab-content" id="tab-fate">
+<h2 class="section-title">命运</h2>
+<div class="info-box">
+<h3>命运的骰子</h3>
+<ul><li>每次抽取获得8个命运</li><li>从中选择3个作为你的一生底色</li><li>神话级几乎不出，出了也不总是好事</li><li>每种命运都有它的重量——天赋总要付代价</li></ul>
+</div>
+<div class="talent-section"><button class="roll-btn" id="roll-btn" onclick="rollTalents()">投出命运</button></div>
+<div class="talent-pool" id="talent-pool">
+<h3>命运抽取结果</h3>
+<p class="talent-count">请选择3个（已选：<span id="talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="talent-list"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ===== 预览 ===== -->
+<div class="tab-content" id="tab-preview">
+<h2 class="section-title">此生 · 角色卡</h2>
+<div class="preview-box" id="preview-box"></div>
+<button class="copy-btn" onclick="copyPreview()">复制此生</button>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">上一步</button></div>
+</div>
+</div>
+</div>
+<footer>MEDIVM VITA · 中世纪真实人生构建器</footer>
+<script>
+const state={currentTab:'worldview',selectedCentury:null,selectedEvent:null,selectedEthnicities:new Set(),selectedClasses:new Set(),selectedFaiths:new Set(),selectedJobs:new Set(),customJobs:[],abilities:{},customAbilities:[],npcs:[]};
+const TABS=['worldview','era','character','ability','fate','preview'];
+const centuryData={
+c4:{name:'4世纪',subtitle:'帝国转身',period:'301-400',
+atm:'古典罗马的最后世纪。戴克里先以四帝共治结束三世纪军人皇帝的混乱，君士坦丁将基督教合法化、迁都君士坦丁堡，狄奥多西定基督教为唯一国教。395年帝国永久分裂为东西两半。哥特人渡过多瑙河，阿德里安堡罗马军团惨败，蛮族以同盟者身份入境——五世纪民族大迁徙的预演已经开始。多神世界在这个世纪退场，基督教欧洲的轮廓开始浮现。',
+events:[['303','大迫害开始','戴克里先下令最后一次全国性镇压基督教'],['313','米兰敕令','基督教合法化，归还教产'],['325','尼西亚公会议','定《尼西亚信经》，阿里乌斯派被判异端'],['330','君士坦丁堡落成','5月11日，帝国新都"新罗马"'],['361','尤利安背教','最后一位多神教皇帝，恢复传统信仰'],['378','阿德里安堡惨败','8月9日瓦伦斯战死，约两万罗马军覆没'],['380','萨洛尼卡敕令','2月27日尼西亚基督教定为国教'],['391','禁多神教','狄奥多西关闭神庙，亚历山大塞拉皮斯神庙被毁'],['395','帝国永久分裂','1月17日狄奥多西死，阿卡迪乌斯与霍诺留分治东西']],
+powers:{major:[['罗马帝国（统一）','395年前，戴克里先-君士坦丁-狄奥多西'],['萨珊波斯帝国','沙普尔二世时期，与罗马长期拉锯']],medium:[['西哥特人','376年后为帝国境内同盟者（foederati）'],['法兰克人','莱茵河下游，罗马同盟者'],['阿勒曼尼人','莱茵河上游']],minor:[['勃艮第人','莱茵河东岸'],['汪达尔人','中欧'],['苏维汇人','中欧'],['阿兰人','顿河-多瑙河间'],['匈人','370年代入欧，推动日耳曼诸族'],['皮克特人/斯科特人','不列颠北部与爱尔兰']]},
+cur:'索里达（solidus）金币约4.5克纯金，72枚=1罗马磅；西利克（siliqua）银币，1索里达=24西利克；福利斯（follis）铜币不断贬值。戴克里先301年《最高价格敕令》失败',
+buy:'1索里达约购小麦150-200公斤；普通奴隶20-30索里达，有技能的文书/工匠/教师奴隶50-60索里达；牛约3-5索里达'},
+c5:{name:'5世纪',subtitle:'罗马陨落',period:'401-500',
+atm:'旧秩序崩塌的乱世。罗马军团撤离，蛮族王国在废墟上建立，城市萎缩，道路废弃，但罗马的法律、基督教和拉丁语仍在日常生活中延续。对普通人来说，这是一个"不知道明天谁来统治"的时代，但也是新民族融合、新秩序萌芽的时代。',
+events:[['407','君士坦丁三世撤军','率不列颠军团去高卢，罗马统治不列颠终结前夜'],['410','阿拉里克洗劫罗马','"永恒之城"陷落的震撼时刻'],['429','汪达尔渡海','汪达尔人前往北非，地中海秩序瓦解'],['451','沙隆战役前夕','阿提拉匈人大军压境高卢'],['455','汪达尔洗劫罗马','从海路来的第二次浩劫'],['476','西罗马灭亡','奥多亚塞废末帝罗慕路斯·奥古斯都路斯'],['486','法兰克崛起','克洛维击败西阿格里乌斯'],['493','东哥特入意大利','狄奥多里克杀奥多亚塞']],
+powers:{major:[['西罗马帝国','476年前，行将就木'],['东罗马帝国','君士坦丁堡，仍在延续']],medium:[['西哥特王国','图卢兹→托莱多'],['法兰克王国','墨洛温王朝'],['东哥特王国','493年后统治意大利'],['汪达尔-阿兰王国','北非，都迦太基']],minor:[['勃艮第王国',''],['苏维汇王国','加利西亚'],['盎格鲁-撒克逊诸小王国','不列颠'],['匈人帝国','454年前']]},
+cur:'索里达（solidus，金币，约4.5克金）、特雷米西斯（1/3索里达）、福利斯铜币；蛮族多仿罗马铸币',
+buy:'1索里达约购150-200公斤小麦，奴隶15-25索里达（有技能30-50）'},
+c6:{name:'6世纪',subtitle:'查士丁尼之梦',period:'501-600',
+atm:'拜占庭的"中兴"与大瘟疫。查士丁尼试图恢复罗马帝国版图，圣索菲亚大教堂矗立，但大瘟疫吞噬了三分之一到一半人口。西方，法兰克人稳固高卢，西哥特人在西班牙托莱多安定下来，伦巴第人涌入意大利。这是一个"重建罗马"的梦想与死亡阴影交织的世纪。',
+events:[['507','武耶战役','克洛维击败西哥特，法兰克称霸高卢'],['527','查士丁尼继位','拜占庭中兴前夜'],['533','贝利撒留远征北非','再征服开始'],['537','圣索菲亚落成','人类建筑史的巅峰'],['542','查士丁尼大瘟疫','席卷君士坦丁堡，死三分之一到一半人口'],['554','拜占庭收复意大利','东哥特灭亡'],['568','伦巴第人入侵意大利','阿尔博因率领'],['590','格里高利一世就任教皇','罗马教会权力上升'],['597','奥古斯丁赴肯特传教','盎格鲁撒克逊皈依开始']],
+powers:{major:[['东罗马（拜占庭）帝国','查士丁尼王朝'],['法兰克王国','墨洛温，分奥斯特拉西亚/纽斯特里亚/勃艮第/阿基坦']],medium:[['西哥特王国','托莱多，天主教化'],['伦巴第王国','意大利北部，都帕维亚'],['萨珊波斯','']],minor:[['东哥特王国','554年前'],['汪达尔王国','534年前'],['盎格鲁-撒克逊诸王国','肯特、威塞克斯、麦西亚等'],['阿瓦尔汗国','']]},
+cur:'诺米斯马/索里达金币（约4.5克金）、德涅尔银币开始零星铸造、福利斯铜币',
+buy:'奴隶价格同5世纪。大瘟疫后物价波动剧烈'},
+c7:{name:'7世纪',subtitle:'沙漠先知',period:'601-700',
+atm:'伊斯兰的崛起彻底改变了地中海世界。拜占庭和萨珊波斯两败俱伤后，阿拉伯人在一代人时间内征服了叙利亚、埃及、北非和波斯。拜占庭转型为小而坚韧的希腊化国家，军区制取代了旧行政。西欧，法兰克进入懒王时代，西哥特在托莱多走向衰落。旧的古典地中海世界一分为三：拜占庭、伊斯兰、西欧。',
+events:[['610','希拉克略篡位称帝','拜占庭-波斯生死战开始'],['622','穆罕默德希吉拉','迁徙麦地那，伊斯兰纪元元年'],['632','先知去世','阿拉伯大征服开始'],['636','雅穆克战役','拜占庭失叙利亚'],['642','阿拉伯征服埃及','萨珊波斯崩溃'],['661','倭马亚王朝','穆阿维叶建，都大马士革'],['674','第一次阿拉伯围攻君士坦丁堡','希腊火显威'],['680','保加利亚汗国建','阿斯帕鲁赫'],['687','特尔特里战役','加洛林家族崛起，丕平二世'],['691','岩石圆顶清真寺建成','耶路撒冷']],
+powers:{major:[['东罗马（拜占庭）帝国','希拉克略王朝'],['阿拉伯哈里发国','正统哈里发→倭马亚王朝']],medium:[['法兰克王国','墨洛温末期，宫相当政'],['西哥特王国','托莱多，711年前'],['伦巴第王国','']],minor:[['保加利亚汗国','第一帝国'],['萨珊波斯','651年前'],['盎格鲁-撒克逊诸王国','诺森布里亚霸权']]},
+cur:'拜占庭诺米斯马金币、阿拉伯第纳尔金币（约4.2克金，690年代币制改革后）、迪尔汗银币（约2.8-3克银）、德涅尔银币（墨洛温后期）',
+buy:'1索里达约购100-150公斤小麦（失埃及后粮价上涨）'},
+c8:{name:'8世纪',subtitle:'加洛林之晨',period:'701-800',
+atm:'西欧新秩序的奠基。查理·马特在普瓦捷挡住了阿拉伯人，丕平篡位建立加洛林王朝，查理曼用刀剑和十字架统一了西欧大部分，800年圣诞节加冕为"罗马人的皇帝"。南方，阿拔斯革命后巴格达崛起，科尔多瓦的后倭马亚独据西班牙。北方，维京长船开始出现在海平面上。这是一个"新帝国"诞生与新威胁来临的世纪。',
+events:[['711','塔里克越直布罗陀','瓜达莱特战役灭西哥特'],['717','第二次阿拉伯围攻君士坦丁堡',''],['732','普瓦捷（图尔）战役','查理·马特击败阿拉伯军队'],['751','加洛林王朝开始','丕平三世废墨洛温末王'],['756','教皇国诞生','丕平献土；阿卜杜勒·拉赫曼一世建科尔多瓦埃米尔国'],['762','曼苏尔建巴格达','阿拔斯王朝新都'],['778','龙塞斯瓦列斯之败','罗兰战死'],['793','维京人袭击林迪斯法恩','维京时代开始'],['796','查理曼攻灭阿瓦尔汗国',''],['800','查理曼加冕','罗马人的皇帝']],
+powers:{major:[['法兰克王国（加洛林帝国）','查理曼'],['拜占庭帝国','伊苏里亚王朝，圣像破坏运动'],['阿拔斯哈里发国','都巴格达']],medium:[['后倭马亚埃米尔国','科尔多瓦，西班牙'],['伦巴第王国','774年前'],['教皇国','756年后']],minor:[['保加利亚汗国',''],['盎格鲁-撒克逊诸王国','麦西亚霸权，奥法王'],['阿瓦尔汗国','796年前']]},
+cur:'查理曼794年货币改革：1磅银（约408克）=20苏=240德涅尔，1德涅尔约1.7克银。阿拉伯第纳尔金币、迪尔汗银币',
+buy:'1德涅尔约购5-6公斤小麦；公牛20-30德涅尔，羊4-6德涅尔，铁剑6-8德涅尔，日工约1德涅尔'},
+c9:{name:'9世纪',subtitle:'分裂与劫掠',period:'801-900',
+atm:'查理曼帝国在他死后分裂为三，维京人、马扎尔人、萨拉森人从三面劫掠欧洲。巴黎被围，修道院被焚，农民流离失所。但在废墟中，新的民族国家萌芽：英格兰在阿尔弗雷德大王领导下抵抗维京，基辅罗斯在瓦希商路上建立，西法兰克的巴黎伯爵厄德在围城战中崭露头角。这是一个"旧帝国碎了，新民族在火中诞生"的世纪。',
+events:[['814','查理曼去世','虔诚者路易继位'],['843','凡尔登条约','加洛林帝国三分'],['845','拉格纳·洛德布罗克洗劫巴黎','丹麦金开始'],['862','留里克在诺夫哥罗德建国',''],['865','维京"异教徒大军"入侵英格兰',''],['878','爱丁顿战役','阿尔弗雷德大王击败古特鲁姆'],['882','奥列格占基辅','建基辅罗斯'],['885','维京人围攻巴黎','厄德伯爵守城'],['895','马扎尔人进入潘诺尼亚','阿尔帕德率领']],
+powers:{major:[['西法兰克王国','秃头查理→巴黎伯爵厄德'],['东法兰克王国','日耳曼人路易'],['拜占庭帝国','马其顿王朝，867年后'],['阿拔斯哈里发国','突厥禁卫军掌权']],medium:[['中法兰克王国','洛泰尔，855年后分裂'],['科尔多瓦埃米尔国',''],['威塞克斯王国','阿尔弗雷德大王']],minor:[['基辅罗斯','留里克王朝'],['保加利亚汗国','鲍里斯一世受洗865年'],['大摩拉维亚',''],['威尼斯共和国','']]},
+cur:'德涅尔银币贬值至约1克银，1苏=12德涅尔约20克银；阿拉伯迪尔汗在东欧流通；基辅罗斯用格里夫纳银锭',
+buy:'1德涅尔约购3-5公斤小麦；维京奴隶约数至十余迪尔汗'},
+c10:{name:'10世纪',subtitle:'新秩序',period:'901-1000',
+atm:'维京人定居下来成为诺曼人，马扎尔人在莱希菲尔德被击败后皈依基督教，奥托大帝在罗马加冕重建"罗马帝国"，卡佩王朝在巴黎建立。基辅罗斯受洗，斯蒂芬一世加冕匈牙利，北欧、东欧全部纳入基督教世界。这是一个"第二波封建化"的世纪，城堡从土木改建石造，骑士制度成型，克吕尼修道院发起改革，罗马式教堂在各地建起。千禧年临近，宗教情绪弥漫。',
+events:[['911','罗洛获诺曼底','糊涂查理签约；东法兰克加洛林绝嗣'],['919','捕鸟者亨利建萨克森王朝',''],['936','奥托一世继位',''],['955','莱希菲尔德战役','奥托击败马扎尔人'],['962','奥托一世罗马加冕','神圣罗马帝国开始'],['987','卡佩王朝开始','于格·卡佩当选西法兰克国王'],['988','弗拉基米尔受洗','罗斯皈依基督教'],['991','莫尔登战役','仓促王埃塞尔雷德开始缴丹麦金'],['1000','斯蒂芬一世加冕匈牙利','千禧年']],
+powers:{major:[['神圣罗马帝国','萨克森/奥托王朝'],['拜占庭帝国','马其顿王朝，巴西尔二世'],['科尔多瓦哈里发国','929年后，阿卜杜勒·拉赫曼三世']],medium:[['西法兰克/法兰西','卡佩王朝，987年后'],['基辅罗斯','留里克王朝'],['英格兰王国','威塞克斯王朝→丹麦人']],minor:[['法兰西公国、诺曼底公国、勃艮第公国',''],['保加利亚第一帝国','西美昂一世'],['匈牙利王国','1000年后'],['波兰','皮雅斯特王朝'],['威尼斯、热那亚共和国',''],['莱昂王国、纳瓦拉王国','']]},
+cur:'德涅尔/便士银币含银约1克；拜占庭诺米斯马金币；阿拉伯第纳尔/迪尔汗；基辅罗斯格里夫纳',
+buy:'1德涅尔约购3-5公斤小麦；骑士全套装备需数十苏（数百德涅尔）'},
+c11:{name:'11世纪',subtitle:'教皇与皇帝',period:'1001-1100',
+atm:'基督教世界的扩张与内部冲突。克吕尼改革后教皇权力上升，与神圣罗马帝国皇帝爆发主教叙任权之争，卡诺莎的雪地里皇帝赤足请罪。诺曼人征服英格兰和南意大利，骑士制度成熟。1054年东西教会正式分裂，1095年教皇号召十字军，1099年十字军攻克耶路撒冷。这是一个"信仰与剑"的世纪，罗马式教堂遍布欧洲，三等级社会理论成型，博洛尼亚开始重新教授罗马法。',
+events:[['1016','丹麦人克努特征服英格兰','北海帝国'],['1054','东西教会大分裂',''],['1066','黑斯廷斯战役','诺曼征服英格兰'],['1071','曼齐科特战役','拜占庭失小亚细亚'],['1077','亨利四世卡诺莎觐见','赤足三天请求教皇赦免'],['1085','阿方索六世收复托莱多','再征服运动里程碑'],['1095','乌尔班二世克莱芒会议','号召十字军'],['1096','第一次十字军出发','平民十字军+诸侯十字军'],['1099','十字军攻克耶路撒冷','屠城三日']],
+powers:{major:[['神圣罗马帝国','萨利安王朝'],['法兰西王国','卡佩王朝'],['英格兰王国','诺曼王朝，1066年后'],['拜占庭帝国','科穆宁王朝，阿历克塞一世']],medium:[['教皇国',''],['耶路撒冷王国及十字军国家','1099年后：埃德萨、安条克、的黎波里'],['西西里诺曼伯国','欧特维尔家族'],['基辅罗斯','智者雅罗斯拉夫后分裂']],minor:[['科尔多瓦泰法诸国','1031年后'],['丹麦、挪威、瑞典王国',''],['莱昂-卡斯蒂利亚、阿拉贡、葡萄牙',''],['威尼斯、热那亚、比萨共和国','']]},
+cur:'英国便士约1.3-1.5克银，1先令=12便士=约20克银，1英镑=20先令=240便士',
+buy:'1先令约购100-150公斤小麦；公牛约3先令，羊约8便士，猪约1先令，铁剑约2先令，锁子甲约10-20先令，战马约20-40先令；工匠日薪2-3便士'},
+c12:{name:'12世纪',subtitle:'骑士与城堡',period:'1101-1200',
+atm:'中世纪盛期的黄金时代。十字军国家在东方建立，骑士团（圣殿、医院）成立，哥特式建筑在圣丹尼诞生，大学在博洛尼亚、巴黎、牛津兴起。金雀花帝国横跨英法，腓特烈·巴巴罗萨六征意大利，萨拉丁与狮心王理查在圣地对决。明谷的伯尔纳、阿伯拉尔、克雷蒂安·德·特鲁瓦活跃，宫廷爱情文学和骑士传奇流行。这是一个"骑士精神"成型、城市和商业复兴、文化繁荣的世纪。',
+events:[['1100','十字军国家建立初期','埃德萨/安条克/的黎波里/耶路撒冷'],['1122','沃尔姆斯宗教协定','主教叙任权之争结束'],['1135','英格兰无政府时期','亨利一世死'],['1147','第二次十字军',''],['1154','亨利二世继位','金雀花王朝开始'],['1170','贝克特在坎特伯雷殉道',''],['1187','哈丁战役','萨拉丁收复耶路撒冷'],['1189','第三次十字军','狮心王理查vs萨拉丁'],['1200','哥特建筑鼎盛','大学兴起，翻译运动']],
+powers:{major:[['英格兰王国（金雀花/安茹帝国）',''],['法兰西王国','卡佩王朝，腓力二世'],['神圣罗马帝国','霍亨斯陶芬王朝，巴巴罗萨'],['拜占庭帝国','科穆宁王朝→安格洛斯']],medium:[['耶路撒冷王国及十字军国家',''],['西西里诺曼王国','罗杰二世，1130年后'],['教皇国',''],['穆瓦希德王朝','北非+西班牙'],['阿尤布王朝','萨拉丁，埃及+叙利亚']],minor:[['卡斯蒂利亚、阿拉贡、葡萄牙、莱昂',''],['威尼斯、热那亚、比萨、佛罗伦萨等',''],['基辅罗斯诸公国','弗拉基米尔-苏兹达尔兴起'],['丹麦、挪威、瑞典、波兰、匈牙利、波希米亚','']]},
+cur:'1便士约1.3-1.5克银；威尼斯12世纪末铸格罗索银币（约2.2克银），西西里恢复金币',
+buy:'1先令约购120-180公斤小麦；公牛约2先令6便士，羊约6便士，猪约10便士，铁剑约1先令6便士，锁子甲约8-15先令，战马约15-30先令；工匠日薪3-4便士'},
+c13:{name:'13世纪',subtitle:'巅峰与阴影',period:'1201-1300',
+atm:'中世纪盛期的顶点与转折。英诺森三世将教权推至顶峰，第四次十字军却洗劫了君士坦丁堡，拉丁帝国建立。多明我会和方济各会成立，宗教裁判所设立。蒙古西征从东方席卷而来，在列格尼卡击败欧洲骑士。腓特烈二世在那不勒斯、路易九世在巴黎代表着基督教君主的理想。马可·波罗前往中国，托马斯·阿奎那构建《神学大全》，哥特大教堂在欧洲各地落成。1291年阿卡陷落，十字军时代结束。这是一个"信仰的巅峰与裂缝"的世纪。',
+events:[['1204','第四次十字军洗劫君士坦丁堡','拉丁帝国建立'],['1209','阿比尔十字军开始','镇压清洁派'],['1215','约翰王签《大宪章》','第四次拉特兰会议'],['1220','腓特烈二世加冕皇帝',''],['1229','第六次十字军','腓特烈二世兵不血刃入耶路撒冷'],['1241','蒙古西征','列格尼卡/蒂萨河战役'],['1248','第七次十字军','路易九世埃及被俘'],['1265','孟福尔首召骑士市民议会',''],['1271','马可·波罗东行',''],['1291','马穆鲁克攻陷阿卡','十字军时代结束'],['1295','爱德华一世模范议会','']],
+powers:{major:[['英格兰王国','金雀花王朝'],['法兰西王国','卡佩王朝，路易九世/腓力四世'],['神圣罗马帝国','霍亨斯陶芬→大空位1250-1273→哈布斯堡']],medium:[['教皇国',''],['拉丁帝国','1204-1261'],['尼西亚帝国/拜占庭残余',''],['拜占庭帝国','帕里奥洛格斯王朝，1261年复国后'],['马穆鲁克王朝','埃及+叙利亚'],['蒙古帝国','金帐汗国、伊尔汗国'],['卡斯蒂利亚、阿拉贡、葡萄牙、纳瓦拉',''],['西西里王国','安茹→阿拉贡，1282年西西里晚祷后分两']],minor:[['耶路撒冷王国残余','1291年前'],['威尼斯、热那亚、佛罗伦萨、米兰等',''],['丹麦、挪威、瑞典、波兰、匈牙利、波希米亚',''],['罗斯诸公国','弗拉基米尔-苏兹达尔→莫斯科，金帐附庸']]},
+cur:'1便士约1-1.5克银；1252年佛罗伦萨弗罗林金币（约3.53克金）、1284年威尼斯杜卡特金币（约3.54克金）成为国际贸易标准',
+buy:'1先令约购150-200公斤小麦（中世纪最低粮价）；公牛约2先令，羊约5便士，猪约8便士，铁剑约1先令，骑士全套装备约10-20英镑；工匠日薪3-4便士'},
+c14:{name:'14世纪',subtitle:'死亡与黎明',period:'1301-1400',
+atm:'灾难与变革。1315年大饥荒、1347年黑死病杀死欧洲近半人口，封建制度从根基动摇。百年战争中长弓手打破骑士神话，阿维尼翁之囚和教会大分裂使教权一落千丈。扎克雷、瓦特·泰勒起义冲击旧秩序。但在死亡中，新的世界诞生：意大利文艺复兴曙光初现，但丁、彼特拉克、薄伽丘、乔托开启人文主义，劳动者获得了前所未有的议价权。这是一个"旧世界在瘟疫中死去，新世界在阵痛中诞生"的世纪。',
+events:[['1309','教廷迁阿维尼翁','阿维尼翁之囚开始'],['1328','卡佩绝嗣','瓦卢瓦腓力六世继位'],['1337','百年战争爆发',''],['1346','克雷西战役','长弓手大破骑士'],['1347','黑死病席卷欧洲','杀死近半人口'],['1356','普瓦捷战役','约翰二世被俘；金玺诏书颁布'],['1358','法国扎克雷起义',''],['1378','西方教会大分裂','两个教皇并立'],['1381','英国瓦特·泰勒起义',''],['1400','文艺复兴黎明','乔叟《坎特伯雷故事集》']],
+powers:{major:[['英格兰王国','金雀花→兰开斯特'],['法兰西王国','瓦卢瓦王朝'],['神圣罗马帝国','卢森堡王朝，查理四世']],medium:[['教皇国/阿维尼翁教廷','大分裂后两教皇并立'],['拜占庭帝国','帕里奥洛格斯王朝，日益衰落'],['奥斯曼帝国','1354年入欧洲'],['威尼斯、热那亚、佛罗伦萨、米兰、锡耶纳等',''],['汉萨同盟城市','吕贝克为首'],['卡斯蒂利亚、阿拉贡、葡萄牙、纳瓦拉、格拉纳达','']],minor:[['匈牙利、波兰、波希米亚、丹麦、挪威、瑞典',''],['莫斯科大公国','金帐汗国附庸'],['金帐汗国、立陶宛大公国','']]},
+cur:'1便士约1克银；弗罗林/杜卡特金币仍为国际通货。大饥荒时粮价数倍',
+buy:'黑死病前1先令约购50-80公斤小麦，黑死病后粮价降约1/3。农业工人日工资从2-3便士涨至6-8便士，熟练工匠从4便士涨至10-12便士'},
+c15:{name:'15世纪',subtitle:'旧世界与新世界',period:'1401-1500',
+atm:'中世纪的终章。1453年百年战争结束、君士坦丁堡陷落，两个时代同时落幕。古腾堡印刷术打破知识垄断，意大利文艺复兴达于鼎盛，达·芬奇、波提切利在美第奇家族庇护下创作。1492年格拉纳达陷落、哥伦布发现美洲，达·伽马开辟印度航路，大航海时代开启。莫斯科摆脱蒙古统治，都铎王朝建立，新君主制和民族国家取代封建割据。这是一个"旧欧洲在身后，新世界在眼前"的世纪。',
+events:[['1415','阿金库尔战役','葡萄牙占休达，大航海萌芽'],['1429','贞德解奥尔良之围','查理七世兰斯加冕'],['1436','布鲁内莱斯基穹顶完成','文艺复兴建筑里程碑'],['1453','君士坦丁堡陷落','百年战争结束（卡斯蒂永战役）；5月29日千年帝国覆灭'],['1455','玫瑰战争爆发','《古腾堡圣经》印成'],['1469','费尔南多与伊莎贝拉联姻','西班牙统一前奏'],['1480','乌格拉河对峙','莫斯科摆脱蒙古统治独立'],['1485','博斯沃思战役','都铎王朝建立'],['1488','迪亚士绕过好望角',''],['1492','格拉纳达陷落','哥伦布发现美洲；西班牙驱逐犹太人'],['1494','查理八世入侵意大利','意大利战争爆发'],['1498','达·伽马到印度','达·芬奇完成《最后的晚餐》']],
+powers:{major:[['英格兰王国','兰开斯特→约克→都铎'],['法兰西王国','瓦卢瓦王朝'],['神圣罗马帝国','哈布斯堡王朝，1438年后'],['西班牙王国','1469年后卡斯蒂利亚+阿拉贡联合'],['奥斯曼帝国','穆罕默德二世→巴耶济德二世'],['教皇国','']],medium:[['葡萄牙王国','大航海先驱'],['威尼斯、佛罗伦萨、热那亚、米兰、那不勒斯等',''],['莫斯科大公国','1480年后独立'],['波兰-立陶宛联盟','']],minor:[['拜占庭帝国','1453年前'],['匈牙利、波希米亚、丹麦、挪威、瑞典',''],['格拉纳达埃米尔国','1492年前'],['马穆鲁克王朝','埃及+叙利亚'],['汉萨同盟城市','']]},
+cur:'1便士约1-1.5克银；弗罗林/杜卡特金币仍为国际通货，西班牙比索开始铸造',
+buy:'1先令约购30-50公斤小麦；牛12-20先令，羊1-3先令，猪2-4先令，剑1-3先令，普通马10-30先令，全身甲2-5英镑，粗呢短袍2-4先令；农业工人6-8便士/天，熟练工匠10-12便士/天'}
+};
+const CENTURY_KEYS=['c4','c5','c6','c7','c8','c9','c10','c11','c12','c13','c14','c15'];
+const socialClasses=['奴隶','农奴/维兰','自由农','城市平民','市民/工匠','行会师傅','教士','僧侣/修女','低阶贵族','高阶贵族','王室成员','化外之民'];
+const ethnicities=['拉丁人（罗马-拜占庭遗民）','希腊人（拜占庭）','法兰克人','西哥特人','东哥特人','伦巴第人','汪达尔人','勃艮第人（日耳曼）','盎格鲁-撒克逊人','诺曼人','诺斯人/维京人','丹麦人','挪威人','瑞典人','不列颠凯尔特人','爱尔兰人','威尔士人','苏格兰/皮克特人','布列塔尼人','罗斯人/瓦良格人','波兰人','波希米亚人','保加利亚人','塞尔维亚人','克罗地亚人','阿拉伯人','摩尔人','柏柏尔人','波斯人','土耳其/塞尔柱人','奥斯曼人','蒙古人/鞑靼人','马扎尔/匈牙利人','阿瓦尔人','匈人','犹太人（阿什肯纳兹）','犹太人（塞法迪）','吉普赛/罗姆人','巴斯克人','萨米人','库尔德人','亚美尼亚人','格鲁吉亚人','科普特人','埃塞俄比亚人'];
+const faiths=[
+{n:'罗马多神教残余',cs:[4,5,6]},{n:'尼西亚基督教（早期天主教）',cs:[4,5,6,7,8,9,10]},{n:'阿里乌斯派基督教',cs:[4,5,6,7]},{n:'涅斯托利派',cs:[5,6,7,8,9,10,11,12,13,14,15]},{n:'一性论派/东方正教',cs:[5,6,7,8,9,10,11,12,13,14,15]},{n:'罗马天主教',cs:[11,12,13,14,15]},{n:'东正教',cs:[11,12,13,14,15]},{n:'伊斯兰教（逊尼派）',cs:[7,8,9,10,11,12,13,14,15]},{n:'伊斯兰教（什叶派）',cs:[7,8,9,10,11,12,13,14,15]},{n:'苏非派',cs:[8,9,10,11,12,13,14,15]},{n:'犹太教',cs:[4,5,6,7,8,9,10,11,12,13,14,15]},{n:'凯拉派犹太教',cs:[8,9,10,11,12,13,14,15]},{n:'北欧多神教',cs:[4,5,6,7,8,9,10,11]},{n:'斯拉夫多神教',cs:[5,6,7,8,9,10,11]},{n:'凯尔特-德鲁伊残余',cs:[4,5,6,7,8,9,10]},{n:'波罗的海多神教',cs:[5,6,7,8,9,10,11,12,13]},{n:'摩尼教',cs:[4,5,6,7,8,9]},{n:'琐罗亚斯德教',cs:[4,5,6,7,8]},{n:'清洁派/阿比尔派',cs:[12,13]},{n:'韦尔多派',cs:[12,13,14,15]},{n:'罗拉德派/威克里夫派',cs:[14,15]},{n:'胡斯派',cs:[15]},{n:'鞭笞派',cs:[14]},{n:'秘密异端者',cs:[4,5,6,7,8,9,10,11,12,13,14,15]},{n:'无信仰/怀疑者',cs:[4,5,6,7,8,9,10,11,12,13,14,15]},{n:'民间迷信/多神残余',cs:[4,5,6,7,8,9,10,11,12,13,14,15]}
+];
+const jobData=[
+{n:'皇帝/女皇',c:'贵族',f:1},{n:'国王/女王',c:'贵族',f:1},{n:'公爵/女公爵',c:'贵族',f:1},{n:'侯爵',c:'贵族'},{n:'伯爵/女伯爵',c:'贵族',f:1},{n:'子爵',c:'贵族'},{n:'男爵',c:'贵族'},{n:'骑士（有封地）',c:'贵族'},{n:'无地骑士/游侠骑士',c:'贵族'},{n:'骑士侍从/扈从',c:'贵族'},{n:'贵族私生子',c:'贵族',f:1},{n:'贵族女性（夫人/女继承人）',c:'贵族',f:1},{n:'寡妇领主',c:'贵族',f:1},{n:'城堡主/城主',c:'贵族',f:1},{n:'乡绅',c:'贵族',cs:[10,11,12,13,14,15]},
+{n:'行省总督/执政官',c:'贵族',cs:[4,5]},{n:'罗马市长/城市长官',c:'贵族',cs:[4]},{n:'市议员（curialis）',c:'贵族',cs:[4,5]},
+{n:'重装步兵/长矛兵',c:'军事'},{n:'轻骑兵/斥候',c:'军事'},{n:'弓手（普通弓）',c:'军事'},{n:'弩手',c:'军事',cs:[11,12,13,14,15]},{n:'长弓手',c:'军事',cs:[13,14,15]},{n:'雇佣兵',c:'军事'},{n:'瑞士雇佣兵',c:'军事',cs:[15]},{n:'意大利雇佣兵队长/condottieri',c:'军事',cs:[13,14,15]},{n:'炮手/火器手',c:'军事',cs:[14,15]},{n:'工兵/攻城技师',c:'军事'},{n:'水手/桨手/水兵',c:'军事'},{n:'城堡守卫/城门卫兵',c:'军事'},{n:'城市民兵',c:'军事'},{n:'传令官/号手',c:'军事'},{n:'随军铁匠/军械师',c:'军事'},{n:'马夫/马倌',c:'军事'},{n:'逃兵',c:'军事'},{n:'罗马野战军（comitatenses）',c:'军事',cs:[4,5]},{n:'罗马边防军（limitanei）',c:'军事',cs:[4,5]},{n:'宫廷卫队（scholae）',c:'军事',cs:[4,5,6,7]},{n:'蛮族同盟兵（foederatus）',c:'军事',cs:[4,5]},
+{n:'圣殿骑士',c:'军事修会',cs:[12,13,14]},{n:'医院骑士/马耳他骑士',c:'军事修会',cs:[12,13,14,15]},{n:'条顿骑士',c:'军事修会',cs:[12,13,14,15]},{n:'圣地亚哥骑士',c:'军事修会',cs:[12,13,14,15]},{n:'卡拉特拉瓦骑士',c:'军事修会',cs:[12,13,14,15]},{n:'阿尔坎塔拉骑士',c:'军事修会',cs:[12,13,14,15]},{n:'宝剑/立窝尼亚骑士',c:'军事修会',cs:[13,14,15]},
+{n:'教皇',c:'教会'},{n:'宗主教（东正教）',c:'教会'},{n:'枢机主教',c:'教会'},{n:'大主教/主教',c:'教会'},{n:'教区神父',c:'教会'},{n:'助祭/副助祭',c:'教会'},{n:'教堂司事/敲钟人',c:'教会'},{n:'掘墓人',c:'教会'},{n:'唱诗班领唱/教堂乐师',c:'教会'},
+{n:'本笃会修士/修女',c:'修会',cs:[6,7,8,9,10,11,12,13,14,15],f:1},{n:'克吕尼派修士',c:'修会',cs:[10,11,12,13,14,15]},{n:'西多会修士/修女',c:'修会',cs:[12,13,14,15],f:1},{n:'加尔都西会修士',c:'修会',cs:[11,12,13,14,15]},{n:'方济各会托钵修士',c:'修会',cs:[13,14,15]},{n:'多明我会托钵修士',c:'修会',cs:[13,14,15]},{n:'加尔默罗会',c:'修会',cs:[13,14,15]},{n:'奥古斯丁会',c:'修会',cs:[13,14,15]},{n:'修道院院长/女修道院院长',c:'修会',f:1},{n:'隐修士/隐士',c:'修会'},{n:'柱顶修士',c:'修会',cs:[5,6]},{n:'修女',c:'修会',f:1},{n:'女隐者/anchoress',c:'修会',f:1},
+{n:'宗教裁判官',c:'宗教相关',cs:[13,14,15]},{n:'赎罪券贩子',c:'宗教相关',cs:[11,12,13,14,15]},{n:'朝圣者',c:'宗教相关',f:1},{n:'十字军战士',c:'宗教相关',cs:[11,12,13]},{n:'圣地朝圣者',c:'宗教相关',f:1},{n:'圣徒传记作者/教会抄写员',c:'宗教相关',f:1},{n:'神学教师',c:'宗教相关',cs:[12,13,14,15]},{n:'教会法学者',c:'宗教相关',cs:[12,13,14,15]},{n:'多神教祭司/占卜官',c:'宗教相关',cs:[4,5]},{n:'维斯塔贞女',c:'宗教相关',cs:[4],f:1},{n:'多神教哲学家',c:'宗教相关',cs:[4,5]},
+{n:'农奴/维兰',c:'农民乡村',f:1},{n:'自由农',c:'农民乡村',f:1},{n:'茅舍农/cottar',c:'农民乡村'},{n:'佃农/分成农',c:'农民乡村'},{n:'牧人/牧羊人',c:'农民乡村',f:1},{n:'猪倌',c:'农民乡村'},{n:'牛倌',c:'农民乡村'},{n:'鹅倌',c:'农民乡村',f:1},{n:'挤奶女工',c:'农民乡村',f:1},{n:'收割工/打谷工',c:'农民乡村'},{n:'庄园管家/庄头（reeve）',c:'农民乡村'},{n:'磨坊主',c:'农民乡村'},{n:'乡村面包师',c:'农民乡村',f:1},{n:'酿酒妇/乡村酒婆',c:'农民乡村',f:1},{n:'乡村铁匠',c:'农民乡村'},{n:'乡村木匠',c:'农民乡村'},{n:'车匠/车轮匠',c:'农民乡村'},{n:'养蜂人',c:'农民乡村'},{n:'渔夫（河湖/沿海）',c:'农民乡村'},{n:'林务官/猎场看守',c:'农民乡村'},{n:'烧炭人',c:'农民乡村'},{n:'采石工/矿工',c:'农民乡村'},{n:'制盐工',c:'农民乡村'},{n:'摆渡人/船夫',c:'农民乡村'},{n:'被释放农奴',c:'农民乡村'},{n:'流浪汉/游民',c:'农民乡村'},{n:'逃奴',c:'农民乡村'},
+{n:'织工（毛织/亚麻）',c:'纺织皮革',f:1},{n:'丝绸织工',c:'纺织皮革'},{n:'染工/漂洗工',c:'纺织皮革'},{n:'裁缝',c:'纺织皮革',f:1},{n:'皮匠/鞣皮工',c:'纺织皮革'},{n:'鞋匠/靴匠',c:'纺织皮革'},{n:'手套匠',c:'纺织皮革'},{n:'帽匠',c:'纺织皮革'},{n:'腰带匠',c:'纺织皮革'},{n:'皮货商/毛皮匠',c:'纺织皮革'},{n:'帆篷工',c:'纺织皮革'},
+{n:'铁匠/马蹄铁匠',c:'金属工匠'},{n:'锁匠',c:'金属工匠'},{n:'刀剑匠/盔甲匠',c:'金属工匠'},{n:'金匠/银匠/珠宝匠',c:'金属工匠'},{n:'铜匠/铸钟匠',c:'金属工匠'},{n:'锡匠/铅匠',c:'金属工匠'},{n:'马具匠/马刺匠',c:'金属工匠'},{n:'弓弩匠',c:'金属工匠'},{n:'枪炮匠',c:'金属工匠',cs:[14,15]},
+{n:'石匠/雕刻师',c:'建筑工匠'},{n:'木匠/细木工',c:'建筑工匠'},{n:'建筑师傅',c:'建筑工匠',cs:[12,13,14,15]},{n:'泥瓦匠/抹灰工',c:'建筑工匠'},{n:'瓦匠/屋顶工',c:'建筑工匠'},{n:'玻璃匠/彩色玻璃工',c:'建筑工匠',cs:[12,13,14,15]},{n:'桶匠（cooper）',c:'建筑工匠'},{n:'锯木匠',c:'建筑工匠'},{n:'造船匠',c:'建筑工匠'},
+{n:'面包师',c:'食品工匠',f:1},{n:'酿酒师/啤酒商',c:'食品工匠',f:1},{n:'屠夫',c:'食品工匠'},{n:'鱼贩',c:'食品工匠',f:1},{n:'家禽贩',c:'食品工匠',f:1},{n:'奶酪商/黄油商',c:'食品工匠',f:1},{n:'香料商',c:'食品工匠'},{n:'糖果商',c:'食品工匠',cs:[12,13,14,15]},{n:'厨师',c:'食品工匠',f:1},{n:'盐商',c:'食品工匠'},
+{n:'陶工',c:'其他工匠'},{n:'蜡烛匠',c:'其他工匠'},{n:'肥皂匠',c:'其他工匠'},{n:'制绳工',c:'其他工匠'},{n:'文具商/羊皮纸匠',c:'其他工匠'},{n:'抄写员/文书',c:'其他工匠',f:1},{n:'书商/插图画家',c:'其他工匠',cs:[12,13,14,15],f:1},{n:'印刷工/排字工',c:'其他工匠',cs:[15]},{n:'制弓匠/箭匠',c:'其他工匠'},{n:'画家/壁画家/祭坛画家',c:'其他工匠',cs:[13,14,15]},{n:'雕塑家/木雕师',c:'其他工匠'},{n:'绣工/挂毯织工',c:'其他工匠',f:1},{n:'乐器匠',c:'其他工匠'},{n:'制革工/鞍匠',c:'其他工匠'},{n:'假发匠',c:'其他工匠',f:1},{n:'理发师（兼外科医生）',c:'其他工匠'},
+{n:'行商/小贩/货郎',c:'商金',f:1},{n:'大商人/批发商',c:'商金'},{n:'香料商人',c:'商金'},{n:'丝绸商人',c:'商金'},{n:'呢绒商人',c:'商金'},{n:'葡萄酒商人',c:'商金'},{n:'木材商人',c:'商金'},{n:'谷物商人',c:'商金'},{n:'盐商',c:'商金'},{n:'铁商',c:'商金'},{n:'珠宝商',c:'商金'},{n:'奴隶商人',c:'商金'},{n:'汉萨商人',c:'商金',cs:[13,14,15]},{n:'意大利商人',c:'商金',cs:[11,12,13,14,15]},{n:'香槟集市商人',c:'商金',cs:[12,13]},{n:'商队向导/翻译',c:'商金'},{n:'钱商/兑换商',c:'商金'},{n:'银行家',c:'商金',cs:[12,13,14,15]},{n:'放债人/高利贷者',c:'商金'},{n:'当铺老板',c:'商金'},{n:'包税人/收税人',c:'商金'},{n:'司库/财务官',c:'商金'},{n:'会计/记账员',c:'商金'},{n:'公证人',c:'商金'},{n:'保险商',c:'商金',cs:[14,15]},{n:'汇票经纪人',c:'商金',cs:[13,14,15]},
+{n:'酒馆老板/老板娘',c:'餐饮住宿',f:1},{n:'旅馆主',c:'餐饮住宿',f:1},{n:'帮厨/洗碗工',c:'餐饮住宿',f:1},{n:'酒保/侍者',c:'餐饮住宿',f:1},
+{n:'大学毕业医生',c:'医疗',cs:[12,13,14,15]},{n:'外科医生',c:'医疗'},{n:'药剂师/香料兼药商',c:'医疗'},{n:'助产士',c:'医疗',f:1},{n:'江湖郎中/游医',c:'医疗'},{n:'拔牙匠',c:'医疗'},{n:'麻风病院看守',c:'医疗'},{n:'澡堂老板/搓澡工',c:'医疗',f:1},
+{n:'游吟诗人/特罗巴多',c:'娱乐',cs:[12,13,14,15]},{n:'女游吟诗人/trobairitz',c:'娱乐',cs:[12,13],f:1},{n:'说书人/江湖艺人',c:'娱乐',f:1},{n:'小丑/弄臣',c:'娱乐'},{n:'杂技演员/魔术师',c:'娱乐',f:1},{n:'乐师',c:'娱乐',f:1},{n:'演员/宗教剧演员',c:'娱乐'},{n:'木偶戏艺人',c:'娱乐'},{n:'驯兽师/熊舞者',c:'娱乐'},{n:'妓女',c:'娱乐',f:1},{n:'鸨母/皮条客',c:'娱乐',f:1},{n:'赌徒/老千',c:'娱乐'},{n:'斗鸡/斗熊组织者',c:'娱乐'},{n:'骑士比武传令官',c:'娱乐',cs:[12,13,14,15]},{n:'纹章官',c:'娱乐',cs:[12,13,14,15]},{n:'角斗士',c:'娱乐',cs:[4,5]},{n:'战车赛手',c:'娱乐',cs:[4,5]},{n:'默剧/哑剧演员',c:'娱乐',cs:[4,5]},
+{n:'车夫/马车夫',c:'交通'},{n:'赶骡人/驮夫',c:'交通'},{n:'水手/船长/领航员',c:'交通'},{n:'码头工人/搬运工',c:'交通'},{n:'向导/领路人',c:'交通'},{n:'信使/邮差',c:'交通'},{n:'驿站主',c:'交通',f:1},
+{n:'洗衣妇',c:'其他服务',f:1},{n:'女仆/男仆/家仆',c:'其他服务',f:1},{n:'管家',c:'其他服务',f:1},{n:'侍从/跟班',c:'其他服务'},{n:'门房/看门人',c:'其他服务'},{n:'刽子手/行刑人',c:'其他服务'},{n:'狱卒',c:'其他服务'},{n:'守夜人/更夫',c:'其他服务'},{n:'清道夫/掏粪工',c:'其他服务'},{n:'公告传报员',c:'其他服务'},{n:'接生婆',c:'其他服务',f:1},{n:'奶妈/乳母',c:'其他服务',f:1},{n:'保姆',c:'其他服务',f:1},{n:'宫廷宦官',c:'其他服务',cs:[4,5,6,7,8,9,10]},{n:'浴场管理员',c:'其他服务',cs:[4,5,6]},{n:'驿站管理员',c:'其他服务',cs:[4,5,6,7]},
+{n:'大学生/学者',c:'知识专业',cs:[12,13,14,15]},{n:'法学博士/律师',c:'知识专业',cs:[12,13,14,15]},{n:'医学博士',c:'知识专业',cs:[12,13,14,15]},{n:'神学硕士',c:'知识专业',cs:[12,13,14,15]},{n:'文法教师/家庭教师',c:'知识专业',f:1},{n:'档案管理员/图书管理员',c:'知识专业'},{n:'天文学家/占星师',c:'知识专业'},{n:'炼金术士',c:'知识专业'},{n:'翻译家',c:'知识专业',cs:[12,13,14,15]},{n:'人文主义者',c:'知识专业',cs:[14,15]},{n:'诗人/作家',c:'知识专业',f:1},{n:'编年史作者',c:'知识专业'},{n:'建筑师/工程师',c:'知识专业',cs:[12,13,14,15]},{n:'制图师/地图绘制者',c:'知识专业'},{n:'测量员',c:'知识专业'},{n:'航海家/领航员',c:'知识专业'},{n:'钟表匠',c:'知识专业',cs:[13,14,15]},{n:'采矿工程师',c:'知识专业',cs:[13,14,15]},{n:'水利工程师',c:'知识专业'},{n:'纹章官/谱系学家',c:'知识专业'},{n:'大学校长/学监',c:'知识专业',cs:[12,13,14,15]},{n:'语法学家/修辞学家',c:'知识专业',cs:[4,5,6]},{n:'罗马法学家',c:'知识专业',cs:[4,5,6]},{n:'公共医生（archiatri）',c:'知识专业',cs:[4,5,6]},
+{n:'盗贼/扒手/入室窃贼',c:'边缘',f:1},{n:'路匪/绿林好汉/强盗骑士',c:'边缘'},{n:'海盗/私掠者',c:'边缘'},{n:'走私犯',c:'边缘'},{n:'伪造货币者/伪造文书者',c:'边缘'},{n:'骗子',c:'边缘',f:1},{n:'刺客/杀手',c:'边缘'},{n:'间谍/密探',c:'边缘',f:1},{n:'告密者',c:'边缘'},{n:'职业乞丐/乞丐帮',c:'边缘',f:1},{n:'逃犯/被通缉者',c:'边缘'},{n:'被绝罚者',c:'边缘'},{n:'被逐出教会者',c:'边缘'},{n:'巫师/术士/草药婆',c:'边缘',f:1},{n:'驱魔者',c:'边缘'},{n:'吉普赛人/罗姆人',c:'边缘',cs:[14,15],f:1},{n:'犹太流浪者',c:'边缘'},{n:'叛教者',c:'边缘'},{n:'流亡者/被放逐者',c:'边缘',f:1},{n:'奴隶（家奴）',c:'边缘',f:1},{n:'桨帆船奴隶',c:'边缘'},{n:'矿奴',c:'边缘'},{n:'被释放奴隶/自由民',c:'边缘',f:1},{n:'私生子',c:'边缘',f:1},{n:'孤儿/弃婴',c:'边缘',f:1},{n:'摩里斯科人',c:'边缘',cs:[15],f:1},{n:'被释奴/解放奴',c:'边缘',cs:[4,5],f:1},{n:'逃亡隶农',c:'边缘',cs:[4,5]},
+{n:'清洁派信徒',c:'异端',cs:[12,13]},{n:'韦尔多派',c:'异端',cs:[12,13,14,15]},{n:'罗拉德派',c:'异端',cs:[14,15]},{n:'胡斯派',c:'异端',cs:[15]},{n:'鞭笞派',c:'异端',cs:[14]},{n:'秘密异教徒',c:'异端'}
+];
+const jobCatOrder=[{k:'贵族',n:'贵族'},{k:'军事',n:'军事人员'},{k:'军事修会',n:'军事修会'},{k:'教会',n:'教会神职'},{k:'修会',n:'修会'},{k:'宗教相关',n:'宗教相关'},{k:'农民乡村',n:'农民与乡村'},{k:'纺织皮革',n:'城市工匠 · 纺织皮革'},{k:'金属工匠',n:'城市工匠 · 金属'},{k:'建筑工匠',n:'城市工匠 · 建筑'},{k:'食品工匠',n:'城市工匠 · 食品'},{k:'其他工匠',n:'城市工匠 · 其他'},{k:'商金',n:'商人与金融'},{k:'餐饮住宿',n:'餐饮住宿'},{k:'医疗',n:'医疗'},{k:'娱乐',n:'服务与娱乐'},{k:'交通',n:'交通'},{k:'其他服务',n:'其他服务'},{k:'知识专业',n:'知识与专业'},{k:'边缘',n:'边缘身份'},{k:'异端',n:'异端 / 非主流信仰'}];
+const abilityData=[
+{cat:'战斗类',items:[{n:'剑术',d:'单手剑、双手剑、弯刀'},{n:'长弓',d:'远程狩猎与作战'},{n:'弩',d:'11世纪后普及',cs:[11,12,13,14,15]},{n:'马上枪术',d:'骑士对冲'},{n:'骑术',d:'骑乘作战与远行'},{n:'匕首/短刀',d:'近身与暗杀'},{n:'徒手格斗',d:'摔跤、拳击'},{n:'盾用',d:'圆盾、鸢盾、大盾'},{n:'棍棒/农具',d:'穷人的武器'},{n:'投石',d:'含投石索'},{n:'长矛/长戟',d:'步兵主武器'},{n:'火器',d:'手炮、火绳枪',cs:[14,15]}]},
+{cat:'手艺类',items:[{n:'锻造',d:'铁器、马蹄铁、农具'},{n:'木工',d:'家具、房梁、车轮'},{n:'石工',d:'砌墙、雕刻'},{n:'缝纫',d:'衣物、缝合'},{n:'皮革',d:'鞣制、制品'},{n:'酿酒',d:'啤酒、麦酒、葡萄酒'},{n:'烹饪',d:'调味、腌制、烘焙'},{n:'制陶',d:'陶器、瓦'},{n:'织布',d:'羊毛、亚麻、丝'},{n:'鞣皮',d:'制革'},{n:'制蜡',d:'蜂蜡蜡烛'},{n:'金工',d:'金银细作、珠宝'}]},
+{cat:'医药类',items:[{n:'草药',d:'识别与配伍'},{n:'接生',d:'助产'},{n:'外科放血',d:'放血治疗'},{n:'接骨',d:'外伤处理'},{n:'瘟疫护理',d:'照顾病患，风险极高'},{n:'兽医',d:'马、牛、猎犬'},{n:'解毒',d:'识毒与解毒'},{n:'占星医学',d:'按星象诊治'}]},
+{cat:'学识类',items:[{n:'读写（母语）',d:'能读能写自己的方言'},{n:'拉丁语',d:'教会与学术通用语'},{n:'希腊语',d:'拜占庭日常与古学术'},{n:'阿拉伯语',d:'伊斯兰世界通用'},{n:'希伯来语',d:'犹太宗教文本'},{n:'算术',d:'加减乘除、商业算账'},{n:'代数',d:'12世纪后从阿拉伯传入',cs:[12,13,14,15]},{n:'几何',d:'建筑与测量'},{n:'法律',d:'罗马法、教会法、习惯法'},{n:'神学',d:'教义、圣经、教父著作'},{n:'天文',d:'历法、星象'},{n:'占星术',d:'星象预测'},{n:'炼金术',d:'物质变形、寻找贤者之石'},{n:'地理',d:'地图、旅行知识'},{n:'历史/编年',d:'王朝、家谱'}]},
+{cat:'社交类',items:[{n:'谈判',d:'讨价还价、外交'},{n:'说谎',d:'欺瞒与伪装'},{n:'宫廷礼仪',d:'贵族圈层通行证'},{n:'教会礼仪',d:'仪式与规程'},{n:'演讲',d:'布道、鼓动、辩论'},{n:'领导',d:'带队、指挥'},{n:'恐吓',d:'威慑他人'},{n:'调情/献媚',d:'宫廷爱情或市井魅惑'},{n:'讲故事',d:'酒馆和篝火边的软实力'}]},
+{cat:'江湖类',items:[{n:'偷窃',d:'扒窃、入室'},{n:'开锁',d:'手工锁具、简单机关'},{n:'伪造文书',d:'教会赦免状、通行证'},{n:'伪造货币',d:'铸假币'},{n:'赌博',d:'骰子、纸牌（14世纪后）'},{n:'销赃',d:'黑市渠道'},{n:'暗杀',d:'刺杀技艺'},{n:'乞讨',d:'装惨、卖惨、组织'},{n:'盯梢/跟踪',d:'不被察觉'},{n:'黑话/暗语',d:'各行黑话'}]},
+{cat:'艺术类',items:[{n:'诗歌',d:'吟游诗、颂歌、抒情'},{n:'乐器',d:'鲁特琴、竖琴、笛、鼓'},{n:'演唱',d:'圣歌、俗歌'},{n:'抄写',d:'手抄本制作'},{n:'插图/泥金',d:'手抄本插图'},{n:'绘画',d:'壁画、板画'},{n:'雕塑',d:'木雕、石雕'},{n:'演戏',d:'宗教剧、闹剧'},{n:'刺绣',d:'挂毯、圣物覆盖'},{n:'舞蹈',d:'宫廷舞、民间舞'}]},
+{cat:'生存与野外',items:[{n:'狩猎',d:'陷阱、追踪、宰杀'},{n:'钓鱼/捕鱼',d:'河、湖、海'},{n:'游泳',d:'水中行动'},{n:'攀爬',d:'城墙、山崖'},{n:'导航',d:'凭星象/太阳/地形'},{n:'露营',d:'野外过夜、生火'},{n:'追踪',d:'足迹、痕迹'},{n:'放牧',d:'放羊、放牛、放猪'}]}
+];
+const talentPool={
+mythic:[
+{name:'圣痕',desc:'手足浮现类似耶稣钉痕的伤口，会渗血',effect:'可能被视为圣人，也可能被指为异端。所到之处引起狂热或恐惧，永远无法过普通生活'},
+{name:'王室私生血',desc:'你是某位国王/皇帝在低微女子处所生的私生子/女',effect:'可能被认亲提拔，也可能被视为威胁清除。终生活在真相边缘'},
+{name:'梦境入侵',desc:'入睡后可侵入任意一个你见过之人的梦境，每晚最多三次',effect:'在梦中你可以对对方做任何事，为所欲为。询问他也会如实回答你的任何问题。醒来后他只觉做了场怪梦，记不清细节，更不会知道是你'},
+{name:'篡改记忆',desc:'触碰对方额头可修改其一段记忆，效果维持一周',effect:'可替换、删除或植入一段不超过一天的记忆，对方深信不疑。一周后真实记忆慢慢浮回，但他不会察觉曾被改动，只当自己记错了'},
+{name:'修改身份',desc:'指定一人，让他在认知中将你认作另一个身份——丈夫、上司、老友、债主、神父，维持一天',effect:'对方会自然而然地接受这个身份，跟你说话、做事、待你都像真的一样。维持一天。效果消退后他会一阵恍惚，觉得哪里不对，但不会立刻疑心到你。对同一个人再次使用需间隔三天'},
+{name:'预言之子',desc:'某个古老预言指认你为关键人物',effect:'教会、宫廷、异教徒可能都在找你。你甚至不知道预言的全文'},
+{name:'能听见亡者',desc:'能听到近期死去之人的低语',effect:'知道秘密与仇怨，但也永远无法安睡。'},
+{name:'不老',desc:'过了25岁后容貌几乎不再变化',effect:'会在同一地方待不长——邻居会开始害怕。必须不断迁徙、伪造身份'},
+{name:'恶魔契约（民间流传）',desc:'祖辈中有人与魔鬼订过约，你继承了契约',effect:'某些愿望会实现，但每次都要付出代价——你自己都不知道是什么'},
+{name:'第四军团·第四天灾',desc:'召唤第四天灾——一群把这世道当网游打的外乡人',effect:'约三百人凭空冒出来，穿着打扮五花八门，有的像正经兵有的花里胡哨，嘴里说着你听不懂的话："拉仇恨""这波速通""卡个bug""奶住T""我先存档"。他们不排兵不布阵，什么都敢试——半夜把敌营帅旗偷了插茅房上、在水源里下泻药、拿奇怪法子把城墙弄塌、把敌将骗出来单挑然后一群人围殴。把战争当游戏打，不按常理不讲武德，但每次都能成。会受伤会真死，但士气离谱，死到临头还在笑"这波不亏"。日落时一哄而散，下次招来的又不是同一批。七天可召一次。你永远不知道他们下一秒整什么活——敌人更不知道'},
+{name:'星之圣剑',desc:'为击败毁灭星辰之外敌而铸造的黄金圣剑，阶级EX。剑身设十三拘束，由骑士王本人与十二位圆桌骑士各立一道封印，每道对应一个解放条件。真名解放时须满足半数以上即七条拘束方可完全发挥，否则按已解封印数量部分解放',effect:'平时即无坚不摧的黄金圣剑。解放时喊出"十三拘束解放，圆桌决议开始"，满足条件的封印逐条崩解，每解一道威力倍增。已知条件包括：此为拯救世界之战、对手比自己强、对手为邪恶、不违人道、非为私欲、对象非精灵等。完全解放（七条以上）放出创世级黄金光柱，可轰碎星辰级外敌，威力覆盖千人；部分解放（三至六条）已可平推要塞。解放后全身脱力，一天最多一次'},
+{name:'吾主在此',desc:'圣女贞德的圣旗，阶级A-结界宝具。将EX级对魔力转化为含物理攻击在内的绝对防御力，战场上挥舞圣旗近乎无伤战斗至最后的具现',effect:'高举圣旗，以你为中心半径十丈展开金色结界，物理攻击、魔法、诅咒、宝具级攻击一切皆可格挡，近乎绝对防御。但举旗期间你不能移动、不能反击，只能站着扛。旗被打落则防御崩溃。一天可举三次，每次最多撑一炷香'},
+{name:'红莲之圣女',desc:'以"主啊，此身将交由您的处置"发动的概念结晶武装，阶级C→EX。固有结界亚种，将贞德火刑之心象风景结晶为炎剑',effect:'手中现出燃烧的圣剑，一挥之下红莲之炎席卷数十丈，一切邪恶、不死、诅咒、魔性之物在火中灰飞烟灭，威力随信仰之坚定度暴涨至EX级。但这是燃尽自身的一击——用后你重伤濒死，若无人当场救治则必死。一生只能用一次'},
+{name:'隐身',desc:'你整个人凭空消失，真正的透明无形',effect:'连人带衣物随身物品一起消失，别人看不见、听不见、摸不着你的位置——你碰东西东西会动，但看不到你。持续期间你可以自由行动、开锁、拿东西、甚至站在别人面前。每次可维持约一刻钟，每天三次'},
+{name:'闪现',desc:'心念一动便出现在另一处，穿墙过壁如入无人之境',effect:'最远百步之内，无论中间隔着墙、人、铁门还是河水，你一个念头就到。不需要看见目的地，只要你知道那个位置存在。每天可闪现五次，连续闪现间隔不过几息。闪过去时无声无息，不带起一丝风'},
+{name: '乖离剑·EA', desc: '吉尔伽美什所持EX级对界神造兵装，剑身无传统剑刃，为三段对应天、地、冥界的圆柱结构逆向回转构成，是开天辟地时代遗存的创世之剑，无法被任何投影、复制类能力复刻，可从王之财宝中随意念瞬间召出', effect: '真名解放「天地乖离开辟之星」时，超高速回转压缩风压形成时空断层，释放撕裂世界的创世级冲击，并非普通斩击而是直接粉碎空间结构，可直接击溃固有结界，最大出力可达地壳变动级威力，最大覆盖捕捉千人；真名解放需消耗巨量魔力，全力解放后10分钟内无法再次催动，攻击无法被常规物理/魔力防御格挡，可杀伤神性、不死性单位'},
+{name:'誓约胜利之剑',desc:'阿尔托莉雅所持最大宝具，等级A++，对城宝具，范围1~99，最大捕捉1000人。星造神造兵装，立于圣剑顶点，与魔剑Gram并称。乃人类"愿其如此"之想念于星球内精炼而成的"最强幻想"。石中剑失落后由湖中仙女授予，平时以风王结界隐其真姿。剑鞘阿瓦隆才是最强之物，然已永远遗失',effect:'真名解放Excalibur，将魔力化为光，经收束·加速增大运动量，放出金色光柱。正面命中可夷平城堡，余波烧蚀地面，最大杀伤千人，曾一击蒸发河面。蓄力三息，放完魔力大耗。有龙心者可连发但间隔数刻，凡人一日约一发'},
+{name:'红龙之血',desc:'阿尔托莉雅·潘德拉贡生来持有龙之因子，心脏即龙的魔术炉心。Pendragon之名本就是红龙之意，是尤瑟王与梅林为对抗白龙伏提庚而赋予后继者的红龙之血',effect:'被动。你不需要魔术回路，只要血液循环、吸一口气，就能自动生成魔力，是与一般魔术师完全不同次元的"魔术炉心"，魔力量远超常人。附带对魔力A：魔法阵、瞬间契约大魔术直接无效化，当代最高位魔术师也难用魔术伤你。可使用魔力放出A：将魔力灌入武器或四肢瞬间爆发，速度力量暴涨，一剑带冲击波。弱点是龙属性——遇到有杀龙传说的武器、英雄或杀龙魔术，受到的伤害加倍'},
+{name:'炼金术大全',desc:'等价交换原则下的物质炼成秘术，涵盖金属变形、药剂合成、物质理解与贤者之石研究',effect:'双手合十拍向物体即可炼成，无生命之物皆可重组：铁变刀、石变墙、土变弹、破损修复。质量守恒，不能凭空造物，需有对应材料。画炼成阵可大规模/远距离炼成。附加能力：点石成金（拳头大一块，日三次，七日后复原）、万灵药炼制（治百病但材料稀有耗时数日）、物质之眼（看出物质构成、弱点、毒性）。禁忌：不能炼活人，不能无中生有——除非炼成贤者之石，但贤者之石需活人灵魂为材料，炼成者必堕魔道'},
+{name:'魔术大师',desc:'任何戏法、幻术、逃脱术在你手中都能完美施展，从无破绽',effect:'吞火、变鸽、纸牌、凭空取物、大锯活人、密室逃脱、蒙眼读心……你不需要道具准备，随手就能演得鬼神莫测。观众看不出任何机关破绽，只会真心相信你在施法。靠这个在宫廷混赏钱、在集市镇住愚民、在危急时刻唬住强盗都管用。但终究是表演——你变不出真金白银，也不能真把人变没，只是让人以为他们看到了'},
+{name:'幸运女神的眷顾',desc:'运气好到离谱，且是一直好',effect:'被动生效，无需催动。逢赌必赢，抽签必中，走路上能捡钱，被人追杀转角就撞上巡逻队，掉悬崖挂树枝上，毒酒到你手里是酸的，砍你的刀总差半寸，冷箭擦着耳朵飞过去。不是不伤不死，是每次都差那么一点。但好运只罩你不罩旁人——你活着，身边人该挨刀还是挨刀'},
+{name:'算命大师',desc:'握住对方的手，可见其一整天后的命运',effect:'凝神看进对方眼睛，你眼前会浮现他二十四小时后的画面——是生是死、人在哪、和谁在一起、正在做什么。画面无声但清晰，像看一幕戏。看到的事基本会发生，但你若插手去改，未来也会跟着变。同一个人一周只能算一次，你自己的命算不了'},
+{name:'瘦长鬼影',desc:'可化作那个无面的高瘦黑影',effect:'身形暴涨至丈余，一身不合时宜的漆黑西装裹着枯枝般的躯干，面白无五官，背后伸出数条漆黑触手。你能在阴影间瞬间移动，所过之处灯火摇曳、人畜不安，直视你者头痛欲裂、记忆错乱、心生无名恐惧。触手可缠可刺可绞，力贯金石。此形态下不能言语，且惧强光——火把、圣光、烈日下维持不住，会被强行逼回原形。在这中世纪的世界里，你这身打扮本身就够瘆人了'},
+{name:'狼人',desc:'入夜后可化身为巨狼',effect:'太阳落山即能变，力大无穷、奔行如飞，嗅听觉百倍于常人，骨折筋断一夜便愈，皮毛刀箭难入。但变身后兽性炽盛，怒极时难辨敌我，天亮前自动变回人形，浑身赤裸且精疲力竭。白天变不了'},
+{name:'无存在感',desc:'你就在那里，但所有人都会下意识忽略你，仿佛你不存在',effect:'不是隐身——别人目光扫过你会自动移开，你说话像没听见，你从人前走过没人记得。你拿人钱袋他以为自己丢了，你推他一把他以为被风吹的或旁边人撞的，你当面揍他一拳他懵在原地不知道谁打的。效果持续期间你可以为所欲为，事后没人能想起你在场。每次约一刻钟，每天三次'},
+{name:'御物',desc:'以念力驭使万物，举重若轻',effect:'千斤巨石随手托起，数支箭在空中转向倒射回去，门上铁锁应声崩飞，十步之内的兵刃可凭空夺下。同时可驭多件器物，心神一动便如臂使指。人也能掀飞，但活物会挣扎，比死物费力得多。每天三次，用完了精神疲惫，睡一觉即恢复'},
+{name:'倒步',desc:'每天一次，可让时间倒流回十息之前',effect:'只有你记得这十息发生了什么，其他人都回到十息前的状态，你可以做出不同的选择'},
+{name:'皇位继承权（隐藏）',desc:'你的血脉能追溯到某个绝嗣王朝',effect:'如果被发现，可能改写历史，也可能立即被杀。证据在你不知道的地方'},
+{name:'圣物持有者',desc:'家中传下一件真圣物——真十字架碎片、圣人骸骨、圣血滴',effect:'教会、贵族、盗贼都想要它。它有时会显灵，有时只是骨头'}
+],
+legendary:[
+{name:'过目不忘',desc:'看过的字、听过的话都能记住',effect:'适合当抄写员、律师、间谍。但记住的东西无法遗忘，包括痛苦'},
+{name:'金嗓子',desc:'声音天生动人',effect:'唱圣歌能让主教落泪，唱情歌能让贵妇失神。但也容易被利用'},
+{name:'天生领袖气场',desc:'说话时人愿意听',effect:'能在酒馆里让斗殴停下，也能在战场上让士兵不逃。会被上位者忌惮'},
+{name:'预知梦',desc:'偶尔梦见未发生之事',effect:'梦境模糊，往往在事后才明白。你不知道哪些梦是真'},
+{name:'无痛体质',desc:'感受不到疼痛',effect:'战斗中不退缩，受伤时不觉察。所以你也不知道自己伤得有多重'},
+{name:'双语原生',desc:'从小同时掌握两种语言',effect:'能在两个文化圈自如穿梭，但双方都会怀疑你的忠诚'},
+{name:'通灵体质',desc:'能感知一些他人感知不到的东西',effect:'教会认为是魔鬼诱惑，民间认为是神授。你自己也不确定'},
+{name:'铁石心肠',desc:'情感反应远淡于常人',effect:'适合当刽子手、法官、军人。但也难以获得真正的亲密关系'},
+{name:'铁人体质',desc:'几乎不生病',effect:'瘟疫年份是奇迹，但周围人会因此怀疑你与恶魔有约'},
+{name:'手心热',desc:'触碰他人时手心会传导异样的温度',effect:'被认为有治愈能力，即使实际疗效有限。信仰的力量本身也是力量'},
+{name:'命大',desc:'多次死里逃生',effect:'开始相信自己命不该绝，因而更胆大。总有一次会赌错'},
+{name:'巨力',desc:'力量远超常人',effect:'能徒手拗弯剑柄。但食量也大得让家人破产'},
+{name:'鹰眼',desc:'远视能力惊人',effect:'能在暗夜看清远处的人。也因此看到别人不愿被人看到的事'},
+{name:'狼耳',desc:'听力远超常人',effect:'能听到隔房的私语，但嘈杂环境里可能被声音淹没崩溃'},
+{name:'知痛不惧',desc:'受伤时反而更冷静',effect:'战斗中越受伤越可怕。但战后可能崩溃'}
+],
+epic:[
+{name:'战场直觉',desc:'战斗中能本能预判',effect:'越冷静越准。慌乱时反而不灵'},
+{name:'钢铁意志',desc:'精神抗性极高',effect:'刑讯逼供撬不开你的嘴，说服也很难打动你'},
+{name:'快速学习',desc:'看一遍能学到七八分',effect:'但也容易半瓶水响叮当，很少有事物你愿意钻研十年'},
+{name:'铁胃',desc:'吃腐食不生病',effect:'饥荒和瘟疫年份救命。但味觉也迟钝'},
+{name:'极端幸运',desc:'关键时刻会有巧合',effect:'不能依赖，但也总能过关。别人开始怀疑你使巫术'},
+{name:'双手灵巧',desc:'手工极巧',effect:'适合精细工作。左右手同样灵活'},
+{name:'抗毒',desc:'对毒物耐受度高',effect:'能喝下让人中毒的东西。但仍会难受几天'},
+{name:'恢复力强',desc:'伤口愈合快',effect:'能在旁人瞠目结舌中康复。但骨伤仍然按周计'},
+{name:'敏锐五感',desc:'感官整体优于常人',effect:'能察觉别人错过的细节。也容易被强刺激弄崩溃'},
+{name:'抗酒',desc:'几乎喝不醉',effect:'谈判时永远清醒。但你也失去了醉后的解脱'},
+{name:'记忆力好',desc:'过目不忘弱化版',effect:'脸、名字、路线记得很清。三十年前的旧账也一样'},
+{name:'天生威压',desc:'弱者见你会不自觉退缩',effect:'适合当军官、执法者。但也难以低调行事'},
+{name:'嗜血本能',desc:'鲜血的气味让你亢奋',effect:'战斗中越战越勇。战后你需要一个人躲很久'},
+{name:'回声定位',desc:'闭眼也能感知周围',effect:'黑夜或矿井里如鱼得水。但对突然的静默极不适'},
+{name:'黄金身材/绝色',desc:'外貌远超同侪',effect:'很多门为你打开，也有很多刀等着你。旁人很难只把你当作人'},
+{name:'气候适应',desc:'极端天气对你影响小',effect:'远行、行军、渡海都能坚持'}
+],
+rare:[
+{name:'夜行者',desc:'夜晚行动更敏捷',effect:'夜间视力、听力、反应速度提升'},
+{name:'语言天赋',desc:'快速学习语言',effect:'接触新语言后短时间内掌握基础交流'},
+{name:'铁胃（轻度）',desc:'消化系统强大',effect:'可食用腐败食物不生病，对食物中毒素有抵抗'},
+{name:'方向感',desc:'永远不会迷路',effect:'天生方向感，可凭直觉在陌生地方找到正确道路'},
+{name:'快速恢复',desc:'体力恢复速度快',effect:'休息时恢复效率高于常人，伤口愈合略快'},
+{name:'魔法感知（民间意义）',desc:'能感觉到"不对劲"的地方',effect:'其实是敏锐的直觉，但你未必分得清'},
+{name:'社交天赋',desc:'善于交际',effect:'更容易获得他人好感，谈判时占据优势'},
+{name:'工匠之手',desc:'手工技艺精湛',effect:'制作物品时质量更高，修复物品更容易'},
+{name:'动物直觉',desc:'能理解动物情绪',effect:'可大致判断动物意图和情绪状态'},
+{name:'强健体魄',desc:'身体素质优于常人',effect:'耐力、力量略高于同龄同种族平均水平'},
+{name:'轻功',desc:'脚步极轻',effect:'走路几乎不发出声音，在雪地上留下的脚印也很浅'},
+{name:'酒中真言',desc:'喝酒后判断力不降反升',effect:'微醺状态下直觉更敏锐，但完全清醒时反而犹豫不决'},
+{name:'气候适应（轻度）',desc:'身体快速适应极端气候',effect:'在极寒极热环境中比常人更舒适，适应期极短'},
+{name:'左撇子',desc:'惯用左手',effect:'与大多数右手习惯的对手交锋时有微弱的角度优势'},
+{name:'嗓门大',desc:'声音能传很远',effect:'适合当传令官、公告员、船工头'},
+{name:'长得不显眼',desc:'常人看过就忘',effect:'适合当密探、扒手。但你也很难被记住任何好事'}
+],
+common:[
+{name:'早起者',desc:'习惯天亮前起',effect:'清晨精神状态更好，适合晨间行动'},
+{name:'夜猫子',desc:'习惯熬夜',effect:'深夜精神状态更好，适合夜间行动'},
+{name:'美食家',desc:'对食物敏感',effect:'能品尝出食物细微差别，也能察觉异常'},
+{name:'酒量好',desc:'不易醉酒',effect:'可以喝更多酒保持清醒'},
+{name:'歌喉好',desc:'嗓音悦耳',effect:'唱歌或演讲时更有感染力'},
+{name:'记忆力好',desc:'记忆力略好',effect:'更容易记住面孔、道路和文字'},
+{name:'手巧',desc:'手指灵活',effect:'适合精细工作如开锁、制作小物件'},
+{name:'耐寒',desc:'不怕冷',effect:'寒冷环境下更舒适，不易冻伤'},
+{name:'耐热',desc:'不怕热',effect:'炎热环境下更舒适，不易中暑'},
+{name:'好奇心',desc:'对新事物充满兴趣',effect:'更容易发现隐藏细节和线索'},
+{name:'浅眠',desc:'睡眠很浅',effect:'容易被惊醒，适合值夜但不容易睡足'},
+{name:'左撇子',desc:'惯用左手',effect:'略微的战场优势'},
+{name:'口哨',desc:'能吹出复杂的口哨旋律',effect:'可用于远距离暗号联络，某些动物会被吸引'},
+{name:'讨人喜欢',desc:'第一面就容易被接纳',effect:'但也仅止于第一面'},
+{name:'眼神好',desc:'远近视力都不错',effect:'适合当弓手、瞭望、抄写员'},
+{name:'声音低沉',desc:'嗓音有分量',effect:'说话有人听'},
+{name:'长得像亲戚',desc:'和某位知名人物有几分相似',effect:'时常被误认，好坏难说'},
+{name:'一双好脚',desc:'能走很远的路',effect:'适合朝圣、行商、当信使'},
+{name:'好牙口',desc:'牙齿完好',effect:'能啃硬面包，笑起来不难看'},
+{name:'好脾气',desc:'不易发火',effect:'很少树敌，也很少被人当回事'}
+]};
+document.getElementById('opening').addEventListener('click',function(){this.classList.add('open');setTimeout(()=>{this.classList.add('fade-out');setTimeout(()=>{this.style.display='none';document.getElementById('main').classList.add('active');},1000);},3000);});
+document.querySelectorAll('.tab-btn').forEach(b=>{b.addEventListener('click',function(){switchTab(this.dataset.tab);});});
+function switchTab(t){document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));document.querySelector(`[data-tab="${t}"]`).classList.add('active');document.getElementById(`tab-${t}`).classList.add('active');state.currentTab=t;if(t==='preview')generatePreview();if(t==='character')refreshCharacterTab();}
+function nextTab(){const i=TABS.indexOf(state.currentTab);if(i<TABS.length-1)switchTab(TABS[i+1]);}
+function prevTab(){const i=TABS.indexOf(state.currentTab);if(i>0)switchTab(TABS[i-1]);}
+function renderCentury(){
+const tl=document.getElementById('century-timeline');const cc=document.getElementById('century-cards');tl.innerHTML='';cc.innerHTML='';
+CENTURY_KEYS.forEach(k=>{const d=centuryData[k];const b=document.createElement('button');b.className='century-jump'+(state.selectedCentury===k?' selected':'');b.textContent=d.name.replace('世纪','')+'C';b.title=d.name+' · '+d.subtitle;b.onclick=()=>{const card=document.getElementById('cc-'+k);toggleCenturyCard(k);card.scrollIntoView({behavior:'smooth',block:'start'});};tl.appendChild(b);});
+CENTURY_KEYS.forEach(k=>{
+const d=centuryData[k];const isSelected=state.selectedCentury===k;
+const card=document.createElement('div');card.className='century-card'+(isSelected?' selected open':'');card.id='cc-'+k;
+const pw=d.powers;let powersHTML='';
+['major','medium','minor'].forEach(tier=>{if(pw[tier]&&pw[tier].length){const tn={major:'大国',medium:'中等势力',minor:'边缘势力'}[tier];powersHTML+=`<div class="power-tier"><div class="power-tier-title">${tn}</div><div class="power-tags">${pw[tier].map(p=>`<span class="power-tag ${tier}" title="${p[1]||''}">${p[0]}</span>`).join('')}</div></div>`;}});
+let eventsHTML=d.events.map(e=>{const evKey=`${e[0]} · ${e[1]}`;const isSel=state.selectedCentury===k&&state.selectedEvent===evKey;return`<div class="event-item${isSel?' selected':''}" onclick="selectEvent('${k}','${evKey.replace(/'/g,"\\'")}')"><span class="yr">${e[0]}</span><span class="ttl">${e[1]}</span><div class="dsc">${e[2]}</div><div class="sel-mark">✓ 已选为开局节点</div></div>`;}).join('');
+const customIsSel=state.selectedCentury===k&&state.selectedEvent&&!d.events.some(e=>`${e[0]} · ${e[1]}`===state.selectedEvent);
+card.innerHTML=`<div class="century-card-head" onclick="toggleCenturyCard('${k}')"><div class="cc-title">${d.name} · ${d.subtitle}<small>${d.period}</small></div><div class="cc-right"><button class="select-century-btn${isSelected?' active':''}" onclick="event.stopPropagation();selectCentury('${k}')">${isSelected?'✓ 已选 · 再点取消':'选此时代'}</button><span class="cc-arrow">▶</span></div></div><div class="century-card-body"><div class="century-atmosphere">${d.atm}</div><div class="century-sub"><h4>开局节点（点击可选定）</h4><div class="event-list">${eventsHTML}<div class="event-item" style="border-left-color:var(--gilt);cursor:default;padding:10px;"><div style="font-size:11px;color:var(--gilt);font-weight:700;margin-bottom:4px;">✦ 自定义节点</div><input type="text" id="ce-${k}" value="${customIsSel?state.selectedEvent:''}" placeholder="例：387·安条克街头混混" style="width:100%;border:none;background:transparent;font-size:12px;font-family:inherit;color:var(--ink);outline:none;border-bottom:1px dashed var(--gilt);padding:3px 0;" onkeydown="if(event.key==='Enter')setCustomEvent('${k}',this.value)"><button onclick="setCustomEvent('${k}',document.getElementById('ce-${k}').value)" style="margin-top:6px;font-size:10px;padding:4px 12px;background:var(--gilt);color:#fff;border:none;cursor:pointer;border-radius:2px;">设为开局节点</button>${customIsSel?'<div class="sel-mark" style="display:block;">✓ 已选为开局节点</div>':''}</div></div>
+</div><div class="century-sub"><h4>可选政权</h4>${powersHTML}</div><div class="century-currency"><strong>货币：</strong>${d.cur}<br><strong>购买力：</strong>${d.buy}</div></div>`;
+cc.appendChild(card);});
+}
+function toggleCenturyCard(k){document.querySelectorAll('.century-card').forEach(c=>{if(c.id!=='cc-'+k)c.classList.remove('open');});document.getElementById('cc-'+k).classList.toggle('open');}
+function selectCentury(k){if(state.selectedCentury===k){state.selectedCentury=null;state.selectedEvent=null;document.querySelector('[data-tab="era"]').classList.remove('completed');}else{state.selectedCentury=k;state.selectedEvent=null;document.querySelector('[data-tab="era"]').classList.add('completed');}renderCentury();refreshCharacterTab();}
+function selectEvent(centuryKey,evKey){state.selectedCentury=centuryKey;state.selectedEvent=evKey;document.querySelector('[data-tab="era"]').classList.add('completed');renderCentury();refreshCharacterTab();}
+function setCustomEvent(k,val){val=val.trim();if(!val)return;state.selectedCentury=k;state.selectedEvent=val;document.querySelector('[data-tab="era"]').classList.add('completed');renderCentury();refreshCharacterTab();}
+function refreshCharacterTab(){
+const cn=state.selectedCentury?parseInt(state.selectedCentury.slice(1)):null;
+const badge=document.getElementById('cur-era');const evDisp=document.getElementById('cur-event-display');
+if(cn){const d=centuryData[state.selectedCentury];badge.textContent=`${d.name} · ${d.subtitle}（${d.period}）`;badge.classList.remove('empty');}else{badge.textContent='尚未选择';badge.classList.add('empty');}
+if(state.selectedEvent){evDisp.textContent='节点：'+state.selectedEvent;evDisp.style.display='inline';}else{evDisp.style.display='none';}
+const polSel=document.getElementById('polity');polSel.innerHTML='<option value="">（自定义或不选）</option>';
+if(cn){const d=centuryData[state.selectedCentury];['major','medium','minor'].forEach(tier=>{if(d.powers[tier]&&d.powers[tier].length){const og=document.createElement('optgroup');og.label={major:'大国',medium:'中等势力',minor:'边缘势力'}[tier];d.powers[tier].forEach(p=>{const o=document.createElement('option');o.value=p[0];o.textContent=p[0]+(p[1]?' · '+p[1]:'');og.appendChild(o);});polSel.appendChild(og);}});}
+const evSel=document.getElementById('event-node');evSel.innerHTML='<option value="">（不锁定具体事件）</option>';
+if(cn){
+  centuryData[state.selectedCentury].events.forEach(e=>{
+    const o=document.createElement('option');o.value=`${e[0]} · ${e[1]}`;o.textContent=`${e[0]} · ${e[1]}`;
+    if(state.selectedEvent===o.value)o.selected=true;
+    evSel.appendChild(o);
+  });
+  if(state.selectedEvent&&!centuryData[state.selectedCentury].events.some(e=>`${e[0]} · ${e[1]}`===state.selectedEvent)){
+    const o=document.createElement('option');o.value=state.selectedEvent;o.textContent=state.selectedEvent+'（自定义）';o.selected=true;
+    evSel.appendChild(o);
+  }
+}
+evSel.onchange=function(){
+  state.selectedEvent=this.value||null;
+  if(state.selectedEvent)document.querySelector('[data-tab="era"]').classList.add('completed');
+  const evDisp2=document.getElementById('cur-event-display');
+  if(state.selectedEvent){evDisp2.textContent='节点：'+state.selectedEvent;evDisp2.style.display='inline';}else{evDisp2.style.display='none';}
+  renderCentury();
+};
+renderEthnicities();renderClasses();renderFaiths();renderJobs();renderCustomJobs();
+}
+function renderEthnicities(){const c=document.getElementById('ethnicity-tags');c.innerHTML='';ethnicities.forEach(e=>{const b=document.createElement('button');b.type='button';b.className='tag-btn'+(state.selectedEthnicities.has(e)?' selected':'');b.textContent=e;b.onclick=()=>{if(state.selectedEthnicities.has(e))state.selectedEthnicities.delete(e);else state.selectedEthnicities.add(e);renderEthnicities();};c.appendChild(b);});
+[...state.selectedEthnicities].filter(e=>!ethnicities.includes(e)).forEach(e=>{const b=document.createElement('button');b.type='button';b.className='tag-btn custom selected';b.innerHTML=e+' <span style="color:var(--vermillion);margin-left:2px;">×</span>';b.onclick=()=>{state.selectedEthnicities.delete(e);renderEthnicities();};c.appendChild(b);});}
+function renderClasses(){const c=document.getElementById('class-tags');c.innerHTML='';socialClasses.forEach(s=>{const b=document.createElement('button');b.type='button';b.className='tag-btn'+(state.selectedClasses.has(s)?' selected':'');b.textContent=s;b.onclick=()=>{if(state.selectedClasses.has(s))state.selectedClasses.delete(s);else state.selectedClasses.add(s);renderClasses();};c.appendChild(b);});
+[...state.selectedClasses].filter(s=>!socialClasses.includes(s)).forEach(s=>{const b=document.createElement('button');b.type='button';b.className='tag-btn custom selected';b.innerHTML=s+' <span style="color:var(--vermillion);margin-left:2px;">×</span>';b.onclick=()=>{state.selectedClasses.delete(s);renderClasses();};c.appendChild(b);});}
+function renderFaiths(){const c=document.getElementById('faith-tags');c.innerHTML='';const cn=state.selectedCentury?parseInt(state.selectedCentury.slice(1)):null;faiths.forEach(f=>{const b=document.createElement('button');b.type='button';const ooe=cn&&!f.cs.includes(cn);b.className='tag-btn'+(state.selectedFaiths.has(f.n)?' selected':'')+(ooe?' out-of-era':'');b.textContent=f.n;b.title=ooe?'当前时代通常不见此信仰':'';b.onclick=()=>{if(state.selectedFaiths.has(f.n))state.selectedFaiths.delete(f.n);else state.selectedFaiths.add(f.n);renderFaiths();};c.appendChild(b);});
+const knownFaithNames=faiths.map(f=>f.n);
+[...state.selectedFaiths].filter(f=>!knownFaithNames.includes(f)).forEach(f=>{const b=document.createElement('button');b.type='button';b.className='tag-btn custom selected';b.innerHTML=f+' <span style="color:var(--vermillion);margin-left:2px;">×</span>';b.onclick=()=>{state.selectedFaiths.delete(f);renderFaiths();};c.appendChild(b);});}
+function renderJobs(){
+  const container=document.getElementById('job-categories');
+  const openCats=new Set();
+  container.querySelectorAll('.job-cat.open').forEach(el=>{if(el.dataset.catKey)openCats.add(el.dataset.catKey);});
+  container.innerHTML='';
+  const cn=state.selectedCentury?parseInt(state.selectedCentury.slice(1)):null;
+  const showOOE=document.getElementById('show-out-of-era').checked;
+  const sq=document.getElementById('job-search').value.trim().toLowerCase();
+  jobCatOrder.forEach(cat=>{
+    const catJobs=jobData.filter(j=>j.c===cat.k);
+    if(!catJobs.length)return;
+    const filtered=catJobs.filter(j=>{const ooe=cn&&j.cs&&!j.cs.includes(cn);if(ooe&&!showOOE)return false;if(sq&&!j.n.toLowerCase().includes(sq))return false;return true;});
+    if(!filtered.length)return;
+    const selCount=filtered.filter(j=>state.selectedJobs.has(j.n)).length;
+    const catDiv=document.createElement('div');
+    catDiv.className='job-cat';catDiv.dataset.catKey=cat.k;
+    if(sq||openCats.has(cat.k))catDiv.classList.add('open');
+    catDiv.innerHTML=`<div class="job-cat-head" onclick="this.parentNode.classList.toggle('open')"><span>${cat.n} <span class="cnt">${selCount}/${filtered.length}</span></span><span class="arrow">▶</span></div><div class="job-cat-body"><div class="tag-container"></div></div>`;
+    const tc=catDiv.querySelector('.tag-container');
+    filtered.forEach(j=>{
+      const ooe=cn&&j.cs&&!j.cs.includes(cn);
+      const b=document.createElement('button');
+      b.type='button';
+      b.className='tag-btn'+(state.selectedJobs.has(j.n)?' selected':'')+(ooe?' out-of-era':'')+(j.f?' female-flag':'');
+      b.textContent=j.n;
+      let tp=[];if(j.cs)tp.push('世纪：'+j.cs.map(x=>x+'C').join('、'));if(j.f)tp.push('女性历史常见');b.title=tp.join(' · ');
+      b.onclick=()=>{if(state.selectedJobs.has(j.n))state.selectedJobs.delete(j.n);else state.selectedJobs.add(j.n);renderJobs();};
+      tc.appendChild(b);
+    });
+    container.appendChild(catDiv);
+  });
+}
+function filterJobs(){renderJobs();}
+function onGenderChange(){renderJobs();}
+function renderCustomJobs(){
+  const c=document.getElementById('custom-job-list');
+  if(!state.customJobs.length){c.innerHTML='';return;}
+  c.innerHTML='<div class="custom-jobs-box"><div class="cjb-title">✦ 自定义身份</div><div class="tag-container">'+state.customJobs.map((j,i)=>`<button type="button" class="tag-btn custom selected" onclick="state.customJobs.splice(${i},1);renderCustomJobs();">${j} <span style="color:var(--vermillion);margin-left:2px;">×</span></button>`).join('')+'</div></div>';
+}
+// ==================== 统一自定义添加逻辑 ====================
+function addCustom(type){
+  const cfgMap={
+    ethnicity:{inputId:'custom-ethnicity',check:v=>state.selectedEthnicities.has(v),add:v=>state.selectedEthnicities.add(v),render:renderEthnicities},
+    class:{inputId:'custom-class',check:v=>state.selectedClasses.has(v),add:v=>state.selectedClasses.add(v),render:renderClasses},
+    faith:{inputId:'custom-faith',check:v=>state.selectedFaiths.has(v),add:v=>state.selectedFaiths.add(v),render:renderFaiths},
+    job:{inputId:'custom-job',check:v=>state.customJobs.includes(v)||state.selectedJobs.has(v),add:v=>state.customJobs.push(v),render:renderCustomJobs}
+  };
+  const cfg=cfgMap[type];if(!cfg)return;
+  const input=document.getElementById(cfg.inputId);
+  const btn=input.nextElementSibling;
+  const v=input.value.trim();
+  if(!v){flashInput(input,'请先输入内容',false);return;}
+  if(cfg.check(v)){flashInput(input,'已存在',false);return;}
+  cfg.add(v);cfg.render();
+  input.value='';
+  flashInput(input,'已添加 ✓',true);
+  if(btn){btn.classList.add('flash');setTimeout(()=>btn.classList.remove('flash'),600);}
+  // 桌面端保持聚焦方便连续添加；移动端不强制聚焦免弹出键盘打断查看
+  if(!('ontouchstart' in window))input.focus();
+}
+function flashInput(input,msg,ok){
+  const oldPh=input.dataset.oldPh||input.placeholder;
+  input.dataset.oldPh=oldPh;
+  input.placeholder=msg;
+  input.classList.remove('flash-ok','flash-err');
+  input.classList.add(ok?'flash-ok':'flash-err');
+  clearTimeout(input._flashTimer);
+  input._flashTimer=setTimeout(()=>{
+    input.placeholder=oldPh;
+    input.classList.remove('flash-ok','flash-err');
+    delete input.dataset.oldPh;
+  },1400);
+}
+function addNPC(){state.npcs.push({id:Date.now(),name:'',relation:'',age:'',gender:'',appearance:'',personality:'',background:''});renderNPCs();}
+function removeNPC(id){state.npcs=state.npcs.filter(n=>n.id!==id);renderNPCs();}
+function updateNPC(id,field,val){const n=state.npcs.find(x=>x.id===id);if(n)n[field]=val;}
+function renderNPCs(){const c=document.getElementById('npc-list');c.innerHTML='';state.npcs.forEach((npc,i)=>{const d=document.createElement('div');d.className='npc-block';d.innerHTML=`<h4>人物 ${i+1}</h4><button class="npc-remove" onclick="removeNPC(${npc.id})">删除</button><div class="form-row"><div class="form-group"><label>姓名/称呼</label><input type="text" value="${npc.name}" onchange="updateNPC(${npc.id},'name',this.value)" placeholder="玛蒂尔达姑妈、铁匠约翰..."></div><div class="form-group"><label>与你的关系</label><input type="text" value="${npc.relation}" onchange="updateNPC(${npc.id},'relation',this.value)" placeholder="父亲、领主、仇人、爱人..."></div></div><div class="form-row"><div class="form-group"><label>年龄/性别</label><input type="text" value="${npc.age}" onchange="updateNPC(${npc.id},'age',this.value)" placeholder="45岁男 / 20岁女..."></div><div class="form-group"><label>外貌</label><input type="text" value="${npc.appearance}" onchange="updateNPC(${npc.id},'appearance',this.value)" placeholder="简短描述"></div></div><div class="form-group"><label>性格/特征</label><input type="text" value="${npc.personality}" onchange="updateNPC(${npc.id},'personality',this.value)" placeholder="暴躁/虔诚/贪婪/温柔..."></div><div class="form-group"><label>背景（可选）</label><input type="text" value="${npc.background}" onchange="updateNPC(${npc.id},'background',this.value)" placeholder="一两句话"></div>`;c.appendChild(d);});}
+// 回车快捷键（桌面党福利）
+document.addEventListener('DOMContentLoaded',()=>{
+  const keyMap={'custom-ethnicity':'ethnicity','custom-class':'class','custom-faith':'faith','custom-job':'job'};
+  Object.keys(keyMap).forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addCustom(keyMap[id]);}});
+  });
+});
+function renderAbilities(){
+  const c=document.getElementById('ability-sections');
+  const openCats=new Set();
+  c.querySelectorAll('.ability-cat.open').forEach(el=>{if(el.dataset.catKey)openCats.add(el.dataset.catKey);});
+  c.innerHTML='';
+  const cn=state.selectedCentury?parseInt(state.selectedCentury.slice(1)):null;
+  abilityData.forEach(sec=>{
+    const selCount=sec.items.filter(item=>state.abilities[item.n]).length;
+    const div=document.createElement('div');
+    div.className='ability-cat';div.dataset.catKey=sec.cat;
+    if(openCats.has(sec.cat))div.classList.add('open');
+    div.innerHTML=`<div class="ability-cat-head" onclick="this.parentNode.classList.toggle('open')"><span>${sec.cat} <span class="cnt">${selCount}/${sec.items.length}</span></span><span class="arrow">▶</span></div><div class="ability-cat-body"><p class="hint">点击熟练度按钮定级，留空=不掌握</p><div class="ability-grid"></div></div>`;
+    const grid=div.querySelector('.ability-grid');
+    sec.items.forEach(item=>{
+      const ooe=cn&&item.cs&&!item.cs.includes(cn);
+      const cur=state.abilities[item.n];
+      const it=document.createElement('div');
+      it.className='ability-item'+(cur?' selected':'');
+      it.innerHTML=`<div class="abname">${item.n}${ooe?' <small style="color:var(--vermillion)">时代外</small>':''}</div>${item.d?'<div class="abdesc">'+item.d+'</div>':''}<div class="ability-level"><button data-lv="新手" class="${cur==='新手'?'chosen':''}">新手</button><button data-lv="熟练" class="${cur==='熟练'?'chosen':''}">熟练</button><button data-lv="精通" class="expert ${cur==='精通'?'chosen':''}">精通</button><button data-lv="大师" class="master ${cur==='大师'?'chosen':''}">大师</button></div>`;
+      it.querySelectorAll('.ability-level button').forEach(b=>{
+        b.onclick=()=>{const lv=b.dataset.lv;if(state.abilities[item.n]===lv)delete state.abilities[item.n];else state.abilities[item.n]=lv;renderAbilities();};
+      });
+      grid.appendChild(it);
+    });
+    c.appendChild(div);
+  });
+}
+function addCustomAbility(){const name=document.getElementById('custom-ab-name').value.trim();const desc=document.getElementById('custom-ab-desc').value.trim();if(!name)return;state.customAbilities.push({id:Date.now(),name,desc,level:'新手'});document.getElementById('custom-ab-name').value='';document.getElementById('custom-ab-desc').value='';renderCustomAb();}
+function renderCustomAb(){const c=document.getElementById('custom-ab-list');if(!state.customAbilities.length){c.innerHTML='';return;}c.innerHTML=state.customAbilities.map(a=>`<div class="info-box" style="position:relative;padding-right:60px;margin-bottom:8px;"><strong>${a.name}</strong> <span style="font-size:11px;padding:2px 8px;background:var(--ink-blue);color:#fff;border-radius:10px;">${a.level}</span>${a.desc?'<p style="font-size:12px;color:var(--ink-muted);margin-top:4px;">'+a.desc+'</p>':''}<div class="ability-level" style="margin-top:8px;max-width:340px;"><button class="${a.level==='新手'?'chosen':''}" onclick="state.customAbilities.find(x=>x.id===${a.id}).level='新手';renderCustomAb();">新手</button><button class="${a.level==='熟练'?'chosen':''}" onclick="state.customAbilities.find(x=>x.id===${a.id}).level='熟练';renderCustomAb();">熟练</button><button class="expert ${a.level==='精通'?'chosen':''}" onclick="state.customAbilities.find(x=>x.id===${a.id}).level='精通';renderCustomAb();">精通</button><button class="master ${a.level==='大师'?'chosen':''}" onclick="state.customAbilities.find(x=>x.id===${a.id}).level='大师';renderCustomAb();">大师</button></div><button onclick="state.customAbilities=state.customAbilities.filter(x=>x.id!==${a.id});renderCustomAb();" style="position:absolute;top:10px;right:10px;padding:4px 10px;font-size:11px;background:var(--vermillion);color:#fff;border:none;cursor:pointer;border-radius:3px;">删除</button></div>`).join('');}
+let rolledTalents=[],selectedTalents=[];
+function rollTalents(){const btn=document.getElementById('roll-btn');btn.classList.add('rolling');btn.disabled=true;setTimeout(()=>{rolledTalents=[];selectedTalents=[];for(let i=0;i<8;i++){
+  let pool,rarity;
+  if(i===0){
+    // 保底一个神话
+    pool=talentPool.mythic;rarity='mythic';
+  }else{
+    const r=Math.random()*100;
+    if(r<15){pool=talentPool.mythic;rarity='mythic';}
+    else if(r<30){pool=talentPool.legendary;rarity='legendary';}
+    else if(r<50){pool=talentPool.epic;rarity='epic';}
+    else if(r<75){pool=talentPool.rare;rarity='rare';}   else{pool=talentPool.common;rarity='common';}
+  }
+  let t,a=0; do{t=pool[Math.floor(Math.random()*pool.length)];a++;} while(rolledTalents.some(x=>x.name===t.name)&&a<30);
+  rolledTalents.push({...t,rarity});
+}const ro={mythic:0,legendary:1,epic:2,rare:3,common:4};rolledTalents.sort((a,b)=>ro[a.rarity]-ro[b.rarity]);renderTalents();btn.classList.remove('rolling');btn.disabled=false;document.getElementById('talent-pool').classList.add('visible');},1200);}
+function renderTalents(){const list=document.getElementById('talent-list');list.innerHTML='';selectedTalents=[];document.getElementById('talent-selected-count').textContent='0';const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'寻常'};rolledTalents.forEach((t,idx)=>{const item=document.createElement('div');item.className=`talent-item ${t.rarity}`;item.innerHTML=`<input type="checkbox" id="t-${idx}"><div class="talent-info"><div class="talent-name">${t.name}<span class="talent-badge ${t.rarity}">${rn[t.rarity]}</span></div><div class="talent-desc">${t.desc}</div>${t.effect?'<div class="talent-effect">代价与效果：'+t.effect+'</div>':''}</div>`;const cb=item.querySelector('input');item.addEventListener('click',e=>{if(e.target===cb)return;cb.click();});cb.addEventListener('change',()=>{if(cb.checked){if(selectedTalents.length>=3){cb.checked=false;return;}selectedTalents.push(t);item.classList.add('selected');}else{selectedTalents=selectedTalents.filter(s=>s.name!==t.name);item.classList.remove('selected');}document.getElementById('talent-selected-count').textContent=selectedTalents.length;if(selectedTalents.length===3)document.querySelector('[data-tab="fate"]').classList.add('completed');});list.appendChild(item);});}
+function generatePreview(){
+const gv=id=>document.getElementById(id)?.value?.trim()||'';
+const name=gv('char-name')||'（未命名）';const year=gv('char-year');const age=gv('char-age');
+const gender=document.querySelector('input[name="gender"]:checked')?.value||'';
+const health=gv('char-health'),appearance=gv('char-appearance');
+const cust_pol=gv('custom-polity');const polity=cust_pol||document.getElementById('polity').value||'';
+const eventNode=state.selectedEvent||document.getElementById('event-node').value||'';
+const birthplace=gv('char-birthplace'),residence=gv('char-residence');
+const marriage=gv('char-marriage'),children=gv('char-children'),family=gv('char-family');
+const wealth=gv('char-wealth'),property=gv('char-property');
+const education=gv('char-education'),languages=gv('char-languages');
+const personality=gv('char-personality'),dream=gv('char-dream'),bg=gv('char-background');
+let era='—';if(state.selectedCentury){const d=centuryData[state.selectedCentury];era=`${d.name} · ${d.subtitle}（${d.period}）`;}
+const eth=[...state.selectedEthnicities];const cls=[...state.selectedClasses];const fs=[...state.selectedFaiths];const jobs=[...state.selectedJobs,...state.customJobs];
+let abilList=Object.entries(state.abilities).map(([n,lv])=>`${n}（${lv}）`);state.customAbilities.forEach(a=>abilList.push(`${a.name}（${a.level}）${a.desc?' · '+a.desc:''}`));
+const ri={mythic:'【神话】',legendary:'【传说】',epic:'【史诗】',rare:'【稀有】',common:'【寻常】'};
+let npcText='—';if(state.npcs.length){npcText=state.npcs.map((n,i)=>{let s=`${i+1}. ${n.name||'（未命名）'}`;if(n.relation)s+=` — ${n.relation}`;if(n.age)s+=`\n   ${n.age}`;if(n.appearance)s+=` · ${n.appearance}`;if(n.personality)s+=`\n   性格：${n.personality}`;if(n.background)s+=`\n   ${n.background}`;return s;}).join('\n\n');}
+const p=`${'═'.repeat(52)}
+       此生 · 中世纪真实人生 · 角色卡
+${'═'.repeat(52)}
+【时代】${era}
+【出生年】${year||'—'}
+【开局节点】${eventNode||'—'}
+【政权】${polity||'—'}
+【出生地】${birthplace||'—'}
+【现居地】${residence||'—'}
+—— 其人 ——
+姓名：${name}
+性别：${gender}
+年龄：${age||'—'}岁
+血统：${eth.length?eth.join('、'):'—'}
+阶层：${cls.length?cls.join('、'):'—'}
+信仰：${fs.length?fs.join('、'):'—'}
+—— 身份 / 职业 ——
+${jobs.length?jobs.map(j=>'· '+j).join('\n'):'—'}
+—— 身体 ——
+健康：${health||'—'}
+外貌：${appearance||'—'}
+—— 家庭 ——
+婚姻：${marriage||'—'}
+子女：${children||'—'}
+家族：${family||'—'}
+—— 财产 ——
+${wealth||'—'}${property?' · '+property:''}
+—— 教育与语言 ——
+教育：${education||'—'}
+语言：${languages||'—'}
+—— 技艺 ——
+${abilList.length?abilList.map(a=>'· '+a).join('\n'):'—'}
+—— 命运（三重底色）——
+${selectedTalents.length?selectedTalents.map((t,i)=>`${i+1}. ${ri[t.rarity]}${t.name}\n   ${t.desc}${t.effect?'\n   代价与效果：'+t.effect:''}`).join('\n\n'):'—'}
+—— 重要人物 ——
+${npcText}
+—— 内心 ——
+性格：${personality||'—'}
+目标：${dream||'—'}
+—— 背景故事 ——
+${bg||'—'}
+${'═'.repeat(52)}`;
+document.getElementById('preview-box').textContent=p;}
+function copyPreview(){const text=document.getElementById('preview-box').textContent;const btn=document.querySelector('.copy-btn');if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>showCopy(btn,true)).catch(()=>fbCopy(text,btn));}else{fbCopy(text,btn);}}
+function fbCopy(text,btn){const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;top:0;left:-9999px;opacity:0;';document.body.appendChild(ta);try{ta.select();ta.setSelectionRange(0,99999);const ok=document.execCommand('copy');document.body.removeChild(ta);showCopy(btn,ok);}catch(e){document.body.removeChild(ta);showCopy(btn,false);}}
+function showCopy(btn,ok){const o=btn.textContent;btn.textContent=ok?'已复制':'失败';btn.style.background=ok?'var(--moss)':'var(--vermillion)';setTimeout(()=>{btn.textContent=o;btn.style.background='';},2000);}
+window.addEventListener('DOMContentLoaded',()=>{renderCentury();refreshCharacterTab();renderAbilities();});
+</script>
+</body>
+</html>

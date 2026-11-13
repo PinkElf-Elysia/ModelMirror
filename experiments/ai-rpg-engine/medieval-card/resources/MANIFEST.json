@@ -1,0 +1,117 @@
+{
+  "cardId": "medieval",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/1389495e-063a-470d-b625-042758642711",
+  "document": {
+    "filename": "中世纪提示词.docx",
+    "sha256": "be04f967d4ae89a87cc2528547a0b2386f0d183d985640762cca7ecc31e29f6c"
+  },
+  "system": {
+    "sha256": "e3e4538f2b1950ccf3e7ce5ce154ee5a96293b3471f637942b3d28613dd559e0",
+    "paragraphs": 1071,
+    "characters": 29062,
+    "extraction": "word/document.xml body paragraphs w:t in document order, LF separator; no semantic edits"
+  },
+  "original": {
+    "sha256": "a0e1372cd80eb03d5e31010ecd63195cdfbecdae167e6676989aa3093a76d82f",
+    "characters": 94286
+  },
+  "assets": [
+    {
+      "path": "public/background.jpg",
+      "url": "https://pic1.imgdb.cn/i/033zgVTXCoKk1QKtrygy0v.jpg",
+      "bytes": 379792,
+      "sha256": "7a4ae0a271d9ffec93d47fe972c73ce76be62386bea79f2bd2eb2a33ffb08e25"
+    },
+    {
+      "path": "public/opening.jpg",
+      "url": "https://pic1.imgdb.cn/i/033zgYzFxQB3mnFyFCpGmf.jpg",
+      "bytes": 156722,
+      "sha256": "2a3b429241d38a3839118be74aaedd831ed7bbbefaf7f5426901ba6bf052070c"
+    },
+    {
+      "path": "public/fonts/font-0.woff2",
+      "url": "https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-tbnTYo.ttf",
+      "sha256": "6bd9d3f1551d25638bef1b616491ac6b14d123a3aad0eeece9ef933955a89483",
+      "bytes": 8608,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-1.woff2",
+      "url": "https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-jHgTYo.ttf",
+      "sha256": "60d6ed01315df78c87a2a96195d5e304c49877f4a3de0419815cbcfb92e7392e",
+      "bytes": 9472,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-2.woff2",
+      "url": "https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-n_gTYo.ttf",
+      "sha256": "01261b82939711c558d65788cca35ba3f9e802300847c9464a8aafc52640a47c",
+      "bytes": 9192,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-3.woff2",
+      "url": "https://fonts.gstatic.com/s/ebgaramond/v33/SlGFmQSNjdsmc35JDF1K5GRwUjcdlttVFm-rI7e8QI96.ttf",
+      "sha256": "157278d47c43106595e2887aa921a8b448ef44192481887a9c383ccd2ce00c4c",
+      "bytes": 16336,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-4.woff2",
+      "url": "https://fonts.gstatic.com/s/ebgaramond/v33/SlGDmQSNjdsmc35JDF1K5E55YMjF_7DPuGi-6_RUAw.ttf",
+      "sha256": "e58689fcadf6cb871118242cbf58b0763d898b8f49cba83bb13e168b425e8001",
+      "bytes": 15052,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-5.woff2",
+      "url": "https://fonts.gstatic.com/s/ebgaramond/v33/SlGDmQSNjdsmc35JDF1K5E55YMjF_7DPuGi-DPNUAw.ttf",
+      "sha256": "e68c318e0f6c2e2efacb6e595e497d4e11a0cf1f08462bb9d7802fbc6d4133b1",
+      "bytes": 15880,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-6.woff2",
+      "url": "https://fonts.gstatic.com/s/notosanssc/v41/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYw.ttf",
+      "sha256": "baeeecfeffa909dc67afc0592f1430097680eb7ef988b6c4e92be10085991796",
+      "bytes": 264788,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-7.woff2",
+      "url": "https://fonts.gstatic.com/s/notosanssc/v41/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaGzjCnYw.ttf",
+      "sha256": "0281cde5badb50a6adb7257f9bbe25079d2c776db8dc53e0ee10a363de3eaa02",
+      "bytes": 270940,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    },
+    {
+      "path": "public/fonts/font-8.woff2",
+      "url": "https://fonts.gstatic.com/s/notosanssc/v41/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG3bCnYw.ttf",
+      "sha256": "3cee90d5cd1db53630948d9b0ac5a742e6e55f17f9ccd3976c8b47f773901065",
+      "bytes": 267668,
+      "subset": "glyphs from original HTML; system fallback for other custom input"
+    }
+  ],
+  "sourceHtml": {
+    "sha256": "a0e1372cd80eb03d5e31010ecd63195cdfbecdae167e6676989aa3093a76d82f",
+    "characters": 94286
+  },
+  "files": {
+    "public/background.jpg": "7a4ae0a271d9ffec93d47fe972c73ce76be62386bea79f2bd2eb2a33ffb08e25",
+    "public/fonts.css": "289271ac3ea4e349f213bdaed766bdcfd0a76d0a43d6fdfccab72d574d481236",
+    "public/index.html": "b920fa079854c545b29bf67a362c1527dfc9650083f364acc8ac888b1d84f79e",
+    "public/opening.jpg": "2a3b429241d38a3839118be74aaedd831ed7bbbefaf7f5426901ba6bf052070c",
+    "public/fonts/cinzel-OFL.txt": "f2b3029aba64c378bf0963b62945eee15e564fe4330b934c8f2eb058282b5e83",
+    "public/fonts/ebgaramond-OFL.txt": "0985066662eb755ed3683ae5482a81a9195b49ce3f7e165cc2388b3dbece7dd7",
+    "public/fonts/font-0.woff2": "6bd9d3f1551d25638bef1b616491ac6b14d123a3aad0eeece9ef933955a89483",
+    "public/fonts/font-1.woff2": "60d6ed01315df78c87a2a96195d5e304c49877f4a3de0419815cbcfb92e7392e",
+    "public/fonts/font-2.woff2": "01261b82939711c558d65788cca35ba3f9e802300847c9464a8aafc52640a47c",
+    "public/fonts/font-3.woff2": "157278d47c43106595e2887aa921a8b448ef44192481887a9c383ccd2ce00c4c",
+    "public/fonts/font-4.woff2": "e58689fcadf6cb871118242cbf58b0763d898b8f49cba83bb13e168b425e8001",
+    "public/fonts/font-5.woff2": "e68c318e0f6c2e2efacb6e595e497d4e11a0cf1f08462bb9d7802fbc6d4133b1",
+    "public/fonts/font-6.woff2": "baeeecfeffa909dc67afc0592f1430097680eb7ef988b6c4e92be10085991796",
+    "public/fonts/font-7.woff2": "0281cde5badb50a6adb7257f9bbe25079d2c776db8dc53e0ee10a363de3eaa02",
+    "public/fonts/font-8.woff2": "3cee90d5cd1db53630948d9b0ac5a742e6e55f17f9ccd3976c8b47f773901065",
+    "public/fonts/notosanssc-OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
+  }
+}

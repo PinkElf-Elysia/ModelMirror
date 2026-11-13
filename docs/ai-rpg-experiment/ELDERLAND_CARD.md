@@ -144,3 +144,17 @@
 帮助校验的既有失败不被隐藏或削弱，本次仅证明新增指南无额外失败。全量前后端回归、真实图片模型、主线合并后的真实模型调用与生产部署未运行。依赖锁文件无修改；Docker依赖安装报告2项既有高危告警，本次没有执行无关依赖升级。
 
 提交只含源码、授权资源、测试、帮助与验收报告。原始模型请求/响应、凭据、存档和失败账本留在原工作区 Git 忽略目录，不随 PR 上传。回退只撤去西幻接入提交，保留 `archive-chat/elderland` 全部数据；无需数据库回滚。
+
+
+## PR #459 主线冲突解决（2026-11-13）
+
+同步主线 `a237f26f`（中世纪卡片 PR #458 已合入），通过普通 merge 保留双方历史，不重写已推送提交。13个冲突文件、20个冲突块均保留西幻和中世纪注册；中世纪的专用宿主、模型预算与插画改写适配器保留。故事馆为13部内置作品，含1部测试发布作品时为14项；插件读取次数对应26次。新增双方卡片嵌套聊天静态资源回归覆盖。
+
+- **通过**：`node --test --test-concurrency=1 experiments/ai-rpg-engine/elderland-card/elderland.test.mjs experiments/ai-rpg-engine/elderland-card/control.test.mjs experiments/ai-rpg-engine/medieval-card/card.test.mjs experiments/ai-rpg-engine/studio/archive-plugins.test.mjs experiments/ai-rpg-engine/studio/card-entry.test.mjs`，22/22。
+- **通过**：前述5个RPG前端测试文件，106/106；与帮助文件一起运行合计123通过、1失败。帮助中心17/18，仍为既有manage-rpg-history截图基线错误，无新增失败。
+- **通过**：client `npm.cmd run typecheck`、`npm.cmd run build`；card-replica `npm.cmd run build -- --base=/rpg-app/earth/`；`node elderland-card/build.mjs --check`。
+- **通过**：`docker compose -p elderland-merge-check config -q`、新镜像构建；无外网、只读文件系统、UID1000的独立容器内，两张卡的角色页/聊天页均200，非信任Origin写入均403；容器随后移除，没有部署共享环境。
+- **通过**：`git ls-files -u`为空；本次接入源码相对主线的空白检查无新增问题。双方卡片目录分别与`c9cac02b`和`origin/main`逐字节一致；继承的作者提示词/HTML/字体许可空白未修订。
+- **通过**：PR相对最新主线共50个任务文件（新增西幻静态入口测试覆盖），无medieval-card目录差异、运行数据或凭据模式命中。
+
+本次仅做冲突兼容与回归，不改变西幻建档步骤、原提示词、地图、背景、文案或动效；帮助截图仍对应明确标注的首轮预览基线，不冒充本轮重拍。真实存档与失败记录留在原独立工作区，没有重新调用模型、迁移存档或修改额度。原有模型扩写、帮助全量失败及未部署边界仍适用。回退本轮同步应保留所有作者目录及运行数据，勿对merge提交直接执行未区分父分支的回退。
