@@ -1,3 +1,4 @@
+import {editedHistory,outputCorrections} from './output-edits.mjs';
 import {validCompression,COMPRESSION_MAX} from './summary-compression.mjs';
 import {POLICY_VERSION,planCoverage,validText} from '../plugins/rolling-summary.mjs';
 import {sha,canonical,fail} from '../plugins/catalog.mjs';
@@ -61,8 +62,8 @@ export function withSummaryVersion(s,version,validateModel=validChoice){
  const result=sealSummary(h);requireSummaryState({...s,rollingSummary:result},validateModel);return result;
 }
 export function summaryUpdateSource(s,validateModel=validChoice){
- const h=requireSummaryState(s,validateModel),active=activeSummary(h),plan=planCoverage(s.history,active?.coveredThrough||0);
- return {...plan,previousVersionId:h.activeVersionId,previousSummary:active?.effectiveText||null,sourceHash:sourceHash(s,plan.targetThrough)};
+ const h=requireSummaryState(s,validateModel),active=activeSummary(h),plan=planCoverage(editedHistory(s),active?.coveredThrough||0);
+ return {...plan,previousVersionId:h.activeVersionId,previousSummary:active?active.effectiveText+outputCorrections(s):null,sourceHash:sourceHash(s,plan.targetThrough)};
 }
 export function effectiveContextPolicy(s,summaryAuth,historyAuth,validateModel=validChoice){
  const h=requireSummaryState(s,validateModel);

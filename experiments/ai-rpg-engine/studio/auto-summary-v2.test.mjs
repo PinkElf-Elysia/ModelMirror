@@ -50,7 +50,10 @@ for(const card of summaryCards)test(card+' 20/21, 40/41, persistence and explici
     if(n===20)host=summarySessions(directory,card,transport);
   }
   const big=s.large,small=s.turns[1].small;
+  const beforeEdit=calls.length;
   await change('edit-reply',{turn:2,text:'修订回复'});assert.notEqual(s.turns[1].small,small);
+  assert.equal(s.large,big);assert.deepEqual(calls.slice(beforeEdit).map(c=>c.purpose),['small']);
+  assert.equal(JSON.parse(calls.at(-1).messages[1].content).assistant_message,'修订回复');
   await change('refresh',{turn:2});assert.deepEqual(calls.slice(-2).map(c=>c.purpose),['refresh','small']);
   await change('delete',{turn:2});assert.equal(s.large,big);assert.equal(s.turns.length,40);
   await change('edit-small',{turn:1,text:'人工修订早期事实'});
@@ -66,6 +69,34 @@ for(const card of summaryCards)test(card+' 20/21, 40/41, persistence and explici
   await assert.rejects(change('send',{input:'未知请求'}),/UNKNOWN/);
   assert.equal((await host.view(s.id)).blocked,true);
   await assert.rejects(change('send',{input:'再次发送'}),/ALREADY_CLAIMED/);
+});
+
+
+test('edit survives an unconfirmed small-summary call; stale small is removed, large and memories stay intact',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'summary-edit-'));
+ t.after(()=>rm(directory,{recursive:true,force:true}));
+ const calls=[],model={model:'google/gemini-3.8-flash',available:true};
+ let rejectSmall=false;
+ const transport={catalog:async()=>[model],status:async()=>({enabled:true,remaining:100}),
+ generate:async(card,req)=>{
+  calls.push(req);
+  if(rejectSmall&&req.purpose==='small')throw Error('OUTCOME_UNKNOWN');
+  return req.purpose+':source';
+ }};
+ let host=summarySessions(directory,'earth',transport);
+ let s=await host.create({archive:'测试档案'});
+ s=await host.change(s.id,{action:'send',revision:s.revision,input:'查看钟楼'});
+ const before=calls.length;rejectSmall=true;
+ await assert.rejects(host.change(s.id,{action:'edit-reply',revision:s.revision,turn:1,text:'钟楼已修复'}),/OUTCOME_UNKNOWN/);
+ assert.deepEqual(calls.slice(before).map(c=>c.purpose),['small']);
+ host=summarySessions(directory,'earth',transport);
+ const saved=await host.view(s.id);
+ assert.equal(saved.turns[0].raw,'钟楼已修复');
+ assert.equal(saved.turns[0].small,'');
+ assert.equal(saved.turns[0].originalRaw,s.turns[0].raw);
+ assert.equal(saved.large,s.large);assert.equal(saved.blocked,true);
+ await assert.rejects(host.change(s.id,{action:'edit-reply',revision:s.revision,turn:1,text:'再次修改'}),/ALREADY_CLAIMED/);
+ assert.equal(calls.length,before+1);
 });
 
 test('new independent chats can start with automatic summary off', async t => {

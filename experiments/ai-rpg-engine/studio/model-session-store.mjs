@@ -1,3 +1,4 @@
+import {editedHistory} from './output-edits.mjs';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {VersionedSessionStore} from './versioned-store.mjs';
@@ -89,7 +90,7 @@ export class ModelSessionStore extends VersionedSessionStore {
    if(s.mode==='real'&&selection.kind==='controlled'&&!this.control)throw fail('CONTROL_DISABLED');
    const controller=new AbortController();this.running.set(id,controller);
    try{
-    const assembled=assemble({characterText:s.characterText,input:input.input,history:s.history,world:s.world});
+    const assembled=assemble({characterText:s.characterText,input:input.input,history:editedHistory(s),world:s.world});
     const request=s.requests[input.requestId]={status:'pending',inputHash,assemblyHash:sha(canonical(assembled.messages)),selectionRevision:state.revision,selection,at:new Date().toISOString()};
     await this.write(s);
     let raw,outputEvidence=null;

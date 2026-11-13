@@ -1,0 +1,32 @@
+import React from 'react';
+import {render,screen,fireEvent,waitFor,cleanup} from '@testing-library/react';
+import {it,expect,vi,afterEach} from 'vitest';
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/node_modules/react/index.js',async()=>await import('react'));
+vi.mock('../../../experiments/ai-rpg-engine/card-replica/src/modal',()=>({Modal:({title,children,close}:any)=><div role="dialog" aria-label={title}><button onClick={close}>关闭</button>{children}</div>}));
+import {OutputEditor} from '../../../experiments/ai-rpg-engine/card-replica/src/output-editor';
+afterEach(cleanup);
+it('cancel keeps the original; saving sends raw text once without regeneration',async()=>{
+ const save=vi.fn(async(_text:string,_id:string)=>{}),close=vi.fn();
+ const ui=render(<OutputEditor turn={2} text="<details>原文</details>" save={save} close={close}/>);
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'修订内容'}});
+ fireEvent.click(screen.getByRole('button',{name:'取消'}));expect(save).not.toHaveBeenCalled();expect(close).toHaveBeenCalledOnce();
+ ui.unmount();close.mockClear();
+ render(<OutputEditor turn={2} text="<details>原文</details>" save={save} close={close}/>);
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'<details open>修订原文</details>'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+ expect(save).toHaveBeenCalledOnce();expect(save.mock.calls[0][0]).toBe('<details open>修订原文</details>');
+});
+it('empty text is rejected; an unknown write retains text and reuses the exact operation',async()=>{
+ const save=vi.fn().mockRejectedValueOnce(Error('NETWORK')).mockResolvedValueOnce(undefined),close=vi.fn();
+ render(<OutputEditor turn={1} text="原文" save={save} close={close}/>);
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'  '}});
+ expect(screen.getByRole('button',{name:'保存'})).toBeDisabled();
+ fireEvent.change(screen.getByRole('textbox'),{target:{value:'修订'}});
+ fireEvent.click(screen.getByRole('button',{name:'保存'}));
+ await screen.findByRole('alert');expect(close).not.toHaveBeenCalled();
+ expect(screen.getByRole('textbox')).toHaveValue('修订');expect(screen.getByRole('textbox')).toBeDisabled();
+ fireEvent.click(screen.getByRole('button',{name:'核对保存'}));
+ await waitFor(()=>expect(close).toHaveBeenCalledOnce());
+ expect(save.mock.calls[1]).toEqual(save.mock.calls[0]);
+});

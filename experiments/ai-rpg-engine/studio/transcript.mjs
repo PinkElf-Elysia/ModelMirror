@@ -1,3 +1,4 @@
+import {visibleTurns} from './output-edits.mjs';
 import {canonical,sha,fail,TRANSCRIPT_ID} from '../plugins/catalog.mjs';
 import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
@@ -16,7 +17,7 @@ export async function transcriptHttp({req,res,send,match,store,plugins}) {
   const grant=await plugins.invoke({sessionId:sourceId,pluginId:TRANSCRIPT_ID,capability:'session.transcript.'+action});
   const source=await store.read(sourceId);
   if(action==='export'){
-    const turns=[...(source.importedTurns||[]),...source.turns];
+    const turns=[...(source.importedTurns||[]),...visibleTurns(source)];
     if(!turns.length)throw fail('TRANSCRIPT_EMPTY',400);
     await plugins.validateResult(grant);
     res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':'attachment; filename="chat.txt"'});

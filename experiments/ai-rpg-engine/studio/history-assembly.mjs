@@ -1,3 +1,4 @@
+import {editedHistory,outputCorrections} from './output-edits.mjs';
 import {assemble} from '../card-replica/lib/assembly.mjs';
 import {selectHistory,validConfig,POLICY_VERSION} from '../plugins/history-window.mjs';
 import {completeHistory} from './branch-archive.mjs';
@@ -19,8 +20,11 @@ export function assembleHistoryRequest(session,input,policy,baseAssembly=earthAs
  completeHistory(session);
  if(policy.runtimeHash!==session.runtime.hash)throw fail('HISTORY_POLICY_RUNTIME_MISMATCH');
  const imported=(session.importedTurns||[]).flatMap(t=>[{role:'user',content:t.input},{role:'assistant',content:t.raw}]);
- const original=baseAssembly(imported.length?{...session,history:[...imported,...session.history]}:session,input);
- const selected=selectChatHistory(session,policy);
+ const history=editedHistory(session);
+ const original=baseAssembly({...session,history:[...imported,...history]},input);
+ const corrections=outputCorrections(session);
+ if(corrections)original.messages[0]={...original.messages[0],content:original.messages[0].content+corrections};
+ const selected=selectChatHistory({...session,history},policy);
  const left=policy.enabled?Math.max(0,policy.config.turns*2-selected.history.length):imported.length;
  const prefix=left?imported.slice(-left):[];
  const messages=[original.messages[0],...prefix,...selected.history,original.messages.at(-1)];

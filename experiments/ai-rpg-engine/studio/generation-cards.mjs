@@ -3,7 +3,7 @@ import {emptyCardRequirements,forkCardRequirements} from './card-requirements.mj
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {canonical,sha,fail,loadReviewedPlugins,loadReviewedCatalog,ILLUSTRATIONS_ID,TRANSCRIPT_ID,GENERATION_PARAMETERS_ID,MODEL_COMPARISON_ID} from '../plugins/catalog.mjs';
-import {forkMessage,storyProgress} from './message-tools.mjs';
+import {editOutput,forkMessage,storyProgress} from './message-tools.mjs';
 import {createPluginService} from '../plugins/host.mjs';
 import {AuthoringError} from '../authoring/contracts.mjs';
 import {ParameterSettingsStore} from '../authoring/generation-settings.mjs';
@@ -42,7 +42,8 @@ function configuration(cardId,input){
  if(typeof input.opening!=='string'||!input.opening.trim()||input.opening.length>20000)throw fail('OPENING_INVALID');
  return {cardId,name:GENERATION_CARDS[cardId],characterText:input.opening,world:null,params:{},mode:'real',generationParameters:emptyCardParameters(),requirements:emptyCardRequirements()};
 }
-const sourceFiles=['studio/card-requirements.mjs','plugins/owner-lock.mjs','authoring/comparison-future.mjs','studio/generation-cards.mjs','studio/card-generation.mjs','studio/card-comparison.mjs','authoring/comparison-control.mjs','authoring/comparison-host.mjs','authoring/comparison-coordinator.mjs','authoring/comparison-contract.mjs','studio/memory-budget.mjs','studio/memory-tasks.mjs','studio/summary-tasks.mjs','studio/card-context.mjs','studio/card-state.mjs','studio/memory-session-store.mjs',
+const editFiles=['studio/output-edits.mjs','studio/message-tools.mjs','studio/default-summary-v2.mjs'];
+const sourceFiles=[...editFiles,'studio/card-requirements.mjs','plugins/owner-lock.mjs','authoring/comparison-future.mjs','studio/generation-cards.mjs','studio/card-generation.mjs','studio/card-comparison.mjs','authoring/comparison-control.mjs','authoring/comparison-host.mjs','authoring/comparison-coordinator.mjs','authoring/comparison-contract.mjs','studio/memory-budget.mjs','studio/memory-tasks.mjs','studio/summary-tasks.mjs','studio/card-context.mjs','studio/card-state.mjs','studio/memory-session-store.mjs',
  'card-replica/lib/assembly.mjs','card-replica/resources/prompts.json','god-card/lib/assembly.mjs','god-card/lib/output-suffix.mjs','god-card/resources/output-suffix.json','ancient-card/assembly.mjs','cultivation-card/host.mjs','lord-of-mysteries-card/assembly.mjs','studio/rpg05-prompt.json','xingjian-card/output-format.txt'];
 async function artifacts(){return Object.fromEntries(await Promise.all(sourceFiles.map(async p=>[p,sha(await readFile(new URL(p,root)))])));}
 export async function createGenerationCards({directory,budgetDirectory,control=null,origin,serviceToken,defaultModel,limits,transcript=false,illustrations=false,comparison=false,recoverDeadOwner=true}){
@@ -54,8 +55,10 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
   for(const cardId of Object.keys(GENERATION_CARDS)){
    const policy=cardParameterPolicy(cardId,initial),state=createCardParameterState(policy),assemble=await frozenCardAssembly(cardId),context=createCardContext({cardId,state,assemble});
    const descriptor={format:5,cardId,release:'typed-generation-cards/1',hostArtifacts:frozen,initialModel:defaultModel};
+   const beforeEdit={...descriptor,hostArtifacts:Object.fromEntries(Object.entries(frozen).filter(([p])=>!editFiles.includes(p)).map(([p,h])=>[p,p==='studio/generation-cards.mjs'?'6764cacd029b5f3723fbbc97f1b54353b05f22e09005e9a96fc52c062f7e6b4c':h]))};
+   const beforeEditHash=digest(beforeEdit);
    const runtime={descriptor,hash:digest(descriptor),async verify(){if(canonical(await artifacts())!==canonical(frozen))throw fail('RUNTIME_FILES_CHANGED_RESTART_REQUIRED');}};
-   const profile={runtime,state,context,initialSelection:()=>policy.fixedChoice(),create:data=>configuration(cardId,data),bind:s=>({format:5,hash:runtime.hash,descriptor:clone(descriptor),setupHash:setupHash(s)}),status:s=>({compatible:s.cardId===cardId&&s.mode==='real'&&s.runtime?.hash===runtime.hash&&digest(s.runtime.descriptor)===runtime.hash&&s.runtime.setupHash===setupHash(s),code:s.runtime?.hash===runtime.hash?null:'PARAMETER_LEGACY_READ_ONLY'})};
+   const profile={runtime,state,context,initialSelection:()=>policy.fixedChoice(),create:data=>configuration(cardId,data),bind:s=>({format:5,hash:runtime.hash,descriptor:clone(descriptor),setupHash:setupHash(s)}),status:s=>({compatible:s.cardId===cardId&&s.mode==='real'&&[runtime.hash,beforeEditHash].includes(s.runtime?.hash)&&digest(s.runtime.descriptor)===s.runtime.hash&&s.runtime.setupHash===setupHash(s),code:[runtime.hash,beforeEditHash].includes(s.runtime?.hash)?null:'PARAMETER_LEGACY_READ_ONLY'})};
    const Store=createParameterStore(profile),store=new Store(join(directory,cardId),()=>{throw fail('NO_OFFLINE_FALLBACK')});await store.init();store.parameterControl=control;store.comparisonEnabled=comparison;
    // A branch receives the settings frozen at the selected turn, never today's edits.
    const prepare=store.archive.prepare.bind(store.archive);store.archive.prepare=(s,i)=>{const selected=s.turns[i.turn-1]?.model?.selection?.parameterContext;const e=prepare({...s,generationParameters:emptyCardParameters(selected?.values)},i),requirements=forkCardRequirements(s,i.turn);
@@ -95,8 +98,8 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
   }
   const grant=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/plugins\/(rpg\.(?:generation-parameters|model-comparison))(?:\/(enable|disable))?$/);
   if(grant){await store.read(grant[1]);if(grant[2]===MODEL_COMPARISON_ID&&!comparison)throw fail('COMPARISON_DISABLED',404);if(method==='GET'&&!grant[3])await send(200,await plugins.sessionStatus(grant[1],grant[2]));else if(method==='POST'&&data?.sessionId===grant[1]&&data?.pluginId===grant[2])await send(200,await plugins.change(grant[3],data));else throw fail('PARAMETER_ROUTE_INVALID');return true;}
-  const message=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/message-tools\/(fork|progress)$/);
-  if(message){const [,id,action]=message;if(action==='fork'&&method==='POST')await enriched(200,await forkMessage(store,plugins,id,data));else if(action==='progress'&&method==='GET'){if(!(await plugins.sessionStatus(id,'rpg.message-tools')).enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);const key=query.get('request'),child=query.get('fork');if(child&&(!key||(child!==store.archive.identity(id,key)&&child!=='rewrite-'+sha(canonical([id,key])))))throw fail('MESSAGE_FORK_BINDING_INVALID',403);await send(200,await storyProgress(store,child||id,key,null,null));}else throw fail('METHOD_NOT_ALLOWED',405);return true;}
+  const message=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/message-tools\/(fork|progress|edit-output)$/);
+  if(message){const [,id,action]=message;if(action==='edit-output'&&method==='POST'&&['earth','god'].includes(cardId))await send(200,await editOutput(store,plugins,id,data));else if(action==='fork'&&method==='POST')await enriched(200,await forkMessage(store,plugins,id,data));else if(action==='progress'&&method==='GET'){if(!(await plugins.sessionStatus(id,'rpg.message-tools')).enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);const key=query.get('request'),child=query.get('fork');if(child&&(!key||(child!==store.archive.identity(id,key)&&child!=='rewrite-'+sha(canonical([id,key])))))throw fail('MESSAGE_FORK_BINDING_INVALID',403);await send(200,await storyProgress(store,child||id,key,null,null));}else throw fail('METHOD_NOT_ALLOWED',405);return true;}
   // Other parameter-capable chat operations retain the card's existing HTTP contract.
   await h.http.handle({route,method,data,query,plugins,send:enriched});return true;
  };

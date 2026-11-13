@@ -85,9 +85,9 @@ function outputValid(pluginId,capability,value,session,input) {
    typeof value.selectionId==='string' && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value.selectionId) && integer(value.selectionRevision);
  }
  if(pluginId==='rpg.transcript'||pluginId==='rpg.illustrations')return exact(input,[]) && canonical(value)===canonical({kind:capability,sessionId:session.id});
- if(pluginId==='rpg.message-tools')return capability==='session.message.fork' && exact(input,['turn']) &&
+ if(pluginId==='rpg.message-tools')return ['session.message.fork','session.message.edit'].includes(capability) && exact(input,['turn']) &&
   integer(input.turn) && input.turn>0 && input.turn<=session.completedTurns &&
-  canonical(value)===canonical({kind:'message-fork',sessionId:session.id,turn:input.turn});
+  canonical(value)===canonical({kind:capability==='session.message.edit'?'message-edit':'message-fork',sessionId:session.id,turn:input.turn});
  if(pluginId!==PLUGIN_ID)return false;
  if(capability==='ui.message-action')return exact(value,['kind','action','label','available']) && value.kind==='message-action' && value.action==='branch' && value.label==='分支' && value.available===(session.completedTurns>0);
  return exact(value,['kind','sessionId','turn','name']) && value.kind==='branch-request' && value.sessionId===session.id &&
@@ -305,7 +305,7 @@ export async function createPluginService({directory,lookupSession,loadCatalog=l
    return serial(async()=>{for(const r of results)await host.validateResult(r);try{return await commit();}finally{for(const r of results)tickets.get(r.pluginId)?.delete(r.ticket);}});
   },
   async commitResult(result,commit){
-   if(typeof commit!=='function'||!['session.illustration.generate','session.illustration.rewrite','session.transcript.import','session.message.fork','session.branch.prepare','session.model.select','session.parameters.configure','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request','session.memory.revise','session.memory.configure','session.memory.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
+   if(typeof commit!=='function'||!['session.illustration.generate','session.illustration.rewrite','session.transcript.import','session.message.fork','session.message.edit','session.branch.prepare','session.model.select','session.parameters.configure','session.history.configure','session.summary.configure','session.summary.revise','session.summary.request','session.memory.revise','session.memory.configure','session.memory.request'].includes(result?.capability))throw fail('PLUGIN_COMMIT_INVALID');
    return serial(async()=>{await host.validateResult(result);try{return await commit();}finally{tickets.get(result.pluginId)?.delete(result.ticket);}});
   },
   async close(){if(closed)return;closed=true;await queue;tickets.clear();await lock.close();},

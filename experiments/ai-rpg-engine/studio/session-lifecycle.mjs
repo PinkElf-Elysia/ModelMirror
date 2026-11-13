@@ -27,6 +27,7 @@ export function rewindSnapshot(source,turn) {
  const target=source.turns[turn-1];if(!target)throw fail('SESSION_TURN_INVALID',400);
  const next=structuredClone(source);
  next.history=next.history.slice(0,(turn-1)*2);next.turns=next.turns.slice(0,turn-1);
+ if(next.outputEdits)next.outputEdits=next.outputEdits.filter(edit=>edit.turn<turn);
  // Keep terminal request receipts, including removed turns, to prevent old IDs
  // from ever dispatching again. Their complete bodies also live in the version.
  // Keep the current model selection, revision and operation receipts from source.

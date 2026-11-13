@@ -1,3 +1,4 @@
+import {editedHistory} from '../../studio/output-edits.mjs';
 import {mkdir,readFile,writeFile,rename,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -27,7 +28,7 @@ export class SessionStore {
    if(Object.values(s.requests).some(r=>r.status==='pending'))throw Object.assign(Error('存在未确认请求，请先核对处理状态'),{status:409});
    if(s.revision!==revision)throw Object.assign(Error('会话已更新，请恢复最新记录再发送'),{status:409});
    if(s.mode!=='offline'&&(s.mode!=='real'||!this.realGenerate))throw Object.assign(Error('真实调用关闭'),{status:403});
-   const a=assemble({characterText:s.characterText,input,history:s.history,world:s.world});
+   const a=assemble({characterText:s.characterText,input,history:editedHistory(s),world:s.world});
    s.requests[requestId]={status:'pending',inputHash:hash(input),assemblyHash:hash(JSON.stringify(a.messages)),at:new Date().toISOString()};
    await this.write(s);
    try{

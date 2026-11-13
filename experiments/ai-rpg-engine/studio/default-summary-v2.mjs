@@ -1,6 +1,7 @@
 import {largeMessages,pendingBatch,smallMessages,summaryContext} from '../plugins/auto-summary-v2.mjs';
 import {canonical,sha,fail} from '../plugins/catalog.mjs';
 import {activeSummary} from './summary-state.mjs';
+import {replyText} from './output-edits.mjs';
 
 const seal=body=>({...body,hash:sha(canonical(body))});
 export const validSummaryText=text=>typeof text==='string'&&!!text.trim()&&Array.from(text).length<=10000;
@@ -54,7 +55,7 @@ export function summaryV2Source(s,stageId,turn){
  if(stageId==='round-summary-small'){
   const id=turn??s.turns.length,source=s.turns[id-1];
   if(!source||id<=state.through||(turn&&!summaryV2Recent(s,state).some(t=>t.id===turn)))throw fail('SUMMARY_V2_TURN_UNAVAILABLE');
-  return {binding:{hash:state.hash,id,requestId:source.requestId},messages:smallMessages(source)};
+  return {binding:{hash:state.hash,id,requestId:source.requestId},messages:smallMessages({...source,raw:replyText(s,source)})};
  }
  const covered=state.turns.filter(t=>t.id<=state.covered),pending=pendingBatch(state);
  const merge=stageId==='round-summary-merge'||!covered.length;
