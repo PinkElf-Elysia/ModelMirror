@@ -1,0 +1,1709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>艾尔德兰世界构建者 - 角色配置</title>
+<style>
+.map-container{
+  margin:20px 0;
+  text-align:center;
+}
+.world-map{
+  max-width:100%;
+  height:auto;
+  box-shadow:var(--shadow-lg);
+}
+.map-caption{
+  margin-top:10px;
+  font-size:12px;
+  color:var(--text-muted);
+  font-style:italic;
+  letter-spacing:1px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+/* Original late font import is ignored by browsers; preserve its fallback. */
+:root{
+--royal-blue:#2E5EA8;
+--herald-gold:#D4A843;
+--crimson:#B83A3A;
+--forest-green:#3A7D5C;
+--magic-purple:#7B5EA7;
+--arcane-teal:#3A8C8C;
+--parchment:#FCF7EB;
+--parchment-dark:#FDF6E8;
+--parchment-deeper:#F5ECD5;
+--border-color:#4A3728;
+--text-dark:#2C1810;
+--text-muted:#6B5B4F;
+--shadow-sm:2px 2px 6px rgba(74,55,40,0.2);
+--shadow-md:3px 3px 10px rgba(74,55,40,0.25),0 1px 3px rgba(74,55,40,0.15);
+--shadow-lg:5px 5px 18px rgba(74,55,40,0.3),0 2px 6px rgba(74,55,40,0.18);
+--shadow-hover:6px 6px 20px rgba(74,55,40,0.35),0 3px 8px rgba(74,55,40,0.2);
+--mythic:#E8A020;
+--legendary:#9B45C9;
+--epic:#2E7DD6;
+--rare:#2EA85E;
+--common:#8B8B8B;
+}
+body{
+font-family:'Noto Sans SC',sans-serif;
+background-color:#3B5C3B;
+background-image:url('/rpg-app/elderland/background.jpg');
+background-size:cover;
+background-position:center;
+background-attachment:fixed;
+color:var(--text-dark);
+min-height:100vh;
+overflow-x:hidden;
+}
+.opening-screen{
+position:fixed;top:0;left:0;width:100%;height:100%;
+z-index:9999;cursor:pointer;overflow:hidden;background:#1a0e08;
+}
+.opening-container{
+position:absolute;top:0;left:0;width:100%;height:100%;
+display:flex;align-items:center;justify-content:center;
+background:#1a0e08;
+}
+.opening-bg{
+width:100%;height:100%;max-width:1200px;max-height:675px;
+background-image:url('/rpg-app/elderland/opening.jpg');
+background-size:contain;background-position:center;background-repeat:no-repeat;
+filter:blur(10px);transition:filter 1.5s ease-out;
+}
+.opening-screen.open .opening-bg{filter:blur(0);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#1a0e08;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}
+.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}
+.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:var(--herald-gold);font-size:13px;z-index:10;animation:blink 1.5s infinite;opacity:0.6;letter-spacing:2px;}
+@keyframes blink{0%,100%{opacity:0.4;}50%{opacity:0.8;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;min-height:100vh;position:relative;}
+.main-container::before{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.08);pointer-events:none;z-index:1;}
+.main-container.active{display:block;}
+.content-wrapper{position:relative;z-index:2;max-width:940px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{
+text-align:center;padding:30px 20px;background:var(--parchment);
+border:3px solid var(--border-color);margin-bottom:20px;position:relative;
+box-shadow:var(--shadow-lg);border-radius:2px;
+}
+.main-title::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--herald-gold),transparent);}
+.main-title::after{content:'';position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--herald-gold),transparent);}
+.main-title h1{font-family:'Cinzel','Noto Sans SC',serif;font-size:clamp(24px,5vw,38px);font-weight:900;letter-spacing:4px;color:var(--text-dark);}
+.main-title p{margin-top:8px;font-size:13px;color:var(--text-muted);letter-spacing:3px;font-family:'Cinzel',serif;}
+.tab-nav{
+display:flex;gap:0;margin-bottom:20px;overflow-x:auto;
+background:var(--parchment);border:3px solid var(--border-color);
+box-shadow:var(--shadow-md);-webkit-overflow-scrolling:touch;scrollbar-width:thin;
+}
+.tab-nav::-webkit-scrollbar{height:4px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--border-color);border-radius:2px;}
+.tab-btn{
+flex:0 0 auto;min-width:72px;padding:14px 10px;background:transparent;border:none;
+border-right:1px solid rgba(74,55,40,0.2);font-family:inherit;
+font-size:clamp(11px,1.8vw,12px);font-weight:700;cursor:pointer;
+transition:all 0.25s;white-space:nowrap;color:var(--text-dark);
+}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(212,168,67,0.1);}
+.tab-btn.active{background:linear-gradient(135deg,var(--royal-blue),#3A72C0);color:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,0.2);}
+.tab-btn.completed::after{content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--forest-green);}
+.tab-content{
+display:none;background:var(--parchment);border:3px solid var(--border-color);
+padding:25px;box-shadow:var(--shadow-lg);position:relative;border-radius:2px;
+}
+.tab-content::before{content:'';position:absolute;top:8px;right:8px;width:25px;height:25px;border-top:2px solid var(--herald-gold);border-right:2px solid var(--herald-gold);opacity:0.4;}
+.tab-content::after{content:'';position:absolute;bottom:8px;left:8px;width:25px;height:25px;border-bottom:2px solid var(--herald-gold);border-left:2px solid var(--herald-gold);opacity:0.4;}
+.tab-content.active{display:block;animation:slideIn 0.3s ease forwards;}
+@keyframes slideIn{0%{opacity:0;transform:translateY(12px);}100%{opacity:1;transform:translateY(0);}}
+.section-title{
+font-family:'Cinzel','Noto Sans SC',serif;font-size:clamp(17px,3.5vw,22px);
+font-weight:900;margin-bottom:18px;padding-bottom:10px;
+border-bottom:3px solid var(--border-color);position:relative;display:inline-block;
+}
+.section-title::after{content:'';position:absolute;bottom:-3px;left:0;width:60px;height:3px;background:var(--herald-gold);}
+.info-box{
+background:linear-gradient(135deg,var(--parchment-dark),var(--parchment));
+border:2px solid var(--border-color);padding:18px;margin-bottom:18px;
+box-shadow:var(--shadow-sm);border-radius:2px;
+}
+.info-box h3{font-size:15px;margin-bottom:10px;color:var(--royal-blue);}
+.info-box p,.info-box li{font-size:13px;line-height:1.8;}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:6px;}
+.info-box li::before{content:'\25B8';position:absolute;left:0;color:var(--herald-gold);font-size:12px;}
+.country-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:20px;}
+.country-card{
+background:var(--parchment);border:2px solid var(--border-color);padding:18px;
+cursor:pointer;transition:all 0.25s;position:relative;overflow:hidden;
+box-shadow:var(--shadow-sm);border-radius:2px;
+}
+.country-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:3px;background:var(--crimson);transform:scaleX(0);transition:transform 0.3s;}
+.country-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:var(--herald-gold);}
+.country-card:hover::before,.country-card.selected::before{transform:scaleX(1);}
+.country-card.selected{background:linear-gradient(135deg,#FFFDF5,var(--parchment));box-shadow:var(--shadow-lg);transform:translateY(-2px);}
+.country-badge{font-size:15px;font-weight:bold;margin-bottom:6px;}
+.country-card p.desc{font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:8px;}
+.country-card .loc-count{font-size:11px;color:var(--royal-blue);font-weight:bold;}
+.detail-panel{
+display:none;margin-top:15px;padding:18px;background:var(--parchment-dark);
+border:2px solid var(--border-color);border-radius:2px;box-shadow:var(--shadow-sm);
+font-size:13px;line-height:1.8;
+}
+.detail-panel.visible{display:block;animation:slideIn 0.3s ease;}
+.detail-panel h4{font-size:14px;color:var(--royal-blue);margin-bottom:10px;border-bottom:2px dashed rgba(74,55,40,0.2);padding-bottom:8px;}
+.detail-panel p{margin-bottom:6px;}
+.detail-panel .npc-list,.detail-panel .place-list{margin:8px 0;padding-left:0;list-style:none;}
+.detail-panel .npc-list li,.detail-panel .place-list li{padding-left:16px;position:relative;margin-bottom:4px;font-size:12px;}
+.detail-panel .npc-list li::before{content:'\25CF';position:absolute;left:0;color:var(--herald-gold);font-size:8px;top:5px;}
+.detail-panel .place-list li::before{content:'\25B8';position:absolute;left:0;color:var(--crimson);font-size:11px;}
+.location-container{
+display:none;margin-top:18px;padding:18px;background:var(--parchment-dark);
+border:2px solid var(--border-color);box-shadow:var(--shadow-sm);border-radius:2px;
+}
+.location-container.visible{display:block;}
+.location-container h4{font-size:14px;margin-bottom:14px;padding-bottom:10px;border-bottom:2px dashed rgba(74,55,40,0.3);color:var(--royal-blue);}
+.location-list{display:grid;gap:10px;max-height:400px;overflow-y:auto;}
+.location-item{
+display:flex;align-items:flex-start;padding:12px;background:var(--parchment);
+border:2px solid rgba(74,55,40,0.3);cursor:pointer;transition:all 0.2s;border-radius:2px;
+}
+.location-item:hover{border-color:var(--border-color);background:#FFFDF5;}
+.location-item.selected{border-color:var(--herald-gold);border-width:3px;background:#FFFDF5;box-shadow:var(--shadow-sm);}
+.location-item input[type="radio"]{margin-right:12px;margin-top:3px;accent-color:var(--royal-blue);width:16px;height:16px;}
+.location-item .loc-info{flex:1;}
+.location-item .loc-info label{display:block;font-size:13px;font-weight:700;cursor:pointer;}
+.location-item .loc-info .loc-desc{font-size:11px;color:var(--text-muted);margin-top:3px;line-height:1.5;}
+.loc-detail{
+display:none;margin-top:10px;padding:14px;background:var(--parchment);
+border:2px solid rgba(74,55,40,0.2);border-left:4px solid var(--herald-gold);
+border-radius:2px;font-size:12px;line-height:1.7;
+}
+.loc-detail.visible{display:block;animation:slideIn 0.25s ease;}
+.loc-detail h5{font-size:13px;color:var(--crimson);margin:10px 0 6px 0;}
+.loc-detail h5:first-child{margin-top:0;}
+.loc-detail ul{list-style:none;padding:0;}
+.loc-detail li{padding-left:14px;position:relative;margin-bottom:3px;}
+.loc-detail li::before{content:'\25B8';position:absolute;left:0;color:var(--herald-gold);font-size:10px;}
+.form-section{margin-bottom:25px;}
+.form-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--royal-blue);}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px;}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{
+width:100%;padding:11px;border:2px solid var(--border-color);background:var(--parchment);
+font-family:inherit;font-size:13px;transition:all 0.2s;border-radius:2px;color:var(--text-dark);
+}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(46,94,168,0.2);border-color:var(--royal-blue);}
+.form-group textarea{min-height:90px;resize:vertical;}
+.radio-group{display:flex;gap:12px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:6px;padding:9px 18px;background:var(--parchment);border:2px solid var(--border-color);cursor:pointer;font-size:13px;transition:all 0.2s;border-radius:2px;}
+.radio-group label:hover{background:#FFFDF5;}
+.radio-group input:checked+span{font-weight:bold;color:var(--royal-blue);}
+.radio-group input{accent-color:var(--royal-blue);}
+.ability-section{margin-bottom:28px;}
+.ability-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--royal-blue);}
+.ability-section p.hint{font-size:11px;color:var(--text-muted);margin-bottom:10px;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+.ability-item{
+display:flex;align-items:flex-start;padding:11px;background:var(--parchment);
+border:2px solid var(--border-color);cursor:pointer;transition:all 0.2s;border-radius:2px;
+}
+.ability-item:hover{background:#FFFDF5;border-color:var(--herald-gold);}
+.ability-item.selected{background:#FFFDF5;border-color:var(--royal-blue);border-width:3px;box-shadow:var(--shadow-sm);}
+.ability-item input{margin-right:10px;margin-top:2px;accent-color:var(--royal-blue);width:16px;height:16px;flex-shrink:0;}
+.ability-item div{flex:1;}
+.ability-item span{font-size:12px;font-weight:600;display:block;}
+.ability-item small{font-size:11px;color:var(--text-muted);display:block;margin-top:2px;font-weight:normal;line-height:1.4;}
+.tag-container{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.tag-btn{padding:6px 14px;font-size:12px;background:var(--parchment);border:2px solid rgba(74,55,40,0.3);cursor:pointer;transition:all 0.2s;border-radius:12px;font-family:inherit;color:var(--text-dark);}
+.tag-btn:hover{border-color:var(--herald-gold);background:#FFFDF5;}
+.tag-btn.selected{border-color:var(--royal-blue);background:rgba(46,94,168,0.1);font-weight:bold;}
+.talent-section{text-align:center;padding:20px;}
+.roll-btn{
+padding:20px 50px;font-size:17px;font-weight:900;font-family:'Cinzel','Noto Sans SC',serif;
+background:linear-gradient(135deg,var(--herald-gold),#E8C060);color:var(--text-dark);
+border:3px solid var(--border-color);cursor:pointer;transition:all 0.2s;
+box-shadow:var(--shadow-lg),0 0 20px rgba(212,168,67,0.3);letter-spacing:2px;border-radius:2px;
+}
+.roll-btn:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover),0 0 30px rgba(212,168,67,0.4);}
+.roll-btn:active{transform:translateY(1px);box-shadow:var(--shadow-sm);}
+.roll-btn.rolling{animation:shake 0.5s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px) rotate(-1deg);}75%{transform:translateX(4px) rotate(1deg);}}
+.talent-pool{display:none;margin-top:28px;}
+.talent-pool.visible{display:block;}
+.talent-pool h3{font-size:15px;margin-bottom:14px;}
+.talent-count{font-size:13px;color:var(--text-muted);margin-bottom:14px;}
+.talent-list{display:grid;gap:10px;max-height:450px;overflow-y:auto;padding:12px;background:var(--parchment-dark);border:2px solid var(--border-color);border-radius:2px;}
+.talent-item{
+display:flex;align-items:flex-start;padding:14px;background:var(--parchment);
+border:2px solid rgba(74,55,40,0.3);cursor:pointer;transition:all 0.2s;text-align:left;border-radius:2px;
+}
+.talent-item:hover{border-color:var(--border-color);}
+.talent-item.selected{border-width:3px;}
+.talent-item.mythic{border-color:var(--mythic);background:linear-gradient(135deg,#FFFBEB,var(--parchment));box-shadow:0 0 12px rgba(232,160,32,0.25);animation:mythicGlow 3s infinite;}
+@keyframes mythicGlow{0%,100%{box-shadow:0 0 12px rgba(232,160,32,0.25);}50%{box-shadow:0 0 20px rgba(232,160,32,0.4);}}
+.talent-item.mythic.selected{box-shadow:3px 3px 8px var(--mythic),0 0 15px rgba(232,160,32,0.3);}
+.talent-item.legendary{border-color:var(--legendary);background:linear-gradient(135deg,#FAF5FF,var(--parchment));box-shadow:0 0 8px rgba(155,69,201,0.2);}
+.talent-item.legendary.selected{box-shadow:3px 3px 8px var(--legendary);}
+.talent-item.epic{border-color:var(--epic);background:linear-gradient(135deg,#EFF6FF,var(--parchment));box-shadow:0 0 6px rgba(46,125,214,0.2);}
+.talent-item.epic.selected{box-shadow:3px 3px 8px var(--epic);}
+.talent-item.rare{border-color:var(--rare);background:linear-gradient(135deg,#F0FFF4,var(--parchment));}
+.talent-item.rare.selected{box-shadow:3px 3px 8px var(--rare);}
+.talent-item.common{border-color:var(--common);}
+.talent-item.common.selected{box-shadow:3px 3px 8px var(--common);}
+.talent-item input{margin-right:12px;margin-top:3px;width:16px;height:16px;accent-color:var(--royal-blue);flex-shrink:0;}
+.talent-info{flex:1;}
+.talent-name{font-weight:bold;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.talent-badge{font-size:10px;padding:2px 8px;border-radius:10px;color:#fff;}
+.talent-badge.mythic{background:linear-gradient(135deg,var(--mythic),#D49520);}
+.talent-badge.legendary{background:var(--legendary);}
+.talent-badge.epic{background:var(--epic);}
+.talent-badge.rare{background:var(--rare);}
+.talent-badge.common{background:var(--common);}
+.talent-desc{font-size:11px;color:var(--text-muted);line-height:1.5;}
+.talent-effect{font-size:11px;color:var(--royal-blue);margin-top:4px;line-height:1.5;}
+.preview-box{
+background:var(--parchment);border:3px solid var(--border-color);padding:20px;
+font-size:13px;line-height:1.8;white-space:pre-wrap;word-break:break-all;
+max-height:550px;overflow-y:auto;margin-bottom:20px;font-family:'Courier New',monospace;
+box-shadow:var(--shadow-md);border-radius:2px;
+}
+.preview-box:empty::before{content:'请完成前面的步骤后查看预览...';color:var(--text-muted);font-family:'Noto Sans SC',sans-serif;}
+.copy-btn{
+display:block;width:100%;max-width:300px;margin:0 auto;padding:16px 40px;
+font-size:16px;font-weight:900;font-family:'Cinzel','Noto Sans SC',serif;
+background:linear-gradient(135deg,var(--royal-blue),#3A72C0);color:#fff;
+border:none;cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-md);letter-spacing:2px;border-radius:2px;
+}
+.copy-btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:2px dashed rgba(74,55,40,0.2);}
+.nav-btn{padding:13px 28px;font-size:13px;font-weight:700;font-family:inherit;border:2px solid var(--border-color);cursor:pointer;transition:all 0.2s;border-radius:2px;}
+.nav-btn.prev{background:var(--parchment);color:var(--text-dark);}
+.nav-btn.next{background:linear-gradient(135deg,var(--royal-blue),#3A72C0);color:#fff;box-shadow:var(--shadow-sm);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:20px;background:var(--border-color);color:var(--herald-gold);font-size:11px;position:relative;z-index:2;letter-spacing:1px;}
+@media(max-width:600px){
+.content-wrapper{padding:10px;}
+.tab-content{padding:14px;}
+.form-row{grid-template-columns:1fr;}
+.country-grid{grid-template-columns:1fr;}
+.ability-grid{grid-template-columns:1fr;}
+.nav-buttons{flex-direction:column;gap:10px;}
+.nav-btn{width:100%;text-align:center;}
+}
+
+[hidden]{display:none!important;}
+:focus-visible{outline:2px solid var(--royal-blue);outline-offset:4px;}
+.tab-btn{position:relative;}
+.preview-actions{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important;scroll-behavior:auto!important;}}
+</style>
+</head>
+<body>
+<!-- ========== 开场动画 ========== -->
+<div class="opening-screen" id="opening" role="button" tabindex="0" aria-label="开始冒险，再次激活可跳过动画">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置开始冒险</div>
+</div>
+<!-- ========== 主容器 ========== -->
+<div class="main-container" id="main">
+<div class="content-wrapper">
+<div class="main-title">
+<h1>ELDERLAND</h1>
+<p>艾尔德兰 · 角色构建者</p>
+</div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="worldview">世界观</button>
+<button class="tab-btn" data-tab="central">中央</button>
+<button class="tab-btn" data-tab="north">北境</button>
+<button class="tab-btn" data-tab="west">西境</button>
+<button class="tab-btn" data-tab="east">东境</button>
+<button class="tab-btn" data-tab="south">南境</button>
+<button class="tab-btn" data-tab="elfwood">精灵密林</button>
+<button class="tab-btn" data-tab="dwarf">矮人山脉</button>
+<button class="tab-btn" data-tab="underdark">幽暗地域</button>
+<button class="tab-btn" data-tab="character">角色</button>
+<button class="tab-btn" data-tab="ability">能力</button>
+<button class="tab-btn" data-tab="heritage">传承</button>
+<button class="tab-btn" data-tab="preview">预览</button>
+</div>
+<!-- ==================== 世界观 Tab ==================== -->
+<div class="tab-content active" id="tab-worldview">
+<h2 class="section-title">艾尔德兰世界</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/world-map.png" alt="艾尔德兰大陆地图" class="world-map">
+  <p class="map-caption">艾尔德兰大陆全图</p>
+</div>
+<div class="info-box">
+<h3>核心信条</h3>
+<p>「剑与魔法的世界，荣耀与阴谋并存。强者书写历史，弱者沦为注脚。」</p>
+<p style="margin-top:6px;font-size:12px;color:var(--text-muted);">这是一个稳定运转的世界，没有毁灭世界的大魔王，只有无数个人的命运交织。</p>
+</div>
+<h2 class="section-title">七神</h2>
+<div class="info-box"><ul>
+<li><strong>索拉里斯</strong> — 光明之神，骄傲正直</li>
+<li><strong>梅莉安</strong> — 生命女神，精灵创造者，温柔孤僻</li>
+<li><strong>莫尔蒂斯</strong> — 死亡之神，沉默寡言</li>
+<li><strong>奥瑞利安</strong> — 锻造与火焰之神，暴躁工匠</li>
+<li><strong>赛琳</strong> — 魔法与隐秘之神，神秘疏离</li>
+<li><strong>泽菲罗斯</strong> — 海洋与风暴之神，喜怒无常</li>
+<li><strong>厄奎塔斯</strong> — 平衡之神，冷酷计算</li>
+</ul>
+<p style="margin-top:8px;font-size:12px;">七神之下存在次级神明：区域神、种族神、概念神、伪神（古龙、上古精灵、恶魔领主）。</p>
+</div>
+<h2 class="section-title">三大法则之书</h2>
+<div class="info-box">
+<h3>创世神离开时留下的三本书</h3>
+<ul>
+<li><strong>黑暗之书</strong> — 魔界维度深处，无限黑暗能量</li>
+<li><strong>法力之书</strong> — 位面夹缝，无限魔力（持有者魔力无限但技巧不变）</li>
+<li><strong>智慧之书</strong> — 位置未知，理解万物原理</li>
+</ul>
+<p style="margin-top:8px;font-size:12px;color:var(--crimson);">关键限制：持有法力之书的学徒魔力无限，但仍然只会放火球术——只是可以连放一整天。</p>
+</div>
+<h2 class="section-title">战力体系</h2>
+<div class="info-box">
+<h3>环位制（0-9环）</h3>
+<p>双轨制：真实战力 + 官方认证。所有职业使用统一环位制衡量实力。</p>
+<ul>
+<li><strong>0环</strong> 平民/学徒 — 无实战能力（90%）</li>
+<li><strong>1环</strong> 新手冒险者 — 能对付哥布林（8%）</li>
+<li><strong>2环</strong> 冒险者 — 能对付强盗团（1.5%）</li>
+<li><strong>3环</strong> 资深冒险者 — 能对付小型魔兽（0.4%）</li>
+<li><strong>4环</strong> 精英 — 一方小有名气（0.08%）</li>
+<li><strong>5环</strong> 大师 — 城市级强者（0.015%）</li>
+<li><strong>6环</strong> 宗师 — 王国级强者（0.002%）</li>
+<li><strong>7环</strong> 传奇 — 大陆知名（0.0003%）</li>
+<li><strong>8环</strong> 英雄 — 史诗级存在（数十人）</li>
+<li><strong>9环</strong> 半神 — 凡人极限（个位数）</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>认证体系</h3>
+<ul>
+<li><strong>冒险者公会</strong> — 最通用，各国互认</li>
+<li><strong>帝国骑士团</strong> — 军方体系</li>
+<li><strong>法师议会</strong> — 法师专属</li>
+<li><strong>各神殿</strong> — 神职者专属</li>
+<li><strong>地方领主</strong> — 小范围认证</li>
+</ul>
+<p style="margin-top:8px;font-size:12px;">认证流程：申请 → 演示+实战 → 颁证。好处：声望、任务权限、商店折扣、法律豁免。不认证则被低估，但可隐藏实力。</p>
+</div>
+<h2 class="section-title">职业概览</h2>
+<div class="info-box"><ul>
+<li><strong>战士</strong> — 纯战技流，力量来源为训练与实战</li>
+<li><strong>魔法战士</strong> — 战技+魔法，法术槽约纯法师50-70%</li>
+<li><strong>法师</strong> — 法术与魔法知识，法术槽是硬性限制</li>
+<li><strong>神职者</strong> — 神明赐予神术，失去信仰=失去神术</li>
+<li><strong>圣武士</strong> — 信仰与战技结合的神圣战士</li>
+<li><strong>游侠</strong> — 荒野生存与弓术专家</li>
+<li><strong>德鲁伊</strong> — 自然魔法，与万物沟通</li>
+<li><strong>盗贼/刺客</strong> — 潜行暗杀与机关陷阱</li>
+<li><strong>吟游诗人</strong> — 音乐魔法与社交大师</li>
+<li><strong>术士</strong> — 血脉魔法，天生异能</li>
+<li><strong>邪术师</strong> — 与强大存在签订契约获取力量</li>
+<li><strong>炼金术士</strong> — 药剂、构造体与科学魔法</li>
+</ul></div>
+<h2 class="section-title">环位能力概要</h2>
+<div class="info-box">
+<h3>战士（0-9环）</h3>
+<ul>
+<li><strong>0环</strong> 无训练 → <strong>1环</strong> 基础剑术 → <strong>2环</strong> 破甲斩 → <strong>3环</strong> 旋风斩</li>
+<li><strong>4环</strong> 致命精准 → <strong>5环</strong> 剑刃风暴 → <strong>6环</strong> 神速连斩</li>
+<li><strong>7环</strong> 屠龙一击 → <strong>8环</strong> 破军之势 → <strong>9环</strong> 弑神之刃</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>法师（0-9环）</h3>
+<ul>
+<li><strong>0环</strong> 戏法 → <strong>1环</strong> 魔法飞弹 → <strong>2环</strong> 隐形术 → <strong>3环</strong> 火球术</li>
+<li><strong>4环</strong> 次元门 → <strong>5环</strong> 传送术 → <strong>6环</strong> 解离术</li>
+<li><strong>7环</strong> 逆转重力 → <strong>8环</strong> 时间停止 → <strong>9环</strong> 许愿术</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>神职者（0-9环）</h3>
+<ul>
+<li><strong>0环</strong> 无神术 → <strong>1环</strong> 祝福术、治疗轻伤</li>
+<li><strong>2环</strong> 次级复原术 → <strong>3环</strong> 驱散/死者复生（限24小时内）</li>
+<li><strong>4环</strong> 高等复原术、神罚术 → <strong>5环</strong> 群体治疗/真实复活（完整复活术，非无代价）</li>
+<li><strong>6环</strong> 神迹·治愈残疾、神罚·天火 → <strong>7环</strong> 复活（突破时间限制，代价极大）</li>
+<li><strong>8环</strong> 神迹·再生断肢 → <strong>9环</strong> 起死回生（需神明批准，献祭寿命）/神怒天罚</li>
+</ul>
+</div>
+<h2 class="section-title">种族与寿命</h2>
+<div class="info-box"><ul>
+<li>人类 60-80 · 精灵 800-1200 · 矮人 250-400 · 半身人 100-150</li>
+<li>兽人 40-60 · 龙裔 200-300 · 半精灵 150-250 · 提夫林 80-120</li>
+</ul>
+<p style="margin-top:8px;font-size:12px;">环位不延寿：6-7环延长10-20%，8-9环接近种族上限但不突破。</p>
+</div>
+<h2 class="section-title">龙吼体系</h2>
+<div class="info-box">
+<h3>龙语之力</h3>
+<p>龙吼非法术，乃以龙语直接影响现实之力。龙族天生掌握，他族需学习冥想与龙魂共鸣。每龙吼由三龙语词汇构成。</p>
+<ul>
+<li><strong>Fus Ro Dah</strong>（力量之吼）— 入门级，冲击波震飞，冷却10秒</li>
+<li><strong>Yol Toor Shul</strong>（火焰吐息）— 中阶，龙炎可融钢铁，冷却30秒</li>
+<li><strong>Fo Krah Diin</strong>（冰霜吐息）— 中阶，冻结敌人与水面，冷却30秒</li>
+<li><strong>Zun Haal Viik</strong>（武器强化）— 高阶，附元素伤害10分钟，冷却1分钟</li>
+<li><strong>Zul Mey Gut</strong>（安抚术）— 中阶，平息敌意，范围30米</li>
+<li><strong>Lok Vah Koor</strong>（净化术）— 高阶，驱散诅咒毒素，冷却5分钟</li>
+<li><strong>Tiid Klo Ul</strong>（时间减缓）— 传奇级，小范围时间减速，冷却10分钟</li>
+<li><strong>Dur Neh Viir</strong>（诅咒不死）— 禁忌，短暂复活死者为仆从，冷却1小时</li>
+</ul>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" disabled>上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 中央·诸王之地 Tab ==================== -->
+<div class="tab-content" id="tab-central">
+<h2 class="section-title">中央 · 诸王之地</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/central-map.png" alt="中央地图" class="world-map">
+  <p class="map-caption">中央 · 诸王之地</p>
+</div>
+<div class="info-box">
+<h3>权力与荣耀的舞台</h3>
+<p>五国纷争，骑士与阴谋并存。大陆中央，温带四季分明，人口约1800万。骑士文化、政治阴谋、宗教势力、浮空魔法学院在此交织。</p>
+</div>
+<div class="country-grid" id="central-countries"></div>
+<div class="detail-panel" id="central-detail"></div>
+<div class="location-container" id="central-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="central-loc-list"></div>
+</div>
+<div id="central-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 北境·永冬荒原 Tab ==================== -->
+<div class="tab-content" id="tab-north">
+<h2 class="section-title">北境 · 永冬荒原</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/north-map.png" alt="北境地图" class="world-map">
+  <p class="map-caption">北境 · 永冬荒原</p>
+</div>
+<div class="info-box">
+<h3>严酷北方</h3>
+<p>封建领主制，荣誉与生存并重。常年寒冷冬季-30°C以下，人口约5万。霜寒大公统治。亡灵威胁始终笼罩北方。格言「寒冬不灭，荣誉永存」。</p>
+</div>
+<div class="country-grid" id="north-countries"></div>
+<div class="detail-panel" id="north-detail"></div>
+<div class="location-container" id="north-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="north-loc-list"></div>
+</div>
+<div id="north-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 西境·风暴群岛 Tab ==================== -->
+<div class="tab-content" id="tab-west">
+<h2 class="section-title">西境 · 风暴群岛</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/west-map.png" alt="西境地图" class="world-map">
+  <p class="map-caption">西境 · 风暴群岛</p>
+</div>
+<div class="info-box">
+<h3>自由与混乱的海洋</h3>
+<p>海盗与商人共舞，深海古老文明遗迹。温和但多风暴。无统一政权，自由港联盟与七海盗王同盟并存。人口约15万。海盗法典：战利品平分、不杀投降者、可挑战海盗王。</p>
+</div>
+<div class="country-grid" id="west-countries"></div>
+<div class="detail-panel" id="west-detail"></div>
+<div class="location-container" id="west-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="west-loc-list"></div>
+</div>
+<div id="west-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 东境·奥术帝国 Tab ==================== -->
+<div class="tab-content" id="tab-east">
+<h2 class="section-title">东境 · 奥术帝国</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/east-map.png" alt="东境地图" class="world-map">
+  <p class="map-caption">东境 · 奥术帝国</p>
+</div>
+<div class="info-box">
+<h3>魔法至上的帝国</h3>
+<p>世界最强大的魔法文明，法师统治一切。三层立体都市阿卡迪亚是帝国心脏，天空层浮空500-1000米。魔法交通、魔法照明、构造体仆人遍布全城。严格的魔法等级制度统治社会。</p>
+</div>
+<div class="country-grid" id="east-countries"></div>
+<div class="detail-panel" id="east-detail"></div>
+<div class="location-container" id="east-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="east-loc-list"></div>
+</div>
+<div id="east-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 南境·黄金海岸 Tab ==================== -->
+<div class="tab-content" id="tab-south">
+<h2 class="section-title">南境 · 黄金海岸</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/south-map.png" alt="南境地图" class="world-map">
+  <p class="map-caption">南境 · 黄金海岸</p>
+</div>
+<div class="info-box">
+<h3>财富至上的罪恶天堂</h3>
+<p>金币至上，一切可交易。沙漠边缘与海岸线交界，人口约140万。五大城邦组成商会大议会。三大支柱：娱乐产业、奴隶贸易、雇佣兵。法律宽松，只要不影响商业，一切都可以用钱摆平。</p>
+</div>
+<div class="country-grid" id="south-countries"></div>
+<div class="detail-panel" id="south-detail"></div>
+<div class="location-container" id="south-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="south-loc-list"></div>
+</div>
+<div id="south-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 精灵密林 Tab ==================== -->
+<div class="tab-content" id="tab-elfwood">
+<h2 class="section-title">精灵密林 · 艾瑞温</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/elfwood-map.png" alt="精灵密林地图" class="world-map">
+  <p class="map-caption">精灵密林 · 艾瑞温</p>
+</div>
+<div class="info-box">
+<h3>永恒的净土</h3>
+<p>与世隔绝的古老精灵王庭，世界树所在地，梅莉安信仰中心。面积约30万平方公里，人口约50万。至高王凯兰崔尔统治两千年，10环德鲁伊兼法师。进入需精灵血统、德鲁伊身份或特殊许可。时间仿佛在此静止。</p>
+</div>
+<div class="country-grid" id="elfwood-countries"></div>
+<div class="detail-panel" id="elfwood-detail"></div>
+<div class="location-container" id="elfwood-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="elfwood-loc-list"></div>
+</div>
+<div id="elfwood-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 矮人山脉 Tab ==================== -->
+<div class="tab-content" id="tab-dwarf">
+<h2 class="section-title">矮人山脉 · 卡拉克山</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/dwarf-map.png" class="world-map">
+  <p class="map-caption">矮人山脉 · 卡拉克山</p>
+</div>
+<div class="info-box">
+<h3>锤声不息，炉火不灭</h3>
+<p>矮人家园，世界锻造巅峰，奥瑞利安圣地。人口约300万。至高王索林·铁砧，9环狂战士6环工匠。火焰誓约：山顶瓦拉希尔为龙族圣地，矮人禁入。女性矮人稀少（约1:4），极其珍贵。好酒好战记仇，仇恨录可溯千年。</p>
+</div>
+<div class="country-grid" id="dwarf-countries"></div>
+<div class="detail-panel" id="dwarf-detail"></div>
+<div class="location-container" id="dwarf-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="dwarf-loc-list"></div>
+</div>
+<div id="dwarf-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 幽暗地域 Tab ==================== -->
+<div class="tab-content" id="tab-underdark">
+<h2 class="section-title">幽暗地域</h2>
+<div class="map-container">
+  <img src="/rpg-app/elderland/underdark-map.png" alt="幽暗地域地图" class="world-map">
+  <p class="map-caption">幽暗地域</p>
+</div>
+<div class="info-box">
+<h3>地底深渊</h3>
+<p>地表之下数千米的巨型洞穴网络，厄奎塔斯的试炼场。永恒黑暗，弱肉强食。人口约300万。每50-100年发生一次「平衡之灾」消灭约一半人口。卓尔、夺心魔、灰矮人三大势力互相倾轧。</p>
+</div>
+<div class="country-grid" id="underdark-countries"></div>
+<div class="detail-panel" id="underdark-detail"></div>
+<div class="location-container" id="underdark-locations">
+<h4>选择出生地 — 你的冒险将从这里开始</h4>
+<div class="location-list" id="underdark-loc-list"></div>
+</div>
+<div id="underdark-loc-detail" class="loc-detail"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 角色创建 Tab ==================== -->
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">角色创建</h2>
+<div class="form-section">
+<h3>基础信息</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="输入角色名字"></div>
+<div class="form-group"><label>年龄</label><input type="number" id="char-age" placeholder="25" min="1" max="10000"></div>
+</div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+<label><input type="radio" name="gender" value="女"><span>女</span></label>
+</div></div>
+</div>
+<div class="form-section">
+<h3>种族</h3>
+<div class="form-row">
+<div class="form-group"><label>种族分类</label>
+<select id="race-category" onchange="updateRaceOptions()">
+<option value="human">人类族系</option><option value="elf">精灵族系</option>
+<option value="dwarf">矮人族系</option><option value="small">小型种族</option>
+<option value="orc">兽人族系</option><option value="beast">兽化种族</option>
+<option value="sea">海洋种族</option><option value="under">地底种族</option>
+<option value="dragon">龙族系</option><option value="giant">巨人族系</option>
+<option value="blood">血统种族</option><option value="undead">不死种族</option>
+<option value="other">其他种族</option><option value="custom">自定义种族</option>
+</select></div>
+<div class="form-group"><label>具体种族</label><select id="race" onchange="onRaceSelected()"></select></div>
+</div>
+<div class="form-group" id="custom-race-group" style="display:none;">
+<label>自定义种族名称</label><input type="text" id="custom-race-name" placeholder="输入种族名称">
+<label style="margin-top:10px;">种族描述</label><textarea id="custom-race-desc" placeholder="描述种族特征、寿命、天赋..."></textarea>
+</div>
+<div id="race-info" class="detail-panel"></div>
+</div>
+<div class="form-section">
+<h3>主职业</h3>
+<div class="form-group"><select id="main-class" onchange="onClassSelected()">
+<option value="warrior">战士 — 纯战技流</option>
+<option value="battle-mage">魔法战士 — 战技+魔法</option>
+<option value="mage">法师 — 纯魔法</option>
+<option value="cleric">神职者 — 神术与治疗</option>
+<option value="paladin">圣武士 — 神圣战士</option>
+<option value="ranger">游侠 — 荒野与弓术</option>
+<option value="druid">德鲁伊 — 自然魔法</option>
+<option value="rogue">盗贼/刺客 — 潜行暗杀</option>
+<option value="bard">吟游诗人 — 音乐魔法</option>
+<option value="sorcerer">术士 — 血脉魔法</option>
+<option value="warlock">邪术师 — 契约魔法</option>
+<option value="alchemist">炼金术士 — 药剂与构造体</option>
+<option value="custom">自定义职业</option>
+</select></div>
+<div class="form-group" id="custom-class-group" style="display:none;">
+<label>自定义职业名称</label><input type="text" id="custom-class-name" placeholder="职业名称">
+<label style="margin-top:10px;">职业描述</label><textarea id="custom-class-desc" placeholder="描述职业特点、力量来源..."></textarea>
+</div>
+</div>
+<div class="form-section">
+<h3>副职业（生活技能）</h3>
+<div class="form-group">
+<label>选择或自定义副职业</label>
+<div class="tag-container" id="sub-prof-tags"></div>
+<input type="text" id="custom-sub-prof" placeholder="自定义副职业，回车添加" style="margin-top:10px;width:100%;padding:11px;border:2px solid var(--border-color);background:var(--parchment);font-family:inherit;font-size:13px;border-radius:2px;">
+</div>
+</div>
+<div class="form-section">
+<h3>身份设定</h3>
+<div class="form-group"><label>信仰</label>
+<select id="faith">
+<option value="无信仰">无信仰</option>
+<option value="索拉里斯（光明）">索拉里斯（光明）</option>
+<option value="梅莉安（生命）">梅莉安（生命）</option>
+<option value="莫尔蒂斯（死亡）">莫尔蒂斯（死亡）</option>
+<option value="奥瑞利安（锻造与火焰）">奥瑞利安（锻造与火焰）</option>
+<option value="赛琳（魔法与隐秘）">赛琳（魔法与隐秘）</option>
+<option value="泽菲罗斯（海洋与风暴）">泽菲罗斯（海洋与风暴）</option>
+<option value="厄奎塔斯（平衡）">厄奎塔斯（平衡）</option>
+<option value="罗丝（蜘蛛女神）">罗丝（蜘蛛女神）</option>
+<option value="次级神明">次级神明（请在背景中说明）</option>
+</select></div>
+<div class="form-row">
+<div class="form-group"><label>环位等级</label>
+<select id="ring-level">
+<option value="0">0环 — 平民/学徒</option>
+<option value="1" selected>1环 — 新手冒险者</option>
+<option value="2">2环 — 冒险者</option>
+<option value="3">3环 — 资深冒险者</option>
+<option value="4">4环 — 精英</option>
+<option value="5">5环 — 大师</option>
+<option value="6">6环 — 宗师</option>
+<option value="7">7环 — 传奇</option>
+<option value="8">8环 — 英雄</option>
+<option value="9">9环 — 半神</option>
+</select></div>
+<div class="form-group"><label>官方认证</label>
+<div class="radio-group">
+<label><input type="radio" name="certified" value="已认证" checked><span>已认证</span></label>
+<label><input type="radio" name="certified"value="未认证（隐藏实力）"><span>未认证</span></label>
+</div></div>
+</div>
+</div>
+<div class="form-section">
+<h3>外貌与性格</h3>
+<div class="form-group"><label>外貌描述</label>
+<textarea id="appearance" placeholder="发色、瞳色、身材、伤疤、标志性服装..."></textarea></div>
+<div class="form-group"><label>性格特质</label>
+<textarea id="personality" placeholder="冷静/热血/狡猾/高傲/善良/残暴..."></textarea></div>
+<div class="form-group"><label>目标或信念</label>
+<input type="text" id="dream" placeholder="「找到杀害师父的凶手」或「成为最强铸剑师」"></div>
+<div class="form-group"><label>背景故事</label>
+<textarea id="background" placeholder="背景故事、师承关系、特殊经历..."></textarea></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 能力选择 Tab ==================== -->
+<div class="tab-content" id="tab-ability">
+<h2 class="section-title">能力选择</h2>
+<div class="info-box">
+<p>根据职业和环位选择已掌握的技能。高级能力需通过传承抽取获得。龙吼为独立体系。</p>
+</div>
+<div class="ability-section">
+<h3>战技</h3>
+<p class="hint">战士、魔法战士、圣武士、游侠可选</p>
+<div class="ability-grid" id="warrior-skills">
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="基础剑术"><div><span>基础剑术</span><small>1环 · 劈砍刺基本功</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="盾牌格挡"><div><span>盾牌格挡</span><small>1环 · 盾牌防御</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="战吼"><div><span>战吼</span><small>1环 · 震慑敌人</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="冲锋"><div><span>冲锋</span><small>1环 · 高速突进</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="破甲斩"><div><span>破甲斩</span><small>2环 · 破坏护甲</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="旋风斩"><div><span>旋风斩</span><small>3环 · 360度横扫</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="致命精准"><div><span>致命精准</span><small>4环 · 打击要害</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="剑刃风暴"><div><span>剑刃风暴</span><small>5环 · 连续高速劈斩</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="神速连斩"><div><span>神速连斩</span><small>6环 · 肉眼无法追踪</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="屠龙一击"><div><span>屠龙一击</span><small>7环 · 全力毁灭斩击</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="破军之势"><div><span>破军之势</span><small>8环 · 一人抵千军</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="combat" value="弑神之刃"><div><span>弑神之刃</span><small>9环 · 凡人斩神的极致一剑</small></div></label>
+</div></div>
+<div class="ability-section">
+<h3>魔法</h3>
+<p class="hint">法师、魔法战士、术士、邪术师可选</p>
+<div class="ability-grid" id="magic-skills">
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="戏法"><div><span>戏法</span><small>0环 · 微弱魔法效果</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="魔法飞弹"><div><span>魔法飞弹</span><small>1环 · 必中魔力弹</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="护盾术"><div><span>护盾术</span><small>1环 · 魔法护盾</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="隐形术"><div><span>隐形术</span><small>2环 · 短暂隐身</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="火球术"><div><span>火球术</span><small>3环 · 经典爆破</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="闪电束"><div><span>闪电束</span><small>3环 · 直线雷击</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="次元门"><div><span>次元门</span><small>4环 · 短距传送</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="传送术"><div><span>传送术</span><small>5环 · 远距传送</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="飞行术"><div><span>飞行术</span><small>5环 · 自由飞行</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="解离术"><div><span>解离术</span><small>6环 · 分解物质</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="逆转重力"><div><span>逆转重力</span><small>7环 · 区域重力逆转</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="时间停止"><div><span>时间停止</span><small>8环 · 短暂冻结时间</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="magic" value="许愿术"><div><span>许愿术</span><small>9环 · 改写现实</small></div></label>
+</div></div>
+<div class="ability-section">
+<h3>神术</h3>
+<p class="hint">神职者、圣武士、德鲁伊可选</p>
+<div class="ability-grid" id="divine-skills">
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="祝福"><div><span>祝福</span><small>1环 · 增强盟友</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="治疗轻伤"><div><span>治疗轻伤</span><small>1环 · 基础治疗</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="圣光术"><div><span>圣光术</span><small>1环 · 驱散黑暗</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="次级复原"><div><span>次级复原</span><small>2环 · 治疗疾病毒素</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="驱散"><div><span>驱散</span><small>3环 · 解除魔法效果</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="死者复生"><div><span>死者复生</span><small>3环 · 复活刚死之人</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="高等复原"><div><span>高等复原</span><small>4环 · 治疗诅咒重伤</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="群体治疗"><div><span>群体治疗</span><small>5环 · 范围治疗</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="真实复活"><div><span>真实复活</span><small>5环 · 完整复活死者</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="神迹治愈"><div><span>神迹治愈</span><small>6环 · 治愈几乎一切</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="divine" value="神怒天罚"><div><span>神怒天罚</span><small>9环 · 借神力降天罚</small></div></label>
+</div></div>
+<div class="ability-section">
+<h3>通用技能</h3>
+<p class="hint">所有职业可选</p>
+<div class="ability-grid">
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="急救"><div><span>急救</span><small>基础伤口处理</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="追踪"><div><span>追踪</span><small>追踪足迹痕迹</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="潜行"><div><span>潜行</span><small>无声移动隐藏</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="开锁"><div><span>开锁</span><small>解除机关锁具</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="骑术"><div><span>骑术</span><small>骑乘坐骑</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="游泳"><div><span>游泳</span><small>水中行动</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="攀爬"><div><span>攀爬</span><small>攀爬峭壁建筑</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="general" value="侦察"><div><span>侦察</span><small>搜索隐藏事物</small></div></label>
+</div></div>
+<div class="ability-section">
+<h3>龙吼体系</h3>
+<div class="info-box" style="margin-bottom:14px;">
+<p>龙吼非法术，乃龙语直接影响现实之力。需掌握龙语、通过龙魂共鸣方可学习。每次释放后有冷却，连续使用消耗体力精神。可被物理打断但无法被反制法术打断。</p>
+</div>
+<div class="ability-grid">
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Fus Ro Dah"><div><span>Fus Ro Dah · 力量之吼</span><small>入门级 · 冲击波震飞10-100米，冷却10秒</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Yol Toor Shul"><div><span>Yol Toor Shul · 火焰吐息</span><small>中阶 · 龙炎可融钢铁，冷却30秒</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Fo Krah Diin"><div><span>Fo Krah Diin · 冰霜吐息</span><small>中阶 · 冻结敌人与水面，冷却30秒</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Zun Haal Viik"><div><span>Zun Haal Viik · 武器强化</span><small>高阶 · 附元素伤害10分钟，冷却1分钟</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Zul Mey Gut"><div><span>Zul Mey Gut · 安抚术</span><small>中阶 · 平息敌意，范围30米，冷却1分钟</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Lok Vah Koor"><div><span>Lok Vah Koor · 净化术</span><small>高阶 · 驱散诅咒毒素，冷却5分钟</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Tiid Klo Ul"><div><span>Tiid Klo Ul · 时间减缓</span><small>传奇级 · 小范围时间减速5秒，冷却10分钟</small></div></label>
+<label class="ability-item" onclick="toggleAbility(this,event)"><input type="checkbox" name="dragonshout" value="Dur Neh Viir"><div><span>Dur Neh Viir · 诅咒不死</span><small>禁忌 · 复活死者为仆从10分钟，冷却1小时</small></div></label>
+</div></div>
+<div class="ability-section">
+<h3>自定义能力</h3>
+<p class="hint">创造你独有的能力，环位建议不超过当前角色环位</p>
+<div class="form-group">
+<label>能力名称</label>
+<input type="text" id="custom-ability-name" placeholder="例如:影分身术、瞬步、剑气斩...">
+</div>
+<div class="form-row">
+<div class="form-group">
+<label>环位等级</label>
+<select id="custom-ability-ring">
+<option value="0">0环</option>
+<option value="1">1环</option>
+<option value="2">2环</option>
+<option value="3">3环</option>
+<option value="4">4环</option>
+<option value="5">5环</option>
+<option value="6">6环</option>
+<option value="7">7环</option>
+<option value="8">8环</option>
+<option value="9">9环</option>
+</select>
+</div>
+</div>
+<div class="form-group">
+<label>能力描述</label>
+<textarea id="custom-ability-desc" placeholder="描述能力效果、使用条件、冷却时间等..." rows="3"></textarea>
+</div>
+<button type="button" class="roll-btn" onclick="addCustomAbility()" style="padding:12px 30px;font-size:14px;margin-top:10px;">添加能力</button>
+<div id="custom-abilities-list" style="margin-top:20px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 传承抽取 Tab ==================== -->
+<div class="tab-content" id="tab-heritage">
+<h2 class="section-title">传承抽取</h2>
+<div class="info-box">
+<h3>传承系统</h3>
+<ul>
+<li>每次抽取获得8个随机传承</li>
+<li>从中选择3个作为核心天赋</li>
+<li>神话级概率极低但效果强大（通常有代价）</li>
+<li>传承影响成长潜力与命运走向</li>
+</ul>
+</div>
+<div class="talent-section">
+<button class="roll-btn" id="roll-btn" onclick="rollTalents()">抽取传承</button>
+</div>
+<div class="talent-pool" id="talent-pool">
+<h3>抽取结果</h3>
+<p class="talent-count">请选择3个（已选：<span id="talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="talent-list"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步</button>
+</div>
+</div>
+<!-- ==================== 预览 Tab ==================== -->
+<div class="tab-content" id="tab-preview">
+<h2 class="section-title">角色卡预览</h2>
+<div class="preview-box" id="preview-box"></div>
+<div class="preview-actions"><button class="copy-btn" onclick="copyPreview()">复制角色卡</button><button class="copy-btn" id="open-chat" hidden>带入聊天 →</button></div><p id="transfer-status" role="status"></p>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">上一步</button>
+</div>
+</div>
+</div><!-- end content-wrapper -->
+</div><!-- end main-container -->
+<footer>ELDERLAND World Builder · 艾尔德兰角色构建者</footer>
+<script>
+// ==================== 全局状态 ====================
+const worldState = { selectedRegion:null, selectedCountry:null, selectedLocation:null, currentTab:'worldview' };
+const TAB_ORDER = ['worldview','central','north','west','east','south','elfwood','dwarf','underdark','character','ability','heritage','preview'];
+// ==================== 种族数据 ====================
+const raceData = {
+human:[
+{value:'human',text:'人类',desc:'适应力强、寿命短、野心大、数量最多',lifespan:'60-80年'},
+{value:'half-elf',text:'半精灵',desc:'人类与精灵混血，两边不讨好',lifespan:'150-250年'},
+{value:'half-orc',text:'半兽人',desc:'人类与兽人混血，受歧视',lifespan:'50-70年'}
+],
+elf:[
+{value:'high-elf',text:'高等精灵',desc:'傲慢、魔法造诣高、长寿千年',lifespan:'800-1200年'},
+{value:'wood-elf',text:'木精灵',desc:'森林守护者、弓箭手',lifespan:'800-1200年'},
+{value:'drow',text:'卓尔精灵',desc:'地底种族、蜘蛛女神信徒',lifespan:'800-1200年'},
+{value:'sea-elf',text:'海精灵',desc:'海洋分支、水系魔法',lifespan:'300-400年'},
+{value:'snow-elf',text:'雪精灵',desc:'冰雪地带的精灵分支',lifespan:'800-1200年'}
+],
+dwarf:[
+{value:'mountain-dwarf',text:'山地矮人',desc:'传统锻造大师、固执',lifespan:'250-400年'},
+{value:'hill-dwarf',text:'丘陵矮人',desc:'商人气质更重',lifespan:'250-400年'},
+{value:'gray-dwarf',text:'灰矮人',desc:'地底矮人、阴郁、奴隶制',lifespan:'250-400年'}
+],
+small:[
+{value:'halfling',text:'半身人',desc:'灵巧、幸运、安逸',lifespan:'100-150年'},
+{value:'gnome',text:'侏儒',desc:'魔法与机械天赋',lifespan:'200-300年'}
+],
+orc:[
+{value:'orc',text:'兽人',desc:'强壮、部落文化、好战',lifespan:'40-60年'},
+{value:'goblin',text:'哥布林',desc:'小型、狡猾、繁殖快',lifespan:'30-50年'},
+{value:'hobgoblin',text:'地精',desc:'哥布林大型亲戚、更有组织',lifespan:'40-60年'},
+{value:'troll',text:'巨魔',desc:'再生能力、怕火',lifespan:'60-100年'}
+],
+beast:[
+{value:'lizardfolk',text:'蜥蜴人',desc:'冷血、沼泽种族',lifespan:'60-80年'},
+{value:'minotaur',text:'牛头人',desc:'力大、迷宫守护者',lifespan:'80-120年'},
+{value:'werewolf',text:'狼人',desc:'诅咒或血统、可变形',lifespan:'同原种族'},
+{value:'ratfolk',text:'鼠人',desc:'地下种族',lifespan:'30-50年'}
+],
+sea:[
+{value:'merfolk',text:'人鱼',desc:'上身人类、下身鱼尾',lifespan:'100-200年'},
+{value:'triton',text:'特里同',desc:'深海战士种族',lifespan:'200-300年'},
+{value:'naga',text:'那迦',desc:'蛇身人首、古老种族',lifespan:'500-800年'}
+],
+under:[
+{value:'mind-flayer',text:'夺心魔',desc:'精神控制、吃脑',lifespan:'数千年'},
+{value:'deep-gnome',text:'地底侏儒',desc:'幻术大师',lifespan:'200-300年'},
+{value:'myconid',text:'蘑菇人',desc:'真菌生物、孢子交流',lifespan:'不明'}
+],
+dragon:[
+{value:'true-dragon',text:'真龙',desc:'古老智慧种族',lifespan:'数千年'},
+{value:'dragonborn',text:'龙裔',desc:'类人龙族，有鳞片和吐息',lifespan:'200-300年'},
+{value:'half-dragon',text:'半龙',desc:'龙与他族混血',lifespan:'视血脉'}
+],
+giant:[
+{value:'frost-giant',text:'霜巨人',desc:'冰雪地带、野蛮',lifespan:'300-500年'},
+{value:'fire-giant',text:'火巨人',desc:'火山地带、锻造',lifespan:'300-500年'},
+{value:'storm-giant',text:'风暴巨人',desc:'最强大的巨人',lifespan:'500-800年'}
+],
+blood:[
+{value:'tiefling',text:'提夫林',desc:'恶魔血统、有角和尾巴',lifespan:'80-120年'},
+{value:'aasimar',text:'阿斯玛',desc:'天使血统、极稀有',lifespan:'100-150年'}
+],
+undead:[
+{value:'vampire',text:'吸血鬼',desc:'需要血液、怕阳光',lifespan:'永生（有条件）'},
+{value:'lich',text:'巫妖',desc:'法师转化不死者',lifespan:'永生（命匣存在时）'},
+{value:'death-knight',text:'死亡骑士',desc:'堕落的圣武士',lifespan:'永生（被诅咒）'}
+],
+other:[
+{value:'angel',text:'天使',desc:'天界存在',lifespan:'永生'},
+{value:'demon',text:'恶魔',desc:'深渊存在',lifespan:'永生'},
+{value:'succubus',text:'魅魔',desc:'魅惑为武器的恶魔',lifespan:'永生'},
+{value:'elemental',text:'元素生物',desc:'纯元素能量构成',lifespan:'不明'},
+{value:'construct',text:'构造体',desc:'魔法创造的人工生命',lifespan:'取决于能源'},
+{value:'changeling',text:'易形者',desc:'天生变形能力',lifespan:'80-100年'}
+],
+custom:[{value:'custom',text:'自定义种族',desc:'创造你自己的种族',lifespan:'自定义'}]
+};
+// ==================== 区域数据（含详细信息） ====================
+const regionData = {
+central:{
+name:'中央·诸王之地',
+countries:[
+{id:'holy-kingdom',name:'圣光王国',
+desc:'骑士王国，光明信仰中心。人口约500万，国王奥德里克三世68岁无嗣。圣剑曙光800年无人拔出。四位继承候选者暗中角力。',
+detail:'常备军5万，圣剑骑士团12席，龙骑兵团50骑。主神索拉里斯。主要势力：圣剑骑士团、龙骑兵团、索拉里斯教会、冒险者公会、夜鸦兄弟会、白银商盟。',
+locations:[
+{id:'radiant-city',name:'辉耀城',desc:'首都，30万人，圣剑所在',
+detail:'<h5>区域</h5><ul><li>王城区 — 王宫、枢密院</li><li>贵族区 — 金玫瑰公馆（贵族社交中心）</li><li>骑士区 — 圣光之盾大厅（冒险者公会）</li><li>神殿区 — 索拉里斯大教堂</li><li>商业区 — 各类商铺，3-50金/晚住宿</li><li>冒险者区 — 金狮之角酒馆（骑士聚集）</li><li>夜莺巷 — 黑市与情报交易</li></ul><h5>主要NPC</h5><ul><li>国王奥德里克三世 — 68岁，无嗣</li><li>大主教伊西多尔 — 8环牧师</li><li>宫廷法师塞奥多 — 8环法师</li><li>公会会长蕾娜·布雷赫特</li></ul>'},
+{id:'silver-moon',name:'银月城',desc:'精灵人类混居魔法之城，10万人',
+detail:'<h5>特色</h5><p>精灵三成、半精灵两成。文化交融之城。</p><h5>主要地点</h5><ul><li>银月学苑 — 附魔、幻术、自然魔法分院</li><li>湖光剧场 — 演出与社交</li><li>银月浴场 — 高档休闲</li><li>镀金骰子赌坊</li><li>银叶茶馆 — 老板艾洛琳，情报交汇</li><li>湖心圣所 — 梅莉安圣地</li></ul><h5>主要NPC</h5><ul><li>学苑长菲奥娜 — 6环幻术师</li><li>马戏团长巴纳比</li><li>猎人统领柯林</li></ul>'},
+{id:'lionheart',name:'狮心堡',desc:'东部军事要塞，5万人',
+detail:'<h5>特色</h5><p>抵御铁血公国第一防线，六成军人。城墙高25米厚10米黑色玄武岩。</p><h5>主要地点</h5><ul><li>铁壁竞技场 — 每月朔比武</li><li>烽火酒馆 — 军人聚集</li><li>铁砧赌斗场</li><li>战马牧场</li></ul><h5>主要NPC</h5><ul><li>军团长布伦努斯 — 8环战士</li><li>武器大师奥格林</li><li>酒馆老板艾达</li></ul>'},
+{id:'emerald-valley',name:'翡翠谷',desc:'西部和平农业之乡，3万人',
+detail:'<h5>特色</h5><p>核心金穗镇。特产翡翠麦酒与"翡翠金"甜酒。</p><h5>主要地点</h5><ul><li>丰收旅店 — 老板罗伊，温馨实惠</li><li>葡萄坡酒窖 — 酒庄主薇诺娜</li><li>金穗集市 — 农产品交易</li><li>牧羊岭牧场 — 牧场主艾伯特</li><li>梅莉安小堂 — 半身人祭司多迪</li></ul><h5>主要NPC</h5><ul><li>旅店老板罗伊</li><li>酒庄主薇诺娜</li><li>磨坊主老汤姆</li></ul>'},
+{id:'holy-spring',name:'圣泉镇',desc:'南部朝圣地，2万人',
+detail:'<h5>特色</h5><p>治愈之泉闻名，圣泉池有轻微治愈力。</p><h5>主要地点</h5><ul><li>圣泉池 — 泉水轻微治愈</li><li>索拉里斯小圣殿</li><li>泉水旅舍 — 老板玛格达</li><li>仁爱医疗所</li><li>老药师格林药铺</li></ul><h5>主要NPC</h5><ul><li>驻镇祭司马库斯 — 5环牧师</li><li>老药师格林</li><li>见习牧师艾莉</li></ul>'},
+{id:'whisper-forest',name:'低语森林',desc:'西北古老林地，终年薄雾',
+detail:'<h5>特色</h5><p>传闻仙灵、独角兽、树人出没。深处有危险黑域。绿荫哨站提供向导与补给。</p><h5>注意</h5><ul><li>需向导陪同，深处建议3环以上</li><li>德鲁伊与游侠守护此地</li></ul>'}
+]},
+{id:'iron-duchy',name:'铁血公国',
+desc:'力量至上的维京风格国家。人口约150万。大公沃鲁斯45岁，8环狂战士，身高2.4米。全民皆兵，15岁成年礼独猎巨兽。驯兽文化发达。',
+detail:'猛犸象3000骑、双足飞龙1000骑、巨狼5000骑、巨熊2000人。二十氏族各有图腾与领地。狂战士约5000人。公主布伦希尔德22岁6环，身高2.1米，天生神力，智力约十岁，持80公斤巨锤"雷霆粉碎者"，坐骑巨狼"毛毛"，护甲缀粉色蝴蝶结。',
+locations:[
+{id:'iron-fort',name:'铁堡',desc:'首都，15万人，黑石要塞',
+detail:'<h5>区域</h5><ul><li>大公堡 — 沃鲁斯的要塞</li><li>战士区 — 训练场与决斗场</li><li>驯兽区 — 猛犸、飞龙、巨狼、巨熊</li><li>氏族区 — 二十氏族会馆</li><li>铁匠区 — 符文武器锻造</li><li>荣耀广场 — 成年礼与节日庆典</li><li>萨满圣地 — 图腾与先祖之灵</li><li>战士之息酒馆 — 烈酒与摔跤</li></ul><h5>主要NPC</h5><ul><li>大公沃鲁斯 — 8环狂战士</li><li>公主布伦希尔德 — 6环，天真烂漫</li><li>大萨满瓦格·渡鸦 — 70岁，7环</li><li>驯兽师会长赫斯塔 — 50岁，7环</li></ul>'},
+{id:'black-iron-mt',name:'黑铁山',desc:'铁矿与巨人遗迹'},
+{id:'hunt-forest',name:'狩猎森林',desc:'成年礼猎场，危险野兽出没'},
+{id:'iron-wall-fort',name:'铁墙要塞',desc:'西部边境，万人驻军'},
+{id:'dragon-nest',name:'龙巢峰',desc:'双足飞龙巢穴'}
+]},
+{id:'aelshirin',name:'艾尔希林',
+desc:'精灵与人类共治双王国。人口约200万。精灵女王米瑞尔800岁8环，佩戴森之戒部分"植物化"。人类国王罗德里克三世35岁6环，妻子三年前被暗杀。音乐与魔法融合之国。',
+detail:'风语城为巨型风道乐器城市。游吟诗人学院为世界最高音乐学府。种族矛盾暗流涌动：寿命差异、文化差异、权力分配、土地争议、半精灵困境。',
+locations:[
+{id:'wind-city',name:'风语城',desc:'首都，20万人，中央风语塔200米',
+detail:'<h5>区域</h5><ul><li>中央风语塔 — 塔顶风之竖琴由风演奏</li><li>北区精灵区 — 和声宫、月井神殿、精灵市场</li><li>南区人类区 — 风行堡、骑士大厅、索拉里斯大教堂</li><li>中区和声广场 — 地面铺共鸣石，脚步踏出音符</li><li>游吟诗人学院 — 世界最高音乐学府，学制五年</li><li>风之歌酒馆 — 半精灵艾尔温经营，国王常匿名登台</li></ul><h5>主要NPC</h5><ul><li>精灵女王米瑞尔 — 800岁，8环</li><li>人类国王罗德里克三世 — 35岁，6环</li><li>骑士团长加雷斯 — 7环圣骑士兼吟游诗人</li><li>学院院长阿卡迪亚士 — 8环吟游诗人</li></ul>'},
+{id:'song-forest',name:'歌咏森林',desc:'树随风唱，藏世界树种子'},
+{id:'wind-plain',name:'清风平原',desc:'风车农业区，晨歌镇、和风村'},
+{id:'echo-canyon',name:'回音峡谷',desc:'练声地，传说回音之灵赐天赋'},
+{id:'silver-vein',name:'银脉山',desc:'矿产共鸣石，矮人矿工聚居'}
+]},
+{id:'holy-state',name:'神圣教国',
+desc:'神权国家。人口约180万。教皇格里高利七世68岁8环牧师。核心冲突：官方圣女艾莉西亚24岁6环（从未施展真正神迹）vs 民间圣女让娜19岁7环（12岁首闻神声）。',
+detail:'圣殿骑士团2万人，宗教裁判所5000人。骑士团长罗兰45岁8环，在效忠教皇与追寻真理间挣扎。大审判官塞维林欲审判让娜。',
+locations:[
+{id:'alba-city',name:'阿尔巴圣城',desc:'首都，30万人，白色哥特建筑群',
+detail:'<h5>区域</h5><ul><li>光辉大教堂 — 世界最大教堂，双塔120米</li><li>教廷区 — 教皇宫、红衣主教府邸、宗教裁判所</li><li>圣骑士区 — 骑士团总部、竞技场、圣光铁匠铺</li><li>朝圣者区 — 朝圣者大道、旅馆、圣物市场、圣泉</li><li>修道院区 — 圣本笃修道院、孤儿院、慈善食堂</li></ul><h5>主要NPC</h5><ul><li>教皇格里高利七世 — 8环牧师</li><li>官方圣女艾莉西亚 — 24岁，6环</li><li>骑士团长罗兰 — 45岁，8环</li><li>大审判官塞维林</li></ul>'},
+{id:'domremy',name:'多米雷米村',desc:'民间圣女让娜的故乡',
+detail:'<h5>特色</h5><p>原200人，朝圣者涌入增至500人。让娜12岁在古橡树下首闻神声。</p><h5>主要地点</h5><ul><li>村中小教堂 — 老神父阿尔班70岁</li><li>让娜故居 — 父母仍居此</li><li>牧羊草地 — 500年古橡树</li><li>村旅馆 — 玛丽40岁，让娜童年玩伴</li><li>铁匠铺 — 约翰35岁</li></ul><h5>主要NPC</h5><ul><li>让娜·德·多米雷米 — 19岁，7环</li><li>老神父阿尔班 — 第一个相信让娜的人</li></ul>'}
+]},
+{id:'augustus-empire',name:'奥古斯都帝国',
+desc:'曾经的霸主，如今腐朽帝国，罗马风格。人口约800万。皇帝奥勒良三世35岁荒淫无道。首都奥古斯塔100万人，奴隶200万占25%。',
+detail:'五大贵族家族：瓦莱里、克劳狄、塞维鲁、科维努斯、安东尼。大角斗场容十万人。常备军约20万。',
+locations:[
+{id:'augusta',name:'奥古斯塔',desc:'帝都，100万人',
+detail:'<h5>区域</h5><ul><li>金殿 — 皇宫</li><li>大角斗场 — 容十万人</li><li>黄金市场 — 奢侈品交易</li><li>军团区 — 第一战团"永恒之鹰"</li><li>平民区·下城 — 约60万人</li><li>奴隶区 — 约20万奴隶</li><li>地下城·影区 — 黑市与刺客</li></ul><h5>主要NPC</h5><ul><li>皇帝奥勒良三世 — 35岁，荒淫</li><li>宠臣塞维鲁 — 6环诡术师</li><li>禁卫军统领科维努斯 — 7环</li><li>角斗士阿贾克斯 — 6环，奴隶英雄</li><li>大祭司卢西娅 — 8环牧师</li></ul>'},
+{id:'iron-wall-city',name:'铁墙城',desc:'北部边境要塞，10万人'},
+{id:'sea-gate',name:'海门',desc:'南部港口，15万人'},
+{id:'deep-mine',name:'深矿镇',desc:'东部矿业，5万人'},
+{id:'gold-valley',name:'金谷',desc:'中部粮仓，8万人'}
+]},
+{id:'horishe',name:'霍里谢之院',
+desc:'世界最高魔法学府，浮空城市。浮空于中央上空5000米，直径约3公里。最高院长李妮妮10环，创世神能量碎片化身。',
+detail:'六大学院：塑能（波兰特9环）、咒法（维熙9环）、预言（索拉卡9环）、变化（芬里尔格雷8环）、死灵（伊莉丝塔娜8环）。入学通过率10%，学费1000金/年。',
+locations:[
+{id:'horishe-academy',name:'霍里谢之院',desc:'浮空学院',
+detail:'<h5>核心设施</h5><ul><li>中央塔 — 500米高，永恒之心能源核心</li><li>大图书馆 — 百万册，含禁书区</li><li>竞技场 — 容5000观众</li><li>炼金工坊街</li><li>传送门大厅 — 20个主传送门连接世界各地</li><li>观景台·天空之境</li></ul><h5>主要NPC</h5><ul><li>最高院长李妮妮 — 10环，全能大魔导师</li><li>塑能院长波兰特·焰心 — 9环</li><li>咒法院长维熙·虚空行者 — 9环</li></ul>'}
+]}
+]},
+north:{
+name:'北境·永冬荒原',
+countries:[
+{id:'south-civilized',name:'南部文明区',
+desc:'冬堡城为首府，霜寒大公埃里克统治。封建荣誉文化，冒险者经济。',
+detail:'霜寒大公埃里克，长子拉格纳为骑士团长，次女阿斯特丽德研究亡灵，老贤者索伦辅政。',
+locations:[
+{id:'winterhold',name:'冬堡城',desc:'首府，约8000人',
+detail:'<h5>主要地点</h5><ul><li>霜寒城堡 — 大公居所</li><li>冒险者公会 — 会长弗蕾雅·银弓</li><li>铁砧铁匠铺 — 矮人格罗姆·铁锤</li><li>永焰神殿 — 圣火500年未灭</li><li>冰封旅店 — 老板娘伊莎贝拉，5银-3金/晚</li><li>中央市场 — 毛皮、药材、武器</li><li>黑市 — 走私品与情报</li></ul><h5>主要NPC</h5><ul><li>大公埃里克</li><li>长子拉格纳 — 骑士团长</li><li>次女阿斯特丽德 — 研究亡灵</li><li>老贤者索伦</li><li>公会会长弗蕾雅·银弓</li></ul>'},
+{id:'white-deer',name:'白鹿镇',desc:'冬堡城南5公里商业驿站，1500人',
+detail:'<h5>主要地点</h5><ul><li>白鹿旅店 — 老板英格丽德，5银-2金/晚</li><li>铁蹄马厩 — 退役骑兵博恩，马50-150金</li><li>商队集散地 — 管理员格蕾塔</li><li>锤与砧铁匠铺 — 哈拉尔德，修理1-10金</li><li>旅者之佑神龛 — 祭司西格丽德，治疗5银</li></ul><h5>主要NPC</h5><ul><li>英格丽德·白鹿 — 45岁，旅店老板</li><li>博恩·铁蹄 — 55岁3环退役骑兵</li><li>吟游诗人莱拉 — 28岁半精灵女</li><li>酒保奥拉夫 — 消息灵通</li></ul>'},
+{id:'frost-wall',name:'霜墙与守夜堡',desc:'长城防线，守夜军团500人',
+detail:'<h5>特色</h5><p>高20米长50公里。铁门为唯一通道，需通行证。</p><h5>主要NPC</h5><ul><li>军团长埃德蒙 — 44岁5环，"从不笑的人"</li><li>教官布兰 — 50岁4环，独眼</li><li>军医塞西莉亚修女 — 35岁2环</li><li>老兵约里克 — 爱讲恐怖经历</li></ul>'},
+{id:'black-pine',name:'黑松领',desc:'东部森林区，3500人',
+detail:'<h5>特色</h5><p>木材狩猎中心。领主西格丽德42岁女5环游侠，北境顶尖射手。狼王传说（受诅咒的前骑士）。</p><h5>主要地点</h5><ul><li>猎人营 — 头领乌尔夫50岁4环</li><li>狼牙村 — 老猎人格里姆</li><li>鹿角哨 — 指挥官阿斯特丽德28岁女3环</li><li>德鲁伊石圈</li></ul>'},
+{id:'gray-stone',name:'灰石领',desc:'石材铁矿产地，2500人',
+detail:'<h5>特色</h5><p>领主哈拉尔德48岁5环战士。贫富差距明显，劳资矛盾。</p><h5>主要地点</h5><ul><li>石桥镇 — 约2000工人聚居</li><li>采石场 — 矮人机械吊臂</li><li>铁矿井 — 矿长英格丽德</li><li>矮人工坊 — 杜林220岁工程师</li></ul>'}
+]},
+{id:'north-waste',name:'北部荒原区',
+desc:'霜墙以北极寒苔原，-30至-50°C。游牧猎人约200人、雪精灵约300人、霜巨人约500人。建议4环以上。',
+locations:[
+{id:'windwalker-camp',name:'风行者营地',desc:'游牧猎人营，可雇向导50金',
+detail:'<h5>主要NPC</h5><ul><li>首领哈拉尔 — 50岁4环游侠</li><li>萨满莫里克 — 65岁2环德鲁伊</li><li>年轻猎人艾娜 — 22岁女2环</li></ul>'},
+{id:'silver-frost',name:'银霜谷',desc:'雪精灵隐居地，约300人',
+detail:'<h5>特色</h5><p>冰雕建筑，与世隔绝。</p><h5>主要NPC</h5><ul><li>长老艾瑟琳 — 800岁6环冰系法师</li><li>守卫队长凯尔丹 — 350岁5环游侠</li></ul>'},
+{id:'ice-fort',name:'冰石堡',desc:'霜巨人部落',
+detail:'<h5>主要NPC</h5><ul><li>酋长格罗姆 — 300岁7环，身高5米</li><li>萨满乌尔加 — 250岁女5环冰系德鲁伊</li></ul>'}
+]},
+{id:'east-forest',name:'东部森林区',
+desc:'广袤针叶林，约3000人。安全区到极危区逐步过渡。',
+locations:[
+{id:'hunter-camp',name:'猎人营',desc:'猎人公会所在',
+detail:'<h5>主要NPC</h5><ul><li>公会会长奥德里克 — 50岁4环，独眼</li><li>毛皮商玛琳 — 45岁女</li><li>向导达根 — 38岁3环</li></ul>'},
+{id:'green-valley',name:'绿影谷',desc:'德鲁伊隐居地',
+detail:'<h5>主要NPC</h5><ul><li>大德鲁伊艾尔温 — 300岁木精灵6环</li><li>德鲁伊莉奥娜 — 28岁女3环</li></ul>'},
+{id:'moon-well-ruins',name:'月井废墟',desc:'精灵遗迹，满月夜古井显幻象'}
+]},
+{id:'west-frozen',name:'西部冰封禁区',
+desc:'巫妖王遗产，-40°C永恒暴风雪。建议6环以上。350年前法师阿尔萨斯转化巫妖，150年前圣骑士讨伐同归于尽。',
+locations:[
+{id:'frozen-wastes',name:'冰霜荒地',desc:'外围区域，4环以上'},
+{id:'frozen-throne',name:'冰封王座',desc:'巫妖王遗迹核心，7环以上',
+detail:'<h5>威胁</h5><ul><li>死亡骑士 6-7环</li><li>冰霜巨龙·萨菲隆 8环</li><li>瓦里安 — 前圣骑士军团长，7环死亡骑士</li></ul>'}
+]},
+{id:'dragon-sanctuary',name:'龙语者圣所（隐藏）',
+desc:'天际峰海拔4000米，研究龙吼的隐秘法师圣所。需龙语符文石或被龙语者选中。',
+locations:[
+{id:'dragon-sanctum',name:'龙语者圣所',desc:'龙吼修行地',
+detail:'<h5>设施</h5><ul><li>龙语殿堂 — 中央15米古龙骨架</li><li>藏书室 — 《龙语词典》《龙族编年史》</li><li>冥想室 — 龙魂共鸣</li><li>试炼场 — 魔法傀儡练习</li></ul><h5>主要NPC</h5><ul><li>艾瑟尔 — 高等精灵女，8环，领袖</li><li>瑟兰 — 人类男，7环，首席学者</li><li>卡尔 — 人类男，7环战士，守门人</li><li>莉莉安娜 — 半精灵女，6环牧师</li></ul><h5>可学龙吼</h5><ul><li>Fus Ro Dah · 力量之吼</li><li>Yol Toor Shul · 火焰吐息</li><li>Fo Krah Diin · 冰霜吐息</li><li>Lok Vah Koor · 净化术</li></ul>'}
+]}
+]},
+west:{
+name:'西境·风暴群岛',
+countries:[
+{id:'freeport',name:'自由港',
+desc:'西境最大贸易港口，中立自由城市。5万人。商人议会统治。金钱至上，灰色交易宽松，奴隶制合法。',
+locations:[
+{id:'freeport-city',name:'自由港',desc:'贸易中心',
+detail:'<h5>区域</h5><ul><li>上城区·商人山 — 商会总部、富商豪宅</li><li>港口区·千帆码头 — 数百船只停靠</li><li>商业区·黄金街 — 武器、魔法、珠宝商铺</li><li>娱乐区·欢愉街 — 酒馆、赌场、妓院</li><li>贫民窟·老鼠窝 — 黑帮影子帮控制</li><li>铁链广场 — 合法奴隶市场</li></ul><h5>主要NPC</h5><ul><li>冒险者公会长卡珊德拉 — 42岁女5环游侠，前海盗</li><li>海妖酒馆·红发玛丽 — 38岁女，前海盗，情报交易</li><li>铁锚造船厂·奥斯卡 — 55岁4环工匠</li><li>大祭司塞拉斯 — 50岁6环，可预测风暴50金</li><li>黑帮帮主刀疤 — 40岁4环刺客</li></ul><h5>拍卖</h5><p>黄金拍卖行每周六晚大型拍卖。</p>'}
+]},
+{id:'skull-island',name:'骷髅岛',
+desc:'最强海盗王德雷克据点，7环战士。约8000人。死火山形如骷髅。',
+locations:[{id:'skull-island-loc',name:'骷髅岛',desc:'骷髅王据点',
+detail:'<h5>设施</h5><ul><li>黑珍珠酒馆 — 海盗聚集</li><li>决斗场 — 每周公开决斗</li><li>宝藏洞 — 德雷克私人宝库</li></ul><h5>主要NPC</h5><ul><li>骷髅王德雷克 — 7环战士</li><li>大副血手杰克 — 40岁4环</li><li>酒馆老板独腿皮特</li></ul>'}]},
+{id:'blood-sail',name:'血帆湾',
+desc:'血帆女王伊莎贝拉，7环盗贼/法师。约6000人，女海盗占三成。',
+locations:[{id:'blood-sail-loc',name:'血帆湾',desc:'血帆女王据点',
+detail:'<h5>特色</h5><p>走私与情报网络中心。</p><h5>主要NPC</h5><ul><li>血帆女王伊莎贝拉 — 7环</li><li>大副黑寡妇安娜 — 35岁女4环</li><li>情报头目影子</li></ul>'}]},
+{id:'black-reef',name:'黑礁堡',
+desc:'黑礁领主莫尔根，半兽人7环战士。约5000人，兽人半兽人占四成。',
+locations:[{id:'black-reef-loc',name:'黑礁堡',desc:'黑礁领主据点',
+detail:'<h5>主要NPC</h5><ul><li>黑礁领主莫尔根 — 半兽人7环</li><li>大副铁牙 — 兽人35岁5环</li><li>角斗冠军碎骨者 — 半兽人4环</li></ul>'}]},
+{id:'storm-nest',name:'风暴巢',desc:'风暴领主卡莫拉，7环。泽菲罗斯狂热信徒，可召唤风暴。约4000人。',
+locations:[{id:'storm-nest-loc',name:'风暴巢',desc:'风暴领主据点'}]},
+{id:'shark-rock',name:'鲨鱼岩',desc:'鲨鱼王芬恩，6环。潜水高手。水下洞穴、毒药工坊。约3000人。',
+locations:[{id:'shark-rock-loc',name:'鲨鱼岩',desc:'鲨鱼王据点'}]},
+{id:'ghost-port',name:'幽灵船港',desc:'幽灵船长达里乌斯，不死人类7环死亡骑士。永恒号幽灵船可潜航。约2000人。',
+locations:[{id:'ghost-port-loc',name:'幽灵船港',desc:'幽灵船长据点',
+detail:'<h5>特色</h5><p>多为不死海盗。死灵神殿、灵魂监狱。</p><h5>主要NPC</h5><ul><li>幽灵船长达里乌斯 — 7环死亡骑士</li><li>大副骨手 — 不死5环</li></ul>'}]},
+{id:'iron-anchor',name:'铁锚岛',desc:'铁锚王奥丁，6环战士/工匠。西境最佳造船厂。约4000人。',
+locations:[{id:'iron-anchor-loc',name:'铁锚岛',desc:'铁锚王据点，造船厂',
+detail:'<h5>主要NPC</h5><ul><li>铁锚王奥丁 — 6环</li><li>大副铁锤 — 矮人120岁4环</li><li>船匠大师钢须 — 矮人180岁4环</li></ul>'}]},
+{id:'coral-islands',name:'珊瑚群岛',
+desc:'海精灵浅海水下文明。女王阿奎拉280岁8环。约2万海精灵。珊瑚城为半浸没式城市。',
+locations:[{id:'coral-city',name:'珊瑚城',desc:'海精灵首都，约8000人',
+detail:'<h5>区域</h5><ul><li>迎宾岛 — 外来者登陆处</li><li>月光平台 — 满月婚礼仪式</li><li>水下珊瑚王宫</li><li>珍珠市场 — 白珍珠10金/黑珍珠50金</li><li>深海图书馆 — 馆长塞拉菲娜300岁5环</li><li>海豚湾 — 骑行体验10金/时</li></ul><h5>主要NPC</h5><ul><li>女王阿奎拉 — 280岁8环</li><li>军事大臣特里登 — 200岁6环</li><li>魔法大臣阿卡纳 — 300岁7环</li></ul><h5>海精灵特性</h5><p>蓝绿皮肤，指间有蹼，颈部有鳃，寿命300-400年，水系魔法亲和。母系社会倾向，30岁深海试炼成年礼。</p>'}]},
+{id:'abyss-kingdom',name:'深渊王国',
+desc:'特里同深海军事帝国。皇帝阿比萨尔180岁9环。约5万特里同。极度危险，外来者几乎必死。',
+locations:[{id:'abyss-fortress',name:'深渊要塞',desc:'首都，水深2000米',
+detail:'<h5>特色</h5><p>黑色玄武岩与深海水晶建造。特里同身高1.8-2.2米，上半身类人下半身鱼尾，力量为人类2-3倍。</p><h5>主要NPC</h5><ul><li>皇帝阿比萨尔 — 180岁9环，持三叉戟"深渊之怒"</li><li>克拉肯将军 — 150岁8环，统全军</li></ul><h5>警告</h5><p>外来者未经许可进入即被处决。</p>'}]},
+{id:'atlantis',name:'沉没的亚特兰蒂斯',
+desc:'3000年前沉没的魔法帝国遗迹。深海4000-5000米。法力之书可能在此。极度危险（7环以上团队）。',
+locations:[{id:'atlantis-ruins',name:'亚特兰蒂斯遗迹',desc:'沉没帝国',
+detail:'<h5>结构</h5><ul><li>外围废墟区 — 3-5环构造体巡逻</li><li>贵族区 — 5-6环构造体，贵族幽灵</li><li>魔法学院 — 6-7环</li><li>七座魔法塔 — 7-8环元素守护者</li><li>皇宫 — 8-9环，皇帝幽灵仍坐王座</li><li>永动机核心 — 仍在运作</li><li>禁忌图书馆 — 法力之书可能在此</li></ul><h5>主要威胁</h5><ul><li>奥利哈钢构造体 3-7环</li><li>亚特兰蒂斯幽灵 4-8环</li><li>深渊海龙·阿比索 — 8环，体长超50米</li></ul>'}]}
+]},
+east:{
+name:'东境·奥术帝国',
+countries:[
+{id:'arcadia',name:'奥术之都·阿卡迪亚',
+desc:'世界最大魔法城市，帝国首都。约100万人。三层立体：天空层（浮空500-1000米）、地面层、地下层（深五层）。魔法交通、魔法照明、构造体仆人遍布全城。',
+detail:'皇帝奥德赛·阿卡迪乌斯三世45岁8环。皇太子马库斯20岁5环，正直理想主义，暗中调查父亲。七大法师塔各有8环塔主。',
+locations:[
+{id:'arcadia-sky',name:'阿卡迪亚·天空层',desc:'皇宫与七大法师塔',
+detail:'<h5>设施</h5><ul><li>星辰宫 — 皇宫，高200米</li><li>星辰塔 — 塔主卡珊德拉8环，预言与时间魔法</li><li>元素塔 — 塔主伊格纳修斯8环，六元素</li><li>召唤塔 — 塔主维拉8环，位面魔法</li><li>附魔塔 — 塔主艾莉西娅8环，心灵魔法</li><li>防护塔 — 塔主瓦尔登8环，结界封印</li><li>法师议会大厅</li><li>高级法师浮空岛约100座</li></ul><h5>主要NPC</h5><ul><li>皇帝奥德赛三世 — 45岁8环</li><li>皇太子马库斯 — 20岁5环，理想主义</li></ul>'},
+{id:'arcadia-ground',name:'阿卡迪亚·地面层',desc:'奥术学院、商店街、平民区',
+detail:'<h5>设施</h5><ul><li>奥术之心广场 — 七位创始大魔导师雕像</li><li>传送门大厅 — 30个主传送门，外来者每次100金</li><li>魔法物品商店街 — 约200家</li><li>奥术学院 — 学生约2万，学费500金/年</li><li>炼金工坊街 — 租用实验室50金/天</li></ul>'},
+{id:'arcadia-under',name:'阿卡迪亚·地下层',desc:'能源核心、奴隶区',
+detail:'<h5>区域</h5><ul><li>地下一至二层 — 仓储与工坊</li><li>地下三层 — 奴隶区，约10万奴隶</li><li>地下四层 — 禁忌实验室（隐蔽区域）</li><li>地下五层 — 魔法能源核心</li><li>地下五层以下 — 2000年前古文明废墟</li></ul><h5>警告</h5><p>地下三层以下需特殊许可。能源核心若停止则天空层坠落。</p>'}
+]},
+{id:'prometheus',name:'元素之城·普罗米修斯',
+desc:'六元素能量汇聚节点。约5万人。元素塔高800米，塔主伊格纳修斯8环。六大元素区域环绕中央。',
+locations:[
+{id:'prometheus-city',name:'普罗米修斯城',desc:'六元素之城',
+detail:'<h5>六大元素区</h5><ul><li>火焰区 — 熔岩河，火焰锻造场</li><li>冰霜区 — 冰晶建筑，冰霜图书馆</li><li>雷电区 — 永恒雷暴，雷电实验室</li><li>大地区 — 巨石建筑，大地工坊</li><li>风之区 — 强风，风之工坊</li><li>水之区 — 运河，水之工坊</li></ul><h5>核心</h5><ul><li>中央元素塔 — 800米，地下连接混沌核心</li><li>混沌广场 — 每周公开决斗</li></ul><h5>节日</h5><p>元素节（夏至七日），冠军获"元素之冠"与五万金。</p>'},
+{id:'element-plain',name:'元素平原',desc:'六大危险区域',
+detail:'<h5>区域</h5><ul><li>火焰荒原、冰霜冻土、雷电风暴区</li><li>大地裂谷、狂风高原、深水沼泽</li><li>混沌核心 — 封印"元素之心"</li></ul><h5>资源</h5><p>元素水晶100-10000金，元素草药。</p>'}
+]},
+{id:'sky-city',name:'浮空岛群·天空之城',
+desc:'约300座高级法师私人浮空岛。海拔1000-5000米。约1万人。6环以上法师可申请私人岛。',
+locations:[
+{id:'cloud-plaza',name:'云端广场',desc:'中转枢纽，海拔1500米',
+detail:'<h5>设施</h5><ul><li>传送门大厅</li><li>浮空电梯站 — 10金/次</li><li>飞行船码头 — 50金/次</li><li>市场 — 飞行扫把500-5000金</li><li>云端酒馆 — 俯瞰阿卡迪亚全景</li></ul>'},
+{id:'star-island',name:'星辰观测岛',desc:'海拔5000米，预言服务10000金/次'},
+{id:'element-trial',name:'元素试炼岛',desc:'六元素分区，租用训练场1000金/日'},
+{id:'time-maze',name:'时间迷宫岛',desc:'时间流速异常，通关奖励10000金'},
+{id:'life-garden',name:'生命花园岛',desc:'永恒春天，魔法生命树，治疗10000-100000金'},
+{id:'dragon-island',name:'龙巢岛',desc:'龙骑训练100000金，租龙10000金/日'},
+{id:'fortune-wheel',name:'幸运之轮',desc:'浮空赌场，24小时营业，免门票'}
+]}
+]},
+south:{
+name:'南境·黄金海岸',
+countries:[
+{id:'gold-port',name:'黄金港',
+desc:'世界贸易中心，联盟首都。约50万人，奴隶约10万。五大商会暗斗。世界最大拍卖行。',
+locations:[{id:'gold-port-city',name:'黄金港',desc:'首都，拍卖行、黄金广场',
+detail:'<h5>区域</h5><ul><li>黄金广场 — 商会议会大厦</li><li>富人区 — 黄金宫酒店100-5000金/晚</li><li>港口区 — 50码头，咸水之歌酒馆</li><li>拍卖区 — 每月首周六大型拍卖</li><li>地下黑市 — 刺客公会、走私仓库</li><li>贫民区 — 自由之翼据点</li></ul><h5>主要NPC</h5><ul><li>马库斯·金手 — 金币商会会长</li><li>卡珊德拉·海女王 — 海洋商会，7环</li><li>瓦尔加·血手 — 血契商会，8环，控制奴隶贸易</li><li>伊莎贝拉·金玫瑰 — 黄金宫老板，6环，情报网</li><li>艾莉亚·自由之翼 — 反抗组织领袖，7环，悬赏10万金</li></ul><h5>拍卖参考</h5><p>普通10-10000金 · 高级1000-100000金 · 龙10-200万金 · 神器10-1000万金</p>'}]},
+{id:'venus',name:'欲望之城·维纳斯',
+desc:'色情产业中心，世界最大红灯区。约30万人，性工作者约5万。五大顶级妓院。',
+locations:[{id:'venus-city',name:'维纳斯',desc:'爱神广场、红灯街',
+detail:'<h5>区域</h5><ul><li>爱神广场 — 15米维纳斯像，玫瑰香水喷泉</li><li>红灯街 — 中档妓院与舞厅</li><li>温泉度假区 — 高档休闲</li><li>表演区 — 维纳斯大剧院</li></ul><h5>五大顶级妓院</h5><ul><li>黄金玫瑰宫 — 最奢华，1000-10000金</li><li>红丝绸庄园 — SM专精，500-5000金</li><li>情梦梦境 — 魔法幻境体验，800-8000金</li><li>天堂之门 — 群交狂欢，200-2000金</li><li>纯洁之莲 — 1000-10000金</li></ul><h5>主要NPC</h5><ul><li>魅拉·金玫瑰 — 妓院联盟主席，7环魅惑师</li><li>塞琳娜·梦行者 — 7环幻术师</li></ul><h5>节日</h5><p>爱神节（春季七日）</p>'}]},
+{id:'colosseum',name:'血沙竞技城·科洛塞姆',
+desc:'角斗与赌博中心。约25万人，角斗士约5000人。魔法项圈系统。大竞技场容5万人。',
+locations:[{id:'colosseum-city',name:'科洛塞姆',desc:'竞技场、训练营、赌场',
+detail:'<h5>竞技场类型</h5><ul><li>大竞技场 — 容5万，六元素区域</li><li>水上竞技场 — 海战模拟</li><li>魔兽竞技场 — 四种地形</li><li>天空竞技场 — 悬浮平台骑乘决斗</li><li>死斗竞技场 — 至一方死亡</li></ul><h5>角斗士等级</h5><p>青铜→白银→黄金→白金→钻石（全球仅2-3人）</p><h5>主要NPC</h5><ul><li>马克西姆斯·血沙 — 竞技场主，7环，150胜0负</li><li>卡尔·铁链 — 现任冠军，7环，200胜0负</li><li>瓦莱莉娅·蛇姬 — 白金级6环，隐藏石化能力</li><li>福图纳·金运 — 赌场老板，与赌博恶魔有契约</li></ul><h5>特殊赛事</h5><p>传奇角斗赛（年度，冠军100万金）。龙之角斗约十年一次。</p>'}]},
+{id:'casablanca',name:'奴隶市场·卡萨布兰卡',
+desc:'世界最大奴隶交易市场。约15万人（自由民8万，奴隶7万）。五大奴隶商家族。',
+locations:[{id:'casablanca-city',name:'卡萨布兰卡',desc:'大奴隶市场、皇家拍卖行',
+detail:'<h5>五大家族</h5><ul><li>铁链家族·瓦伦丁 — 劳工与战斗奴隶</li><li>白玫瑰家族·罗莎 — 性奴</li><li>黄金手家族·奥罗 — 技能与稀有奴隶，7环</li><li>影刃家族·索恩 — 刺客间谍奴隶，7环</li><li>沙漠之鹰·萨哈拉 — 异域奴隶</li></ul><h5>奴隶价格</h5><ul><li>劳工10-50金 · 家仆20-100金</li><li>战斗50-500金 · 性奴100-5000金</li><li>精灵500-10000金 · 法师1000-50000金</li><li>龙裔/龙 1万-100万金</li></ul><h5>特色</h5><p>每月首周六超级拍卖日。魔法项圈控制系统。</p>'}]},
+{id:'merc-fort',name:'雇佣兵之城·佣兵堡',
+desc:'世界最大雇佣兵中心。约15万人。五大兵团。佣兵等级F至S级。',
+locations:[{id:'merc-fort-city',name:'佣兵堡',desc:'五大兵团总部',
+detail:'<h5>五大兵团</h5><ul><li>灰烬军团 — 约5000人，团长瓦列里乌斯6环，大规模战争</li><li>红隼连 — 约1000人，团长塞拉芬6环刺客，暗杀间谍</li><li>铁砧卫队 — 约3000矮人重装，团长博林5环</li><li>逐风骑团 — 约2000人轻骑，团长卡西安5环游侠</li><li>焚天会 — 约800战斗法师，团长玛拉卡尔7环火焰法师</li></ul><h5>区域</h5><ul><li>战士广场 — 公会联盟总部</li><li>训练区 — 大训练场、决斗竞技场</li><li>武器区 — 铁匠街</li><li>酒馆区 — 断剑客栈、铁须酒窖</li><li>地下黑市</li></ul><h5>任务报酬</h5><p>护卫50-5000金 · 讨伐100-10000金 · 战争1000-100000金</p>'}]}
+]},
+elfwood:{
+name:'精灵密林·艾瑞温',
+countries:[{id:'elf-kingdom',name:'精灵王庭',
+desc:'至高王凯兰崔尔3500岁10环统治两千年。世界树高千米树冠覆十公里。进入需精灵血统、德鲁伊身份或特殊许可。',
+detail:'军事：游侠军团5万、德鲁伊守卫1万、树人军团5000。等级制度：王族>贵族>平民>木精灵>半精灵。节日：春分新生节、夏至星光节、秋分丰收节、冬至月光节。',
+locations:[
+{id:'world-tree',name:'银叶王庭',desc:'建在世界树上，至高王宫殿',
+detail:'<h5>设施</h5><ul><li>王座厅 — 活木生长成形</li><li>议会厅</li><li>王室居所</li><li>宝库 — 万年精灵宝物</li><li>花园与观景台 — 俯瞰全境</li></ul><h5>主要NPC</h5><ul><li>至高王凯兰崔尔 — 3500岁10环</li><li>王子埃尔隆德·晨星 — 800岁7环游侠</li><li>公主阿尔温·暮星 — 750岁6环吟游诗人</li><li>德鲁伊大长老瑟兰迪尔 — 2500岁8环</li></ul>'},
+{id:'moon-well-city',name:'月井城',desc:'第二大城市，月井水可愈百病',
+detail:'<h5>设施</h5><ul><li>月井神殿 — 月井水治疗</li><li>治疗中心</li><li>祭司学院</li></ul><h5>主要NPC</h5><ul><li>大祭司加拉德瑞尔 — 2000岁8环牧师</li></ul>'},
+{id:'starsong-grove',name:'星歌林地',desc:'贵族居住区，约10万人'},
+{id:'great-library',name:'大图书馆',desc:'十层树屋藏五十万册',
+detail:'<h5>特色</h5><p>上五层公开，九层禁书，十层仅至高王可入。含亚特兰蒂斯秘辛与法力之书线索。</p><h5>主要NPC</h5><ul><li>馆长埃尔隆德·典藏者 — 2800岁7环</li></ul>'},
+{id:'craftsman-quarter',name:'密林工匠区',desc:'精灵工艺品，工匠约两万'},
+{id:'starsong-forest',name:'星歌森林',desc:'魔法森林，树木随风唱歌',
+detail:'<h5>特色</h5><p>会说话的动物、仙灵栖息。森林会移动迷惑入侵者。游侠统领莱戈拉斯1500岁8环，箭术艾瑞温第一。</p>'}
+]}]},
+dwarf:{
+name:'矮人山脉·卡拉克山',
+countries:[{id:'dwarf-kingdom',name:'矮人王国',
+desc:'至高王索林·铁砧350岁8环狂战士6环工匠。铁砧堡约100万人，世界锻造之都。',
+detail:'熔火城约80万人（火焰锻造中心）、深矿城约60万人（秘银精金产地）。节日：锻造节（春）、建国日（夏）、丰收节（秋）、战士节（冬）。',
+locations:[
+{id:'anvil-fort',name:'铁砧堡',desc:'首都，100万人，世界锻造之都',
+detail:'<h5>核心区域</h5><ul><li>王座大厅 — 88根巨柱刻矮人史诗，永不熄圣火</li><li>大熔炉区 — 中央熔炉高50米，20米奥瑞利安巨像</li><li>居住区 — 石杯酒馆容5000人</li><li>深矿区 — 延至地下5000米</li><li>城防区 — 精金秘银大门高30米</li></ul><h5>主要NPC</h5><ul><li>至高王索林·铁砧 — 350岁8环</li><li>大熔炉总管哈尔坦·焰须 — 500岁锻造大师</li><li>战锤军团总指挥冈尼尔·钢拳 — 400岁</li><li>大祭司沃拉坦·圣火 — 450岁7环</li><li>酒馆老板托里克·阔腹 — 十连冠饮酒赛</li><li>王储巴林 — 100岁5环，勇敢冲动</li><li>公主迪萨 — 80岁4环符文法师</li></ul><h5>商品价格</h5><ul><li>普铁剑50金 · 精钢200金 · 秘银2000金 · 精金5000金</li><li>+1符文剑10000金 · +2符文剑30000金 · +3符文剑100000金</li><li>传奇武器无价，需锻者认可买主</li></ul><h5>石杯酒馆酒价</h5><ul><li>石心烈酒60度 5金</li><li>火焰之吻75度 20金</li><li>龙息90度 50金（外族一杯或昏）</li></ul>'},
+{id:'molten-city',name:'熔火城',desc:'约80万人，火焰锻造中心'},
+{id:'deep-mine-city',name:'深矿城',desc:'约60万人，秘银精金产地'},
+{id:'valahir',name:'瓦拉希尔龙巢（禁地）',desc:'龙族圣地，矮人禁入',
+detail:'<h5>特色</h5><p>最高峰海拔8000米以上。5-10条古龙沉睡，1-2条守护者龙清醒。龙裔约百人守护。违者遭全世界龙族追杀。</p>'}
+]}]},
+underdark:{
+name:'幽暗地域',
+countries:[
+{id:'drow-city',name:'蛛网城·梅兹贝兰赞',
+desc:'最大卓尔城市，20万人（奴隶8万）。蜘蛛女神罗丝圣地。母系社会，八大家族。第一女主母昆瑟尔9环。',
+detail:'军力：女战士2万、男性战士3万、蜘蛛骑兵5000、刺客公会1000、魔法师2000。社会等级：女主母→高等女祭司→贵族女性→男性贵族→平民→男性奴隶→外族奴隶。',
+locations:[{id:'web-city',name:'蛛网城',desc:'卓尔首都',
+detail:'<h5>核心区域</h5><ul><li>巴恩瑞家族宫殿 — 500米黑石尖塔</li><li>罗丝大神殿 — 蜘蛛形建筑，50米黑曜石罗丝像</li><li>魔法学院·索卡瑞斯 — 倒悬金字塔</li><li>战士学院·梅利·玛格索瑞</li><li>蛛丝市场 — 奴隶50-5000金、毒药10-1000金</li><li>奴隶区·深渊之底 — 约8万奴隶</li><li>血网竞技场 — 容2万观众</li></ul><h5>主要NPC</h5><ul><li>昆瑟尔·巴恩瑞 — 第一女主母，500岁9环</li><li>格罗姆夫·巴恩瑞 — 长子，450岁9环大法师</li><li>安德泽尔·巴恩瑞 — 次子，400岁8环战士</li><li>阿拉克妮 — 罗丝使者，8环恶魔</li><li>贝格·巴恩瑞 — 叛逃者三子，350岁7环，悬赏万金</li></ul>'}]},
+{id:'mindflayer-city',name:'心灵要塞·奥瑞恩多尔',
+desc:'夺心魔城市。约5万人（奴隶4.5万）。球形空间直径5公里。长老脑独裁，9环精神力量，8000岁。',
+locations:[{id:'mind-fortress',name:'心灵要塞',desc:'夺心魔巢穴',
+detail:'<h5>结构</h5><ul><li>长老脑池 — 直径100米，长老脑直径10米</li><li>内环 — 夺心魔居住区，精神实验室</li><li>中环 — 奴隶区，精神奴隶约3万</li><li>外环 — 防御区，精神屏障与陷阱</li><li>龙巢 — 脑龙·虚无之牙巢穴</li><li>变异工坊 — 制造脑傀儡与精神兽</li><li>脑宴厅 — 夺心魔集体进食</li></ul><h5>主要NPC</h5><ul><li>长老脑·奥瑞恩 — 9环，8000岁</li><li>脑龙·虚无之牙 — 8环，体长25米</li><li>扎尔库斯 — 首席议员8环，脑龙创造者</li><li>维瑟拉克 — 军事议员8环</li><li>希尔薇斯 — 间谍议员8环</li></ul><h5>警告</h5><p>精神感知警报覆盖方圆5公里。外来者几乎必被精神控制。需抗精神控制装备。</p>'}]},
+{id:'gray-iron',name:'灰铁堡·卡拉克杜尔',
+desc:'最大灰矮人要塞，15万人（奴隶5万）。铁王德罗格300岁8环狂战士。厄奎塔斯圣地。每五十年「平衡之祭」屠半数人口。',
+locations:[{id:'gray-iron-fort',name:'灰铁堡',desc:'灰矮人首都',
+detail:'<h5>核心区域</h5><ul><li>铁王殿 — 高百米黑色火山岩，铁卫千名7-8环</li><li>厄奎塔斯神殿 — 巨天平形，50米巨像</li><li>大锻场 — 数百熔炉沿熔岩河排列</li><li>狂战训场 — 径500米，地面血浸成暗红</li><li>铁笼地狱 — 奴隶囚笼</li><li>铁血竞技场 — 铁板地面熔岩加热</li></ul><h5>主要NPC</h5><ul><li>铁王德罗格·黑铁 — 300岁9环狂战士</li><li>大祭司瓦拉克·寂灭 — 400岁8环</li><li>锻主卡扎克·熔砧 — 350岁7环工匠</li><li>王子巴林·黑铁 — 100岁6环</li></ul><h5>变大狂战</h5><p>体变2.8米重四倍，持续10分钟。代价：每次折寿约一年，过度使用致永久畸变。</p><h5>平衡之祭</h5><p>每五十年一次，屠约七万五千人。下次预计一两年内。</p>'}]},
+{id:'gnome-city',name:'幻影城·布林登斯通',
+desc:'地底侏儒幻术大师的隐秘聚落。中立善良，隐居避战。',
+locations:[{id:'illusion-city',name:'幻影城',desc:'地底侏儒聚落'}]},
+{id:'beholder-lair',name:'眼魔巢穴·克萨瑞斯',
+desc:'眼魔独裁统治的反魔法区域。极度危险。',
+locations:[{id:'beholder-lair-loc',name:'克萨瑞斯',desc:'眼魔巢穴，极危'}]}
+]}
+};
+// ==================== 副职业标签 ====================
+const subProfessions = [
+'铁匠','药剂师','附魔师','珠宝匠','裁缝','皮匠','木匠','石匠','厨师',
+'酿酒师','草药师','毒药师','抄写员','制图师','商人','走私商','情报贩子',
+'赌徒','矿工','伐木工','猎人','渔夫','牧羊人','驯兽师','马夫','船长',
+'车夫','信使','画家','雕刻家','乐器匠','舞者','学者','考古学家',
+'历史学家','占星师','医生','兽医','殡葬师','旅店老板','酒馆老板'
+];
+// ==================== 传承数据（扩充版） ====================
+const talentPool = {
+mythic:[
+{name:'神之眷顾',desc:'被七神之一选中为代行者',effect:'可施展对应神祇的部分神迹，但需承担神明的试炼与使命'},
+{name:'法则之书碎片',desc:'持有三大法则之书的碎片',effect:'获得对应法则的部分力量，但碎片会吸引追杀者'},
+{name:'龙魂共鸣',desc:'与古龙灵魂产生共鸣',effect:'可学习所有龙吼且冷却减半，龙族不会主动攻击你，但龙猎人会盯上你'},
+{name:'时间回溯者',desc:'短暂倒流时间的能力',effect:'在关键时刻可将时间倒流数秒，但每次使用折损寿命'},
+{name:'命运红线',desc:'被命运本身守护',effect:'死亡后会在安全地点复活，但每次复活失去一段重要记忆'},
+{name:'创世神碎片',desc:'体内寄宿李妮妮的能量碎片',effect:'潜力无限，但会被七神、恶魔、天使同时关注'},
+{name:'位面行者',desc:'天生能感知位面裂缝',effect:'可穿梭物质界与其他位面，但容易被位面生物追踪'},
+{name:'不死诅咒',desc:'被古老诅咒缠身',effect:'无法真正死亡，但每次"死亡"后以不死生物形态复活一段时间'},
+{name:'预言之子',desc:'古老预言中的关键人物',effect:'行动影响世界走向，但被多方势力利用或暗杀'},
+{name:'真名隐匿',desc:'真名被从世界中抹除',effect:'免疫一切真名魔法与诅咒，但无法被复活术复活'},
+{name:'世界树之种',desc:'体内孕育着世界树的种子',effect:'自然魔法亲和极强，受伤时植物会自发保护你，但你的血液会吸引所有渴望世界树力量的存在'},
+{name:'深渊凝视',desc:'你曾直视深渊，深渊也在注视你',effect:'可短暂召唤深渊之力摧毁一切，但每次使用后你的一部分人性会被深渊吞噬'},
+{name:'命运织工',desc:'你能看见命运之线',effect:'可感知他人命运的走向并微调结果，但窥视命运的代价是你自己的命运变得模糊不可预测'},
+{name:'镜像存在',desc:'你同时存在于多条时间线中',effect:'致命伤会由另一个时间线的你承受，但你偶尔会混淆哪个世界才是真实的'},
+{name:'万物之语',desc:'你能听懂一切事物的"声音"',effect:'石头、风、火焰、武器都会对你说话，提供信息或警告。但声音永远不会停止，在嘈杂之地可能令你崩溃'},
+{name:'因果倒置',desc:'你的因果律是反转的',effect:'先承受后果，再回溯原因——你会先感到剑伤的疼痛，然后才决定是否躲避。战斗中极难被预判，但生活极为混乱'},
+{name:'灵魂熔炉',desc:'你的灵魂可以暂时容纳其他灵魂',effect:'可吸收刚死之人的灵魂获得其记忆和技能（持续一天），但灵魂过多会导致人格混乱'}
+],
+legendary:[
+{name:'瞬间移动',desc:'空间跳跃能力',effect:'可传送至视线范围内任意位置，但连续使用会导致空间错乱'},
+{name:'元素亲和',desc:'天生的元素掌控力',effect:'选择一种元素，该元素魔法威力大幅提升且消耗减少'},
+{name:'不死之身',desc:'超强再生能力',effect:'非致命伤快速愈合，断肢可再生，但剧痛无法避免'},
+{name:'心灵感应',desc:'读取他人思想',effect:'可感知周围生物的表层思维，但无法关闭会被杂念淹没'},
+{name:'变形术',desc:'改变自身形态',effect:'可变形为任何见过的生物，但长时间变形会迷失自我'},
+{name:'灵魂契约',desc:'与强大存在签订契约',effect:'获得契约者的部分力量，但需定期完成任务'},
+{name:'血脉觉醒',desc:'体内沉睡的古老血脉苏醒',effect:'获得祖先的部分能力，但会被血脉冲动影响性格'},
+{name:'魔法免疫',desc:'天生抗魔体质',effect:'大幅减弱魔法对你的影响，但也无法被治疗魔法治愈'},
+{name:'死亡凝视',desc:'直视你的眼睛会感到恐惧',effect:'可通过眼神震慑敌人，但长期使用会逐渐失去情感'},
+{name:'命运编织',desc:'能模糊感知未来片段',effect:'偶尔梦见未来画面，但无法确定真假且可能被幻象误导'},
+{name:'影之步',desc:'可融入影子中移动',effect:'在阴影中近乎隐形且移动迅速，但在强光下会感到不适甚至灼痛'},
+{name:'仇恨铭刻',desc:'受到的每一次伤害都会被记录',effect:'对同一敌人的伤害会随交手次数递增，但你也会越来越执着于复仇'},
+{name:'生命虹吸',desc:'触碰活物可吸取其生命力',effect:'可通过接触恢复伤势，但无法完全控制，亲密接触时可能误伤'},
+{name:'魔纹',desc:'身体上浮现不断变化的魔法纹路',effect:'可将一个法术铭刻在皮肤上随时释放（无需吟唱），但铭刻的法术越强，纹路扩散越多，覆盖全身时后果未知'}
+],
+epic:[
+{name:'战场直觉',desc:'战斗中的超凡直觉',effect:'能本能预判敌人的攻击轨迹，越冷静越准确'},
+{name:'钢铁意志',desc:'精神抗性极高',effect:'抵抗精神控制、恐惧、魅惑等效果，但容易显得冷酷'},
+{name:'快速学习',desc:'学习能力超群',effect:'观察他人施法或战技后可快速理解原理（不等于掌握）'},
+{name:'魔力充沛',desc:'法术槽比同环位多',effect:'可施展更多法术再力竭，但恢复速度不变'},
+{name:'神圣庇护',desc:'被某位神明关注',effect:'危急时刻可能获得神明微弱帮助，但可能被要求回报'},
+{name:'黑暗视觉',desc:'完全黑暗中也能视物',effect:'不受黑暗影响，但强光会短暂致盲'},
+{name:'野兽之友',desc:'动物天生亲近你',effect:'非魔法野兽不会主动攻击你，可尝试沟通'},
+{name:'毒素抗性',desc:'对毒素天生抗性',effect:'大部分毒素效果减弱，但不完全免疫'},
+{name:'幸运儿',desc:'运气略好于常人',effect:'关键时刻可能发生有利巧合，但不可依赖'},
+{name:'双手灵巧',desc:'左右手同样灵活',effect:'可双持武器或同时进行两项精细操作'},
+{name:'嗜血本能',desc:'鲜血的气味让你亢奋',effect:'闻到血腥味时反应速度和力量提升，但可能失去冷静'},
+{name:'回声定位',desc:'闭眼也能感知周围',effect:'通过声音振动感知10米内一切物体位置，在完全静默环境中失效'},
+{name:'痛觉屏蔽',desc:'可主动关闭痛觉',effect:'战斗中不受疼痛干扰，但也无法感知自身伤势严重程度'},
+{name:'威压',desc:'天生散发强者气场',effect:'弱于你的生物本能感到恐惧退缩，但难以低调行事'}
+],
+rare:[
+{name:'夜行者',desc:'夜晚行动更敏捷',effect:'夜间视力、听力、反应速度提升'},
+{name:'语言天赋',desc:'快速学习语言',effect:'接触新语言后短时间内掌握基础交流'},
+{name:'铁胃',desc:'消化系统强大',effect:'可食用腐败食物不生病，对食物中毒素有抵抗'},
+{name:'方向感',desc:'永远不会迷路',effect:'天生方向感，可凭直觉在陌生地方找到正确道路'},
+{name:'快速恢复',desc:'体力恢复速度快',effect:'休息时恢复效率高于常人，伤口愈合略快'},
+{name:'魔法感知',desc:'能感知魔法波动',effect:'可察觉附近魔法物品、法术残留或隐形生物'},
+{name:'社交天赋',desc:'善于交际',effect:'更容易获得他人好感，谈判时占据优势'},
+{name:'工匠之手',desc:'手工技艺精湛',effect:'制作物品时质量更高，修复物品更容易'},
+{name:'动物直觉',desc:'能理解动物情绪',effect:'可大致判断动物意图和情绪状态'},
+{name:'强健体魄',desc:'身体素质优于常人',effect:'耐力、力量略高于同龄同种族平均水平'},
+{name:'轻功',desc:'脚步极轻',effect:'走路几乎不发出声音，在雪地上留下的脚印也很浅'},
+{name:'酒中真言',desc:'喝酒后判断力不降反升',effect:'微醺状态下直觉更敏锐，但完全清醒时反而犹豫不决'},
+{name:'气候适应',desc:'身体快速适应极端气候',effect:'在极寒极热环境中比常人更舒适，适应期极短'}
+],
+common:[
+{name:'早起者',desc:'习惯早起',effect:'清晨精神状态更好，适合晨间行动'},
+{name:'夜猫子',desc:'习惯熬夜',effect:'深夜精神状态更好，适合夜间行动'},
+{name:'美食家',desc:'对食物敏感',effect:'能品尝出食物细微差别，也能察觉异常'},
+{name:'酒量好',desc:'不易醉酒',effect:'可以喝更多酒保持清醒'},
+{name:'歌喉好',desc:'嗓音悦耳',effect:'唱歌或演讲时更有感染力'},
+{name:'记忆力好',desc:'记忆力略好',effect:'更容易记住面孔、道路和文字'},
+{name:'手巧',desc:'手指灵活',effect:'适合精细工作如开锁、制作小物件'},
+{name:'耐寒',desc:'不怕冷',effect:'寒冷环境下更舒适，不易冻伤'},
+{name:'耐热',desc:'不怕热',effect:'炎热环境下更舒适，不易中暑'},
+{name:'好奇心',desc:'对新事物充满兴趣',effect:'更容易发现隐藏细节和线索'},
+{name:'浅眠',desc:'睡眠很浅',effect:'容易被惊醒，适合值夜但不容易睡足'},
+{name:'左撇子',desc:'惯用左手',effect:'与大多数右手习惯的对手交锋时有微弱的角度优势'},
+{name:'口哨',desc:'能吹出复杂的口哨旋律',effect:'可用于远距离暗号联络，某些动物会被吸引'}
+]
+};
+// ==================== 开场动画 ====================
+document.getElementById('opening').addEventListener('click',function(){
+if(this.classList.contains('open')||matchMedia('(prefers-reduced-motion: reduce)').matches){finishOpening();return;}
+this.classList.add('open');
+setTimeout(()=>{
+this.classList.add('fade-out');
+setTimeout(()=>{finishOpening();},1000);
+},3000);
+});
+// ==================== Tab切换 ====================
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+btn.addEventListener('click',function(){switchTab(this.dataset.tab);});
+});
+function switchTab(t){
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+document.querySelector(`[data-tab="${t}"]`).classList.add('active');
+document.getElementById(`tab-${t}`).classList.add('active');
+worldState.currentTab=t;
+if(t==='preview')generatePreview();
+}
+function nextTab(){const i=TAB_ORDER.indexOf(worldState.currentTab);if(i<TAB_ORDER.length-1)switchTab(TAB_ORDER[i+1]);}
+function prevTab(){const i=TAB_ORDER.indexOf(worldState.currentTab);if(i>0)switchTab(TAB_ORDER[i-1]);}
+// ==================== 区域渲染 ====================
+function initRegions(){
+Object.keys(regionData).forEach(rk=>{
+const region=regionData[rk];
+const grid=document.getElementById(`${rk}-countries`);
+if(!grid)return;
+grid.innerHTML='';
+region.countries.forEach(country=>{
+const card=document.createElement('div');
+card.className='country-card';
+card.innerHTML=`<div class="country-badge">${country.name}</div><p class="desc">${country.desc}</p><span class="loc-count">${country.locations.length}个出生地</span>`;
+card.onclick=function(){
+grid.querySelectorAll('.country-card').forEach(c=>c.classList.remove('selected'));
+this.classList.add('selected');
+worldState.selectedCountry=country;
+worldState.selectedLocation=null;
+// 显示detail
+const dp=document.getElementById(`${rk}-detail`);
+if(dp&&country.detail){dp.innerHTML=`<h4>${country.name} · 详情</h4><p>${country.detail}</p>`;dp.classList.add('visible');}
+else if(dp){dp.classList.remove('visible');}
+// 隐藏loc detail
+const ld=document.getElementById(`${rk}-loc-detail`);if(ld)ld.classList.remove('visible');
+renderLocations(rk,country);
+};
+grid.appendChild(card);
+});
+});
+}
+function renderLocations(rk,country){
+const container=document.getElementById(`${rk}-locations`);
+const list=document.getElementById(`${rk}-loc-list`);
+if(!container||!list)return;
+list.innerHTML='';container.classList.add('visible');
+country.locations.forEach((loc,idx)=>{
+const item=document.createElement('div');
+item.className='location-item';
+item.innerHTML=`<input type="radio" name="location-${rk}" id="loc-${rk}-${idx}" value="${loc.id}"><div class="loc-info"><label for="loc-${rk}-${idx}">${loc.name}</label><div class="loc-desc">${loc.desc}</div></div>`;
+item.onclick=function(){
+list.querySelectorAll('.location-item').forEach(a=>a.classList.remove('selected'));
+this.classList.add('selected');
+this.querySelector('input').checked=true;
+worldState.selectedRegion=rk;
+worldState.selectedCountry=country;
+worldState.selectedLocation=loc;
+// 显示loc detail
+const ld=document.getElementById(`${rk}-loc-detail`);
+if(ld&&loc.detail){ld.innerHTML=loc.detail;ld.classList.add('visible');ld.scrollIntoView({behavior:'smooth',block:'nearest'});}
+else if(ld){ld.classList.remove('visible');}
+// 标记tab完成
+['central','north','west','east','south','elfwood','dwarf','underdark'].forEach(r=>{
+const b=document.querySelector(`[data-tab="${r}"]`);if(b)b.classList.remove('completed');
+});
+document.querySelector(`[data-tab="${rk}"]`).classList.add('completed');
+};
+list.appendChild(item);
+});
+container.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+// ==================== 种族选择 ====================
+function updateRaceOptions(){
+const cat=document.getElementById('race-category').value;
+const sel=document.getElementById('race');sel.innerHTML='';
+(raceData[cat]||[]).forEach(r=>{const o=document.createElement('option');o.value=r.value;o.textContent=r.text;sel.appendChild(o);});
+document.getElementById('custom-race-group').style.display=cat==='custom'?'block':'none';
+onRaceSelected();
+}
+function onRaceSelected(){
+const cat=document.getElementById('race-category').value;
+const val=document.getElementById('race').value;
+const info=document.getElementById('race-info');
+if(cat==='custom'){info.classList.remove('visible');return;}
+const race=(raceData[cat]||[]).find(r=>r.value===val);
+if(race){info.innerHTML=`<h4>${race.text}</h4><p>${race.desc}</p><p style="color:var(--royal-blue);font-weight:bold;">寿命：${race.lifespan}</p>`;info.classList.add('visible');}
+else{info.classList.remove('visible');}
+}
+// ==================== 职业选择 ====================
+function onClassSelected(){
+document.getElementById('custom-class-group').style.display=document.getElementById('main-class').value==='custom'?'block':'none';
+}
+// ==================== 副职业标签 ====================
+function initSubProfTags(){
+const c=document.getElementById('sub-prof-tags');if(!c)return;c.innerHTML='';
+subProfessions.forEach(p=>{
+const b=document.createElement('button');b.className='tag-btn';b.textContent=p;b.type='button';
+b.onclick=function(){this.classList.toggle('selected');};c.appendChild(b);
+});
+const input=document.getElementById('custom-sub-prof');
+if(input)input.addEventListener('keydown',function(e){
+if(e.key==='Enter'){e.preventDefault();const v=this.value.trim();
+if(v){const b=document.createElement('button');b.className='tag-btn selected';b.textContent=v;b.type='button';b.onclick=function(){this.classList.toggle('selected');};c.appendChild(b);this.value='';}}
+});
+}
+// ==================== 能力切换 ====================
+function toggleAbility(el,event){
+const cb=el.querySelector('input[type="checkbox"]');
+if(event?.target!==cb)cb.checked=!cb.checked;
+el.classList.toggle('selected',cb.checked);
+}
+// ==================== 传承抽取 ====================
+let rolledTalents=[],selectedTalents=[];
+let customAbilities = [];
+function rollTalents(){
+const btn=document.getElementById('roll-btn');btn.classList.add('rolling');btn.disabled=true;
+setTimeout(()=>{
+rolledTalents=[];selectedTalents=[];
+for(let i=0;i<8;i++){
+const r=Math.random()*100;let pool,rarity;
+if(r<5){pool=talentPool.mythic;rarity='mythic';}
+else if(r<12){pool=talentPool.legendary;rarity='legendary';}
+else if(r<28){pool=talentPool.epic;rarity='epic';}
+else if(r<58){pool=talentPool.rare;rarity='rare';}
+else{pool=talentPool.common;rarity='common';}
+let t,a=0;do{t=pool[Math.floor(Math.random()*pool.length)];a++;}while(rolledTalents.some(x=>x.name===t.name)&&a<30);
+rolledTalents.push({...t,rarity});
+}
+const ro={mythic:0,legendary:1,epic:2,rare:3,common:4};
+rolledTalents.sort((a,b)=>ro[a.rarity]-ro[b.rarity]);
+renderTalents();btn.classList.remove('rolling');btn.disabled=false;
+document.getElementById('talent-pool').classList.add('visible');
+},1200);
+}
+function renderTalents(){
+const list=document.getElementById('talent-list');list.innerHTML='';selectedTalents=[];
+document.getElementById('talent-selected-count').textContent='0';
+const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+rolledTalents.forEach((t,idx)=>{
+const item=document.createElement('div');item.className=`talent-item ${t.rarity}`;
+item.innerHTML=`<input type="checkbox" id="talent-${idx}"><div class="talent-info"><div class="talent-name">${t.name}<span class="talent-badge ${t.rarity}">${rn[t.rarity]}</span></div><div class="talent-desc">${t.desc}</div><div class="talent-effect">效果：${t.effect}</div></div>`;
+const cb=item.querySelector('input');
+item.addEventListener('click',function(e){if(e.target===cb)return;cb.click();});
+cb.addEventListener('change',()=>{
+if(cb.checked){if(selectedTalents.length>=3){cb.checked=false;alert('最多选择3个传承！');return;}selectedTalents.push(t);item.classList.add('selected');}
+else{selectedTalents=selectedTalents.filter(s=>s.name!==t.name);item.classList.remove('selected');}
+document.getElementById('talent-selected-count').textContent=selectedTalents.length;
+if(selectedTalents.length===3)document.querySelector('[data-tab="heritage"]').classList.add('completed');
+});
+list.appendChild(item);
+});
+}
+// ==================== 预览生成 ====================
+function generatePreview(){
+const gv=id=>document.getElementById(id)?.value||'';
+const gt=id=>{const s=document.getElementById(id);return s?s.options[s.selectedIndex]?.text||'':'';};
+const name=gv('char-name')||'未命名',age=gv('char-age')||'未知';
+const gender=document.querySelector('input[name="gender"]:checked')?.value||'';
+const raceCat=gv('race-category'),raceVal=gv('race');
+let raceName='未选择';
+if(raceCat==='custom'){raceName=gv('custom-race-name')||'自定义种族';}
+else{const r=(raceData[raceCat]||[]).find(x=>x.value===raceVal);raceName=r?r.text:raceVal;}
+const mainClassEl=document.getElementById('main-class');
+let className=mainClassEl.value==='custom'?(gv('custom-class-name')||'自定义职业'):gt('main-class');
+const subProfs=[...document.querySelectorAll('#sub-prof-tags .tag-btn.selected')].map(b=>b.textContent);
+const faith=gt('faith'),ring=gt('ring-level');
+const certified=document.querySelector('input[name="certified"]:checked')?.value||'';
+const appearance=gv('appearance'),personality=gv('personality'),dream=gv('dream'),background=gv('background');
+const combat=[...document.querySelectorAll('input[name="combat"]:checked')].map(i=>i.value);
+const magic=[...document.querySelectorAll('input[name="magic"]:checked')].map(i=>i.value);
+const divine=[...document.querySelectorAll('input[name="divine"]:checked')].map(i=>i.value);
+const general=[...document.querySelectorAll('input[name="general"]:checked')].map(i=>i.value);
+const shouts=[...document.querySelectorAll('input[name="dragonshout"]:checked')].map(i=>i.value);
+// 🔥 这里是新增的关键代码
+const customAbs = customAbilities.map(a => `${a.name}(${a.ring}环)${a.desc !== '无描述' ? ' - ' + a.desc : ''}`);
+
+let birthplace='未选择';
+if(worldState.selectedLocation&&worldState.selectedCountry){
+const rNames={central:'中央·诸王之地',north:'北境·永冬荒原',west:'西境·风暴群岛',east:'东境·奥术帝国',south:'南境·黄金海岸',elfwood:'精灵密林·艾瑞温',dwarf:'矮人山脉·卡拉克山',underdark:'幽暗地域'};
+birthplace=`${rNames[worldState.selectedRegion]||''} > ${worldState.selectedCountry.name} > ${worldState.selectedLocation.name}`;
+}
+const ri={mythic:'[神话]',legendary:'[传说]',epic:'[史诗]',rare:'[稀有]',common:'[普通]'};
+let p=`${'='.repeat(50)}
+  艾尔德兰 · 角色设定卡
+${'='.repeat(50)}
+【基础信息】
+姓名：${name}
+性别：${gender}
+年龄：${age}岁
+种族：${raceName}${raceCat==='custom'&&gv('custom-race-desc')?'\n  '+gv('custom-race-desc'):''}
+【职业】
+主职业：${className}${mainClassEl.value==='custom'&&gv('custom-class-desc')?'\n  '+gv('custom-class-desc'):''}
+${subProfs.length>0?'副职业：'+subProfs.join('、'):''}
+【身份】
+信仰：${faith}
+环位：${ring}
+认证：${certified}
+【出生地】
+${birthplace}
+【战技】
+${combat.length>0?combat.join('、'):'无'}
+【魔法】
+${magic.length>0?magic.join('、'):'无'}
+【神术】
+${divine.length>0?divine.join('、'):'无'}
+【通用技能】
+${general.length>0?general.join('、'):'无'}
+【龙吼】
+${shouts.length>0?shouts.join('、'):'无'}
+【自定义能力】
+${customAbs.length>0?customAbs.map((a,i)=>`${i+1}. ${a}`).join('\n'):'无'}
+【传承】（已选择${selectedTalents.length}/3）
+${selectedTalents.length>0?selectedTalents.map((t,i)=>`${i+1}. ${ri[t.rarity]} ${t.name}\n   ${t.desc}\n   效果：${t.effect}`).join('\n'):'未抽取'}
+【外貌特征】
+${appearance||'未填写'}
+【性格】
+${personality||'未填写'}
+【信念/目标】
+${dream||'未填写'}
+【背景故事】
+${background||'未填写'}
+${'='.repeat(50)}`;
+document.getElementById('preview-box').textContent=p;
+}
+// ==================== 复制 ====================
+function copyPreview(){
+const text=document.getElementById('preview-box').textContent;
+const btn=document.querySelector('.copy-btn');
+if(navigator.clipboard&&navigator.clipboard.writeText){
+navigator.clipboard.writeText(text).then(()=>showCopy(btn,true)).catch(()=>fbCopy(text,btn));
+}else{fbCopy(text,btn);}
+}
+function fbCopy(text,btn){
+const ta=document.createElement('textarea');ta.value=text;
+ta.style.cssText='position:fixed;top:0;left:-9999px;opacity:0;';
+document.body.appendChild(ta);
+try{ta.select();ta.setSelectionRange(0,99999);const ok=document.execCommand('copy');document.body.removeChild(ta);showCopy(btn,ok);}
+catch(e){document.body.removeChild(ta);showCopy(btn,false);}
+}
+function showCopy(btn,ok){
+const orig=btn.textContent;
+btn.textContent=ok?'已复制！':'复制失败，请手动复制';
+btn.style.background=ok?'var(--forest-green)':'var(--crimson)';
+setTimeout(()=>{btn.textContent=orig;btn.style.background='';},2000);
+}
+// ==================== 自定义能力 ====================
+function addCustomAbility(){
+  const name = document.getElementById('custom-ability-name').value.trim();
+  const ring = document.getElementById('custom-ability-ring').value;
+  const desc = document.getElementById('custom-ability-desc').value.trim();
+  // 直接添加，没有任何验证
+  const ability = {
+    id: Date.now(),
+    name: name || '未命名能力',
+    ring: ring,
+    desc: desc || '无描述'
+  };
+  customAbilities.push(ability);
+  renderCustomAbilities();  
+  // 清空输入
+  document.getElementById('custom-ability-name').value = '';
+  document.getElementById('custom-ability-ring').value = '0';
+  document.getElementById('custom-ability-desc').value = '';
+}
+function removeCustomAbility(id){
+customAbilities = customAbilities.filter(a => a.id !== id);
+renderCustomAbilities();
+}
+function escapeCustom(value){return String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function renderCustomAbilities(){
+const container = document.getElementById('custom-abilities-list');
+if(!container) return;
+if(customAbilities.length === 0){
+container.innerHTML = '';
+return;
+}
+container.innerHTML = '<h4 style="font-size:14px;margin-bottom:10px;color:var(--royal-blue);">已添加的自定义能力</h4>';
+customAbilities.forEach(ability => {
+const item = document.createElement('div');
+item.className = 'info-box';
+item.style.cssText = 'position:relative;padding-right:50px;margin-bottom:10px;';
+item.innerHTML = `
+<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+<strong style="font-size:13px;">${escapeCustom(ability.name)}</strong>
+<span style="font-size:11px;padding:2px 8px;background:var(--royal-blue);color:#fff;border-radius:10px;">${escapeCustom(ability.ring)}环</span>
+</div>
+<p style="font-size:12px;color:var(--text-muted);line-height:1.6;">${escapeCustom(ability.desc)}</p>
+<button onclick="removeCustomAbility(${ability.id})" style="position:absolute;top:10px;right:10px;padding:4px 10px;font-size:11px;background:var(--crimson);color:#fff;border:none;cursor:pointer;border-radius:3px;">删除</button>
+`;
+container.appendChild(item);
+});
+}
+// ==================== 初始化 ====================
+window.addEventListener('DOMContentLoaded',function(){
+initRegions();
+updateRaceOptions();
+initSubProfTags();
+});
+</script>
+<script>
+function finishOpening(){document.getElementById('opening').style.display='none';document.getElementById('main').classList.add('active');}
+const opening=document.getElementById('opening');
+opening.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();opening.click();}});
+// Preserve native checkbox activation; keyboard users can also reach the
+// author-created country, location, ability and talent cards.
+function enhanceControls(){
+ document.querySelectorAll('.country-card,.location-item').forEach(el=>{if(el.dataset.keyboard)return;el.dataset.keyboard='1';el.tabIndex=0;el.setAttribute('role','button');el.addEventListener('keydown',e=>{if(e.target===el&&(e.key==='Enter'||e.key===' ')){e.preventDefault();el.click();}});});
+ document.querySelectorAll('input,select,textarea').forEach(el=>{if(el.labels?.length||el.getAttribute('aria-label'))return;const label=el.closest('.form-group')?.querySelector('label')?.textContent||el.parentElement?.textContent||el.placeholder||el.id;el.setAttribute('aria-label',label.trim().slice(0,100));});
+ const dwarf=document.querySelector('#tab-dwarf .world-map');if(dwarf)dwarf.alt='矮人山脉地图';
+}
+window.addEventListener('DOMContentLoaded',enhanceControls);
+const controlObserver=new MutationObserver(enhanceControls);
+controlObserver.observe(document.querySelector('.content-wrapper'),{childList:true,subtree:true});
+window.addEventListener('pagehide',()=>controlObserver.disconnect());
+const chatButton=document.getElementById('open-chat');
+if(new URLSearchParams(location.search).get('chat')==='1'&&parent!==window){
+ chatButton.hidden=false;
+ chatButton.addEventListener('click',()=>{generatePreview();const text=document.getElementById('preview-box').textContent;if(text.length>20000){document.getElementById('transfer-status').textContent='角色卡超过 20,000 字，请精简自定义内容后再带入聊天。';return;}parent.postMessage({type:'elderland-opening',text},new URL(location.href).origin);});
+}
+</script></body>
+</html>

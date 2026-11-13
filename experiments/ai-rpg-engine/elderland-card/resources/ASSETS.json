@@ -1,0 +1,79 @@
+[
+  {
+    "url": "https://pic1.imgdb.cn/item/69ea34314f30acb4eeb0b0d0.jpg",
+    "file": "background.jpg",
+    "bytes": 617901,
+    "sha256": "8ce60f6c3fb4f3d3cc94390e465149c0a0d83c5d5a74e22114489cb8135cac38",
+    "mediaType": "image/jpeg"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69ea33194f30acb4eeb0ae13.jpg",
+    "file": "opening.jpg",
+    "bytes": 434066,
+    "sha256": "e2f0b7aaff8373da73e59421b99fed75fe71fc4afe1b8f0c7629bc61984c795a",
+    "mediaType": "image/jpeg"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f0b36f76a7fecb5ef30222.png",
+    "file": "world-map.png",
+    "bytes": 3463683,
+    "sha256": "47a44d372edd9c657ce91d53095ce7bc013f10da95a336ba15292cae2fe5cb8d",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f35a92f97149b1cf37a17b.png",
+    "file": "central-map.png",
+    "bytes": 3540005,
+    "sha256": "796606ea74e02279c0936f06384fd36f05f8f6dfa810b4950bd41df84a89573f",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f0b1ff76a7fecb5ef2fcd1.png",
+    "file": "north-map.png",
+    "bytes": 3433436,
+    "sha256": "b883a15ece62110e57400a4b0e97d8ba0b868f5e720f0348020f79a9d827cbf0",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f0b27a76a7fecb5ef30006.png",
+    "file": "west-map.png",
+    "bytes": 3292733,
+    "sha256": "1247a8410e7967a5a27795c34fa180e5e435133163b76c8fcb3fa6cf184be9a1",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f0b2c276a7fecb5ef301f1.png",
+    "file": "east-map.png",
+    "bytes": 3375273,
+    "sha256": "0ea4049f119bd73dd42053d42444a0ed441dd0c48b5b178da9bae015e0807935",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f0b2dc76a7fecb5ef301fb.png",
+    "file": "south-map.png",
+    "bytes": 3487580,
+    "sha256": "e6fcd309de53a25f8ebad48a2b7a78580cc96db52b778ac32da253f9cbf31521",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f1e14311cab19f79eb4730.png",
+    "file": "elfwood-map.png",
+    "bytes": 3513444,
+    "sha256": "b20c516d11f7539bb278988b9f554619e4429038d20cb34fff89bcf5284c74a8",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f1e19a11cab19f79eb4830.png",
+    "file": "dwarf-map.png",
+    "bytes": 3159798,
+    "sha256": "615ab7725df72753baba107c35f4acae95a938e30ec581878704fdac737e269a",
+    "mediaType": "image/png"
+  },
+  {
+    "url": "https://pic1.imgdb.cn/item/69f1e1f911cab19f79eb4929.png",
+    "file": "underdark-map.png",
+    "bytes": 3059954,
+    "sha256": "96fcb99834c2de7db1e3e7af5cdc0e4488791a0569854d593b5c796a0611a8a4",
+    "mediaType": "image/png"
+  }
+]

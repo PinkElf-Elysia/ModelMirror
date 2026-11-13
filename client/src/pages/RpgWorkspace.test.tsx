@@ -19,6 +19,7 @@ it.each([
  ['douluo','/rpg-app/douluo/chat/'],['blue-fish','/rpg-app/blue-fish/chat/'],
  ['dragon-raja','/rpg-app/dragon-raja/chat/'],
  ['jinyong','/rpg-app/jinyong/chat/'],
+ ['elderland','/rpg-app/elderland/chat/'],
  ['ai-girls','/rpg-app/ai-girls/chat/'],
  ['medieval','/rpg-app/medieval/chat/'],
  ['harry-potter','/rpg-app/harry-potter/chat/'],

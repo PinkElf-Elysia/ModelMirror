@@ -20,7 +20,7 @@ export async function createIllustrationWriter(directory,config){
   if(!config)return null;
   const model=config.model||models.earth.model;
   const providers=new Map();
-  for(const cardId of ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','douluo','dragon-raja','jinyong','medieval','harry-potter']){
+  for(const cardId of ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','douluo','dragon-raja','jinyong','medieval','elderland','harry-potter']){
     providers.set(cardId,await (cardId==='harry-potter'?createHarryPotterProvider:cardId==='medieval'?createMedievalProvider:cardId==='jinyong'?createJinyongProvider:createControlledProvider)({...config,directory:join(directory,'illustration-rewrites'),cardId,
       catalogModels:[model],modelPolicy:{cardId,parametersFor,sameParameters}}));
   }

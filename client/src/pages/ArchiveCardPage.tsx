@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  elderland:'西幻大世界 · 艾尔德兰',
   medieval:'中世纪真实人生',
   'ai-girls':'完蛋！我被AI娘包围了！',
   'harry-potter':'哈利波特大世界（霍格沃兹）',

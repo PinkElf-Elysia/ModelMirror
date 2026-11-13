@@ -28,22 +28,22 @@ it('failed reads never automatically retry',async()=>{
  render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);await screen.findByRole('alert');expect(fetcher).toHaveBeenCalledTimes(1);
  fireEvent.click(screen.getByRole('button',{name:'重新读取'}));await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2));
 });
-it('shows thirteen cards even when the status service fails, and does not dispatch a model',async()=>{
+it('shows fourteen cards even when the status service fails, and does not dispatch a model',async()=>{
  const fetcher=vi.fn().mockRejectedValue(Error('offline'));vi.stubGlobal('fetch',fetcher);render(<MemoryRouter><RpgPage/></MemoryRouter>);
- for(const title of ['哈利波特大世界（霍格沃兹）','中世纪真实人生','完蛋！我被AI娘包围了！','金庸大世界','龙族大世界','蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生','地球 OL','神临凡尘','超级修仙','行间'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
- for(const [card,title] of [['harry-potter','哈利波特大世界（霍格沃兹）'],['medieval','中世纪真实人生'],['ai-girls','完蛋！我被AI娘包围了！'],['jinyong','金庸大世界'],['dragon-raja','龙族大世界'],['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
+ for(const title of ['哈利波特大世界（霍格沃兹）','西幻大世界','中世纪真实人生','完蛋！我被AI娘包围了！','金庸大世界','龙族大世界','蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生模拟器','地球online','上帝模拟器','修仙大世界','无限世界'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
+ for(const [card,title] of [['harry-potter','哈利波特大世界（霍格沃兹）'],['medieval','中世纪真实人生'],['elderland','西幻大世界'],['ai-girls','完蛋！我被AI娘包围了！'],['jinyong','金庸大世界'],['dragon-raja','龙族大世界'],['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
  const library=within(screen.getByRole('region',{name:'全部作品'}));
- expect(library.getAllByRole('article')).toHaveLength(13);
+ expect(library.getAllByRole('article')).toHaveLength(14);
  for(const article of library.getAllByRole('article'))expect(article).toHaveClass('rpg-story-card');
  expect(screen.getByRole('link',{name:'插件市场'})).toHaveAttribute('href','/rpg/plugins');
- await screen.findByText(/部分存档暂时读不到/);expect(fetcher).toHaveBeenCalledTimes(26);
+ await screen.findByText(/部分存档暂时读不到/);expect(fetcher).toHaveBeenCalledTimes(28);
  expect(fetcher.mock.calls.every(([,options])=>!options.method)).toBe(true);
  expect(document.body).not.toHaveTextContent(/验收|复刻|本轮剩余|行间暂不兼容/);
 });
 it.each([
  ['harry-potter','/rpg-app/harry-potter/chat/api/plugins'],['douluo','/rpg-app/douluo/chat/api/plugins'],['blue-fish','/rpg-app/blue-fish/chat/api/plugins'],['earth','/rpg-app/api/plugins'],['god','/rpg-app/api/plugins'],['ancient','/rpg-app/ancient/chat/api/plugins'],
  ['cultivation','/rpg-app/cultivation/chat/api/plugins'],['lord-of-mysteries','/rpg-app/lord-of-mysteries/chat/api/plugins'],['rpg05','/rpg-app/xingjian/api/plugins'],
- ['ai-girls','/rpg-app/ai-girls/chat/api/plugins'],['dragon-raja','/rpg-app/dragon-raja/chat/api/plugins'],['jinyong','/rpg-app/jinyong/chat/api/plugins'],
+ ['medieval','/rpg-app/medieval/chat/api/plugins'],['elderland','/rpg-app/elderland/chat/api/plugins'],['ai-girls','/rpg-app/ai-girls/chat/api/plugins'],['dragon-raja','/rpg-app/dragon-raja/chat/api/plugins'],['jinyong','/rpg-app/jinyong/chat/api/plugins'],
 ])('reads and changes only the selected %s installation registry',async(card,root)=>{
  const fetcher=vi.fn(async()=>Response.json({revision:8,plugins:[plugin]}));vi.stubGlobal('fetch',fetcher);
  render(<MemoryRouter initialEntries={['/rpg/plugins?card='+card]}><RpgPluginsPage/></MemoryRouter>);

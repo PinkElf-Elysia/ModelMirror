@@ -73,3 +73,15 @@ npx.cmd vitest run --maxWorkers=1 src/pages/HarryPotterCard.test.ts src/pages/Ha
 - 当前 `origin/main` 仍为 `a237f26f`，没有提交前基线漂移。
 
 暂存审核：223 个文件（含 164 个字体分段），无测试数据/凭据/构建目录；逐文件暂存字节与工作树相同，凭据特征扫描零命中。普通 `git diff --cached --check` 对原素材和生成副本中的 CRLF、许可证原始行尾空白报错；为保留作者资源哈希而不格式化这些字节。工程代码与文档范围的差异检查通过；原素材由冻结哈希与生成一致性测试验证，不隐藏全局 whitespace 失败。
+
+## PR #460 主线冲突同步
+
+用户要求解决合并冲突；从干净的 c5b5ab0d 合入 origin/main@806d8e6e，包含西幻 #459 和故事馆封面 #461。11 个冲突集中在共享注册与路由，必须作为一致的跨层接线一起解决。保留双方卡片、插件和帮助文章，保留主线封面/品牌/西幻作品详情；补齐新 libraryCopy 的哈利波特文案和 14 卡计数。提示词、卡片原 HTML、冻结宿主和现有真实存档不改。相关 Node/Vitest、两处构建及冻结字节检查通过后提交合并并推送同一 PR；不部署、不合入 main、不追加真实调用。
+
+合并回归结果：
+
+- `node --test` 运行 illustration-persistence、illustrations、archive-plugins、local-owner、card-entry、branches-http、harry、harry-potter-presentation、custom-config，以及 elderland/elderland 和 elderland/control：最终 43/43 通过，含双方八插件与受控假服务。
+- Vitest 单 worker 运行 HarryPotterCard、HarryPotterOutput、RpgWorkspace、RpgPluginsPage、RpgFreeOpening、RpgLibrary、RpgAuthoringEntry、HelpCenterPage：首次 172/177，修复自由开局 API 路由和新主线文案/数量断言后，失败所涉四文件 74/74 通过；其他四文件 103/103 已通过。没有删除、跳过或放宽测试。
+- 聊天前端与主前端 `npm.cmd run build` 通过。主线既有帮助图片契约失败与构建告警仍按上文记录，本轮不扩展处理。
+- `verify-replay.mjs merge-806d8e6e-replay` 通过：旧四轮复制件强杀恢复相同，36 份 dispatch 和 8 个冻结文件不变；真实调用 0、凭据读取 0。
+- 哈利波特整个卡包相对 c5b5ab0d 无差异，作者提示词未改；新增差异仅为双方接线和主线故事馆展示适配。保留原预览证据，不将本次自动回归冒充新的人工界面全验收。
