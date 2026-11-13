@@ -1,5 +1,6 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
+  {id:'elderland',name:'西幻大世界',description:'艾尔德兰——剑与魔法的命运织机。它不关心你是谁，只关心你能成为谁。',genre:'西幻 · 剑与魔法',mark:'幻',art:'/rpg-app/elderland/background.jpg'},
   {id:'medieval',name:'中世纪真实人生',description:'公元四至十五世纪，选择时代、出身与技艺，开启属于自己的此生。',genre:'历史 · 中世纪',mark:'纪',art:'/rpg-app/medieval/background.jpg'},
   {id:'jinyong',name:'金庸大世界',description:'群侠并世，江湖未定。选择一部传奇，或踏入群侠交汇的江湖。',genre:'武侠 · 群像',mark:'侠',art:'/rpg-app/jinyong/background.jpg'},
   {id:'ai-girls',name:'完蛋！我被AI娘包围了！',description:'八位 AI 娘搬进同一个屋檐下。从一份主角档案，开始热闹的日常。',genre:'都市 · AI 群像',mark:'AI',art:'/rpg-app/ai-girls/assets/xn1f6k.png'},
@@ -16,7 +17,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','medieval'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','elderland','medieval'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

@@ -26,6 +26,7 @@ COPY xingjian-card ./xingjian-card
 COPY lord-of-mysteries-card/public ./lord-of-mysteries-card/public
 COPY lord-of-mysteries-card/resources ./lord-of-mysteries-card/resources
 COPY lord-of-mysteries-card/assembly.mjs ./lord-of-mysteries-card/assembly.mjs
+COPY elderland-card ./elderland-card
 COPY dragon-raja-card/public ./dragon-raja-card/public
 COPY dragon-raja-card/resources ./dragon-raja-card/resources
 COPY dragon-raja-card/assembly.mjs ./dragon-raja-card/assembly.mjs

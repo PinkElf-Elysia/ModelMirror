@@ -1,0 +1,22 @@
+{
+  "cardId": "elderland",
+  "sourceURL": "https://afengy.cash/zh/explore/installed/9861186f-8af4-411b-b771-07e45ee29386",
+  "sourceDocument": {
+    "name": "西幻提示词.docx",
+    "sha256": "315feb1f76ec2ee3a39e9f9cc2e0dd3550d6b52e3d4905683e778ef53b3f3a7c",
+    "documentXmlSha256": "31c8364bb5b31e34d52c10c3ba83f67da4b39f3893499260c91c049438580e89",
+    "extraction": "Word paragraphs in document order; w:t verbatim, w:tab as tab, w:br/w:cr as newline; paragraphs joined by newline; no trim, rewrite or filtering.",
+    "paragraphs": 2843
+  },
+  "system": {
+    "sha256": "bbb79d8bb999d065b6a33e231f58e459e5b9bdabc1493ad382c9310131e0f75c",
+    "unicodeCharacters": 66964
+  },
+  "frontend": {
+    "sha256": "0724f7796b52d402a7dc1208dd035ed54ca6cff413565510aed97a86f6835278",
+    "unicodeCharacters": 94741
+  },
+  "summary": {
+    "sha256": "73bc1d1659a15c8212eb3eccaf15c2c4814afe16e943ffbafd65c4b7e514ce0a"
+  }
+}
