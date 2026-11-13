@@ -282,10 +282,12 @@ check('parameter host output editing keeps typed settings and receipts, without 
 check('optional speech works across typed cards and exact pre-speech saves remain compatible',async t=>{
  const f=await fixture(t,{speech:true});
  const baseline=JSON.parse(await readFile(new URL('./speech-baseline.fixture.json',import.meta.url),'utf8'));
+ const mainBaseline=JSON.parse(await readFile(new URL('./speech-main-baseline.fixture.json',import.meta.url),'utf8'));
  for(const card of Object.keys(GENERATION_CARDS)){
   const store=f.h.hosts.get(card).store,s=await store.create(inputFor(card));
   const old=clone(s);old.runtime.descriptor.hostArtifacts=baseline.generationArtifacts;old.runtime.hash=sha256(canonical(old.runtime.descriptor));
   assert.equal(store.status(old).compatible,true,card+' baseline');
+  const mainOld=clone(s);mainOld.runtime.descriptor.hostArtifacts=mainBaseline.generationArtifacts;mainOld.runtime.hash=sha256(canonical(mainOld.runtime.descriptor));assert.equal(store.status(mainOld).compatible,true,card+' current main');
   const drift=clone(old);drift.runtime.descriptor.hostArtifacts['studio/card-context.mjs']='0'.repeat(64);drift.runtime.hash=sha256(canonical(drift.runtime.descriptor));assert.equal(store.status(drift).compatible,false,card+' drift');
   await grant(f,s,'rpg.speech');
   const ticket=await f.h.plugins.invoke({sessionId:s.id,pluginId:'rpg.speech',capability:'session.speech.generate',input:{}});

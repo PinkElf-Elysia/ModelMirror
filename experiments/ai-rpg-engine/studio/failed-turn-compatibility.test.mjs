@@ -1,3 +1,4 @@
+import {beforeSpeechDescriptor} from './speech-compatibility.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -8,7 +9,7 @@ import {sha,canonical} from '../plugins/catalog.mjs';
 const baseline=JSON.parse(await readFile(new URL('./failed-turn-baseline.json',import.meta.url)));
 for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus,2],['memory',memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus,3]])test(name+' main save keeps exact binding and rejects tampered content/setup',()=>{
  const source={characterText:'成年旅人',world:'表世界',params:{},mode:'offline'};
- source.runtime=bind(source);const saved=structuredClone(source),d=saved.runtime.descriptor;
+ source.runtime=bind(source);const saved=structuredClone(source),d=beforeSpeechDescriptor(saved.runtime.descriptor);saved.runtime.descriptor=d;
  for(const [path,digest] of Object.entries(baseline.artifacts))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
  d.baseRuntimeHash=baseline.baseHashes[index];saved.runtime.hash=sha(canonical(d));
  assert.notEqual(saved.runtime.hash,runtime.hash);assert.equal(saved.runtime.hash,baseline.baseHashes[index+1]);

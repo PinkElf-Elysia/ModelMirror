@@ -1,4 +1,4 @@
-import {beforeSpeechDescriptor} from './speech-compatibility.mjs';
+import {beforeSpeechDescriptor,beforeSpeechMainDescriptor} from './speech-compatibility.mjs';
 // Opt-in host for newly-created six-card sessions. No migration or quota creation.
 import {emptyCardRequirements,forkCardRequirements} from './card-requirements.mjs';
 import {readFile} from 'node:fs/promises';
@@ -57,9 +57,9 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
    const policy=cardParameterPolicy(cardId,initial),state=createCardParameterState(policy),assemble=await frozenCardAssembly(cardId),context=createCardContext({cardId,state,assemble});
    const descriptor={format:5,cardId,release:'typed-generation-cards/1',hostArtifacts:frozen,initialModel:defaultModel};
    const beforeEdit={...descriptor,hostArtifacts:Object.fromEntries(Object.entries(frozen).filter(([p])=>!editFiles.includes(p)).map(([p,h])=>[p,p==='studio/generation-cards.mjs'?'6764cacd029b5f3723fbbc97f1b54353b05f22e09005e9a96fc52c062f7e6b4c':h]))};
-   const beforeEditHash=digest(beforeEdit),beforeSpeechHash=digest(beforeSpeechDescriptor(descriptor));
+   const beforeEditHash=digest(beforeEdit),beforeSpeechHash=digest(beforeSpeechDescriptor(descriptor)),beforeSpeechMainHash=digest(beforeSpeechMainDescriptor(descriptor));
    const runtime={descriptor,hash:digest(descriptor),async verify(){if(canonical(await artifacts())!==canonical(frozen))throw fail('RUNTIME_FILES_CHANGED_RESTART_REQUIRED');}};
-   const profile={runtime,state,context,initialSelection:()=>policy.fixedChoice(),create:data=>configuration(cardId,data),bind:s=>({format:5,hash:runtime.hash,descriptor:clone(descriptor),setupHash:setupHash(s)}),status:s=>({compatible:s.cardId===cardId&&s.mode==='real'&&[runtime.hash,beforeEditHash,beforeSpeechHash].includes(s.runtime?.hash)&&digest(s.runtime.descriptor)===s.runtime.hash&&s.runtime.setupHash===setupHash(s),code:[runtime.hash,beforeEditHash,beforeSpeechHash].includes(s.runtime?.hash)?null:'PARAMETER_LEGACY_READ_ONLY'})};
+   const profile={runtime,state,context,initialSelection:()=>policy.fixedChoice(),create:data=>configuration(cardId,data),bind:s=>({format:5,hash:runtime.hash,descriptor:clone(descriptor),setupHash:setupHash(s)}),status:s=>({compatible:s.cardId===cardId&&s.mode==='real'&&[runtime.hash,beforeEditHash,beforeSpeechHash,beforeSpeechMainHash].includes(s.runtime?.hash)&&digest(s.runtime.descriptor)===s.runtime.hash&&s.runtime.setupHash===setupHash(s),code:[runtime.hash,beforeEditHash,beforeSpeechHash,beforeSpeechMainHash].includes(s.runtime?.hash)?null:'PARAMETER_LEGACY_READ_ONLY'})};
    const Store=createParameterStore(profile),store=new Store(join(directory,cardId),()=>{throw fail('NO_OFFLINE_FALLBACK')});await store.init();store.parameterControl=control;store.comparisonEnabled=comparison;
    // A branch receives the settings frozen at the selected turn, never today's edits.
    const prepare=store.archive.prepare.bind(store.archive);store.archive.prepare=(s,i)=>{const selected=s.turns[i.turn-1]?.model?.selection?.parameterContext;const e=prepare({...s,generationParameters:emptyCardParameters(selected?.values)},i),requirements=forkCardRequirements(s,i.turn);

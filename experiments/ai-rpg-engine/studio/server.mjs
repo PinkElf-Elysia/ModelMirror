@@ -187,7 +187,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
    }
    let data={};
    if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
-   const speechRoute=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland|medieval)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/speech\/([a-zA-Z0-9-]+)$/);
+   const speechRoute=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland|medieval|harry-potter)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/speech\/([a-zA-Z0-9-]+)$/);
    if(speechRoute&&speech){
     const [,card,id,action]=speechRoute;
     const speechHost=generationHost?.hosts.has(card)?{store:generationHost.hosts.get(card).store,plugins:generationHost.plugins}:card==='earth'?{store:earth,plugins}:card==='god'?{store:godHost?.store,plugins}:card==='xingjian'?await xingjian():await archiveHost(card);

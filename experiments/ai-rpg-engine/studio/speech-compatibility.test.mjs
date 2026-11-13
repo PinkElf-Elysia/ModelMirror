@@ -6,6 +6,7 @@ import {start} from './server.mjs';
 import {createArchiveHost} from '../xingjian-card/host.mjs';
 import {createJinyongHost} from '../jinyong-card/host.mjs';
 import {createMedievalHost} from '../medieval-card/host.mjs';
+import {createHarryPotterHost} from '../harry-potter-card/host.mjs';
 import {sha,canonical} from '../plugins/catalog.mjs';
 const fixture=JSON.parse(await readFile(new URL('./speech-baseline.fixture.json',import.meta.url),'utf8'));
 const cases=(store,state,label)=>{
@@ -26,5 +27,18 @@ test('baseline archive saves keep full descriptor checks for optional speech int
   const factory=id==='jinyong'?createJinyongHost:id==='medieval'?createMedievalHost:createArchiveHost;
   const h=await factory(await mkdtemp(join(tmpdir(),'speech-archive-')),null,{cardId:id,name:'测试',system:'测试世界',pluginFeatures:{speech:true}});
   try{cases(h.store,fixture.sessions[id],id);const c=await h.plugins.catalog();assert(c.plugins.some(p=>p.id==='rpg.speech'));}finally{await h.plugins.close();}
+ }
+});
+
+const mainFixture=JSON.parse(await readFile(new URL('./speech-main-baseline.fixture.json',import.meta.url),'utf8'));
+test('main fefc14b0 saves retain exact runtime and setup protection with speech',async()=>{
+ for(const memory of [false,true]){
+  const h=await start({directory:await mkdtemp(join(tmpdir(),'speech-main-')),port:0,godCard:true,godPlugins:memory,rollingSummary:memory,memoryPalace:memory,historyWindow:memory,autoSummaryV2:memory});
+  try{cases(h.earth,mainFixture.sessions[memory?'earthMemory':'earth'],'main earth');cases(h.god,mainFixture.sessions[memory?'godMemory':'god'],'main god');}finally{await new Promise(r=>h.server.close(r));await h.plugins.close();}
+ }
+ for(const id of ['cultivation','xingjian','jinyong','medieval','harry-potter']){
+  const factory=id==='harry-potter'?createHarryPotterHost:id==='jinyong'?createJinyongHost:id==='medieval'?createMedievalHost:createArchiveHost;
+  const h=await factory(await mkdtemp(join(tmpdir(),'speech-main-archive-')),null,{cardId:id,name:'测试',system:'测试世界',pluginFeatures:{speech:true}});
+  try{cases(h.store,mainFixture.sessions[id],id);assert((await h.plugins.catalog()).plugins.some(p=>p.id==='rpg.speech'));}finally{await h.plugins.close();}
  }
 });
