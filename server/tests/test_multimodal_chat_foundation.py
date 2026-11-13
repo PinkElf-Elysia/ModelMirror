@@ -660,6 +660,7 @@ async def test_audio_catalog_marks_enabled_direct_openai_realtime_ready(
     [
         ("meta/muse-wonder", ["wav"]),
         ("google/gemini-4-argon", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
+        ("google/gemini-4-carbon", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
         ("google/gemini-3.8-flash", ["aac", "flac", "m4a", "mp3", "ogg", "wav"]),
         ("meta/muse-spark-1.3", ["wav"]),
         ("meta/muse-spark-1.3-contributor", ["wav"]),

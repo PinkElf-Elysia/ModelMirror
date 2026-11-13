@@ -230,11 +230,11 @@ describe("OpenRouter model refresh", () => {
   });
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(795);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(624);
-    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(133);
-    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(38);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(757);
+    expect(counted).toHaveLength(822);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(646);
+    expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(139);
+    expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(37);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(785);
   });
 
   it("keeps October 7 decisions and media off the ordinary text-only route", () => {
@@ -656,7 +656,7 @@ describe("OpenRouter model refresh", () => {
     expect(byId.get("~deepseek/deepseek-pro-latest")?.pricing.output).toBeCloseTo(8);
     expect(byId.get("~deepseek/deepseek-flash-latest")).toMatchObject({
       context_length: 1_048_576,
-      pricing: {"input":0.006,"output":0.5},
+      pricing: {"input":0.038000000000000006,"output":0.5},
       input_modalities: ["text", "image"],
       operations: ["analyze_image", "chat"],
     });
@@ -978,18 +978,20 @@ describe("OpenRouter model refresh", () => {
     for (const id of ["meta/muse-spark-1.3", "meta/muse-spark-1.3-contributor"]) {
       const model = models.find((item) => item.id === id);
       expect(model?.openrouter_market).toMatchObject({
-        series: "Other", author: "meta", providers: ["Meta"],
-        zero_data_retention: false,
+        series: "Other",
+        author: "meta",
+        providers: id === "meta/muse-spark-1.3" ? ["Google"] : ["Meta"],
+        zero_data_retention: id === "meta/muse-spark-1.3",
       });
       expect(model?.note).toContain("音频理解尚未完整支持");
     }
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.note)
       .toContain("输入与输出可能用于改进 Meta 产品");
     expect(models.find((item) => item.id === "meta/muse-spark-1.3")?.openrouter_market.categories)
-      .toEqual(["trivia"]);
+      .toEqual([]);
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
-        "programming", "roleplay", "marketing", "marketing/seo", "technology",
+        "programming", "marketing", "marketing/seo", "technology",
         "science", "translation", "legal", "finance", "trivia", "academia",
       ]);
   });
@@ -1012,13 +1014,14 @@ describe("OpenRouter model refresh", () => {
   });
 
   it("places V4.1 Flash in the former V4 default slot and demotes earlier V4 models", () => {
-    expect(models[0]?.id).toBe("anthropic/claude-opus-5.5");
+    expect(models[0]?.id).toBe("anthropic/claude-fable-5.2");
     expect(models[1]?.id).toBe("openai/gpt-6-astra");
     expect(models[2]?.id).toBe("openai/gpt-6.1-sol");
     expect(models[3]?.id).toBe("deepseek/deepseek-v4.1-flash-1017");
     expect(models.findIndex(model => model.id === "deepseek/deepseek-v4.1-flash")).toBeGreaterThanOrEqual(20);
-    expect(models[4]?.id).toBe("anthropic/claude-fable-5.1");
+    expect(models[4]?.id).toBe("anthropic/claude-opus-5.5");
     expect(models[7]?.id).toBe("bytedance-seed/seedream-5-0-pro");
+    expect(models[17]?.id).toBe("anthropic/claude-fable-5.1");
     for (const legacyId of [
       "deepseek/deepseek-v4-flash-0731",
       "deepseek/deepseek-v4-pro-0813",
@@ -1039,7 +1042,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: {"input":0.051,"output":0.5670000000000001},
+      pricing: { input: 0.3, output: 1.2 },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -1271,7 +1274,7 @@ describe("OpenRouter model refresh", () => {
         "analyze_video",
         "chat",
       ]),
-      context_length: 1_024_000,
+      context_length: 1_048_575,
       pricing_status: "fixed",
       pricing_basis: "token",
       openrouter_market: {
@@ -1324,7 +1327,7 @@ describe("OpenRouter model refresh", () => {
       interaction_status: "ready",
       ui_entrypoint: "chat",
       context_length: 1_048_576,
-      pricing: {"input":0.0699,"output":1.4},
+      pricing: {"input":0.08399999999999999,"output":3.5999999999999996},
       reasoning_declared: true,
       openrouter_market: { author: "z-ai" },
     });
@@ -1632,8 +1635,8 @@ describe("OpenRouter model refresh", () => {
         "tools",
       ]),
     });
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.15);
-    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.5);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.input).toBeCloseTo(0.0399);
+    expect(byId.get("z-ai/glm-5.3-flash")?.pricing.output).toBeCloseTo(0.0784);
 
     expect(byId.get("tencent/hy-mt2-7b")).toMatchObject({
       input_modalities: ["text"],
@@ -1867,7 +1870,7 @@ describe("OpenRouter model refresh", () => {
         "tool_use",
       ]),
       context_length: 1_048_576,
-      pricing: { input: expect.closeTo(0.7506, 8), output: 2.2509 },
+      pricing: { input: 0.834, output: 2.501 },
       pricing_status: "fixed",
       pricing_basis: "token",
       reasoning_declared: true,
@@ -1884,9 +1887,9 @@ describe("OpenRouter model refresh", () => {
       openrouter_market: {
         series: "Other",
         author: "tencent",
-        providers: ["Tencent"],
+        providers: ["GMICloud"],
         discounted: false,
-        zero_data_retention: true,
+        zero_data_retention: false,
         tool_call_success_rate: expect.any(Number),
       },
     });
@@ -1984,7 +1987,7 @@ describe("OpenRouter model refresh", () => {
       active: true,
       primary_operation: "chat",
       interaction_status: "ready",
-      pricing: {"input":0.028399999999999998,"output":0.0923},
+      pricing: {"input":0.0399,"output":0.0784},
       openrouter_market: {
         series: "Router",
         author: "z-ai",
@@ -2289,12 +2292,12 @@ describe("OpenRouter model refresh", () => {
       ]),
     );
 
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.04972);
-    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(0.14916);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.input).toBeCloseTo(0.0434);
+    expect(byId.get("~deepseek/deepseek-v4-flash-latest")?.pricing.output).toBeCloseTo(0.3);
     expect(byId.get("z-ai/glm-5.2")?.pricing.input).toBeCloseTo(0.006);
     expect(byId.get("z-ai/glm-5.2")?.pricing.output).toBeCloseTo(6.8);
     expect(byId.get("moonshotai/kimi-k2.7-code")?.pricing).toEqual({"input":0.6,"output":3.5});
-    expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({"input":0.1165,"output":4.66});
+    expect(byId.get("deepseek/deepseek-v4-pro-0813")?.pricing).toEqual({"input":0.111,"output":4.4399999999999995});
     expect(
       byId.get("deepseek/deepseek-v4-pro-0813")?.openrouter_market,
     ).toMatchObject({
@@ -2302,11 +2305,11 @@ describe("OpenRouter model refresh", () => {
       discounted: false,
       zero_data_retention: true,
     });
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.851556);
-    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(1.703112);
-    expect(byId.get("tencent/hy3")?.pricing).toEqual({"input":0.0825,"output":0.33});
-    expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({"input":0.44999999999999996,"output":2.7});
-    expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({"input":0.091,"output":0.182});
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.input).toBeCloseTo(0.9);
+    expect(byId.get("deepseek/deepseek-v4-pro")?.pricing.output).toBeCloseTo(1.5);
+    expect(byId.get("tencent/hy3")?.pricing).toEqual({"input":0.13199999999999998,"output":0.5279999999999999});
+    expect(byId.get("qwen/qwen3.6-27b")?.pricing).toEqual({"input":0.32,"output":3.1999999999999997});
+    expect(byId.get("deepseek/deepseek-v4-flash")?.pricing).toEqual({"input":0.09,"output":0.18});
     expect(byId.get("qwen/qwen3.5-122b-a10b")?.pricing).toEqual({"input":0.26,"output":2.08});
     expect(byId.get("deepseek/deepseek-v3.2")?.pricing).toEqual({"input":0.26,"output":0.38});
     expect(byId.get("mistralai/voxtral-small-24b-2507")?.context_length).toBe(
@@ -2336,15 +2339,15 @@ describe("OpenRouter model refresh", () => {
       byId.get("deepseek/deepseek-v4-pro")?.pricing_time_windows,
     ).toEqual([]);
     expect(byId.get("qwen/qwen3.5-35b-a3b")?.pricing).toEqual({"input":0.14,"output":1});
-    expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({"input":0.5,"output":3.5999999999999996});
+    expect(byId.get("qwen/qwen3.5-397b-a17b")?.pricing).toEqual({"input":0.6,"output":3.5999999999999996});
     expect(byId.get("z-ai/glm-4.6")?.pricing).toEqual({"input":0.5,"output":2});
     expect(byId.get("meta/muse-glimmer-30b")?.pricing).toEqual({"input":0.3,"output":1.2});
-    expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({"input":0.1529,"output":10.1522});
+    expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({"input":0.18239999999999998,"output":11.0055});
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({"input":0.25,"output":0.95});
     expect(byId.get("qwen/qwen2.5-vl-72b-instruct")?.pricing).toEqual({"input":0.7999999999999999,"output":1});
     expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({"input":0.32,"output":0.8899999999999999});
-    expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({"input":0.59,"output":0.7899999999999999});
-    expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({"input":0.35,"output":0.65});
+    expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({"input":0.71,"output":0.71});
+    expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({"input":0.3,"output":0.5});
     expect(byId.get("ibm-granite/granite-4.2-8b")?.supported_parameters).toEqual(
       expect.arrayContaining([
         "reasoning_effort",
@@ -2445,7 +2448,7 @@ describe("OpenRouter model refresh", () => {
       (model) => model.catalog_status === "expired",
     );
 
-    expect(uncertain).toHaveLength(133);
+    expect(uncertain).toHaveLength(139);
     expect(ling?.active).toBe(true);
     expect(
       uncertain.find((model) => model.id === "mistralai/ministral-8b")
@@ -2513,7 +2516,10 @@ describe("OpenRouter model refresh", () => {
       );
     const batchCatalogIds = batchVariants.map((variant) => variant.catalog_id);
 
-    expect(batchVariants).toHaveLength(77);
+    expect(batchVariants).toHaveLength(92);
+    expect(batchCatalogIds).toContain("google/gemini-4-carbon:batch");
+    expect(batchCatalogIds).toContain("google/gemini-4-hydrogen:batch");
+    expect(batchCatalogIds).toContain("moonshotai/kimi-k3.1-pro:batch");
     expect(batchCatalogIds).toContain("openai/gpt-oss-120b:batch");
     expect(batchCatalogIds).toContain("openai/gpt-4o:batch");
     expect(batchCatalogIds).toContain("openai/gpt-5.6-luna:batch");
@@ -2523,6 +2529,7 @@ describe("OpenRouter model refresh", () => {
     expect(batchCatalogIds).toContain("openai/gpt-6-luna-pro:batch");
     expect(batchCatalogIds).toContain("openai/gpt-6-sol:batch");
     expect(batchCatalogIds).toContain("openai/gpt-6-sol-pro:batch");
+    expect(batchCatalogIds).toContain("anthropic/claude-fable-5.2:batch");
     expect(batchCatalogIds).toContain("anthropic/claude-opus-5.5:batch");
     expect(batchCatalogIds).toContain("anthropic/claude-sonnet-5.5:batch");
     expect(batchCatalogIds).toContain("x-ai/grok-4.3:batch");
@@ -2534,7 +2541,7 @@ describe("OpenRouter model refresh", () => {
     );
     expect(
       batchVariants.filter((variant) => variant.endpoint === "/v1/embeddings"),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     for (const variant of batchVariants) {
       const isEmbedding = variant.endpoint === "/v1/embeddings";
       expect(variant.catalog_id).toBe(`${variant.request_model_id}:batch`);
@@ -2673,7 +2680,6 @@ describe("OpenRouter model refresh", () => {
   "tencent/hy3:free",
   "thinkingmachines/inkling-small:free",
   "thinkingmachines/inkling:free",
-  "unbiased/pareto-26.10-preview",
   "upstage/solar-pro-3"
 ]);
   });
@@ -2788,7 +2794,7 @@ describe("OpenRouter model refresh", () => {
       context_length: 1_000_000,
       input_modalities: ["text"],
       output_modalities: ["text"],
-      pricing: { input: 0.075, output: 0.000000225 * 1_000_000 },
+      pricing: { input: 0.045, output: 0.135 },
       pricing_status: "fixed",
       reasoning_declared: true,
       operations: ["chat"],

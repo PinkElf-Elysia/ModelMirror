@@ -8,7 +8,7 @@ const source = {
 };
 
 test("Voxtral 3 audio seconds cannot drift into token pricing", () => {
-  for (const [id, prompt] of [["mistralai/voxtral-small-transcribe-3-0", "0.0000666667"], ["mistralai/voxtral-mini-transcribe-3-0", "0.0000583333"]]) {
+  for (const [id, prompt] of [["mistralai/voxtral-small-transcribe-3-0", "0.0000666667"], ["mistralai/voxtral-mini-transcribe-3-0", "0.0000583333"], ["x-ai/grok-stt-2.0", "0.0000277777777778"]]) {
     const row = { id, pricing_basis: "media", media_pricing: {unit: "audio_hour", usd: Number(prompt) * 3600} };
     const marketRow = {slug: id, endpoint: {model_variant_slug: id, pricing: {prompt}, display_pricing: [{kind: "unit", sku_label: "Audio Seconds", price: prompt, unitLabel: "/second"}], pricing_json: {"stt:audio_seconds": prompt}}};
     const audit = (local, records = [marketRow]) => auditAudioHourPricingOverlays({localModels: [local], sourceModels: [{id, pricing: {prompt}}], marketModels: records});
@@ -22,6 +22,7 @@ test("Voxtral 3 audio seconds cannot drift into token pricing", () => {
 
 test("HeyGen characters and Drama UTF-8 bytes cannot become token prices", () => {
   for (const [id, unit, prompt, usd] of [
+    ["speechify/simba-3.5", "character_million", "0.000015", 15],
     ["heygen/heygen-voice-1", "character_million", "0.000015", 15],
     ["heygen/heygen-voice-1-turbo", "character_million", "0.0000075", 7.5],
     ["fish-audio/drama-3", "utf8_byte_million", "0.000002", 2],

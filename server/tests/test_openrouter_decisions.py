@@ -20,7 +20,7 @@ async def client():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_id", ["parallel/decisions-fast", "perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2", "~perplexity/pplx-decider-flash-latest", "respan/span-02", "liquid/d1-ultra", "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
+@pytest.mark.parametrize("model_id", ["heygen/heygen-decision-1", "heygen/heygen-decision-1-turbo", "nace-ai/drex-max-finance", "parallel/decisions-fast:free", "parallel/decisions-fast", "perplexity/pplx-decider-flash-v1.2", "perplexity/pplx-decider-v1.2", "~perplexity/pplx-decider-flash-latest", "respan/span-02", "liquid/d1-ultra", "typesafe/jev-1.13", "typesafe/jev-1.14", "~typesafe/jev-latest", "~perplexity/pplx-decider-latest"])
 async def test_decisions_proxy_uses_dedicated_openrouter_contract(
     client: httpx.AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -108,6 +108,9 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "~typesafe/jev-latest",
         "openai/gpt-6-luna-decisions",
         "perplexity/pplx-decider-v1-27b",
+        "perplexity/pplx-decider-v1.3:free",
+        "perplexity/pplx-decider-flash-v1.3:free",
+        "google/gemini-decision-1",
         "cloudflare/clef-flash",
         "cloudflare/clef",
     ],
