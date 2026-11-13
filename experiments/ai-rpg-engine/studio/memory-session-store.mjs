@@ -115,7 +115,7 @@ export function createMemoryStoreClass(profile=null){
  async send(id,input){
   const s=await this.read(id);if(s.runtime?.format!==5)return super.send(id,input);if(!this.memoryTasks)throw fail('MEMORY_HOST_NOT_CONNECTED');
   if(!taskInput(input))throw fail('MEMORY_TASK_INPUT_INVALID',400);
-  await this.requireRuntime(s);const prior=s.memoryLegacyInputs?.[input.operationId];if(prior){if(prior.hash!==sha(canonical(input)))throw fail('MEMORY_OPERATION_COLLISION');if(prior.status==='not-applied')return {status:'not-applied',replayed:true};return this.summaryTasks.send(id,prior.mapped);}
+  await this.requireRuntime(s);if(s.dismissedRequests?.[input.operationId])throw fail('REQUEST_DISMISSED',409);const prior=s.memoryLegacyInputs?.[input.operationId];if(prior){if(prior.hash!==sha(canonical(input)))throw fail('MEMORY_OPERATION_COLLISION');if(prior.status==='not-applied')return {status:'not-applied',replayed:true};return this.summaryTasks.send(id,prior.mapped);}
   if(Object.hasOwn(s.memoryTasks.operations,input.operationId))return this.memoryTasks.send(id,input);
   const a=await this.memoryAuthorizations(id);
   return a.memory.enabled||this.autoSummaryV2&&a.summary.enabled?this.memoryTasks.send(id,input):this.sendWithoutMemory(id,input);

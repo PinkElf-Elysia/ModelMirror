@@ -1,0 +1,16 @@
+{
+  "baseline": "d9dd7094",
+  "artifacts": {
+    "studio/summary-tasks.mjs": "8eb82f8860831bab1513fb1ba9dd868b166259ba4405c9bab772ac0cba6bf7e9",
+    "studio/memory-session-store.mjs": "d138b795386392c74437ebbd6e6bf3d811b685783b84bc61e70b522431710cdd",
+    "studio/memory-tasks.mjs": "7881b79feea6c7e252145ab59917668668eb7c9a5fe9661a23c12199f0a06aaf",
+    "studio/memory-http.mjs": "65ddd7e76c2369d7f5b3ff7c2f0ce47874984dbd816e76b35cb61ae2fd0243e7"
+  },
+  "baseHashes": [
+    null,
+    null,
+    "d16be3eda5e89e6121f92a2585dacadda25396516a7b25c958595f834e96f358",
+    "bd4d7bdf6b571a2610a324b596e1e383054f05379701c55fc510e962aff3b982",
+    "6cb8819f5485043a6fd08cbd676b0ef94708765ecd95b8c5e0238adeec0a030e"
+  ]
+}
