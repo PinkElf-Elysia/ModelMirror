@@ -2,6 +2,7 @@ import {exact,operationId,revision} from './history-state.mjs';
 import {isV2SummaryStage} from './default-summary-v2.mjs';
 import {summaryHttp} from './summary-http.mjs';
 import {fail} from '../plugins/catalog.mjs';
+import {failedRequestDetails} from './turn-failures.mjs';
 const status=o=>o.status==='unknown'||o.status==='pending'?'pending':['revoked','not-applied'].includes(o.status)?'cancelled':o.status;
 export function memoryProjection(s){
  if(s.runtime?.format!==5)return {};
@@ -9,6 +10,8 @@ export function memoryProjection(s){
  for(const [key,o] of Object.entries(s.summaryTasks?.operations||{}))if(o.kind==='send')requests[key]={status:status(o),error:o.error};
  for(const [key,o] of Object.entries(s.memoryLegacyInputs||{}))if(!requests[key])requests[key]={status:o.status==='not-applied'?'cancelled':'pending'};
  for(const [key,o] of Object.entries(s.memoryTasks.operations))if(o.kind==='send')requests[key]={status:o.tasks.some(t=>t.purpose==='story'&&t.status==='complete')?'complete':status(o),error:o.error};
+ for(const [key,details] of Object.entries(failedRequestDetails(s)))if(requests[key])Object.assign(requests[key],details);
+ for(const key of Object.keys(s.dismissedRequests||{}))requests[key]={status:'cancelled',dismissed:true};
  return {memoryPalace:{supported:true},rollingSummary:{supported:true},requests};
 }
 const summaryTask=o=>({status:o.status,kind:o.kind,error:o.error,purpose:o.tasks.at(-1)?.purpose||null,overflow:o.tasks.some(t=>t.overflow||t.purpose==='compression')});

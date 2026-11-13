@@ -82,14 +82,22 @@ const latestBefore={
 };
 const latestBases=["c8d905effd7d3752e429a40749eae7a3b4fdc73941226420825296fcd7259c0c", "b53021718dc0354715cee0bba8138a95586c8d88ea08d3660cd46cac6442b48b", "685ddd67ce584db29bdb92894fddaeac316f8c5baaabf9276b1e2547f832ca4e", "8859b0e1910046de9f931f569f7225cba1df6270464ff3e2ce907775c181ded5", "233feba0289df548574a7f0a6bba203c4f0c33d421eb26dc2d75df9d9da79e41"];
 const oldBases=["05d0d34f2604bbcd547ddad89e183742c55bc769bd99cb0be81fbe34688895ca", "e31d4ff9cd656eb8abf8cb766ecc223b9e7b3548c0b7f179cabe0f2aebae0bbf", "f2a62c8c08b197bae80eb3cf0b76b7b7d013067acd092b417754b961f4e3ae18", "8b9ea914d2c847521c6a69220b3b5cc5bbb595b94ee803e402789269a0e86fed", "923d2b170eb3246da01ca9508000e0858ecd6ee9107de05683fc96eeaff37875"];
+// Exact main d9dd7094 fingerprints before failed-turn recovery.
+const recoveryBefore={
+  "studio/summary-tasks.mjs": "8eb82f8860831bab1513fb1ba9dd868b166259ba4405c9bab772ac0cba6bf7e9",
+  "studio/memory-session-store.mjs": "d138b795386392c74437ebbd6e6bf3d811b685783b84bc61e70b522431710cdd",
+  "studio/memory-tasks.mjs": "7881b79feea6c7e252145ab59917668668eb7c9a5fe9661a23c12199f0a06aaf",
+  "studio/memory-http.mjs": "65ddd7e76c2369d7f5b3ff7c2f0ce47874984dbd816e76b35cb61ae2fd0243e7"
+};
+const recoveryBases=[null, null, "d16be3eda5e89e6121f92a2585dacadda25396516a7b25c958595f834e96f358", "bd4d7bdf6b571a2610a324b596e1e383054f05379701c55fc510e962aff3b982", "6cb8819f5485043a6fd08cbd676b0ef94708765ecd95b8c5e0238adeec0a030e"];
 const newBases=[earthRuntime,modelRuntime,historyRuntime,summaryRuntime,memoryRuntime].map(r=>r.hash);
-const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),'studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
+const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),...Object.keys(recoveryBefore),'studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
 export function preserveOutputEditRuntime(store){
  const original=store.status.bind(store);
  store.status=s=>{
   const result=original(s);
   if(result.code!=='RUNTIME_VERSION_MISMATCH')return result;
-  for(const [previous,bases] of [[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
+  for(const [previous,bases] of [[recoveryBefore,recoveryBases],[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
    const descriptor=structuredClone(s.runtime.descriptor);
    let changed=false;
    for(const artifacts of [descriptor.artifacts,descriptor.hostArtifacts,descriptor.content?.cardArtifacts]){

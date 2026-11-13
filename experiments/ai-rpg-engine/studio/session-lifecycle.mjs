@@ -4,6 +4,7 @@ import {join} from 'node:path';
 import {atomicJson, completeHistory} from './branch-archive.mjs';
 import {canonical, sha, fail} from '../plugins/catalog.mjs';
 import {initialHistoryState} from './history-state.mjs';
+import {dismissRequest} from './turn-failures.mjs';
 import {standbyMemoryTasks} from './memory-assembly.mjs';
 
 // Windows readers/antivirus can briefly deny replacing an existing file. Retry
@@ -87,28 +88,33 @@ export function attachSessionLifecycle(store) {
   async trash(){return (await all()).filter(s=>s.deletedAt);},
   async inspect(id){const e=await load(id),s=e?.session||await baseRead(id);return {id,revision:s.revision,turnIds:s.turns.map(t=>t.requestId),deletedAt:e?.deleted||null,versions:(e?.versions||[]).map(v=>({id:v.id,reason:v.reason,at:v.at,turns:v.session.turns.length,name:v.session.name}))};},
   async change(id,input){
-   const actions=['rewind','restore-version','delete','restore-trash'];
+   const actions=['rewind','delete-turn','dismiss-request','restore-version','delete','restore-trash'];
    const keys=input&&Object.keys(input).sort().join(',');
-   const expected=input?.action==='rewind'?'action,expectedRevision,operationId,turn':input?.action==='restore-version'?'action,expectedRevision,operationId,versionId':'action,expectedRevision,operationId';
-   if(!input||keys!==expected||!actions.includes(input.action)||!uuid(input.operationId)||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0||input.action==='rewind'&&(!Number.isSafeInteger(input.turn)||input.turn<1)||input.action==='restore-version'&&!uuid(input.versionId))throw fail('SESSION_OPERATION_INVALID',400);
+   const expected=['rewind','delete-turn'].includes(input?.action)?'action,expectedRevision,operationId,turn':input?.action==='dismiss-request'?'action,expectedRevision,operationId,requestId':input?.action==='restore-version'?'action,expectedRevision,operationId,versionId':'action,expectedRevision,operationId';
+   if(!input||keys!==expected||!actions.includes(input.action)||!uuid(input.operationId)||!Number.isSafeInteger(input.expectedRevision)||input.expectedRevision<0||['rewind','delete-turn'].includes(input.action)&&(!Number.isSafeInteger(input.turn)||input.turn<1)||input.action==='dismiss-request'&&(typeof input.requestId!=='string'||! /^[a-zA-Z0-9_-]{1,128}$/.test(input.requestId))||input.action==='restore-version'&&!uuid(input.versionId))throw fail('SESSION_OPERATION_INVALID',400);
    return store.exclusive(id,async()=>{
     let e=await load(id);const s=e?.session||await baseRead(id),operationHash=sha(canonical(input));
     const prior=e?.operations[input.operationId];if(prior){if(prior.hash!==operationHash)throw fail('SESSION_OPERATION_COLLISION');return {...prior.result,replayed:true};}
     if(s.revision!==input.expectedRevision)throw fail('SESSION_REVISION_CHANGED');
     if(e?.deleted&&input.action!=='restore-trash')throw fail('SESSION_IN_TRASH',410);
     if(!e?.deleted&&input.action==='restore-trash')throw fail('SESSION_NOT_IN_TRASH');
-    await requireIdle(s);completeHistory(s);
+    if(input.action==='dismiss-request'){if(store.running.has(id))throw fail('SESSION_OPERATION_UNCONFIRMED');}
+    else await requireIdle(s);
+    completeHistory(s);
     // Trash does not execute history. Incompatible old saves remain removable.
-    if(['rewind','restore-version'].includes(input.action))await store.requireRuntime(s);
+    if(['rewind','delete-turn','dismiss-request','restore-version'].includes(input.action))await store.requireRuntime(s);
     e??={format:1,id,session:structuredClone(s),deleted:null,versions:[],operations:{}};
     let next=structuredClone(s);
-    if(input.action==='rewind')next=rewindSnapshot(s,input.turn);
+    if(['rewind','delete-turn'].includes(input.action))next=rewindSnapshot(s,input.turn);
+    if(input.action==='dismiss-request')next=dismissRequest(s,input.requestId);
     if(input.action==='restore-version'){
      const v=e.versions.find(v=>v.id===input.versionId);if(!v)throw fail('SESSION_VERSION_NOT_FOUND',404);
      next=structuredClone(v.session);
-     next.requests={...next.requests,...structuredClone(s.requests)};next.revision=s.revision+1;
+     next.requests={...next.requests,...structuredClone(s.requests)};
+     for(const key of Object.keys(s.dismissedRequests||{}))if(!next.turns.some(t=>t.requestId===key))next=dismissRequest(next,key);
+     next.revision=s.revision+1;
     }
-    if(['rewind','restore-version'].includes(input.action)){
+    if(['rewind','delete-turn','dismiss-request','restore-version'].includes(input.action)){
      await store.requireRuntime(next);
      e.versions.push(seal({id:input.operationId,reason:input.action,at:new Date().toISOString(),session:structuredClone(s)}));
     }else{next.revision=s.revision+1;e.deleted=input.action==='delete'?new Date().toISOString():null;}

@@ -150,3 +150,11 @@ test('interrupted explicit update before task creation is not reported as a comp
  const input=await f.input(s,null);await assert.rejects(f.tasks.update(s.id,input),/crash after intent/);f.store.write=write;
  const recovered=await f.tasks.recover(s.id,input.operationId);assert.equal(recovered.status,'failed');assert.equal(f.wires.length,0);assert.equal((await f.transport.status()).reserved,0);assert.equal((await f.store.read(s.id)).rollingSummary.versions.length,0);
 });
+
+test('dismissed summary request remains closed during recovery and cannot dispatch again',async t=>{
+ const f=await fixture(t),s=await f.create(),input=await f.input(s);
+ s.dismissedRequests={[input.operationId]:true};await f.store.write(s);
+ assert.equal((await f.tasks.recover(s.id,input.operationId)).status,'cancelled');
+ await assert.rejects(f.tasks.send(s.id,input),/REQUEST_DISMISSED/);
+ assert.equal(f.wires.length,0);
+});
