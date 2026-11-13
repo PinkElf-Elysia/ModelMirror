@@ -3416,6 +3416,9 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "google/gemini-decision-1",
+        "perplexity/pplx-decider-v1.3:free",
+        "perplexity/pplx-decider-flash-v1.3:free",
         "nace-ai/drex-max-finance",
         "parallel/decisions-fast:free",
         "parallel/decisions-fast",

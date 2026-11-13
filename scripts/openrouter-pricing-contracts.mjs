@@ -133,6 +133,7 @@ export const REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS = new Map([
 export const REQUIRED_UNIT_PRICING_OVERLAYS = new Map([
   ...REQUIRED_AUDIO_HOUR_PRICING_OVERLAYS,
   ...[
+    ["speechify/simba-3.5", "character_million"],
     ["mistralai/voxtral-mini-tts-3-0", "character_million"],
     ["heygen/heygen-voice-1", "character_million"],
     ["heygen/heygen-voice-1-turbo", "character_million"],

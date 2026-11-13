@@ -17,6 +17,7 @@ import {
   MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MUSE_IMAGE_PRICING,
   RECRAFT_V4_STYLES_PRICING_BY_MODEL_ID,
+  SEEDREAM_5_5_PRICING,
   SEEDREAM_5_LITE_PRICING,
   SEEDREAM_5_FLASH_PRICING,
   SEEDREAM_5_PRO_PRICING,
@@ -156,6 +157,8 @@ export default function ImageGenerationWorkspace({
         ? profile.pricing
         : model.id === "x-ai/grok-imagine-image-2.0"
           ? GROK_IMAGINE_IMAGE_2_PRICING
+          : model.id === "bytedance-seed/seedream-5-5"
+            ? SEEDREAM_5_5_PRICING
           : model.id === "bytedance-seed/seedream-5-0-pro"
             ? SEEDREAM_5_PRO_PRICING
           : model.id === "bytedance-seed/seedream-5-0-lite"

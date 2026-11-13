@@ -12,6 +12,7 @@ const UNCERTAIN_MARKER =
 const CURRENT_TIME_MARKER = "const CURRENT_TIME_SECONDS";
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "bytedance-seed/seedream-5-5", "speechify/simba-3.5",
   "minimax/minimax-h3-image", "minimax/minimax-h3-image-highspeed",
   "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst",
   "mistralai/voxtral-mini-tts-3-0", "mistralai/voxtral-small-transcribe-3-0", "mistralai/voxtral-mini-transcribe-3-0",

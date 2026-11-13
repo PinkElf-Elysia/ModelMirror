@@ -8,7 +8,7 @@ describe("October 16 expanded contracts", () => {
     const model = models.find(m => m.id === "deepseek/deepseek-v4.1-flash-1017")!;
     expect(models.indexOf(model)).toBe(3);
     expect(model).toMatchObject({ context_length: 1048576, input_modalities: ["text", "image"], output_modalities: ["text"], ui_entrypoint: "chat", reasoning_declared: true });
-    expect(model.pricing_time_windows).toEqual([]);
+    expect(model.pricing_time_windows).toHaveLength(6);
     expect(models.findIndex(m => m.id === "deepseek/deepseek-v4.1-flash")).toBeGreaterThanOrEqual(20);
   });
   it.each(ids)("keeps %s unique and after six rows", id => {

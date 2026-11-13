@@ -43,6 +43,19 @@ export const SEEDREAM_5_PRO_PRICING: ImagePricingItem[] = [
   },
 ];
 
+// Frozen from the dedicated Seedream 5.5 endpoint on 2026-11-12. Live endpoint
+// profiles still take precedence when OpenRouter updates its pricing.
+export const SEEDREAM_5_5_PRICING: ImagePricingItem[] = [
+  { billable: "input_image", unit: "image", cost_usd: 0.008 },
+  { billable: "output_image", unit: "image", cost_usd: 0.02 },
+  {
+    billable: "output_image",
+    unit: "image",
+    cost_usd: 0.035,
+    variant: "high_resolution",
+  },
+];
+
 // Verified against the dedicated Seedream endpoint on 2026-08-14. The Lite
 // endpoint currently charges a flat rate per output image for both 2K and 4K.
 export const SEEDREAM_5_LITE_PRICING: ImagePricingItem[] = [

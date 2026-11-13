@@ -16,7 +16,7 @@ describe("October 10 catalog contracts", () => {
   });
 
   it("retains missing Sante variants and attaches new Batch tiers without cards", () => {
-    expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante")).toMatchObject({ catalog_status: "uncertain", active: true });
+    expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante")).toMatchObject({ catalog_status: "live", active: true });
     expect(models.find((entry) => entry.id === "inclusionai/ling-3.0-flash-sante:free")).toMatchObject({ catalog_status: "uncertain", active: true });
     for (const id of ["openai/gpt-6.1-sol", "openai/gpt-6.1-sol-pro"]) {
       expect(models.some((entry) => entry.id === `${id}:batch`)).toBe(false);

@@ -71,8 +71,15 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
         "canopylabs/orpheus-3b-0.1-ft",
         "sesame/csm-1b",
         "hexgrad/kokoro-82m",
+        "speechify/simba-3.5",
         GEMINI_PCM_TTS_MODEL_ID,
     } <= ALLOWED_SPEECH_PROFILES.keys()
+    assert len(ALLOWED_SPEECH_PROFILES["speechify/simba-3.5"]) == 20
+    assert "geffen_32" in ALLOWED_SPEECH_PROFILES["speechify/simba-3.5"]
+    assert OPENROUTER_AUDIO_CONTRACTS["speechify/simba-3.5"].manual_verification_required is True
+    assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].operations == ("analyze_audio",)
+    assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].chat_modes == ("direct_audio_input",)
+    assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].interaction_adapted is True
     assert all(ALLOWED_SPEECH_PROFILES.values())
     assert speech_output_format(MODEL_ID) == "mp3"
     assert speech_output_format(GEMINI_PCM_TTS_MODEL_ID) == "wav"

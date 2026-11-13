@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-11T16:36:00.999Z.
+// Merged with OpenRouter model catalog on 2026-11-13T04:13:40.045Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,179 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "bytedance-seed/seedream-5-5",
+    "canonical_slug": "bytedance-seed/seedream-5-5-20261112",
+    "name": "ByteDance Seed: Seedream 5.5",
+    "raw_description": "Seedream 5.5 is an image generation and editing model from ByteDance Seed. It is suited for creating images from text prompts and for editing or combining existing images, using up...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Media",
+    "supported_parameters": [
+      "resolution",
+      "aspect_ratio",
+      "n",
+      "input_references",
+      "seed"
+    ],
+    "created": 1794517601,
+    "expiration_date": null,
+    "model_author": "ByteDance Seed",
+    "note": "OpenRouter 专用 Images API：非流式；支持 1K/1.5K/2K、18 种宽高比、单次 1 张输出、最多 10 张参考图和 seed；参考图 $0.008/张，标准输出 $0.02/张，高分辨率输出 $0.035/张。未执行真实调用。"
+  },
+  {
+    "id": "perplexity/pplx-decider-flash-v1.3:free",
+    "canonical_slug": "perplexity/pplx-decider-flash-v1.3-20261112",
+    "name": "Perplexity: Decider Flash V1.3 (free)",
+    "raw_description": "Decider Flash V1.3 is a decision model from Perplexity, a smaller, lower-cost sibling of [Decider V1.3](/perplexity/pplx-decider-v1.3) with the same API contract. Instead of generating text, it reads content passed as...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794507466,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "专用结构化决策入口，支持 noul、choice、score；本站仅开放文字状态、最多 50 题，不使用普通聊天。目录图片输入与 /api/alpha/extractions locate 未适配，未执行真实调用。"
+  },
+  {
+    "id": "perplexity/pplx-decider-v1.3:free",
+    "canonical_slug": "perplexity/pplx-decider-v1.3-20261112",
+    "name": "Perplexity: Decider V1.3 (free)",
+    "raw_description": "Decider V1.3 is a decision model from Perplexity, succeeding [Decider V1.2](/perplexity/pplx-decider-v1.2). Instead of generating text, it reads content passed as `state` (text, JSON, or images) and returns typed, probabilistic answers...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794507462,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "专用结构化决策入口，支持 noul、choice、score；本站仅开放文字状态、最多 50 题，不使用普通聊天。目录图片输入与 /api/alpha/extractions locate 未适配，未执行真实调用。"
+  },
+  {
+    "id": "google/gemini-4-hydrogen",
+    "canonical_slug": "google/gemini-4-hydrogen-20261112",
+    "name": "Google: Gemini 4 Hydrogen",
+    "raw_description": "Gemini 4 Hydrogen is the high-efficiency workhorse model of the Gemini 4 family from Google, built for high-throughput agentic workflows, coding and multi-model routing at lower cost and latency than...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 1.5,
+      "output": 7.5
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794506460,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
+    "id": "speechify/simba-3.5",
+    "canonical_slug": "speechify/simba-3.5-20261111",
+    "name": "Speechify: Simba 3.5",
+    "raw_description": "Speechify's recommended streaming text-to-speech model, covering 48 languages including English under one model, with the language chosen per request.",
+    "context_length": 0,
+    "pricing": {
+      "input": 15,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794421740,
+    "expiration_date": null,
+    "model_author": "Speechify",
+    "note": "专用文字转语音，开放目录公布的 20 个预设声线，$15/百万字符；多语种按请求自动识别或选择，未执行真实调用，等待人工验证。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 15
+    }
+  },
+  {
+    "id": "google/gemini-decision-1",
+    "canonical_slug": "google/gemini-decision-1-20261111",
+    "name": "Google: Gemini Decision 1",
+    "raw_description": "Gemini Decision 1 is Google's model for the Decisions API. It answers structured questions about an input state (true/false, multiple choice with up to 255 options, and score with up...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "audio",
+      "video",
+      "file"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1794402686,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "专用结构化决策入口，支持 noul、choice、score；本站仅开放文字状态、最多 50 题，不使用普通聊天。目录图片、音频、视频与文档状态输入未适配，原生搜索不含在基本 Token 估算内；未执行真实调用。"
+  },
   {
     "id": "minimax/minimax-h3-image-highspeed",
     "canonical_slug": "minimax/minimax-h3-image-highspeed-20261110",
@@ -487,10 +660,55 @@ const rawCatalogModels: RawCatalogModel[] = [
     "model_author": "Nace.AI"
   },
   {
+    "id": "thinkingmachines/inkling-2-small",
+    "canonical_slug": "thinkingmachines/inkling-2-small-20261107",
+    "name": "Thinking Machines: Inkling 2 Small",
+    "raw_description": "Inkling 2 Small is an open-weight multimodal mixture-of-experts reasoning model from Thinking Machines Lab, with 17B active parameters out of 594B total. It is the first model in the second...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.3,
+      "output": 1
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1794261847,
+    "expiration_date": null,
+    "model_author": "Thinkingmachines",
+    "reasoning_declared": true
+  },
+  {
     "id": "thinkingmachines/inkling-2-small:free",
     "canonical_slug": "thinkingmachines/inkling-2-small-20261107",
     "name": "Thinking Machines: Inkling 2 Small (free)",
-    "raw_description": "Inkling 2 Small is a multimodal mixture-of-experts reasoning model from Thinking Machines Lab, with 17B active parameters out of 594B total. It is the first model in the second Inkling...",
+    "raw_description": "Inkling 2 Small is an open-weight multimodal mixture-of-experts reasoning model from Thinking Machines Lab, with 17B active parameters out of 594B total. It is the first model in the second...",
     "context_length": 1048576,
     "pricing": {
       "input": 0,
@@ -1546,6 +1764,50 @@ const rawCatalogModels: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "particle-ai/particle-1:free",
+    "canonical_slug": "particle-ai/particle-1-20261027",
+    "name": "Particle AI: Particle-1 (free)",
+    "raw_description": "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1793207893,
+    "expiration_date": null,
+    "model_author": "Particle Ai",
+    "reasoning_declared": true
+  },
+  {
     "id": "liquid/d1.1",
     "canonical_slug": "liquid/d1.1-20261027",
     "name": "LiquidAI: d1.1",
@@ -1810,8 +2072,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
     "context_length": 1048576,
     "pricing": {
-      "input": 2,
-      "output": 10
+      "input": 0.2375,
+      "output": 8.4114
     },
     "input_modalities": [
       "text",
@@ -2160,8 +2422,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.075,
-      "output": 0.3,
+      "input": 0.15,
+      "output": 0.6,
       "time_overrides": [
         {
           "utc_start": 1500,
@@ -2255,8 +2517,85 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.006,
-      "output": 0.5
+      "input": 0.3,
+      "output": 1.2,
+      "time_overrides": [
+        {
+          "utc_start": 0,
+          "utc_end": 0,
+          "utc_days": [
+            "saturday",
+            "sunday"
+          ],
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 0,
+          "utc_end": 100,
+          "utc_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+          ],
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 100,
+          "utc_end": 400,
+          "utc_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+          ],
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 400,
+          "utc_end": 600,
+          "utc_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+          ],
+          "input": 0.15,
+          "output": 0.6
+        },
+        {
+          "utc_start": 600,
+          "utc_end": 1000,
+          "utc_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+          ],
+          "input": 0.3,
+          "output": 1.2
+        },
+        {
+          "utc_start": 1000,
+          "utc_end": 0,
+          "utc_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+          ],
+          "input": 0.15,
+          "output": 0.6
+        }
+      ]
     },
     "input_modalities": [
       "text",
@@ -4297,7 +4636,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "response_format",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -4316,7 +4654,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Clef-flash is the fast 9B member of Cloudflare's open-source Clef decision model family, a fine-tune of Qwen3.5-9B served on Workers AI. It turns a state (text or structured JSON) plus...",
     "context_length": 24576,
     "pricing": {
-      "input": 0.038000000000000006,
+      "input": 0.019000000000000003,
       "output": 0
     },
     "input_modalities": [
@@ -4433,13 +4771,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "Other",
     "supported_parameters": [
       "max_tokens",
+      "response_format",
       "temperature",
       "tool_choice",
       "tools",
       "top_p"
     ],
     "created": 1790863623,
-    "expiration_date": 1792022400,
+    "expiration_date": null,
     "model_author": "Unbiased"
   },
   {
@@ -6028,11 +6367,17 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "frequency_penalty",
       "include_reasoning",
       "max_tokens",
+      "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -6202,7 +6547,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.006,
+      "input": 0.038000000000000006,
       "output": 0.5
     },
     "input_modalities": [
@@ -6715,8 +7060,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.051,
-      "output": 0.5670000000000001
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -7521,7 +7866,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.06,
-      "output": 0.25
+      "output": 0.15
     },
     "input_modalities": [
       "text"
@@ -7564,8 +7909,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.7505999999999999,
-      "output": 2.2509,
+      "input": 0.834,
+      "output": 2.501,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -8371,8 +8716,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0699,
-      "output": 1.4
+      "input": 0.08399999999999999,
+      "output": 3.5999999999999996
     },
     "input_modalities": [
       "text"
@@ -11182,10 +11527,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
-      "max_completion_tokens",
       "max_tokens",
       "min_p",
-      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -11632,13 +11975,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
     "context_length": 1050000,
     "pricing": {
-      "input": 4,
-      "output": 20,
+      "input": 4.4,
+      "output": 22,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 8,
-          "output": 30
+          "input": 8.8,
+          "output": 33
         }
       ]
     },
@@ -11834,8 +12177,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0825,
-      "output": 0.33,
+      "input": 0.13199999999999998,
+      "output": 0.5279999999999999,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -12184,7 +12527,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "structured_outputs"
     ],
     "created": 1782264714,
-    "expiration_date": null,
+    "expiration_date": 1802217600,
     "model_author": "OpenAI"
   },
   {
@@ -14581,10 +14924,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
-      "max_completion_tokens",
       "max_tokens",
       "min_p",
-      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -14612,15 +14953,15 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Gemini Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.75,
-      "output": 3.75
+      "input": 1.5,
+      "output": 7.5
     },
     "input_modalities": [
-      "text",
-      "image",
-      "video",
+      "audio",
       "file",
-      "audio"
+      "image",
+      "text",
+      "video"
     ],
     "output_modalities": [
       "text"
@@ -15054,8 +15395,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro is a large-scale Mixture-of-Experts model from DeepSeek with 1.6T total parameters and 49B activated parameters, supporting a 1M-token context window. It is designed for advanced reasoning, coding,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.8872260000000001,
-      "output": 1.7744520000000001
+      "input": 0.9552599999999999,
+      "output": 1.9105199999999998
     },
     "input_modalities": [
       "text"
@@ -15430,8 +15771,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiMo-V2.5-Pro is Xiaomi’s flagship model, delivering strong performance in general agentic capabilities, complex software engineering, and long-horizon tasks, with top rankings on benchmarks such as ClawEval, GDPVal, and SWE-bench Pro....",
     "context_length": 1024000,
     "pricing": {
-      "input": 0.48,
-      "output": 1.7999999999999998
+      "input": 0.435,
+      "output": 0.87
     },
     "input_modalities": [
       "text"
@@ -15992,8 +16333,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.1 delivers a major leap in coding capability, with particularly significant gains in handling long-horizon tasks. Unlike previous models built around minute-level interactions, GLM-5.1 can work independently and continuously on...",
     "context_length": 204800,
     "pricing": {
-      "input": 1.33,
-      "output": 4.18
+      "input": 1.4,
+      "output": 4.4
     },
     "input_modalities": [
       "text"
@@ -16101,8 +16442,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.08,
-      "output": 0.09999999999999999
+      "input": 0.0765,
+      "output": 0.255
     },
     "input_modalities": [
       "image",
@@ -17090,8 +17431,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.16999999999999998,
-      "output": 0.25
+      "input": 0.095,
+      "output": 0.13899999999999998
     },
     "input_modalities": [
       "text",
@@ -18274,8 +18615,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Kimi K2.5 is Moonshot AI's native multimodal model, delivering state-of-the-art visual coding capability and a self-directed agent swarm paradigm. Built on Kimi K2 with continued pretraining over approximately 15T mixed...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.532,
-      "output": 3.3249999999999997
+      "input": 0.5,
+      "output": 2.5
     },
     "input_modalities": [
       "text",
@@ -18307,7 +18648,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1769487076,
-    "expiration_date": 1794960000,
+    "expiration_date": null,
     "model_author": "MoonshotAI",
     "reasoning_declared": true
   },
@@ -24160,8 +24501,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-14B is a dense 14.8B parameter causal language model from the Qwen3 series, designed for both complex reasoning and efficient dialogue. It supports seamless switching between a \"thinking\" mode for...",
     "context_length": 40960,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.22
+      "input": 0.12,
+      "output": 0.24
     },
     "input_modalities": [
       "text"
@@ -26783,6 +27124,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "max_tokens",
       "stop",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
       "top_p"
     ],
@@ -27645,6 +27988,46 @@ const rawCatalogModels: RawCatalogModel[] = [
 
 const rawBatchServingVariants: RawCatalogModel[] = [
   {
+    "id": "google/gemini-4-hydrogen:batch",
+    "canonical_slug": "google/gemini-4-hydrogen-20261112",
+    "name": "Google: Gemini 4 Hydrogen (batch)",
+    "raw_description": "Gemini 4 Hydrogen is the high-efficiency workhorse model of the Gemini 4 family from Google, built for high-throughput agentic workflows, coding and multi-model routing at lower cost and latency than...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.75,
+      "output": 3.75
+    },
+    "input_modalities": [
+      "audio",
+      "file",
+      "image",
+      "text",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_p"
+    ],
+    "created": 1794506460,
+    "expiration_date": null,
+    "model_author": "Google",
+    "reasoning_declared": true
+  },
+  {
     "id": "google/gemini-4-carbon:batch",
     "canonical_slug": "google/gemini-4-carbon-20261110",
     "name": "Google: Gemini 4 Carbon (batch)",
@@ -27807,14 +28190,50 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "reasoning_declared": true
   },
   {
+    "id": "moonshotai/kimi-k3.1-pro:batch",
+    "canonical_slug": "moonshotai/kimi-k3.1-pro-20261023",
+    "name": "MoonshotAI: Kimi K3.1 Pro (batch)",
+    "raw_description": "Kimi K3.1 Pro is Moonshot AI's flagship open-weight multimodal reasoning model and a post-trained successor to Kimi K3, with a 1M-token context window. It is built for long-horizon coding, 3D...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.7,
+      "output": 6
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "seed",
+      "stop",
+      "temperature",
+      "top_k"
+    ],
+    "created": 1792778188,
+    "expiration_date": null,
+    "model_author": "MoonshotAI",
+    "reasoning_declared": true
+  },
+  {
     "id": "deepseek/deepseek-v4.1-flash-1017:batch",
     "canonical_slug": "deepseek/deepseek-v4.1-flash-20261017",
     "name": "DeepSeek: DeepSeek V4.1 Flash 1017 (batch)",
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.011,
-      "output": 0.19999999999999998
+      "input": 0.049999999999999996,
+      "output": 0.15
     },
     "input_modalities": [
       "text",
@@ -27827,19 +28246,13 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
-      "repetition_penalty",
       "seed",
       "stop",
-      "structured_outputs",
       "temperature",
-      "tool_choice",
-      "tools",
       "top_k",
       "top_p"
     ],
@@ -28560,8 +28973,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.047,
-      "output": 0.061000000000000006
+      "input": 0.049999999999999996,
+      "output": 0.18
     },
     "input_modalities": [
       "text",
@@ -28620,7 +29033,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -28635,7 +29047,6 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1787086655,
@@ -29355,8 +29766,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.527,
-      "output": 1.0750000000000002
+      "input": 0.322,
+      "output": 0.989
     },
     "input_modalities": [
       "text"
@@ -31152,7 +31563,6 @@ const uncertainCatalogModelIds = new Set<string>([
   "anthropic/claude-opus-4.7-fast",
   "anthropic/claude-opus-4.8-fast",
   "anthropic/claude-opus-5-fast",
-  "apodex/apodex-1.1-mini:free",
   "arcee-ai/coder-large",
   "arcee-ai/maestro-reasoning",
   "arcee-ai/trinity-mini",
@@ -31176,9 +31586,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "inception/mercury-decide:free",
   "inclusionai/ling-2.6-1t",
   "inclusionai/ling-2.6-flash",
-  "inclusionai/ling-3.0-flash-fin",
   "inclusionai/ling-3.0-flash-fin:free",
-  "inclusionai/ling-3.0-flash-sante",
   "inclusionai/ling-3.0-flash-sante:free",
   "inclusionai/ling-3.0-flash-vl:free",
   "inclusionai/ling-3.0-flash:free",
@@ -31572,6 +31980,7 @@ const VERIFIED_VIDEO_MODEL_IDS = new Set([
 ]);
 
 const VERIFIED_IMAGE_MODEL_IDS = new Set([
+  "bytedance-seed/seedream-5-5",
   "minimax/minimax-h3-image", "minimax/minimax-h3-image-highspeed",
   "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst",
   "sourceful/riverflow-v2.6-pro",
@@ -32115,6 +32524,13 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "bytedance-seed/seedream-5-5",
+  "perplexity/pplx-decider-flash-v1.3:free",
+  "perplexity/pplx-decider-v1.3:free",
+  "speechify/simba-3.5",
+  "google/gemini-decision-1",
+  "thinkingmachines/inkling-2-small",
+  "particle-ai/particle-1:free",
   "minimax/minimax-h3-image-highspeed", "minimax/minimax-h3-image",
   "baidu/ernie-5.5-flash-preview:free", "baidu/ernie-light-dt-1.0-intl",
   "x-ai/grok-stt-2.0", "kt/midm-k-3.0-pro", "motif-technologies/motif-3",
@@ -32366,7 +32782,7 @@ const LATEST_REFRESH_MODEL_IDS = [
 const FRONT_ROW_MODEL_IDS = [
   "anthropic/claude-fable-5.2",
   "moonshotai/kimi-k3.1-pro",
-  "anthropic/claude-opus-5.5", "google/gemini-4-argon", "google/gemini-4-carbon",
+  "anthropic/claude-opus-5.5", "google/gemini-4-argon", "google/gemini-4-carbon", "google/gemini-4-hydrogen",
   "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
   "openai/gpt-6-luna", "anthropic/claude-haiku-5.5",
 ];
@@ -32443,6 +32859,7 @@ const primaryCatalogModels: Model[] = [
   ...(gptImage26SunburstModel ? [gptImage26SunburstModel] : []),
   ...(claudeFable51Model ? [claudeFable51Model] : []),
   ...frontRowModel("google/gemini-4-carbon"),
+  ...frontRowModel("google/gemini-4-hydrogen"),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
   ...normallyOrderedCatalogModels,

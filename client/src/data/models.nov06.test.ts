@@ -4,6 +4,7 @@ import {
   estimateImageCost,
   imageTokenPricingSummary,
   MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
+  SEEDREAM_5_5_PRICING,
 } from "../utils/imageCostEstimate";
 
 describe("November 6 refresh", () => {
@@ -148,5 +149,79 @@ describe("November 6 refresh", () => {
       pricing_basis: "token",
       reasoning_declared: true,
     });
+  });
+
+  it("places Gemini 4 Hydrogen in the sixth row and adapts November 12/13 Seedream 5.5, Simba 3.5, Decisions, and chat entries", () => {
+    const hydrogenIndex = models.findIndex((model) => model.id === "google/gemini-4-hydrogen");
+    expect(hydrogenIndex).toBe(19);
+    expect(hydrogenIndex).toBeGreaterThanOrEqual(17);
+    expect(hydrogenIndex).toBeLessThan(20);
+    expect(models[hydrogenIndex]).toMatchObject({
+      context_length: 1_048_576,
+      pricing: { input: 1.5, output: 7.5 },
+      input_modalities: ["audio", "file", "image", "text", "video"],
+      output_modalities: ["text"],
+      ui_entrypoint: "chat",
+      reasoning_declared: true,
+    });
+    expect(models[hydrogenIndex]?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
+      catalog_id: "google/gemini-4-hydrogen:batch",
+      request_model_id: "google/gemini-4-hydrogen",
+      pricing: { input: 0.75, output: 3.75 },
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+    });
+    expect(models.find((m) => m.id === "moonshotai/kimi-k3.1-pro")?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
+      catalog_id: "moonshotai/kimi-k3.1-pro:batch",
+      request_model_id: "moonshotai/kimi-k3.1-pro",
+      pricing: { input: 0.7, output: 6 },
+      input_modalities: ["text"],
+      output_modalities: ["text"],
+    });
+
+    for (const id of [
+      "bytedance-seed/seedream-5-5",
+      "perplexity/pplx-decider-flash-v1.3:free",
+      "perplexity/pplx-decider-v1.3:free",
+      "speechify/simba-3.5",
+      "google/gemini-decision-1",
+      "thinkingmachines/inkling-2-small",
+      "particle-ai/particle-1:free",
+    ]) {
+      expect(models.filter((model) => model.id === id)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    expect(models.find((m) => m.id === "bytedance-seed/seedream-5-5")).toMatchObject({
+      primary_operation: "generate_image",
+      ui_entrypoint: "multimodal",
+      interaction_status: "ready",
+      pricing_basis: "media",
+      supported_parameters: ["resolution", "aspect_ratio", "n", "input_references", "seed"],
+    });
+    const standardEstimate = estimateImageCost(SEEDREAM_5_5_PRICING, { outputCount: 1, referenceCount: 2, resolution: "1K" });
+    expect(standardEstimate?.minUsd).toBeCloseTo(0.036);
+    expect(standardEstimate?.maxUsd).toBeCloseTo(0.036);
+    expect(standardEstimate?.inputUsd).toBeCloseTo(0.016);
+    expect(standardEstimate?.exact).toBe(true);
+    const highResEstimate = estimateImageCost(SEEDREAM_5_5_PRICING, { outputCount: 1, referenceCount: 2, resolution: "2K" });
+    expect(highResEstimate?.minUsd).toBeCloseTo(0.051);
+    expect(highResEstimate?.maxUsd).toBeCloseTo(0.051);
+    expect(highResEstimate?.inputUsd).toBeCloseTo(0.016);
+    expect(highResEstimate?.exact).toBe(true);
+
+    expect(models.find((m) => m.id === "speechify/simba-3.5")).toMatchObject({
+      primary_operation: "synthesize_speech",
+      pricing_basis: "media",
+      media_pricing: { unit: "character_million", usd: 15 },
+    });
+
+    for (const id of ["google/gemini-decision-1", "perplexity/pplx-decider-v1.3:free", "perplexity/pplx-decider-flash-v1.3:free"]) {
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        primary_operation: "decide",
+        ui_entrypoint: "decisions",
+        interaction_status: "ready",
+      });
+    }
   });
 });
