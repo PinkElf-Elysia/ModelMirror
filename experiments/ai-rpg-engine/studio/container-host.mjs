@@ -1,3 +1,4 @@
+import {installAiGirls,aiGirlsOptions} from '../ai-girls-card/integration.mjs';
 import {installBlueFish,blueFishOptions} from '../blue-fish-card/integration.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
 // Linux container entrypoint. Keep the session-fingerprinted host files unchanged.
@@ -74,6 +75,8 @@ async function run(env){
     cultivationControl:yes('RPG_CULTIVATION_ENABLED')?{...control,enabled:true,limit:Number(env.RPG_CULTIVATION_CALL_LIMIT||0)}:null});
   const blueFishControl=blueFishOptions(env);if(blueFishControl)blueFishControl.fetcher=configFetch;
   installBlueFish(server,{directory,control:blueFishControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const aiGirlsControl=aiGirlsOptions(env);if(aiGirlsControl)aiGirlsControl.fetcher=configFetch;
+  installAiGirls(server,{directory,control:aiGirlsControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {parseFragment} from 'parse5';
 import {streamPresentation} from '../lib/stream-presentation.mjs';
 import {cardDisplay, cardPresentation} from '../lib/card-presentation.mjs';
-const cards = ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong'];
+const cards = ['earth','god','xingjian','ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls'];
 function nodes(html) {
   const result = [], visit = n => {result.push(n); for (const c of n.childNodes || []) visit(c);};
   visit(parseFragment(html)); return result;

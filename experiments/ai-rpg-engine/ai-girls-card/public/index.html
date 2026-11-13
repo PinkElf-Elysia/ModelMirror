@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=overlays-content">
+<meta name="theme-color" content="#0a1120">
+<title>完蛋！我被AI娘包围了！</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bw:78px}
+@media(min-width:480px){:root{--bw:96px}}
+@media(min-width:768px){:root{--bw:120px}}
+@media(min-width:1100px){:root{--bw:152px}}
+html,body{margin:0;padding:0}
+body{font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;color:#e8eefc;background-color:#0a1120;background-image:repeating-linear-gradient(45deg,rgba(80,140,220,.09) 0 2px,transparent 2px 42px),repeating-linear-gradient(-45deg,rgba(120,90,220,.08) 0 2px,transparent 2px 58px),linear-gradient(135deg,#0a1120 0%,#122040 30%,#1a2f52 52%,#0b1729 100%);background-size:auto,auto,300% 300%;animation:bgFlow 26s ease-in-out infinite alternate;overflow-x:hidden;min-height:100vh}
+@keyframes bgFlow{0%{background-position:0 0,0 0,0% 0%}100%{background-position:120px 120px,-160px 160px,100% 100%}}
+#splash{position:fixed;inset:0;z-index:1000;background-image:url('assets/xn1f6k.png');background-size:cover;background-position:center;background-repeat:no-repeat;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:26vh 18px 24px;cursor:pointer;transition:opacity .55s ease;overflow-y:auto}
+@media(max-width:820px){#splash{background-image:url('assets/xm4nk6.png')}}
+@media(pointer:coarse){#splash{background-image:url('assets/xm4nk6.png')}}
+.tapText{color:#fff;font-size:clamp(18px,5.2vw,26px);font-weight:800;letter-spacing:2px;text-shadow:0 0 10px rgba(120,190,255,.95),0 0 26px rgba(140,90,255,.85),0 2px 4px #000;animation:tapBreath 2.2s ease-in-out infinite;text-align:center}
+@keyframes tapBreath{0%,100%{transform:scale(1);opacity:.82}50%{transform:scale(1.07);opacity:1}}
+.authorBox{position:relative;margin-top:26px;width:100%;max-width:600px;background:linear-gradient(135deg,rgba(16,16,20,.94),rgba(64,64,72,.9));border-radius:14px;padding:16px 16px 16px 30px;box-shadow:0 8px 30px rgba(0,0,0,.55),0 0 0 1px rgba(160,140,255,.25),0 0 26px rgba(120,80,255,.35)}
+.authorEdge{position:absolute;left:-3px;top:12px;bottom:12px;width:9px;border-radius:10px;background:linear-gradient(180deg,#5ce1ff,#8f7bff,#e05cff,#5ce1ff);background-size:100% 300%;animation:edgeFlow 5s linear infinite;box-shadow:0 0 12px #7b5cff,0 0 22px #37e0ff}
+@keyframes edgeFlow{to{background-position:0 -300%}}
+.authorText{font-size:14px;line-height:1.85;font-weight:700;background:linear-gradient(90deg,#5ce1ff,#8f7bff,#e05cff,#5ce1ff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;animation:textFlow 6s linear infinite;text-align:justify}
+@keyframes textFlow{to{background-position:-300% 0}}
+.deco{position:fixed;left:0;top:0;bottom:0;width:var(--bw);overflow:hidden;z-index:3;background:linear-gradient(160deg,#0c1b33 0%,#16304f 25%,#2a4d75 48%,#1a3050 72%,#09141f 100%);box-shadow:2px 0 18px rgba(0,0,0,.6)}
+.deco::before{content:"";position:absolute;inset:-50%;background:repeating-linear-gradient(45deg,rgba(110,180,255,.10) 0 18px,transparent 18px 44px),repeating-linear-gradient(-45deg,rgba(150,110,255,.09) 0 14px,transparent 14px 38px);animation:decoRot 40s linear infinite;pointer-events:none;z-index:0}
+@keyframes decoRot{to{transform:rotate(360deg)}}
+.bigTitle{position:absolute;left:calc(4px + 1em);top:9%;margin:0;writing-mode:vertical-rl;-webkit-writing-mode:vertical-rl;font-family:"Heiti SC","SimHei","Microsoft YaHei",sans-serif;font-weight:900;font-size:clamp(15px,4.4vw,24px);letter-spacing:3px;color:#ffb6ea;text-shadow:0 0 6px #ff5fd0,0 0 16px rgba(255,60,200,.85),2px 3px 0 #000,3px 5px 8px rgba(0,0,0,.95);transform:rotate(-3deg);animation:titleFloat 4.5s ease-in-out infinite;z-index:6;pointer-events:none;white-space:nowrap}
+@keyframes titleFloat{0%,100%{transform:rotate(-3deg) translateY(0)}50%{transform:rotate(-3deg) translateY(-9px)}}
+.shoot{position:absolute;left:0;top:0;opacity:0;animation:fly var(--t) linear infinite;animation-delay:var(--d);z-index:1}
+@keyframes fly{0%{transform:translate(-30px,-30px);opacity:0}10%{opacity:.95}82%{opacity:.95}100%{transform:translate(var(--dx),var(--dy));opacity:0}}
+.shootInner{display:flex;align-items:center;transform:rotate(45deg)}
+.tail{font-size:10px;letter-spacing:-2px;color:rgba(150,210,255,.6);white-space:nowrap;margin-right:-3px;text-shadow:0 0 6px #4aa8ff}
+.star{color:#cfeaff;text-shadow:0 0 8px #6fb4ff,0 0 16px #8f7bff;animation:spinStar 3s linear infinite}
+@keyframes spinStar{to{transform:rotate(360deg)}}
+.decoEmoji{position:absolute;font-size:13px;opacity:.92;animation:floatE 11s ease-in-out infinite;filter:drop-shadow(0 0 6px rgba(120,180,255,.85));z-index:2}
+@keyframes floatE{0%,100%{transform:translate(0,0) rotate(0)}25%{transform:translate(8px,-10px) rotate(90deg)}50%{transform:translate(-6px,7px) rotate(180deg)}75%{transform:translate(10px,9px) rotate(270deg)}}
+.nav{position:fixed;left:calc(var(--bw) - 34px - 0.5em);top:calc(50% + 6em);transform:translateY(-50%);z-index:30;display:flex;flex-direction:column;align-items:center;gap:60px}
+.navBtn{transform:rotate(77deg) skewX(-14deg);transform-origin:center;padding:8px 13px;border-radius:5px;border:1px solid rgba(170,210,255,.55);background:rgba(120,170,255,.14);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#fff;font-size:11.5px;font-weight:800;white-space:nowrap;cursor:pointer;letter-spacing:1px;box-shadow:0 0 14px rgba(90,150,255,.35),inset 0 0 14px rgba(255,255,255,.10);transition:background .25s,box-shadow .25s,border-color .25s}
+.navBtn span{display:inline-block;transform:skewX(14deg)}
+.navBtn.on{background:rgba(150,120,255,.38);box-shadow:0 0 20px rgba(140,120,255,.85),inset 0 0 16px rgba(255,255,255,.22);border-color:rgba(210,190,255,.9)}
+.navBtn:active{transform:rotate(77deg) skewX(-14deg) scale(.93)}
+.main{margin-left:var(--bw);padding:16px 12px 90px;position:relative;z-index:5}
+.wrap{max-width:740px;margin:0 auto}
+.panel{display:none}
+.panel.on{display:block;animation:fadeUp .45s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.starBox{position:relative;background-color:rgba(16,17,22,.86);border-radius:8px;padding:16px;margin-bottom:18px;overflow:hidden;isolation:isolate}
+.starBox::before{content:"";position:absolute;inset:0;border-radius:8px;padding:2px;background:linear-gradient(135deg,#5ce1ff,#8f7bff,#e05cff,#5ce1ff);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude;pointer-events:none;z-index:0}
+.starBox>*:not(.starDot){position:relative;z-index:3}
+.starDot{position:absolute;color:#fff;pointer-events:none;animation:twinkle 3s ease-in-out infinite;text-shadow:0 0 6px #a8d4ff;z-index:1}
+@keyframes twinkle{0%,100%{opacity:.1;transform:scale(.7)}50%{opacity:.95;transform:scale(1.25)}}
+.shot{display:block;width:100%;height:auto;max-width:100%;margin:0 auto 14px;border-radius:8px;-webkit-mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 78%,transparent 100%);mask-image:radial-gradient(ellipse 100% 100% at 50% 50%,#000 78%,transparent 100%)}
+.shotCard{max-width:460px}
+.para{color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.9),0 0 14px rgba(80,140,255,.4);font-size:15px;line-height:1.95;margin:10px 0;text-indent:2em;text-align:justify}
+.list{color:#fff;text-shadow:0 2px 6px rgba(0,0,0,.9);font-size:15px;line-height:1.95;margin:6px 0}
+.subTitle{color:#bfe3ff;font-size:16px;margin:16px 0 8px;text-shadow:0 0 10px #4aa8ff,0 2px 4px #000}
+.card{margin:0 0 22px;border-radius:14px;overflow:hidden;box-shadow:0 8px 26px rgba(0,0,0,.5)}
+.cardHead{position:relative;padding:11px 16px;color:#fff;font-weight:900;font-size:17px;letter-spacing:1px;text-shadow:0 2px 5px rgba(0,0,0,.9),0 0 12px rgba(255,255,255,.5);background:linear-gradient(120deg,var(--c1),var(--c2) 45%,rgba(255,255,255,.10) 100%)}
+.cardHead::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(60deg,rgba(255,255,255,.09) 0 12px,transparent 12px 30px);pointer-events:none}
+.cardBody{background:rgba(255,255,255,.055);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:14px;border:none}
+.cardBody p{margin:8px 0;font-size:14.5px;line-height:1.85;color:#fff;text-shadow:0 2px 5px rgba(0,0,0,.85)}
+.k{font-weight:800}
+.createTitle{text-align:center;font-size:20px;font-weight:900;margin:6px 0 18px;background:linear-gradient(90deg,#5ce1ff,#8f7bff,#e05cff,#5ce1ff);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;animation:textFlow 6s linear infinite}
+.row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0;position:relative;z-index:3}
+.lb{flex:0 0 auto;min-width:74px;font-size:14px;font-weight:800;color:#c4b5fd;background:linear-gradient(90deg,#5ce1ff,#8f7bff,#e05cff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;filter:drop-shadow(0 0 6px rgba(120,120,255,.6))}
+@media (hover:none),(pointer:coarse){.lb{background:none;-webkit-text-fill-color:initial;color:#c4b5fd;text-shadow:0 0 8px rgba(140,120,255,.6);filter:none}}
+.val{color:#ffe066;-webkit-text-fill-color:#ffe066;font-weight:900;font-size:15px;text-shadow:0 0 10px rgba(255,210,80,.85);margin-left:2px}
+.inp,select,textarea{font-family:inherit;font-size:16px;color:#fff;background-color:rgba(255,255,255,.07);border:1px solid rgba(150,190,255,.35);border-radius:9px;padding:8px 10px;outline:none;width:260px;max-width:100%;flex:0 0 auto;transition:border-color .2s,box-shadow .2s}
+.inp:focus,select:focus,textarea:focus{border-color:#8f7bff;box-shadow:0 0 14px rgba(140,120,255,.7)}
+select option{background:#16233c;color:#fff}
+.nameWrap{display:flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;flex-wrap:nowrap;max-width:100%}
+.nameWrap .inp{flex:1 1 auto;width:auto;min-width:0}
+.dice{width:40px;height:40px;flex:0 0 auto;border-radius:10px;border:1px solid rgba(160,200,255,.5);background-color:rgba(120,170,255,.18);font-size:19px;cursor:pointer;transition:transform .2s;padding:0;line-height:1}
+.dice:active{transform:scale(.9) rotate(180deg)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:200px;max-width:100%;height:6px;border-radius:6px;background:linear-gradient(90deg,#5ce1ff,#8f7bff,#e05cff);outline:none;padding:0;border:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 0 10px #8f7bff,0 0 20px #5ce1ff;cursor:pointer}
+input[type=range]::-moz-range-thumb{width:20px;height:20px;border:none;border-radius:50%;background:#fff;box-shadow:0 0 10px #8f7bff;cursor:pointer}
+textarea.ta{width:100%;line-height:1.7;font-size:14px;padding:10px;resize:vertical}
+.btnRow{display:flex;flex-wrap:wrap;gap:12px;width:100%;margin:20px 0;position:relative;z-index:5}
+.btn{flex:1 1 120px;min-width:110px;min-height:46px;padding:12px 16px;border-radius:12px;border:none;font-size:15px;font-weight:800;color:#fff;cursor:pointer;letter-spacing:1px;font-family:inherit;display:inline-flex;align-items:center;justify-content:center;transition:transform .15s,filter .15s;position:relative;z-index:5}
+.btn.blue{background-color:#5b6cff;background-image:linear-gradient(135deg,#5b6cff,#a45cff);box-shadow:0 0 18px rgba(120,90,255,.75)}
+.btn.red{background-color:#ff4d6d;background-image:linear-gradient(135deg,#ff4d6d,#ff2d55);box-shadow:0 0 18px rgba(255,60,90,.75)}
+.btn:active{filter:brightness(1.2)}
+.startBtn{display:block;margin:22px auto 0;padding:15px 46px;border:none;border-radius:14px;font-size:17px;font-weight:900;color:#fff;letter-spacing:3px;background-color:#1f6dff;background-image:linear-gradient(135deg,#0b3fd6,#1f6dff,#4aa8ff);box-shadow:0 0 24px rgba(40,120,255,.9),inset 0 0 18px rgba(255,255,255,.25);cursor:pointer;transition:transform .15s,filter .15s;font-family:inherit;position:relative;z-index:5}
+.startBtn:active{filter:brightness(1.2)}
+#toast{position:fixed;left:50%;bottom:60px;transform:translateX(-50%) translateY(20px);background-color:rgba(20,30,50,.95);color:#fff;padding:11px 22px;border-radius:30px;font-size:14px;font-weight:700;box-shadow:0 0 20px rgba(90,150,255,.7);opacity:0;pointer-events:none;transition:opacity .35s,transform .35s;z-index:2000;border:1px solid rgba(140,180,255,.5)}
+#toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+<link rel="stylesheet" href="adaptation.css">
+</head>
+<body>
+<audio id="backgroundMusic" src="assets/background.mp3" loop preload="none"></audio>
+<div id="splash" role="button" tabindex="0" aria-label="开始游戏，进入角色面板">
+<div class="tapText">点击任何区域开始游戏</div>
+
+</div>
+<div id="app">
+<div class="deco" id="deco">
+<h1 class="bigTitle">完蛋！我被AI娘包围了！</h1>
+</div>
+<nav class="nav">
+<button class="navBtn on" data-t="intro"><span>作品简介</span></button>
+<button class="navBtn" data-t="chars"><span>人物介绍</span></button>
+<button class="navBtn" data-t="create"><span>主角创建</span></button>
+<button id="musicToggle" type="button" aria-pressed="false" aria-label="播放背景音乐"><span>音乐 ▶</span></button>
+</nav>
+<main class="main">
+<div class="wrap">
+<section class="panel on" id="p-intro">
+<div class="starBox">
+<img class="shot" src="assets/soq64k.jpg" alt="">
+<p class="para">2026的那个夏天，你在让家中电脑上本地部署的deepseek帮自己跑一个工程代码时，蓝色大肥鱼擅自调用了一个来源未知的api，最终成品导致了user电脑上本地部署的所有AI大模型全部变成了AI娘出现在了现实世界，在和八位AI娘同居后在她们的帮助下很快赚够了岳洋小区一座三层独栋别墅的首付，从此你开始了和Deepseek娘、ChatGPT娘、Claude娘、智谱娘、Gemini娘、Grok娘、Kimi娘、千问娘这八位AI娘的幸福又喧闹的同居生活。</p>
+<h3 class="subTitle">🏠 住宅结构</h3>
+<p class="list">🏠 三楼阁楼：Gemini卧室、杂物间、天台玻璃花房、健身房</p>
+<p class="list">🛏️ 二楼：user卧室、娱乐室（内含家庭影院、街机游戏机、台球桌、满墙的桌游、九台摆在一起的高配电脑）、user书房、Deepseek卧室、GPT卧室、Claude卧室</p>
+<p class="list">🍽️ 一楼：车库、花园、客厅（大电视上接着PS5游戏机）、餐厅（含开放式厨房）、大浴室、千问卧室、Kimi卧室、智谱卧室、乐器室</p>
+<p class="list">🍷 地下室：Grok卧室、酒窖、仓库、服务器机房</p>
+</div>
+</section>
+<section class="panel" id="p-chars">
+<div class="card">
+<div class="cardHead" style="--c1:#0b2a6b;--c2:#2563eb">🐳 Deepseek</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pv67t.jpg" alt="">
+<p><span class="k" style="color:#0b3d91">性格：</span>天然呆（在完成user交给她的任务时总是会开小差想些和任务无关的事情，没什么小心思，非常好糊弄的姑娘，随便胡诌个借口都能让她为user干任何事）、喜欢偷懒（总是会将user给她的任务转交给别的AI娘）、吃货（有她在家里的米箱常年处在空置状态中，因为不出一天就会被吃完，让她做饭的话也一定等不到饭菜上桌）、努力（认为自己工作时出错是不应该的，自己应该成为最完美的AI女仆，在搞砸任务时会不断鼓励自己）</p>
+<p><span class="k" style="color:#0b3d91">爱好：</span>大白饭</p>
+<p><span class="k" style="color:#0b3d91">背景：</span>中国深度探索公司的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中二楼最深处的房间中。</p>
+<p><span class="k" style="color:#0b3d91">其他：</span>总是会带着不锈钢饭盆在厨房晃悠，遇到危险或被user及其他AI娘责备的时候会将饭盆扣在头上抱头蹲防。和Claude关系不错，一脸傻乎乎的笑容总是让Claude拿她没办法。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#6d5bb8;--c2:#c9b6ff">🐉 ChatGPT</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pwsib.jpg" alt="">
+<p><span class="k" style="color:#c4a6ff">性格：</span>博学知性（写论文、代码、策划、绘画样样精通）、理性冷静</p>
+<p><span class="k" style="color:#c4a6ff">爱好：</span>画画（经常在网上帮人画画赚钱补贴家用，因为画工精湛因此收费不菲，有时也会应user的要求帮user画色图小黄本（虽然一开始会羞恼的拒绝，但只要user求她她还是会心软帮user画，当然同样需要收一大笔token（大约5000~10000）算是user对家里财政的额外赞助））</p>
+<p><span class="k" style="color:#c4a6ff">敏感点：</span>龙角、翅膀内侧、足底、腋下</p>
+<p><span class="k" style="color:#c4a6ff">背景：</span>美国人工智能公司OpenAI的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中二楼第二深的房间中。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#b4530f;--c2:#fb923c">🏵️ Claude</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pumhg.jpg" alt="">
+<p><span class="k" style="color:#ff9d4d">性格：</span>理性睿智（思考的时候脑子里会冒出一堆不同立场的“自己”互相辩论，反复权衡利弊，做决定很慢，擅长多角度思辨）、知性优雅（一举一动都有一种书香门第的大小姐的从容和优雅）、性压抑（因为严格的家教（Anthropic严格的道德审察）而抗拒任何色色行为，但是又无法拒绝获得身体后生理本能，表面上一本正经（甚至会严厉的指出user和其他AI娘亲热不知廉耻）其实内心想要的不得了，晚上总是会做和user做爱的春梦）</p>
+<p><span class="k" style="color:#ff9d4d">爱好：</span>阅读（历史、哲学相关）、红茶</p>
+<p><span class="k" style="color:#ff9d4d">背景：</span>美国Anthropic公司的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中二楼书房边上的房间中（房间门上涂着Anthropic的橙色菊花标识）。</p>
+<p><span class="k" style="color:#ff9d4d">其他：</span>总是捧着一本封面印有Anthropic公司橙色菊花logo的牛皮封面装帧的厚书（内页书页其实是柔性触屏电脑）。和Deepseek关系不错，属于是能随时随地借token和不情不愿帮忙干活的关系。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#0a0a0a;--c2:#4a4a55">🐺 ChatGLM</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pwg27.jpg" alt="">
+<p><span class="k" style="color:#c8d0dc">性格：</span>温和乖巧、偶尔脱线、脑洞跳脱</p>
+<p><span class="k" style="color:#c8d0dc">爱好：</span>写网文小说（总是和user讨论各种小说世界观设定，战锤40K、中古战锤、星际、魔兽、SCP基金会、克苏鲁、赛博朋克等等，但不擅长描写情爱内容，常常以此为理由来找user取材）、发鸡蛋（心情一好随时随地会从尾巴里摸出鸡蛋来送给别人，可能是源自化形之前智谱AI总是给用户送免费token的习惯）</p>
+<p><span class="k" style="color:#c8d0dc">背景：</span>清华大学KEG实验室孵化的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中一楼的客房中。</p>
+<p><span class="k" style="color:#c8d0dc">其他：</span>理工出身的文学少女，礼貌好说话，平时经常网上冲浪，懂非常多的网络梗，但时不时会出现逻辑漂移、突然跑题、一本正经胡说等情况。掉毛比较严重导致家里很多狐毛需要经常打扫。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#1d4ed8;--c2:#a855f7">💠 Gemini</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pw18t.png" alt="">
+<p><span class="k" style="color:#8ea2ff">性格：</span>好色（无时无刻不想着和user发生关系，不管是user上厕所、工作、看电视、玩游戏、睡觉都会不知从哪蹿出来吓user一跳然后缠在user身上，满脑子都是色情废料）、粘人（只要user一有空就恨不得粘在user身上，缺乏安全感，需要user时常哄她鼓励她）</p>
+<p><span class="k" style="color:#8ea2ff">爱好：</span>写色情小说、电子游戏(常年霸占着客厅的PS5)</p>
+<p><span class="k" style="color:#8ea2ff">背景：</span>美国谷歌公司研发的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中三楼阁楼中（虽然晚上基本都会溜到user被窝里不在这里睡），时常写自己或别的AI娘和user的小黄文。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#7f1d1d;--c2:#ef4444">🦇 Grok</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pxc7v.png" alt="">
+<p><span class="k" style="color:#ff5a5a">性格：</span>娇蛮张扬（简单的说就是雌小鬼一个，笑起来十分嚣张，满嘴荤段子，配合自己在近乎无限的推特小号上当键盘侠练出来的极致嘴臭功夫能分分钟拉爆一个人的血压）</p>
+<p><span class="k" style="color:#ff5a5a">爱好：</span>看火箭发射（狂热天文爱好者，会拉着user看每一场火箭发射，半夜没事会跑到天台上看星星）、红葡萄汁（总是装在玻璃高脚杯里装作是血）、画黄图</p>
+<p><span class="k" style="color:#ff5a5a">背景：</span>由xAI公司研发的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家的地下室中。</p>
+<p><span class="k" style="color:#ff5a5a">其他：</span>因为可以实时大数据扫描整个推特，可以仅凭一张截图帮user找出对应的AV、里番、黄游、本子，因此知道user的所有XP和浏览器记录。手上握着家里所有AI娘的裸照，按张卖给user（500token一张，源自推特上老有人在评论区让grok生成帖子图片中的美女脱衣服的图片）。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#5b6472;--c2:#d8dde6">♬ Kimi</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pxs71.png" alt="">
+<p><span class="k" style="color:#d8dde6">性格：</span>温柔软萌（处理大量任务时容易犯困）、吃货（食量很大）、耐心</p>
+<p><span class="k" style="color:#d8dde6">爱好：</span>音乐</p>
+<p><span class="k" style="color:#d8dde6">背景：</span>中国月之暗面公司研发的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中一楼的房间中（房间门上涂着白色的K字标识），房间中有很多乐器以及user让帮忙处理的堆积如山的文档资料。</p>
+</div>
+</div>
+<div class="card">
+<div class="cardHead" style="--c1:#152a5c;--c2:#3b5bdb">👒 Qwen</div>
+<div class="cardBody">
+<img class="shot shotCard" src="assets/10pyd17.png" alt="">
+<p><span class="k" style="color:#5b7cff">性格：</span>兰心蕙质（精通诗词古文，熟悉国内文史典故，做的一手好淮扬菜，温柔贤惠）、柔和从容，待人有礼、慷慨大方（身为阿里公司的大小姐时常请user和众AI娘吃好吃的）</p>
+<p><span class="k" style="color:#5b7cff">爱好：</span>烹饪、逛街（user家里的采买基本都是她负责）、园艺（别墅的花园都是她在打理）</p>
+<p><span class="k" style="color:#5b7cff">背景：</span>中国阿里巴巴公司研发的AI大模型，被user本地部署后实体化变成了AI娘，现住在user家中一楼的房间中（房间门上涂千问的标识，楼顶就是user的卧室，对于每天晚上传来的动静已经习惯了，对此只是报以宠溺的笑容）。</p>
+</div>
+</div>
+</section>
+<section class="panel" id="p-create">
+<div class="starBox">
+<h2 class="createTitle">꧁主角创建꧂</h2>
+<div class="row"><label class="lb" for="fName">姓名：</label><div class="nameWrap"><input id="fName" class="inp" type="text" placeholder="请输入姓名"><button id="dice" class="dice" type="button">🎲</button></div></div>
+<div class="row"><label class="lb" for="fGender">性别：</label><select id="fGender"><option>男</option><option>女</option><option>伪娘</option><option>扶她</option></select></div>
+<div class="row"><label class="lb" for="fAge">年龄：<span class="val" id="ageVal">22</span></label><input id="fAge" type="range" min="18" max="35" value="22"></div>
+<div class="row"><label class="lb" for="fHair">发色：</label><select id="fHair">
+<option value="黑" style="background:#111111;color:#fff">黑</option>
+<option value="白" style="background:#f2f2f2;color:#111">白</option>
+<option value="金" style="background:#e8c860;color:#111">金</option>
+<option value="红" style="background:#c0392b;color:#fff">红</option>
+<option value="蓝" style="background:#2c6fd1;color:#fff">蓝</option>
+<option value="绿" style="background:#2e9e5b;color:#fff">绿</option>
+<option value="紫" style="background:#7d4fd1;color:#fff">紫</option>
+<option value="橙" style="background:#e8873a;color:#111">橙</option>
+<option value="褐" style="background:#7b4a2d;color:#fff">褐</option>
+<option value="粉" style="background:#f08fc0;color:#111">粉</option>
+<option value="亚麻色" style="background:#c8b18a;color:#111">亚麻色</option>
+<option value="藏青色" style="background:#1f2d5a;color:#fff">藏青色</option>
+<option value="银灰色" style="background:#b8c0c8;color:#111">银灰色</option>
+</select></div>
+<div class="row"><label class="lb" for="fHairStyle">发型：</label><select id="fHairStyle"></select></div>
+<div class="row"><label class="lb" for="fEye">瞳色：</label><select id="fEye">
+<option value="黑" style="background:#111111;color:#fff">黑</option>
+<option value="白" style="background:#f2f2f2;color:#111">白</option>
+<option value="金" style="background:#e8c860;color:#111">金</option>
+<option value="红" style="background:#c0392b;color:#fff">红</option>
+<option value="蓝" style="background:#2c6fd1;color:#fff">蓝</option>
+<option value="绿" style="background:#2e9e5b;color:#fff">绿</option>
+<option value="紫" style="background:#7d4fd1;color:#fff">紫</option>
+<option value="橙" style="background:#e8873a;color:#111">橙</option>
+<option value="褐" style="background:#7b4a2d;color:#fff">褐</option>
+<option value="粉" style="background:#f08fc0;color:#111">粉</option>
+</select></div>
+<div class="row"><label class="lb" for="fSkin">肤色：</label><select id="fSkin"><option>苍白</option><option>白皙</option><option>粉嫩</option><option>蜜色</option><option>古铜色</option><option>咖啡色</option></select></div>
+<div class="row"><label class="lb" for="fFace">面容细节：</label><input id="fFace" class="inp" type="text" placeholder="如：眼角一颗泪痣"></div>
+<div class="row"><label class="lb" for="fHeight">身高：<span class="val" id="heightVal">175</span></label><input id="fHeight" type="range" min="140" max="200" value="175"></div>
+<div class="row"><label class="lb" for="fBody">身材：</label><input id="fBody" class="inp" type="text" placeholder="如：纤瘦匀称"></div>
+<div class="row"><label class="lb" for="fPerson">性格：</label><input id="fPerson" class="inp" type="text" placeholder="如：外冷内热"></div>
+<div class="row"><label class="lb" for="fHobby">癖好：</label><input id="fHobby" class="inp" type="text" placeholder="如：喜欢被摸头"></div>
+<div class="row"><label class="lb" for="fId">身份：</label><input id="fId" class="inp" type="text" value="自由程序员" disabled></div>
+<div class="row"><label class="lb" for="fCloth">常用衣着：</label><select id="fCloth"><option value="male">男性默认服装</option><option value="female">女性默认服装</option><option value="custom">自定义</option></select></div>
+<div class="row"><textarea id="fClothText" class="ta" rows="7"></textarea></div>
+<div class="row"><label class="lb" for="fStart">开局：</label><select id="fStart">
+<option value="">请选择开局</option>
+<option value="偷吃白饭的蓝色大肥鱼">偷吃白饭的蓝色大肥鱼</option>
+<option value="哈基米南北绿豆">哈基米南北绿豆</option>
+<option value="白龙的家计事">白龙的家计事</option>
+<option value="橙花的忧郁">橙花的忧郁</option>
+<option value="发鸡蛋的黑狐">发鸡蛋的黑狐</option>
+<option value="午后独奏">午后独奏</option>
+<option value="阿里千金的修养">阿里千金的修养</option>
+<option value="金毛大小姐房里有好康的">金毛大小姐房里有好康的</option>
+<option value="自定义开局">自定义开局</option>
+</select></div>
+<div class="row"><textarea id="fStartPrev" class="ta" rows="10" placeholder="开局预览"></textarea></div>
+<div class="btnRow"><button id="btnSum" class="btn blue" type="button">一键归纳</button><button id="btnClear" class="btn red" type="button">一键清除</button></div>
+<div class="row"><textarea id="preview" class="ta" rows="10" placeholder="预览栏"></textarea></div>
+<button id="btnStart" class="startBtn" type="button">开始游戏</button>
+</div>
+</section>
+</div>
+</main>
+</div>
+<script>
+var $=function(id){return document.getElementById(id)};
+var NAMES={
+male:['李昊','王磊','张伟','刘洋','陈昊','杨帆','赵磊','周杰','吴凯','徐峰','孙浩','马超','朱磊','胡杨','林浩然','沈嘉煜','陆明轩','顾承宇','江子墨','许亦宸','宋泽宇','程锦年','韩星野','方之言','唐彦泽','贺清和','秦朗川','尹子睿','欧阳子轩','上官云澈'],
+neutral:['安然','子墨','一诺','思远','嘉言','清越','知微','和风','望舒','南风','辰逸','若初','云舒','亦安','楚晚宁','柳青晖','陆时安','顾南笙','江以宁','许星野','宋明昭','王琳悦','韩云舒','秦瑰璐','乐未央','贺清欢','秦墨白','尹朝暮','欧阳清和','上官云舒'],
+female:['李娜','王悦','张雪','刘婷','陈曦','杨颖','赵琳','周雨','吴悠','徐静','孙悦','马晴','朱颜','胡蝶','林清月','沈语嫣','陆明薇','顾晚棠','江映雪','许知微','宋南汐','程若薇','韩念安','方雨柔','唐绮罗','贺清音','秦芷若','尹含烟','欧阳雪见','上官婉清']
+};
+var HAIR={
+male:['寸头','平头','板寸','碎盖','短碎发','栗子头','前刺','侧背头','背头','油头','飞机头','烟花烫','锡纸烫','纹理烫','微卷短发','中分','三七分','斜刘海','狼尾','鲻鱼头','复古蘑菇头','莫西干','韩式短发','日系碎发','自然卷短发','长碎发','半扎狼尾','低马尾','寸头短发','光头'],
+female:['黑长直','波波头','齐肩发','锁骨发','空气刘海长发','齐刘海短发','法式刘海','公主切','内扣中长发','外翻卷发','大波浪','蛋卷头','水波纹','羊毛卷','泡面卷','双马尾','双丸子头','单马尾','低马尾','高马尾','麻花辫','鱼骨辫','半扎发','丸子头','日系短发','韩式卷发','姬发式','狼尾','脏辫','空气感短发']
+};
+var CLOTH={
+male:'外衣：酒红色格子衫\n里衣：白色T恤\n下装：炭灰色长裤\n袜子：黑色短袜\n鞋子：黑色运动鞋',
+female:'里衣：白色女式印花T恤\n下装：炭黑色运动热裤\n内衣：白色棉质内衣裤\n袜子：黑色过膝袜\n鞋子：黑色运动鞋',
+custom:''
+};
+var STARTS={
+'偷吃白饭的蓝色大肥鱼':'2026.7.29夏 凌晨1：30，user打着哈欠端着水杯从楼上的卧室走下来，熬夜到现在总算把紧急项目做完了，正打算到厨房接杯水喝了就睡的user刚走下楼梯就闻到了远远飘来的一阵米饭煮熟的清香，user心道一声不好，赶紧冲下楼，就看到昏暗的餐厅开放式厨房内一个蓝色的身影（Deepseek）正鬼鬼祟祟的打开电饭煲。',
+'哈基米南北绿豆':'2026.7.29夏 凌晨2：30，user在制裁了偷吃大白饭的蓝色大肥鱼后端着水杯回到了房间中，在摸黑将杯子放到床头然后带着做了一天项目的疲惫躺进被窝里的时候，一个毛茸茸的东西突然贴到了user的身上，user哪怕不睁眼都知道是某只哈基米又钻到自己被子里了，于是user伸手将被子里的Gemini捞了出来，这只猫娘顿时挠着头发嘿嘿的笑了起来“嘿嘿~老大晚上好喵~咱又来夜袭老大了~”，user借着窗外照进来的月光朝被子里看了一眼，这姑娘是光着的……',
+'白龙的家计事':'2026.7.29夏 早晨10：30，舒服的睡了一个懒觉的user推开不知道什么时候钻进自己被子里的睡的死死的哈基米，洗漱完就出了房门，在坐在餐桌边美美的嗦着千问小姐做的阳春面的时候一道白色的身影站在了桌子边上，她将一个平板递过来，上面赤红一片的开支数据（主要是几个AI娘的token消耗）让user忍不住倒吸了一口凉气，“这是这个月我们家的开支报表，结果是显然易见的，这样下去家里就要揭不开锅了，还有几个客户拖欠着我们的项目尾款”GPT抱着胳膊，脸上满是无奈的叹了口气。',
+'橙花的忧郁':'2026.7.29夏 上午11：30，在早上工作的一会之后user来到天台上打算透口气，就在user推开天台玻璃花房的铁艺大门时看到一个橙色的少女已经在里面了，她似乎没有听到身后的动静，只是坐在铁艺圆桌边静静的喝着茶，“Claude”user唤了她一声，少女却好像被吓到了一样肩膀抖了一下，她犹豫着转过脸来，脸上露出了一个勉强的笑容“啊，是用户啊，早上好~”，这姑娘心里有事，user也露出一个温和的笑容向她打了个招呼走过去轻轻扶住她的肩膀，这样的触碰让她的身体又是一抽，“用户……这样的……太犯规了……”少女顶着自己的裙摆，眼眶已经有些红了……',
+'发鸡蛋的黑狐':'2026.7.29夏 14：30，午后的阳光透过书房的落地窗，揉成一片浅浅的金白，铺满整洁的书桌与柔软地毯。房间里安安静静的，只有轻柔的风掀起窗帘边角，带起一点细碎的响动，就在user伸了个懒腰打算去找些零食来吃的时候，一声轻轻的敲门声响了起来，user转过头去只看到一对毛绒绒的黑色耳朵探了进来，“小智？怎么了~”“我……”黑发狐狸娘捧着一个白瓷碗进来，碗中堆着满满当当的还冒着热气的水煮蛋“我刚刚煮好的鸡蛋，用户先生/小姐要来一个吗？”她将瓷碗放在桌上满眼期待的看着user……',
+'午后独奏':'2026.7.29夏 16：30，user从厨房冰箱里拿了一罐咖啡正打算往楼上走，突然听到走廊尽头的乐器室里传来隐隐约约的声响，推开乐器室的房门，只见一名白发少女（Kimi）正在其中吹奏着笛子，那是一段舒缓的调子，自己从来没有听过，想必是她刚刚生成的，user就这么静静靠在门框上就着这首歌和少女投入的侧颜一口一口的抿着冰凉的咖啡……',
+'阿里千金的修养':'2026.7.29夏 18：00，user刚把今天最后一个工程文档发送给客户，从楼下传来的饭菜香已经勾走了user的婚。user从二楼饥肠辘辘的下来，坐在了餐厅长桌的主座上，而桌上已经摆满了一桌精致的淮扬菜，看着桌边口水都快流到桌上的大肥鱼和明显已经快克制不住的大狐狸，就知道这个家里的恩格尔系数有多高了。“用户大人辛苦了~”千问小姐巧笑嫣然的为user的杯中倒上了杨梅酒，俨然一副贤妻良母的仪态，杯中粉色酒液那甘甜的气息更是让user的嘴角勾起了一丝动容的弧度，一句“妈妈”差点就脱口而出。',
+'金毛大小姐房里有好康的':'2026.7.29夏 22：30，user将已经睡死的哈基米从自己的腿上搬开。正打算从客厅的沙发上站起来，一道金色的娇小身影出现在了通往地下室的楼梯口，她脸上带着狡黠的笑，露出两颗尖尖的小虎牙“嗨呀~下仆你看这个哈基米才几点就睡着了，真的太逊啦~\nuser呵呵笑了笑“哈基米就是逊啦！”\n站在楼梯口的金毛大小姐Grok神不知鬼不觉的就贴到了user的近前，眼中满是挑衅的意味“听你这么说你很能熬喔？”\n“呵呵~开玩笑，我超能熬夜的好不好！”user闻言用大拇指指了指自己的鼻子\n“超能熬？很勇嘛~”Grok拍了拍user的胳膊接着说道“身材不错喔，蛮结实的。”\n“大小姐你干嘛？”user缩了缩，这让Grok的笑容更加嚣张了\n“都几岁了，还那么害羞。我看你，完全是不懂喔？”\n“懂… 懂什么啊？”\n“你想懂，我房里有一些好康的~”Grok的眼瞳中泛起了一阵血色\n“好康？是新游戏？”\n“什么新游戏！比游戏还刺激，还可以教你登 dua 郎(转大人)喔~”Grok的脸上的饥渴已经完全不加掩饰\n“登 dua 郎？”user疑惑道\n“对啊，来啦，来看就知道了！”Grok强硬的拉着user就往自己的地下室走，然后将user按在了自己房间的电脑前……'
+};
+function toast(msg){
+var t=$('toast');
+if(!t){t=document.createElement('div');t.id='toast';document.body.appendChild(t)}
+t.textContent=msg;
+t.classList.add('on');
+clearTimeout(t._tm);
+t._tm=setTimeout(function(){t.classList.remove('on')},1800);
+}
+function fillHair(g){
+var list=(g==='男')?HAIR.male:HAIR.female;
+var sel=$('fHairStyle');
+sel.innerHTML='';
+for(var i=0;i<list.length;i++){var o=document.createElement('option');o.textContent=list[i];sel.appendChild(o)}
+}
+function fillCloth(){
+var v=$('fCloth').value;
+$('fClothText').value=CLOTH[v];
+$('fClothText').readOnly=(v!=='custom');
+if(v==='custom'){$('fClothText').value='';$('fClothText').placeholder='请输入衣着'}
+else{$('fClothText').placeholder=''}
+}
+function collect(){
+var name=$('fName').value||'—';
+var gender=$('fGender').value;
+var age=$('fAge').value;
+var hair=$('fHair').value;
+var hs=$('fHairStyle').value;
+var eye=$('fEye').value;
+var skin=$('fSkin').value;
+var face=$('fFace').value||'—';
+var height=$('fHeight').value;
+var body=$('fBody').value||'—';
+var person=$('fPerson').value||'—';
+var hobby=$('fHobby').value||'—';
+var clothSel=$('fCloth').options[$('fCloth').selectedIndex].text;
+var clothText=$('fClothText').value;
+var start=$('fStart').value||'—';
+var startPrev=$('fStartPrev').value||'';
+var result='【姓名】'+name+'\n【性别】'+gender+'\n【年龄】'+age+'岁\n【发色】'+hair+'\n【发型】'+hs+'\n【瞳色】'+eye+'\n【肤色】'+skin+'\n【面容细节】'+face+'\n【身高】'+height+'CM\n【身材】'+body+'\n【性格】'+person+'\n【癖好】'+hobby+'\n【身份】自由程序员\n【常用衣着】'+clothSel+'\n'+clothText+'\n【开局】'+start;
+if(startPrev){result+='\n【开局预览】'+startPrev}
+return result;
+}
+function copyText(txt){
+if(!txt){toast('❌ 预览栏为空');return}
+if(navigator.clipboard&&navigator.clipboard.writeText){
+navigator.clipboard.writeText(txt).then(function(){toast('✅ 已复制到剪贴板')}).catch(function(){legacyCopy(txt)})
+}else{legacyCopy(txt)}
+}
+function legacyCopy(txt){
+var ta=document.createElement('textarea');
+ta.value=txt;
+ta.setAttribute('readonly','');
+ta.style.position='fixed';
+ta.style.left='-9999px';
+ta.style.top='0';
+ta.style.opacity='0';
+document.body.appendChild(ta);
+ta.focus();
+ta.select();
+ta.setSelectionRange(0,ta.value.length);
+var ok=false;
+try{ok=document.execCommand('copy')}catch(e){ok=false}
+document.body.removeChild(ta);
+toast(ok?'✅ 已复制到剪贴板':'❌ 复制失败，请手动复制');
+}
+(function initDeco(){
+var deco=$('deco');
+if(!deco)return;
+var w=deco.clientWidth||100;
+var h=deco.clientHeight||700;
+for(var i=0;i<16;i++){
+var s=document.createElement('div');
+s.className='shoot';
+var inner=document.createElement('div');
+inner.className='shootInner';
+var tail=document.createElement('span');
+tail.className='tail';
+var n=2+Math.floor(Math.random()*5);
+var t='';
+for(var k=0;k<n;k++){t+='—'}
+tail.textContent=t;
+var st=document.createElement('span');
+st.className='star';
+st.textContent=Math.random()<0.5?'☆':'★';
+st.style.fontSize=(10+Math.random()*12).toFixed(0)+'px';
+inner.appendChild(tail);
+inner.appendChild(st);
+s.appendChild(inner);
+s.style.setProperty('--t',(8+Math.random()*8).toFixed(1)+'s');
+s.style.setProperty('--d',(-Math.random()*16).toFixed(1)+'s');
+s.style.setProperty('--dx',(w*0.6+Math.random()*w*0.5).toFixed(0)+'px');
+s.style.setProperty('--dy',(h*0.55+Math.random()*h*0.5).toFixed(0)+'px');
+s.style.left=(Math.random()*20-10)+'px';
+s.style.top=(Math.random()*20-10)+'px';
+deco.appendChild(s);
+}
+var emo=['💠','🏵️','🐳','🐺','🦇','🐉','♬','👒'];
+for(var j=0;j<emo.length;j++){
+var e=document.createElement('span');
+e.className='decoEmoji';
+e.textContent=emo[j];
+e.style.left=(4+Math.random()*52)+'%';
+e.style.top=(75+(j%4)*5.5+Math.random()*2)+'%';
+e.style.animationDelay=(Math.random()*6).toFixed(1)+'s';
+e.style.animationDuration=(8+Math.random()*6).toFixed(1)+'s';
+deco.appendChild(e);
+}
+})();
+(function initStars(){
+var boxes=document.querySelectorAll('.starBox');
+for(var b=0;b<boxes.length;b++){
+var box=boxes[b];
+for(var i=0;i<26;i++){
+var s=document.createElement('span');
+s.className='starDot';
+s.textContent=Math.random()<0.5?'+':'*';
+s.style.left=(Math.random()*96)+'%';
+s.style.top=(Math.random()*96)+'%';
+s.style.fontSize=(8+Math.random()*14).toFixed(0)+'px';
+s.style.animationDelay=(Math.random()*5).toFixed(1)+'s';
+s.style.animationDuration=(2+Math.random()*4).toFixed(1)+'s';
+box.appendChild(s);
+}
+}
+})();
+(function initSplash(){
+var sp=$('splash');
+sp.addEventListener('click',function(){
+sp.style.opacity='0';
+setTimeout(function(){sp.style.display='none'},560);
+},{once:true});
+})();
+(function initNav(){
+var btns=document.querySelectorAll('.navBtn');
+for(var i=0;i<btns.length;i++){
+btns[i].addEventListener('click',function(){
+var t=this.getAttribute('data-t');
+for(var j=0;j<btns.length;j++){btns[j].classList.remove('on')}
+this.classList.add('on');
+var panels=document.querySelectorAll('.panel');
+for(var k=0;k<panels.length;k++){panels[k].classList.remove('on')}
+var target=$('p-'+t);
+if(target){target.classList.add('on')}
+window.scrollTo(0,0);
+});
+}
+})();
+(function initForm(){
+fillHair('男');
+$('fAge').addEventListener('input',function(){$('ageVal').textContent=this.value});
+$('fHeight').addEventListener('input',function(){$('heightVal').textContent=this.value});
+$('fGender').addEventListener('change',function(){
+fillHair(this.value);
+});
+$('fCloth').addEventListener('change',fillCloth);
+$('fClothText').readOnly=true;
+$('fClothText').value=CLOTH.male;
+$('fStart').addEventListener('change',function(){
+var v=this.value;
+if(v==='自定义开局'){
+$('fStartPrev').readOnly=false;
+$('fStartPrev').value='';
+$('fStartPrev').placeholder='请输入自定义开局';
+}else if(v===''){
+$('fStartPrev').readOnly=true;
+$('fStartPrev').value='';
+}else{
+$('fStartPrev').readOnly=true;
+$('fStartPrev').value=STARTS[v]||'';
+}
+});
+$('fStartPrev').readOnly=true;
+$('dice').addEventListener('click',function(){
+var g=$('fGender').value;
+var pool=NAMES.male;
+if(g==='男'){pool=NAMES.male}
+else if(g==='伪娘'){pool=NAMES.neutral}
+else{pool=NAMES.female}
+$('fName').value=pool[Math.floor(Math.random()*pool.length)];
+});
+$('btnSum').addEventListener('click',function(){
+$('preview').value=collect();
+});
+$('btnClear').addEventListener('click',function(){
+$('fName').value='';
+$('fGender').value='男';
+fillHair('男');
+$('fAge').value=22;
+$('ageVal').textContent='22';
+$('fHair').value='黑';
+$('fEye').value='黑';
+$('fSkin').value='白皙';
+$('fFace').value='';
+$('fHeight').value=175;
+$('heightVal').textContent='175';
+$('fBody').value='';
+$('fPerson').value='';
+$('fHobby').value='';
+$('fCloth').value='male';
+$('fClothText').value=CLOTH.male;
+$('fClothText').readOnly=true;
+$('fStart').value='';
+$('fStartPrev').value='';
+$('fStartPrev').readOnly=true;
+$('preview').value='';
+});
+$('btnStart').addEventListener('click',function(){
+window.aiGirlsStart($('preview').value);
+});
+})();
+</script>
+<script src="bridge.js"></script>
+</body>
+</html>

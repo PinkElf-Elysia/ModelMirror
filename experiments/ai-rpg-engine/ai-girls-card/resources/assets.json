@@ -1,0 +1,86 @@
+[
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/xn1f6k.png",
+    "file": "assets/xn1f6k.png",
+    "sha256": "be420e99e9398ae513f34e459709aec6265c3022c1c6b2f99166729855ba37ea",
+    "bytes": 2501918,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/xm4nk6.png",
+    "file": "assets/xm4nk6.png",
+    "sha256": "7be42d5bbfa2d6babc8e050d44dc6fd8320bb529f82375081e32292d0d1bef4d",
+    "bytes": 1332708,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/13/soq64k.jpg",
+    "file": "assets/soq64k.jpg",
+    "sha256": "3368d6f97e404d3095728987cb8709b5baef9925fe013aa9dff8a5e353343086",
+    "bytes": 592804,
+    "mime": "image/jpeg"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pv67t.jpg",
+    "file": "assets/10pv67t.jpg",
+    "sha256": "d16251ad18a54b0b672e88bd42aa6fc2612d81c8d88a4d1fd55f74439f2dc637",
+    "bytes": 1809762,
+    "mime": "image/jpeg"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pwsib.jpg",
+    "file": "assets/10pwsib.jpg",
+    "sha256": "59d67359fc646663196aa35e7b4002a983b0da9ca9204f4e5194422f2379e108",
+    "bytes": 1708856,
+    "mime": "image/jpeg"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pumhg.jpg",
+    "file": "assets/10pumhg.jpg",
+    "sha256": "e2dca59dd8d74b64a6739f12a10466d68870ed04d42c1c3f78a9d3f38142ac33",
+    "bytes": 2189405,
+    "mime": "image/jpeg"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pwg27.jpg",
+    "file": "assets/10pwg27.jpg",
+    "sha256": "c38659c8907ae338a8cc5f5961c9c4ec1e0881bf5deecb1f029a1050511f7219",
+    "bytes": 1866244,
+    "mime": "image/jpeg"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pw18t.png",
+    "file": "assets/10pw18t.png",
+    "sha256": "111214fbdac1f8592da01a0d7c83087c1e9bb66dbe1529d6ed786db352599d8c",
+    "bytes": 1831964,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pxc7v.png",
+    "file": "assets/10pxc7v.png",
+    "sha256": "3b0a42655de27510fa4d7309b2c99a8aa2b275dd30e299a2c9b4e44359eeff10",
+    "bytes": 1918384,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pxs71.png",
+    "file": "assets/10pxs71.png",
+    "sha256": "bf9f96cf9f0fe331c4e070cc293636c9340589ead4770aa4c62918f65fc3994f",
+    "bytes": 1902587,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://img.668618.xyz/i/2026/10/11/10pyd17.png",
+    "file": "assets/10pyd17.png",
+    "sha256": "70e9e1da22f5f694ee35f2d042cd8218085e821ea203cab10b3fa7522b6244eb",
+    "bytes": 2078696,
+    "mime": "image/png"
+  },
+  {
+    "url": "https://bg-music.catai.wiki/music/e7a04cf7-7dff-445f-b7e2-27f5688ffa6c/4a1a5230-c567-470c-ac97-e0fb22ea06a1.mp3",
+    "file": "assets/background.mp3",
+    "sha256": "b8c73e48be423ff8e0c896558701808ed740c5c09331a9c121ba5cff131e7e50",
+    "bytes": 3500401,
+    "mime": "audio/mpeg"
+  }
+]

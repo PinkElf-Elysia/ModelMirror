@@ -1,0 +1,9 @@
+{
+  "sourceDocument": "AI娘.docx",
+  "documentSha256": "0864bdb45c24ccd0c571466a23aabbe886c0f0e51b75bcf1397260c886ae3b0d",
+  "systemSha256": "e308eec7f408333768596a9f6de27686716ea74f4508538a0b9bc6c583d95056",
+  "paragraphCount": 886,
+  "extraction": "Word body paragraphs in order; text runs concatenated; LF paragraph separators and final LF; no wording edits",
+  "sourceUrl": "https://afengy.cash/zh/explore/installed/e7a04cf7-7dff-445f-b7e2-27f5688ffa6c",
+  "frontendSha256": "56f90971af767b83545137e28c45195ffab17c3907bbe962cc3d894e0e49e638"
+}
