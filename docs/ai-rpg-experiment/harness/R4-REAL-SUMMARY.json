@@ -1,0 +1,232 @@
+{
+  "date": "2026-11-14",
+  "baseline": "92849f3142ae67805e9cb627495ac8fab7d25df2",
+  "provider": "google/gemini-3.8-flash",
+  "requests": 3,
+  "actualCostUSD": "0.0412980",
+  "perRequestCostUSD": [
+    "0.0372975",
+    "0.001905",
+    "0.0020955"
+  ],
+  "calls": [
+    {
+      "slot": 1,
+      "adapter": "cultivation",
+      "capUSD": 0.3,
+      "reservedUSD": 0.22278,
+      "status": "completed",
+      "finishReason": "stop",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794650984-Hn7eNBzTy6gQ8Ai4SPKS",
+        "inputTokens": 38160,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 2314,
+        "reasoningTokens": 0,
+        "reportedCostMicros": 37298,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 40474,
+        "usageFrames": 1
+      },
+      "accounting": {
+        "estimateMethod": "frozen-price-no-cache-discount",
+        "estimatedCostMicros": 37298,
+        "pricing": {
+          "currency": "USD",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "quoteId": "d316e1149c98c759268bac66b7d406825c24d7c48d8c81870f10b0c01171ca62"
+        },
+        "reportedCostMicros": 37298,
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedInputTokens": 0,
+          "currency": "USD",
+          "generationId": "gen-1794650984-Hn7eNBzTy6gQ8Ai4SPKS",
+          "inputTokens": 38160,
+          "issues": [],
+          "model": "google/gemini-3.8-flash",
+          "outputTokens": 2314,
+          "reasoningTokens": 0,
+          "reportedCostMicros": 37298,
+          "source": "provider-sse",
+          "streamComplete": true,
+          "totalTokens": 40474,
+          "usageFrames": 1
+        }
+      },
+      "timing": {
+        "completedMs": 32669.514300000003,
+        "firstContentMs": 6086.4863000000005,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "host-progress-observation"
+      },
+      "toolCalls": null
+    },
+    {
+      "slot": 2,
+      "adapter": "lighthouse",
+      "capUSD": 0.1,
+      "reservedUSD": 0.033573,
+      "status": "completed",
+      "finishReason": "stop",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794651018-bbvVEp1UbdEwAQXLwqyn",
+        "inputTokens": 565,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 395,
+        "reasoningTokens": 218,
+        "reportedCostMicros": 1905,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 960,
+        "usageFrames": 1
+      },
+      "accounting": {
+        "estimateMethod": "frozen-price-no-cache-discount",
+        "estimatedCostMicros": 1905,
+        "pricing": {
+          "currency": "USD",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "quoteId": "d316e1149c98c759268bac66b7d406825c24d7c48d8c81870f10b0c01171ca62"
+        },
+        "reportedCostMicros": 1905,
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedInputTokens": 0,
+          "currency": "USD",
+          "generationId": "gen-1794651018-bbvVEp1UbdEwAQXLwqyn",
+          "inputTokens": 565,
+          "issues": [],
+          "model": "google/gemini-3.8-flash",
+          "outputTokens": 395,
+          "reasoningTokens": 218,
+          "reportedCostMicros": 1905,
+          "source": "provider-sse",
+          "streamComplete": true,
+          "totalTokens": 960,
+          "usageFrames": 1
+        }
+      },
+      "timing": {
+        "completedMs": 9478.4375,
+        "firstContentMs": 7852.732299999996,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "host-progress-observation"
+      },
+      "toolCalls": null
+    },
+    {
+      "slot": 3,
+      "adapter": "lighthouse",
+      "capUSD": 0.1,
+      "reservedUSD": 0.034201,
+      "status": "completed",
+      "finishReason": "stop",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794651028-UWAZzqbZuvlOa8wOIRy4",
+        "inputTokens": 779,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 403,
+        "reasoningTokens": 226,
+        "reportedCostMicros": 2096,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 1182,
+        "usageFrames": 1
+      },
+      "accounting": {
+        "estimateMethod": "frozen-price-no-cache-discount",
+        "estimatedCostMicros": 2096,
+        "pricing": {
+          "currency": "USD",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "quoteId": "d316e1149c98c759268bac66b7d406825c24d7c48d8c81870f10b0c01171ca62"
+        },
+        "reportedCostMicros": 2096,
+        "usage": {
+          "cacheWriteTokens": 0,
+          "cachedInputTokens": 0,
+          "currency": "USD",
+          "generationId": "gen-1794651028-UWAZzqbZuvlOa8wOIRy4",
+          "inputTokens": 779,
+          "issues": [],
+          "model": "google/gemini-3.8-flash",
+          "outputTokens": 403,
+          "reasoningTokens": 226,
+          "reportedCostMicros": 2096,
+          "source": "provider-sse",
+          "streamComplete": true,
+          "totalTokens": 1182,
+          "usageFrames": 1
+        }
+      },
+      "timing": {
+        "completedMs": 8967.471000000005,
+        "firstContentMs": 7708.880300000004,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "host-progress-observation"
+      },
+      "toolCalls": null
+    }
+  ],
+  "totals": {
+    "inputTokens": 39504,
+    "outputTokens": 3112,
+    "reasoningTokens": 444,
+    "cachedInputTokens": 0
+  },
+  "rawDirectory": "C:\\tmp\\modelmirror-rpg-context-r4\\experiments\\ai-rpg-engine\\.rpg03-work\\context-r4-real-v1",
+  "files": {
+    "execution-claim.json": "c4a3b663c2bf13a1c11b59482ef43cc937abc75e46b5225a8dd1b4afb171efbe",
+    "preflight.json": "2deedbee931004dca185eb4b901089b21e615facb954a947c7fd1869276ddf6e",
+    "transport-evidence.json": "de3c29fc4af0ef0bf8b2f0e30395b679b79e2f7efa08e09465444e28df2555ce",
+    "review.json": "fc6d5b96a892268d15d9b81c417ce3b7fd1e1d3141493de8fb7f994c37038d80",
+    "assessment.json": "2b4ca995b75af269828c9d19115cc426bfea9b1e80af036f2687a26cc2a62482",
+    "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+    "dispatch-audit.json": "8470518692022603c0a4b05aa87a0dddafe358dcba7720b53c41e3c1ccd0bd6c",
+    "stage-1.json": "89a9ed8004c0d6f1111cb7f8b80e8046de1529897cff6bc8c51198855c319df8",
+    "reply-1.txt": "21bd7338da8c27bdfba7cfe8825a2d0c4b03c3bd7d28c0b65dc8a8361cfa9f60",
+    "session-1.json": "2f7104d5f41f21f8591b02a59434e8f147693f7bf560708c90648e245c939e77",
+    "stage-2.json": "af29e5c38b8483e59add31ef5649e7edf9e3757018617271b1840f6abcecc9c2",
+    "reply-2.txt": "14f15151a2a60f81496e3b047c47ed8682ea94e40c6b88f6e71eb3440e090367",
+    "session-2.json": "08a437a1eba65ea1db38ff13a924460483b4d84f892c5f9558510f65630a4e75",
+    "stage-3.json": "d6f4310cf296fd503f97b5c622568bee42d6b4ef0484ae88cb86927c4726fffa",
+    "reply-3.txt": "7eb8f340d406154d32a60f6b7b3c86c0b02f24f12bac57c3cf47ee67278a946d",
+    "session-3.json": "b66089152bbb3974902603a2a749761f114b8ad80263ac62a979fdcae06ed3a7"
+  },
+  "cleanup": {
+    "credentialDirectoryRemoved": true,
+    "localTokenRemoved": true,
+    "masterKeyWrittenToDisk": false,
+    "sharedConfigurationChanged": false
+  },
+  "acceptance": "user-accepted",
+  "mock": "3 full dispatches, all exact states; not provider evidence",
+  "tests": {
+    "node": 105,
+    "pythonProtocol": 8
+  },
+  "previewURL": "http://127.0.0.1:18854/",
+  "browserCheck": "passed: totals, states, raw delta and refresh; human prototype acceptance passed",
+  "acceptedDate": "2026-11-14",
+  "closeoutAuthorization": "Documentation and PR only; no patches, real calls, deployment or shared configuration changes"
+}

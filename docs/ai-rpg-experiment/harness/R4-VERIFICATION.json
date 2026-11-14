@@ -1,0 +1,28 @@
+{
+  "baseline": "92849f3142ae67805e9cb627495ac8fab7d25df2",
+  "branch": "codex/rpg-context-r4",
+  "kind": "offline-only",
+  "tests": {
+    "total": 99,
+    "passed": 99,
+    "failed": 0,
+    "newR4": 12
+  },
+  "syntaxCheck": "passed",
+  "browserChecks": [
+    "cultivation native query 5->3",
+    "lighthouse promise/claim/proposal/completion",
+    "refresh persistence",
+    "final preview binding"
+  ],
+  "realCalls": 0,
+  "humanAcceptance": "user-accepted",
+  "committed": false,
+  "deployed": false,
+  "manifests": {
+    "r3": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+    "r4": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb"
+  },
+  "acceptedDate": "2026-11-14",
+  "scopeNote": "Original offline batch evidence; real supplement and later publication tracked separately in R4-REAL-VALIDATION.md and R4-CLOSEOUT.md"
+}
