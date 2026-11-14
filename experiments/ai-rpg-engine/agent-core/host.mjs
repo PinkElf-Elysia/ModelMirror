@@ -21,6 +21,11 @@ export class CoreHost{
    need(r.revision===request.revision&&!r.pending,'STATE_STALE');
    const context=await this.adapter.assemble(r,request.input,opts.contextOptions);
    need(hash(context.tools)===hash([this.adapter.query.tool])&&context.tool_choice==='auto','CORE_TOOL_DECLARATION');
+   // Trusted provider policy only; old callers retain the native auto-query path.
+   need(this.provider.toolChoice===undefined||['auto','none'].includes(this.provider.toolChoice),'CORE_TOOL_POLICY');
+   if(this.provider.toolChoice==='none'){
+    context.tool_choice='none';context.hash=hash({messages:context.messages,tools:context.tools,tool_choice:'none'});
+   }
    context.binding=clone(this.adapter.binding);
    let adopted;
    if(opts.previewHash){
@@ -54,7 +59,7 @@ export class CoreHost{
     let stage=op.stages.at(-1);
     if(!stage||stage.status==='queried'){
      need(op.stages.length<2,'NATIVE_QUERY_LIMIT');const index=op.stages.length+1;
-     const first={messages:op.context.messages,tools:op.context.tools,tool_choice:'auto'};
+     const first={messages:op.context.messages,tools:op.context.tools,tool_choice:op.context.tool_choice};
      const request=index===1?clone(first):continueRequest(first,stage.result.message,op.query);
      stage={id:'stage-'+hash([id,operationId,index]).slice(0,40),index,request,measurement:measureRequest(request),status:'ready',result:null};
      await this.store.update(id,row=>{row.operations[operationId].stages.push(stage);});recover=false;

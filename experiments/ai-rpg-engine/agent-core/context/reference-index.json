@@ -1,0 +1,366 @@
+{
+  "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+  "offsetUnit": "UTF-16 code units of exact original string",
+  "sections": [
+    {
+      "title": "【东域（总览·校准版）】",
+      "hash": "5f35d221c258cde7f4f9278c33a03c89f503ebde77f84bc05cd12d11d89c77ca",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 四、凡界场所与村落",
+      "hash": "ab8bec12d96cc636af3cb37fcecda5c67de9db43af3ff94d5d304e65ed229726",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 五、凡人王朝",
+      "hash": "e77bef47c1502dc556b21613e20567f1e06150dda0a8f52f385323253d5a7393",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 六、东域宗门",
+      "hash": "10f6a9d2e9832d8944401a59a0261f7cec8a3ae0807bcbcad0a4e8bc80e2d279",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 七、西荒宗门",
+      "hash": "06ef865d42269abf6f401c688594c1086a8244560b96c3a8a8eea96fe5027186",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 八、南疆·北海宗门",
+      "hash": "b856c9ce9481a532db3e4b9d06593b5dfcb6012ca954f773bf44fde65ecd92a6",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 九、中州·超然机构",
+      "hash": "8ab7fc0c14cb58289a4ef5e34dd64187f4cc791ce92606232bbed30e6604f46a",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "# 十九、凡界家族与超然机构补全（G 组·13 项）",
+      "hash": "73bff7c98769ddd3973a4a542f7eb5daee6e5cf3895011907e007b15b8116c40",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 1. 丹道白家（丹鼎宗附属世家·丹道世家）",
+      "hash": "825393ae1dc7ac7b9a241ca19be4b71c6323ebff50513156b1480fc1d5f5ac16",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 2. 器道鲁家（器宗附属世家·器道世家）",
+      "hash": "d7c078a675e91c5af1e3a48994e68feb852fbc4f52399773dcca6067d7a548de",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 3. 阵法师公会中州分会（中立阵道公会）",
+      "hash": "53feddf793ad00d0e9f74d61af8a9ba892fec00b280f3fbc15935a65b0b71e72",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 4. 天道盟外围据点（隐藏势力外围）",
+      "hash": "63de429de3992709bbf7d583f053db346336280a0b9124aa333ebf0869b92e74",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 5. 苏家（大周洛安郡耕读家族）",
+      "hash": "cb796adf23451499fd927b98b51360e6c5224d7c73a425da77cf019e33c5b904",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 6. 王家（大秦咸阳商贾家族）",
+      "hash": "2ca4f257b29137a657bfb36ede03b335a8cde6d036fae01577df789a43aff588",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 7. 李家（大汉边境军户家族）",
+      "hash": "8758871d04cc0b4fa244affe6e8c0c79de075f0d195ec02c15c3b962251d304c",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 8. 石家（西荒黄沙镇本土家族）",
+      "hash": "22772a25a5f9d6869026c3422e8da6b9f5b401bcddb2b2236aea00dbcad8d1c7",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 9. 赵家（西荒石堡镇商路家族）",
+      "hash": "f79f37cd86ac1cce861abf83bf65207093a2e9ad310c95ed9f889545572a1f8c",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 10. 蓝家（南诏边境向导家族）",
+      "hash": "b48cb236099a9e7cbd7894cf9155b99e3173f537021fb2eb03d76064e65a02d5",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 11. 木家（南诏药农家族）",
+      "hash": "c76b18fa647bcaff4515dcbb290bfdd700f0a8bcf4ae08c9276f4f4f0a230a03",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 12. 炼丹师公会（丹师行业协会）",
+      "hash": "07002af1ec76b6c4b363c86e11bfb48f5d8817f1a6b08137778ccc48aef35b06",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 13. 炼器师协会（器师行业协会）",
+      "hash": "7e9a90491c92aef8ca109cc74db54c188f7b45d592110632a84566819adc8800",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十、凡俗王朝与城池据点",
+      "hash": "e52e795cc396e26a16d6f152e84a0121ce00c98100e02fccea54b559cc5af5ab",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十二、凡界大事记",
+      "hash": "a0d7570f67bcd7eff076f59f0284bb63269a52e425ae49da630637fa2a99c0dd",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十三、仙界总览",
+      "hash": "c292ff3ed94a3a10301b7c749d63ec108ab15aebe01672ebf076d3b50d336801",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十四、仙界·中央天洲",
+      "hash": "278b24920e70f6cd8223601a4ccbf21f7fb366560d0a8fa2a9d1067330df1d74",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十五、仙界·东胜洲",
+      "hash": "6be4c7045bffe39bbb0eb98c6de05e77767f8ac4294fe14dbc1b0131f20bf0f3",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十六、仙界·西牛贺洲",
+      "hash": "0c5a5fa6a67e0e7670d66eda246279f6f320c44dd236242b77aff136d72320dd",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十七、仙界·南赡部洲",
+      "hash": "bdfc89ae4973285cbeba530b74d5110c9e4ed2f8d8e057e7989240f10b9287a4",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十八、仙界·北俱芦洲",
+      "hash": "eb359566ae887fb3490610bbe96e0b32969a57a3c10f42bc8daa8ccb57a407f4",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 十九、仙界·散逸浮岛",
+      "hash": "19ee54d60992500ae671b6db31d63079b47c5feb8908fe3f7decb32c05435679",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 神界区域总览",
+      "hash": "394b438d113abd718e980b2da6ef97f6637de09debbdb3c7ee639efeafdd48b2",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 1. 鸿钧（道祖）",
+      "hash": "0d3654ad8874fff8c0ae46ad7ce6fe510a0d70a14ad592453add4c4752da3d04",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 2. 女娲（娲皇）",
+      "hash": "6a25b79c842cf93a36e27e33b483d83fb6550e7b8ba6078d9f8475e160079506",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 3. 帝俊（妖皇）",
+      "hash": "e177e435e6efb972523e56cf2222f3e8c670814f16b94c66894950a0eacb8009",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 4. 太一（东皇）",
+      "hash": "5d7c9d1a55cccb7573fdb28b7cbf415c4437cdd5ac81472f67cd4eeb5e3ea700",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 5. 后土（后土娘娘）",
+      "hash": "148c895626301a55bc2871e6ccdfcbdf008b2c12bb60be908747dd10b9ac59dc",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 6. 盘古（大道境）",
+      "hash": "7f96b8bc966acabb70402095846ae1a6b0ec62a032d1dc5cad8db10fc14ead12",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 7. 宙斯（众神之王/雷霆之主）",
+      "hash": "23006646fe877c30a3d4bc696da8bcd486390ed0844e05fcd3e660bcdcb99c27",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 8. 奥丁（众神之王/独眼神）",
+      "hash": "10aad3f4ce614673f9eb23541dcf15acf561ad823c3332357968c43bcdcc41b5",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 9. 上帝/YHWH（唯一真神）",
+      "hash": "f09766759626d0b754fe880d394a2b21d3451070906faf3d82e94e64725cee26",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 10. 米迦勒（战斗炽天使长）",
+      "hash": "a5090150fb424d0b4c9353319dcb1dbd93fa6333d9ad8d1628b848c3b618158d",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 11. 梅塔特隆（天国书记/小耶和华）",
+      "hash": "e98ecaefbb9c0a6f622c02e64cfd5bd5f9d1d262e54f7b9f701037d31b4ef02a",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 12. 路西法（晨星/前炽天使长）",
+      "hash": "e218a41b279cd1b599b757c2f7884de40843bd0bf20cf38524f327a555f0b79b",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 13. 提丰（怪物之父）",
+      "hash": "cb9e3241f9b8c6eeef3f18584c9929d9059ad997ed018471106d3cfcb2d82344",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 14. 阿撒托斯（Azathoth·盲目痴愚之神）",
+      "hash": "f9f79ad4dd448101c5449a734ba0eca9dc5686b8a8f8958b20e45a8631fbc795",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 15. 奈亚拉托提普（Nyarlathotep·伏行之混沌）",
+      "hash": "2012fc604ddc697bb541c0e8c1b0b25c50997eb67821e67f5f01d8bf83604fd6",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 1. 加百列（传讯炽天使长）",
+      "hash": "9754c3ca2003fa6bf8737510985c0a962b9112f1ada4e21d1960e68eaffd007e",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 2. 拉斐尔（治愈炽天使长）",
+      "hash": "284b346811fe77d10472bfc3ea0fd6fc467d97183df0dec39f3137e5d722e6b5",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 3. 乌列尔（审判炽天使长）",
+      "hash": "8bb8e7ce5868442e48988c7fd8a112e93854334c1c312f9a40d9a461db1bdfd7",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 4. 约菲尔（智天使长）",
+      "hash": "e23f5b6d728d2fce141230e8481c84b117f67fac23c366335877776341d798ae",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 5. 拉结尔（智天使/秘密之天使）",
+      "hash": "9e1d57ddf7d79926490ad9004af412c582ca41e0b281c24840b309fd23f4bba2",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 6. 沙利叶（座天使/月之天使）",
+      "hash": "2055f94e2fb07f9425c4319712542db0be409aeed31991a9ff5f9cb2179d99d9",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 7. 雷米尔（座天使/希望天使）",
+      "hash": "a13b3bfc5671a4c4769b16e3bb17aabe92d3c51327f1bde34e6c568993084434",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 8. 卡麦尔（能天使长/战神天使）",
+      "hash": "708b9fb5f308291c548885eec1a522bb3d1c479eec408e8e7399a3b5eb125ef0",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 9. 拉贵尔（权天使长/天使监察者）",
+      "hash": "f82b9970ccdaa5ff81acaa0897505045998d2b882031b2f91e3338eae13523a6",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 10. 亚兹拉尔（死亡天使）",
+      "hash": "620210097d67a202b0b38a6315feb013410059434a12d9bed79b2802e66c61ec",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 11. 阿撒兹勒（看守天使首领/堕落者）",
+      "hash": "79a7b6ec9d5f34291d49a7b000812c9d11e949d8248e29c42ed4225ddcde094d",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 12. 别西卜（鬼王/苍蝇王）",
+      "hash": "788cca856030922e503ac258ca11a95ccf101437eee0b57a992b27f22d9358e0",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 1. 叶孤城（剑神山·剑主）",
+      "hash": "8c5ee71c345efcaa0b972a9d51b9ba30d7ca28f52b4dcbf66053d2f12b48c91b",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 2. 红衣（剑神山·接引使）",
+      "hash": "ee497df2c283d6e8565d19eb24851846ba5ebfece8cf38646c592d14758bbf4b",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 3. 墨渊（剑神山·剑痴）",
+      "hash": "95a3b230351c359a7f194cd88bc0bd174ebbac372b8cb6c9c26c654751e62ea4",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 4. 阿拾（剑神山·同期）",
+      "hash": "ccf594354a294e0cbc67ed5068400fc59714ec574e18af6923aab50611c37256",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 5. 孙不言（苟天阁·阁主）",
+      "hash": "5f31d90d2b77efd966405332fbec10ff4ce88b3dc3ed5081cccf88f2e0e5fd65",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 6. 周全（苟天阁·消息贩子）",
+      "hash": "e18d0554754157e397950d7bdaec7bbc9a0e9239cd4dc25f3ccddfb9c88ddb22",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 7. 阵小乙（苟天阁·阵师）",
+      "hash": "fdc54570bab4249fca9c11dfbb4a41446f27e67926c8d83abfe78001bdbdaa1c",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 8. 了因（半疯庵·庵主）",
+      "hash": "50630a1caa5e5b54088b5b89eb74a92eab0448ac8fdf613f34dc00f88c879dc4",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 9. 痴和尚（半疯庵·疯徒）",
+      "hash": "226338bbff1f354aaef0fb1c7c06efa72910378069666cfc59c3c897a2f94cb7",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 10. 净无（半疯庵·净修者）",
+      "hash": "f1a7ac2b9b2641a9212718de9d9344ebe1f608c63eb2770cf42975046a6c26a2",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 二、三清（洪荒仙域·混元大罗金仙）",
+      "hash": "395194891e15bdcbdd9eb1e16f08e0d7c264194ecfd81385d836b77da2a18b5d",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 三、十二祖巫（补 11 人·后土已在第四部分）",
+      "hash": "fb0a5de0b09717c4103b09a026ad8cf3e187716d675eb2d2eee34e9ffc1147a5",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 四、关键准圣补全（5 人）",
+      "hash": "4f7d5eac72172430e5ff1a15f254f237ad767bab3bb4fc19b8fa0faca229ca60",
+      "disposition": "conditional-reference"
+    },
+    {
+      "title": "## 五、仙界佛国（4 人）",
+      "hash": "3fc77f8917640bddb5cab5e344b2ee0dcbe028fcd51493ea2919170c7155e14e",
+      "disposition": "conditional-reference"
+    }
+  ]
+}

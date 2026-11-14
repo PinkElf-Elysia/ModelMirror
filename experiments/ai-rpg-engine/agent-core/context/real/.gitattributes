@@ -1,0 +1,4 @@
+# Preserve the exact Windows source bytes used by the accepted real-run manifest.
+# Permit CR as a line ending; retain all other whitespace checks.
+*.mjs whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+*.py whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

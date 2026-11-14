@@ -1,23 +1,23 @@
 import {createServer} from 'node:http';import {readFile} from 'node:fs/promises';import {fileURLToPath} from 'node:url';import {resolve} from 'node:path';
 import {openRuntime} from './composition.mjs';import {need} from './contracts.mjs';
 const assets={'/':'index.html','/app.mjs':'app.mjs','/style.css':'style.css'},types={html:'text/html',mjs:'text/javascript',css:'text/css'};
-export async function startServer({directory,port=18841,offlinePreview=false}={}){
+export async function startServer({directory,port=18841,offlinePreview=false,runtimeFactory=openRuntime,publicFiles=null,viewProjection=async v=>v}={}){
  need(Number.isInteger(port)&&port>=0&&port<=65535,'CORE_PORT');
- const runtime=await openRuntime(directory||fileURLToPath(new URL('../.rpg03-work/agent-core-r3',import.meta.url)),{offlinePreview});
+ const runtime=await runtimeFactory(directory||fileURLToPath(new URL('../.rpg03-work/agent-core-r3',import.meta.url)),{offlinePreview});
  const server=createServer(async(req,res)=>{
   const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   try{
    const localPort=server.address().port,allowed=['127.0.0.1:'+localPort,'localhost:'+localPort];need(allowed.includes(req.headers.host),'CORE_ORIGIN');
    res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
    const path=new URL(req.url,'http://'+req.headers.host).pathname;
-   if(req.method==='GET'&&assets[path]){const file=assets[path];res.writeHead(200,{'Content-Type':types[file.split('.').at(-1)]+'; charset=utf-8','Cache-Control':'no-store'});return res.end(await readFile(new URL('./public/'+file,import.meta.url)));}
-   if(req.method==='GET'&&path==='/api/bootstrap')return json(200,{mode:'offline-preview',realCalls:0,adapters:runtime.registry.list.map(a=>({id:a.id,name:a.name,description:a.description,opening:a.opening,initial:a.initial(),binding:a.binding,ownership:a.ownership,scenarios:a.scenarios}))});
+   if(req.method==='GET'&&assets[path]){const file=assets[path];res.writeHead(200,{'Content-Type':types[file.split('.').at(-1)]+'; charset=utf-8','Cache-Control':'no-store'});return res.end(await readFile(publicFiles?.[path]??new URL('./public/'+file,import.meta.url)));}
+   if(req.method==='GET'&&path==='/api/bootstrap')return json(200,{mode:'offline-preview',realCalls:0,adapters:runtime.registry.list.map(a=>({id:a.id,name:a.name,description:a.description,opening:a.opening,initial:a.initial(),binding:a.binding,ownership:a.ownership,scenarios:a.scenarios,contextChoices:a.contextChoices}))});
    const match=path.match(/^\/api\/([a-z-]+)\/sessions(?:\/([a-zA-Z0-9-]+)(?:\/([a-z-]+))?)?$/);
    if(!match)return json(404,{error:'NOT_FOUND'});const [,adapterId,id,action]=match,host=runtime.get(adapterId);
    if(req.method==='GET'&&id){
     if(action==='progress')return json(200,{text:host.progress.get(id)||null});
     if(action==='evidence')return json(200,await host.evidence(id));
-    if(!action)return json(200,await host.view(id));
+    if(!action)return json(200,await viewProjection(await host.view(id),host));
    }
    if(req.method!=='POST')return json(404,{error:'NOT_FOUND'});
    need(req.headers['content-type']?.startsWith('application/json')&&req.headers['x-rpg-core']==='offline-preview','CORE_ORIGIN');

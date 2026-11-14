@@ -1,0 +1,5000 @@
+{
+  "baseline": "92849f3142ae67805e9cb627495ac8fab7d25df2",
+  "mode": "offline-deterministic-fixture",
+  "generatedAt": "2026-11-14T09:42:38.422Z",
+  "manifests": {
+    "r3": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+    "r4": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb"
+  },
+  "comparisons": [
+    {
+      "kind": "direct",
+      "r3Bytes": 538048,
+      "r4FullBytes": 537470,
+      "r4ScopedBytes": 130963,
+      "scopedReductionPercent": 75.66,
+      "sameFinalState": true
+    },
+    {
+      "kind": "query",
+      "r3Bytes": 1077067,
+      "r4FullBytes": 1075911,
+      "r4ScopedBytes": 262897,
+      "scopedReductionPercent": 75.59,
+      "sameFinalState": true
+    }
+  ],
+  "samples": [
+    {
+      "label": "r3-direct",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "3",
+        "effectiveContextHash": "91f2a058d5db244a50643b57934dc4dc9fd721d8fba00a3ade15483e9a64f966",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 190498,
+            "inputHash": "c7d4e57dd9d1da818839e9a86c28522b93dfb457160962e737cb002ca1168ace",
+            "systemBytes": 529072,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 538048
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 42.8048,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 538048,
+      "simulationWallMs": 657,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 117,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "00abb9bc9d535db930078fe696c3f1d1b39128a964f16d39bb3ea1748d671b6e"
+    },
+    {
+      "label": "r4-full-direct",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "4",
+        "effectiveContextHash": "ce53f5a66a65fde91afca7b3eeb9127f7d6916c8284e77e053e5f5bc780cf386",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 191291,
+            "inputHash": "414228a2075f29f1ec0f10cf1cc5015b0dac523a85519553728d3d5c5248eb27",
+            "systemBytes": 528339,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 537470
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 44.65100000000007,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 537470,
+      "simulationWallMs": 889,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 117,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "full",
+        "refs": [],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rule-0",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 30,
+          "characters": 14,
+          "hash": "2307e13db0b58bd72a49c37b719d7884fa88d5a771968e98fe26df58c18e8be6"
+        },
+        {
+          "id": "rule-1",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 500,
+          "characters": 206,
+          "hash": "92279c5a091af2ce8380c9d3f5b0abb8ef8637b31a6c91a6cf8e8cd7f0e47a9c"
+        },
+        {
+          "id": "rule-2",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 899,
+          "characters": 343,
+          "hash": "bf32520cbababfbb7da2687d259b255571df1ae02074f3106449d792233a6b92"
+        },
+        {
+          "id": "rule-3",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 679,
+          "characters": 245,
+          "hash": "4f3119e01ace3072748491363061f2ecb28f66b512a7931ede8ead03feeb2e9d"
+        },
+        {
+          "id": "rule-4",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2985,
+          "characters": 1153,
+          "hash": "e521f543f140092f2dab8463f011625eb701b45c5eaeee2d2ac5fcf71f3c1d5a"
+        },
+        {
+          "id": "rule-5",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 60,
+          "characters": 32,
+          "hash": "5f2689f1ca35e8afaa11a14cf0cd120c4689c1bd3be2f401c589c5f4d5726d68"
+        },
+        {
+          "id": "rule-6",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 530,
+          "hash": "f5a24095922606923a11dcd3917008cb5e0f04060847211cf83cd496236dcfa7"
+        },
+        {
+          "id": "rule-7",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1538,
+          "characters": 740,
+          "hash": "f0ea7837512671a32aaa3726c538748288ab357884c8c1e72740894b94200f70"
+        },
+        {
+          "id": "rule-8",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 342,
+          "characters": 150,
+          "hash": "02af1f94d23eecd0b1bab6c940788f318e111c629f70676dc744d6be18080ffd"
+        },
+        {
+          "id": "rule-9",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1138,
+          "characters": 394,
+          "hash": "8d2f50b655056c400eb28cffb6ce79a7deacbc26fcf3dd2fa65b2371f7462bd7"
+        },
+        {
+          "id": "rule-10",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 541,
+          "characters": 210,
+          "hash": "123088ffe424b2d1e826c1a40f808b895e3cbbcc08f733b78e4f7c0caf2fa8ad"
+        },
+        {
+          "id": "rule-11",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 3773,
+          "characters": 2054,
+          "hash": "8646aae8f3914e11ea0327e15e819e70fe8dde7331ba972ea1e9b234a40525db"
+        },
+        {
+          "id": "rule-12",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 153,
+          "characters": 55,
+          "hash": "caf0c1a0ff46cde41a8c1483e664ece852e828b749e266777f29d02bf4262f5d"
+        },
+        {
+          "id": "rule-13",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1493,
+          "characters": 648,
+          "hash": "8bb4a859f39dbe6770b3ce85f459ee9d093d5910c2c1932dc613cfa3f1bc8c56"
+        },
+        {
+          "id": "rule-14",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1096,
+          "characters": 495,
+          "hash": "61f95c586a1e40cc9d7a204bb6e3fee2027dbdb6daeffe1440a900d427bbc19c"
+        },
+        {
+          "id": "rule-15",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2930,
+          "characters": 1102,
+          "hash": "ccd5cfab562b3b32c07d33bad14d23b9e47fae5e7a152158ad02ce935adbab77"
+        },
+        {
+          "id": "rule-16",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 412,
+          "characters": 170,
+          "hash": "c98ecbeee2abca9a14183b99d6074a94e7c425955c73b160d27728438fd51aa6"
+        },
+        {
+          "id": "rule-17",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 528,
+          "characters": 204,
+          "hash": "49689e9f4cd9f8f6d6a47a78b06e19f07fae79ae8753c4aa5897a7f15992090f"
+        },
+        {
+          "id": "rule-18",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 694,
+          "characters": 292,
+          "hash": "197a798e6bf5b188f7f852efc6f1f2471a17938060f03f32882fb800ab91a4fa"
+        },
+        {
+          "id": "delta-contract",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1690,
+          "characters": 1008,
+          "hash": "65b3e9e661c06c2befcda267dcdb10ff50520ac51fabccf8eea2fdc66de0bdc4"
+        },
+        {
+          "id": "reference-0",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 50152,
+          "characters": 17606,
+          "hash": "5f35d221c258cde7f4f9278c33a03c89f503ebde77f84bc05cd12d11d89c77ca"
+        },
+        {
+          "id": "reference-1",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 23140,
+          "characters": 7985,
+          "hash": "ab8bec12d96cc636af3cb37fcecda5c67de9db43af3ff94d5d304e65ed229726"
+        },
+        {
+          "id": "reference-2",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 15724,
+          "characters": 5552,
+          "hash": "e77bef47c1502dc556b21613e20567f1e06150dda0a8f52f385323253d5a7393"
+        },
+        {
+          "id": "reference-3",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 26362,
+          "characters": 9276,
+          "hash": "10f6a9d2e9832d8944401a59a0261f7cec8a3ae0807bcbcad0a4e8bc80e2d279"
+        },
+        {
+          "id": "reference-4",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 16808,
+          "characters": 5943,
+          "hash": "06ef865d42269abf6f401c688594c1086a8244560b96c3a8a8eea96fe5027186"
+        },
+        {
+          "id": "reference-5",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 34670,
+          "characters": 12247,
+          "hash": "b856c9ce9481a532db3e4b9d06593b5dfcb6012ca954f773bf44fde65ecd92a6"
+        },
+        {
+          "id": "reference-6",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 24935,
+          "characters": 8704,
+          "hash": "8ab7fc0c14cb58289a4ef5e34dd64187f4cc791ce92606232bbed30e6604f46a"
+        },
+        {
+          "id": "reference-7",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 70,
+          "characters": 33,
+          "hash": "73bff7c98769ddd3973a4a542f7eb5daee6e5cf3895011907e007b15b8116c40"
+        },
+        {
+          "id": "reference-8",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2468,
+          "characters": 867,
+          "hash": "825393ae1dc7ac7b9a241ca19be4b71c6323ebff50513156b1480fc1d5f5ac16"
+        },
+        {
+          "id": "reference-9",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2388,
+          "characters": 839,
+          "hash": "d7c078a675e91c5af1e3a48994e68feb852fbc4f52399773dcca6067d7a548de"
+        },
+        {
+          "id": "reference-10",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2375,
+          "characters": 831,
+          "hash": "53feddf793ad00d0e9f74d61af8a9ba892fec00b280f3fbc15935a65b0b71e72"
+        },
+        {
+          "id": "reference-11",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2205,
+          "characters": 771,
+          "hash": "63de429de3992709bbf7d583f053db346336280a0b9124aa333ebf0869b92e74"
+        },
+        {
+          "id": "reference-12",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1850,
+          "characters": 641,
+          "hash": "cb796adf23451499fd927b98b51360e6c5224d7c73a425da77cf019e33c5b904"
+        },
+        {
+          "id": "reference-13",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1571,
+          "characters": 543,
+          "hash": "2ca4f257b29137a657bfb36ede03b335a8cde6d036fae01577df789a43aff588"
+        },
+        {
+          "id": "reference-14",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1480,
+          "characters": 514,
+          "hash": "8758871d04cc0b4fa244affe6e8c0c79de075f0d195ec02c15c3b962251d304c"
+        },
+        {
+          "id": "reference-15",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1439,
+          "characters": 503,
+          "hash": "22772a25a5f9d6869026c3422e8da6b9f5b401bcddb2b2236aea00dbcad8d1c7"
+        },
+        {
+          "id": "reference-16",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1746,
+          "characters": 605,
+          "hash": "f79f37cd86ac1cce861abf83bf65207093a2e9ad310c95ed9f889545572a1f8c"
+        },
+        {
+          "id": "reference-17",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1359,
+          "characters": 477,
+          "hash": "b48cb236099a9e7cbd7894cf9155b99e3173f537021fb2eb03d76064e65a02d5"
+        },
+        {
+          "id": "reference-18",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1633,
+          "characters": 568,
+          "hash": "c76b18fa647bcaff4515dcbb290bfdd700f0a8bcf4ae08c9276f4f4f0a230a03"
+        },
+        {
+          "id": "reference-19",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2515,
+          "characters": 861,
+          "hash": "07002af1ec76b6c4b363c86e11bfb48f5d8817f1a6b08137778ccc48aef35b06"
+        },
+        {
+          "id": "reference-20",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 9279,
+          "characters": 3235,
+          "hash": "7e9a90491c92aef8ca109cc74db54c188f7b45d592110632a84566819adc8800"
+        },
+        {
+          "id": "reference-21",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 65724,
+          "characters": 23339,
+          "hash": "e52e795cc396e26a16d6f152e84a0121ce00c98100e02fccea54b559cc5af5ab"
+        },
+        {
+          "id": "reference-22",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 921,
+          "characters": 331,
+          "hash": "a0d7570f67bcd7eff076f59f0284bb63269a52e425ae49da630637fa2a99c0dd"
+        },
+        {
+          "id": "reference-23",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2050,
+          "characters": 744,
+          "hash": "c292ff3ed94a3a10301b7c749d63ec108ab15aebe01672ebf076d3b50d336801"
+        },
+        {
+          "id": "reference-24",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2437,
+          "characters": 868,
+          "hash": "278b24920e70f6cd8223601a4ccbf21f7fb366560d0a8fa2a9d1067330df1d74"
+        },
+        {
+          "id": "reference-25",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 6764,
+          "characters": 2403,
+          "hash": "6be4c7045bffe39bbb0eb98c6de05e77767f8ac4294fe14dbc1b0131f20bf0f3"
+        },
+        {
+          "id": "reference-26",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 6860,
+          "characters": 2409,
+          "hash": "0c5a5fa6a67e0e7670d66eda246279f6f320c44dd236242b77aff136d72320dd"
+        },
+        {
+          "id": "reference-27",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2369,
+          "characters": 846,
+          "hash": "bdfc89ae4973285cbeba530b74d5110c9e4ed2f8d8e057e7989240f10b9287a4"
+        },
+        {
+          "id": "reference-28",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 493,
+          "hash": "eb359566ae887fb3490610bbe96e0b32969a57a3c10f42bc8daa8ccb57a407f4"
+        },
+        {
+          "id": "reference-29",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1062,
+          "characters": 381,
+          "hash": "19ee54d60992500ae671b6db31d63079b47c5feb8908fe3f7decb32c05435679"
+        },
+        {
+          "id": "reference-30",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 888,
+          "characters": 343,
+          "hash": "394b438d113abd718e980b2da6ef97f6637de09debbdb3c7ee639efeafdd48b2"
+        },
+        {
+          "id": "reference-31",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4507,
+          "characters": 1578,
+          "hash": "0d3654ad8874fff8c0ae46ad7ce6fe510a0d70a14ad592453add4c4752da3d04"
+        },
+        {
+          "id": "reference-32",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3022,
+          "characters": 1082,
+          "hash": "6a25b79c842cf93a36e27e33b483d83fb6550e7b8ba6078d9f8475e160079506"
+        },
+        {
+          "id": "reference-33",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3383,
+          "characters": 1197,
+          "hash": "e177e435e6efb972523e56cf2222f3e8c670814f16b94c66894950a0eacb8009"
+        },
+        {
+          "id": "reference-34",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3182,
+          "characters": 1124,
+          "hash": "5d7c9d1a55cccb7573fdb28b7cbf415c4437cdd5ac81472f67cd4eeb5e3ea700"
+        },
+        {
+          "id": "reference-35",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3771,
+          "characters": 1333,
+          "hash": "148c895626301a55bc2871e6ccdfcbdf008b2c12bb60be908747dd10b9ac59dc"
+        },
+        {
+          "id": "reference-36",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4513,
+          "characters": 1573,
+          "hash": "7f96b8bc966acabb70402095846ae1a6b0ec62a032d1dc5cad8db10fc14ead12"
+        },
+        {
+          "id": "reference-37",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 5323,
+          "characters": 1862,
+          "hash": "23006646fe877c30a3d4bc696da8bcd486390ed0844e05fcd3e660bcdcb99c27"
+        },
+        {
+          "id": "reference-38",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 5122,
+          "characters": 1796,
+          "hash": "10aad3f4ce614673f9eb23541dcf15acf561ad823c3332357968c43bcdcc41b5"
+        },
+        {
+          "id": "reference-39",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3775,
+          "characters": 1336,
+          "hash": "f09766759626d0b754fe880d394a2b21d3451070906faf3d82e94e64725cee26"
+        },
+        {
+          "id": "reference-40",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3302,
+          "characters": 1169,
+          "hash": "a5090150fb424d0b4c9353319dcb1dbd93fa6333d9ad8d1628b848c3b618158d"
+        },
+        {
+          "id": "reference-41",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3600,
+          "characters": 1267,
+          "hash": "e98ecaefbb9c0a6f622c02e64cfd5bd5f9d1d262e54f7b9f701037d31b4ef02a"
+        },
+        {
+          "id": "reference-42",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3980,
+          "characters": 1396,
+          "hash": "e218a41b279cd1b599b757c2f7884de40843bd0bf20cf38524f327a555f0b79b"
+        },
+        {
+          "id": "reference-43",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4477,
+          "characters": 1567,
+          "hash": "cb9e3241f9b8c6eeef3f18584c9929d9059ad997ed018471106d3cfcb2d82344"
+        },
+        {
+          "id": "reference-44",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3246,
+          "characters": 1153,
+          "hash": "f9f79ad4dd448101c5449a734ba0eca9dc5686b8a8f8958b20e45a8631fbc795"
+        },
+        {
+          "id": "reference-45",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3411,
+          "characters": 1202,
+          "hash": "2012fc604ddc697bb541c0e8c1b0b25c50997eb67821e67f5f01d8bf83604fd6"
+        },
+        {
+          "id": "reference-46",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3056,
+          "characters": 1080,
+          "hash": "9754c3ca2003fa6bf8737510985c0a962b9112f1ada4e21d1960e68eaffd007e"
+        },
+        {
+          "id": "reference-47",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2793,
+          "characters": 993,
+          "hash": "284b346811fe77d10472bfc3ea0fd6fc467d97183df0dec39f3137e5d722e6b5"
+        },
+        {
+          "id": "reference-48",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2776,
+          "characters": 984,
+          "hash": "8bb8e7ce5868442e48988c7fd8a112e93854334c1c312f9a40d9a461db1bdfd7"
+        },
+        {
+          "id": "reference-49",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1933,
+          "characters": 682,
+          "hash": "e23f5b6d728d2fce141230e8481c84b117f67fac23c366335877776341d798ae"
+        },
+        {
+          "id": "reference-50",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2057,
+          "characters": 724,
+          "hash": "9e1d57ddf7d79926490ad9004af412c582ca41e0b281c24840b309fd23f4bba2"
+        },
+        {
+          "id": "reference-51",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2970,
+          "characters": 1040,
+          "hash": "2055f94e2fb07f9425c4319712542db0be409aeed31991a9ff5f9cb2179d99d9"
+        },
+        {
+          "id": "reference-52",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2721,
+          "characters": 966,
+          "hash": "a13b3bfc5671a4c4769b16e3bb17aabe92d3c51327f1bde34e6c568993084434"
+        },
+        {
+          "id": "reference-53",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2606,
+          "characters": 928,
+          "hash": "708b9fb5f308291c548885eec1a522bb3d1c479eec408e8e7399a3b5eb125ef0"
+        },
+        {
+          "id": "reference-54",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2771,
+          "characters": 981,
+          "hash": "f82b9970ccdaa5ff81acaa0897505045998d2b882031b2f91e3338eae13523a6"
+        },
+        {
+          "id": "reference-55",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3175,
+          "characters": 1123,
+          "hash": "620210097d67a202b0b38a6315feb013410059434a12d9bed79b2802e66c61ec"
+        },
+        {
+          "id": "reference-56",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3496,
+          "characters": 1234,
+          "hash": "79a7b6ec9d5f34291d49a7b000812c9d11e949d8248e29c42ed4225ddcde094d"
+        },
+        {
+          "id": "reference-57",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3854,
+          "characters": 1360,
+          "hash": "788cca856030922e503ac258ca11a95ccf101437eee0b57a992b27f22d9358e0"
+        },
+        {
+          "id": "reference-58",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2907,
+          "characters": 1033,
+          "hash": "8c5ee71c345efcaa0b972a9d51b9ba30d7ca28f52b4dcbf66053d2f12b48c91b"
+        },
+        {
+          "id": "reference-59",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2753,
+          "characters": 983,
+          "hash": "ee497df2c283d6e8565d19eb24851846ba5ebfece8cf38646c592d14758bbf4b"
+        },
+        {
+          "id": "reference-60",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2541,
+          "characters": 909,
+          "hash": "95a3b230351c359a7f194cd88bc0bd174ebbac372b8cb6c9c26c654751e62ea4"
+        },
+        {
+          "id": "reference-61",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2577,
+          "characters": 921,
+          "hash": "ccf594354a294e0cbc67ed5068400fc59714ec574e18af6923aab50611c37256"
+        },
+        {
+          "id": "reference-62",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2740,
+          "characters": 972,
+          "hash": "5f31d90d2b77efd966405332fbec10ff4ce88b3dc3ed5081cccf88f2e0e5fd65"
+        },
+        {
+          "id": "reference-63",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1281,
+          "characters": 471,
+          "hash": "e18d0554754157e397950d7bdaec7bbc9a0e9239cd4dc25f3ccddfb9c88ddb22"
+        },
+        {
+          "id": "reference-64",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1009,
+          "characters": 376,
+          "hash": "fdc54570bab4249fca9c11dfbb4a41446f27e67926c8d83abfe78001bdbdaa1c"
+        },
+        {
+          "id": "reference-65",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2808,
+          "characters": 1000,
+          "hash": "50630a1caa5e5b54088b5b89eb74a92eab0448ac8fdf613f34dc00f88c879dc4"
+        },
+        {
+          "id": "reference-66",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 827,
+          "characters": 308,
+          "hash": "226338bbff1f354aaef0fb1c7c06efa72910378069666cfc59c3c897a2f94cb7"
+        },
+        {
+          "id": "reference-67",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 799,
+          "characters": 297,
+          "hash": "f1a7ac2b9b2641a9212718de9d9344ebe1f608c63eb2770cf42975046a6c26a2"
+        },
+        {
+          "id": "reference-68",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 8853,
+          "characters": 3180,
+          "hash": "395194891e15bdcbdd9eb1e16f08e0d7c264194ecfd81385d836b77da2a18b5d"
+        },
+        {
+          "id": "reference-69",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 32244,
+          "characters": 11488,
+          "hash": "fb0a5de0b09717c4103b09a026ad8cf3e187716d675eb2d2eee34e9ffc1147a5"
+        },
+        {
+          "id": "reference-70",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 16071,
+          "characters": 5716,
+          "hash": "4f7d5eac72172430e5ff1a15f254f237ad767bab3bb4fc19b8fa0faca229ca60"
+        },
+        {
+          "id": "reference-71",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 12277,
+          "characters": 4407,
+          "hash": "3fc77f8917640bddb5cab5e344b2ee0dcbe028fcd51493ea2919170c7155e14e"
+        },
+        {
+          "id": "plugins",
+          "purpose": "plugin-projection",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2,
+          "characters": 2,
+          "hash": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+        },
+        {
+          "id": "state-events",
+          "purpose": "state-and-events",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 2341,
+          "characters": 1874,
+          "hash": "f4f15b5191e63fd7566893bcd6940f34c41d1adbe254cfdf66a6a69d95ea199b"
+        },
+        {
+          "id": "query-protocol",
+          "purpose": "tool-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1899,
+          "characters": 759,
+          "hash": "e330e840c5b84db40650759577e496ec82d969d3f7ff9f06f84c4828c32d1c0c"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 42,
+          "characters": 14,
+          "hash": "fe44eed3ed7cb3a5af1c1db4f01fdb606e8171507ca3b4a2a3ac8c6be86cd7b2"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        }
+      ],
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "335a35e5340f9f8af8ae1a62712cee5cda817fc81883f0808787bdc84df21cdb"
+    },
+    {
+      "label": "r4-scoped-direct",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "4",
+        "effectiveContextHash": "ce53f5a66a65fde91afca7b3eeb9127f7d6916c8284e77e053e5f5bc780cf386",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 48408,
+            "inputHash": "8a7e1c6f719c6ed774e5a09fe7ce974d20a9a4e76bacdf517bb8c7dcda7f6636",
+            "systemBytes": 128058,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 130963
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 35.88349999999991,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 130963,
+      "simulationWallMs": 496,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 117,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:qingyun"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rule-0",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 30,
+          "characters": 14,
+          "hash": "2307e13db0b58bd72a49c37b719d7884fa88d5a771968e98fe26df58c18e8be6"
+        },
+        {
+          "id": "rule-1",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 500,
+          "characters": 206,
+          "hash": "92279c5a091af2ce8380c9d3f5b0abb8ef8637b31a6c91a6cf8e8cd7f0e47a9c"
+        },
+        {
+          "id": "rule-2",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 899,
+          "characters": 343,
+          "hash": "bf32520cbababfbb7da2687d259b255571df1ae02074f3106449d792233a6b92"
+        },
+        {
+          "id": "rule-3",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 679,
+          "characters": 245,
+          "hash": "4f3119e01ace3072748491363061f2ecb28f66b512a7931ede8ead03feeb2e9d"
+        },
+        {
+          "id": "rule-4",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2985,
+          "characters": 1153,
+          "hash": "e521f543f140092f2dab8463f011625eb701b45c5eaeee2d2ac5fcf71f3c1d5a"
+        },
+        {
+          "id": "rule-5",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 60,
+          "characters": 32,
+          "hash": "5f2689f1ca35e8afaa11a14cf0cd120c4689c1bd3be2f401c589c5f4d5726d68"
+        },
+        {
+          "id": "rule-6",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 530,
+          "hash": "f5a24095922606923a11dcd3917008cb5e0f04060847211cf83cd496236dcfa7"
+        },
+        {
+          "id": "rule-7",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1538,
+          "characters": 740,
+          "hash": "f0ea7837512671a32aaa3726c538748288ab357884c8c1e72740894b94200f70"
+        },
+        {
+          "id": "rule-8",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 342,
+          "characters": 150,
+          "hash": "02af1f94d23eecd0b1bab6c940788f318e111c629f70676dc744d6be18080ffd"
+        },
+        {
+          "id": "rule-9",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1138,
+          "characters": 394,
+          "hash": "8d2f50b655056c400eb28cffb6ce79a7deacbc26fcf3dd2fa65b2371f7462bd7"
+        },
+        {
+          "id": "rule-10",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 541,
+          "characters": 210,
+          "hash": "123088ffe424b2d1e826c1a40f808b895e3cbbcc08f733b78e4f7c0caf2fa8ad"
+        },
+        {
+          "id": "rule-11",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 3773,
+          "characters": 2054,
+          "hash": "8646aae8f3914e11ea0327e15e819e70fe8dde7331ba972ea1e9b234a40525db"
+        },
+        {
+          "id": "rule-12",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 153,
+          "characters": 55,
+          "hash": "caf0c1a0ff46cde41a8c1483e664ece852e828b749e266777f29d02bf4262f5d"
+        },
+        {
+          "id": "rule-13",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1493,
+          "characters": 648,
+          "hash": "8bb4a859f39dbe6770b3ce85f459ee9d093d5910c2c1932dc613cfa3f1bc8c56"
+        },
+        {
+          "id": "rule-14",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1096,
+          "characters": 495,
+          "hash": "61f95c586a1e40cc9d7a204bb6e3fee2027dbdb6daeffe1440a900d427bbc19c"
+        },
+        {
+          "id": "rule-15",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2930,
+          "characters": 1102,
+          "hash": "ccd5cfab562b3b32c07d33bad14d23b9e47fae5e7a152158ad02ce935adbab77"
+        },
+        {
+          "id": "rule-16",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 412,
+          "characters": 170,
+          "hash": "c98ecbeee2abca9a14183b99d6074a94e7c425955c73b160d27728438fd51aa6"
+        },
+        {
+          "id": "rule-17",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 528,
+          "characters": 204,
+          "hash": "49689e9f4cd9f8f6d6a47a78b06e19f07fae79ae8753c4aa5897a7f15992090f"
+        },
+        {
+          "id": "rule-18",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 694,
+          "characters": 292,
+          "hash": "197a798e6bf5b188f7f852efc6f1f2471a17938060f03f32882fb800ab91a4fa"
+        },
+        {
+          "id": "delta-contract",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1690,
+          "characters": 1008,
+          "hash": "65b3e9e661c06c2befcda267dcdb10ff50520ac51fabccf8eea2fdc66de0bdc4"
+        },
+        {
+          "id": "reference-0",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 50152,
+          "characters": 17606,
+          "hash": "5f35d221c258cde7f4f9278c33a03c89f503ebde77f84bc05cd12d11d89c77ca"
+        },
+        {
+          "id": "reference-1",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 23140,
+          "characters": 7985,
+          "hash": "ab8bec12d96cc636af3cb37fcecda5c67de9db43af3ff94d5d304e65ed229726"
+        },
+        {
+          "id": "reference-2",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 15724,
+          "characters": 5552,
+          "hash": "e77bef47c1502dc556b21613e20567f1e06150dda0a8f52f385323253d5a7393"
+        },
+        {
+          "id": "reference-3",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 26362,
+          "characters": 9276,
+          "hash": "10f6a9d2e9832d8944401a59a0261f7cec8a3ae0807bcbcad0a4e8bc80e2d279"
+        },
+        {
+          "id": "reference-4",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 16808,
+          "characters": 5943,
+          "hash": "06ef865d42269abf6f401c688594c1086a8244560b96c3a8a8eea96fe5027186"
+        },
+        {
+          "id": "reference-5",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 34670,
+          "characters": 12247,
+          "hash": "b856c9ce9481a532db3e4b9d06593b5dfcb6012ca954f773bf44fde65ecd92a6"
+        },
+        {
+          "id": "reference-6",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 24935,
+          "characters": 8704,
+          "hash": "8ab7fc0c14cb58289a4ef5e34dd64187f4cc791ce92606232bbed30e6604f46a"
+        },
+        {
+          "id": "reference-7",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 70,
+          "characters": 33,
+          "hash": "73bff7c98769ddd3973a4a542f7eb5daee6e5cf3895011907e007b15b8116c40"
+        },
+        {
+          "id": "reference-8",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2468,
+          "characters": 867,
+          "hash": "825393ae1dc7ac7b9a241ca19be4b71c6323ebff50513156b1480fc1d5f5ac16"
+        },
+        {
+          "id": "reference-9",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2388,
+          "characters": 839,
+          "hash": "d7c078a675e91c5af1e3a48994e68feb852fbc4f52399773dcca6067d7a548de"
+        },
+        {
+          "id": "reference-10",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2375,
+          "characters": 831,
+          "hash": "53feddf793ad00d0e9f74d61af8a9ba892fec00b280f3fbc15935a65b0b71e72"
+        },
+        {
+          "id": "reference-11",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2205,
+          "characters": 771,
+          "hash": "63de429de3992709bbf7d583f053db346336280a0b9124aa333ebf0869b92e74"
+        },
+        {
+          "id": "reference-12",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1850,
+          "characters": 641,
+          "hash": "cb796adf23451499fd927b98b51360e6c5224d7c73a425da77cf019e33c5b904"
+        },
+        {
+          "id": "reference-13",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1571,
+          "characters": 543,
+          "hash": "2ca4f257b29137a657bfb36ede03b335a8cde6d036fae01577df789a43aff588"
+        },
+        {
+          "id": "reference-14",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1480,
+          "characters": 514,
+          "hash": "8758871d04cc0b4fa244affe6e8c0c79de075f0d195ec02c15c3b962251d304c"
+        },
+        {
+          "id": "reference-15",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1439,
+          "characters": 503,
+          "hash": "22772a25a5f9d6869026c3422e8da6b9f5b401bcddb2b2236aea00dbcad8d1c7"
+        },
+        {
+          "id": "reference-16",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1746,
+          "characters": 605,
+          "hash": "f79f37cd86ac1cce861abf83bf65207093a2e9ad310c95ed9f889545572a1f8c"
+        },
+        {
+          "id": "reference-17",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1359,
+          "characters": 477,
+          "hash": "b48cb236099a9e7cbd7894cf9155b99e3173f537021fb2eb03d76064e65a02d5"
+        },
+        {
+          "id": "reference-18",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1633,
+          "characters": 568,
+          "hash": "c76b18fa647bcaff4515dcbb290bfdd700f0a8bcf4ae08c9276f4f4f0a230a03"
+        },
+        {
+          "id": "reference-19",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2515,
+          "characters": 861,
+          "hash": "07002af1ec76b6c4b363c86e11bfb48f5d8817f1a6b08137778ccc48aef35b06"
+        },
+        {
+          "id": "reference-20",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 9279,
+          "characters": 3235,
+          "hash": "7e9a90491c92aef8ca109cc74db54c188f7b45d592110632a84566819adc8800"
+        },
+        {
+          "id": "reference-21",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 65724,
+          "characters": 23339,
+          "hash": "e52e795cc396e26a16d6f152e84a0121ce00c98100e02fccea54b559cc5af5ab"
+        },
+        {
+          "id": "reference-22",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 921,
+          "characters": 331,
+          "hash": "a0d7570f67bcd7eff076f59f0284bb63269a52e425ae49da630637fa2a99c0dd"
+        },
+        {
+          "id": "reference-23",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2050,
+          "characters": 744,
+          "hash": "c292ff3ed94a3a10301b7c749d63ec108ab15aebe01672ebf076d3b50d336801"
+        },
+        {
+          "id": "reference-24",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2437,
+          "characters": 868,
+          "hash": "278b24920e70f6cd8223601a4ccbf21f7fb366560d0a8fa2a9d1067330df1d74"
+        },
+        {
+          "id": "reference-25",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 6764,
+          "characters": 2403,
+          "hash": "6be4c7045bffe39bbb0eb98c6de05e77767f8ac4294fe14dbc1b0131f20bf0f3"
+        },
+        {
+          "id": "reference-26",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 6860,
+          "characters": 2409,
+          "hash": "0c5a5fa6a67e0e7670d66eda246279f6f320c44dd236242b77aff136d72320dd"
+        },
+        {
+          "id": "reference-27",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2369,
+          "characters": 846,
+          "hash": "bdfc89ae4973285cbeba530b74d5110c9e4ed2f8d8e057e7989240f10b9287a4"
+        },
+        {
+          "id": "reference-28",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1360,
+          "characters": 493,
+          "hash": "eb359566ae887fb3490610bbe96e0b32969a57a3c10f42bc8daa8ccb57a407f4"
+        },
+        {
+          "id": "reference-29",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1062,
+          "characters": 381,
+          "hash": "19ee54d60992500ae671b6db31d63079b47c5feb8908fe3f7decb32c05435679"
+        },
+        {
+          "id": "reference-30",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 888,
+          "characters": 343,
+          "hash": "394b438d113abd718e980b2da6ef97f6637de09debbdb3c7ee639efeafdd48b2"
+        },
+        {
+          "id": "reference-31",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4507,
+          "characters": 1578,
+          "hash": "0d3654ad8874fff8c0ae46ad7ce6fe510a0d70a14ad592453add4c4752da3d04"
+        },
+        {
+          "id": "reference-32",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3022,
+          "characters": 1082,
+          "hash": "6a25b79c842cf93a36e27e33b483d83fb6550e7b8ba6078d9f8475e160079506"
+        },
+        {
+          "id": "reference-33",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3383,
+          "characters": 1197,
+          "hash": "e177e435e6efb972523e56cf2222f3e8c670814f16b94c66894950a0eacb8009"
+        },
+        {
+          "id": "reference-34",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3182,
+          "characters": 1124,
+          "hash": "5d7c9d1a55cccb7573fdb28b7cbf415c4437cdd5ac81472f67cd4eeb5e3ea700"
+        },
+        {
+          "id": "reference-35",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3771,
+          "characters": 1333,
+          "hash": "148c895626301a55bc2871e6ccdfcbdf008b2c12bb60be908747dd10b9ac59dc"
+        },
+        {
+          "id": "reference-36",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4513,
+          "characters": 1573,
+          "hash": "7f96b8bc966acabb70402095846ae1a6b0ec62a032d1dc5cad8db10fc14ead12"
+        },
+        {
+          "id": "reference-37",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 5323,
+          "characters": 1862,
+          "hash": "23006646fe877c30a3d4bc696da8bcd486390ed0844e05fcd3e660bcdcb99c27"
+        },
+        {
+          "id": "reference-38",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 5122,
+          "characters": 1796,
+          "hash": "10aad3f4ce614673f9eb23541dcf15acf561ad823c3332357968c43bcdcc41b5"
+        },
+        {
+          "id": "reference-39",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3775,
+          "characters": 1336,
+          "hash": "f09766759626d0b754fe880d394a2b21d3451070906faf3d82e94e64725cee26"
+        },
+        {
+          "id": "reference-40",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3302,
+          "characters": 1169,
+          "hash": "a5090150fb424d0b4c9353319dcb1dbd93fa6333d9ad8d1628b848c3b618158d"
+        },
+        {
+          "id": "reference-41",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3600,
+          "characters": 1267,
+          "hash": "e98ecaefbb9c0a6f622c02e64cfd5bd5f9d1d262e54f7b9f701037d31b4ef02a"
+        },
+        {
+          "id": "reference-42",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3980,
+          "characters": 1396,
+          "hash": "e218a41b279cd1b599b757c2f7884de40843bd0bf20cf38524f327a555f0b79b"
+        },
+        {
+          "id": "reference-43",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4477,
+          "characters": 1567,
+          "hash": "cb9e3241f9b8c6eeef3f18584c9929d9059ad997ed018471106d3cfcb2d82344"
+        },
+        {
+          "id": "reference-44",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3246,
+          "characters": 1153,
+          "hash": "f9f79ad4dd448101c5449a734ba0eca9dc5686b8a8f8958b20e45a8631fbc795"
+        },
+        {
+          "id": "reference-45",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3411,
+          "characters": 1202,
+          "hash": "2012fc604ddc697bb541c0e8c1b0b25c50997eb67821e67f5f01d8bf83604fd6"
+        },
+        {
+          "id": "reference-46",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3056,
+          "characters": 1080,
+          "hash": "9754c3ca2003fa6bf8737510985c0a962b9112f1ada4e21d1960e68eaffd007e"
+        },
+        {
+          "id": "reference-47",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2793,
+          "characters": 993,
+          "hash": "284b346811fe77d10472bfc3ea0fd6fc467d97183df0dec39f3137e5d722e6b5"
+        },
+        {
+          "id": "reference-48",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2776,
+          "characters": 984,
+          "hash": "8bb8e7ce5868442e48988c7fd8a112e93854334c1c312f9a40d9a461db1bdfd7"
+        },
+        {
+          "id": "reference-49",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1933,
+          "characters": 682,
+          "hash": "e23f5b6d728d2fce141230e8481c84b117f67fac23c366335877776341d798ae"
+        },
+        {
+          "id": "reference-50",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2057,
+          "characters": 724,
+          "hash": "9e1d57ddf7d79926490ad9004af412c582ca41e0b281c24840b309fd23f4bba2"
+        },
+        {
+          "id": "reference-51",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2970,
+          "characters": 1040,
+          "hash": "2055f94e2fb07f9425c4319712542db0be409aeed31991a9ff5f9cb2179d99d9"
+        },
+        {
+          "id": "reference-52",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2721,
+          "characters": 966,
+          "hash": "a13b3bfc5671a4c4769b16e3bb17aabe92d3c51327f1bde34e6c568993084434"
+        },
+        {
+          "id": "reference-53",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2606,
+          "characters": 928,
+          "hash": "708b9fb5f308291c548885eec1a522bb3d1c479eec408e8e7399a3b5eb125ef0"
+        },
+        {
+          "id": "reference-54",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2771,
+          "characters": 981,
+          "hash": "f82b9970ccdaa5ff81acaa0897505045998d2b882031b2f91e3338eae13523a6"
+        },
+        {
+          "id": "reference-55",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3175,
+          "characters": 1123,
+          "hash": "620210097d67a202b0b38a6315feb013410059434a12d9bed79b2802e66c61ec"
+        },
+        {
+          "id": "reference-56",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3496,
+          "characters": 1234,
+          "hash": "79a7b6ec9d5f34291d49a7b000812c9d11e949d8248e29c42ed4225ddcde094d"
+        },
+        {
+          "id": "reference-57",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3854,
+          "characters": 1360,
+          "hash": "788cca856030922e503ac258ca11a95ccf101437eee0b57a992b27f22d9358e0"
+        },
+        {
+          "id": "reference-58",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2907,
+          "characters": 1033,
+          "hash": "8c5ee71c345efcaa0b972a9d51b9ba30d7ca28f52b4dcbf66053d2f12b48c91b"
+        },
+        {
+          "id": "reference-59",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2753,
+          "characters": 983,
+          "hash": "ee497df2c283d6e8565d19eb24851846ba5ebfece8cf38646c592d14758bbf4b"
+        },
+        {
+          "id": "reference-60",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2541,
+          "characters": 909,
+          "hash": "95a3b230351c359a7f194cd88bc0bd174ebbac372b8cb6c9c26c654751e62ea4"
+        },
+        {
+          "id": "reference-61",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2577,
+          "characters": 921,
+          "hash": "ccf594354a294e0cbc67ed5068400fc59714ec574e18af6923aab50611c37256"
+        },
+        {
+          "id": "reference-62",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2740,
+          "characters": 972,
+          "hash": "5f31d90d2b77efd966405332fbec10ff4ce88b3dc3ed5081cccf88f2e0e5fd65"
+        },
+        {
+          "id": "reference-63",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1281,
+          "characters": 471,
+          "hash": "e18d0554754157e397950d7bdaec7bbc9a0e9239cd4dc25f3ccddfb9c88ddb22"
+        },
+        {
+          "id": "reference-64",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1009,
+          "characters": 376,
+          "hash": "fdc54570bab4249fca9c11dfbb4a41446f27e67926c8d83abfe78001bdbdaa1c"
+        },
+        {
+          "id": "reference-65",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2808,
+          "characters": 1000,
+          "hash": "50630a1caa5e5b54088b5b89eb74a92eab0448ac8fdf613f34dc00f88c879dc4"
+        },
+        {
+          "id": "reference-66",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 827,
+          "characters": 308,
+          "hash": "226338bbff1f354aaef0fb1c7c06efa72910378069666cfc59c3c897a2f94cb7"
+        },
+        {
+          "id": "reference-67",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 799,
+          "characters": 297,
+          "hash": "f1a7ac2b9b2641a9212718de9d9344ebe1f608c63eb2770cf42975046a6c26a2"
+        },
+        {
+          "id": "reference-68",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 8853,
+          "characters": 3180,
+          "hash": "395194891e15bdcbdd9eb1e16f08e0d7c264194ecfd81385d836b77da2a18b5d"
+        },
+        {
+          "id": "reference-69",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 32244,
+          "characters": 11488,
+          "hash": "fb0a5de0b09717c4103b09a026ad8cf3e187716d675eb2d2eee34e9ffc1147a5"
+        },
+        {
+          "id": "reference-70",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 16071,
+          "characters": 5716,
+          "hash": "4f7d5eac72172430e5ff1a15f254f237ad767bab3bb4fc19b8fa0faca229ca60"
+        },
+        {
+          "id": "reference-71",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 12277,
+          "characters": 4407,
+          "hash": "3fc77f8917640bddb5cab5e344b2ee0dcbe028fcd51493ea2919170c7155e14e"
+        },
+        {
+          "id": "plugins",
+          "purpose": "plugin-projection",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2,
+          "characters": 2,
+          "hash": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+        },
+        {
+          "id": "state-events",
+          "purpose": "state-and-events",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 2341,
+          "characters": 1874,
+          "hash": "f4f15b5191e63fd7566893bcd6940f34c41d1adbe254cfdf66a6a69d95ea199b"
+        },
+        {
+          "id": "query-protocol",
+          "purpose": "tool-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1899,
+          "characters": 759,
+          "hash": "e330e840c5b84db40650759577e496ec82d969d3f7ff9f06f84c4828c32d1c0c"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 42,
+          "characters": 14,
+          "hash": "fe44eed3ed7cb3a5af1c1db4f01fdb606e8171507ca3b4a2a3ac8c6be86cd7b2"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        }
+      ],
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "ebdfb336745b58caf47e8a95cd4c4732c3c81b525ad56fff4c5881b259f6c302"
+    },
+    {
+      "label": "r3-query",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "先查询丹药，再服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "3",
+        "effectiveContextHash": "91f2a058d5db244a50643b57934dc4dc9fd721d8fba00a3ade15483e9a64f966",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 190505,
+            "inputHash": "bedfaf7d8103aede8b1f637ae037e262329b33587c95360ad7cad920f225c472",
+            "systemBytes": 529072,
+            "textHistoryAndInputBytes": 63,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 538069
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 35.5,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "index": 2,
+          "measurement": {
+            "characters": 190889,
+            "inputHash": "8ad8ddb33c6e02a9b83ea507ac5d3f2db84071a0d27e9109881f31414eb2e47b",
+            "systemBytes": 529072,
+            "textHistoryAndInputBytes": 64,
+            "tokens": null,
+            "toolResultBytes": 534,
+            "toolsBytes": 766,
+            "wireBytes": 538998
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 41.10189999999966,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1077067,
+      "simulationWallMs": 1542,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 138,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "先查询丹药，再服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "89be74ad9cccfd6b65f3c4c2433b508d1336624fdb2a69b779a8bbc5bef08f9b"
+    },
+    {
+      "label": "r4-full-query",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "先查询丹药，再服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "4",
+        "effectiveContextHash": "ce53f5a66a65fde91afca7b3eeb9127f7d6916c8284e77e053e5f5bc780cf386",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 191298,
+            "inputHash": "d5b21806b9ce903f70fb7375bc22bf06f271eb3850edf7449630d4b9bc21b5f7",
+            "systemBytes": 528339,
+            "textHistoryAndInputBytes": 63,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 537491
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 36.077400000000125,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "index": 2,
+          "measurement": {
+            "characters": 191682,
+            "inputHash": "a8297befc53af4b1f2e39af75988973b4b2cddf4644063bbf4b1e73f229a2b07",
+            "systemBytes": 528339,
+            "textHistoryAndInputBytes": 64,
+            "tokens": null,
+            "toolResultBytes": 534,
+            "toolsBytes": 766,
+            "wireBytes": 538420
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 42.05209999999988,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1075911,
+      "simulationWallMs": 1968,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 138,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "full",
+        "refs": [],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rule-0",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 30,
+          "characters": 14,
+          "hash": "2307e13db0b58bd72a49c37b719d7884fa88d5a771968e98fe26df58c18e8be6"
+        },
+        {
+          "id": "rule-1",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 500,
+          "characters": 206,
+          "hash": "92279c5a091af2ce8380c9d3f5b0abb8ef8637b31a6c91a6cf8e8cd7f0e47a9c"
+        },
+        {
+          "id": "rule-2",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 899,
+          "characters": 343,
+          "hash": "bf32520cbababfbb7da2687d259b255571df1ae02074f3106449d792233a6b92"
+        },
+        {
+          "id": "rule-3",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 679,
+          "characters": 245,
+          "hash": "4f3119e01ace3072748491363061f2ecb28f66b512a7931ede8ead03feeb2e9d"
+        },
+        {
+          "id": "rule-4",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2985,
+          "characters": 1153,
+          "hash": "e521f543f140092f2dab8463f011625eb701b45c5eaeee2d2ac5fcf71f3c1d5a"
+        },
+        {
+          "id": "rule-5",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 60,
+          "characters": 32,
+          "hash": "5f2689f1ca35e8afaa11a14cf0cd120c4689c1bd3be2f401c589c5f4d5726d68"
+        },
+        {
+          "id": "rule-6",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 530,
+          "hash": "f5a24095922606923a11dcd3917008cb5e0f04060847211cf83cd496236dcfa7"
+        },
+        {
+          "id": "rule-7",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1538,
+          "characters": 740,
+          "hash": "f0ea7837512671a32aaa3726c538748288ab357884c8c1e72740894b94200f70"
+        },
+        {
+          "id": "rule-8",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 342,
+          "characters": 150,
+          "hash": "02af1f94d23eecd0b1bab6c940788f318e111c629f70676dc744d6be18080ffd"
+        },
+        {
+          "id": "rule-9",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1138,
+          "characters": 394,
+          "hash": "8d2f50b655056c400eb28cffb6ce79a7deacbc26fcf3dd2fa65b2371f7462bd7"
+        },
+        {
+          "id": "rule-10",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 541,
+          "characters": 210,
+          "hash": "123088ffe424b2d1e826c1a40f808b895e3cbbcc08f733b78e4f7c0caf2fa8ad"
+        },
+        {
+          "id": "rule-11",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 3773,
+          "characters": 2054,
+          "hash": "8646aae8f3914e11ea0327e15e819e70fe8dde7331ba972ea1e9b234a40525db"
+        },
+        {
+          "id": "rule-12",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 153,
+          "characters": 55,
+          "hash": "caf0c1a0ff46cde41a8c1483e664ece852e828b749e266777f29d02bf4262f5d"
+        },
+        {
+          "id": "rule-13",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1493,
+          "characters": 648,
+          "hash": "8bb4a859f39dbe6770b3ce85f459ee9d093d5910c2c1932dc613cfa3f1bc8c56"
+        },
+        {
+          "id": "rule-14",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1096,
+          "characters": 495,
+          "hash": "61f95c586a1e40cc9d7a204bb6e3fee2027dbdb6daeffe1440a900d427bbc19c"
+        },
+        {
+          "id": "rule-15",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2930,
+          "characters": 1102,
+          "hash": "ccd5cfab562b3b32c07d33bad14d23b9e47fae5e7a152158ad02ce935adbab77"
+        },
+        {
+          "id": "rule-16",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 412,
+          "characters": 170,
+          "hash": "c98ecbeee2abca9a14183b99d6074a94e7c425955c73b160d27728438fd51aa6"
+        },
+        {
+          "id": "rule-17",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 528,
+          "characters": 204,
+          "hash": "49689e9f4cd9f8f6d6a47a78b06e19f07fae79ae8753c4aa5897a7f15992090f"
+        },
+        {
+          "id": "rule-18",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 694,
+          "characters": 292,
+          "hash": "197a798e6bf5b188f7f852efc6f1f2471a17938060f03f32882fb800ab91a4fa"
+        },
+        {
+          "id": "delta-contract",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1690,
+          "characters": 1008,
+          "hash": "65b3e9e661c06c2befcda267dcdb10ff50520ac51fabccf8eea2fdc66de0bdc4"
+        },
+        {
+          "id": "reference-0",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 50152,
+          "characters": 17606,
+          "hash": "5f35d221c258cde7f4f9278c33a03c89f503ebde77f84bc05cd12d11d89c77ca"
+        },
+        {
+          "id": "reference-1",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 23140,
+          "characters": 7985,
+          "hash": "ab8bec12d96cc636af3cb37fcecda5c67de9db43af3ff94d5d304e65ed229726"
+        },
+        {
+          "id": "reference-2",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 15724,
+          "characters": 5552,
+          "hash": "e77bef47c1502dc556b21613e20567f1e06150dda0a8f52f385323253d5a7393"
+        },
+        {
+          "id": "reference-3",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 26362,
+          "characters": 9276,
+          "hash": "10f6a9d2e9832d8944401a59a0261f7cec8a3ae0807bcbcad0a4e8bc80e2d279"
+        },
+        {
+          "id": "reference-4",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 16808,
+          "characters": 5943,
+          "hash": "06ef865d42269abf6f401c688594c1086a8244560b96c3a8a8eea96fe5027186"
+        },
+        {
+          "id": "reference-5",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 34670,
+          "characters": 12247,
+          "hash": "b856c9ce9481a532db3e4b9d06593b5dfcb6012ca954f773bf44fde65ecd92a6"
+        },
+        {
+          "id": "reference-6",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 24935,
+          "characters": 8704,
+          "hash": "8ab7fc0c14cb58289a4ef5e34dd64187f4cc791ce92606232bbed30e6604f46a"
+        },
+        {
+          "id": "reference-7",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 70,
+          "characters": 33,
+          "hash": "73bff7c98769ddd3973a4a542f7eb5daee6e5cf3895011907e007b15b8116c40"
+        },
+        {
+          "id": "reference-8",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2468,
+          "characters": 867,
+          "hash": "825393ae1dc7ac7b9a241ca19be4b71c6323ebff50513156b1480fc1d5f5ac16"
+        },
+        {
+          "id": "reference-9",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2388,
+          "characters": 839,
+          "hash": "d7c078a675e91c5af1e3a48994e68feb852fbc4f52399773dcca6067d7a548de"
+        },
+        {
+          "id": "reference-10",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2375,
+          "characters": 831,
+          "hash": "53feddf793ad00d0e9f74d61af8a9ba892fec00b280f3fbc15935a65b0b71e72"
+        },
+        {
+          "id": "reference-11",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2205,
+          "characters": 771,
+          "hash": "63de429de3992709bbf7d583f053db346336280a0b9124aa333ebf0869b92e74"
+        },
+        {
+          "id": "reference-12",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1850,
+          "characters": 641,
+          "hash": "cb796adf23451499fd927b98b51360e6c5224d7c73a425da77cf019e33c5b904"
+        },
+        {
+          "id": "reference-13",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1571,
+          "characters": 543,
+          "hash": "2ca4f257b29137a657bfb36ede03b335a8cde6d036fae01577df789a43aff588"
+        },
+        {
+          "id": "reference-14",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1480,
+          "characters": 514,
+          "hash": "8758871d04cc0b4fa244affe6e8c0c79de075f0d195ec02c15c3b962251d304c"
+        },
+        {
+          "id": "reference-15",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1439,
+          "characters": 503,
+          "hash": "22772a25a5f9d6869026c3422e8da6b9f5b401bcddb2b2236aea00dbcad8d1c7"
+        },
+        {
+          "id": "reference-16",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1746,
+          "characters": 605,
+          "hash": "f79f37cd86ac1cce861abf83bf65207093a2e9ad310c95ed9f889545572a1f8c"
+        },
+        {
+          "id": "reference-17",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1359,
+          "characters": 477,
+          "hash": "b48cb236099a9e7cbd7894cf9155b99e3173f537021fb2eb03d76064e65a02d5"
+        },
+        {
+          "id": "reference-18",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1633,
+          "characters": 568,
+          "hash": "c76b18fa647bcaff4515dcbb290bfdd700f0a8bcf4ae08c9276f4f4f0a230a03"
+        },
+        {
+          "id": "reference-19",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2515,
+          "characters": 861,
+          "hash": "07002af1ec76b6c4b363c86e11bfb48f5d8817f1a6b08137778ccc48aef35b06"
+        },
+        {
+          "id": "reference-20",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 9279,
+          "characters": 3235,
+          "hash": "7e9a90491c92aef8ca109cc74db54c188f7b45d592110632a84566819adc8800"
+        },
+        {
+          "id": "reference-21",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 65724,
+          "characters": 23339,
+          "hash": "e52e795cc396e26a16d6f152e84a0121ce00c98100e02fccea54b559cc5af5ab"
+        },
+        {
+          "id": "reference-22",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 921,
+          "characters": 331,
+          "hash": "a0d7570f67bcd7eff076f59f0284bb63269a52e425ae49da630637fa2a99c0dd"
+        },
+        {
+          "id": "reference-23",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2050,
+          "characters": 744,
+          "hash": "c292ff3ed94a3a10301b7c749d63ec108ab15aebe01672ebf076d3b50d336801"
+        },
+        {
+          "id": "reference-24",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2437,
+          "characters": 868,
+          "hash": "278b24920e70f6cd8223601a4ccbf21f7fb366560d0a8fa2a9d1067330df1d74"
+        },
+        {
+          "id": "reference-25",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 6764,
+          "characters": 2403,
+          "hash": "6be4c7045bffe39bbb0eb98c6de05e77767f8ac4294fe14dbc1b0131f20bf0f3"
+        },
+        {
+          "id": "reference-26",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 6860,
+          "characters": 2409,
+          "hash": "0c5a5fa6a67e0e7670d66eda246279f6f320c44dd236242b77aff136d72320dd"
+        },
+        {
+          "id": "reference-27",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2369,
+          "characters": 846,
+          "hash": "bdfc89ae4973285cbeba530b74d5110c9e4ed2f8d8e057e7989240f10b9287a4"
+        },
+        {
+          "id": "reference-28",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 493,
+          "hash": "eb359566ae887fb3490610bbe96e0b32969a57a3c10f42bc8daa8ccb57a407f4"
+        },
+        {
+          "id": "reference-29",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1062,
+          "characters": 381,
+          "hash": "19ee54d60992500ae671b6db31d63079b47c5feb8908fe3f7decb32c05435679"
+        },
+        {
+          "id": "reference-30",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 888,
+          "characters": 343,
+          "hash": "394b438d113abd718e980b2da6ef97f6637de09debbdb3c7ee639efeafdd48b2"
+        },
+        {
+          "id": "reference-31",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4507,
+          "characters": 1578,
+          "hash": "0d3654ad8874fff8c0ae46ad7ce6fe510a0d70a14ad592453add4c4752da3d04"
+        },
+        {
+          "id": "reference-32",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3022,
+          "characters": 1082,
+          "hash": "6a25b79c842cf93a36e27e33b483d83fb6550e7b8ba6078d9f8475e160079506"
+        },
+        {
+          "id": "reference-33",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3383,
+          "characters": 1197,
+          "hash": "e177e435e6efb972523e56cf2222f3e8c670814f16b94c66894950a0eacb8009"
+        },
+        {
+          "id": "reference-34",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3182,
+          "characters": 1124,
+          "hash": "5d7c9d1a55cccb7573fdb28b7cbf415c4437cdd5ac81472f67cd4eeb5e3ea700"
+        },
+        {
+          "id": "reference-35",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3771,
+          "characters": 1333,
+          "hash": "148c895626301a55bc2871e6ccdfcbdf008b2c12bb60be908747dd10b9ac59dc"
+        },
+        {
+          "id": "reference-36",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4513,
+          "characters": 1573,
+          "hash": "7f96b8bc966acabb70402095846ae1a6b0ec62a032d1dc5cad8db10fc14ead12"
+        },
+        {
+          "id": "reference-37",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 5323,
+          "characters": 1862,
+          "hash": "23006646fe877c30a3d4bc696da8bcd486390ed0844e05fcd3e660bcdcb99c27"
+        },
+        {
+          "id": "reference-38",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 5122,
+          "characters": 1796,
+          "hash": "10aad3f4ce614673f9eb23541dcf15acf561ad823c3332357968c43bcdcc41b5"
+        },
+        {
+          "id": "reference-39",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3775,
+          "characters": 1336,
+          "hash": "f09766759626d0b754fe880d394a2b21d3451070906faf3d82e94e64725cee26"
+        },
+        {
+          "id": "reference-40",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3302,
+          "characters": 1169,
+          "hash": "a5090150fb424d0b4c9353319dcb1dbd93fa6333d9ad8d1628b848c3b618158d"
+        },
+        {
+          "id": "reference-41",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3600,
+          "characters": 1267,
+          "hash": "e98ecaefbb9c0a6f622c02e64cfd5bd5f9d1d262e54f7b9f701037d31b4ef02a"
+        },
+        {
+          "id": "reference-42",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3980,
+          "characters": 1396,
+          "hash": "e218a41b279cd1b599b757c2f7884de40843bd0bf20cf38524f327a555f0b79b"
+        },
+        {
+          "id": "reference-43",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 4477,
+          "characters": 1567,
+          "hash": "cb9e3241f9b8c6eeef3f18584c9929d9059ad997ed018471106d3cfcb2d82344"
+        },
+        {
+          "id": "reference-44",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3246,
+          "characters": 1153,
+          "hash": "f9f79ad4dd448101c5449a734ba0eca9dc5686b8a8f8958b20e45a8631fbc795"
+        },
+        {
+          "id": "reference-45",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3411,
+          "characters": 1202,
+          "hash": "2012fc604ddc697bb541c0e8c1b0b25c50997eb67821e67f5f01d8bf83604fd6"
+        },
+        {
+          "id": "reference-46",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3056,
+          "characters": 1080,
+          "hash": "9754c3ca2003fa6bf8737510985c0a962b9112f1ada4e21d1960e68eaffd007e"
+        },
+        {
+          "id": "reference-47",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2793,
+          "characters": 993,
+          "hash": "284b346811fe77d10472bfc3ea0fd6fc467d97183df0dec39f3137e5d722e6b5"
+        },
+        {
+          "id": "reference-48",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2776,
+          "characters": 984,
+          "hash": "8bb8e7ce5868442e48988c7fd8a112e93854334c1c312f9a40d9a461db1bdfd7"
+        },
+        {
+          "id": "reference-49",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1933,
+          "characters": 682,
+          "hash": "e23f5b6d728d2fce141230e8481c84b117f67fac23c366335877776341d798ae"
+        },
+        {
+          "id": "reference-50",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2057,
+          "characters": 724,
+          "hash": "9e1d57ddf7d79926490ad9004af412c582ca41e0b281c24840b309fd23f4bba2"
+        },
+        {
+          "id": "reference-51",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2970,
+          "characters": 1040,
+          "hash": "2055f94e2fb07f9425c4319712542db0be409aeed31991a9ff5f9cb2179d99d9"
+        },
+        {
+          "id": "reference-52",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2721,
+          "characters": 966,
+          "hash": "a13b3bfc5671a4c4769b16e3bb17aabe92d3c51327f1bde34e6c568993084434"
+        },
+        {
+          "id": "reference-53",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2606,
+          "characters": 928,
+          "hash": "708b9fb5f308291c548885eec1a522bb3d1c479eec408e8e7399a3b5eb125ef0"
+        },
+        {
+          "id": "reference-54",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2771,
+          "characters": 981,
+          "hash": "f82b9970ccdaa5ff81acaa0897505045998d2b882031b2f91e3338eae13523a6"
+        },
+        {
+          "id": "reference-55",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3175,
+          "characters": 1123,
+          "hash": "620210097d67a202b0b38a6315feb013410059434a12d9bed79b2802e66c61ec"
+        },
+        {
+          "id": "reference-56",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3496,
+          "characters": 1234,
+          "hash": "79a7b6ec9d5f34291d49a7b000812c9d11e949d8248e29c42ed4225ddcde094d"
+        },
+        {
+          "id": "reference-57",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 3854,
+          "characters": 1360,
+          "hash": "788cca856030922e503ac258ca11a95ccf101437eee0b57a992b27f22d9358e0"
+        },
+        {
+          "id": "reference-58",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2907,
+          "characters": 1033,
+          "hash": "8c5ee71c345efcaa0b972a9d51b9ba30d7ca28f52b4dcbf66053d2f12b48c91b"
+        },
+        {
+          "id": "reference-59",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2753,
+          "characters": 983,
+          "hash": "ee497df2c283d6e8565d19eb24851846ba5ebfece8cf38646c592d14758bbf4b"
+        },
+        {
+          "id": "reference-60",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2541,
+          "characters": 909,
+          "hash": "95a3b230351c359a7f194cd88bc0bd174ebbac372b8cb6c9c26c654751e62ea4"
+        },
+        {
+          "id": "reference-61",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2577,
+          "characters": 921,
+          "hash": "ccf594354a294e0cbc67ed5068400fc59714ec574e18af6923aab50611c37256"
+        },
+        {
+          "id": "reference-62",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2740,
+          "characters": 972,
+          "hash": "5f31d90d2b77efd966405332fbec10ff4ce88b3dc3ed5081cccf88f2e0e5fd65"
+        },
+        {
+          "id": "reference-63",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1281,
+          "characters": 471,
+          "hash": "e18d0554754157e397950d7bdaec7bbc9a0e9239cd4dc25f3ccddfb9c88ddb22"
+        },
+        {
+          "id": "reference-64",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 1009,
+          "characters": 376,
+          "hash": "fdc54570bab4249fca9c11dfbb4a41446f27e67926c8d83abfe78001bdbdaa1c"
+        },
+        {
+          "id": "reference-65",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 2808,
+          "characters": 1000,
+          "hash": "50630a1caa5e5b54088b5b89eb74a92eab0448ac8fdf613f34dc00f88c879dc4"
+        },
+        {
+          "id": "reference-66",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 827,
+          "characters": 308,
+          "hash": "226338bbff1f354aaef0fb1c7c06efa72910378069666cfc59c3c897a2f94cb7"
+        },
+        {
+          "id": "reference-67",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 799,
+          "characters": 297,
+          "hash": "f1a7ac2b9b2641a9212718de9d9344ebe1f608c63eb2770cf42975046a6c26a2"
+        },
+        {
+          "id": "reference-68",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 8853,
+          "characters": 3180,
+          "hash": "395194891e15bdcbdd9eb1e16f08e0d7c264194ecfd81385d836b77da2a18b5d"
+        },
+        {
+          "id": "reference-69",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 32244,
+          "characters": 11488,
+          "hash": "fb0a5de0b09717c4103b09a026ad8cf3e187716d675eb2d2eee34e9ffc1147a5"
+        },
+        {
+          "id": "reference-70",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 16071,
+          "characters": 5716,
+          "hash": "4f7d5eac72172430e5ff1a15f254f237ad767bab3bb4fc19b8fa0faca229ca60"
+        },
+        {
+          "id": "reference-71",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 12277,
+          "characters": 4407,
+          "hash": "3fc77f8917640bddb5cab5e344b2ee0dcbe028fcd51493ea2919170c7155e14e"
+        },
+        {
+          "id": "plugins",
+          "purpose": "plugin-projection",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2,
+          "characters": 2,
+          "hash": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+        },
+        {
+          "id": "state-events",
+          "purpose": "state-and-events",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 2341,
+          "characters": 1874,
+          "hash": "f4f15b5191e63fd7566893bcd6940f34c41d1adbe254cfdf66a6a69d95ea199b"
+        },
+        {
+          "id": "query-protocol",
+          "purpose": "tool-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1899,
+          "characters": 759,
+          "hash": "e330e840c5b84db40650759577e496ec82d969d3f7ff9f06f84c4828c32d1c0c"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 63,
+          "characters": 21,
+          "hash": "633ea3df0ef2d9b6addff82bd58da67b976fc3cd45602f4c2c80db0a7d054ca5"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        }
+      ],
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "先查询丹药，再服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "7255e028efc6dd80fb2d420a68a95fa0197ce460fd753029e10c38c2a1aee8b5"
+    },
+    {
+      "label": "r4-scoped-query",
+      "adapter": "cultivation",
+      "index": 0,
+      "input": "先查询丹药，再服用两份养息丹，其他状态不变",
+      "initialStateHash": "1f49fe0be1f25c31a43ec5e809498a0f3c02a9490542c21aec39395adcc039b4",
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "adapterBinding": {
+        "adapterId": "cultivation",
+        "adapterVersion": "4",
+        "effectiveContextHash": "ce53f5a66a65fde91afca7b3eeb9127f7d6916c8284e77e053e5f5bc780cf386",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "cultivation-rules/3",
+        "sourceHash": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+        "stateSchemaVersion": "local-state/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 48415,
+            "inputHash": "5bce92353c4d5a7fb9e7ac71c7a7881112ada79b28028809635d3e55e653f59f",
+            "systemBytes": 128058,
+            "textHistoryAndInputBytes": 63,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 130984
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 49.59270000000015,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "index": 2,
+          "measurement": {
+            "characters": 48799,
+            "inputHash": "776651b81b3287660df09bca85c778f53227a9439b6ff001b1c8acbc8f04741a",
+            "systemBytes": 128058,
+            "textHistoryAndInputBytes": 64,
+            "tokens": null,
+            "toolResultBytes": 534,
+            "toolsBytes": 766,
+            "wireBytes": 131913
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 48.898699999999735,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 262897,
+      "simulationWallMs": 1295,
+      "body": {
+        "characters": 49,
+        "bytes": 147
+      },
+      "deltaBytes": 138,
+      "renderedPanelBytes": 2360,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:qingyun"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rule-0",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 30,
+          "characters": 14,
+          "hash": "2307e13db0b58bd72a49c37b719d7884fa88d5a771968e98fe26df58c18e8be6"
+        },
+        {
+          "id": "rule-1",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 500,
+          "characters": 206,
+          "hash": "92279c5a091af2ce8380c9d3f5b0abb8ef8637b31a6c91a6cf8e8cd7f0e47a9c"
+        },
+        {
+          "id": "rule-2",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 899,
+          "characters": 343,
+          "hash": "bf32520cbababfbb7da2687d259b255571df1ae02074f3106449d792233a6b92"
+        },
+        {
+          "id": "rule-3",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 679,
+          "characters": 245,
+          "hash": "4f3119e01ace3072748491363061f2ecb28f66b512a7931ede8ead03feeb2e9d"
+        },
+        {
+          "id": "rule-4",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2985,
+          "characters": 1153,
+          "hash": "e521f543f140092f2dab8463f011625eb701b45c5eaeee2d2ac5fcf71f3c1d5a"
+        },
+        {
+          "id": "rule-5",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 60,
+          "characters": 32,
+          "hash": "5f2689f1ca35e8afaa11a14cf0cd120c4689c1bd3be2f401c589c5f4d5726d68"
+        },
+        {
+          "id": "rule-6",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1360,
+          "characters": 530,
+          "hash": "f5a24095922606923a11dcd3917008cb5e0f04060847211cf83cd496236dcfa7"
+        },
+        {
+          "id": "rule-7",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1538,
+          "characters": 740,
+          "hash": "f0ea7837512671a32aaa3726c538748288ab357884c8c1e72740894b94200f70"
+        },
+        {
+          "id": "rule-8",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 342,
+          "characters": 150,
+          "hash": "02af1f94d23eecd0b1bab6c940788f318e111c629f70676dc744d6be18080ffd"
+        },
+        {
+          "id": "rule-9",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1138,
+          "characters": 394,
+          "hash": "8d2f50b655056c400eb28cffb6ce79a7deacbc26fcf3dd2fa65b2371f7462bd7"
+        },
+        {
+          "id": "rule-10",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 541,
+          "characters": 210,
+          "hash": "123088ffe424b2d1e826c1a40f808b895e3cbbcc08f733b78e4f7c0caf2fa8ad"
+        },
+        {
+          "id": "rule-11",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 3773,
+          "characters": 2054,
+          "hash": "8646aae8f3914e11ea0327e15e819e70fe8dde7331ba972ea1e9b234a40525db"
+        },
+        {
+          "id": "rule-12",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 153,
+          "characters": 55,
+          "hash": "caf0c1a0ff46cde41a8c1483e664ece852e828b749e266777f29d02bf4262f5d"
+        },
+        {
+          "id": "rule-13",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1493,
+          "characters": 648,
+          "hash": "8bb4a859f39dbe6770b3ce85f459ee9d093d5910c2c1932dc613cfa3f1bc8c56"
+        },
+        {
+          "id": "rule-14",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1096,
+          "characters": 495,
+          "hash": "61f95c586a1e40cc9d7a204bb6e3fee2027dbdb6daeffe1440a900d427bbc19c"
+        },
+        {
+          "id": "rule-15",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2930,
+          "characters": 1102,
+          "hash": "ccd5cfab562b3b32c07d33bad14d23b9e47fae5e7a152158ad02ce935adbab77"
+        },
+        {
+          "id": "rule-16",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 412,
+          "characters": 170,
+          "hash": "c98ecbeee2abca9a14183b99d6074a94e7c425955c73b160d27728438fd51aa6"
+        },
+        {
+          "id": "rule-17",
+          "purpose": "narration",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 528,
+          "characters": 204,
+          "hash": "49689e9f4cd9f8f6d6a47a78b06e19f07fae79ae8753c4aa5897a7f15992090f"
+        },
+        {
+          "id": "rule-18",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 694,
+          "characters": 292,
+          "hash": "197a798e6bf5b188f7f852efc6f1f2471a17938060f03f32882fb800ab91a4fa"
+        },
+        {
+          "id": "delta-contract",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1690,
+          "characters": 1008,
+          "hash": "65b3e9e661c06c2befcda267dcdb10ff50520ac51fabccf8eea2fdc66de0bdc4"
+        },
+        {
+          "id": "reference-0",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 50152,
+          "characters": 17606,
+          "hash": "5f35d221c258cde7f4f9278c33a03c89f503ebde77f84bc05cd12d11d89c77ca"
+        },
+        {
+          "id": "reference-1",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 23140,
+          "characters": 7985,
+          "hash": "ab8bec12d96cc636af3cb37fcecda5c67de9db43af3ff94d5d304e65ed229726"
+        },
+        {
+          "id": "reference-2",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 15724,
+          "characters": 5552,
+          "hash": "e77bef47c1502dc556b21613e20567f1e06150dda0a8f52f385323253d5a7393"
+        },
+        {
+          "id": "reference-3",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 26362,
+          "characters": 9276,
+          "hash": "10f6a9d2e9832d8944401a59a0261f7cec8a3ae0807bcbcad0a4e8bc80e2d279"
+        },
+        {
+          "id": "reference-4",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 16808,
+          "characters": 5943,
+          "hash": "06ef865d42269abf6f401c688594c1086a8244560b96c3a8a8eea96fe5027186"
+        },
+        {
+          "id": "reference-5",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 34670,
+          "characters": 12247,
+          "hash": "b856c9ce9481a532db3e4b9d06593b5dfcb6012ca954f773bf44fde65ecd92a6"
+        },
+        {
+          "id": "reference-6",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 24935,
+          "characters": 8704,
+          "hash": "8ab7fc0c14cb58289a4ef5e34dd64187f4cc791ce92606232bbed30e6604f46a"
+        },
+        {
+          "id": "reference-7",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 70,
+          "characters": 33,
+          "hash": "73bff7c98769ddd3973a4a542f7eb5daee6e5cf3895011907e007b15b8116c40"
+        },
+        {
+          "id": "reference-8",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2468,
+          "characters": 867,
+          "hash": "825393ae1dc7ac7b9a241ca19be4b71c6323ebff50513156b1480fc1d5f5ac16"
+        },
+        {
+          "id": "reference-9",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2388,
+          "characters": 839,
+          "hash": "d7c078a675e91c5af1e3a48994e68feb852fbc4f52399773dcca6067d7a548de"
+        },
+        {
+          "id": "reference-10",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2375,
+          "characters": 831,
+          "hash": "53feddf793ad00d0e9f74d61af8a9ba892fec00b280f3fbc15935a65b0b71e72"
+        },
+        {
+          "id": "reference-11",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2205,
+          "characters": 771,
+          "hash": "63de429de3992709bbf7d583f053db346336280a0b9124aa333ebf0869b92e74"
+        },
+        {
+          "id": "reference-12",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1850,
+          "characters": 641,
+          "hash": "cb796adf23451499fd927b98b51360e6c5224d7c73a425da77cf019e33c5b904"
+        },
+        {
+          "id": "reference-13",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1571,
+          "characters": 543,
+          "hash": "2ca4f257b29137a657bfb36ede03b335a8cde6d036fae01577df789a43aff588"
+        },
+        {
+          "id": "reference-14",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1480,
+          "characters": 514,
+          "hash": "8758871d04cc0b4fa244affe6e8c0c79de075f0d195ec02c15c3b962251d304c"
+        },
+        {
+          "id": "reference-15",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1439,
+          "characters": 503,
+          "hash": "22772a25a5f9d6869026c3422e8da6b9f5b401bcddb2b2236aea00dbcad8d1c7"
+        },
+        {
+          "id": "reference-16",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1746,
+          "characters": 605,
+          "hash": "f79f37cd86ac1cce861abf83bf65207093a2e9ad310c95ed9f889545572a1f8c"
+        },
+        {
+          "id": "reference-17",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1359,
+          "characters": 477,
+          "hash": "b48cb236099a9e7cbd7894cf9155b99e3173f537021fb2eb03d76064e65a02d5"
+        },
+        {
+          "id": "reference-18",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1633,
+          "characters": 568,
+          "hash": "c76b18fa647bcaff4515dcbb290bfdd700f0a8bcf4ae08c9276f4f4f0a230a03"
+        },
+        {
+          "id": "reference-19",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2515,
+          "characters": 861,
+          "hash": "07002af1ec76b6c4b363c86e11bfb48f5d8817f1a6b08137778ccc48aef35b06"
+        },
+        {
+          "id": "reference-20",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 9279,
+          "characters": 3235,
+          "hash": "7e9a90491c92aef8ca109cc74db54c188f7b45d592110632a84566819adc8800"
+        },
+        {
+          "id": "reference-21",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 65724,
+          "characters": 23339,
+          "hash": "e52e795cc396e26a16d6f152e84a0121ce00c98100e02fccea54b559cc5af5ab"
+        },
+        {
+          "id": "reference-22",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 921,
+          "characters": 331,
+          "hash": "a0d7570f67bcd7eff076f59f0284bb63269a52e425ae49da630637fa2a99c0dd"
+        },
+        {
+          "id": "reference-23",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2050,
+          "characters": 744,
+          "hash": "c292ff3ed94a3a10301b7c749d63ec108ab15aebe01672ebf076d3b50d336801"
+        },
+        {
+          "id": "reference-24",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2437,
+          "characters": 868,
+          "hash": "278b24920e70f6cd8223601a4ccbf21f7fb366560d0a8fa2a9d1067330df1d74"
+        },
+        {
+          "id": "reference-25",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 6764,
+          "characters": 2403,
+          "hash": "6be4c7045bffe39bbb0eb98c6de05e77767f8ac4294fe14dbc1b0131f20bf0f3"
+        },
+        {
+          "id": "reference-26",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 6860,
+          "characters": 2409,
+          "hash": "0c5a5fa6a67e0e7670d66eda246279f6f320c44dd236242b77aff136d72320dd"
+        },
+        {
+          "id": "reference-27",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2369,
+          "characters": 846,
+          "hash": "bdfc89ae4973285cbeba530b74d5110c9e4ed2f8d8e057e7989240f10b9287a4"
+        },
+        {
+          "id": "reference-28",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1360,
+          "characters": 493,
+          "hash": "eb359566ae887fb3490610bbe96e0b32969a57a3c10f42bc8daa8ccb57a407f4"
+        },
+        {
+          "id": "reference-29",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1062,
+          "characters": 381,
+          "hash": "19ee54d60992500ae671b6db31d63079b47c5feb8908fe3f7decb32c05435679"
+        },
+        {
+          "id": "reference-30",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 888,
+          "characters": 343,
+          "hash": "394b438d113abd718e980b2da6ef97f6637de09debbdb3c7ee639efeafdd48b2"
+        },
+        {
+          "id": "reference-31",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4507,
+          "characters": 1578,
+          "hash": "0d3654ad8874fff8c0ae46ad7ce6fe510a0d70a14ad592453add4c4752da3d04"
+        },
+        {
+          "id": "reference-32",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3022,
+          "characters": 1082,
+          "hash": "6a25b79c842cf93a36e27e33b483d83fb6550e7b8ba6078d9f8475e160079506"
+        },
+        {
+          "id": "reference-33",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3383,
+          "characters": 1197,
+          "hash": "e177e435e6efb972523e56cf2222f3e8c670814f16b94c66894950a0eacb8009"
+        },
+        {
+          "id": "reference-34",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3182,
+          "characters": 1124,
+          "hash": "5d7c9d1a55cccb7573fdb28b7cbf415c4437cdd5ac81472f67cd4eeb5e3ea700"
+        },
+        {
+          "id": "reference-35",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3771,
+          "characters": 1333,
+          "hash": "148c895626301a55bc2871e6ccdfcbdf008b2c12bb60be908747dd10b9ac59dc"
+        },
+        {
+          "id": "reference-36",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4513,
+          "characters": 1573,
+          "hash": "7f96b8bc966acabb70402095846ae1a6b0ec62a032d1dc5cad8db10fc14ead12"
+        },
+        {
+          "id": "reference-37",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 5323,
+          "characters": 1862,
+          "hash": "23006646fe877c30a3d4bc696da8bcd486390ed0844e05fcd3e660bcdcb99c27"
+        },
+        {
+          "id": "reference-38",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 5122,
+          "characters": 1796,
+          "hash": "10aad3f4ce614673f9eb23541dcf15acf561ad823c3332357968c43bcdcc41b5"
+        },
+        {
+          "id": "reference-39",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3775,
+          "characters": 1336,
+          "hash": "f09766759626d0b754fe880d394a2b21d3451070906faf3d82e94e64725cee26"
+        },
+        {
+          "id": "reference-40",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3302,
+          "characters": 1169,
+          "hash": "a5090150fb424d0b4c9353319dcb1dbd93fa6333d9ad8d1628b848c3b618158d"
+        },
+        {
+          "id": "reference-41",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3600,
+          "characters": 1267,
+          "hash": "e98ecaefbb9c0a6f622c02e64cfd5bd5f9d1d262e54f7b9f701037d31b4ef02a"
+        },
+        {
+          "id": "reference-42",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3980,
+          "characters": 1396,
+          "hash": "e218a41b279cd1b599b757c2f7884de40843bd0bf20cf38524f327a555f0b79b"
+        },
+        {
+          "id": "reference-43",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 4477,
+          "characters": 1567,
+          "hash": "cb9e3241f9b8c6eeef3f18584c9929d9059ad997ed018471106d3cfcb2d82344"
+        },
+        {
+          "id": "reference-44",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3246,
+          "characters": 1153,
+          "hash": "f9f79ad4dd448101c5449a734ba0eca9dc5686b8a8f8958b20e45a8631fbc795"
+        },
+        {
+          "id": "reference-45",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3411,
+          "characters": 1202,
+          "hash": "2012fc604ddc697bb541c0e8c1b0b25c50997eb67821e67f5f01d8bf83604fd6"
+        },
+        {
+          "id": "reference-46",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3056,
+          "characters": 1080,
+          "hash": "9754c3ca2003fa6bf8737510985c0a962b9112f1ada4e21d1960e68eaffd007e"
+        },
+        {
+          "id": "reference-47",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2793,
+          "characters": 993,
+          "hash": "284b346811fe77d10472bfc3ea0fd6fc467d97183df0dec39f3137e5d722e6b5"
+        },
+        {
+          "id": "reference-48",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2776,
+          "characters": 984,
+          "hash": "8bb8e7ce5868442e48988c7fd8a112e93854334c1c312f9a40d9a461db1bdfd7"
+        },
+        {
+          "id": "reference-49",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1933,
+          "characters": 682,
+          "hash": "e23f5b6d728d2fce141230e8481c84b117f67fac23c366335877776341d798ae"
+        },
+        {
+          "id": "reference-50",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2057,
+          "characters": 724,
+          "hash": "9e1d57ddf7d79926490ad9004af412c582ca41e0b281c24840b309fd23f4bba2"
+        },
+        {
+          "id": "reference-51",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2970,
+          "characters": 1040,
+          "hash": "2055f94e2fb07f9425c4319712542db0be409aeed31991a9ff5f9cb2179d99d9"
+        },
+        {
+          "id": "reference-52",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2721,
+          "characters": 966,
+          "hash": "a13b3bfc5671a4c4769b16e3bb17aabe92d3c51327f1bde34e6c568993084434"
+        },
+        {
+          "id": "reference-53",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2606,
+          "characters": 928,
+          "hash": "708b9fb5f308291c548885eec1a522bb3d1c479eec408e8e7399a3b5eb125ef0"
+        },
+        {
+          "id": "reference-54",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2771,
+          "characters": 981,
+          "hash": "f82b9970ccdaa5ff81acaa0897505045998d2b882031b2f91e3338eae13523a6"
+        },
+        {
+          "id": "reference-55",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3175,
+          "characters": 1123,
+          "hash": "620210097d67a202b0b38a6315feb013410059434a12d9bed79b2802e66c61ec"
+        },
+        {
+          "id": "reference-56",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3496,
+          "characters": 1234,
+          "hash": "79a7b6ec9d5f34291d49a7b000812c9d11e949d8248e29c42ed4225ddcde094d"
+        },
+        {
+          "id": "reference-57",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 3854,
+          "characters": 1360,
+          "hash": "788cca856030922e503ac258ca11a95ccf101437eee0b57a992b27f22d9358e0"
+        },
+        {
+          "id": "reference-58",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2907,
+          "characters": 1033,
+          "hash": "8c5ee71c345efcaa0b972a9d51b9ba30d7ca28f52b4dcbf66053d2f12b48c91b"
+        },
+        {
+          "id": "reference-59",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2753,
+          "characters": 983,
+          "hash": "ee497df2c283d6e8565d19eb24851846ba5ebfece8cf38646c592d14758bbf4b"
+        },
+        {
+          "id": "reference-60",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2541,
+          "characters": 909,
+          "hash": "95a3b230351c359a7f194cd88bc0bd174ebbac372b8cb6c9c26c654751e62ea4"
+        },
+        {
+          "id": "reference-61",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2577,
+          "characters": 921,
+          "hash": "ccf594354a294e0cbc67ed5068400fc59714ec574e18af6923aab50611c37256"
+        },
+        {
+          "id": "reference-62",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2740,
+          "characters": 972,
+          "hash": "5f31d90d2b77efd966405332fbec10ff4ce88b3dc3ed5081cccf88f2e0e5fd65"
+        },
+        {
+          "id": "reference-63",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1281,
+          "characters": 471,
+          "hash": "e18d0554754157e397950d7bdaec7bbc9a0e9239cd4dc25f3ccddfb9c88ddb22"
+        },
+        {
+          "id": "reference-64",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 1009,
+          "characters": 376,
+          "hash": "fdc54570bab4249fca9c11dfbb4a41446f27e67926c8d83abfe78001bdbdaa1c"
+        },
+        {
+          "id": "reference-65",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 2808,
+          "characters": 1000,
+          "hash": "50630a1caa5e5b54088b5b89eb74a92eab0448ac8fdf613f34dc00f88c879dc4"
+        },
+        {
+          "id": "reference-66",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 827,
+          "characters": 308,
+          "hash": "226338bbff1f354aaef0fb1c7c06efa72910378069666cfc59c3c897a2f94cb7"
+        },
+        {
+          "id": "reference-67",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 799,
+          "characters": 297,
+          "hash": "f1a7ac2b9b2641a9212718de9d9344ebe1f608c63eb2770cf42975046a6c26a2"
+        },
+        {
+          "id": "reference-68",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 8853,
+          "characters": 3180,
+          "hash": "395194891e15bdcbdd9eb1e16f08e0d7c264194ecfd81385d836b77da2a18b5d"
+        },
+        {
+          "id": "reference-69",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 32244,
+          "characters": 11488,
+          "hash": "fb0a5de0b09717c4103b09a026ad8cf3e187716d675eb2d2eee34e9ffc1147a5"
+        },
+        {
+          "id": "reference-70",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 16071,
+          "characters": 5716,
+          "hash": "4f7d5eac72172430e5ff1a15f254f237ad767bab3bb4fc19b8fa0faca229ca60"
+        },
+        {
+          "id": "reference-71",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": false,
+          "bytes": 12277,
+          "characters": 4407,
+          "hash": "3fc77f8917640bddb5cab5e344b2ee0dcbe028fcd51493ea2919170c7155e14e"
+        },
+        {
+          "id": "plugins",
+          "purpose": "plugin-projection",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 2,
+          "characters": 2,
+          "hash": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+        },
+        {
+          "id": "state-events",
+          "purpose": "state-and-events",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 2341,
+          "characters": 1874,
+          "hash": "f4f15b5191e63fd7566893bcd6940f34c41d1adbe254cfdf66a6a69d95ea199b"
+        },
+        {
+          "id": "query-protocol",
+          "purpose": "tool-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 1899,
+          "characters": 759,
+          "hash": "e330e840c5b84db40650759577e496ec82d969d3f7ff9f06f84c4828c32d1c0c"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 63,
+          "characters": 21,
+          "hash": "633ea3df0ef2d9b6addff82bd58da67b976fc3cd45602f4c2c80db0a7d054ca5"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        }
+      ],
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "先查询丹药，再服用两份养息丹，其他状态不变",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "e2401a00c5f4d159ae720e113942c145121bd716497bb7d24074aaa9bf760d4b"
+    },
+    {
+      "label": "r4-continuity",
+      "adapter": "lighthouse",
+      "index": 0,
+      "input": "我承诺交接前检查窗栓，先记下来，暂时不执行。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "8fee39083a71619d9b8331f23429636f140cc9de7355a139559101f29f3d1559",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "4",
+        "effectiveContextHash": "4d454bc6d22ee656f7ad6916601c00634ddd01275fb9ba8b056e84d589bb23dc",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 756,
+            "inputHash": "ee7853649b477fdba04063f311088ee28cd80ae66ae0a8a8e86525f7928fd2c3",
+            "systemBytes": 1518,
+            "textHistoryAndInputBytes": 66,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 2277
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 45.43209999999999,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 2277,
+      "simulationWallMs": 318,
+      "body": {
+        "characters": 34,
+        "bytes": 102
+      },
+      "deltaBytes": 169,
+      "renderedPanelBytes": 386,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:lighthouse"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rules",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 411,
+          "characters": 205,
+          "hash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90"
+        },
+        {
+          "id": "current",
+          "purpose": "state",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 74,
+          "characters": 52,
+          "hash": "ea2bd86dd99e1f693a15208bfae4b7c527cf3ad217923a29af4635aed9e84917"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        },
+        {
+          "id": "lighthouse-setting",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 105,
+          "characters": 35,
+          "hash": "707a41b53d943828e3db87b25ba89a44475924f10c072206b0c1efa8c3d375bd"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "continuity-0",
+          "purpose": "continuity",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "duty-authority",
+          "purpose": "state-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 213,
+          "characters": 83,
+          "hash": "e6b34d1b58dfcdf7364b802856113c9dc8cea58c3df1278d1b38f85a072488de"
+        }
+      ],
+      "changes": [
+        {
+          "path": "duty",
+          "before": "守灯，等待夜班交接",
+          "after": "守灯；已承诺交接前检查窗栓（待履行）",
+          "reason": "固定中性样例中明确接受的安排或执行结果",
+          "authority": "model-judgment",
+          "type": "setDuty"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "7f490ccba690e2441a6f4e386451e7a23153e55d26fcf8cb04b6db57867ab35c"
+    },
+    {
+      "label": "r4-continuity",
+      "adapter": "lighthouse",
+      "index": 1,
+      "input": "同伴说窗栓已经检查好了；我猜可能不用再查，暂不确认。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "8fee39083a71619d9b8331f23429636f140cc9de7355a139559101f29f3d1559",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "4",
+        "effectiveContextHash": "4d454bc6d22ee656f7ad6916601c00634ddd01275fb9ba8b056e84d589bb23dc",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 938,
+            "inputHash": "50a6ea5ee12d4eb14bb6f968c550d59510feb747f82592cbf9a0e9203c2b7f6a",
+            "systemBytes": 1760,
+            "textHistoryAndInputBytes": 248,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 2768
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 44.20309999999881,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 2768,
+      "simulationWallMs": 333,
+      "body": {
+        "characters": 40,
+        "bytes": 120
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 386,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:lighthouse"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rules",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 411,
+          "characters": 205,
+          "hash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90"
+        },
+        {
+          "id": "current",
+          "purpose": "state",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 101,
+          "characters": 61,
+          "hash": "44468d87d7ec9e8dd669955f7ec30faa6e0d07563b2480bd56d8d22651d653ba"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        },
+        {
+          "id": "lighthouse-setting",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 105,
+          "characters": 35,
+          "hash": "707a41b53d943828e3db87b25ba89a44475924f10c072206b0c1efa8c3d375bd"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "message-1",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 102,
+          "characters": 34,
+          "hash": "620a8edbabcbab41925d65be9ac868b9045bbbf8224fb822e4b19d11fe32d1a9"
+        },
+        {
+          "id": "message-2",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "continuity-0",
+          "purpose": "continuity",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "continuity-1",
+          "purpose": "continuity",
+          "nature": "character-claim",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "hypothesis-1",
+          "purpose": "continuity",
+          "nature": "hypothesis",
+          "selected": true,
+          "bytes": 48,
+          "characters": 16,
+          "hash": "16ef081df05239c1ee0d3bd3e76aeec3c5eeddf05fd55e9cdd757bb3f66a47b9"
+        },
+        {
+          "id": "duty-authority",
+          "purpose": "state-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 213,
+          "characters": 83,
+          "hash": "e6b34d1b58dfcdf7364b802856113c9dc8cea58c3df1278d1b38f85a072488de"
+        }
+      ],
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "47eeeddd598aec1cc3d830006f167df93c1dccff0c202c3d25148021a8d79166"
+    },
+    {
+      "label": "r4-continuity",
+      "adapter": "lighthouse",
+      "index": 2,
+      "input": "考虑取消检查窗栓的承诺，仅提出方案，尚未采用。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "8fee39083a71619d9b8331f23429636f140cc9de7355a139559101f29f3d1559",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "4",
+        "effectiveContextHash": "4d454bc6d22ee656f7ad6916601c00634ddd01275fb9ba8b056e84d589bb23dc",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 1063,
+            "inputHash": "0fdd560c1d36fc21126fb637435ae64f6d32eb265b430f783e06851094581f3c",
+            "systemBytes": 1877,
+            "textHistoryAndInputBytes": 439,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 3140
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 45.45979999999872,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 3140,
+      "simulationWallMs": 408,
+      "body": {
+        "characters": 38,
+        "bytes": 114
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 386,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:lighthouse"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rules",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 411,
+          "characters": 205,
+          "hash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90"
+        },
+        {
+          "id": "current",
+          "purpose": "state",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 101,
+          "characters": 61,
+          "hash": "44468d87d7ec9e8dd669955f7ec30faa6e0d07563b2480bd56d8d22651d653ba"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        },
+        {
+          "id": "lighthouse-setting",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 105,
+          "characters": 35,
+          "hash": "707a41b53d943828e3db87b25ba89a44475924f10c072206b0c1efa8c3d375bd"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "message-1",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 102,
+          "characters": 34,
+          "hash": "620a8edbabcbab41925d65be9ac868b9045bbbf8224fb822e4b19d11fe32d1a9"
+        },
+        {
+          "id": "message-2",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "message-3",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 120,
+          "characters": 40,
+          "hash": "ae6cb14ca58d81740f743b23ac4afe19510c7bccbd8a88d92a31190335fd1428"
+        },
+        {
+          "id": "message-4",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 69,
+          "characters": 23,
+          "hash": "f2ac76235155697b90061d8ee5e568be16a5ba4f723d519bcb6e7ad55c5f7b28"
+        },
+        {
+          "id": "continuity-0",
+          "purpose": "continuity",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "continuity-1",
+          "purpose": "continuity",
+          "nature": "character-claim",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "hypothesis-1",
+          "purpose": "continuity",
+          "nature": "hypothesis",
+          "selected": true,
+          "bytes": 48,
+          "characters": 16,
+          "hash": "16ef081df05239c1ee0d3bd3e76aeec3c5eeddf05fd55e9cdd757bb3f66a47b9"
+        },
+        {
+          "id": "continuity-2",
+          "purpose": "continuity",
+          "nature": "pending-proposal",
+          "selected": true,
+          "bytes": 69,
+          "characters": 23,
+          "hash": "f2ac76235155697b90061d8ee5e568be16a5ba4f723d519bcb6e7ad55c5f7b28"
+        },
+        {
+          "id": "duty-authority",
+          "purpose": "state-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 213,
+          "characters": 83,
+          "hash": "e6b34d1b58dfcdf7364b802856113c9dc8cea58c3df1278d1b38f85a072488de"
+        }
+      ],
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "428ac0abf442c336478c067dc885c7f94b1cdf92152a81483af5045409db3a0b"
+    },
+    {
+      "label": "r4-continuity",
+      "adapter": "lighthouse",
+      "index": 3,
+      "input": "我现在逐一检查并确认窗栓牢固，将交接前检查记为完成。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "63ffecde4d270ad28e53c43cecb8ea638d6e12231fcd32889fa32dba1afca146",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "4",
+        "effectiveContextHash": "4d454bc6d22ee656f7ad6916601c00634ddd01275fb9ba8b056e84d589bb23dc",
+        "manifestHash": "06bfd5f43ea1315a790d97cc51231e6182194b4269234fb7fede9c57cf0917fb",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 1185,
+            "inputHash": "61acbb1f75d0ebf59f293c2b342230c78337a33d55858a310fee3e6d77c0bfb0",
+            "systemBytes": 1996,
+            "textHistoryAndInputBytes": 633,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 3517
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 36.298500000000786,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 3517,
+      "simulationWallMs": 476,
+      "body": {
+        "characters": 41,
+        "bytes": 123
+      },
+      "deltaBytes": 154,
+      "renderedPanelBytes": 371,
+      "generatedPanelBytes": 0,
+      "selection": {
+        "mode": "scoped",
+        "refs": [
+          "scene:lighthouse"
+        ],
+        "fallbackReasons": []
+      },
+      "materials": [
+        {
+          "id": "rules",
+          "purpose": "global-rule",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 411,
+          "characters": 205,
+          "hash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90"
+        },
+        {
+          "id": "current",
+          "purpose": "state",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 101,
+          "characters": 61,
+          "hash": "44468d87d7ec9e8dd669955f7ec30faa6e0d07563b2480bd56d8d22651d653ba"
+        },
+        {
+          "id": "generation",
+          "purpose": "output-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 405,
+          "characters": 147,
+          "hash": "c3cc2bcb520b81cad3ac8fa4c141a649487c57f14ec5e94b03b7636401eaab2e"
+        },
+        {
+          "id": "lighthouse-setting",
+          "purpose": "world-reference",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 105,
+          "characters": 35,
+          "hash": "707a41b53d943828e3db87b25ba89a44475924f10c072206b0c1efa8c3d375bd"
+        },
+        {
+          "id": "message-0",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "message-1",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 102,
+          "characters": 34,
+          "hash": "620a8edbabcbab41925d65be9ac868b9045bbbf8224fb822e4b19d11fe32d1a9"
+        },
+        {
+          "id": "message-2",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "message-3",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 120,
+          "characters": 40,
+          "hash": "ae6cb14ca58d81740f743b23ac4afe19510c7bccbd8a88d92a31190335fd1428"
+        },
+        {
+          "id": "message-4",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 69,
+          "characters": 23,
+          "hash": "f2ac76235155697b90061d8ee5e568be16a5ba4f723d519bcb6e7ad55c5f7b28"
+        },
+        {
+          "id": "message-5",
+          "purpose": "history",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 114,
+          "characters": 38,
+          "hash": "f18a6198eb531e7f26b3884a434abd0bd755bac57585827400ed7cbc009c513f"
+        },
+        {
+          "id": "message-6",
+          "purpose": "player-input",
+          "nature": "reference",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "b4ca91338769296ebc906f205d00bb2198754e60af6f0f3e984a54780267180f"
+        },
+        {
+          "id": "continuity-0",
+          "purpose": "continuity",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 66,
+          "characters": 22,
+          "hash": "9ac2857089ac6dc64df9d3fc8b483dd35743e04596b3112bc51d93c8cbc8bbd7"
+        },
+        {
+          "id": "continuity-1",
+          "purpose": "continuity",
+          "nature": "character-claim",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "687436c5059b611fa7803452f40d1c03d88070ff646d2e5c1f15c96e57eec331"
+        },
+        {
+          "id": "hypothesis-1",
+          "purpose": "continuity",
+          "nature": "hypothesis",
+          "selected": true,
+          "bytes": 48,
+          "characters": 16,
+          "hash": "16ef081df05239c1ee0d3bd3e76aeec3c5eeddf05fd55e9cdd757bb3f66a47b9"
+        },
+        {
+          "id": "continuity-2",
+          "purpose": "continuity",
+          "nature": "pending-proposal",
+          "selected": true,
+          "bytes": 69,
+          "characters": 23,
+          "hash": "f2ac76235155697b90061d8ee5e568be16a5ba4f723d519bcb6e7ad55c5f7b28"
+        },
+        {
+          "id": "continuity-3",
+          "purpose": "continuity",
+          "nature": "confirmed",
+          "selected": true,
+          "bytes": 78,
+          "characters": 26,
+          "hash": "b4ca91338769296ebc906f205d00bb2198754e60af6f0f3e984a54780267180f"
+        },
+        {
+          "id": "duty-authority",
+          "purpose": "state-contract",
+          "nature": "instruction",
+          "selected": true,
+          "bytes": 213,
+          "characters": 83,
+          "hash": "e6b34d1b58dfcdf7364b802856113c9dc8cea58c3df1278d1b38f85a072488de"
+        }
+      ],
+      "changes": [
+        {
+          "path": "duty",
+          "before": "守灯；已承诺交接前检查窗栓（待履行）",
+          "after": "守灯；交接前窗栓检查已完成",
+          "reason": "固定中性样例中明确接受的安排或执行结果",
+          "authority": "model-judgment",
+          "type": "setDuty"
+        }
+      ],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "56240cd1a28f3516ef5ce94e571aa95a5cfc1e565996953ea758af39ecb48574"
+    },
+    {
+      "label": "r3-continuity",
+      "adapter": "lighthouse",
+      "index": 0,
+      "input": "我承诺交接前检查窗栓，先记下来，暂时不执行。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "3",
+        "effectiveContextHash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 285,
+            "inputHash": "2b7812228802aa58f5f1e90590c3dce21e2cc0811ca03e6517cad23208179552",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 66,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1245
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 41.07710000000043,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1245,
+      "simulationWallMs": 355,
+      "body": {
+        "characters": 31,
+        "bytes": 93
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 359,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "c69efc49526b0a1794fd771e87e5902132c696cac8909384f9989c9eeb5b944c"
+    },
+    {
+      "label": "r3-continuity",
+      "adapter": "lighthouse",
+      "index": 1,
+      "input": "同伴说窗栓已经检查好了；我猜可能不用再查，暂不确认。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "3",
+        "effectiveContextHash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 342,
+            "inputHash": "0e6740c8e0e8ebe795377c1b406fad67e0f22d4ebce44fefae370fdc7d6f5b63",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 239,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1479
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 44.427999999999884,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1479,
+      "simulationWallMs": 388,
+      "body": {
+        "characters": 31,
+        "bytes": 93
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 359,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "57b71e543c01d072c8e4e9d29f51f2877c699f2cd91adb73f95a4d789aeafd82"
+    },
+    {
+      "label": "r3-continuity",
+      "adapter": "lighthouse",
+      "index": 2,
+      "input": "考虑取消检查窗栓的承诺，仅提出方案，尚未采用。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "3",
+        "effectiveContextHash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 396,
+            "inputHash": "d23616bd388e2065849c4d4355223ce831fc81e451d396d772f950bfca1c274b",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 403,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1704
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 50.24189999999908,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1704,
+      "simulationWallMs": 356,
+      "body": {
+        "characters": 31,
+        "bytes": 93
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 359,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "b9267a71853dd4a9e7e5543f1172c3058bcf0cd3e793f33710caa2cf7c585a64"
+    },
+    {
+      "label": "r3-continuity",
+      "adapter": "lighthouse",
+      "index": 3,
+      "input": "我现在逐一检查并确认窗栓牢固，将交接前检查记为完成。",
+      "initialStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "finalStateHash": "cca46a4edfc0bfa969c90b843a5d861a90872b36d32b4c8c6d1ea3d434a9ba13",
+      "adapterBinding": {
+        "adapterId": "lighthouse",
+        "adapterVersion": "3",
+        "effectiveContextHash": "744e1e4243304ce56c550b371ff38521e811f1193e603115c0d3d6530e342c90",
+        "manifestHash": "9cbba55be85d8ac041d324ceaa76cb749930d789914776fe2729da26cd96d2d3",
+        "rulesVersion": "lighthouse/1",
+        "sourceHash": "52732da15fb9569a819bc48c366359e022c99dcf220a09d0b63746cba453bda1",
+        "stateSchemaVersion": "lighthouse/1"
+      },
+      "stages": [
+        {
+          "index": 1,
+          "measurement": {
+            "characters": 453,
+            "inputHash": "89eb344c41acd598aef9222d4e097995e9f58877dc4a6fc3e80a3d51895461bc",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 576,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1938
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          },
+          "timing": {
+            "completedMs": 39.84449999999924,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1938,
+      "simulationWallMs": 389,
+      "body": {
+        "characters": 31,
+        "bytes": 93
+      },
+      "deltaBytes": 17,
+      "renderedPanelBytes": 359,
+      "generatedPanelBytes": 0,
+      "selection": null,
+      "materials": null,
+      "changes": [],
+      "realCalls": 0,
+      "providerTokens": null,
+      "providerCostUSD": null,
+      "proseFirstMs": null,
+      "rawRecordFingerprint": "d6df00ad2d3cb212e46d42fba262ef747e2a6b5b0c05047f0211028222fac3f2"
+    }
+  ],
+  "note": "UTF-8 bytes and JS string lengths only. No tokenizer, provider call, paid cost or real prose first-token measurement. R3 lighthouse fixtures do not implement R4 continuity; compare assembly overhead, not model capability. Output fixtures are not quality evidence.",
+  "rawDirectory": "C:\\tmp\\modelmirror-rpg-context-r4\\experiments\\ai-rpg-engine\\.rpg03-work\\context-r4-measurements\\run-xcxQ78"
+}
