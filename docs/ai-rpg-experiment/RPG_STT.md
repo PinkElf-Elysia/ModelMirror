@@ -61,3 +61,15 @@
 - 桌面和390×844预览通过：移动端页面宽390、scrollWidth390，面板宽362，保存按钮底部778，始终在视口内；识别结果可键盘滚动查看，刷新不重复插入，浏览器无错误日志。更新3张帮助截图。
 - 再验通过：94/94卡片测试、57/57聊天相关测试、RPG TypeScript与Vite构建。既有主仓类型检查和旧God标题测试失败保留，不弱化检查。
 - 回退方式不变：移除新增前端接线及文件，无迁移，不影响已有存档。代码与帮助同一PR，真实音频、完整回执及本地预览脚本不提交。
+
+
+## PR #467 conflict integration (2026-11-14)
+
+The user authorized resolving and merging PRs #466 and #467. This supersedes the earlier no-merge limit; deployment and further real-provider calls remain out of scope.
+
+- Integrated main cd49bc7c and then 8f1de7c8 (#466). Retained STT microphone, draft recovery, TTS, voice-library dialogs/toolbars, and all published-player changes.
+- Preserved the current TTS guide metadata while adding the STT guide to the exact catalog assertion. Linked the already available voice library from the speech guide.
+- Passed: card-replica Node tests 94/94 and TypeScript/Vite build; client STT/workspace/model-selector tests 57/57; speech, common voices, voice library and exact shared-save compatibility tests 28/28.
+- Help catalog: 18/21 passed. All three remaining failures reproduced on the #466/main baseline (17/20): stale TTS verifiedCommit assertion, operational article step-count limit, and voice-library screenshot baseline mismatch. No test assertion was disabled or relaxed.
+- Existing main CI also reports frontend test-file declaration errors and authoring fixture failures due to missing Python httpx. These are outside this conflict resolution; passing focused checks does not imply green repository-wide CI.
+- No deployment, migration, real audio call, or story message. Revert the PR merge commit to roll back this STT integration; existing server saves are unchanged.

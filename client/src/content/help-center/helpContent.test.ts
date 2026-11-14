@@ -56,6 +56,7 @@ describe("help center content catalog", () => {
       "publish-rpg-work",
       "create-rpg-cg-gallery",
       "create-rpg-variable-panel",
+      "use-rpg-voice-input",
       "listen-rpg-story",
       "edit-rpg-reply",
       "manage-rpg-history",
