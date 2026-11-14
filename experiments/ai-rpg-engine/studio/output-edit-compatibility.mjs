@@ -98,14 +98,15 @@ const upgradeBefore={"studio/controlled-provider.mjs": "8f55c5088b8c7a28dcaf0d6e
 const upgradeBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "a1bf4555ec41de75ce577419abac97a04329198cd2482950171af5eb6772f7c5", "d16be3eda5e89e6121f92a2585dacadda25396516a7b25c958595f834e96f358", "e1b18267c48e05304d9f082e8a87ef6eca5a807b3e8d09219244b7e68082dd2a", "f571791c505013e1d6c30e15339b21f6a1a7c5f5d7cb62304f9210c33379b11c"];
 const currentMainBefore={"studio/server.mjs": "4866d319abda899b1eedd01853ab1bc127a9f856e86c478bceedaa5ae34f149a", "plugins/host.mjs": "bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd"};
 const currentMainBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "14b31129e4792063017ffbf61105c2c257feebbb30d4fc35496d59c4d07698cb", "55a13599de28f33e1567ae6b86f6c4bb35a2a07a6d4038f91232af027524a8cf", "cd46068710b2b8ea06635feb594e3ae1192fa17501f6a17d17dde673244003b6", "c053b940b0925ae4b54c62b6380c237477ed6ac186f0c98045c067954ca4278b"];
+const {groups:sharedBefore}=JSON.parse(await readFile(new URL('./shared-runtime-baselines.json',import.meta.url),'utf8'));
 const newBases=[earthRuntime,modelRuntime,historyRuntime,summaryRuntime,memoryRuntime].map(r=>r.hash);
-const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(beforeVoiceLibrary),...Object.keys(beforeSpeechUpgrade),...Object.keys(beforeSpeechSynced),...Object.keys(beforeSpeechShop),...Object.keys(beforeSpeechRelease),...Object.keys(beforeSpeechMain),...Object.keys(beforeSpeech),...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),...Object.keys(recoveryBefore),...Object.keys(upgradeBefore),...Object.keys(currentMainBefore),'studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
+const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(beforeVoiceLibrary),...Object.keys(beforeSpeechUpgrade),...Object.keys(beforeSpeechSynced),...Object.keys(beforeSpeechShop),...Object.keys(beforeSpeechRelease),...Object.keys(beforeSpeechMain),...Object.keys(beforeSpeech),...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),...Object.keys(recoveryBefore),...Object.keys(upgradeBefore),...Object.keys(currentMainBefore),...sharedBefore.flatMap(([p])=>Object.keys(p)),'studio/summary-v2-runtime-compat.mjs','studio/free-opening-runtime-compat.mjs','studio/default-summary-v2.mjs','plugins/auto-summary-v2.mjs','studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
 export function preserveOutputEditRuntime(store){
  const original=store.status.bind(store);
  store.status=s=>{
   const result=original(s);
   if(result.code!=='RUNTIME_VERSION_MISMATCH')return result;
-  for(const [previous,bases] of [[beforeVoiceLibrary,beforeVoiceLibraryBases],[beforeSpeechUpgrade,beforeSpeechUpgradeBases],[beforeSpeechSynced,beforeSpeechSyncedBases],[currentMainBefore,currentMainBases],[upgradeBefore,upgradeBases],[beforeSpeechShop,beforeSpeechShopBases],[beforeSpeechRelease,beforeSpeechReleaseBases],[beforeSpeechMain,beforeSpeechMainBases],[{...beforeSpeech,...recoveryBefore},beforeSpeechBases],[recoveryBefore,recoveryBases],[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
+  for(const [previous,bases] of [...sharedBefore,[beforeVoiceLibrary,beforeVoiceLibraryBases],[beforeSpeechUpgrade,beforeSpeechUpgradeBases],[beforeSpeechSynced,beforeSpeechSyncedBases],[currentMainBefore,currentMainBases],[upgradeBefore,upgradeBases],[beforeSpeechShop,beforeSpeechShopBases],[beforeSpeechRelease,beforeSpeechReleaseBases],[beforeSpeechMain,beforeSpeechMainBases],[{...beforeSpeech,...recoveryBefore},beforeSpeechBases],[recoveryBefore,recoveryBases],[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
    const descriptor=structuredClone(s.runtime.descriptor);
    let changed=false;
    for(const artifacts of [descriptor.artifacts,descriptor.hostArtifacts,descriptor.content?.cardArtifacts]){
@@ -115,6 +116,7 @@ export function preserveOutputEditRuntime(store){
     }
    }
    for(const key of ['artifacts','hostArtifacts'])if(descriptor[key]&&!Object.hasOwn(descriptor[key],'studio/output-edits.mjs'))descriptor[key]['studio/output-edits.mjs']=current['studio/output-edits.mjs'];
+   if(sharedBefore.some(([p])=>p===previous)&&descriptor.cardId==='earth')for(const p of ['studio/summary-v2-runtime-compat.mjs', 'studio/free-opening-runtime-compat.mjs', 'studio/default-summary-v2.mjs', 'plugins/auto-summary-v2.mjs'])if(descriptor.hostArtifacts&&[earthRuntime,modelRuntime,historyRuntime,summaryRuntime,memoryRuntime][descriptor.format-1]?.descriptor.hostArtifacts?.[p]&&!Object.hasOwn(descriptor.hostArtifacts,p))descriptor.hostArtifacts[p]=current[p];
    const index=bases.indexOf(descriptor.baseRuntimeHash);
    if(index>=0)descriptor.baseRuntimeHash=newBases[index];
    if(!changed)continue;
