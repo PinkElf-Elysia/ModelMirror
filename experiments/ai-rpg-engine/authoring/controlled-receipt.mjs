@@ -10,8 +10,11 @@ export function controlledPayload(request){
  const v2=choice.format===PARAMETER_CHOICE_FORMAT,purpose=request.kind??'story';
  if(![CONTROL_CHOICE_FORMAT,PARAMETER_CHOICE_FORMAT].includes(choice.format)||choice.source!=='control-plane-cache'||!isId(request.id)||!isId(request.operationId)||!isId(request.sessionId)||
    !Array.isArray(request.messages)||request.messagesHash!==digest(request.messages)||!['story','summary','compression','memory'].includes(request.kind??'story'))fail('CONTROL_REQUEST_INVALID');
+ const character=Object.hasOwn(request,'messageContract');
+ if(character&&(request.messageContract!=='modelmirror.rpg.character-messages/1'||purpose!=='story'))fail('CONTROL_REQUEST_INVALID');
  if(v2&&choice.parameterProfile.purpose!==(purpose==='compression'?'summary':purpose))fail('CONTROL_REQUEST_INVALID');
  return {format:v2?'modelmirror.rpg.authoring-task/2':'modelmirror.rpg.authoring-task/1',sessionId:request.sessionId,requestId:request.id,operationId:request.operationId,purpose:request.kind??'story',
+  ...(character?{messageContract:request.messageContract}:{}),
   sourceRequestHash:digest(request),catalogRevision:choice.catalogRevision,selectionId:choice.entry.selectionId,selectionRevision:choice.entry.selectionRevision,
   ...(v2?{capabilityRevision:choice.entry.capabilityRevision}:{}),parameters:structuredClone(v2?choice.parameterProfile.parameters:choice.parameters),messages:structuredClone(request.messages)};
 }

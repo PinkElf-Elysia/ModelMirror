@@ -12,9 +12,10 @@ export function libraryEntry(workId, version, snapshot) {
   const {document, assets} = snapshot;
   const cover = assets.find(asset => asset.alias === document.settings.media.cover && asset.mediaType.startsWith('image/'));
   return {
+    ...(document.kind==='character'?{kind:'character'}:{}),
     id: workId, versionId: version.id, versionNumber: version.number, publishedAt: version.createdAt,
-    name: document.metadata.name, description: descriptionText(document.sources.description),
-    tags: document.metadata.tags, language: document.metadata.language,
+    name: document.metadata.name, description: descriptionText(document.kind==='character'?document.character.card.data.description:document.sources.description),
+    tags: document.kind==='character'?document.character.card.data.tags:document.metadata.tags, language: document.metadata.language,
     cover: cover ? `/rpg-app/api/authoring/library/${workId}/${version.id}/cover` : null,
   };
 }
