@@ -1,0 +1,111 @@
+{
+  "format": "modelmirror.rpg.local-state-real-results/1",
+  "calls": 2,
+  "automaticRetries": 0,
+  "extraCertificationCalls": 0,
+  "totalReportedCostUSD": 0.28187249999999997,
+  "inputTokens": 318215,
+  "outputTokens": 11523,
+  "reasoningTokens": 3103,
+  "callsRemaining": 0,
+  "rows": [
+    {
+      "id": "R1",
+      "model": "google/gemini-3.8-flash",
+      "provider": "Google AI Studio",
+      "serviceTier": "default",
+      "generationId": "gen-1794628162-oyHnWBXrGTz2wqPbz5m4",
+      "finishReason": "stop",
+      "committed": true,
+      "scenario": {
+        "passed": true,
+        "checks": {
+          "medicine5to3": true,
+          "helpEvent": true,
+          "noEconomicReward": true
+        }
+      },
+      "usage": {
+        "inputTokens": 156916,
+        "outputTokens": 5703,
+        "totalTokens": 162619,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 1402,
+        "reportedCostMicros": 139074,
+        "currency": "USD",
+        "source": "provider-sse",
+        "issues": [],
+        "generationId": "gen-1794628162-oyHnWBXrGTz2wqPbz5m4",
+        "model": "google/gemini-3.8-flash",
+        "usageFrames": 1,
+        "streamComplete": true
+      },
+      "reportedCostUSD": 0.13907325,
+      "firstVisibleContentObservedMs": 17607.348700000002,
+      "firstNarrativeTextMs": null,
+      "completedMs": 58236.198099999994,
+      "firstContentNote": "Existing observer stops at first visible content; original card quality-check block may precede narrative. Narrative first-token time was not separately measured.",
+      "replyHash": "697d4256a2bbf7089731ad414f910c8041ae2c3daea7e0d8557c2423b5afb434",
+      "operations": [
+        {
+          "type": "quantity",
+          "id": "medicine",
+          "delta": -2,
+          "reason": "服下两份养息丹调和气息"
+        },
+        {
+          "type": "relation",
+          "id": "zhou",
+          "axis": "relation",
+          "event": "help",
+          "delta": 5,
+          "reason": "协助周禾扶正药圃倒塌的竹架并加固地基"
+        }
+      ]
+    },
+    {
+      "id": "R2",
+      "model": "google/gemini-3.8-flash",
+      "provider": "Google AI Studio",
+      "serviceTier": "default",
+      "generationId": "gen-1794628262-bPSJ9ZlVwSxCZr5Zi7dv",
+      "finishReason": "stop",
+      "committed": true,
+      "scenario": {
+        "passed": true,
+        "checks": {
+          "noChange": true
+        }
+      },
+      "usage": {
+        "inputTokens": 161299,
+        "outputTokens": 5820,
+        "totalTokens": 167119,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 1701,
+        "reportedCostMicros": 142800,
+        "currency": "USD",
+        "source": "provider-sse",
+        "issues": [],
+        "generationId": "gen-1794628262-bPSJ9ZlVwSxCZr5Zi7dv",
+        "model": "google/gemini-3.8-flash",
+        "usageFrames": 1,
+        "streamComplete": true
+      },
+      "reportedCostUSD": 0.14279925,
+      "firstVisibleContentObservedMs": 21924.4046,
+      "firstNarrativeTextMs": null,
+      "completedMs": 61947.1094,
+      "firstContentNote": "Existing observer stops at first visible content; original card quality-check block may precede narrative. Narrative first-token time was not separately measured.",
+      "replyHash": "8c5bf1be3765658dc3267aea9703375a37103e5e1f3a92bd12bf5ab345e34556",
+      "operations": []
+    }
+  ],
+  "mechanicalChecks": "passed",
+  "narrativeConsistency": "gap-found",
+  "humanAcceptance": "accepted-prototype-tolerance",
+  "finding": "R2 invents an unregistered incense item in the bag; preserved for review, not silently corrected.",
+  "acceptanceNote": "User accepted the prototype and the unregistered incense detail as tolerable prototype error; document cause and future direction only, no extra patch, model calls or deployment."
+}
