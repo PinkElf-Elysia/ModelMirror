@@ -293,6 +293,15 @@ describe("help center content catalog", () => {
     expect(topic?.points.join(" ")).not.toContain("每卡本轮一次");
   });
 
+  it("documents the verified Harry Potter cover and save compatibility without claiming new model calls", () => {
+    const article = helpArticles.find((item) => item.slug === "play-harry-potter-card");
+    expect(article?.verifiedCommit).toBe("c9db3034");
+    expect(article?.content).toContain("/help-center/c9db3034/harry-potter-cover.jpg");
+    expect(article?.content).toContain("不会增加或重置调用额度");
+    expect(article?.content).toContain("没有新增真实模型调用");
+    expect(article?.content).toContain("小蓝鱼旧会话保持创建时绑定的提示词");
+  });
+
   it("uses descriptive alt text and the latest screenshot baseline", () => {
     helpArticles.forEach((article) => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];

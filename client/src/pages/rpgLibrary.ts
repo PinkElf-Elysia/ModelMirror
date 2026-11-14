@@ -3,6 +3,7 @@ import {localAuthoringHref} from './rpgAuthoringLink';
 export type LibraryWork = {kind?:'world'|'character'; id:string; name:string; description:string; tags:string[]; art:string; artPosition?:string; mark:string; href:string; source:'builtin'|'published'; version?:number; publishedAt?:string};
 // Library-only covers do not alter saved-session runtime fingerprints.
 const libraryCovers:Record<string,string>={
+  'harry-potter':'/rpg-covers/harry-potter-user.png',
   douluo:'/rpg-covers/douluo-original.gif',
   god:'/rpg-covers/god-original.gif',
   cultivation:'/rpg-covers/cultivation-original.png',
@@ -26,7 +27,7 @@ const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:s
   cultivation:{name:'修仙大世界',description:'设定灵根与出身，拜入宗门、寻访机缘，在凡界、仙界与神界间走出自己的修行路。'},
   rpg05:{name:'无限世界',description:'穿行不同世界，以新的身份展开冒险，在一次次选择与相遇中，书写属于你的无限旅程。'},
 };
-export const builtinWorks:LibraryWork[] = worlds.map(w=>({id:w.id,name:libraryCopy[w.id].name||w.name,description:libraryCopy[w.id].description,tags:[w.genre],art:libraryCovers[w.id]||w.art,artPosition:libraryCovers[w.id]?'50% 50%':undefined,mark:w.mark,href:'/rpg/'+w.id,source:'builtin'}));
+export const builtinWorks:LibraryWork[] = worlds.map(w=>({id:w.id,name:libraryCopy[w.id].name||w.name,description:libraryCopy[w.id].description,tags:[w.genre],art:libraryCovers[w.id]||w.art,artPosition:w.id==='harry-potter'?'50% 0%':libraryCovers[w.id]?'50% 50%':undefined,mark:w.mark,href:'/rpg/'+w.id,source:'builtin'}));
 export function authoringOrigin(port:string|undefined,page:Pick<Location,'protocol'|'hostname'|'port'>) {
   return localAuthoringHref(port,page) ? `http://127.0.0.1:${port}` : undefined;
 }

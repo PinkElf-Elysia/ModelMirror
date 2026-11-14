@@ -73,5 +73,18 @@
     "sha256": "4ad6696f649610f074650aca64e78cf5c7eb850cc04df585b4949a5960163c72",
     "source": "OpenAI built-in image_gen",
     "prompt": "Use case: stylized-concept. Asset type: wide 16:9 landscape cover for multiverse adventure roleplaying story Between the Lines. A fully clothed adult traveler with a satchel seen from behind walking on a path of suspended pages through three monumental open doorways: one reveals misty ancient mountains, one a luminous futuristic city, one a distant star-filled ocean. The doorways blend organically into a boundless imagined landscape, expressive painterly anime adventure key art, cool blue and warm coral accents, wondrous exploratory mood, balanced bold silhouettes readable at thumbnail size. Main subjects in the central horizontal band. No writing on pages, no text, no logos, no watermark, no UI. Standalone cover illustration."
+  },
+  {
+    "id": "harry-potter",
+    "source": "User-provided image, 2026-11-13; copied without edits",
+    "file": "harry-potter-user.png",
+    "bytes": 206852,
+    "sha256": "f6f70b866bd76a5cae607c341b74784423cba83b1f48774353927732de302265",
+    "mime": "image/png",
+    "width": 400,
+    "height": 300,
+    "frames": 1,
+    "retrievedAt": "2026-11-13",
+    "objectPosition": "50% 0%"
   }
 ]

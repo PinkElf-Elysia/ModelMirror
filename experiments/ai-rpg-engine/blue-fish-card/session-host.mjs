@@ -12,9 +12,25 @@ import {createGodPluginStore} from './transport/offline-store.mjs';
 import {createCardHttp} from '../god-card/lib/http.mjs';
 import {safeHtml} from '../card-replica/lib/render.mjs';
 
+// Exact adapters reviewed in the shared deployment; all other descriptor fields
+// still pass the original model, transport, prompt and setup checks.
+const previousAdapters=[
+  '4bc419471a92b7ddaf0838b5d0ba1eb576c5af01a2eb532337f092e1fc95f6df', // main before the shared compatibility patch
+  'd27155b04a9759ee66794c841c5415e6d356a35b56d3497605571763ba807f8e', // deployed compatibility patch
+];
+const legacySystemHash='885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a';
+const legacyTransport={
+  'transport/memory-budget.mjs':'f01bb51fa0341c4058575d84aea34bbede45259f875913fa9b76101ae380edaa',
+  'transport/controlled-provider.mjs':'6e4ebcf19bc9f18628975bfde672294736ad3ba228d1541ac0b2f0bd9e5b913d',
+  'transport/memory-task-provider.mjs':'cfb7499925a8ef0da88f431c6c3647305f0d9869f6a6964018d401d708df679a',
+  'transport/offline-store.mjs':'85dacf644a09c89686cce67586e924162c5b91da47151041be82ff69de604048',
+};
+
 export async function createArchiveHost(directory,control,{cardId,name,system,autoSummaryV2=false,pluginFeatures={}}){
   if(cardId!=='blue-fish')throw fail('CONTROL_CARD_INCOMPATIBLE');
   const mode=control?'real':'offline',systemHash=sha(system);
+  const legacySystem=await readFile(new URL('./resources/system-pre-20261113.txt',import.meta.url),'utf8');
+  if(sha(legacySystem)!==legacySystemHash)throw fail('BLUE_FISH_PROMPT_DRIFT');
   const params={temperature:0.7,top_p:0.8,max_tokens:16384};
   const models=(control?['google/gemini-3.8-flash','google/gemini-4-argon']:['offline/'+cardId+'-a','offline/'+cardId+'-b']).map((model,i)=>({
     model,name:control?model:'离线演示 '+(i+1),available:true,parameters:params,selectionId:'offline-'+i,selectionRevision:'v1'
@@ -25,7 +41,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   if(!selected)throw fail('CARD_MODEL_UNAVAILABLE');
   const initial=modelPolicy.controlledChoice(selected),state=createCardState(modelPolicy);
   const context=createCardContext({cardId,state,assemble(session,input){
-    return {current:input,messages:[{role:'system',content:system},...session.history,{role:'user',content:input}]};
+    return {current:input,messages:[{role:'system',content:session.runtime?.descriptor?.systemHash===legacySystemHash?legacySystem:system},...session.history,{role:'user',content:input}]};
   }});
   const transportFiles=['transport/memory-budget.mjs','transport/controlled-provider.mjs','transport/memory-task-provider.mjs','transport/offline-store.mjs'];
   const transportArtifacts=async()=>Object.fromEntries(await Promise.all(transportFiles.map(async p=>[p,sha(await readFile(new URL(p,import.meta.url)))])));
@@ -38,7 +54,13 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return s.runtime.hash===sha(canonical({...descriptor,model:bound}));
+    const expected={...descriptor,model:bound};
+    if([descriptor.adapterHash,...previousAdapters].some(adapterHash=>s.runtime.hash===sha(canonical({...expected,adapterHash}))))return true;
+    const saved=s.runtime.descriptor;
+    if(mode!=='real'||saved.adapterHash!==previousAdapters[0]||saved.systemHash!==legacySystemHash||canonical(saved.transportArtifacts)!==canonical(legacyTransport))return false;
+    // Translate only the reviewed historical prompt/adapter/transport tuple for
+    // validation. Assembly above keeps the historical prompt for this save.
+    return sha(canonical({...saved,systemHash:expected.systemHash,adapterHash:expected.adapterHash,transportArtifacts:expected.transportArtifacts}))===sha(canonical(expected));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){
