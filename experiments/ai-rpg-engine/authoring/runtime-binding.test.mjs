@@ -148,7 +148,7 @@ test('异步校验前固定会话投影，调用方后续修改不能混入同�
 
 test('宿主源码漂移要求重启；新实现不接受旧绑定（只改隔离源码副本）', async t => {
   const f = await fixture(t), source = join(f.directory,'source-copy');
-  for(const path of Object.keys(f.runtime.descriptor.artifactHashes)){
+  for(const path of [...Object.keys(f.runtime.descriptor.artifactHashes), "character/legacy-compat.mjs", "character/legacy-transition.json", "character/document.mjs", "character/card.mjs"]){
     const target=join(source,path);await mkdir(dirname(target),{recursive:true});
     await copyFile(new URL('../'+path,import.meta.url),target);
   }
@@ -185,10 +185,13 @@ test('整份版本校验返回独立快照，每次重读资源并拒绝迟到�
 
 for(const before of [
  {'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27','plugins/catalog.mjs':'a6f955f96c1417efe9f3e2c334d045f0b4376b53bc7eaa04d773818c13072486'},
- {'plugins/host.mjs':'bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd'},
+ {'plugins/host.mjs':'bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd','plugins/catalog.mjs':'21c4a257aa45ba3c4ebbe2d4c5dd4a3e7b6d998635b6275388f8ada0315c7832'},
+ {"authoring/runtime-binding.mjs": "79d5f1e4fb2bfda730c9a431f0b4b8ad8e50183acab850f9bd07ea396e31dabd", "plugins/catalog.mjs": "21c4a257aa45ba3c4ebbe2d4c5dd4a3e7b6d998635b6275388f8ada0315c7832", "plugins/host.mjs": "6e5a7ec5aeb85463d25fdb33208e6b155a6ae9f685750bac9157befd1821be95"},
+ {"authoring/runtime-binding.mjs": "10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c", "plugins/catalog.mjs": "5a07cd0f345031b1b5750d881c0ce00f1a8738b58f4c763f7cb27bdeda4b0a83", "plugins/host.mjs": "77c8178caf7aeca26f65ec0f670d71e96067e813993658d3f082d3d4822d6011"},
+ {"authoring/runtime-binding.mjs": "10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c", "plugins/catalog.mjs": "3cfb77bb3d45593de0771ffd8ec8bfb0b36cab04ed8143212f1496635e9b109d", "plugins/host.mjs": "2162c9ce812739ecefb2777011a86c3a7c368666279cb9df13480031e7d0b369"},
 ])test('pre-upgrade authored binding preserves its resource identity and rejects tampering',async t=>{
  const f=await fixture(t),binding=f.runtime.bindSession({sessionId:'upgrade-save',openingText:'成年旅人的旅程'});
- const artifacts={...f.runtime.descriptor.artifactHashes,...before,'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
+ const artifacts={...f.runtime.descriptor.artifactHashes,'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c',...before};
  const runtimeHash=sha256(canonical({...f.runtime.descriptor,artifactHashes:artifacts,implementationHash:sha256(canonical(artifacts))}));
  const identity={...f.ref,sessionId:binding.sessionId,runtimeHash,openingHash:binding.openingHash};
  const saved={...binding,runtimeHash,resourceHash:sha256(canonical(identity))};

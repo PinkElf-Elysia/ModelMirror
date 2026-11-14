@@ -46,14 +46,21 @@ function bootstrap(config, installDisplayPlatform) {
     else{value.value=node.value;if(node.tagName==='INPUT')value.checked=node.checked;}
     return value;
   });
+  // DOM size is not the event payload size. Send only values changed since
+  // the last acknowledged host render, including radio siblings and options.
+  const indexControls=values=>new Map(values.map(value=>[value.key,JSON.stringify(value)]));
+  const changedControls=(values,baseline)=>values.filter(value=>baseline.get(value.key)!==JSON.stringify(value));
+  let controlBaseline=indexControls(config.execution?controls():[]),sentControls=controlBaseline;
   const flush=()=>{
     if(stopped||pending||composing||!queue.length)return;
     const event=queue.shift();
     // A timer patch can replace the clicked text node while this event waits.
     // Keep its captured bubbling path, never retarget to a new unrelated node.
     if(event.ancestors){const target=platform.eventTarget(event.target,event.ancestors);delete event.ancestors;if(!target){flush();schedule();return;}event.target=target;}
-    event.controls=controls();
-    if(event.controls.length>128){stopped=true;send('script-client-error','表单控件超过128个，本次脚本预览已停止。');return;}
+    const currentControls=controls();
+    event.controls=changedControls(currentControls,controlBaseline);
+    if(event.controls.length>128){failure('本次同时修改的表单项超过128个，输入已保留，请刷新后分批修改。');return;}
+    sentControls=indexControls(currentControls);
     clearTimeout(timer);const now=performance.now();event.elapsed=Math.min(1000,now-lastStep);lastStep=now;
     event.viewport=platform.viewport();event.layouts=platform.layouts(event.target);
     pending=true;send('author-event',{sequence:++sequence,event});
@@ -111,7 +118,7 @@ function bootstrap(config, installDisplayPlatform) {
     if(message.type==='feedback'&&Array.isArray(message.items)){pushFeedback(message.items);return;}
     if(message.type!=='patch'||!pending||message.sequence!==sequence)return;
     const patch=message.payload;if(!patch||patch.unchanged!==true&&(typeof patch.bodyHtml!=='string'||typeof patch.styleText!=='string'||!Array.isArray(patch.bodyAttributes)))return;
-    const preserved=queue.length||composing?controls():[],focus=document.activeElement,focusKey=focus?.dataset?.authorNode;
+    const preserved=changedControls(controls(),sentControls),focus=document.activeElement,focusKey=focus?.dataset?.authorNode;
     const selection=typeof focus?.selectionStart==='number'?[focus.selectionStart,focus.selectionEnd,focus.selectionDirection]:null;
     patching=true;
     try{
@@ -123,6 +130,7 @@ function bootstrap(config, installDisplayPlatform) {
       for(const {name,value} of patch.bodyAttributes)document.body.setAttribute(name,value);
       const style=document.head.querySelector('style');if(style.textContent!==patch.styleText)style.textContent=patch.styleText;
       }
+      controlBaseline=patch.unchanged?sentControls:indexControls(controls());
       for(const state of preserved){const node=document.querySelector('[data-author-node="'+state.key+'"]');if(node){if('value'in state)node.value=state.value;if('checked'in state)node.checked=state.checked;if('selected'in state)node.selected=state.selected;if('open'in state)node.open=state.open;}}
       if(focusKey){const node=document.querySelector('[data-author-node="'+focusKey+'"]');if(node){node.focus({preventScroll:true});if(selection&&node.setSelectionRange)node.setSelectionRange(...selection);}}
       platform.apply(patch.platform);scheduled=!!patch.platform?.scheduled;

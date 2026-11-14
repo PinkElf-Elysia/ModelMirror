@@ -1,3 +1,4 @@
+import {beforeSpeechShop} from './speech-compatibility.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -10,7 +11,7 @@ const baseline=JSON.parse(await readFile(new URL('./'+file,import.meta.url)));
 for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus,2],['memory',memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus,3]])test(baseline.baseline+' '+name+' plugin upgrade keeps exact binding and rejects tampered content/setup',()=>{
  const source={characterText:'成年旅人',world:'表世界',params:{},mode:'offline'};
  source.runtime=bind(source);const saved=structuredClone(source),d=saved.runtime.descriptor;
- for(const [path,digest] of Object.entries(baseline.artifacts))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
+ for(const [path,digest] of Object.entries({...(baseline.baseline==='c9db3034'?beforeSpeechShop:{}),...baseline.artifacts}))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
  d.baseRuntimeHash=baseline.baseHashes[index];saved.runtime.hash=sha(canonical(d));
  assert.notEqual(saved.runtime.hash,runtime.hash);assert.equal(saved.runtime.hash,baseline.baseHashes[index+1]);
  const store={status};assert.equal(store.status(saved).compatible,false);preserveOutputEditRuntime(store);

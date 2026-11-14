@@ -31,7 +31,7 @@ it('failed refresh preserves the last published entries and a manual refresh can
 });
 it('rejects external cover URLs, malformed identities and duplicate publications',()=>{
  for(const works of [[{...work,cover:'https://example.com/tracking.png'}],[{...work,id:'../private'}],[work,work]])expect(()=>readPublishedWorks({...catalog,works},'18484',window.location)).toThrow();
- expect(workbenchHref('18484',new URL('http://localhost:18483'),work)).toContain('http://127.0.0.1:18483/rpg/authoring?');
+ expect(workbenchHref('18484',new URL('http://localhost:18483'),work)).toContain('http://127.0.0.1:18484/play?');
  expect(workbenchHref('18484',new URL('https://example.org'),work)).toBeUndefined();
 });
 it('unavailable artwork uses the same placeholder as a work with no cover',async()=>{
@@ -77,4 +77,15 @@ it('uses the supplied Harry Potter cover in the library while retaining the card
  expect(within(card).getByRole('link')).toHaveAttribute('href','/rpg/harry-potter');
  await screen.findByRole('article',{name:'地球online'});
  expect(fetcher.mock.calls.every(call=>!call[1]?.method)).toBe(true);
+});
+
+it('keeps legacy worlds and filters character publications without losing their fixed version link',async()=>{
+ vi.stubEnv('VITE_RPG_AUTHORING_PORT','18484');
+ const character={...work,id:'work-'+'e'.repeat(64),name:'测试夹具角色',kind:'character'};
+ vi.stubGlobal('fetch',vi.fn(async(url:string)=>Response.json(url.endsWith('/library')?{...catalog,works:[work,character]}:[])));
+ render(<MemoryRouter><RpgPage/></MemoryRouter>);await screen.findByRole('article',{name:character.name});
+ fireEvent.change(screen.getByRole('combobox',{name:'作品类型'}),{target:{value:'character'}});
+ expect(screen.getAllByRole('article')).toHaveLength(1);expect(screen.getByRole('article',{name:character.name})).toHaveTextContent('单角色卡');
+ expect(within(screen.getByRole('article',{name:character.name})).getByRole('link')).toHaveAttribute('href',expect.stringContaining(character.versionId));
+ fireEvent.change(screen.getByRole('combobox',{name:'作品类型'}),{target:{value:'world'}});expect(screen.queryByRole('article',{name:character.name})).toBeNull();expect(screen.getByRole('article',{name:work.name})).toBeInTheDocument();
 });

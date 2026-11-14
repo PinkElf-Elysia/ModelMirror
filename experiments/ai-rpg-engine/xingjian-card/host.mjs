@@ -1,3 +1,4 @@
+import {beforeSpeechDescriptor} from '../studio/speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {canonical,sha,fail,loadReviewedPlugins,loadReviewedCatalog,TRANSCRIPT_ID,ILLUSTRATIONS_ID} from '../plugins/catalog.mjs';
@@ -43,7 +44,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
     if(sha(await readFile(new URL(import.meta.url)))!==descriptor.adapterHash)throw fail('RUNTIME_CHANGED');
   }};
   // Admit the reviewed adapters only when every other binding field matches.
-  const previousAdapters=['1f10675e1cad2945b803c116965892274a9af494c1929623ab38a006a425a6d4','1fcf5793f0643a6e33546f6fd02ab74ba20568ba38079eaa4816b510e04bb6ba','865c4c9bd9e106f435ee240e7b9b036283e7cb102078720106eb2623880aecf0','659be5325ff5baf6b702cd8ae9487bea8bd1a2ef819117e5d7ef65d3bf956add'];
+  const previousAdapters=[beforeSpeechDescriptor(descriptor,'xingjian-card/host.mjs').adapterHash,'1f10675e1cad2945b803c116965892274a9af494c1929623ab38a006a425a6d4','1fcf5793f0643a6e33546f6fd02ab74ba20568ba38079eaa4816b510e04bb6ba','865c4c9bd9e106f435ee240e7b9b036283e7cb102078720106eb2623880aecf0','659be5325ff5baf6b702cd8ae9487bea8bd1a2ef819117e5d7ef65d3bf956add'];
   if(cardId==='xingjian')previousAdapters.push('9c153d03adfb60e556f8ef82905962fdd0bdef6abd030dad6e2eb1528069f5f1');
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
@@ -70,7 +71,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   const {store}=integrated;
   store.autoSummaryV2=autoSummaryV2;
   const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:async()=>{
-    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools});
+    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools,speech:!!pluginFeatures.speech});
     if(pluginFeatures.transcript)entries.push(await loadReviewedCatalog(TRANSCRIPT_ID));
     if(pluginFeatures.illustrations)entries.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
     return entries.map(entry=>{

@@ -22,6 +22,7 @@ export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cul
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={
+ 'rpg.speech':{name:'沉浸语音',group:'创作',icon:'声',description:'选择音色，手动朗读一段故事。',cost:'点击生成后按语音模型计费',detail:'在已完成的回复旁点击朗读，可编辑提取文字、保存音色并查看音频历史。停用后已生成的音频仍可播放。'},
  'rpg.generation-parameters':{name:'生成参数',group:'对话',icon:'调',description:'分别调整剧情、摘要和记忆的生成参数。',cost:'保存设置不调用模型',detail:'仅影响当前会话的后续请求。更换剧情模型不会修改摘要或记忆配置。'},
  'rpg.model-comparison':{name:'多模型对比',group:'对话',icon:'比',description:'为本轮生成多份候选，采用一份继续故事。',cost:'每份候选分别计费',detail:'候选使用同一份上下文；只有采用的回复进入正式剧情。未采用的结果与调用记录保留。'},
  'rpg.model-selector':{name:'模型选择',group:'对话',icon:'M',description:'为下一条消息换一个模型。',cost:'选择不调用模型',detail:'选择保存在当前会话。停用后保留已选模型，后续发送按该模型计费。'},

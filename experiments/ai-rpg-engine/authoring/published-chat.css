@@ -1,0 +1,30 @@
+/* Reuse the exact card workspace stylesheet; these rules adapt the authoring host only. */
+body[data-player=true][data-player-view=chat]>.workspace-header,body[data-player=true][data-player-view=chat]>.workspace{display:none!important}
+#published-chat[hidden]{display:none!important}
+#published-chat{position:fixed;inset:0;z-index:10;width:100%;margin:0;box-sizing:border-box}
+#published-chat *,#published-chat *:before,#published-chat *:after{box-sizing:border-box}
+#published-chat button{font:inherit;cursor:pointer}#published-chat button:disabled{cursor:default;opacity:.55}
+#published-chat .secondary{background:var(--chat-surface);color:var(--chat-ink);border:1px solid var(--chat-line);border-radius:7px;padding:7px 12px;font-size:13px}
+#published-chat .chat-main{min-height:0}#published-chat .chat-sidebar[hidden]{display:none!important}
+#published-chat .sidebar-session-row{display:flex;flex-direction:column;width:100%;text-align:left;background:transparent;color:#cdd8ea;border:0;border-radius:7px;padding:12px;gap:5px}
+#published-chat .sidebar-session-row[aria-current=page]{background:#273751;color:white}
+#published-chat .sidebar-session-row strong{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;width:100%;white-space:nowrap}
+#published-chat .sidebar-session-row small{font-size:11px;color:#a6b4cc}
+#published-chat .chat-page-tools{display:flex;justify-content:space-between}#published-chat .chat-page-tools button[hidden]{display:none}
+#published-chat .player-message{white-space:pre-wrap}#published-chat .model-output.platform-prose{white-space:pre-wrap}
+#published-chat .model-output iframe{display:block;width:100%;border:0;background:transparent}
+#published-chat .composer{display:flex;gap:12px;padding:10px;min-height:76px}
+#published-chat .composer textarea{flex:1;min-width:0;resize:vertical;border:0;box-shadow:none;outline:none;width:auto;padding:8px}
+#published-chat .composer .send{width:42px;height:42px;border:0;flex-shrink:0;font-size:23px;padding:0}
+#published-chat .notice[hidden]{display:none}#published-chat .chat-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:65dvh;overflow:auto}
+#published-chat .reading-dialog label{display:block;margin:18px 0}#published-chat .reading-dialog input[type=checkbox]{width:auto;margin-right:8px}
+#published-chat .chat-sidebar::backdrop{background:#07101fa3}
+@media(max-width:800px){#published-chat .chat-header{flex-wrap:wrap}#published-chat .chat-heading{flex:1;min-width:0}#published-chat .chat-header-actions{overflow:auto;flex-wrap:nowrap;width:100%}#published-chat .chat-header-actions button{flex-shrink:0}#published-chat .chat-tools{overflow:visible;max-height:none}#published-chat .composer{gap:6px}}
+#published-chat{font-size:16px;font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+#published-chat .chat-header{display:flex;align-items:center;gap:16px;min-height:78px;padding:16px 24px;flex-shrink:0}
+#published-chat .chat-heading{flex:1;min-width:0}#published-chat .chat-heading strong{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#published-chat .chat-heading small{display:block;margin-top:5px;font-size:12px;color:var(--chat-muted)}
+#published-chat .chat-header-actions{display:flex;align-items:center;gap:8px}
+#published-chat .text-button{background:transparent}
+#published-chat .chat-sidebar header{display:flex;align-items:center;gap:8px;margin-bottom:22px}#published-chat .chat-sidebar header span{flex:1;font-size:14px}#published-chat .sidebar-close{padding:0;width:30px;height:30px;background:transparent;color:#bac8df;border:1px solid #40516c;font-size:20px}
+#published-chat .model-chip{max-width:260px;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;background:var(--chat-surface);border:1px solid var(--chat-line);border-radius:7px;padding:8px 12px;font-size:13px;color:var(--chat-ink)}
+@media(max-width:800px){#published-chat .chat-header{padding:12px 16px;gap:10px}#published-chat .chat-header-actions{flex-basis:100%;justify-content:flex-start}#published-chat .model-chip{max-width:165px}}

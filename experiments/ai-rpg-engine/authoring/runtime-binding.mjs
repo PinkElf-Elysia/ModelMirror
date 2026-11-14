@@ -1,3 +1,4 @@
+import {legacyArtifacts} from '../character/legacy-compat.mjs';
 import {readFile} from 'node:fs/promises';
 import {AuthoringStore} from './store.mjs';
 import {canonical, fail, keys, sha256, validateConfiguration, publicationIssues} from './contracts.mjs';
@@ -21,7 +22,7 @@ const sourcePaths = [
     .flatMap(name => ['plugins/' + name + '.mjs', 'plugins/' + name + '.manifest.json']),
 ];
 async function artifactHashes() {
-  return Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, sha256(await readFile(new URL(path, root)))])));
+  return legacyArtifacts(Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, sha256(await readFile(new URL(path, root)))]))),root);
 }
 // These are binding/proposal artifacts, not a claim that the story runtime is wired.
 const loadedArtifacts = await artifactHashes();
@@ -49,6 +50,7 @@ export async function openPublishedRuntime(store, reference) {
   if (!(store instanceof AuthoringStore)) fail('AUTHORING_RUNTIME_STORE_REQUIRED');
   const ref = runtimeReference(reference);
   const config = freeze(validateConfiguration(await store.exportConfiguration(ref.workId, ref.versionId)));
+  if (config.document.kind === 'character') fail('CHARACTER_RUNTIME_REQUIRED');
   const issues = publicationIssues(config.document, config.assets);
   if (issues.length) fail('AUTHORING_PUBLICATION_INVALID', '', {issues});
   const descriptor = freeze({
@@ -61,9 +63,12 @@ export async function openPublishedRuntime(store, reference) {
   // Rebuild against this work's immutable publication; retain its resource identity.
   const previousHashes = [
     {'plugins/host.mjs':'f5ecc40c20c4482a564b72d1836dfac3bb1f4e2555169e92862132f9b92cad27','plugins/catalog.mjs':'a6f955f96c1417efe9f3e2c334d045f0b4376b53bc7eaa04d773818c13072486'},
-    {'plugins/host.mjs':'bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd'},
+    {'plugins/host.mjs':'bd43d839c5023c8f06fe068fc434452897ed798558bb1333798cf331c6e5dabd','plugins/catalog.mjs':'21c4a257aa45ba3c4ebbe2d4c5dd4a3e7b6d998635b6275388f8ada0315c7832'},
+    {"authoring/runtime-binding.mjs": "79d5f1e4fb2bfda730c9a431f0b4b8ad8e50183acab850f9bd07ea396e31dabd", "plugins/catalog.mjs": "21c4a257aa45ba3c4ebbe2d4c5dd4a3e7b6d998635b6275388f8ada0315c7832", "plugins/host.mjs": "6e5a7ec5aeb85463d25fdb33208e6b155a6ae9f685750bac9157befd1821be95"},
+    {"authoring/runtime-binding.mjs": "10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c", "plugins/catalog.mjs": "5a07cd0f345031b1b5750d881c0ce00f1a8738b58f4c763f7cb27bdeda4b0a83", "plugins/host.mjs": "77c8178caf7aeca26f65ec0f670d71e96067e813993658d3f082d3d4822d6011"},
+    {"authoring/runtime-binding.mjs": "10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c", "plugins/catalog.mjs": "3cfb77bb3d45593de0771ffd8ec8bfb0b36cab04ed8143212f1496635e9b109d", "plugins/host.mjs": "2162c9ce812739ecefb2777011a86c3a7c368666279cb9df13480031e7d0b369"},
   ].map(before=>{
-    const artifacts={...loadedArtifacts,...before,'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c'};
+    const artifacts={...loadedArtifacts,'authoring/runtime-binding.mjs':'10301c3fe357df77823ff08c86604d4907c554cbb620d482090ceaed24fb872c',...before};
     return digest({...descriptor,artifactHashes:artifacts,implementationHash:digest(artifacts)});
   });
   async function verify() {

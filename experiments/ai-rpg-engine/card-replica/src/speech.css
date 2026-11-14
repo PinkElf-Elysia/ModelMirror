@@ -1,0 +1,176 @@
+.rpg-chat-workspace .chat-dialog.speech-dialog {
+ --speech-ink:#253348; --speech-muted:#58687c; --speech-line:#e2e7ef;
+ --speech-blue:#386bc7; --speech-wash:#f6f8fb; --speech-selected:#edf3ff;
+ width:min(1000px,calc(100vw - 48px)); max-width:calc(100vw - 28px);
+ max-height:92dvh; padding:0; overflow:hidden; background:#fff; color:var(--speech-ink);
+ border:1px solid var(--speech-line); border-radius:18px; box-shadow:0 24px 80px #0b192d30;
+ font:14px/1.5 system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+}
+.rpg-chat-workspace .chat-dialog.speech-dialog[open] { display:flex; flex-direction:column; }
+.rpg-chat-workspace .chat-dialog.speech-dialog > header { flex:none; position:static; margin:0; padding:26px 32px 16px; border:0; background:#fff; }
+.rpg-chat-workspace .chat-dialog.speech-dialog > header h2 { margin:0; font-size:23px; font-weight:650; letter-spacing:0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog > header .icon { width:36px; min-height:36px; height:36px; background:var(--speech-wash); border:0; border-radius:50%; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog button,.rpg-chat-workspace .chat-dialog.speech-dialog a { transition:background-color 160ms ease,border-color 160ms ease,color 160ms ease; }
+.rpg-chat-workspace .chat-dialog.speech-dialog button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 16px; border:1px solid #cdd6e3; border-radius:9px; background:#fff; color:var(--speech-ink); font:inherit; cursor:pointer; }
+.rpg-chat-workspace .chat-dialog.speech-dialog button:hover:not(:disabled) { background:var(--speech-wash); border-color:#a9bad4; }
+.rpg-chat-workspace .chat-dialog.speech-dialog button:active:not(:disabled) { background:#e7edf6; }
+.rpg-chat-workspace .chat-dialog.speech-dialog button:disabled { opacity:.5; cursor:not-allowed; }
+.rpg-chat-workspace .chat-dialog.speech-dialog :is(button,a,summary,input,textarea,select):focus-visible { outline:2px solid var(--speech-blue); outline-offset:3px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-icon { width:18px; height:18px; flex:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs { flex:none; display:flex; gap:28px; padding:0 32px; border-bottom:1px solid var(--speech-line); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs button { position:relative; padding:12px 0 14px; border:0; border-radius:0; background:transparent; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs button:hover { background:transparent; color:var(--speech-blue); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs button[aria-selected=true] { color:var(--speech-blue); font-weight:600; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs button[aria-selected=true]::after { content:""; position:absolute; bottom:0; left:0; right:0; height:2px; background:var(--speech-blue); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-count { min-width:20px; padding:0 5px; line-height:20px; border-radius:6px; background:#e8edf5; color:#465c7a; font-size:12px; font-variant-numeric:tabular-nums; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-body { min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:24px 32px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-muted { font-size:13px; color:var(--speech-muted); line-height:1.65; }
+.rpg-chat-workspace .chat-dialog.speech-dialog :is(select,input:not([type=range]),textarea) { box-sizing:border-box; margin:0; border:1px solid #cdd6e3; border-radius:8px; color:var(--speech-ink); background:var(--speech-wash); font:inherit; padding:10px 12px; min-width:0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog select { height:42px; cursor:pointer; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-model-row { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:24px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-model { display:flex; gap:16px; align-items:center; min-width:0; flex:1; font-weight:600; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-model select { flex:1; max-width:440px; width:100%; font-weight:400; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-model-row > span { flex:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-field { min-width:0; border:0; padding:0; margin:0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-field legend { font-weight:600; margin-bottom:12px; padding:0; color:var(--speech-ink); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-field legend > span { padding-left:10px; font-size:12px; font-weight:400; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices button { position:relative; justify-content:flex-start; min-height:72px; gap:10px; padding:12px; border-color:var(--speech-line); border-radius:10px; text-align:left; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices button.selected { border-color:var(--speech-blue); background:var(--speech-selected); color:#234f94; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-mark { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:50%; background:#e9eef8; color:#526a91; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-mark.tone-1 { background:#edf2ed; color:#4f7058; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-mark.tone-2 { background:#f1edf6; color:#76618a; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-mark.tone-3 { background:#f5eeea; color:#866b5a; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-label { overflow:hidden; min-width:0; white-space:nowrap; text-overflow:ellipsis; line-height:1.4; font-size:13px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-check { position:absolute; right:5px; bottom:4px; height:14px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-check svg { height:13px; width:13px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-pagination { display:flex; justify-content:center; align-items:center; gap:16px; margin-top:16px; font-variant-numeric:tabular-nums; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-pagination button { width:34px; min-height:34px; padding:6px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-prev { display:flex; transform:rotate(180deg); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-loading { padding:22px 16px; background:var(--speech-wash); color:var(--speech-muted); border-radius:10px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-options { margin:20px 0; padding:0; border-top:1px solid var(--speech-line); border-bottom:1px solid var(--speech-line); }
+.rpg-chat-workspace .chat-dialog.speech-dialog summary { cursor:pointer; list-style:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog summary::-webkit-details-marker { display:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-options > summary { display:flex; justify-content:space-between; align-items:center; padding:15px 0; font-weight:600; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-option-summary { margin-left:16px; font-size:13px; font-weight:400; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog details > summary > .speech-icon { width:15px; height:15px; transform:rotate(90deg); }
+.rpg-chat-workspace .chat-dialog.speech-dialog details[open] > summary > .speech-icon { transform:rotate(-90deg); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-option-grid { display:grid; grid-template-columns:1fr 1fr; gap:32px; padding:4px 0 20px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-option-grid label { display:flex; flex-direction:column; gap:10px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-label-line { display:flex; align-items:center; justify-content:space-between; }
+.rpg-chat-workspace .chat-dialog.speech-dialog output { font-variant-numeric:tabular-nums; color:var(--speech-blue); }
+.rpg-chat-workspace .chat-dialog.speech-dialog input[type=range] { width:100%; height:22px; margin:0; accent-color:var(--speech-blue); cursor:pointer; background:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog input[type=range]::-webkit-slider-runnable-track { background:#dce5f2; height:4px; border-radius:3px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog input[type=range]::-webkit-slider-thumb { margin-top:-6px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog small { color:var(--speech-muted); font-size:12px; line-height:1.6; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px 12px; align-items:end; padding:0 0 20px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding label { display:grid; gap:8px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding small { grid-column:1/-1; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-success { display:flex; align-items:center; gap:8px; color:#326448; margin:0 0 16px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor-heading { display:flex; align-items:center; justify-content:space-between; margin:0 0 8px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor-heading label { font-weight:600; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-quiet { padding:4px 8px; min-height:32px; border:0; background:transparent; color:var(--speech-muted); font-size:13px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor { border:1px solid var(--speech-line); border-radius:10px; overflow:hidden; background:var(--speech-wash); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor:focus-within { border-color:var(--speech-blue); box-shadow:0 0 0 2px #386bc71a; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor textarea { display:block; width:100%; min-height:160px; max-height:360px; height:180px; padding:16px 18px; border:0; border-radius:0; outline:none; box-shadow:none; resize:vertical; font-size:15px; line-height:1.85; }
+.rpg-chat-workspace .chat-dialog.speech-dialog textarea::placeholder,.rpg-chat-workspace .chat-dialog.speech-dialog input::placeholder { color:#637287; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-text-meta { display:flex; justify-content:space-between; gap:12px; padding:10px 18px; border-top:1px solid var(--speech-line); color:var(--speech-muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-over-limit { color:#ab3328; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor-invalid { border-color:#ab3328; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-notice { background:#fff4e4; color:#6b4719; border-left:3px solid #b37b29; border-radius:6px; padding:12px 16px; font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-notice button { margin:8px 0 0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer { flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 32px; border-top:1px solid var(--speech-line); background:#fff; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer > div { display:flex; gap:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer button { min-width:96px; height:44px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer .chat-primary { min-width:144px; border-color:var(--speech-blue); background:var(--speech-blue); color:white; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer .chat-primary:hover:not(:disabled) { background:#2959b1; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer-note { color:var(--speech-muted); font-size:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; color:var(--speech-muted); font-size:13px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history-layout { display:grid; grid-template-columns:270px minmax(0,1fr); min-height:360px; gap:28px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history { max-height:440px; overflow-y:auto; padding-right:16px; border-right:1px solid var(--speech-line); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history > button { display:block; width:100%; min-width:0; text-align:left; padding:14px; margin-bottom:8px; border:1px solid transparent; background:var(--speech-wash); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history > button.selected { background:var(--speech-selected); border-color:#bdd0ef; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history strong { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:10px 0; font-size:14px; font-weight:500; line-height:1.7; overflow-wrap:anywhere; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-record-meta { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:11px; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-state { flex:none; color:#725115; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-state.complete { color:#34694c; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-state.failed { color:#ab3328; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player { min-width:0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading { display:flex; align-items:center; gap:12px; margin:4px 0 20px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-symbol { display:grid; place-items:center; background:var(--speech-selected); color:var(--speech-blue); width:42px; height:42px; border-radius:10px; flex:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading > div { min-width:0; flex:1; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading h3 { margin:0 0 3px; font-size:16px; font-weight:600; color:var(--speech-ink); letter-spacing:0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading p { margin:0; color:var(--speech-muted); font-size:12px; overflow-wrap:anywhere; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-download { display:inline-flex; align-items:center; gap:6px; padding:8px 0 8px 8px; color:var(--speech-blue); font-size:13px; flex:none; text-decoration:none; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-download:hover { text-decoration:underline; }
+.rpg-chat-workspace .chat-dialog.speech-dialog audio { display:block; width:100%; margin:0 0 28px; height:44px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-source-heading { display:flex; align-items:center; gap:8px; color:var(--speech-muted); font-size:13px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-source { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow-y:auto; margin:12px 0 24px; font-size:15px; line-height:1.9; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-receipt { border-top:1px solid var(--speech-line); padding:12px 0 0; font-size:12px; color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-receipt summary { display:flex; align-items:center; justify-content:space-between; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-receipt dl { display:grid; grid-template-columns:64px minmax(0,1fr); gap:10px; margin:16px 0 0; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-receipt dd { margin:0; overflow-wrap:anywhere; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:280px; text-align:center; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-empty > svg { width:32px; height:32px; color:#6b819e; margin-bottom:20px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-empty strong { font-size:16px; font-weight:600; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-empty p { max-width:34ch; color:var(--speech-muted); line-height:1.8; }
+@media(max-width:800px) {
+ .rpg-chat-workspace .chat-dialog.speech-dialog { width:calc(100vw - 24px); padding:0!important; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog > header { padding:20px 24px 12px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs { padding:0 24px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-body { padding:20px 24px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer { padding:16px 24px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-model-row > span { display:none; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-history-layout { grid-template-columns:220px minmax(0,1fr); gap:20px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading { flex-wrap:wrap; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-download { margin-left:auto; }
+}
+@media(max-width:560px) {
+ .rpg-chat-workspace .chat-dialog.speech-dialog { max-height:94dvh; width:calc(100vw - 20px); max-width:calc(100vw - 20px); border-radius:14px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog > header { padding:20px 20px 12px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog > header h2 { font-size:21px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog > header .icon { width:44px; min-height:44px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-tabs { padding:0 20px; gap:24px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-body { padding:20px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-model { display:grid; gap:8px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-model select { max-width:none; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-model-row { margin-bottom:20px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-voices button { gap:8px; padding:10px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-mark { width:30px; height:30px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-voice-label { font-size:14px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-option-grid { grid-template-columns:1fr; gap:20px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding { grid-template-columns:minmax(0,1fr); }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding small { grid-column:auto; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-binding button { justify-self:start; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-editor textarea { height:180px; font-size:16px; padding:14px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-text-meta { padding:10px 14px; flex-wrap:wrap; gap:6px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-text-meta span:last-child { margin-left:auto; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer { display:block; padding:12px 20px 16px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer-note { display:block; margin-bottom:10px; font-size:12px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer > div { justify-content:flex-end; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-footer .chat-primary { flex:1; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog button,.rpg-chat-workspace .chat-dialog.speech-dialog .speech-pagination button { min-height:44px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-pagination button { min-width:44px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-history-layout { display:flex; flex-direction:column; gap:24px; min-height:0; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-history { max-height:192px; padding:0 0 12px; border-right:0; border-bottom:1px solid var(--speech-line); }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-player-heading { margin-top:0; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-download { padding:8px 0; min-height:28px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-source { font-size:16px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-muted,.rpg-chat-workspace .chat-dialog.speech-dialog small,.rpg-chat-workspace .chat-dialog.speech-dialog .speech-history-head { font-size:14px; }
+ .rpg-chat-workspace .chat-dialog.speech-dialog .speech-record-meta { font-size:12px; }
+}
+@media(prefers-reduced-motion:reduce) { .rpg-chat-workspace .chat-dialog.speech-dialog button,.rpg-chat-workspace .chat-dialog.speech-dialog a { transition:none; } }
+
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common { margin-bottom:24px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:12px; margin-bottom:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-heading > span { color:var(--speech-muted); font-size:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list { display:flex; flex-wrap:wrap; gap:10px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list button { min-height:76px; max-width:100%; text-align:left; gap:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list button:disabled { opacity:1; background:var(--speech-wash); color:var(--speech-muted); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list button[aria-pressed=true] { border-color:var(--speech-blue); background:var(--speech-selected); }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list strong { display:block; font-size:14px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-list small { display:block; color:var(--speech-muted); margin-top:4px; font-size:12px; }
+.rpg-chat-workspace .chat-dialog.speech-dialog .speech-common-badge { padding:2px 6px; border-radius:4px; color:#65527c; background:#f1edf6; font-size:11px; }

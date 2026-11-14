@@ -1,3 +1,4 @@
+import {legacyArtifacts} from '../character/legacy-compat.mjs';
 import {futureIntent,futureIds,futureReceipt,priorFuture} from './comparison-future.mjs';
 import {modelChoiceInput} from './model-control.mjs';
 import {comparisonReceipt} from './controlled-receipt.mjs';
@@ -38,7 +39,7 @@ const timestamp=()=>new Date().toISOString(),sample=()=>randomBytes(6).readUIntB
 const paths=['comparison-future.mjs','../plugins/owner-lock.mjs','comparison-contract.mjs','comparison-control.mjs','comparison-host.mjs','comparison-ledger.mjs','comparison-coordinator.mjs','../plugins/model-comparison.mjs','../plugins/model-comparison.manifest.json','chat-parameters.mjs','generation-settings.mjs','../plugins/catalog.mjs','../plugins/generation-parameters.mjs','../plugins/generation-parameters.manifest.json','../package-lock.json','variable-panel.mjs','variable-template-syntax.mjs','requirements.mjs','controlled-provider.mjs','controlled-receipt.mjs','model-plugin.mjs','branch-origin.mjs','branch-checkpoint.mjs','branch-storage.mjs','branch-session.mjs','joint-fixture.mjs','joint-session.mjs','joint-session-state.mjs','joint-summary.mjs','joint-plan.mjs','joint-budget.mjs','memory-state.mjs','memory-jobs.mjs','memory-context.mjs',
  'summary-state.mjs','summary-context.mjs','summary-jobs.mjs','history-control.mjs','model-control.mjs','session-storage.mjs','runtime-binding.mjs','runtime-plugins.mjs',
  'contracts.mjs','offline-session.mjs','worldbook.mjs','worldbook-regex.mjs','input-assistance.mjs','dialogue.mjs','../plugins/host.mjs','../plugins/memory-palace.mjs','../plugins/history-window.mjs','../plugins/rolling-summary.mjs'];
-const artifacts=async()=>Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha256(await readFile(new URL(p,import.meta.url)))])));
+const artifacts=async()=>legacyArtifacts(Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha256(await readFile(new URL(p,import.meta.url)))]))),import.meta.url);
 const loaded=await artifacts(),executionHash=digest(loaded);
 const validateRecord = data => validateJointSession(data, executionHash);
 const count=Object.getOwnPropertyDescriptor(OfflineFixtureProvider.prototype,'dispatchCount').get;

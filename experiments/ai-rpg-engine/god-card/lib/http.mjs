@@ -52,7 +52,7 @@ export function createCardHttp({store,integrated,features,branches,realControl,c
   const p=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/plugins\/([a-z0-9.-]+)(?:\/(enable|disable))?$/);
   if(p){
    await store.read(p[1]);
-   if(!REVIEWED_PLUGIN_IDS.includes(p[2]))return send(404,{error:'PLUGIN_UNKNOWN'});
+   if(!REVIEWED_PLUGIN_IDS.includes(p[2])&&!['rpg.speech','rpg.voice-library'].includes(p[2]))return send(404,{error:'PLUGIN_UNKNOWN'});
    if(!plugins)throw fail('PLUGIN_HOST_UNAVAILABLE',503);
    if(method==='GET'&&!p[3])return send(200,await plugins.sessionStatus(p[1],p[2]));
    if(method==='POST'&&p[3]){

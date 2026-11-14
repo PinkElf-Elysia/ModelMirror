@@ -1,3 +1,4 @@
+import {legacyArtifacts} from '../character/legacy-compat.mjs';
 // B6-I adapter of offline-session.mjs. The original host stays byte-identical
 // because retained acceptance services verify it live. Shared pure kernels and
 // storage remain imported; consolidation requires a later explicit rollout.
@@ -35,7 +36,7 @@ const sessionId = operationId => 'session-' + sha256('summary-session:' + operat
 const requestId = (id, operationId) => 'request-' + digest({sessionId:id,operationId});
 const sample = () => randomBytes(6).readUIntBE(0,6) / 281474976710656;
 const artifactPaths = ['model-plugin.mjs','controlled-receipt.mjs','summary-session.mjs','fixture-scenario.mjs','summary-jobs.mjs','summary-state.mjs','summary-context.mjs','../plugins/rolling-summary.mjs','../plugins/history-window.mjs','../plugins/host.mjs','contracts.mjs','runtime-binding.mjs','runtime-plugins.mjs','offline-session.mjs','history-control.mjs','model-control.mjs','session-storage.mjs','worldbook.mjs','worldbook-regex.mjs','input-assistance.mjs','dialogue.mjs'];
-const artifacts = async () => Object.fromEntries(await Promise.all(artifactPaths.map(async path => [path,sha256(await readFile(new URL(path,import.meta.url)))])));
+const artifacts = async () => legacyArtifacts(Object.fromEntries(await Promise.all(artifactPaths.map(async path => [path,sha256(await readFile(new URL(path,import.meta.url)))]))),import.meta.url);
 const loadedArtifacts = await artifacts(), executionHash = digest(loadedArtifacts);
 function snapshot(value, fields) { canonical(value); keys(value,fields); return structuredClone(value); }
 function checkOperation(id) { if (!isId(id)) fail('OFFLINE_OPERATION_INVALID'); }

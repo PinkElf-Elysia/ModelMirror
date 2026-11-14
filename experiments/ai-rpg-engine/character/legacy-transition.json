@@ -1,0 +1,34 @@
+{
+  "baseline": "a6563a9b8e761e3190d0ac09cfd373886802516b",
+  "changes": {
+    "authoring/contracts.mjs": {
+      "before": "2279fa3aa07d8f92dc7ddd8b7655fe01852539353008acaf284fccb3225f1274",
+      "after": "06a8496ca8eb1875c5f217e85cfc6b465771419d12cdf6cfa45aeb14952b7340"
+    },
+    "authoring/runtime-binding.mjs": {
+      "before": "b0260ce187b06916bc4457a31a57594d3c12ea043daa4c2262512b43f5c7ccf6",
+      "after": "2354c9b401fd3a8d5db657bbe147d5952a16791266471ceccec00739a3348821"
+    },
+    "authoring/summary-session.mjs": {
+      "before": "480b696fe2c6c09b275785e5faa432bc87a8f75dd9ca2ba5fcea21241bcfbbdc",
+      "after": "c0f0045205c2b24951ab59256720f19b207c2ce773dfb7c34ed4e4a8b9cfbf8e"
+    },
+    "authoring/joint-session.mjs": {
+      "before": "c1691ae8fe4d7b76e0d287b7a259c816802077ff92dfe4b5fda2fc475d8e2dce",
+      "after": "eb759aa9436c87180b2574c01aecfeaab2d352c3b9859144b2ea681904acee05"
+    },
+    "authoring/store.mjs": {
+      "before": "164b5ad057bda10ba36ab52bd67cbfa008a4bde50a8ff3777faac21aa80f4e0f",
+      "after": "be96ce994625c711816e292d0e6f7cd0d8c838c282b0889978e324664149235d"
+    },
+    "authoring/controlled-receipt.mjs": {
+      "before": "d1f7ff3962aea55ae89f8fe497449f78a77fd57b0cea9e640efac889c1bc5556",
+      "after": "3c46f73d3200ad6b7f2ffc5850e81bc28847b37908b5a30027d340a9bd31ebd2"
+    }
+  },
+  "additions": {
+    "character/legacy-compat.mjs": "3c48002edccf836c861e7cfd3c8e6f4e88692c33b9a4c90d83c1c2c93b55c19d",
+    "character/document.mjs": "0b5e09527704de8f6e58282de838e2d5b8d49b7328456fd287787589a7f00989",
+    "character/card.mjs": "6961d83f7815bfe69f4efdc9835c62a5a6a225c827309f2dcd122daa3468412e"
+  }
+}

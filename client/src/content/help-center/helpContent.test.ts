@@ -41,6 +41,8 @@ describe("help center content catalog", () => {
 
   it("keeps the formal article slugs unique and metadata complete", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
+      "use-rpg-voice-library",
+      "create-single-character-card",
       "review-vision-image-decisions",
       "review-assembly-jev",
       "prepare-scaledown-argon-speech",
@@ -54,6 +56,7 @@ describe("help center content catalog", () => {
       "publish-rpg-work",
       "create-rpg-cg-gallery",
       "create-rpg-variable-panel",
+      "listen-rpg-story",
       "edit-rpg-reply",
       "manage-rpg-history",
       "branch-rpg-story",
@@ -91,7 +94,8 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("a6563a9b");
     const historyGuide = helpArticles.find((article) => article.slug === "manage-rpg-history");
     expect(historyGuide?.verifiedCommit).toBe("479cd636");
     expect(historyGuide?.content).toContain("保留版本并重新生成");
@@ -228,6 +232,19 @@ describe("help center content catalog", () => {
     expect(article?.content).toContain("不会在重启后自动重发");
     expect(article?.content).toContain("手工评测集不要求生成校准");
     expect(searchHelpContent("视觉评测").some((item) => item.id === article?.slug)).toBe(true);
+  });
+
+  it("makes the manual RPG speech guide discoverable with bounded steps and current screenshots", () => {
+    const article = helpArticles.find(item => item.slug === "listen-rpg-story")!;
+    expect(article.verifiedCommit).toBe("fefc14b0");
+    expect(searchHelpContent("沉浸语音").some(item => item.id === article.slug)).toBe(true);
+    expect(article.content.match(/^\d+\. /gm)).toHaveLength(7);
+    for (const heading of ["完成结果", "适用对象", "开始前", "真实范例", "操作步骤", "常见问题", "限制", "下一步"]) expect(article.content).toContain(`## ${heading}`);
+    expect(article.content).toContain("不会自动重发");
+    expect(article.content).toContain("可能产生费用");
+    const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
+    expect(images).toHaveLength(3);
+    for (const image of images) { expect(image[1].trim()).not.toBe(""); expect(image[2]).toMatch(/^\/help-center\/fefc14b0\/speech-[a-z]+\.png$/); }
   });
 
   it("keeps operational articles within the required structure and step count", () => {
