@@ -72,7 +72,7 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
   for(const [cardId,h] of hosts){h.transport=await createParameterTransport({store:h.store,control,plugins,provider:h.io.provider,budget:h.io.budget});h.store.connectMemory(plugins,h.transport);if(comparison){h.comparisonAdapter=createCardComparisonAdapter({store:h.store,profile:h.profile,plugins,transport:h.transport,control});h.comparison=await openComparisonHost({directory:join(directory,cardId,'comparison'),host:h.comparisonAdapter,budget:h.io.budget,origin,serviceToken,recoverDeadOwner,presets,preview:(_s,_b,t)=>comparisonFrame(cardId,t.result.raw)});}h.http=createCardHttp({store:h.store,integrated:h,features:true,branches:true,realControl:true,cardId,name:GENERATION_CARDS[cardId],render:raw=>['earth','god'].includes(cardId)?cardDisplay(raw,cardId):safeHtml(raw)});}
  }catch(e){for(const h of hosts.values())await h.comparison?.close();await presets.close();await plugins?.close();for(const r of resources)await r.close();throw e;}
  const handleRequest=async({pathname,method,data,query,send})=>{
-  const rootPlugin=pathname.match(/^\/rpg-app\/api\/plugins(?:\/(rpg\.[a-z-]+)\/(install|uninstall))?$/),m=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\/(?:chat\/)?(api\/.*)$/);
+  const rootPlugin=pathname.match(/^\/rpg-app\/api\/plugins(?:\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade))?$/),m=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\/(?:chat\/)?(api\/.*)$/);
   if(rootPlugin){if(method==='GET'&&!rootPlugin[1])await send(200,await plugins.catalog());else if(method==='POST'&&data?.pluginId===rootPlugin[1])await send(200,await plugins.change(rootPlugin[2],data));else throw fail('PLUGIN_OPERATION_INVALID');return true;}
   if(!m)return false;const [,cardId,route]=m,h=hosts.get(cardId),{store}=h;if(!/^api\/(status|sessions|plugins)(?:[/?]|$)/.test(route))return false;
   const enriched=async(status,value)=>{if(value?.id&&value?.turns){const p=await store.parameterStatus(value.id);value={...value,requirements:await store.requirementsStatus(value.id),generationParameters:{revision:p.revision,expected:p.expected,enabled:p.authorization.enabled}};}
@@ -80,7 +80,7 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
    return send(status,value);
   };
   if(route==='api/plugins'&&method==='GET'){await send(200,await plugins.catalog());return true;}
-  const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall)$/);if(install&&method==='POST'){if(data?.pluginId!==install[1])throw fail('PLUGIN_OPERATION_INVALID');await send(200,await plugins.change(install[2],data));return true;}
+  const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade)$/);if(install&&method==='POST'){if(data?.pluginId!==install[1])throw fail('PLUGIN_OPERATION_INVALID');await send(200,await plugins.change(install[2],data));return true;}
   const cmp=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/comparisons(?:\/(.*))?$/);
   if(cmp){if(!h.comparison)throw fail('COMPARISON_DISABLED',404);await send(200,await h.comparison.handle(method,cmp[1]+(cmp[2]?'/'+cmp[2]:''),data));return true;}
   const req=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/requirements(?:\/operations)?$/);

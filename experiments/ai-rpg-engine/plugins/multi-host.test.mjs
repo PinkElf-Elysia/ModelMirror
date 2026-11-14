@@ -82,6 +82,7 @@ test('global revision serializes mutations and operation IDs cannot cross plugin
 });
 test('legacy read preserves bytes/grants/receipts; first write keeps exact v1 backup',async t=>{
  const f=await fixture(t);await f.ready(B);await f.host.close();const current=JSON.parse(await readFile(join(f.directory,'registry.json'),'utf8'));
+ delete current.plugins[B].versions; // Format 1 predates version history.
  const legacy={format:1,revision:current.revision,...current.plugins[B],operations:current.operations},bytes=JSON.stringify(legacy,null,1)+'\n';
  await writeFile(join(f.directory,'registry.json'),bytes);await f.reopen();assert.equal((await f.host.sessionStatus('one',B)).enabled,true);
  assert.equal(await readFile(join(f.directory,'registry.json'),'utf8'),bytes);assert.equal((await f.host.sessionStatus('one',M)).enabled,false);
@@ -92,6 +93,7 @@ test('legacy read preserves bytes/grants/receipts; first write keeps exact v1 ba
 });
 test('legacy backup conflict fails closed without changing bytes or other grants',async t=>{
  const f=await fixture(t);await f.ready(B);await f.host.close();const c=JSON.parse(await readFile(join(f.directory,'registry.json'),'utf8'));
+ delete c.plugins[B].versions; // Format 1 predates version history.
  const bytes=JSON.stringify({format:1,revision:c.revision,...c.plugins[B],operations:c.operations});await writeFile(join(f.directory,'registry.json'),bytes);await writeFile(join(f.directory,'registry.v1.json'),'different snapshot');await f.reopen();
  await assert.rejects(f.change('install',M),/PLUGIN_PERSIST_FAILED/);assert.equal(await readFile(join(f.directory,'registry.json'),'utf8'),bytes);assert.equal((await f.host.sessionStatus('one',B)).enabled,true);assert.equal((await f.host.sessionStatus('one',M)).installed,false);
 });

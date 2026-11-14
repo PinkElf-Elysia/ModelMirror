@@ -40,7 +40,7 @@ export function installBlueFish(server,{directory,control=null,origins=[],ownDir
    if(transfer&&transcript)return transcriptHttp({req,res,send,match:['blue-fish/chat',...transfer.slice(1)],store:host.store,plugins:host.plugins});
    let data={};if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    if(route==='api/plugins'&&req.method==='GET')return send(200,await host.plugins.catalog());
-   const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall)$/);
+   const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade)$/);
    if(install&&req.method==='POST'&&data?.pluginId===install[1]&&REVIEWED_PLUGIN_IDS.includes(install[1]))return send(200,await host.plugins.change(install[2],data));
    if(await archivePluginHttp({route,req,res,data,send,cardId:'blue-fish',host,control,features}))return;
    await host.handle({route,method:req.method,data,plugins:host.plugins,send,query:url.searchParams});
