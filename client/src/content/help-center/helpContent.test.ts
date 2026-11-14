@@ -43,6 +43,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
       "use-rpg-voice-library",
       "create-single-character-card",
+      "use-character-group-chat",
       "review-vision-image-decisions",
       "review-assembly-jev",
       "prepare-scaledown-argon-speech",
@@ -95,8 +96,8 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
-    expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("a6563a9b");
+    expect(helpArticles.filter((article) => !["use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("92849f31");
     const historyGuide = helpArticles.find((article) => article.slug === "manage-rpg-history");
     expect(historyGuide?.verifiedCommit).toBe("479cd636");
     expect(historyGuide?.content).toContain("保留版本并重新生成");
@@ -440,4 +441,25 @@ it("makes the RPG voice input guide searchable with verified offline boundaries"
  for(const text of ['不会自动重发','可能产生费用','尚未验证','60 秒','草稿','额度'])expect(article.content).toContain(text);
  const images=[...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];expect(images).toHaveLength(3);
  for(const image of images){expect(image[1].trim()).not.toBe('');expect(image[2]).toMatch(/^\/help-center\/a6563a9b\/stt-[a-z]+\.jpg$/);}
+});
+
+it("registers the isolated character group tutorial with exact versions, draft limits and neutral screenshots", () => {
+  const guide = helpArticles.find(article => article.slug === "use-character-group-chat")!;
+  expect(guide.verifiedCommit).toBe("92849f31");
+  expect(guide.verifiedDate).toBe("2026-11-14");
+  expect(guide.content.match(/^\d+\. /gm)).toHaveLength(7);
+  for (const text of ["用此版本创建群聊", "不会增加", "结果未知", "当前浏览器标签页", "不调用真实模型", "旧群聊", "真实手机"]) expect(guide.content).toContain(text);
+  const images = [...guide.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
+  expect(images).toHaveLength(3);
+  for (const image of images) expect(image[2]).toMatch(/^\/help-center\/92849f31\/character-group-[a-z]+\.png$/);
+  expect(searchHelpContent("角色群聊").some(item => item.id === guide.slug)).toBe(true);
+  const single = helpArticles.find(article => article.slug === "create-single-character-card")!;
+  expect(single.content).toContain("创建版本");
+  expect(single.content).toContain("未保存");
+  expect(single.nextSlug).toBe(guide.slug);
+  for (const article of [single, guide]) {
+    for (const heading of ["完成结果", "适用对象", "开始前", "真实范例", "操作步骤", "常见问题", "限制", "下一步"]) expect(article.content).toContain(`## ${heading}`);
+    expect(article.content.match(/^\d+\. /gm)).toHaveLength(7);
+  }
+
 });

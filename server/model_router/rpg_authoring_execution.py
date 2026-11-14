@@ -24,6 +24,7 @@ FORMAT_COMPARISON = "modelmirror.rpg.authoring-task/3"
 from . import rpg_comparison as comparison
 RECEIPT_FORMAT = "modelmirror.rpg.authoring-task-receipt/1"
 CHARACTER_MESSAGES = "modelmirror.rpg.character-messages/1"
+GROUP_MESSAGES = "modelmirror.rpg.character-group-messages/1"
 MAX_BODY = 8 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
 PREFLIGHT_TIMEOUT_SECONDS = 15
@@ -98,7 +99,7 @@ async def _body(request, unique):
         character = isinstance(value, dict) and "messageContract" in value
         if character:
             fields.add("messageContract")
-            if (value["messageContract"] != CHARACTER_MESSAGES or value.get("purpose") != "story"
+            if (value["messageContract"] not in (CHARACTER_MESSAGES, GROUP_MESSAGES) or value.get("purpose") != "story"
                     or value.get("format") not in (FORMAT, FORMAT_V2)):
                 raise ValueError()
         version_two = isinstance(value, dict) and value.get("format") in (FORMAT_V2, FORMAT_COMPARISON)
@@ -118,7 +119,18 @@ async def _body(request, unique):
         if value["purpose"] not in ("story", "summary", "compression", "memory") or not isinstance(value["parameters"], dict):
             raise ValueError()
         messages = value["messages"]
-        if character:
+        if character and value["messageContract"] == GROUP_MESSAGES:
+            # Group history need not alternate: only the selected member is
+            # assistant; other participants are explicitly attributed user data.
+            if not isinstance(messages, list) or not 2 <= len(messages) <= 2204:
+                raise ValueError()
+            roles = [m.get("role") if isinstance(m, dict) else None for m in messages]
+            conversation = roles[:-1] if roles[-1] == "system" else roles
+            if (len(conversation) < 2 or conversation[0] != "system"
+                    or conversation[-1] != "user"
+                    or any(role not in ("user", "assistant") for role in conversation[1:])):
+                raise ValueError()
+        elif character:
             # A fixed assistant opening is not a fabricated user/assistant turn.
             # Only an optional final system message may follow the current user.
             if not isinstance(messages, list) or not 3 <= len(messages) <= 2204:
