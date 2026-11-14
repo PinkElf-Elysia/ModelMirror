@@ -2,8 +2,12 @@ import {clone,need,keys,id,text,validateState,TRAITS,ACCOUNTS,SLOTS,RELATION_FIE
 import {stripPanels} from './adapter.mjs';
 const lookup=(s,key,value)=>{const e=s[key].find(x=>x.id===value);need(e,'STATE_ENTRY_NOT_FOUND');return e;};
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-export function applyOperations(previous,operations){
+export function applyOperations(previous,operations,{strictRelations=false,quantityOnly=null}={}){
  validateState(previous);need(Array.isArray(operations)&&operations.length<=80,'STATE_OPERATIONS');
+ if(quantityOnly!==null){
+  keys(quantityOnly,['id','delta']);need(id(quantityOnly.id)&&Number.isSafeInteger(quantityOnly.delta)&&quantityOnly.delta<0,'STATE_CHANGE_SCOPE');
+  need(operations.length===1&&operations[0]?.type==='quantity'&&operations[0].id===quantityOnly.id&&operations[0].delta===quantityOnly.delta,'STATE_CHANGE_SCOPE');
+ }
  const state=clone(previous),changes=[];
  for(const op of operations){
   need(op&&text(op.reason,500)&&op.reason.trim(),'STATE_REASON_REQUIRED');
@@ -33,7 +37,12 @@ export function applyOperations(previous,operations){
     if(op.id!==null)need(lookup(state,'items',op.id).quantity>0,'STATE_EQUIPMENT_UNAVAILABLE');
     set(state.equipment,op.slot,op.id,'equipment.'+op.slot);break;
    case 'addRelation':{
-    keys(op,['type','id','name','reason']);need(id(op.id)&&!state.relations.some(x=>x.id===op.id),'STATE_ENTRY_EXISTS');
+    keys(op,['type','id','name','reason']);
+    if(strictRelations){
+     need(id(op.id),'STATE_ENTRY_ID');
+     need(text(op.name,100)&&op.name.trim(),'STATE_ENTRY_NAME');
+     need(!state.relations.some(x=>x.id===op.id||x.name.normalize('NFKC').trim()===op.name.normalize('NFKC').trim()),'STATE_RELATION_ALREADY_REGISTERED');
+    }else need(id(op.id)&&!state.relations.some(x=>x.id===op.id),'STATE_ENTRY_EXISTS');
     const r={id:op.id,name:op.name,relation:0,trust:0,type:'初识',affiliation:'未设定',group:'一般',impression:op.reason,lastContact:'未设定'};
     state.relations.push(r);record('relations.'+op.id,null,r,'model-judgment');break;
    }
@@ -70,8 +79,8 @@ export function decodeReply(receipt){
  need(stripPanels(body)===body&&!/<variable_panel>|【自身状态】|【关系网络】|关系[:：]\s*[-+]?\d|信任[:：]\s*\d/.test(body),'STATE_DUPLICATE_PANEL');
  return {body,operations:value.operations};
 }
-export function candidate(previous,receipt){
- const parsed=decodeReply(receipt),result=applyOperations(previous,parsed.operations);
+export function candidate(previous,receipt,policy){
+ const parsed=decodeReply(receipt),result=applyOperations(previous,parsed.operations,policy);
  for(const m of parsed.body.matchAll(/<local_relation id="([^"]+)"><\/local_relation>/g))need(result.state.relations.some(r=>r.id===m[1]),'STATE_RELATION_REFERENCE');
  return {...parsed,...result};
 }

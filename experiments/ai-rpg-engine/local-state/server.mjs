@@ -10,8 +10,8 @@ import {empty} from '../plugins/custom-config/public/config.mjs';
 import {need} from './definition.mjs';
 const assets={'/':'index.html','/app.mjs':'app.mjs','/style.css':'style.css'};
 const types={html:'text/html',mjs:'text/javascript',css:'text/css'};
-export async function startServer({directory,port=18821,enabled=false}={}){
- const host=await LocalStateHost.open({directory:directory||fileURLToPath(new URL('../.rpg03-work/local-state-v1',import.meta.url)),enabled});
+export async function startServer({directory,port=18821,enabled=false,hostFactory=options=>LocalStateHost.open(options),scenarios=SCENARIOS}={}){
+ const host=await hostFactory({directory:directory||fileURLToPath(new URL('../.rpg03-work/local-state-v1',import.meta.url)),enabled});
  const server=createServer(async(req,res)=>{
   const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
   try{
@@ -24,8 +24,9 @@ export async function startServer({directory,port=18821,enabled=false}={}){
     const file=assets[path],body=await readFile(new URL('./public/'+file,import.meta.url));
     res.writeHead(200,{'Content-Type':types[file.split('.').at(-1)]+'; charset=utf-8','Cache-Control':'no-store'});return res.end(body);
    }
-   if(req.method==='GET'&&path==='/api/bootstrap')return json(200,{state:exampleState(),profile:empty(),scenarios:SCENARIOS,mode:'offline-only',realCalls:0});
+   if(req.method==='GET'&&path==='/api/bootstrap')return json(200,{state:exampleState(),profile:empty(),scenarios,mode:host.mode||'offline-only',realCalls:0});
    const match=path.match(/^\/api\/sessions\/([a-zA-Z0-9-]+)(?:\/([a-z-]+))?$/);
+   if(req.method==='GET'&&match&&match[2]==='progress')return json(200,{text:host.progress?.get(match[1])||null});
    if(req.method==='GET'&&match&&!match[2])return json(200,await host.view(match[1]));
    if(req.method==='GET'&&match&&match[2]==='evidence')return json(200,await host.evidence(match[1]));
    if(req.method!=='POST')return json(404,{error:'NOT_FOUND'});
