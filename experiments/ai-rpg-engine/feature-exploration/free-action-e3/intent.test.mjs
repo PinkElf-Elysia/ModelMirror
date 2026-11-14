@@ -1,0 +1,16 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {exampleState} from '../../local-state/example.mjs';
+import {proposal,accept,exportProposal} from './intent.mjs';
+export const world=()=>({session:'e3-test',branch:'e3-test',version:1,revision:1,state:exampleState(),enabled:true,pending:null,binding:{adapterId:'cultivation',adapterVersion:'4'}});
+const edit=(w,p,field,value)=>proposal(w,p,[{field,value,quote:'界面选择'}],{id:'draft',turnId:'t',kind:'user-edit'});
+test('partial information survives multiple replies; quantities are conditional only',()=>{const w=world(),before=structuredClone(w);let p=edit(w,null,'target','zhou');assert.equal(p.questions.length,2);p=edit(w,p,'item','medicine');p=edit(w,p,'quantity',2);assert.equal(p.status,'review');assert.equal(p.expected[0].conditionalAfter,3);assert.deepEqual(w,before);p=accept(p,w);assert.equal(exportProposal(p,w).executionStatus,'not_executed');p=edit(w,p,'quantity',1);assert.equal(p.confirmation,null);assert.equal(p.revision,4);assert.equal(p.intent.target.value,'zhou');});
+test('clear target keeps independent fields and removes runnable estimate',()=>{const w=world();let p=edit(w,null,'item','medicine');p=edit(w,p,'quantity',2);p=edit(w,p,'target','zhou');p=edit(w,p,'target',null);assert.equal(p.intent.item.value,'medicine');assert.equal(p.questions[0].id,'need-target');assert.deepEqual(p.expected,[]);assert.deepEqual(p.steps,[]);});
+test('model cannot pick sole entity without explicit evidence or invent IDs',()=>{const w=world();assert.throws(()=>proposal(w,null,[{field:'target',value:'zhou',quote:'那人'}],{text:'给那人一些药',turnId:'t',id:'p'}),{code:'INTENT_REFERENCE_NOT_EXPLICIT'});assert.throws(()=>edit(w,null,'target','fake'));assert.throws(()=>edit(w,null,'quantity',1.5));});
+test('world statements remain user conditions, not world facts',()=>{const w=world(),before=structuredClone(w);const p=proposal(w,null,[{field:'condition',value:'他已经答应了',quote:'他已经答应了'}],{text:'他已经答应了',turnId:'t',id:'p'});assert(p.worldConditions.every(c=>c.status==='unknown'));assert.deepEqual(w,before);});
+test('insufficient or unset stock never adjusts requested quantity',()=>{for(const qty of [1,null]){const w=world();w.state.items[0].quantity=qty;let p=edit(w,null,'target','zhou');p=edit(w,p,'item','medicine');p=edit(w,p,'quantity',2);assert.equal(p.status,'blocked');assert.equal(p.intent.quantity.value,2);assert.deepEqual(p.expected,[]);}});
+test('acceptance is bound to source; unresolved and unsupported stay unaccepted',()=>{const w=world();let p=edit(w,null,'target','zhou');assert.throws(()=>accept(p,w));p=edit(w,p,'item','medicine');p=edit(w,p,'quantity',2);assert.throws(()=>accept(p,{...w,version:2}),{code:'SOURCE_STALE'});const u=proposal(w,p,[],{id:'p',turnId:'t',unsupported:true});assert.throws(()=>accept(u,w));});
+
+test('vague quantities are not converted into one; altered exports fail hash validation',()=>{
+ const w=world();assert.throws(()=>proposal(w,null,[{field:'quantity',value:1,quote:'一些'}],{text:'一些',id:'p',turnId:'t'}),{code:'INTENT_QUANTITY_NOT_EXPLICIT'});
+ let p=edit(w,null,'target','zhou');p=edit(w,p,'item','medicine');p=edit(w,p,'quantity',2);p=accept(p,w);p.intent.quantity.value=99;assert.throws(()=>exportProposal(p,w),{code:'PROPOSAL_HASH'});
+});

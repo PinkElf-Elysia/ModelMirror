@@ -1,0 +1,24 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>E3 · 连续行动草稿</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<body><header><strong>RPG 探索工作区</strong><span>离线模拟 · 只读世界 · 未接执行</span></header>
+<main><div class="heading"><div><h1>把想法说清楚，再决定</h1><p>以赠送丹药为例，逐步补齐意图，随时修改方案。</p></div><span id="status" role="status">正在读取记录</span></div>
+<div id="notice" role="alert"></div>
+<div class="workspace"><section class="conversation" aria-label="连续澄清">
+<h2>和提案助手继续讨论</h2><p class="muted">当前为固定样例模拟。自由输入会被保存，未覆盖的表述会提示澄清；没有真实模型调用。</p>
+<div id="turns" aria-live="polite"></div>
+<form id="reply-form"><label for="reply">补充或修改你的想法</label><textarea id="reply" maxlength="2000" rows="3" placeholder="例如：周禾"></textarea>
+<div class="actions"><button class="primary" id="send" type="submit">发送模拟回复</button><button id="refresh-view" type="button">刷新记录</button></div></form>
+<details open><summary>按顺序体验连续澄清</summary><div id="samples" class="samples"></div></details>
+<details><summary>原始回复与请求依据</summary><div id="evidence"></div></details>
+</section><section class="proposal" aria-label="当前方案"><div class="section-title"><h2>当前行动草稿</h2><small id="revision">尚未开始</small></div>
+<p id="empty">可以先说“给那人一些丹药”，再逐步回答问题。也可以直接在下方明确选择。</p>
+<div id="current"></div>
+<details id="edit-details"><summary>直接修改明确值（不调用模型）</summary><form id="edit-form">
+<label for="field">修改项目</label><select id="field"><option value="target">赠送对象</option><option value="item">丹药种类</option><option value="quantity">拟赠数量</option><option value="condition">玩家条件</option></select>
+<label for="value">新值</label><div id="value-control"></div><div class="actions"><button type="submit">保存明确值</button><button type="button" id="clear">清除此项</button></div></form></details>
+<div class="actions"><button class="primary" id="accept">接受当前方案，暂不执行</button><button id="revoke">撤销接受</button><button id="export">导出当前方案</button></div>
+<div class="actions secondary"><button id="cancel">取消计划</button><button id="new">开始新计划</button><button id="rebase">按当前来源重新核对</button><button id="reconcile">核对记录</button></div>
+<p class="muted">接受方案仅确认你的意图。对方是否在场、是否愿意接受，仍需后续核实。</p>
+<details><summary>修订记录</summary><div id="history"></div></details>
+</section></div>
+<details class="source" open><summary>读取依据与真实登记状态</summary><p id="source-label"></p><div id="source-items"></div><p class="muted">当前未登记物品容器关系。旧布囊的存在不表示丹药在其中；历史场景也不证明人物目前在场。</p></details>
+<footer id="footer"></footer></main></body></html>
