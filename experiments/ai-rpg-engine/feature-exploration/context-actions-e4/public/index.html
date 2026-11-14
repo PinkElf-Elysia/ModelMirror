@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>E4 · 情境与行动草稿</title><link rel="stylesheet" href="/style.css"></head>
+<body><header><a href="/">RPG 探索工作台</a><span>独立离线原型 · 不执行行动</span></header>
+<main>
+<div class="heading"><div><h1>从情境开始，决定下一步</h1><p>查看已登记的物资，选择行动或补充想法；先把方案说清楚。</p></div><label class="world-label" for="world">测试情境<select id="world"><option value="cultivation">修仙 · 青云药圃</option><option value="lighthouse">灯塔 · 夜间值守</option></select></label></div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="workspace">
+<aside class="context">
+<div class="section-title"><h2 id="scene">读取情境…</h2><span class="tag">只读来源</span></div>
+<p id="identity" class="muted"></p>
+<div id="resources"></div>
+<button id="inspect">查看全部登记物资</button>
+<details id="inspection" hidden><summary>查询结果与范围</summary><div id="query-result"></div></details>
+<h3>从一项行动开始</h3><div id="capabilities" class="action-menu"></div>
+<p class="muted fine">选择行动会开始一版新方案，清除旧参数和接受记录。也可以直接在右侧输入。</p>
+<details><summary>资料来源</summary><p id="source-label"></p><p id="coverage"></p><pre id="source"></pre></details>
+</aside>
+<section class="draft">
+<div class="section-title"><h2>当前意图</h2><span id="status" class="tag">尚未开始</span></div>
+<p id="status-detail" class="muted"></p>
+<div id="slots"></div>
+<div id="questions" class="callout" hidden></div>
+<div id="preflight"></div>
+<form id="edit-form" hidden><details id="edit-details"><summary>直接修改明确值（无需生成）</summary>
+<label for="item">物资</label><select id="item"></select>
+<label for="quantity">拟用数量</label><input id="quantity" type="number" min="1" step="1" placeholder="未明确">
+<div id="gift-fields" hidden><label for="target">拟赠对象</label><select id="target"></select><label for="condition">玩家条件或陈述</label><textarea id="condition" rows="2" placeholder="可留空；不会成为世界事实"></textarea></div>
+<button type="submit">保存明确修改</button></details></form>
+<div class="actions"><button id="accept" class="primary" disabled>接受意图，暂不执行</button><button id="revoke" hidden>撤回接受</button><button id="export" disabled>导出交接预览</button><button id="refresh" hidden>重新读取情境并预检</button><button id="cancel" disabled>取消本方案</button></div>
+<div class="compose"><h3>继续补充或修订</h3><form id="reply-form"><label class="muted" for="input">你的想法</label><textarea id="input" maxlength="2000" rows="3" placeholder="可输入想法；离线模式仅解释下方固定样例。"></textarea><button id="send" type="submit" class="primary">发送模拟输入</button></form>
+<div id="samples" class="samples"></div><p class="muted fine">本页是有限样例模拟，不代表真实模型理解能力。未知文字会保留并提示，不发起付费调用。</p></div>
+<details id="history-details"><summary>修订记录与依据</summary><div id="history"></div></details>
+<details><summary>原始模拟回复与请求材料</summary><pre id="evidence"></pre></details>
+</section></div>
+<footer><span id="metrics"></span><span>规则预检不是执行授权。世界状态始终不变。</span></footer>
+</main><script type="module" src="/app.mjs"></script></body></html>
