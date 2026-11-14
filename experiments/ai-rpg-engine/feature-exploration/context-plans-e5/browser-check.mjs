@@ -1,0 +1,36 @@
+import {createRequire} from 'node:module';import {mkdir,mkdtemp,writeFile,readFile} from 'node:fs/promises';import {fileURLToPath} from 'node:url';import assert from 'node:assert/strict';
+import {startServer} from './server.mjs';import {SAMPLES} from './provider.mjs';
+const {chromium}=createRequire(import.meta.url)(process.argv[2]);
+const root=fileURLToPath(new URL('../../.rpg03-work/e5-validation/',import.meta.url));await mkdir(root,{recursive:true});const directory=await mkdtemp(root+'browser-');
+const app=await startServer({offlinePreview:true,port:0,directory:directory+'/data'});let browser;const checks=[],errors=[],external=[];
+try{
+ browser=await chromium.launch({channel:'msedge',headless:true});const context=await browser.newContext({viewport:{width:1440,height:1080}});
+ await context.route('**/*',route=>{if(new URL(route.request().url()).origin!==new URL(app.url).origin){external.push(route.request().url());return route.abort();}return route.continue();});
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(app.url);await page.getByRole('heading',{name:'青云药圃'}).waitFor();
+ const state=()=>app.store.view('cultivation');const before=(await state()).source;
+ const send=async(text)=>{await page.locator('#input').fill(text);await page.getByRole('button',{name:'整理模拟输入',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('#send').disabled);};
+ const click=async(selector)=>{await page.locator(selector).click();await page.waitForFunction(()=>!document.querySelector('#send').disabled);};
+ await send(SAMPLES.cultivation[0]);assert.equal((await state()).plan.steps.length,2);assert.equal((await state()).plan.steps[0].preflight.expected[0].after,3);
+ assert.equal(await page.locator('.estimate').count(),1);assert.equal((await state()).plan.steps[1].preflight,null);checks.push('two-step-conditional-plan');
+ await click('#save');assert.ok((await state()).plan.saved);const download=page.waitForEvent('download');await page.locator('#export').click();await (await download).saveAs(directory+'/plan.json');
+ assert.equal(JSON.parse(await readFile(directory+'/plan.json','utf8')).executionStatus,'not_executed');checks.push('readonly-plan-download');
+ await send('改成两份');assert.match(await page.locator('#question').textContent(),/哪一步/);assert.equal((await state()).plan.steps[1].atomic.intent.quantity.value,1);assert.equal((await state()).plan.saved,null);checks.push('ambiguous-input-no-change');
+ await send('第二步改成两份');assert.equal((await state()).plan.steps[1].atomic.intent.quantity.value,2);assert.equal((await state()).plan.steps[0].id,'step-1');checks.push('targeted-revision-stable-id');
+ await send('第二步的条件改为：他已经答应了。');assert.equal((await state()).plan.steps[1].condition.value,'他已经答应了。');assert.equal((await state()).plan.steps[1].condition.kind,'player-claim');checks.push('literal-condition-not-fact');
+ await page.screenshot({path:directory+'/desktop.png',fullPage:true});
+ await send('先不要服药');assert.equal((await state()).plan.steps[0].id,'step-2');assert.ok((await state()).plan.orderReview);assert.equal((await state()).plan.steps[0].preflight,null);
+ await click('#review-order');assert.equal((await state()).plan.steps[0].after,null);checks.push('withdraw-and-confirm-dependency');
+ const detail=page.locator('.step').getByText('明确修改本步',{exact:true});await detail.click();await page.locator('[name="condition"]').fill('');await page.locator('[name="quantity"]').fill('1');await page.getByRole('button',{name:'应用本步修改'}).click();await page.waitForFunction(()=>!document.querySelector('#send').disabled);
+ assert.equal((await state()).plan.steps[0].condition,null);assert.equal((await state()).plan.steps[0].status,'intent-only');assert.equal((await state()).plan.steps[0].preflight,null);checks.push('explicit-withdraw-condition');
+ await click('#save');const simulated=(await state()).simulatedCalls;await page.reload();await page.getByRole('heading',{name:'青云药圃'}).waitFor();assert.ok((await state()).plan.saved);assert.equal((await state()).simulatedCalls,simulated);checks.push('refresh-without-call');
+ await click('#clear');await send('先服用两份养息丹，再服用四份养息丹。');assert.equal(await page.locator('.estimate').count(),1);assert.equal((await state()).plan.steps[1].status,'waiting');checks.push('no-chain-balance');
+ await send('先服药，再送药，再休息，再修炼。');assert.match(await page.locator('#question').textContent(),/三个步骤/);assert.equal((await state()).plan.steps.length,2);checks.push('over-limit-not-truncated');
+ await click('#clear');await send(SAMPLES.cultivation[1]);assert.equal((await state()).plan.steps[0].status,'clarification');await send('两份');assert.equal((await state()).plan.steps[0].status,'rule-ready');checks.push('continuous-clarification');
+ await page.locator('#scene').selectOption('lighthouse');await page.getByRole('heading',{name:'海岬灯塔'}).waitFor();await send(SAMPLES.lighthouse[1]);
+ const light=await app.store.view('lighthouse');assert.equal(light.plan.steps.length,3);assert.equal(light.plan.steps.filter(s=>s.preflight).length,1);
+ await click('.step:nth-child(2) [data-do="up"]');assert.ok((await app.store.view('lighthouse')).plan.orderReview);await click('#review-order');assert.equal((await app.store.view('lighthouse')).plan.steps[0].id,'step-2');checks.push('second-world-three-steps-reorder');
+ await page.locator('#scene').selectOption('cultivation');await page.getByRole('heading',{name:'青云药圃'}).waitFor();assert.equal((await state()).plan.steps.length,2);
+ await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:directory+'/mobile.png',fullPage:true});checks.push('mobile-scene-isolation');
+ assert.deepEqual((await state()).source,before);assert.equal((await state()).realCalls,0);assert.equal(errors.length,0);assert.equal(external.length,0);checks.push('no-source-write-network-or-browser-error');
+ await writeFile(directory+'/result.json',JSON.stringify({passed:true,checks,errors,external,sourceUnchanged:true,realCalls:0},null,2));console.log(JSON.stringify({directory,checks:checks.length,passed:true}));
+}finally{await browser?.close();await app.close();}

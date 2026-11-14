@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>E5 · 行动计划</title><link rel="stylesheet" href="/style.css"></head>
+<body><header><strong>RPG 探索工作台</strong><span>独立离线原型 · 只整理计划</span></header>
+<main><div class="heading"><div><h1>把想做的事，逐步说清楚</h1><p>先整理行动与条件，再决定如何继续。这里不会消耗物资或推进剧情。</p></div><label class="scene">情境<select id="scene"><option value="cultivation">青云药圃</option><option value="lighthouse">海岬灯塔</option></select></label></div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="workspace"><aside><h2 id="world-title">正在读取登记资料</h2><p id="subtitle" class="muted"></p><h3>当前登记物资</h3><div id="resources"></div><h3>登记人物</h3><div id="people"></div><p id="coverage" class="muted fine"></p><p class="fine">这些是当前记录，不是计划执行后的状态。</p><details><summary>来源与能力</summary><pre id="source"></pre></details></aside>
+<section class="planner"><div class="section-title"><h2>你的计划</h2><span class="tag" id="plan-count">0 / 3 步</span></div><p class="muted fine">顺序不代表已经执行，条件不代表已经成立。</p>
+<div id="question" class="callout" role="status" hidden></div><div id="order-actions" hidden><button id="review-order">确认剩余步骤顺序</button></div><div id="steps"></div>
+<form id="compose"><label for="input">想做什么，或想修改哪一步？</label><textarea id="input" rows="3" maxlength="2000" placeholder="例如：先服用两份养息丹，再给周禾一份养息丹；如果他不收，就不送。"></textarea><div class="compose-actions"><button class="primary" id="send" type="submit">整理模拟输入</button><span class="fine muted">固定样例模拟 · 不调用模型</span></div></form>
+<details id="samples-details" open><summary>可验证的输入样例</summary><p class="fine muted">点击填入，再提交。其他文字会保留并提示模拟器未覆盖。</p><div id="samples"></div></details>
+<div class="actions"><button id="save">保存只读计划</button><button id="export" disabled>下载计划预览</button><button id="refresh">重新读取来源</button><button id="clear">清空当前计划</button></div><p id="saved" class="fine muted"></p>
+<details><summary>修订记录与原文依据</summary><div id="history"></div></details><details><summary>模拟请求与回复</summary><pre id="evidence"></pre></details>
+</section></div><footer><span>最多三个有序步骤，每步一个条件；不支持循环、嵌套分支或并行行动。</span><span id="calls">真实调用 0</span></footer></main><script type="module" src="/app.mjs"></script></body></html>
