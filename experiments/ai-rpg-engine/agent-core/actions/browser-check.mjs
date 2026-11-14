@@ -1,0 +1,46 @@
+// Runs only this prototype in a fresh browser and data directory. No provider requests.
+import {createRequire} from 'node:module';import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';import {join,resolve} from 'node:path';import assert from 'node:assert/strict';
+import {startServer} from './server.mjs';
+if(!process.env.R5_PLAYWRIGHT_MODULE)throw Error('Set R5_PLAYWRIGHT_MODULE to an existing Playwright package directory; this script installs nothing.');
+const require=createRequire(join(resolve(process.env.R5_PLAYWRIGHT_MODULE),'package.json')), {chromium}=require('./index.js');
+const root=fileURLToPath(new URL('../../.rpg03-work/r5-validation/',import.meta.url));await mkdir(root,{recursive:true});
+const dir=await mkdtemp(join(root,'browser-')),app=await startServer({directory:join(dir,'data'),port:0,offlinePreview:true});
+let browser;const errors=[],blocked=[];
+try{
+ browser=await chromium.launch({channel:'msedge',headless:true});const context=await browser.newContext({viewport:{width:1440,height:1080}});
+ await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith(app.url))return route.continue();blocked.push(url);return route.abort();});
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(app.url);await page.getByRole('button',{name:'确认样例并开始',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#resources strong')?.textContent==='5');
+ await page.getByRole('button',{name:'先查询，再准备方案',exact:true}).click();
+ await page.waitForFunction(()=>!!document.querySelector('#proposals .proposal'));
+ assert.equal(await page.locator('#resources strong').first().innerText(),'5');
+ await page.getByRole('button',{name:'确认并执行',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#resources strong')?.textContent==='3');
+ assert.match(await page.locator('#receipts').innerText(),/5 → 3/);assert.match(await page.locator('#pending').innerText(),/等待生成叙事/);
+ await page.locator('details').filter({has:page.locator('#fault')}).locator('summary').click();await page.locator('#fault').selectOption('failed');await page.getByRole('button',{name:'生成结果叙事',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#pending').textContent.includes('明确失败'));
+ await page.reload();await page.waitForFunction(()=>document.querySelector('#pending').textContent.includes('明确失败'));
+ assert.equal(await page.locator('#resources strong').first().innerText(),'3');
+ await page.locator('details').filter({has:page.locator('#fault')}).locator('summary').click();await page.locator('#fault').selectOption('unknown');await page.getByRole('button',{name:'生成结果叙事',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#pending').textContent.includes('结果未知'));
+ assert.equal(await page.locator('#narrate').isDisabled(),true);
+ await page.getByRole('button',{name:'核对原操作',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('#messages .turn').length===1);
+ assert.equal(await page.locator('#resources strong').first().innerText(),'3');
+ await page.getByRole('button',{name:'普通交流 · 一次生成',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('#messages .turn').length===2);
+ await page.screenshot({path:join(dir,'desktop.png'),fullPage:true});
+ await page.locator('#adapter').selectOption('lighthouse');await page.getByRole('button',{name:'确认样例并开始',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#resources strong')?.textContent==='5');
+ await page.getByRole('button',{name:'直接确认执行',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('#resources strong')?.textContent==='3');
+ await page.locator('#fault').selectOption('');await page.getByRole('button',{name:'生成结果叙事',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('#messages .turn').length===1);
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);
+ const report={offline:true,url:app.url,realCalls:0,checks:['cultivation query-propose-confirm','5 to 3','explicit narration failure','reload','unknown lookup without dispatch','next turn','lighthouse same runtime','mobile no overflow'],errors,blocked,artifacts:dir};
+ await writeFile(join(dir,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+}finally{await browser?.close();await app.close();}

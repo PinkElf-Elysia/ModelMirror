@@ -1,0 +1,159 @@
+{
+  "kind": "offline-browser-fixtures",
+  "date": "2026-11-14",
+  "base": "d8ead08baf7a072ab3e85e683634d1e98d8ef233",
+  "browserEvidence": "experiments/ai-rpg-engine/.rpg03-work/r5-validation/browser-AjWxQq",
+  "cases": [
+    {
+      "adapter": "cultivation",
+      "recordSha256": "420f0065789d75e3681d78b10d8f085552d796a858c4f579df8752a850e3ab02",
+      "actionReceipts": 1,
+      "stages": [
+        {
+          "purpose": "action-narration",
+          "status": "failed",
+          "measurement": {
+            "characters": 47498,
+            "inputHash": "90b0f45450e837ca05ae6b288590ab6ef00fd61756f9f4fbe3ab867a341e3980",
+            "systemBytes": 125302,
+            "textHistoryAndInputBytes": 21,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 2,
+            "wireBytes": 127476
+          },
+          "outputCharacters": 0,
+          "toolNames": [],
+          "simulatedTiming": null
+        },
+        {
+          "purpose": "action-narration",
+          "status": "completed",
+          "measurement": {
+            "characters": 47498,
+            "inputHash": "90b0f45450e837ca05ae6b288590ab6ef00fd61756f9f4fbe3ab867a341e3980",
+            "systemBytes": 125302,
+            "textHistoryAndInputBytes": 21,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 2,
+            "wireBytes": 127476
+          },
+          "outputCharacters": 61,
+          "toolNames": [],
+          "simulatedTiming": {
+            "completedMs": 0.03870000000006257,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "purpose": "plan",
+          "status": "queried",
+          "measurement": {
+            "characters": 47559,
+            "inputHash": "2ac688a5ad73ee8b567687442c30c2b894d194dc6d45525cbc75c553b32fd289",
+            "systemBytes": 126057,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 1212,
+            "wireBytes": 129354
+          },
+          "outputCharacters": 32,
+          "toolNames": [
+            "query_local_state"
+          ],
+          "simulatedTiming": {
+            "completedMs": 0.14179999999987558,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "purpose": "plan",
+          "status": "prepared",
+          "measurement": {
+            "characters": 48043,
+            "inputHash": "2240184f06c8267e921c6a2c315e450bf0f633c936723de176fd26ac74ddfd1d",
+            "systemBytes": 126057,
+            "textHistoryAndInputBytes": 43,
+            "tokens": null,
+            "toolResultBytes": 674,
+            "toolsBytes": 447,
+            "wireBytes": 129647
+          },
+          "outputCharacters": 60,
+          "toolNames": [
+            "prepare_action"
+          ],
+          "simulatedTiming": {
+            "completedMs": 0.040199999999913416,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        },
+        {
+          "purpose": "plan",
+          "status": "completed",
+          "measurement": {
+            "characters": 48072,
+            "inputHash": "6fa35eefa00979fac55857d67f15233e43f2b4c46c110324ff179b7a5c26ef5f",
+            "systemBytes": 126652,
+            "textHistoryAndInputBytes": 224,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 1212,
+            "wireBytes": 130274
+          },
+          "outputCharacters": 73,
+          "toolNames": [],
+          "simulatedTiming": {
+            "completedMs": 0.03830000000016298,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "stageCountIncludingFailures": 5,
+      "realCalls": 0,
+      "tokens": null,
+      "costUSD": 0,
+      "proseFirstMs": null
+    },
+    {
+      "adapter": "lighthouse",
+      "recordSha256": "eb4adba41995f45f56b1d248823fd9a96ff01a449c87e26d5375a52d31b5207b",
+      "actionReceipts": 1,
+      "stages": [
+        {
+          "purpose": "action-narration",
+          "status": "completed",
+          "measurement": {
+            "characters": 1160,
+            "inputHash": "3ba599999a17a90d071001806be6de5fd1a7cda0e87b8d7f332de51553341f94",
+            "systemBytes": 1710,
+            "textHistoryAndInputBytes": 21,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 2,
+            "wireBytes": 1945
+          },
+          "outputCharacters": 46,
+          "toolNames": [],
+          "simulatedTiming": {
+            "completedMs": 0.06899999999950523,
+            "firstContentMs": null,
+            "proseFirstMs": null
+          }
+        }
+      ],
+      "stageCountIncludingFailures": 1,
+      "realCalls": 0,
+      "tokens": null,
+      "costUSD": 0,
+      "proseFirstMs": null
+    }
+  ],
+  "limits": "Not real provider tokens, latency, prose quality or route qualification. No retry without an explicit user action."
+}
