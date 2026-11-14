@@ -67,3 +67,14 @@ it('consolidates failed archive reads before the cards without repeating warning
  for(const card of screen.getAllByRole('article'))expect(card).not.toHaveTextContent(/暂不可用|读取中|打开作品/);
  expect(screen.queryByText('下一段人生，从这里开始。')).toBeNull();
 });
+
+it('uses the supplied Harry Potter cover in the library while retaining the card entry',async()=>{
+ vi.stubEnv('VITE_RPG_AUTHORING_PORT','');const fetcher=vi.fn(async(_url:string,_options?:RequestInit)=>Response.json([]));vi.stubGlobal('fetch',fetcher);
+ render(<MemoryRouter><RpgPage/></MemoryRouter>);
+ const card=screen.getByRole('article',{name:'哈利波特大世界（霍格沃兹）'});
+ expect(card.querySelector('img')).toHaveAttribute('src','/rpg-covers/harry-potter-user.png');
+ expect(card.querySelector('img')).toHaveStyle({objectPosition:'50% 0%'});
+ expect(within(card).getByRole('link')).toHaveAttribute('href','/rpg/harry-potter');
+ await screen.findByRole('article',{name:'地球online'});
+ expect(fetcher.mock.calls.every(call=>!call[1]?.method)).toBe(true);
+});
