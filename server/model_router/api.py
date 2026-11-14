@@ -90,6 +90,31 @@ from .service import (
 
 
 router = APIRouter(prefix="/api/router", tags=["model-router"])
+
+
+@router.get("/voice-library/control", dependencies=[Depends(require_provider_admin)])
+def voice_library_control():
+    from .voice_library import VoiceControl
+    return VoiceControl(get_model_router_service()).state()
+
+
+@router.put("/voice-library/control", dependencies=[Depends(require_provider_admin_csrf)])
+async def configure_voice_library(request: Request):
+    from .voice_library import VoiceControl
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > 16384:
+            raise HTTPException(413, detail={"code": "voice_control_invalid"})
+        chunks.append(chunk)
+    try:
+        import json
+        value = json.loads(b"".join(chunks))
+        return VoiceControl(get_model_router_service()).configure(value)
+    except RouterServiceError as error:
+        raise HTTPException(error.status_code, detail={"code": error.code, "message": error.hint}) from None
+    except (ValueError, TypeError, RouterRepositoryError):
+        raise HTTPException(422, detail={"code": "voice_control_invalid", "message": "请检查连接及音色路由配置。"}) from None
 models_router = APIRouter(prefix="/api/models", tags=["model-catalog"])
 _service: ModelRouterService | None = None
 _service_lock = threading.Lock()
