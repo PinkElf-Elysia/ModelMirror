@@ -44,3 +44,22 @@ test(label+' saves retain exact runtime and setup protection with speech',async(
  }
 });
 }
+
+// Reconstruct from a frozen neutral template and exact clean-checkout digests;
+// assert the full hash observed on that checkout before checking compatibility.
+for(const file of ['speech-upgrade-baseline.fixture.json','speech-synced-baseline.fixture.json']){
+ const snapshot=JSON.parse(await readFile(new URL('./'+file,import.meta.url),'utf8'));
+ const template=JSON.parse(await readFile(new URL('./speech-main-baseline.fixture.json',import.meta.url),'utf8'));
+ test(snapshot.baseline+' ordinary and memory saves retain exact bindings after plugin upgrade integration',async()=>{
+  for(const memory of [false,true]){
+   const h=await start({directory:await mkdtemp(join(tmpdir(),'speech-upgrade-')),port:0,godCard:true,godPlugins:memory,rollingSummary:memory,memoryPalace:memory,historyWindow:memory,autoSummaryV2:memory});
+   try{for(const card of ['earth','god']){
+    const key=card+(memory?'Memory':''),saved=structuredClone(template.sessions[key]),d=saved.runtime.descriptor;
+    for(const artifacts of [d.artifacts,d.hostArtifacts,d.content?.cardArtifacts])if(artifacts)for(const path of Object.keys(artifacts))artifacts[path]=snapshot.artifactDigests[path]??artifacts[path];
+    if(snapshot.bindings[key].baseRuntimeHash)d.baseRuntimeHash=snapshot.bindings[key].baseRuntimeHash;
+    saved.runtime.hash=sha(canonical(d));assert.equal(saved.runtime.hash,snapshot.bindings[key].hash,key+' exact frozen hash');
+    cases(h[card],saved,snapshot.baseline+' '+key);
+   }}finally{await new Promise(r=>h.server.close(r));await h.plugins.close();}
+  }
+ });
+}

@@ -6,11 +6,12 @@ import {summaryRuntime,summaryRuntimeStatus,bindSummaryRuntime} from './summary-
 import {memoryRuntime,memoryRuntimeStatus,bindMemoryRuntime} from './memory-runtime.mjs';
 import {preserveOutputEditRuntime} from './output-edit-compatibility.mjs';
 import {sha,canonical} from '../plugins/catalog.mjs';
+const pluginBaseline=JSON.parse(await readFile(new URL('./plugin-upgrade-baseline.json',import.meta.url)));
 const baseline=JSON.parse(await readFile(new URL('./failed-turn-baseline.json',import.meta.url)));
 for(const [name,runtime,bind,status,index] of [['summary',summaryRuntime,bindSummaryRuntime,summaryRuntimeStatus,2],['memory',memoryRuntime,bindMemoryRuntime,memoryRuntimeStatus,3]])test(name+' main save keeps exact binding and rejects tampered content/setup',()=>{
  const source={characterText:'成年旅人',world:'表世界',params:{},mode:'offline'};
  source.runtime=bind(source);const saved=structuredClone(source),d=beforeSpeechDescriptor(saved.runtime.descriptor);saved.runtime.descriptor=d;
- for(const [path,digest] of Object.entries(baseline.artifacts))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
+ for(const [path,digest] of Object.entries({...pluginBaseline.artifacts,...baseline.artifacts}))if(path in d.hostArtifacts)d.hostArtifacts[path]=digest;
  d.baseRuntimeHash=baseline.baseHashes[index];saved.runtime.hash=sha(canonical(d));
  assert.notEqual(saved.runtime.hash,runtime.hash);assert.equal(saved.runtime.hash,baseline.baseHashes[index+1]);
  const store={status};assert.equal(store.status(saved).compatible,false);preserveOutputEditRuntime(store);

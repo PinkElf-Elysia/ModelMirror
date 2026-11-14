@@ -90,3 +90,22 @@ UI 已使用本机离线 fixture 完成桌面与 390px 操作、分页、固定�
 - 当前 UI 复验和两张新截图见帮助实操记录；1 次离线提示音，0 次新增真实调用。全量帮助检查既有两项内容失败和 10 项图片问题仍保留，不削弱校验。
 
 回退：如需撤销本次同步，可在 PR 分支另做 revert；不得 reset 已公开历史。关闭语音插件即可阻止新生成，保留既有音频，无数据迁移。
+
+
+## 再次同步插件升级主线（2026-11-13）
+
+main 已推进至 `0a28b830763086469bbb31d7c9cecdcb717f9f69`（PR #465）。本次仅在 PR #464 分支同步，保留插件原子升级、版本差异提示、语音入口与默认关闭边界；不合并 main、不部署、不调用真实语音模型。四个冲突文件为 chat.tsx、failed-turn-compatibility.test.mjs、output-edit-compatibility.mjs、server.mjs。
+
+为保持主线和上次 PR 存档可读，追加 0a28b830 / 9e7ac9f3 精确基线。新增夹具只保留干净 checkout 实际生成的运行摘要、绑定哈希与文件哈希，使用已有中性模板重建后先断言与原快照完整哈希相等，再执行兼容和篡改检查。六卡参数宿主覆盖六个基线；工作台作品绑定补齐精确 catalog/host/runtime-binding 摘要，不放宽任意源码变化。兼容映射、夹具及回归需要跨越四个冲突文件，仍属于同一同步目标，不涉及迁移。
+
+本次结果：
+- `node --test studio/speech-compatibility.test.mjs studio/failed-turn-compatibility.test.mjs studio/plugin-upgrade-compatibility.test.mjs`：13/13 通过。首次两个升级前夹具未投影语音 catalog 摘要导致精确哈希断言失败；补齐对应已登记基线，保留原哈希断言，重跑通过。
+- `node --test --test-name-pattern="optional speech" studio/card-generation.test.mjs`：1/1 通过（六张参数卡、六个基线）。
+- `node --test studio/speech.test.mjs plugins/upgrade.test.mjs plugins/host.test.mjs plugins/multi-host.test.mjs plugins/generation-parameters.test.mjs studio/controlled-provider.test.mjs harness/http.test.mjs`：81/81 通过。
+- `node --test authoring/runtime-binding.test.mjs`：15/15 通过，包含精确前版本身份保留和篡改拒绝。
+- RPG 前端测试 86/86，类型检查与 Vite 构建通过。
+- 上次 CI 主客户端 typecheck 发现 speech-text.mjs 缺少声明，本次补充准确 `unknown -> string` 声明后该错误消失。主客户端全量 typecheck 仍有哈利波特测试与 shop-client-measurement 的 7 项主线错误；在干净的 0a28b830 checkout、相同依赖下复现同样 7 项，未改这些文件或降低检查规则。
+- 上次 CI 后端失败位于 Provider 出口清单，报告未登记的 studio/failed-turn-fixture.mjs；该文件与当前 main 相同，本 PR 未修改。上次 Windows Project Host 已通过。新提交 CI 状态以 GitHub 当前 run 为准。
+- 本轮无新页面设计或操作流程，沿用已提交帮助教程与截图，不将其重标为新基线 UI 验收。未重新执行 Docker / 浏览器实操，前次环境限制仍记录在上文；未启动共享栈。
+
+回退本次同步需在 PR 分支另外 revert，不重写公开历史；无需改写任何存档或运行数据。

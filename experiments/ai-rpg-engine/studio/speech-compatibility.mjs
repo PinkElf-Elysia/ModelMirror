@@ -76,9 +76,39 @@ export const beforeSpeechRelease={
 export const beforeSpeechReleaseBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "a1bf4555ec41de75ce577419abac97a04329198cd2482950171af5eb6772f7c5", "63b6ed8e5096d835aa2318b8d27b2a92cf9fc4ffc960f823ba8fbd215d8d8490", "3e7bb29a8af25a68d4e6cf3738d9154ab946b2df0476405f53ad915ec5cf0016", "2c2a1931d5f185ba0929a92f68cbac7545612708439312a374d2ffbb60b75150"];
 
 export function speechPredecessorDescriptors(descriptor){
- return [beforeSpeech,beforeSpeechMain,beforeSpeechShop,beforeSpeechRelease].map(previous=>{
+ return [beforeSpeech,beforeSpeechMain,beforeSpeechShop,beforeSpeechRelease,beforeSpeechUpgrade,beforeSpeechSynced].map(previous=>{
   const next=structuredClone(descriptor);
   for(const key of ["artifacts","hostArtifacts"])if(next[key])for(const path of Object.keys(next[key]))if(previous[path])next[key][path]=previous[path];
   return next;
  });
 }
+
+// Exact reviewed 0a28b830 fingerprints before plugin-upgrade integration.
+export const beforeSpeechUpgrade={
+  "studio/controlled-provider.mjs": "f4ef3cb449a164eeedf34e7ce9c93d03662e700b82083bbaf6c73a94e33c3c28",
+  "plugins/catalog.mjs": "21c4a257aa45ba3c4ebbe2d4c5dd4a3e7b6d998635b6275388f8ada0315c7832",
+  "plugins/host.mjs": "6e5a7ec5aeb85463d25fdb33208e6b155a6ae9f685750bac9157befd1821be95",
+  "studio/server.mjs": "021e337eedf8ba63e9144230036e4ebd5ff4b71c2527c0cdc9d21a08ce672cd2",
+  "studio/generation-cards.mjs": "49097a94fce8d1c22fb9590006634499030d50146d2c1b1f64bea4cb419d765a",
+  "god-card/lib/http.mjs": "9c939a10660031457c43dde262e901f592b2fa64d4b71e683395c30996dabe6e",
+  "xingjian-card/host.mjs": "d6ec1329f4e4d6baab1d1250c7ee694d14a355fc8c9ea0be383e3bc70d05c4bb",
+  "jinyong-card/host.mjs": "da5e047f44126c75a59b1905640c8765e483a1105c337cbb0bd9fc07226ec910",
+  "medieval-card/host.mjs": "a1d8200ea704d7ad9f1bfaffd8516f72f30270113df4893d995be88ba2504b2d",
+  "harry-potter-card/host.mjs": "e2e5f908d1ba9e560d570be93f51af02e1434df158d6651458e9bfce422f2acf"
+};
+export const beforeSpeechUpgradeBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "14b31129e4792063017ffbf61105c2c257feebbb30d4fc35496d59c4d07698cb", "3fb9da4145cd7ecffa780c860d85704eda4485706f8ccd3020411167f06ce0de", "c24c303aeca1513f2a33c5594a60b5a56f8d7b32bf2fa78b69db3f207ed8764b", "7536c60acc1a830fcaff6dee2f0232ee1b806ae7afc3278c5edd7f5edd1f8385"];
+
+// Exact reviewed 9e7ac9f3 fingerprints before plugin-upgrade integration.
+export const beforeSpeechSynced={
+  "studio/controlled-provider.mjs": "f4ef3cb449a164eeedf34e7ce9c93d03662e700b82083bbaf6c73a94e33c3c28",
+  "plugins/catalog.mjs": "5a07cd0f345031b1b5750d881c0ce00f1a8738b58f4c763f7cb27bdeda4b0a83",
+  "plugins/host.mjs": "77c8178caf7aeca26f65ec0f670d71e96067e813993658d3f082d3d4822d6011",
+  "studio/server.mjs": "85c34c235643e7f9a11ad3c221f478a0fcde6703f7c3d266ece43d951054a416",
+  "studio/generation-cards.mjs": "44bff604910d720d5fe31975fb9f1bc10ed964352d0e78838c6bf23f1526327f",
+  "god-card/lib/http.mjs": "9c0596aecc582bd7477532e4a00be92e4029fec520efbe468119252a54b84c8d",
+  "xingjian-card/host.mjs": "244cfe5b70e33c07ecc41ec1b29a8b6da817372ebdee57f9c7ce2760e4f484e1",
+  "jinyong-card/host.mjs": "73fa1c2d0842164ab806f0343b1d8ba09e9d40809b3b152d7309ecbb9ad2f8c7",
+  "medieval-card/host.mjs": "f563e2dd59c2c39ccb25118ab6a0737239ff6b74a90c375c0a0e4c97221e5ca0",
+  "harry-potter-card/host.mjs": "63ce4e8e55848bdbf4f16992d8bc33cab1176d6e679d52c556f4bb2f4b50da05"
+};
+export const beforeSpeechSyncedBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "14b31129e4792063017ffbf61105c2c257feebbb30d4fc35496d59c4d07698cb", "74291707614a2068076b6a9941ad4a72289a3fea4fb646dfa55c667c7e456a32", "9b547b805b5604274a5d4dc7c18952e689e30fcca0748b8fab7f02d94f73ec0c", "ba3c4bfbcb2f3dc3824aa9beefc6a9da91ff3116a76a752f3e23f2f756f704d5"];
