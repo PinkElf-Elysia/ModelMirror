@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RPG 运行核心 · 独立验收</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<body>
+<header><div><strong>RPG 运行核心</strong><small>第三轮 · 独立验收</small></div><nav aria-label="会话操作"><span class="badge">离线模拟 · 无真实调用</span><button id="new">新建会话</button><button id="reload">刷新记录</button></nav></header>
+<main>
+<div id="notice" role="alert"></div>
+<section id="setup"><p class="eyebrow">公共核心 / 两种适配</p><h1>同一条运行链，不同的世界。</h1><p class="lead">选择修仙或灯塔值守，确认初始档案后开局。查询、数值计算、保存与恢复由同一运行核心完成。这里的剧情全部来自固定模拟样例。</p>
+<div class="setup-grid"><div>
+<label>验证配置<select id="adapter"></select></label><p id="description" class="muted"></p>
+<div id="initial-panel"></div>
+<details><summary>调整初始数据与插件配置</summary><label>初始状态（未知数量保留 null）<textarea id="initial" rows="14" spellcheck="false"></textarea></label><label>插件配置（修仙沿用既有配置；灯塔仅接受空配置）<textarea id="config" rows="4" spellcheck="false">{"profiles":[],"mods":[]}</textarea></label></details>
+<label class="check"><input id="confirmed" type="checkbox">我已确认这些初值及来源，仅在独立测试会话中使用。</label><button id="create" class="primary">确认并开局</button>
+</div><aside><h2>本轮验收什么</h2><ol><li><strong>状态由本地维护</strong><p>数量变化经程序校验；面板和只读数据来自同一次提交。</p></li><li><strong>按需查询后续写</strong><p>普通交流一次模拟生成，查询回合最多两次；工具只读。</p></li><li><strong>结果可以核对</strong><p>查询依据、回合变化和恢复记录可展开查看。失败不会静默重试。</p></li></ol><p class="muted">本页未接正式故事馆，也未接真实模型路由。它验证公共链路，不代表正文质量或费用收益已得到证明。</p></aside></div></section>
+<section id="play" hidden>
+<div class="heading"><div><p class="eyebrow" id="session-label"></p><h1 id="title"></h1><p id="status" class="muted"></p></div><button id="evidence">保存离线证据</button></div>
+<div class="play-grid"><div>
+<div class="journal-heading">剧情记录 <span>正文与状态一次提交</span></div><div id="journal"></div>
+<div id="pending" class="pending" hidden><h2>本轮尚未完成</h2><p id="pending-text"></p><button id="recover">核对并恢复原请求</button><button id="discard">保留记录并结束失败回合</button></div>
+<form id="composer"><label for="input">下一步行动</label><textarea id="input" rows="3" placeholder="选择下方样例，或输入行动……" required></textarea><div id="scenarios" class="quick"></div>
+<details><summary>离线故障与候选设置</summary><div class="controls"><label>模拟故障<select id="fault"><option value="">无故障</option><option value="unknown">最终回执丢失</option><option value="unknown-first">首次回执丢失</option><option value="failed">最终生成明确失败</option><option value="truncated">最终回复截断</option><option value="invalid">未声明工具</option><option value="bad-arguments">工具参数截断</option><option value="repeat">续写再次调用工具</option></select></label><label>模拟文风<select id="variant"><option value="calm">简洁</option><option value="warm">稍多氛围</option></select></label></div><label>适配器上下文选项<textarea id="context-options" rows="2" spellcheck="false">{}</textarea></label><p class="muted">修仙可填写 {"quantityOnly":{"id":"medicine","delta":-2}}；这是明确的宿主约束，不是自动语义识别。</p></details>
+<div class="actions"><button type="submit" id="send" class="primary">执行模拟回合</button><button type="button" id="preview">预览候选，不入账</button><span id="progress" role="status" aria-live="polite"></span></div>
+<p class="muted">模拟器只实现列出的中性样例，不是自由对话模型。未命中动作时通常返回空变更。</p></form>
+<section id="candidate" hidden><h2>候选预览 · 尚未采用</h2><div id="candidate-body" class="narrative"></div><pre id="candidate-changes"></pre><button id="adopt" class="primary">采用这一候选</button><button id="cancel-candidate">取消预览</button></section>
+<details><summary>回合阶段与查询依据</summary><div id="stages"></div></details>
+<details><summary>改写、检查点和停用</summary><label>有效状态（显式改写，不由正文反写）<textarea id="rewrite" rows="10" spellcheck="false"></textarea></label><label>改写原因<input id="reason" placeholder="说明为什么调整这份状态"></label><button id="review-rewrite">查看前后差异</button><pre id="rewrite-diff" hidden></pre><button id="apply-rewrite" hidden>确认改写</button><hr>
+<label>检查点<select id="checkpoint"></select></label><button id="fork">从此检查点创建分支</button><button id="toggle">停用新回合</button><p class="muted">分支同时保存相应状态与正文；停用保留资产和查询恢复能力。</p></details>
+</div><aside class="ledger"><div class="ledger-heading"><h2>权威状态</h2><span id="state-version"></span></div><div id="panels"></div><details><summary>最近提交的变化</summary><div id="changes"></div></details><details><summary>同源只读 JSON</summary><pre id="state-json"></pre></details><details><summary>适配绑定与维护责任</summary><pre id="binding"></pre></details></aside></div></section>
+</main><footer>独立数据目录 · 不修改旧会话 · 不连接真实供应商</footer></body></html>

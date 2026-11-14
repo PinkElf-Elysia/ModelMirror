@@ -22,6 +22,8 @@ from . import rpg_parameters as typed_parameters
 router = APIRouter(prefix="/api/rpg/v1", tags=["rpg-service"])
 PARAMETERS = {"temperature": 0.7, "top_p": 0.8, "max_tokens": 16384}
 def parameters_for(model, profile="default"):
+    if profile == "core-query-r3" and os.getenv("RPG_CORE_REAL_ENABLED") == "true":
+        return {**PARAMETERS, "max_tokens": 8192} if model == "google/gemini-3.8-flash" else None
     if profile not in ("default", "god-long-v1"):
         raise HTTPException(422, "rpg_parameter_profile_invalid")
     if profile == "god-long-v1":
@@ -133,6 +135,8 @@ def models(stable=Depends(get_stable), profile: str = "default"):
 
 
 async def body(request, profile="default"):
+    if profile not in ("default", "god-long-v1"):
+        raise HTTPException(422, "rpg_parameter_profile_invalid")
     profile_parameters = parameters_for("google/gemini-3.8-flash", profile)
     data = bytearray()
     async for chunk in request.stream():

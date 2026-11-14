@@ -1,0 +1,164 @@
+{
+  "phase": "R3-real",
+  "sourceHead": "ae67eb2510066a7301825a58de96872c64593298",
+  "model": "google/gemini-3.8-flash",
+  "preview": "http://127.0.0.1:18844/",
+  "humanAcceptance": "passed",
+  "requestCount": 3,
+  "noAutomaticRetry": true,
+  "rawReportedUSD": "0.13885875",
+  "calls": [
+    {
+      "slot": 1,
+      "adapter": "cultivation",
+      "capUSD": 0.6,
+      "rawReportedUSD": "0.13655325",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794646483-Eaao7nUcVTbJwcGWWA7K",
+        "inputTokens": 157476,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 4919,
+        "reasoningTokens": 783,
+        "reportedCostMicros": 136554,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 162395,
+        "usageFrames": 1
+      },
+      "timing": {
+        "completedMs": 54480.9828,
+        "firstContentMs": 13388.0017,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "host-progress-observation"
+      },
+      "finishReason": "stop",
+      "requestHash": "934be1e6cd6a112a3025b17f0f1f72ce2f4d43c85714493318deb75ef498fbae"
+    },
+    {
+      "slot": 2,
+      "adapter": "lighthouse",
+      "capUSD": 0.1,
+      "rawReportedUSD": "0.00080925",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794646538-L1bAESvJiivoWOAKOfCh",
+        "inputTokens": 309,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 154,
+        "reasoningTokens": 111,
+        "reportedCostMicros": 810,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 463,
+        "usageFrames": 1
+      },
+      "timing": {
+        "completedMs": 5249.648700000005,
+        "firstContentMs": 5249.648700000005,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "buffered-bridge-completion"
+      },
+      "finishReason": "tool_calls",
+      "requestHash": "23cbf9711cd9b4f14f7b502256d27ad6788c7f5e9cb428adc22069468ce9b6f8"
+    },
+    {
+      "slot": 3,
+      "adapter": "lighthouse",
+      "capUSD": 0.2,
+      "rawReportedUSD": "0.00149625",
+      "usage": {
+        "cacheWriteTokens": 0,
+        "cachedInputTokens": 0,
+        "currency": "USD",
+        "generationId": "gen-1794646544-7YGBnayjS5rR3pad214U",
+        "inputTokens": 530,
+        "issues": [],
+        "model": "google/gemini-3.8-flash",
+        "outputTokens": 293,
+        "reasoningTokens": 146,
+        "reportedCostMicros": 1497,
+        "source": "provider-sse",
+        "streamComplete": true,
+        "totalTokens": 823,
+        "usageFrames": 1
+      },
+      "timing": {
+        "completedMs": 7212.591899999999,
+        "firstContentMs": 6266.350999999995,
+        "pollIntervalMs": 250,
+        "proseFirstMs": null,
+        "source": "host-progress-observation"
+      },
+      "finishReason": "stop",
+      "requestHash": "edc9e13e9881f1179289b3739fb54ed9a1bcd965004dc433907d9b1e26625c46"
+    }
+  ],
+  "states": [
+    {
+      "adapter": "cultivation",
+      "status": "completed",
+      "exactExpectedState": true
+    },
+    {
+      "adapter": "lighthouse",
+      "status": "completed",
+      "exactExpectedState": true
+    }
+  ],
+  "cleanup": {
+    "credentialDirectoryRemoved": true,
+    "localTokenRemoved": true,
+    "masterKeyWrittenToDisk": false,
+    "sharedConfigurationChanged": false
+  },
+  "artifactDirectory": "experiments/ai-rpg-engine/.rpg03-work/agent-core-r3-real-v1",
+  "sha256": {
+    "review.json": "99460cc05b6f74e931f7e4812abd5ba21135e318e5eb138cd00693d249918e68",
+    "transport-evidence.json": "bcd8953f1acc86b5b317fd1874deb17f8cfeef8508023dd7c0f5d87be65ed0ad",
+    "execution-claim.json": "6fc84feb602d3899242fccc1c72be6da7aea9ba8464ad29b5967bcef83d6eccf",
+    "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+    "dispatch-audit.json": "097eb8b25651b20ecf59527ace899cded42d734bfbd8d631f1cff4ac019e6ece",
+    "stage-1.json": "9b2cb14da197c8af0f7ea4efb889e91149fe9b976d6f598a91cedef6a283050c",
+    "reply-1.txt": "fc9f8326e466ee442be54a9d567b3e92b51149a461708668e7241c0d8ac61181",
+    "stage-2.json": "cd168fab9dc267de5ef7debfbfc7009f5e27aab83017ec130db3c3cd0b08bc5c",
+    "reply-2.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stage-3.json": "4d0831bf2a3d1b227ac83c21996e6adb9df055e5bc2bd96c2f476827c366730a",
+    "reply-3.txt": "d253828e8876c88dd34cd7f094b79f2efee142f4ec074a9d1d06e5612515bfaa"
+  },
+  "verification": {
+    "finalNodeCore": {
+      "passed": 33,
+      "failed": 0
+    },
+    "legacyBridgePython": {
+      "passedFirstRun": 73,
+      "environmentBlocked": 1,
+      "blockedTestPassedOnRerun": 1
+    },
+    "newProtocolPython": {
+      "passed": 2
+    },
+    "fullMockDispatch": "passed"
+  },
+  "limitations": [
+    "proseFirstMs not measured",
+    "nonempty provider signature preservation verified by mock only",
+    "cultivation narrative residuals recorded; no additional calls"
+  ],
+  "humanAcceptanceDate": "2026-11-14",
+  "closeoutAuthorization": {
+    "commitPushPR": true,
+    "additionalCalls": false,
+    "additionalPatches": false,
+    "deploy": false
+  }
+}

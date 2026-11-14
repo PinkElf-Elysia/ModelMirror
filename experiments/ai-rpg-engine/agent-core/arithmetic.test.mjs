@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {integerDelta} from './arithmetic.mjs';
+test('shared arithmetic keeps integer accounting, unknown and overflow boundaries',()=>{assert.equal(integerDelta(5,-2).after,3);assert.equal(integerDelta(3,-3).after,0);for(const [v,d] of [[null,-1],[0,-1],[1,.5],[Number.MAX_SAFE_INTEGER,1]])assert.throws(()=>integerDelta(v,d));});
+test('explicit clamping records effective delta',()=>{assert.deepEqual(integerDelta(98,5,{min:-100,max:100,mode:'clamp'}),{before:98,after:100,requestedDelta:5,actualDelta:2});assert.equal(integerDelta(-98,-5,{min:-100,max:100,mode:'clamp'}).actualDelta,-2);assert.throws(()=>integerDelta(98,5,{max:100}));});

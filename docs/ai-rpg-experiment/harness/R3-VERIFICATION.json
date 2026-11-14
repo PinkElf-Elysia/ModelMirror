@@ -1,0 +1,53 @@
+{
+  "baseline": "ae67eb2510066a7301825a58de96872c64593298",
+  "branch": "codex/rpg-agent-core-r3",
+  "tests": {
+    "core": {
+      "passed": 30,
+      "failed": 0
+    },
+    "legacyLocalState": {
+      "passed": 57,
+      "failed": 0
+    },
+    "variableAndShop": {
+      "passed": 38,
+      "failed": 0
+    }
+  },
+  "realProviderCalls": 0,
+  "scopeCheck": "only agent-core and harness docs",
+  "legacyFrozenFiles": 52,
+  "previewChecks": [
+    {
+      "adapter": "cultivation",
+      "session": "core-4a74c52835f5a96ebced9c2ff718efa3ee6b7711",
+      "quantity": 3,
+      "stateRevision": 1,
+      "completedTurns": 1,
+      "manifestHash": "7c318377dcc11a1a2f8d0f858009cd09eb7adb7d31a348344f6e10a9eb0fdd00",
+      "url": "http://127.0.0.1:18841/?adapter=cultivation&session=core-4a74c52835f5a96ebced9c2ff718efa3ee6b7711"
+    },
+    {
+      "adapter": "lighthouse",
+      "session": "core-bc029879a74577e04d1dc5faa3b2a87ad3b2f75d",
+      "quantity": 3,
+      "stateRevision": 2,
+      "completedTurns": 2,
+      "manifestHash": "7c318377dcc11a1a2f8d0f858009cd09eb7adb7d31a348344f6e10a9eb0fdd00",
+      "url": "http://127.0.0.1:18841/?adapter=lighthouse&session=core-bc029879a74577e04d1dc5faa3b2a87ad3b2f75d"
+    }
+  ],
+  "userAcceptance": "pending",
+  "notRun": [
+    "real-provider integration",
+    "parent frontend build (unchanged)",
+    "parent backend tests (unchanged)",
+    "full CI",
+    "mobile device suite"
+  ],
+  "notes": [
+    "UI checked in in-app browser; no console errors observed",
+    "No commit, push, PR, deployment, shared config or migration"
+  ]
+}
