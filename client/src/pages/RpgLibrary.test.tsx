@@ -31,7 +31,7 @@ it('failed refresh preserves the last published entries and a manual refresh can
 });
 it('rejects external cover URLs, malformed identities and duplicate publications',()=>{
  for(const works of [[{...work,cover:'https://example.com/tracking.png'}],[{...work,id:'../private'}],[work,work]])expect(()=>readPublishedWorks({...catalog,works},'18484',window.location)).toThrow();
- expect(workbenchHref('18484',new URL('http://localhost:18483'),work)).toContain('http://127.0.0.1:18483/rpg/authoring?');
+ expect(workbenchHref('18484',new URL('http://localhost:18483'),work)).toContain('http://127.0.0.1:18484/play?');
  expect(workbenchHref('18484',new URL('https://example.org'),work)).toBeUndefined();
 });
 it('unavailable artwork uses the same placeholder as a work with no cover',async()=>{

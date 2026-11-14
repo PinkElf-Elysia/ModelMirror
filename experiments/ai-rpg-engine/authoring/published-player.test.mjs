@@ -1,0 +1,32 @@
+import test from 'node:test';
+import {get} from 'node:http';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {startAuthoringServer} from './server.mjs';
+import {blankDocument} from './contracts.mjs';
+const root=fileURLToPath(new URL('../.rpg04-work/published-player-tests/',import.meta.url));await mkdir(root,{recursive:true});
+test('published player reads a pinned version, redirects old links and never creates sessions',async t=>{
+ const host=await startAuthoringServer({directory:await mkdtemp(join(root,'case-')),creatorExperience:true});t.after(()=>host.close());
+ const api=async(path,body)=>{const r=await fetch(host.origin+'/rpg-app/api/authoring'+path,body?{method:'POST',headers:{Origin:host.origin,'X-Authoring-Request':'1','Content-Type':'application/json'},body:JSON.stringify(body)}:{});assert.equal(r.status,200);return r.json();};
+ const document=blankDocument();document.metadata.name='独立游玩';document.metadata.audience='female';document.sources.system='固定设定';
+ const w=await api('/works',{operationId:'create',expectedRevision:null,document});
+ const v=await api('/works/'+w.workId+'/publish',{operationId:'publish',expectedRevision:0});
+ const search='?work='+w.workId+'&version='+v.result.versionId+'&library='+encodeURIComponent('http://localhost:5173/rpg');
+ const old=await fetch(host.origin+'/'+search,{redirect:'manual'});assert.equal(old.status,302);assert.equal(old.headers.get('location'),'/play'+search);
+ const before=await api('/works/'+w.workId);
+ const r=await new Promise((resolve,reject)=>get(host.origin+'/play'+search,{headers:{'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document',Referer:'http://localhost:5173/rpg'}},res=>{let body='';res.setEncoding('utf8');res.on('data',chunk=>body+=chunk);res.on('end',()=>resolve({status:res.statusCode,text:async()=>body,headers:res.headers}));}).on('error',reject));assert.equal(r.status,200);
+ const html=await r.text();assert.match(html,/data-player="true"/);assert.match(html,/published-player.css/);assert.match(html,/player-chat-workspace.css/);assert.match(html,/published-chat.css/);assert.match(r.headers['content-security-policy'],/frame-src http:\/\/127.0.0.1/);
+ for(const file of ['published-player.css','published-player.mjs','published-chat.mjs','published-chat.css','player-chat-workspace.css','joint-client.mjs','session-selection.mjs'])assert.equal((await fetch(host.origin+'/'+file)).status,200);
+ assert.deepEqual(await api('/works/'+w.workId),before);assert.equal((await api('/state')).runtimeReady,false);
+ document.metadata.name='未发布修改';await api('/works/'+w.workId+'/save',{operationId:'save',expectedRevision:before.revision,document});
+ const frozen=await api('/works/'+w.workId+'/published?version='+v.result.versionId);assert.equal(frozen.draft.metadata.name,'独立游玩');
+ assert.equal((await fetch(host.origin+'/play')).status,422);
+ assert.equal((await fetch(host.origin+'/play'+search,{headers:{Origin:'https://outside.example'}})).status,403);
+ assert.equal((await fetch(host.origin+'/play'+search+'&extra=1')).status,422);
+ assert.equal((await fetch(host.origin+'/play'+search.replace(v.result.versionId,'version-'+'0'.repeat(64)))).status,404);
+});
+test('standalone player stays unavailable when creator experience is disabled',async t=>{
+ const host=await startAuthoringServer({directory:await mkdtemp(join(root,'off-'))});t.after(()=>host.close());assert.equal((await fetch(host.origin+'/play')).status,404);
+});
