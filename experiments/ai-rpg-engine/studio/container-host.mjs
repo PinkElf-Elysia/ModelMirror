@@ -1,3 +1,4 @@
+import {speechService} from './speech.mjs';
 import {installAiGirls,aiGirlsOptions} from '../ai-girls-card/integration.mjs';
 import {installBlueFish,blueFishOptions} from '../blue-fish-card/integration.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
@@ -65,6 +66,7 @@ async function run(env){
   for(const route of [archiveOptions.xingjianControl,...Object.values(archiveOptions.archiveControls)])if(route)route.fetcher=configFetch;
   const {server,plugins,god}=await start({...archiveOptions,ownArchiveDirectory:ownDirectory,directory,key,limit,fetcher:configFetch,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
+    speech:yes('RPG_SPEECH_ENABLED')?speechService(env.RPG_CONTROL_URL||'http://server:8000/'):null,
     illustrationService:env.RPG_IMAGE_ENABLED==='false'?null:imageService(env.RPG_CONTROL_URL||'http://server:8000/'),
     transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',

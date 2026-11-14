@@ -1,0 +1,1162 @@
+{
+  "baseline": "4a32fbe2852926492205ff518e36698fcb1f2413",
+  "sessions": {
+    "earth": {
+      "id": "b305b4d0-a655-4c83-bc3d-adaceaaa7548",
+      "name": "未命名角色",
+      "created": "2026-11-13T18:59:30.122Z",
+      "characterText": "测试旅人",
+      "world": "表世界",
+      "params": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 0,
+        "presence_penalty": 0,
+        "frequency_penalty": 0,
+        "max_tokens": 8192,
+        "context": 8192,
+        "thinking_budget": 0
+      },
+      "mode": "offline",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "runtime": {
+        "format": 1,
+        "hash": "afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6",
+        "descriptor": {
+          "format": 1,
+          "cardId": "earth",
+          "artifacts": {
+            "studio/output-edits.mjs": "edf2403d372f58382ef84a96e448fea375473bbe208374ad3c8f76a9c6196c85",
+            "card-replica/lib/store.mjs": "cde075635723ffbfe8c526d1012be91483fa30278940af215d06a3d3e5126531",
+            "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+            "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+            "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+            "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+            "card-replica/src/main.tsx": "afc62ec2eccad5735d1a1d1b19ff39f5a6bf4c7255b89d1e47857c9332965389",
+            "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+            "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+            "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+            "studio/branch-archive.mjs": "51287ca0ef01c6aa8508d2437d933de0f1d4817cf59c210085b99e1f0d9eaccb",
+            "studio/runtime-binding.mjs": "58e44894c5b64f3e541b12936587b201ebe33ce7f8aafa9fbb7370bc1182d504"
+          },
+          "author": {
+            "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+            "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+            "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+            "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+          },
+          "model": {
+            "title": "地球 OL · 人生模拟器",
+            "model": "google/gemini-3.8-flash",
+            "provider": "Google AI Studio",
+            "transport": "openrouter",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "unsupported": [
+              "top_k",
+              "presence_penalty",
+              "frequency_penalty",
+              "thinking_budget"
+            ],
+            "contextPolicy": "retain-all",
+            "worldbook": "disabled-missing-author-metadata",
+            "providerSlug": "google-ai-studio"
+          },
+          "worldbook": "disabled-missing-author-metadata",
+          "historyPolicy": "complete-raw-history"
+        },
+        "setupHash": "4d0973ff6bef72034bc7345cc036ea5017204022d3079956796915bc054e5481"
+      }
+    },
+    "god": {
+      "cardId": "god",
+      "name": "神临凡尘",
+      "characterText": "【用户角色】\n姓名：\n性别：\n年龄：\n身份：\n外貌：\n性格：\n关系网：\n背景经历：\n\n【其他角色·1】\n姓名：\n性别：\n年龄：\n身份：\n外貌：\n性格：\n关系网：\n背景经历：\n\n【时代背景】\n时代背景：\n\n【开场白】\n\n\n【功能区域】\n总结：开启\n选项：关闭\n直播：关闭\n人称视角：第二人称\n画面特写：关闭\n美化：关闭\n小说模式：关闭\n剧情辅助：关闭\n回复长度：中等\n雌小鬼吐槽：关闭\n幕后采访：关闭",
+      "world": null,
+      "params": {},
+      "mode": "offline",
+      "id": "4670a77d-522c-41e5-9dc8-6577e58bc9d5",
+      "created": "2026-11-13T18:59:30.154Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "runtime": {
+        "format": 1,
+        "hash": "3b3a594314050f097bbd01b242468ff660ba86b8d95787671a7499a580ebc2ac",
+        "descriptor": {
+          "format": 1,
+          "cardId": "god",
+          "artifacts": {
+            "studio/output-edits.mjs": "edf2403d372f58382ef84a96e448fea375473bbe208374ad3c8f76a9c6196c85",
+            "god-card/lib/plugins.mjs": "3dc12455a72952d9d3a634d198a33dcdf6aa91660b150fbabaab2b87daf6bbee",
+            "god-card/resources/branch-save.manifest.json": "6ddcaa49ceeb0d96e9eafbb05f4c148c461ea6fab9d086faef823c890d48030c",
+            "plugins/branch-save.mjs": "0ea552bf15b2a7a74115651b0323ad8533c745419cc3696316bf25e50fec05fe",
+            "plugins/host.mjs": "2162c9ce812739ecefb2777011a86c3a7c368666279cb9df13480031e7d0b369",
+            "god-card/lib/assembly.mjs": "15bec1b4af086c46b089760f712da4fb5019b8bb41ae96c6b84edbcc093beaca",
+            "god-card/lib/setup.mjs": "9f6d5f755ece8738a265f8441ab4aa10e2545988d9820015a25f02431e218d00",
+            "god-card/lib/adapter.mjs": "bec58fd476a8a7f677fe067a6c9fc44b803d6b7ecc90df8ee551e6da7f39eeb3",
+            "god-card/lib/http.mjs": "9c0596aecc582bd7477532e4a00be92e4029fec520efbe468119252a54b84c8d",
+            "studio/card-session-store.mjs": "a25e9a7634d35f96355fcc5e063fcd27178ff4f1b4eacb5b790bbf4eeaeaacd5",
+            "studio/server.mjs": "b1e2d680d0ec7f13d0a1525dc3a635cedbfcccebb8e61d55c55684ea22c6a957",
+            "studio/controlled-provider.mjs": "8f55c5088b8c7a28dcaf0d6e4610805b68620e4512d1a0ebc447583c331873f9",
+            "god-card/resources/prompts.json": "e4cbde57e42a14b6276013ba053c13ffae16bcf1b35ab0a4f2c2df5fe576f2af",
+            "god-card/resources/MANIFEST.json": "212062ac4dc1cab77a358b1d1085b03c532580f65bdd4700ab4a0becfcff6526",
+            "card-replica/lib/store.mjs": "cde075635723ffbfe8c526d1012be91483fa30278940af215d06a3d3e5126531",
+            "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+            "studio/runtime-binding.mjs": "58e44894c5b64f3e541b12936587b201ebe33ce7f8aafa9fbb7370bc1182d504",
+            "studio/branch-archive.mjs": "51287ca0ef01c6aa8508d2437d933de0f1d4817cf59c210085b99e1f0d9eaccb"
+          },
+          "author": {
+            "system": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+            "prefix": null,
+            "suffix": null,
+            "worldbook": null
+          },
+          "model": {
+            "mode": "offline-only",
+            "selection": null,
+            "parameters": null
+          },
+          "historyPolicy": "complete-raw-history"
+        },
+        "setupHash": "0c52ebbbe80c58f85c909a511e763757cfddd3fed31325326d540ad1819379b2"
+      }
+    },
+    "earthMemory": {
+      "id": "3320c56e-7949-4877-b590-1d4e236b4871",
+      "name": "未命名角色",
+      "created": "2026-11-13T18:59:30.268Z",
+      "characterText": "测试旅人",
+      "world": "表世界",
+      "params": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 0,
+        "presence_penalty": 0,
+        "frequency_penalty": 0,
+        "max_tokens": 16384,
+        "context": 8192,
+        "thinking_budget": 0
+      },
+      "mode": "offline",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "fixed",
+          "model": "google/gemini-3.8-flash",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "cd1313f275d69fb9764d93220af4af2e23cf81f6d3a1e01af57610d15e8d2b47"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "fixed",
+              "model": "google/gemini-3.8-flash",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "cd1313f275d69fb9764d93220af4af2e23cf81f6d3a1e01af57610d15e8d2b47"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "hash": "2c2a1931d5f185ba0929a92f68cbac7545612708439312a374d2ffbb60b75150",
+        "descriptor": {
+          "format": 5,
+          "cardId": "earth",
+          "content": {
+            "author": {
+              "system": "4f632fff9b567183bc5fae281131320a4cf27035a0f39956b1f53ea5a09ef9ee",
+              "prefix": "51d09f4272c26ab43bb0f654aabd035c2a03647c5e354cd066e2191e88fe54c5",
+              "suffix": "73306191fb7b45032885f91dadab5f88e0ab6f9de96c1d05ce13c8c755032e70",
+              "worldbookSource": "bdb7857f596a4e377b2bed6721d0e85b22cc42106afbd9d03aa0e905bfdd665b"
+            },
+            "cardArtifacts": {
+              "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+              "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+              "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+              "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7"
+            },
+            "worldbook": "disabled-missing-author-metadata"
+          },
+          "hostArtifacts": {
+            "studio/output-edits.mjs": "edf2403d372f58382ef84a96e448fea375473bbe208374ad3c8f76a9c6196c85",
+            "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+            "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+            "studio/model-runtime.mjs": "05f79c50a6c4c84c14860f6d9c679794c1ba1700de1dddfa0393f8df643ae8e6",
+            "studio/model-session-store.mjs": "d927cf090d3af077aece128326aa2ab8418ca183c325f789094369275ac1e299",
+            "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+            "studio/controlled-provider.mjs": "8f55c5088b8c7a28dcaf0d6e4610805b68620e4512d1a0ebc447583c331873f9",
+            "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+            "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+            "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0",
+            "studio/branch-archive.mjs": "51287ca0ef01c6aa8508d2437d933de0f1d4817cf59c210085b99e1f0d9eaccb",
+            "card-replica/lib/store.mjs": "cde075635723ffbfe8c526d1012be91483fa30278940af215d06a3d3e5126531",
+            "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+            "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+            "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+            "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+            "studio/history-provider.mjs": "2af5ae26583c806220c1c5bae11e40ed405ff2f3a47fb221708b1b219762799f",
+            "studio/server.mjs": "b1e2d680d0ec7f13d0a1525dc3a635cedbfcccebb8e61d55c55684ea22c6a957",
+            "studio/history-dispatch.mjs": "6c8a2c4fff5fd22841be952685dcf893c69ce26a8010493f3984867b3839a53a",
+            "studio/history-branch-archive.mjs": "14d8c46d520cbe77eab558572bb1a007b31c535a6932ba09296f0fa7df4b3c60",
+            "plugins/history-window.mjs": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868",
+            "plugins/history-window.manifest.json": "524a2bb00be6a61b236f7a04c242b9d44d3bb1923a87f2bb7b5cc8fd000cf84e",
+            "plugins/catalog.mjs": "3cfb77bb3d45593de0771ffd8ec8bfb0b36cab04ed8143212f1496635e9b109d",
+            "plugins/host.mjs": "2162c9ce812739ecefb2777011a86c3a7c368666279cb9df13480031e7d0b369",
+            "studio/history-state.mjs": "18b8d8b67cb62979d3e987a6f48509ddd639604c655098b06e586e7d394fb7d1",
+            "studio/history-runtime.mjs": "815910e1eab47fe1f7b96c3f30786629c2d22940cf0d46a1e8db4a000adaf00e",
+            "studio/history-assembly.mjs": "5bb7f3b2d3c8ec2674847795909a604740454914237260febb1b93e89bd7e22b",
+            "studio/history-session-store.mjs": "70d752fcafa163e6d39d68395709443280c221cc3126e865656f591032d70895",
+            "studio/summary-v2-runtime-compat.mjs": "ba6a841b22528f78215c54c5c3778547d0d4ce8db090fc16cb379af5487bf46f",
+            "studio/free-opening-runtime-compat.mjs": "24a381982958a2146b35ca33c8c82313ef891ac1db24082827c25dd7aeef77a7",
+            "studio/summary-compression.mjs": "5f88708ff520e365ff15d5830ea196da576474491228bf13345cfa6c1ba3b695",
+            "studio/summary-host.mjs": "7fbe48b4084e8615d4ce929365ed30a2789424a888f5ac07117b5da3ff9f0f88",
+            "studio/summary-http.mjs": "9e1669daaca09c94f662cf0006a699f9820d2964784251e70ef01ffd9441cc66",
+            "studio/summary-assembly.mjs": "5fd135612f113176ad210bb151879d7c34868ca23c5062abeac0ce238e68a071",
+            "studio/summary-branch-archive.mjs": "a57aae0dbbe59244a8c06f2c3c0b3ae058c801db533b7c8fc79e440eab4901e7",
+            "studio/summary-operations.mjs": "b517dff677be8643fe83407627a45f96f2f8868fd56a2cf12ed82cb1ff681f08",
+            "plugins/rolling-summary.mjs": "3fc8f214a25cf2dfa7ed844a2af5ce05a8c2bd6d74f06c6de767dc88bc75784a",
+            "plugins/rolling-summary.manifest.json": "0c92650ba4f6f1548681305a4b8db44142ba2418aa8af595909f22ca78620320",
+            "studio/summary-state.mjs": "ca4512e6d4a870c3802059c27d0109a544976fa5ff3268a4c1d28962f542b012",
+            "studio/summary-runtime.mjs": "7806a25c18f8f0878374c84cfcda3b41f2fd971a8f1e927db01fd8a1bcea75ca",
+            "studio/summary-session-store.mjs": "fdd21d5bc5877e4003545d29a7b43b0c53d9aea874bc93e6df926fdc7067c853",
+            "studio/summary-tasks.mjs": "9fb8c45a613e83efcaf6afcccec7cdd7d63930703c2c40816fbd3627f7b1461b",
+            "studio/summary-budget.mjs": "abc61772e32bbb991af74695fd117c3f8bdaad50542ea674b7b4e841a1073b70",
+            "studio/summary-task-provider.mjs": "7f2928f5e4abe8cd7fc223c1817e61ba6013347cdba0cb4bb6e25dcf70c255f2",
+            "studio/default-summary-v2.mjs": "479a4dab25230b7d21c695a1848c3460f410324d868bd3b16ab2f16eb9c7cd1d",
+            "plugins/auto-summary-v2.mjs": "8e6e9da821f89a478471ec98b6b8c743e021780085c9a21f3c6cc62d80236aad",
+            "studio/memory-runtime.mjs": "a51bc478295636c73a1aa78703dd1bc081a8e8cf1e9e183ac8cd653c1a3b9913",
+            "studio/memory-assembly.mjs": "77bebf174063dbc13e23e41e897f0a6e3e4b826fc9598dcb268377def250638e",
+            "studio/memory-branch-archive.mjs": "d1e7ab6e1df92d65dcf517ebf906b0b99da46dc0e6eea990f9ccc0907afacf18",
+            "studio/memory-session-store.mjs": "a1b648a19ce39c2aa6a3d6d284485e00a09fc88f341ca5797dc11de2154231b2",
+            "studio/memory-state.mjs": "13e985e98cacd6788a23405c7b8895762e6a2ee4f752fc6f50b5e92a47b19954",
+            "studio/memory-task-state.mjs": "4093316334edd9eed4997ec0ebe747a568531ce9e76b666e36e545362574ebfd",
+            "studio/memory-tasks.mjs": "072703209faf82677b302b796437998927d70fec2a11796fd2d37e4e5fec0172",
+            "studio/memory-task-provider.mjs": "826c8654437dfcd818ca9d16c4ace39b4316593e35fb8fb71e2d894065b14198",
+            "studio/memory-budget.mjs": "8b00fa1c70052518f0d6a1eccc56a452e3420844cac7b196288799c58613d3c7",
+            "plugins/memory-palace.mjs": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7",
+            "plugins/memory-palace.manifest.json": "402e5be29dc35ea2b77aa2ac4867d6a7fe6848ac1172666a9c6cfc61600f1104"
+          },
+          "historyPolicy": "rpg.history-window/1",
+          "modelPolicy": "core-persisted-selection-v1",
+          "baseRuntimeHash": "3e7bb29a8af25a68d4e6cf3738d9154ab946b2df0476405f53ad915ec5cf0016",
+          "contextPolicy": "default:complete-raw-history; actual policy and memory contributions are per-session",
+          "summaryPolicy": "rpg.rolling-summary/1",
+          "summaryCompressionPolicy": "rpg.rolling-summary/overflow-1",
+          "compressionInstructionHash": "24a5130854d167103992a4e6adf9dedd31f99cab1d3e36b4763f39ac0489aad3",
+          "summaryInstructionHash": "5c14bf7dc2deb14c380394f7dc7d2cb7ffbd4dfea2e7b3cf502795f3f80601a8",
+          "summaryWrapperHash": "4c8f7a276aa9173cac9bd808791911359e4788f030d555f20b1bafbd1512009b",
+          "memoryPolicy": "rpg.memory-palace/1",
+          "memoryTaskPolicy": "rpg.memory-palace/tasks-1",
+          "memoryInstructionHash": "95ba02d003f7d9adc977e3b8b652c883b5ad6af2afb5ea0c538b22bbdf2fafd2",
+          "memoryWrapperHash": "acee2f664a82cba6c6c207428942d830f674b6bbe7356ec9bdaea9e6d4f4577a"
+        },
+        "setupHash": "706a55f87c088c034d115a209ab3a4314a240e0a552024606c49f927f29b1b16"
+      }
+    },
+    "godMemory": {
+      "cardId": "god",
+      "name": "神临凡尘",
+      "characterText": "【用户角色】\n姓名：\n性别：\n年龄：\n身份：\n外貌：\n性格：\n关系网：\n背景经历：\n\n【其他角色·1】\n姓名：\n性别：\n年龄：\n身份：\n外貌：\n性格：\n关系网：\n背景经历：\n\n【时代背景】\n时代背景：\n\n【开场白】\n\n\n【功能区域】\n总结：开启\n选项：关闭\n直播：关闭\n人称视角：第二人称\n画面特写：关闭\n美化：关闭\n小说模式：关闭\n剧情辅助：关闭\n回复长度：中等\n雌小鬼吐槽：关闭\n幕后采访：关闭",
+      "world": null,
+      "params": {},
+      "mode": "offline",
+      "id": "3246be73-aa6d-4eb1-8508-8cb2777d34f8",
+      "created": "2026-11-13T18:59:30.285Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "synthetic/god-offline-a",
+          "selectionId": "god-offline-a",
+          "selectionRevision": "offline-v1",
+          "parameters": {
+            "max_tokens": 2048,
+            "temperature": 0.3
+          },
+          "configHash": "8a71640f482187fa3c7132d7e8875b4428489eee998be37f5cd65e711b0cad9a"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "synthetic/god-offline-a",
+              "selectionId": "god-offline-a",
+              "selectionRevision": "offline-v1",
+              "parameters": {
+                "max_tokens": 2048,
+                "temperature": 0.3
+              },
+              "configHash": "8a71640f482187fa3c7132d7e8875b4428489eee998be37f5cd65e711b0cad9a"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "hash": "68340a7e1edebd514952230921ee402f3e594a7edf991951906e679989a99e0e",
+        "descriptor": {
+          "format": 5,
+          "cardId": "god",
+          "release": "god-plugins-offline-v1",
+          "author": {
+            "system": "80e021b3f1421ed0d32ec7692d28c0445915ec21353a691b9ba07b5f83b8f59e",
+            "prefix": null,
+            "suffix": null,
+            "worldbook": null
+          },
+          "hostArtifacts": {
+            "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+            "card-replica/lib/store.mjs": "cde075635723ffbfe8c526d1012be91483fa30278940af215d06a3d3e5126531",
+            "card-replica/resources/MANIFEST.json": "d2e0a7fb7add0296bf6aaa6f445f9c3f6f9e18627c0021c0e8f5581bda04a7dc",
+            "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+            "card-replica/src/data.ts": "0650d305b9a411d48fb5f0b7420ed8ad1f2d3e8315d787dd6cd3b117b4d920c7",
+            "god-card/lib/adapter.mjs": "bec58fd476a8a7f677fe067a6c9fc44b803d6b7ecc90df8ee551e6da7f39eeb3",
+            "god-card/lib/assembly.mjs": "15bec1b4af086c46b089760f712da4fb5019b8bb41ae96c6b84edbcc093beaca",
+            "god-card/lib/http.mjs": "9c0596aecc582bd7477532e4a00be92e4029fec520efbe468119252a54b84c8d",
+            "god-card/lib/plugin-host.mjs": "1a56a306f6f34fea37f5939679b9437b477e36ef71f699b3c198d7a99b1dc314",
+            "god-card/lib/plugin-runtime.mjs": "4282cd8ff8385c982e4fa554da2473e634a70cdaf113aed0c36fefc5af43629d",
+            "god-card/lib/plugins.mjs": "3dc12455a72952d9d3a634d198a33dcdf6aa91660b150fbabaab2b87daf6bbee",
+            "god-card/lib/setup.mjs": "9f6d5f755ece8738a265f8441ab4aa10e2545988d9820015a25f02431e218d00",
+            "god-card/resources/MANIFEST.json": "212062ac4dc1cab77a358b1d1085b03c532580f65bdd4700ab4a0becfcff6526",
+            "god-card/resources/branch-save.manifest.json": "6ddcaa49ceeb0d96e9eafbb05f4c148c461ea6fab9d086faef823c890d48030c",
+            "god-card/resources/history-window.manifest.json": "c4f9ec018cea3e3a5d6a7b1cefa7c3263e7c7e020c64e4b5a1388cab27c12d20",
+            "god-card/resources/memory-palace.manifest.json": "5f074b909f3207ed879142436ec374a23df3036fd17a52edd9d10aa3da017705",
+            "god-card/resources/model-selector.manifest.json": "69ecfdfb3d022593e09060abb74d945946f0e3ece6c26ec24dc75f3822769ca8",
+            "god-card/resources/prompts.json": "e4cbde57e42a14b6276013ba053c13ffae16bcf1b35ab0a4f2c2df5fe576f2af",
+            "god-card/resources/rolling-summary.manifest.json": "8bd98507153c37c64832826b512ca0807aaed87b98334577143090bde162906c",
+            "plugins/auto-summary-v2.mjs": "8e6e9da821f89a478471ec98b6b8c743e021780085c9a21f3c6cc62d80236aad",
+            "plugins/catalog.mjs": "3cfb77bb3d45593de0771ffd8ec8bfb0b36cab04ed8143212f1496635e9b109d",
+            "plugins/history-window.manifest.json": "524a2bb00be6a61b236f7a04c242b9d44d3bb1923a87f2bb7b5cc8fd000cf84e",
+            "plugins/history-window.mjs": "87c57f9d9ded72c90a6fa04c532ffe2ae438f67ee7a969f0d31a121949cad868",
+            "plugins/host.mjs": "2162c9ce812739ecefb2777011a86c3a7c368666279cb9df13480031e7d0b369",
+            "plugins/memory-palace.manifest.json": "402e5be29dc35ea2b77aa2ac4867d6a7fe6848ac1172666a9c6cfc61600f1104",
+            "plugins/memory-palace.mjs": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7",
+            "plugins/rolling-summary.manifest.json": "0c92650ba4f6f1548681305a4b8db44142ba2418aa8af595909f22ca78620320",
+            "plugins/rolling-summary.mjs": "3fc8f214a25cf2dfa7ed844a2af5ce05a8c2bd6d74f06c6de767dc88bc75784a",
+            "studio/branch-archive.mjs": "51287ca0ef01c6aa8508d2437d933de0f1d4817cf59c210085b99e1f0d9eaccb",
+            "studio/card-context.mjs": "5d68d78fca49131c6b18bbd60fcd4264747049fcb4d75434d90defb47eb8011e",
+            "studio/card-model-policy.mjs": "ea6dfe80478a30428f91cbdb2ba6c8b229db150e5c4d37c1f321fa351e5a1af6",
+            "studio/card-session-store.mjs": "a25e9a7634d35f96355fcc5e063fcd27178ff4f1b4eacb5b790bbf4eeaeaacd5",
+            "studio/card-state.mjs": "a1d2a308f9760448b264ff43f44ef81c93818485b6e2289a59699084388e7063",
+            "studio/controlled-provider.mjs": "8f55c5088b8c7a28dcaf0d6e4610805b68620e4512d1a0ebc447583c331873f9",
+            "studio/default-summary-v2.mjs": "479a4dab25230b7d21c695a1848c3460f410324d868bd3b16ab2f16eb9c7cd1d",
+            "studio/free-opening-runtime-compat.mjs": "24a381982958a2146b35ca33c8c82313ef891ac1db24082827c25dd7aeef77a7",
+            "studio/history-assembly.mjs": "5bb7f3b2d3c8ec2674847795909a604740454914237260febb1b93e89bd7e22b",
+            "studio/history-branch-archive.mjs": "14d8c46d520cbe77eab558572bb1a007b31c535a6932ba09296f0fa7df4b3c60",
+            "studio/history-dispatch.mjs": "6c8a2c4fff5fd22841be952685dcf893c69ce26a8010493f3984867b3839a53a",
+            "studio/history-provider.mjs": "2af5ae26583c806220c1c5bae11e40ed405ff2f3a47fb221708b1b219762799f",
+            "studio/history-runtime.mjs": "815910e1eab47fe1f7b96c3f30786629c2d22940cf0d46a1e8db4a000adaf00e",
+            "studio/history-session-store.mjs": "70d752fcafa163e6d39d68395709443280c221cc3126e865656f591032d70895",
+            "studio/history-state.mjs": "18b8d8b67cb62979d3e987a6f48509ddd639604c655098b06e586e7d394fb7d1",
+            "studio/memory-assembly.mjs": "77bebf174063dbc13e23e41e897f0a6e3e4b826fc9598dcb268377def250638e",
+            "studio/memory-branch-archive.mjs": "d1e7ab6e1df92d65dcf517ebf906b0b99da46dc0e6eea990f9ccc0907afacf18",
+            "studio/memory-budget.mjs": "8b00fa1c70052518f0d6a1eccc56a452e3420844cac7b196288799c58613d3c7",
+            "studio/memory-http.mjs": "e71bc4b78dc7fade449be08777a70a85a3be03a6c65d98dcad7d7dd9c0c5d65a",
+            "studio/memory-runtime.mjs": "a51bc478295636c73a1aa78703dd1bc081a8e8cf1e9e183ac8cd653c1a3b9913",
+            "studio/memory-session-store.mjs": "a1b648a19ce39c2aa6a3d6d284485e00a09fc88f341ca5797dc11de2154231b2",
+            "studio/memory-state.mjs": "13e985e98cacd6788a23405c7b8895762e6a2ee4f752fc6f50b5e92a47b19954",
+            "studio/memory-task-provider.mjs": "826c8654437dfcd818ca9d16c4ace39b4316593e35fb8fb71e2d894065b14198",
+            "studio/memory-task-state.mjs": "4093316334edd9eed4997ec0ebe747a568531ce9e76b666e36e545362574ebfd",
+            "studio/memory-tasks.mjs": "072703209faf82677b302b796437998927d70fec2a11796fd2d37e4e5fec0172",
+            "studio/model-branch-archive.mjs": "e5e15b54d9cfe95f2f1d005ca915413d563db99cdc82edf50de0b57625518b98",
+            "studio/model-parameters.mjs": "6ab8d36c296de325cbd36b660accaea83d726dfef1fdc3158089ff5117374ab0",
+            "studio/model-runtime.mjs": "05f79c50a6c4c84c14860f6d9c679794c1ba1700de1dddfa0393f8df643ae8e6",
+            "studio/model-session-store.mjs": "d927cf090d3af077aece128326aa2ab8418ca183c325f789094369275ac1e299",
+            "studio/models.json": "d7057eb792628577eb3acccc8d6ac5a3fecf47ee67845543d2b28f69feca4abd",
+            "studio/output-edits.mjs": "edf2403d372f58382ef84a96e448fea375473bbe208374ad3c8f76a9c6196c85",
+            "studio/provider.mjs": "2d46d4950629c7f7d9ea1f33855d9deb3571e37efcc230a0b096c2f8f4f97fc2",
+            "studio/server.mjs": "b1e2d680d0ec7f13d0a1525dc3a635cedbfcccebb8e61d55c55684ea22c6a957",
+            "studio/summary-assembly.mjs": "5fd135612f113176ad210bb151879d7c34868ca23c5062abeac0ce238e68a071",
+            "studio/summary-branch-archive.mjs": "a57aae0dbbe59244a8c06f2c3c0b3ae058c801db533b7c8fc79e440eab4901e7",
+            "studio/summary-budget.mjs": "abc61772e32bbb991af74695fd117c3f8bdaad50542ea674b7b4e841a1073b70",
+            "studio/summary-compression.mjs": "5f88708ff520e365ff15d5830ea196da576474491228bf13345cfa6c1ba3b695",
+            "studio/summary-host.mjs": "7fbe48b4084e8615d4ce929365ed30a2789424a888f5ac07117b5da3ff9f0f88",
+            "studio/summary-http.mjs": "9e1669daaca09c94f662cf0006a699f9820d2964784251e70ef01ffd9441cc66",
+            "studio/summary-operations.mjs": "b517dff677be8643fe83407627a45f96f2f8868fd56a2cf12ed82cb1ff681f08",
+            "studio/summary-runtime.mjs": "7806a25c18f8f0878374c84cfcda3b41f2fd971a8f1e927db01fd8a1bcea75ca",
+            "studio/summary-session-store.mjs": "fdd21d5bc5877e4003545d29a7b43b0c53d9aea874bc93e6df926fdc7067c853",
+            "studio/summary-state.mjs": "ca4512e6d4a870c3802059c27d0109a544976fa5ff3268a4c1d28962f542b012",
+            "studio/summary-task-provider.mjs": "7f2928f5e4abe8cd7fc223c1817e61ba6013347cdba0cb4bb6e25dcf70c255f2",
+            "studio/summary-tasks.mjs": "9fb8c45a613e83efcaf6afcccec7cdd7d63930703c2c40816fbd3627f7b1461b",
+            "studio/summary-v2-runtime-compat.mjs": "ba6a841b22528f78215c54c5c3778547d0d4ce8db090fc16cb379af5487bf46f",
+            "studio/versioned-store.mjs": "84aa03ebff0b61f69ac77479f4fcd4da7512fc959e66aea0adce4c23d1b3bbc0"
+          },
+          "models": [
+            {
+              "model": "synthetic/god-offline-a",
+              "name": "离线模拟 A（不调用模型）",
+              "selectionId": "god-offline-a",
+              "selectionRevision": "offline-v1",
+              "available": true,
+              "parameters": {
+                "max_tokens": 2048,
+                "temperature": 0.3
+              }
+            },
+            {
+              "model": "synthetic/god-offline-b",
+              "name": "离线模拟 B（不调用模型）",
+              "selectionId": "god-offline-b",
+              "selectionRevision": "offline-v1",
+              "available": true,
+              "parameters": {
+                "max_tokens": 3072,
+                "temperature": 0.4
+              }
+            }
+          ],
+          "mode": "offline-only",
+          "contextPolicy": "default:complete-raw-history; actual policy is per-session"
+        },
+        "setupHash": "0c52ebbbe80c58f85c909a511e763757cfddd3fed31325326d540ad1819379b2"
+      }
+    },
+    "cultivation": {
+      "cardId": "cultivation",
+      "mode": "offline",
+      "name": "测试",
+      "characterText": "测试旅人",
+      "world": null,
+      "params": {},
+      "id": "c555dc1c-b50b-4ffc-927b-9223ae420b85",
+      "created": "2026-11-13T18:59:30.318Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "offline/cultivation-a",
+          "selectionId": "offline-0",
+          "selectionRevision": "v1",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "dccd56e39d147f7adfe4ded288b6ce13769a6b66ddb027d71652ac1d3555e831"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "offline/cultivation-a",
+              "selectionId": "offline-0",
+              "selectionRevision": "v1",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "dccd56e39d147f7adfe4ded288b6ce13769a6b66ddb027d71652ac1d3555e831"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "descriptor": {
+          "format": 5,
+          "cardId": "cultivation",
+          "mode": "offline",
+          "model": {
+            "kind": "controlled",
+            "model": "offline/cultivation-a",
+            "selectionId": "offline-0",
+            "selectionRevision": "v1",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "configHash": "dccd56e39d147f7adfe4ded288b6ce13769a6b66ddb027d71652ac1d3555e831"
+          },
+          "systemHash": "fb7e5827eb47e5e282a0130939f9be43324b7cfd61a9e85ea2d2a51f75b79482",
+          "adapterHash": "244cfe5b70e33c07ecc41ec1b29a8b6da817372ebdee57f9c7ce2760e4f484e1"
+        },
+        "hash": "dd0dc6245b5e8d391b1d02e3c9f31fd4a42548b56427c0b241434d4b35ecc890",
+        "setupHash": "d85c2ddbf9b7367867b0dfb9cbfb0ddfca1783ef49c981296bcd083e390a9446"
+      }
+    },
+    "xingjian": {
+      "cardId": "xingjian",
+      "mode": "offline",
+      "name": "测试",
+      "characterText": "测试旅人",
+      "world": null,
+      "params": {},
+      "id": "64fe5636-72be-4433-8ce0-b21fa2889178",
+      "created": "2026-11-13T18:59:30.347Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "offline/xingjian-a",
+          "selectionId": "offline-0",
+          "selectionRevision": "v1",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "21966695825db636d1dbc564b57a22a6c612cacfdefef4b360d852aacfd91fd6"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "offline/xingjian-a",
+              "selectionId": "offline-0",
+              "selectionRevision": "v1",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "21966695825db636d1dbc564b57a22a6c612cacfdefef4b360d852aacfd91fd6"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "descriptor": {
+          "format": 5,
+          "cardId": "xingjian",
+          "mode": "offline",
+          "model": {
+            "kind": "controlled",
+            "model": "offline/xingjian-a",
+            "selectionId": "offline-0",
+            "selectionRevision": "v1",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "configHash": "21966695825db636d1dbc564b57a22a6c612cacfdefef4b360d852aacfd91fd6"
+          },
+          "systemHash": "fb7e5827eb47e5e282a0130939f9be43324b7cfd61a9e85ea2d2a51f75b79482",
+          "adapterHash": "244cfe5b70e33c07ecc41ec1b29a8b6da817372ebdee57f9c7ce2760e4f484e1"
+        },
+        "hash": "1a95563df190736be9a17828c1e4dba18ca8605c80b09759a86e19bbd420e3fa",
+        "setupHash": "d85c2ddbf9b7367867b0dfb9cbfb0ddfca1783ef49c981296bcd083e390a9446"
+      }
+    },
+    "jinyong": {
+      "cardId": "jinyong",
+      "mode": "offline",
+      "name": "测试",
+      "characterText": "测试旅人",
+      "world": null,
+      "params": {},
+      "id": "65ec3b2d-b8d5-4d8f-8104-f47a16cf831b",
+      "created": "2026-11-13T18:59:30.376Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "offline/jinyong-a",
+          "selectionId": "offline-0",
+          "selectionRevision": "v1",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "b38f1256675ab277411f17654c3bf6a1c1e0683bb5736d4213b1fb6d68549196"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "offline/jinyong-a",
+              "selectionId": "offline-0",
+              "selectionRevision": "v1",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "b38f1256675ab277411f17654c3bf6a1c1e0683bb5736d4213b1fb6d68549196"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "descriptor": {
+          "format": 5,
+          "cardId": "jinyong",
+          "mode": "offline",
+          "model": {
+            "kind": "controlled",
+            "model": "offline/jinyong-a",
+            "selectionId": "offline-0",
+            "selectionRevision": "v1",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "configHash": "b38f1256675ab277411f17654c3bf6a1c1e0683bb5736d4213b1fb6d68549196"
+          },
+          "systemHash": "fb7e5827eb47e5e282a0130939f9be43324b7cfd61a9e85ea2d2a51f75b79482",
+          "transportArtifacts": {
+            "host.mjs": "73fa1c2d0842164ab806f0343b1d8ba09e9d40809b3b152d7309ecbb9ad2f8c7",
+            "continuity.mjs": "de4353dbc31160b64a90141cacc30b30a0a8ed20fec7208438e616d277326b33",
+            "offline-store.mjs": "132510e798bbfa09a9bd7795490fd094e54b3c17968e085ef745ab0c8165d2dd",
+            "transport/controlled-provider.mjs": "95e352bd2e81b72a9096761c086eef9819b1825f7449461a5d43c41703c06011",
+            "transport/memory-budget.mjs": "1e1842759b1a81913ac5ae901be7ce4a5a11b690f7918f46e4cbbeba1219ee2c",
+            "transport/memory-task-provider.mjs": "6c64613c3e1fd87c5afa5f059025283acf6a433fdfe850b258ec790199f9f384"
+          },
+          "adapterHash": "73fa1c2d0842164ab806f0343b1d8ba09e9d40809b3b152d7309ecbb9ad2f8c7"
+        },
+        "hash": "7a16193e874640030c2366403cfdd8a0b52b9ede6797781d1738f997a5a6f8d0",
+        "setupHash": "d85c2ddbf9b7367867b0dfb9cbfb0ddfca1783ef49c981296bcd083e390a9446"
+      }
+    },
+    "medieval": {
+      "cardId": "medieval",
+      "mode": "offline",
+      "name": "测试",
+      "characterText": "测试旅人",
+      "world": null,
+      "params": {},
+      "id": "644cfd56-7cd6-4e6b-8e32-f0ce31a15530",
+      "created": "2026-11-13T18:59:30.407Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "offline/medieval-a",
+          "selectionId": "offline-0",
+          "selectionRevision": "v1",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "7241e7796c5f47fd870d02868acc3f56eb4f9ed2104170aef99c8c55f1b75a47"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "offline/medieval-a",
+              "selectionId": "offline-0",
+              "selectionRevision": "v1",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "7241e7796c5f47fd870d02868acc3f56eb4f9ed2104170aef99c8c55f1b75a47"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "descriptor": {
+          "format": 5,
+          "cardId": "medieval",
+          "mode": "offline",
+          "model": {
+            "kind": "controlled",
+            "model": "offline/medieval-a",
+            "selectionId": "offline-0",
+            "selectionRevision": "v1",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "configHash": "7241e7796c5f47fd870d02868acc3f56eb4f9ed2104170aef99c8c55f1b75a47"
+          },
+          "systemHash": "fb7e5827eb47e5e282a0130939f9be43324b7cfd61a9e85ea2d2a51f75b79482",
+          "transportArtifacts": {
+            "host.mjs": "f563e2dd59c2c39ccb25118ab6a0737239ff6b74a90c375c0a0e4c97221e5ca0",
+            "assembly.mjs": "7a7105ce763c53da64ba2c0be21084cb0d14e1f2c08c14a8c9a87b150cda9f80",
+            "resources/system.txt": "e3e4538f2b1950ccf3e7ce5ce154ee5a96293b3471f637942b3d28613dd559e0",
+            "offline-store.mjs": "a25406e4507eb2ab5399848907deb9e3e58b3fd3129d8912eff1945492d14f0e",
+            "transport/controlled-provider.mjs": "5c3eb1a77edbb0681b402a1d79ab8cc4a1469ac8f933269d788021f5d3728116",
+            "transport/memory-budget.mjs": "6e28ab0958229399a33562c2d5519d6d401143d38dd6fd8b4706950671708e2f",
+            "transport/memory-task-provider.mjs": "fd8ed14c6aa6344cfa67467d7b82d0b5b99e7d81360030788634af884c46871c"
+          },
+          "adapterHash": "f563e2dd59c2c39ccb25118ab6a0737239ff6b74a90c375c0a0e4c97221e5ca0"
+        },
+        "hash": "7f3df0d16f51142ae2e8bcd2a6188e80fc479f16329f491a692cf9f1aa044bfe",
+        "setupHash": "d85c2ddbf9b7367867b0dfb9cbfb0ddfca1783ef49c981296bcd083e390a9446"
+      }
+    },
+    "harry-potter": {
+      "cardId": "harry-potter",
+      "mode": "offline",
+      "name": "测试",
+      "characterText": "测试旅人",
+      "world": null,
+      "params": {},
+      "id": "2bfc4345-3e24-4907-a9a8-9c4be7ad1999",
+      "created": "2026-11-13T18:59:30.437Z",
+      "revision": 0,
+      "history": [],
+      "turns": [],
+      "requests": {},
+      "modelState": {
+        "revision": 0,
+        "current": {
+          "kind": "controlled",
+          "model": "offline/harry-potter-a",
+          "selectionId": "offline-0",
+          "selectionRevision": "v1",
+          "parameters": {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 16384
+          },
+          "configHash": "1b9fb7b25fbba2162274fed407a4785395707b7995df7316ad304f71e559108f"
+        },
+        "operations": {},
+        "timeline": [
+          {
+            "revision": 0,
+            "choice": {
+              "kind": "controlled",
+              "model": "offline/harry-potter-a",
+              "selectionId": "offline-0",
+              "selectionRevision": "v1",
+              "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 16384
+              },
+              "configHash": "1b9fb7b25fbba2162274fed407a4785395707b7995df7316ad304f71e559108f"
+            }
+          }
+        ]
+      },
+      "historyWindow": {
+        "policyVersion": "rpg.history-window/1",
+        "revision": 0,
+        "config": {
+          "turns": 3,
+          "includeInitialCharacter": false
+        },
+        "pending": null,
+        "operations": {}
+      },
+      "rollingSummary": {
+        "policyVersion": "rpg.rolling-summary/1",
+        "revision": 0,
+        "config": {
+          "timing": "before",
+          "model": null
+        },
+        "activeVersionId": null,
+        "versions": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "c71c21f6822604867fb83d06c91c9de25754a12eba7295bc3931c36d0b3dd14f"
+      },
+      "memoryPalace": {
+        "policyVersion": "rpg.memory-palace/1",
+        "revision": 0,
+        "processedThrough": 0,
+        "entries": [],
+        "pending": null,
+        "operations": {},
+        "stateHash": "fba5d687c7bce77dfaa27175732e9ea31bc7168e9ed2e074668ee2f9d5983c5b"
+      },
+      "memoryTasks": {
+        "policy": "rpg.memory-palace/tasks-1",
+        "config": {
+          "model": null,
+          "revision": 0
+        },
+        "settings": {},
+        "pendingSettings": null,
+        "operations": {},
+        "blocked": null,
+        "hash": "4c49c74ea20042fa2e29c3467cf396e5f2d762822184d3eef5e9c257455c0a33"
+      },
+      "runtime": {
+        "format": 5,
+        "descriptor": {
+          "transportArtifacts": {
+            "host.mjs": "63ce4e8e55848bdbf4f16992d8bc33cab1176d6e679d52c556f4bb2f4b50da05",
+            "offline-store.mjs": "fc7b27d35a29e417b75930c1ffb2da9dff042b7ab3bceb3e0498bc1b7d404d52",
+            "transport/controlled-provider.mjs": "c90887a99867578cecc48df0f97c311100deb7b0d68f53f0f24b41098c9e1d8d",
+            "transport/memory-budget.mjs": "dd33e56c1bacd1c6b4572ffcf73474b9b885ac778b23586c04f6982e503a0540",
+            "transport/memory-task-provider.mjs": "b16cdb797fc619d7ebe32a3b16f330fce532541aa59d9c66f25aa93553c0839f"
+          },
+          "format": 5,
+          "cardId": "harry-potter",
+          "mode": "offline",
+          "model": {
+            "kind": "controlled",
+            "model": "offline/harry-potter-a",
+            "selectionId": "offline-0",
+            "selectionRevision": "v1",
+            "parameters": {
+              "temperature": 0.7,
+              "top_p": 0.8,
+              "max_tokens": 16384
+            },
+            "configHash": "1b9fb7b25fbba2162274fed407a4785395707b7995df7316ad304f71e559108f"
+          },
+          "systemHash": "fb7e5827eb47e5e282a0130939f9be43324b7cfd61a9e85ea2d2a51f75b79482",
+          "adapterHash": "63ce4e8e55848bdbf4f16992d8bc33cab1176d6e679d52c556f4bb2f4b50da05"
+        },
+        "hash": "f0bb57df512cbf256b9487db943ca96096c13a12e9282e70ada469d176e2072e",
+        "setupHash": "d85c2ddbf9b7367867b0dfb9cbfb0ddfca1783ef49c981296bcd083e390a9446"
+      }
+    }
+  },
+  "generationArtifacts": {
+    "studio/output-edits.mjs": "edf2403d372f58382ef84a96e448fea375473bbe208374ad3c8f76a9c6196c85",
+    "studio/message-tools.mjs": "5df3cd611d15b754de069d3ac0fd83e603065cf008d2b2873e87ea57a936530c",
+    "studio/default-summary-v2.mjs": "479a4dab25230b7d21c695a1848c3460f410324d868bd3b16ab2f16eb9c7cd1d",
+    "studio/card-requirements.mjs": "7f9c250e7342504c1e14676ad06502a81a533c528014805451892a455875ba15",
+    "plugins/owner-lock.mjs": "46337baf7cf8a25f6ab0ee6f7ad027eec1b0d3c27c59685ef72c4122e3206db7",
+    "authoring/comparison-future.mjs": "14d690879cad4876e20163f6552a9425146f1ede6d014d15249aca4abac70c56",
+    "studio/generation-cards.mjs": "9eb3fad904be949692cc78d6d0d036ae00f25f09fb2b8b2bd801006cc4298fb8",
+    "studio/card-generation.mjs": "7fc6423a39a45ec8083af8ff052b36cc49cd67e207fa22c3ee9f831efe8464dc",
+    "studio/card-comparison.mjs": "ce7a369bcc39e40ee6fb11ccc16f5688256c0331cc1e2ff7eebd89c2c6703bc0",
+    "authoring/comparison-control.mjs": "18c341dbc3dd15caef624c51ee3a0be62e8b66ee978d4e8f832c768cc6bee11f",
+    "authoring/comparison-host.mjs": "d180343881f043d0412e669ecdf1c9e8f045efd32933d80dfd9452cdc78481a2",
+    "authoring/comparison-coordinator.mjs": "c73dc3abd1c3f25fb37be3e32b5f102555fc6aa0b84d007973763551139dfb23",
+    "authoring/comparison-contract.mjs": "85955fe6ac8fdd3f54e2f3cecc303d9c41d9d11f1c16155e2958bc7986265680",
+    "studio/memory-budget.mjs": "8b00fa1c70052518f0d6a1eccc56a452e3420844cac7b196288799c58613d3c7",
+    "studio/memory-tasks.mjs": "072703209faf82677b302b796437998927d70fec2a11796fd2d37e4e5fec0172",
+    "studio/summary-tasks.mjs": "9fb8c45a613e83efcaf6afcccec7cdd7d63930703c2c40816fbd3627f7b1461b",
+    "studio/card-context.mjs": "5d68d78fca49131c6b18bbd60fcd4264747049fcb4d75434d90defb47eb8011e",
+    "studio/card-state.mjs": "a1d2a308f9760448b264ff43f44ef81c93818485b6e2289a59699084388e7063",
+    "studio/memory-session-store.mjs": "a1b648a19ce39c2aa6a3d6d284485e00a09fc88f341ca5797dc11de2154231b2",
+    "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
+    "card-replica/resources/prompts.json": "3cd96ac8519f31e15de17581926e9f693c75b18d0b139c64cb361c071c709ae7",
+    "god-card/lib/assembly.mjs": "15bec1b4af086c46b089760f712da4fb5019b8bb41ae96c6b84edbcc093beaca",
+    "god-card/lib/output-suffix.mjs": "eee8e3015c311fc3133e0bd63e319b2d0aa3420a5c7a1e040709a046635a9911",
+    "god-card/resources/output-suffix.json": "ef20d1269dd6972919b0e4c2c8a15362d261ddccae250aaa6dccce08453f31b3",
+    "ancient-card/assembly.mjs": "9995eb0bd2835d78e20556c060ae38d142ccd3f3bee9e2bab024456be4309206",
+    "cultivation-card/host.mjs": "994271a429f9880d25eee97fd88622aa39d5a17d71f3d00e0c9278d93dab3565",
+    "lord-of-mysteries-card/assembly.mjs": "56025cf075ddc7443c592249f8f8d1e54bf1fdad9ebf3aff75f3f51ba7f822f9",
+    "studio/rpg05-prompt.json": "17d4a250b10b1c33e9f0dbfd5afb8639987c0578b5004bce80f7eea4dc4fe899",
+    "xingjian-card/output-format.txt": "3b65dbc75faccc3552a841d31cbc93543271a1e15884c5080219909bdf8da69d"
+  }
+}
