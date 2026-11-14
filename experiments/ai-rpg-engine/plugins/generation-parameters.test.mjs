@@ -36,7 +36,7 @@ async function fixture(t,{adapter,loadParameters=true}={}) {
 }
 
 test('new package is opt-in; legacy advertised list and default catalog stay unchanged',async()=>{
-  assert.equal(REVIEWED_PLUGIN_IDS.length,8);assert.equal(KNOWN_PLUGIN_IDS.length,12);assert.equal(new Set(KNOWN_PLUGIN_IDS).size,12);assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.shop'));assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.speech'));assert.equal(REVIEWED_PLUGIN_IDS.includes('rpg.speech'),false);assert.equal((await loadReviewedPlugins()).some(x=>x.manifest.id==='rpg.speech'),false);assert.equal(REVIEWED_PLUGIN_IDS.includes('rpg.shop'),false);assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.model-comparison'));
+  assert.equal(REVIEWED_PLUGIN_IDS.length,8);assert.equal(KNOWN_PLUGIN_IDS.length,13);assert.equal(new Set(KNOWN_PLUGIN_IDS).size,13);assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.shop'));assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.speech'));assert.equal(REVIEWED_PLUGIN_IDS.includes('rpg.speech'),false);assert.equal((await loadReviewedPlugins()).some(x=>x.manifest.id==='rpg.speech'),false);assert.equal(REVIEWED_PLUGIN_IDS.includes('rpg.shop'),false);assert.ok(KNOWN_PLUGIN_IDS.includes('rpg.model-comparison'));
   assert.equal(REVIEWED_PLUGIN_IDS.includes(P),false);
   assert.deepEqual((await loadReviewedPlugins()).map(x=>x.manifest.id),['rpg.branch-save',M,'rpg.history-window']);
   const before=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:true});

@@ -1,0 +1,92 @@
+{
+  "kind": "sanitized-provider-evidence-summary",
+  "model": "google/gemini-3.8-flash",
+  "providerTag": "google-ai-studio",
+  "userPrototypeAccepted": true,
+  "actualCalls": 3,
+  "reportedTotalUSD": "0.393111",
+  "automaticRetries": 0,
+  "earlierEnvironmentFailures": {
+    "providerCalls": 0,
+    "USD": 0
+  },
+  "runs": [
+    {
+      "run": "tools-real-qualified-v2",
+      "actualCalls": 2,
+      "automaticRetries": 0,
+      "reportedTotalUSD": "0.25659225",
+      "stages": [
+        {
+          "stage": 1,
+          "purpose": "自主查询",
+          "inputTokens": 157233,
+          "outputTokens": 300,
+          "reasoningTokensIncludedInOutput": 273,
+          "reportedUSD": "0.11904975",
+          "completeSeconds": 9.711,
+          "firstObservedContentSeconds": 9.711,
+          "proseFirstSeconds": null,
+          "finishReason": "tool_calls"
+        },
+        {
+          "stage": 2,
+          "purpose": "查询结果续写",
+          "inputTokens": 157565,
+          "outputTokens": 5165,
+          "reasoningTokensIncludedInOutput": 335,
+          "reportedUSD": "0.1375425",
+          "completeSeconds": 56.664,
+          "firstObservedContentSeconds": 9.906,
+          "proseFirstSeconds": null,
+          "finishReason": "stop"
+        }
+      ],
+      "stateCommitted": false,
+      "stateChecks": {
+        "medicine5to3": false,
+        "balancesUnchanged": true,
+        "abilitiesUnchanged": true,
+        "registeredItemCountUnchanged": true
+      },
+      "initialHash": "7a3153b65085feeccf81b3cd200dc201084f85c15fdd1739a8422cd94bf2d7f6",
+      "credentialCleanupVerified": true
+    },
+    {
+      "run": "tools-identity-real-v1",
+      "actualCalls": 1,
+      "automaticRetries": 0,
+      "reportedTotalUSD": "0.13651875",
+      "stages": [
+        {
+          "stage": 1,
+          "purpose": "最终续写；复用上一轮查询结果",
+          "inputTokens": 157775,
+          "outputTokens": 4850,
+          "reasoningTokensIncludedInOutput": 587,
+          "reportedUSD": "0.13651875",
+          "completeSeconds": 60.74,
+          "firstObservedContentSeconds": 16.135,
+          "proseFirstSeconds": null,
+          "finishReason": "stop"
+        }
+      ],
+      "stateCommitted": true,
+      "stateChecks": {
+        "medicine5to3": true,
+        "allOtherStateUnchanged": true,
+        "relationsUnchanged": true
+      },
+      "initialHash": "7a3153b65085feeccf81b3cd200dc201084f85c15fdd1739a8422cd94bf2d7f6",
+      "credentialCleanupVerified": true
+    }
+  ],
+  "limitations": [
+    "Last run reuses previous verified query; one final continuation, not a new two-request chain.",
+    "No reliable prose-first timestamp.",
+    "No nonempty thought_signature observed in real SSE; preservation tested offline only.",
+    "Unregistered item/container narration and exact remainder remain accepted prototype limitations.",
+    "quantityOnly is explicit host configuration, not a general natural-language intent parser."
+  ],
+  "rawEvidence": "Kept locally in ignored .rpg03-work directories; no raw model reply or credential included."
+}

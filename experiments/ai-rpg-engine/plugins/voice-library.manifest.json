@@ -1,0 +1,26 @@
+{
+  "format": "modelmirror.rpg.reviewed-plugin",
+  "formatVersion": "1.0.0",
+  "id": "rpg.voice-library",
+  "version": "1.0.0",
+  "name": "角色音色库",
+  "description": "创建并保存 Qwen / CosyVoice 角色音色，绑定角色后通过沉浸语音朗读。模型与额度由统一控制面管理。",
+  "hostVersion": "1.0.0",
+  "compatibleCards": [
+    "earth",
+    "god"
+  ],
+  "capabilities": [
+    "session.voice.manage"
+  ],
+  "permissions": [
+    "session.voice.manage",
+    "ui.contribute"
+  ],
+  "network": "none",
+  "modelAccess": false,
+  "dataRetention": "retain",
+  "source": "ModelMirror / experiments/ai-rpg-engine/plugins/voice-library.mjs",
+  "license": "UNLICENSED (repository first-party source; no third-party redistribution grant)",
+  "artifactSha256": "ae181ea5aff3d96ef8f0ea3ddf87040bb3cc8a398a6809caa8c7b79173b8492d"
+}

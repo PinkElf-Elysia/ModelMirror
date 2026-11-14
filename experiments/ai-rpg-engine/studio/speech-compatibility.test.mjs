@@ -30,7 +30,7 @@ test('baseline archive saves keep full descriptor checks for optional speech int
  }
 });
 
-for(const [label,file] of [['main fefc14b0','speech-main-baseline.fixture.json'],['main c9db3034','speech-shop-baseline.fixture.json'],['PR 4a32fbe2','speech-release-baseline.fixture.json']]){
+for(const [label,file] of [['main a6563a9b','voice-library-baseline.fixture.json'],['main fefc14b0','speech-main-baseline.fixture.json'],['main c9db3034','speech-shop-baseline.fixture.json'],['PR 4a32fbe2','speech-release-baseline.fixture.json']]){
 const mainFixture=JSON.parse(await readFile(new URL('./'+file,import.meta.url),'utf8'));
 test(label+' saves retain exact runtime and setup protection with speech',async()=>{
  for(const memory of [false,true]){
@@ -38,6 +38,7 @@ test(label+' saves retain exact runtime and setup protection with speech',async(
   try{cases(h.earth,mainFixture.sessions[memory?'earthMemory':'earth'],'main earth');cases(h.god,mainFixture.sessions[memory?'godMemory':'god'],'main god');}finally{await new Promise(r=>h.server.close(r));await h.plugins.close();}
  }
  for(const id of ['cultivation','xingjian','jinyong','medieval','harry-potter']){
+  if(!mainFixture.sessions[id])continue;
   const factory=id==='harry-potter'?createHarryPotterHost:id==='jinyong'?createJinyongHost:id==='medieval'?createMedievalHost:createArchiveHost;
   const h=await factory(await mkdtemp(join(tmpdir(),'speech-main-archive-')),null,{cardId:id,name:'测试',system:'测试世界',pluginFeatures:{speech:true}});
   try{cases(h.store,mainFixture.sessions[id],id);assert((await h.plugins.catalog()).plugins.some(p=>p.id==='rpg.speech'));}finally{await h.plugins.close();}

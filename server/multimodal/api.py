@@ -113,6 +113,7 @@ class SpeechRequest(BaseModel):
     voice: str = Field(min_length=1, max_length=128)
     response_format: Literal["mp3", "wav"] = "mp3"
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    voice_asset_id: str | None = Field(default=None, pattern=r"^voice_[a-f0-9]{32}$")
 
 
 class VideoAnalysisUsageResponse(BaseModel):
@@ -184,6 +185,8 @@ router = APIRouter(
     tags=["multimodal"],
     lifespan=_multimodal_lifespan,
 )
+from .voice_api import router as voice_library_router
+router.include_router(voice_library_router)
 _transcription_service: TranscriptionService | None = None
 _speech_service: SpeechService | None = None
 _audio_catalog_service: AudioCatalogService | None = None
@@ -889,6 +892,20 @@ async def synthesize_speech(
     payload: SpeechRequest,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> Response:
+    if payload.voice_asset_id is not None:
+        from .voice_api import get_voice_library, http_error
+        try:
+            from server.model_router.service import RouterServiceError
+        except ModuleNotFoundError:
+            from model_router.service import RouterServiceError
+        if payload.voice != "library:" + payload.voice_asset_id:
+            raise HTTPException(422, detail={"code": "voice_binding_invalid"})
+        try:
+            result = await get_voice_library().synthesize(asset_id=payload.voice_asset_id, model=payload.model_id,
+                text=payload.input, response_format=payload.response_format, speed=payload.speed, operation_id=idempotency_key)
+        except RouterServiceError as error:
+            raise http_error(error) from None
+        return _speech_response(result)
     try:
         result = await get_speech_service().synthesize(
             model_id=payload.model_id,

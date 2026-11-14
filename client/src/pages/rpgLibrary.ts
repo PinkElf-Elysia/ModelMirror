@@ -1,6 +1,6 @@
 import {worlds} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 import {localAuthoringHref} from './rpgAuthoringLink';
-export type LibraryWork = {id:string; name:string; description:string; tags:string[]; art:string; artPosition?:string; mark:string; href:string; source:'builtin'|'published'; version?:number; publishedAt?:string};
+export type LibraryWork = {kind?:'world'|'character'; id:string; name:string; description:string; tags:string[]; art:string; artPosition?:string; mark:string; href:string; source:'builtin'|'published'; version?:number; publishedAt?:string};
 // Library-only covers do not alter saved-session runtime fingerprints.
 const libraryCovers:Record<string,string>={
   douluo:'/rpg-covers/douluo-original.gif',
@@ -32,7 +32,7 @@ export function authoringOrigin(port:string|undefined,page:Pick<Location,'protoc
 }
 export function workbenchHref(port:string|undefined,page:Pick<Location,'protocol'|'hostname'|'port'>, work?:{id:string;versionId:string}) {
   const base=localAuthoringHref(port,page); if(!base)return;
-  const url=new URL(base);
+  const url=new URL(work?'/play':base,authoringOrigin(port,page));
   url.searchParams.set('library',`http://127.0.0.1${page.port?':'+page.port:''}/rpg`);
   if(work){url.searchParams.set('work',work.id);url.searchParams.set('version',work.versionId);}
   return url.href;
@@ -43,9 +43,10 @@ export function readPublishedWorks(value:unknown,port:string|undefined,page:Pick
   const ids=new Set<string>();
   return value.works.map(w=>{
     if(!w||typeof w!=='object'||typeof w.id!=='string'||!/^work-[a-f0-9]{64}$/.test(w.id)||ids.has(w.id)||typeof w.versionId!=='string'||!/^version-[a-f0-9]{64}$/.test(w.versionId)||typeof w.name!=='string'||typeof w.description!=='string'||!Array.isArray(w.tags)||!w.tags.every((t:unknown)=>typeof t==='string')||!Number.isSafeInteger(w.versionNumber)||w.versionNumber<1||typeof w.publishedAt!=='string'||!Number.isFinite(Date.parse(w.publishedAt)))throw Error('Invalid work');
+    if(w.kind!==undefined&&!['world','character'].includes(w.kind))throw Error('Invalid work kind');
     ids.add(w.id);
     const cover=`/rpg-app/api/authoring/library/${w.id}/${w.versionId}/cover`;
     if(w.cover!==null&&w.cover!==cover)throw Error('Invalid cover');
-    return {id:w.id,name:w.name,description:w.description,tags:w.tags,art:w.cover?origin+cover:'',mark:Array.from(String(w.name).trim())[0]||'作',href:workbenchHref(port,page,w)!,source:'published',version:w.versionNumber,publishedAt:w.publishedAt};
+    return {kind:w.kind||'world',id:w.id,name:w.name,description:w.description,tags:w.tags,art:w.cover?origin+cover:'',mark:Array.from(String(w.name).trim())[0]||'作',href:workbenchHref(port,page,w)!,source:'published',version:w.versionNumber,publishedAt:w.publishedAt};
   });
 }

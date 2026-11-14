@@ -23,6 +23,7 @@ FORMAT_V2 = "modelmirror.rpg.authoring-task/2"
 FORMAT_COMPARISON = "modelmirror.rpg.authoring-task/3"
 from . import rpg_comparison as comparison
 RECEIPT_FORMAT = "modelmirror.rpg.authoring-task-receipt/1"
+CHARACTER_MESSAGES = "modelmirror.rpg.character-messages/1"
 MAX_BODY = 8 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
 PREFLIGHT_TIMEOUT_SECONDS = 15
@@ -94,6 +95,12 @@ async def _body(request, unique):
                            parse_constant=lambda _: (_ for _ in ()).throw(ValueError()))
         fields = {"format", "sessionId", "requestId", "operationId", "purpose", "sourceRequestHash",
                   "catalogRevision", "selectionId", "selectionRevision", "parameters", "messages"}
+        character = isinstance(value, dict) and "messageContract" in value
+        if character:
+            fields.add("messageContract")
+            if (value["messageContract"] != CHARACTER_MESSAGES or value.get("purpose") != "story"
+                    or value.get("format") not in (FORMAT, FORMAT_V2)):
+                raise ValueError()
         version_two = isinstance(value, dict) and value.get("format") in (FORMAT_V2, FORMAT_COMPARISON)
         if version_two:
             fields.add("capabilityRevision")
@@ -111,10 +118,24 @@ async def _body(request, unique):
         if value["purpose"] not in ("story", "summary", "compression", "memory") or not isinstance(value["parameters"], dict):
             raise ValueError()
         messages = value["messages"]
-        if not isinstance(messages, list) or not 2 <= len(messages) <= 2202 or len(messages) % 2:
-            raise ValueError()
-        for i, m in enumerate(messages):
-            role = "system" if i == 0 else "user" if i % 2 else "assistant"
+        if character:
+            # A fixed assistant opening is not a fabricated user/assistant turn.
+            # Only an optional final system message may follow the current user.
+            if not isinstance(messages, list) or not 3 <= len(messages) <= 2204:
+                raise ValueError()
+            roles = [m.get("role") if isinstance(m, dict) else None for m in messages]
+            conversation = roles[:-1] if roles[-1] == "system" else roles
+            if (len(conversation) < 3 or len(conversation) % 2 != 1
+                    or conversation[:2] != ["system", "assistant"]
+                    or any(role != ("user" if i % 2 == 0 else "assistant")
+                           for i, role in enumerate(conversation[2:], start=2))):
+                raise ValueError()
+        else:
+            # Preserve the existing world/summary/memory/comparison contract.
+            if not isinstance(messages, list) or not 2 <= len(messages) <= 2202 or len(messages) % 2:
+                raise ValueError()
+            roles = ["system" if i == 0 else "user" if i % 2 else "assistant" for i in range(len(messages))]
+        for m, role in zip(messages, roles):
             if not isinstance(m, dict) or set(m) != {"role", "content"} or m["role"] != role or not isinstance(m["content"], str):
                 raise ValueError()
             m["content"].encode("utf-8", errors="strict")
