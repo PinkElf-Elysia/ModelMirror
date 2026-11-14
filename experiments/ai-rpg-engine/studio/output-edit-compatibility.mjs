@@ -1,4 +1,4 @@
-import {beforeSpeech,beforeSpeechBases,beforeSpeechMain,beforeSpeechMainBases} from './speech-compatibility.mjs';
+import {beforeSpeech,beforeSpeechBases,beforeSpeechMain,beforeSpeechMainBases,beforeSpeechShop,beforeSpeechShopBases,beforeSpeechRelease,beforeSpeechReleaseBases} from './speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {sha,canonical} from '../plugins/catalog.mjs';
 import {earthRuntime} from './runtime-binding.mjs';
@@ -93,13 +93,13 @@ const recoveryBefore={
 };
 const recoveryBases=[null, null, "d16be3eda5e89e6121f92a2585dacadda25396516a7b25c958595f834e96f358", "bd4d7bdf6b571a2610a324b596e1e383054f05379701c55fc510e962aff3b982", "6cb8819f5485043a6fd08cbd676b0ef94708765ecd95b8c5e0238adeec0a030e"];
 const newBases=[earthRuntime,modelRuntime,historyRuntime,summaryRuntime,memoryRuntime].map(r=>r.hash);
-const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(beforeSpeechMain),...Object.keys(beforeSpeech),...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),...Object.keys(recoveryBefore),'studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
+const current=Object.fromEntries(await Promise.all([...new Set([...Object.keys(beforeSpeechShop),...Object.keys(beforeSpeechRelease),...Object.keys(beforeSpeechMain),...Object.keys(beforeSpeech),...Object.keys(before),...Object.keys(mainBefore),...Object.keys(latestBefore),...Object.keys(recoveryBefore),'studio/output-edits.mjs'])].map(async p=>[p,sha(await readFile(new URL('../'+p,import.meta.url)))])));
 export function preserveOutputEditRuntime(store){
  const original=store.status.bind(store);
  store.status=s=>{
   const result=original(s);
   if(result.code!=='RUNTIME_VERSION_MISMATCH')return result;
-  for(const [previous,bases] of [[beforeSpeechMain,beforeSpeechMainBases],[{...beforeSpeech,...recoveryBefore},beforeSpeechBases],[recoveryBefore,recoveryBases],[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
+  for(const [previous,bases] of [[beforeSpeechShop,beforeSpeechShopBases],[beforeSpeechRelease,beforeSpeechReleaseBases],[beforeSpeechMain,beforeSpeechMainBases],[{...beforeSpeech,...recoveryBefore},beforeSpeechBases],[recoveryBefore,recoveryBases],[latestBefore,latestBases],[mainBefore,mainBases],[before,oldBases]]){
    const descriptor=structuredClone(s.runtime.descriptor);
    let changed=false;
    for(const artifacts of [descriptor.artifacts,descriptor.hostArtifacts,descriptor.content?.cardArtifacts]){

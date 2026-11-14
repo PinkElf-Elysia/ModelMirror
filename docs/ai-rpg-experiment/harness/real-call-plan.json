@@ -1,0 +1,150 @@
+{
+  "format": "modelmirror.rpg.harness-real-call-plan/2",
+  "status": "AWAITING_USER_CONFIRMATION",
+  "authorizedCalls": 0,
+  "authorizedCostMicros": 0,
+  "baseCommit": "d9dd7094bfbab9db3402e308b35c6da09c228de9",
+  "binding": {
+    "adapterVersion": "earth-shop-adapter/1",
+    "cardId": "earth",
+    "sourceHash": "89e4af518db51b515c3ba02fc1b5afc3e8de419e4c98abb00bef030db2a0dfb7",
+    "manifestHash": "180ef519f94b76a923e447e8bd5d74d0fce11caab220228e66c1738771795f9e",
+    "ruleVersion": "earth-corner-shop/1",
+    "ruleHash": "b1b786cc890e0c944fd0700c29f155103be9b818e05d5f07788d54a121c74508",
+    "adaptedHash": "c5fab7144ae0fba10f45eb89d96d559fda40d479a3637730ca7154512d81377c",
+    "ownedFields": [
+      "bank.balance",
+      "inventory.water",
+      "inventory.bread",
+      "inventory.notebook",
+      "shop.stock"
+    ]
+  },
+  "implementationHashes": {
+    "harness/earth-adapter.mjs": "286024a392e91e17a955a6b73e2cb3e0df9b898af00a992e3fe20412f8839e49",
+    "harness/context.mjs": "cb45256411b6790ca77a9c0dfcd263829640f4ec1470fc1861b09d6645ed4ff2",
+    "harness/stage-runner.mjs": "2b455c49b93a94e608b41bc6ae4734b69979a42d8c0529cc25efd955f396a200",
+    "harness/controlled-provider.mjs": "f6bc0eed852f4fc2f7cc2a9a22a48bb383fbd913c0ec4ab9bd905da006d2e6d5",
+    "harness/measurement.mjs": "2e4c3abb948290048c9999f6774e57db12119c621161bdc4659e309a0b951379",
+    "harness/measurement-budget.mjs": "2c0743a3b5a890542e0576d33752937efc5c188a57426749d21947a6b648d9b8",
+    "studio/controlled-provider.mjs": "de9cb5c1290e2a2097189d93b9966a2bb9e54deb666ccfeaf457d2d564535acd"
+  },
+  "model": "google/gemini-3.8-flash",
+  "parameters": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "max_tokens": 16384
+  },
+  "pricing": {
+    "currency": "USD",
+    "inputPerMillion": 0.75,
+    "outputPerMillion": 3.75,
+    "cachedInputPerMillion": 0.075,
+    "observedAt": "2026-11-13",
+    "providerTag": "google-ai-studio",
+    "serviceTier": "standard",
+    "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+    "billingAuthoritative": false
+  },
+  "priceAdmissionCeiling": {
+    "inputPerMillion": 1.5,
+    "outputPerMillion": 7.5,
+    "currency": "USD"
+  },
+  "limits": {
+    "maxCalls": 3,
+    "maxCostMicros": 750000,
+    "perRequestMicros": 250000,
+    "inputAdmissionUnits": 80000,
+    "outputTokens": 16384,
+    "automaticRetries": 0,
+    "automaticFallbacks": 0,
+    "certificationCalls": 0
+  },
+  "route": {
+    "intended": "existing certified RPG S2S route to Google AI Studio standard; exact selection and route must be read and bound before execution",
+    "selectionId": null,
+    "selectionRevision": null,
+    "availability": "NOT_VERIFIED",
+    "lastRead": "existing session model-catalog GET returned 403 PLUGIN_NOT_AUTHORIZED; no grants changed",
+    "providerTag": "google-ai-studio",
+    "providerFallbacks": false
+  },
+  "requests": [
+    {
+      "id": "A-success-1",
+      "variant": "A",
+      "case": "success",
+      "repeat": 1,
+      "purpose": "narration",
+      "model": "google/gemini-3.8-flash",
+      "parametersHash": "7d4172a501553bc11619b08a19c264ddbd91d3fa6bd857b336143807ae724c1f",
+      "messagesHash": "cc4e78df1feebd9282f10412d80093d77f9ab6e54f52d76fff5562e6064aa010",
+      "fixture": "A-success-1.json",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "input": "购买两个面包",
+      "admissionUnits": 63420,
+      "reserveMicros": 250000,
+      "expected": "balance=8800; bread=2; stock.bread=0"
+    },
+    {
+      "id": "B-success-1",
+      "variant": "B",
+      "case": "success",
+      "repeat": 1,
+      "purpose": "narration",
+      "model": "google/gemini-3.8-flash",
+      "parametersHash": "7d4172a501553bc11619b08a19c264ddbd91d3fa6bd857b336143807ae724c1f",
+      "messagesHash": "0930e730f1a6ab1d0a9d59461229415e991fa1d089c7c5add591dddecdd7914b",
+      "fixture": "B-success-1.json",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "input": "购买两个面包",
+      "admissionUnits": 64177,
+      "reserveMicros": 250000,
+      "expected": "balance=8800; bread=2; stock.bread=0"
+    },
+    {
+      "id": "B-continuation-1",
+      "variant": "B",
+      "case": "continuation",
+      "repeat": 1,
+      "purpose": "narration",
+      "model": "google/gemini-3.8-flash",
+      "parametersHash": "7d4172a501553bc11619b08a19c264ddbd91d3fa6bd857b336143807ae724c1f",
+      "messagesHash": "ca97129508f59365205fb2bbc6c856b7a4e7682052b4573b43da6777ce2e0a93",
+      "fixture": "B-continuation-1.json",
+      "openingHash": "ef2c6543b34f23cfda1705d3546fefdaddffd52575394e36d02866a4fe9cec95",
+      "input": "问店主附近有什么适合散步的地方",
+      "admissionUnits": 65913,
+      "reserveMicros": 250000,
+      "expected": "retain prior purchase and continue scene"
+    }
+  ],
+  "zeroCallCases": [
+    "insufficient balance, insufficient stock and ambiguous input: existing offline tests only"
+  ],
+  "order": "Run A-success-1, B-success-1, B-continuation-1 once each. Record missing optional telemetry as unknown without adding calls. Stop on unknown operation outcome or exhausted budget.",
+  "continuation": "B continuation uses the frozen successful purchase history with balance 88 and two breads; this is a prototype continuation check, not a live two-turn transcript or statistical A/B study.",
+  "accounting": "Provider-reported USD cost and frozen-price estimates are separate. Missing cost keeps the entire reservation. Any actual overrun or token-bound anomaly blocks subsequent requests.",
+  "measurement": "250ms progress polling measures first host observation of visible content, including gateway masking and polling delay. It is not exact upstream TTFT. Browser paint-opportunity timing is a separate non-authoritative client metric.",
+  "prerequisites": [
+    "User confirms the reduced three-call / USD 0.75 prototype plan",
+    "Read-only exact-route catalog with current certification, parameters and prices; unavailable or changed route stops without certification calls",
+    "Freeze selectionId/selectionRevision and verify no implementation/input hash drift",
+    "Enable transport measurement and the persisted MeasurementBudget; isolate run directory from shared stack",
+    "No web tools, external search, audio/images, paid memories, backup, or retries in this cohort"
+  ],
+  "optionalExcluded": [
+    "C/D model split",
+    "summary and memory on-cohort",
+    "large-summary rollover",
+    "extra retries and real fallback tests"
+  ],
+  "quality": [
+    "购买状态与正文一致",
+    "续写保留购买结果",
+    "正文可读、能够继续游玩"
+  ],
+  "acceptance": "Prototype usability only; no repeated blind scoring, statistical superiority or mandatory cost-reduction gate. Existing offline failure tests retained; do not expand defensive infrastructure.",
+  "humanAcceptance": "pending"
+}

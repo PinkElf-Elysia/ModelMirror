@@ -1,4 +1,5 @@
 import {useSpeech} from './speech';
+import {ShopChat,ShopEntry} from './shop';
 import {OutputEditor} from './output-editor';
 import {SessionHistoryDialog,SessionChangeDialog} from './session-history';
 import type {HistoryAction} from './session-history';
@@ -39,7 +40,10 @@ type Listed={id:string;name:string;turns:number;mode:string;parentId?:string;bra
 type Plugin={id:string;name:string;version:string;artifactSha256:string;manifestSha256:string;permissions:string[];installed:boolean};
 type Catalog={revision:number;plugins:Plugin[]};
 type Grant={enabled:boolean;installed:boolean;sessionRevision:number;registryRevision:number};
-export function ChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;opened:(id:string)=>void}){
+export function ChatView(props:{sessionId:string;exit:()=>void;opened:(id:string)=>void}){
+ return props.sessionId.startsWith('shop-')?<ShopChat key={props.sessionId} {...props}/>:<>{cardStoragePrefix()==='earth'&&<ShopEntry sessionId={props.sessionId} opened={props.opened}/>}<LegacyChatView {...props}/></>;
+}
+function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;opened:(id:string)=>void}){
  const [sidebar,setSidebar]=useState(()=>window.innerWidth>800),[listError,setListError]=useState('');
  const [reading,setReading]=useState(()=>{try{const v=JSON.parse(localStorage.getItem('rpg-reading')||'{}');return {dark:v.dark===true,font:[15,16,17,18,19,20].includes(v.font)?v.font:17,wide:v.wide===true};}catch{return {dark:false,font:17,wide:false};}});
  useEffect(()=>{try{localStorage.setItem('rpg-reading',JSON.stringify(reading));}catch{/* Reading preferences must never block the session. */}},[reading]);

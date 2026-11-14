@@ -1,0 +1,239 @@
+{
+  "format": "modelmirror.rpg.harness-real-results/1",
+  "date": "2026-11-13",
+  "model": "google/gemini-3.8-flash",
+  "authorization": "3 calls / USD 0.75",
+  "total": {
+    "calls": 3,
+    "inputTokens": 57529,
+    "outputTokens": 38190,
+    "totalTokens": 95719,
+    "reportedUSD": 0.18635925,
+    "budgetMicros": 750000,
+    "chargedMicrosCeiling": 186360
+  },
+  "items": [
+    {
+      "id": "A-success-1",
+      "status": "failed",
+      "code": "PROVIDER_OUTPUT_TRUNCATED",
+      "provider": "Google AI Studio",
+      "rawHash": "d64a67be5ba050abf77050a58ac2f3cfdf4e8d942825b08418be233b414dc194",
+      "rawCharacters": 1120,
+      "usage": {
+        "inputTokens": 18920,
+        "outputTokens": 16380,
+        "totalTokens": 35300,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 15729,
+        "reportedCostMicros": 75615,
+        "currency": "USD",
+        "source": "provider-sse",
+        "issues": [],
+        "generationId": "gen-1794592289-yajk6csWOIq7E0XJwHEp",
+        "model": "google/gemini-3.8-flash",
+        "usageFrames": 1,
+        "streamComplete": true
+      },
+      "reportedUSD": 0.075615,
+      "measurement": {
+        "accounting": {
+          "usage": {
+            "inputTokens": 18920,
+            "outputTokens": 16380,
+            "totalTokens": 35300,
+            "cachedInputTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 15729,
+            "reportedCostMicros": 75615,
+            "currency": "USD",
+            "source": "provider-sse",
+            "issues": [],
+            "generationId": "gen-1794592289-yajk6csWOIq7E0XJwHEp",
+            "model": "google/gemini-3.8-flash",
+            "usageFrames": 1,
+            "streamComplete": true
+          },
+          "reportedCostMicros": 75615,
+          "estimatedCostMicros": 75615,
+          "estimateMethod": "frozen-price-no-cache-discount",
+          "pricing": {
+            "currency": "USD",
+            "inputPerMillion": 0.75,
+            "outputPerMillion": 3.75,
+            "cachedInputPerMillion": 0.075,
+            "observedAt": "2026-11-13",
+            "providerTag": "google-ai-studio",
+            "serviceTier": "standard",
+            "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+            "billingAuthoritative": false
+          }
+        },
+        "timing": {
+          "source": "host-progress-observation",
+          "startedAt": "2026-11-13T17:51:23.214Z",
+          "pollIntervalMs": 250,
+          "firstContentObservedMs": 100033.0977,
+          "lastEmptyObservationMs": 99749.0962,
+          "completedMs": 103878.6474,
+          "polls": 343,
+          "pollErrors": 0,
+          "clock": "performance.now",
+          "providerFirstTokenMs": null
+        }
+      }
+    },
+    {
+      "id": "B-success-1",
+      "status": "failed",
+      "code": "PROVIDER_EMPTY_OUTPUT",
+      "provider": "Google AI Studio",
+      "rawHash": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "rawCharacters": 1,
+      "usage": {
+        "inputTokens": 19108,
+        "outputTokens": 15729,
+        "totalTokens": 34837,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 15728,
+        "reportedCostMicros": 73315,
+        "currency": "USD",
+        "source": "provider-sse",
+        "issues": [],
+        "generationId": "gen-1794592443-B02jl42gGspBRYEnh0al",
+        "model": "google/gemini-3.8-flash",
+        "usageFrames": 1,
+        "streamComplete": true
+      },
+      "reportedUSD": 0.07331475,
+      "measurement": {
+        "timing": {
+          "source": "host-progress-observation",
+          "startedAt": "2026-11-13T17:53:58.390Z",
+          "pollIntervalMs": 250,
+          "firstContentObservedMs": null,
+          "lastEmptyObservationMs": 106535.803,
+          "completedMs": 106602.57519999999,
+          "polls": 369,
+          "pollErrors": 1,
+          "clock": "performance.now",
+          "providerFirstTokenMs": null
+        },
+        "accounting": {
+          "usage": {
+            "inputTokens": 19108,
+            "outputTokens": 15729,
+            "totalTokens": 34837,
+            "cachedInputTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 15728,
+            "reportedCostMicros": 73315,
+            "currency": "USD",
+            "source": "provider-sse",
+            "issues": [],
+            "generationId": "gen-1794592443-B02jl42gGspBRYEnh0al",
+            "model": "google/gemini-3.8-flash",
+            "usageFrames": 1,
+            "streamComplete": true
+          },
+          "reportedCostMicros": 73315,
+          "estimatedCostMicros": 73315,
+          "estimateMethod": "frozen-price-no-cache-discount",
+          "pricing": {
+            "currency": "USD",
+            "inputPerMillion": 0.75,
+            "outputPerMillion": 3.75,
+            "cachedInputPerMillion": 0.075,
+            "observedAt": "2026-11-13",
+            "providerTag": "google-ai-studio",
+            "serviceTier": "standard",
+            "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+            "billingAuthoritative": false
+          }
+        }
+      }
+    },
+    {
+      "id": "B-continuation-1",
+      "status": "succeeded",
+      "code": null,
+      "provider": "Google AI Studio",
+      "rawHash": "d160cd4d7d9344eabd841167f6d2aa81132fc23e566283321bacc7e087ad8950",
+      "rawCharacters": 13234,
+      "usage": {
+        "inputTokens": 19501,
+        "outputTokens": 6081,
+        "totalTokens": 25582,
+        "cachedInputTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 113,
+        "reportedCostMicros": 37430,
+        "currency": "USD",
+        "source": "provider-sse",
+        "issues": [],
+        "generationId": "gen-1794592677-eRlinSrHZ2C8T0qER17M",
+        "model": "google/gemini-3.8-flash",
+        "usageFrames": 1,
+        "streamComplete": true
+      },
+      "reportedUSD": 0.0374295,
+      "measurement": {
+        "accounting": {
+          "usage": {
+            "inputTokens": 19501,
+            "outputTokens": 6081,
+            "totalTokens": 25582,
+            "cachedInputTokens": 0,
+            "cacheWriteTokens": 0,
+            "reasoningTokens": 113,
+            "reportedCostMicros": 37430,
+            "currency": "USD",
+            "source": "provider-sse",
+            "issues": [],
+            "generationId": "gen-1794592677-eRlinSrHZ2C8T0qER17M",
+            "model": "google/gemini-3.8-flash",
+            "usageFrames": 1,
+            "streamComplete": true
+          },
+          "reportedCostMicros": 37430,
+          "estimatedCostMicros": 37430,
+          "estimateMethod": "frozen-price-no-cache-discount",
+          "pricing": {
+            "currency": "USD",
+            "inputPerMillion": 0.75,
+            "outputPerMillion": 3.75,
+            "cachedInputPerMillion": 0.075,
+            "observedAt": "2026-11-13",
+            "providerTag": "google-ai-studio",
+            "serviceTier": "standard",
+            "source": "https://openrouter.ai/api/v1/models/google/gemini-3.8-flash/endpoints",
+            "billingAuthoritative": false
+          }
+        },
+        "timing": {
+          "source": "host-progress-observation",
+          "startedAt": "2026-11-13T17:57:51.695Z",
+          "pollIntervalMs": 250,
+          "firstContentObservedMs": 8718.291000000001,
+          "lastEmptyObservationMs": 8439.248199999998,
+          "completedMs": 54549.0807,
+          "polls": 16,
+          "pollErrors": 0,
+          "clock": "performance.now",
+          "providerFirstTokenMs": null
+        }
+      }
+    }
+  ],
+  "acceptance": "NOT_PASSED: purchase narration failed; continuation succeeded; user review pending",
+  "preview": "http://127.0.0.1:18764/",
+  "notes": [
+    "A: length truncation, 15729 reasoning tokens. B purchase: stop with only whitespace; original backend run/attempt confirmed failed through read-only lookup; never replayed.",
+    "B continuation: fixed prior purchase history, not continuation of failed B purchase output.",
+    "No additional certification, retries, fallback or memory calls. Shared services and existing saves unchanged.",
+    "Ledger in independent data directory: 8800 cents, bread 2, stock 0; replay returns same receipt.",
+    "HTTP 200 verifies availability only; no browser visual acceptance claim."
+  ]
+}

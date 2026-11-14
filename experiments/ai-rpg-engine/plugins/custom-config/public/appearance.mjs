@@ -32,8 +32,8 @@ function localCss(source, root) {
   }
   return result;
 }
-export async function appearance(scope, el, signal) {
-  const configs = await effective(scope);
+export async function appearance(scope, el, signal, snapshot) {
+  const configs = snapshot ?? await effective(scope);
   if (signal.aborted || !configs.length) return;
   const mark = "cfg-" + crypto.randomUUID(),
     root = '[data-config-view="' + mark + '"]',

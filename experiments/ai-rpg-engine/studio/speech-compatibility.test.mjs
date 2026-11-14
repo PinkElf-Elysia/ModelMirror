@@ -30,8 +30,9 @@ test('baseline archive saves keep full descriptor checks for optional speech int
  }
 });
 
-const mainFixture=JSON.parse(await readFile(new URL('./speech-main-baseline.fixture.json',import.meta.url),'utf8'));
-test('main fefc14b0 saves retain exact runtime and setup protection with speech',async()=>{
+for(const [label,file] of [['main fefc14b0','speech-main-baseline.fixture.json'],['main c9db3034','speech-shop-baseline.fixture.json'],['PR 4a32fbe2','speech-release-baseline.fixture.json']]){
+const mainFixture=JSON.parse(await readFile(new URL('./'+file,import.meta.url),'utf8'));
+test(label+' saves retain exact runtime and setup protection with speech',async()=>{
  for(const memory of [false,true]){
   const h=await start({directory:await mkdtemp(join(tmpdir(),'speech-main-')),port:0,godCard:true,godPlugins:memory,rollingSummary:memory,memoryPalace:memory,historyWindow:memory,autoSummaryV2:memory});
   try{cases(h.earth,mainFixture.sessions[memory?'earthMemory':'earth'],'main earth');cases(h.god,mainFixture.sessions[memory?'godMemory':'god'],'main god');}finally{await new Promise(r=>h.server.close(r));await h.plugins.close();}
@@ -42,3 +43,4 @@ test('main fefc14b0 saves retain exact runtime and setup protection with speech'
   try{cases(h.store,mainFixture.sessions[id],id);assert((await h.plugins.catalog()).plugins.some(p=>p.id==='rpg.speech'));}finally{await h.plugins.close();}
  }
 });
+}

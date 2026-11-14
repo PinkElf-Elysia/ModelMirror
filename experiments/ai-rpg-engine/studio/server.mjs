@@ -55,7 +55,7 @@ export async function start(options={}){
  try{return await startCore({...options,directory,ownArchiveDirectory:ownLocalDirectory,localRootLease:lease});}
  catch(error){await lease.fd.close();throw error;}
 }
-async function startCore({localRootLease=null,port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,speech=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null}={}){
+async function startCore({localRootLease=null,port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,speech=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null,shop=false}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
@@ -80,6 +80,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
  if(rollingSummary)earth.control=summaryTransport;
  const earthBudget=async()=>{if(rollingSummary)return summaryTransport.status();const b=await provider.status('earth');return control?{...b,enabled:b.enabled||(await (rollingSummary?summaryTransport:control).status()).enabled}:b;};
  const generationHost=generationCards?await (await import('./generation-cards.mjs')).createGenerationCards({...generationCards,transcript,speech:!!speech,illustrations:!!illustrationService}):null;
+ const shopHost=shop?await (await import('../harness/host.mjs')).createShopHost({directory:join(directory,'shop'),sourceLoader:async id=>{const sourceStore=generationHost?.hosts.get('earth')?.store||earth;const s=await sourceStore.read(id);return {...s,shopSourceAuthorizations:sourceStore.memoryAuthorizations?await sourceStore.memoryAuthorizations(id):{}};},...(typeof shop==='object'?shop:{})}):null;
  const records=await createRecordStore(join(directory,'rpg05'));const legacy=createUiService({store:records,engine:createLegacyEngine(records,provider)});
  let godHost=null;
  if(godCard){const {createGodHost}=await import('../god-card/lib/http.mjs');godHost=await createGodHost({directory:join(directory,'god'),generate:godGenerate,branches:godBranches,features:godPlugins,realControl:godControl,autoSummaryV2});}
@@ -186,7 +187,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
     attachSessionLifecycle(host.store);return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
    }
    let data={};
-   if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   if(req.method==='POST'){const bodyLimit=pathname==='/rpg-app/earth/api/shop/activate'?32*1024*1024:pathname==='/rpg-app/earth/api/shop/preview-transcript'?8*1024*1024:1000000;let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>bodyLimit)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
    const speechRoute=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland|medieval|harry-potter)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/speech\/([a-zA-Z0-9-]+)$/);
    if(speechRoute&&speech){
     const [,card,id,action]=speechRoute;
@@ -195,6 +196,8 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
    }
    const typedPicture=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/illustrations\/([a-zA-Z0-9-]+)$/);
    if(generationHost&&typedPicture&&illustrationService)return await illustrations({card:typedPicture[1],id:typedPicture[2],action:typedPicture[3],method:req.method,data,plugins:generationHost.plugins,store:generationHost.hosts.get(typedPicture[1]).store,res,send});
+   if(shopHost&&await shopHost.handle({pathname,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,send}))return;
+   if(/\/api\/sessions\/shop-[a-f0-9]{40}(?:\/|$)/.test(pathname))return send(409,{error:'SHOP_USE_ADAPTED_ROUTE'});
    if(generationHost&&await generationHost.handle({pathname,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,send}))return;
    const chatRoute=pathname.match(/^\/rpg-app\/(ancient|lord-of-mysteries|cultivation|douluo|dragon-raja|jinyong|medieval|elderland|harry-potter)\/chat\/(.*)$/);
    if(chatRoute||pathname.startsWith('/rpg-app/xingjian/')){
@@ -347,9 +350,9 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
    res.writeHead(200,{'Content-Type':({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.jpg':'image/jpeg','.webp':'image/webp'}[extname(file)]||'application/octet-stream')});res.end(bytes);
   }catch(e){send(e.status||(e.code==='ENOENT'?404:400),{error:e.status?(e.code||e.message):'REQUEST_FAILED'});}
  });
- const closed=new Promise(done=>server.once('close',()=>{void Promise.allSettled([generationHost?.close(),...Array.from(archiveHosts.values(),host=>host.then(card=>card.close())),xingjianPromise?.then(card=>card.close()),plugins?.close()]).finally(async()=>{try{await localRootLease?.fd.close();}finally{done();}});}));
- try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,host,ok);});}catch(e){await plugins?.close();throw e;}
- return {server,closed,provider,earth,legacy,plugins,control,generationHost,god:godHost?.store||null};
+ const closed=new Promise(done=>server.once('close',()=>{void Promise.allSettled([shopHost?.close(),generationHost?.close(),...Array.from(archiveHosts.values(),host=>host.then(card=>card.close())),xingjianPromise?.then(card=>card.close()),plugins?.close()]).finally(async()=>{try{await localRootLease?.fd.close();}finally{done();}});}));
+ try{await new Promise((ok,no)=>{server.once('error',no);server.listen(port,host,ok);});}catch(e){await shopHost?.close();await plugins?.close();throw e;}
+ return {server,closed,provider,earth,legacy,plugins,control,generationHost,shop:shopHost,god:godHost?.store||null};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  let key=process.env.OPENROUTER_API_KEY||'';

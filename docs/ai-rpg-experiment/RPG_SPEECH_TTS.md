@@ -74,3 +74,19 @@ UI 已使用本机离线 fixture 完成桌面与 390px 操作、分页、固定�
 - Docker 独立镜像构建通过；断网、只读、非 root、drop ALL、no-new-privileges 临时容器运行 speech / compatibility / container-host：7/7，包括 Linux flock。
 - 最新基线帮助实操与截图见 `docs/help-center/RPG_SPEECH_TTS_PREVIEW.md`。本轮 fixture 生成 1 次，真实调用 0 次；上一轮真实中性音频结果保留，不重复收费验证。
 - 不运行全量 Python 后端测试；本 PR 未修改主仓 Python 或主聊天 SSE。STT、自动播放、声音克隆、AI 娘与肥鱼专用聊天接入、真实费用核对仍不在本轮完成范围。
+
+
+## 授权同步 main（2026-11-13）
+
+仅在 PR #464 分支合入 c9db303420883cd3682c6304994c204df788a91f，解决聊天页、插件目录、插件宿主与服务入口四处冲突，保留语音和主线商店各自默认关闭、独立授权及请求边界。未合并 main、未部署、未新增真实调用。
+
+兼容映射新增精确 c9db3034 和更新前 PR 4a32fbe2 快照，并补齐旧 controlled-provider 文件指纹；旧快照来自独立干净 checkout 的中性会话。仍使用原完整校验器，拒绝未知描述符、设置和 hash 篡改，不修改原存档。
+
+验证：
+- `node --test studio/speech.test.mjs studio/speech-compatibility.test.mjs studio/failed-turn-compatibility.test.mjs studio/local-owner-lock.test.mjs studio/controlled-provider.test.mjs plugins/catalog.test.mjs plugins/host.test.mjs plugins/generation-parameters.test.mjs harness/*.test.mjs`：首轮 133/134 通过；唯一失败为新增语音后插件总数断言。更新总数为 12，并追加语音默认关闭断言；`node --test plugins/generation-parameters.test.mjs` 22/22 通过。
+- `node --test --test-name-pattern="optional speech" studio/card-generation.test.mjs`：通过，覆盖六卡四个精确基线。
+- `npm.cmd test --prefix card-replica`：86/86；`npm.cmd run build --prefix card-replica`：类型检查与生产构建通过，既有 mod-library 导入告警保留。
+- Docker Compose 配置、独立镜像构建通过。Linux 安全冒烟因本机 Docker daemon 消失未运行，不沿用旧基线通过结论。
+- 当前 UI 复验和两张新截图见帮助实操记录；1 次离线提示音，0 次新增真实调用。全量帮助检查既有两项内容失败和 10 项图片问题仍保留，不削弱校验。
+
+回退：如需撤销本次同步，可在 PR 分支另做 revert；不得 reset 已公开历史。关闭语音插件即可阻止新生成，保留既有音频，无数据迁移。

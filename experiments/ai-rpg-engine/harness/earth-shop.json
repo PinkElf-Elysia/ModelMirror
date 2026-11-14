@@ -1,0 +1,49 @@
+{
+  "format": "modelmirror.rpg.shop-rules/1",
+  "version": "earth-corner-shop/1",
+  "cardId": "earth",
+  "world": "表世界",
+  "name": "街角杂货店",
+  "currency": {
+    "code": "CNY",
+    "label": "元",
+    "scale": 100,
+    "decimals": 2
+  },
+  "account": {
+    "id": "bank",
+    "label": "银行卡余额"
+  },
+  "initial": {
+    "balance": 10000,
+    "inventory": {
+      "water": 0,
+      "bread": 0,
+      "notebook": 0
+    }
+  },
+  "products": [
+    {
+      "id": "water",
+      "name": "饮用水",
+      "description": "一瓶常温饮用水。",
+      "price": 300,
+      "stock": 5
+    },
+    {
+      "id": "bread",
+      "name": "面包",
+      "description": "柜台上今天剩下的面包。",
+      "price": 600,
+      "stock": 2
+    },
+    {
+      "id": "notebook",
+      "name": "笔记本",
+      "description": "一本便于随身携带的横线本。",
+      "price": 1200,
+      "stock": 1
+    }
+  ],
+  "opening": "姓名：林川\n年龄：25\n世界：表世界\n银行卡余额：100元\n包内无饮用水、面包、笔记本。\n午后，你走进街角杂货店，准备买些日常用品。"
+}
