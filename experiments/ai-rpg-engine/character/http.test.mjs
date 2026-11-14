@@ -1,0 +1,22 @@
+import {request as rawRequest} from 'node:http';
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir} from 'node:fs/promises';import {fileURLToPath} from 'node:url';
+import {startAuthoringServer} from '../authoring/server.mjs';import {blankCard} from './card.mjs';
+const root=fileURLToPath(new URL('../.rpg04-work/character-tests/',import.meta.url));await mkdir(root,{recursive:true});
+test('same-origin import inspect/confirm, editor, immutable library and private export',async t=>{
+ const directory=await mkdtemp(root+'http-'),server=await startAuthoringServer({directory,creatorExperience:true});t.after(()=>server.close());
+ const api='/rpg-app/api/authoring',request=async(path,body)=>{const r=await fetch(server.origin+api+path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json',origin:server.origin,'x-authoring-request':'1'}:{},...(body?{body:JSON.stringify(body)}:{})});const v=await r.json();assert.equal(r.ok,true,JSON.stringify(v));return v;};
+ const card=blankCard();Object.assign(card.data,{name:'测试夹具',first_mes:'你好',description:'原始设定'});card.data.extensions={nested:{keep:true}};
+ const base64=Buffer.from(JSON.stringify(card)).toString('base64'),inspected=await request('/characters/imports/inspect',{base64,selection:null});
+ const created=await request('/characters/imports',{base64,selection:null,expectedHash:inspected.source.sha256,operationId:'import-card',fileName:'fixture.json',origin:'original test fixture'});
+ const work=await request('/works/'+created.workId);assert.equal(work.draft.kind,'character');
+ const pub=await request('/works/'+created.workId+'/publish',{operationId:'publish-card',expectedRevision:work.revision});
+ const library=await request('/library');assert.equal(library.works[0].kind,'character');
+ const session=await request('/characters/sessions',{operationId:'new-session',reference:{workId:created.workId,versionId:pub.result.versionId},openingIndex:0,player:{id:null,name:'玩家'}});
+ assert.equal(session.messages.length,1);
+ const exp=await request('/characters/export',{workId:created.workId,versionId:pub.result.versionId,format:'json',version:'original',acceptLoss:false});assert.deepEqual(JSON.parse(Buffer.from(exp.base64,'base64')),card);
+ const source=await fetch(server.origin+api+'/characters/source?work='+created.workId);assert.equal(await source.text(),JSON.stringify(card));
+ const editor=await fetch(server.origin+'/characters?work='+created.workId);assert.match(await editor.text(),/单角色卡/);
+ const navigation=await new Promise((ok,no)=>{const r=rawRequest(server.origin+'/characters',{headers:{'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}},res=>{res.resume();res.on('end',()=>ok(res.statusCode));});r.on('error',no);r.end();});assert.equal(navigation,200);
+ const privateRead=await fetch(server.origin+api+'/characters/works',{headers:{'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}});assert.equal(privateRead.status,403);
+ const denied=await fetch(server.origin+api+'/characters/sessions',{method:'POST',headers:{origin:'https://evil.invalid','content-type':'application/json'},body:'{}'});assert.equal(denied.status,403);
+});
