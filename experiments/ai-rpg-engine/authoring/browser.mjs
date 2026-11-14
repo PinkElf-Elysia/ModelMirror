@@ -587,6 +587,7 @@ async function loadWork(id, preserved = null) {
   applyWork(await api('/works/' + id + (publishedMode?'/published?version='+encodeURIComponent(publishedVersion):'')),preserved);
 }
 function applyWork(next, preserved = null) {
+  if(next.draft?.kind==='character'){location.href='/characters?work='+encodeURIComponent(next.id)+(next.publishedVersionId?'&version='+encodeURIComponent(next.publishedVersionId):'');return;}
   chatBGM.destroy();
   clearInputCheck();
   const id = next.id;

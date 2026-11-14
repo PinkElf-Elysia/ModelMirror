@@ -1,3 +1,4 @@
+import {CHARACTER_DOCUMENT,validateCharacterDocument,characterPublicationIssues} from '../character/document.mjs';
 import {validateRecommendations} from './generation-settings.mjs';
 import {createHash} from 'node:crypto';
 import {validatePanelConfiguration, panelIssues} from './variable-panel.mjs';
@@ -181,6 +182,7 @@ export function blankDocument() {
 export function validateDocument(value) {
   const serialized = canonical(value);
   if (Buffer.byteLength(serialized) > LIMITS.documentBytes) fail('AUTHORING_DOCUMENT_SIZE');
+  if(value?.format===CHARACTER_DOCUMENT)return validateCharacterDocument(value,validateDocument);
   keys(value, ['format', 'metadata', 'sources', 'settings', 'worldbook', 'enhancements', 'model']);
   choice(value.format, [FORMAT.document], '/format');
   const m = value.metadata; keys(m, ['name', 'tags', 'language', 'audience'], '/metadata');
@@ -338,6 +340,7 @@ export function inspectMedia(bytes, mediaType) {
   return b;
 }
 export function capabilityDeclaration(document) {
+  if(document.kind==='character')return {contract:'modelmirror.rpg.character-capabilities/1',validator:'character-v1',runtimeReady:false,required:['character-context','versioned-assets','session-isolation']};
   return {
     contract: 'modelmirror.rpg.authoring-capabilities/1', validator: 'authoring-b1a/1',
     runtimeReady: false,
@@ -362,11 +365,13 @@ export function capabilityDeclaration(document) {
   };
 }
 export function validateMetadataWrite(document) {
+  if(document.kind==='character')return validateDocument(document);
   const issue = metadataIssues(document.metadata)[0];
   if (issue) fail(issue.code, issue.path);
   return document;
 }
 export function publicationIssues(document, assets) {
+  if(document.kind==='character')return characterPublicationIssues(document,assets);
   const issues = [], aliases = new Map(assets.map(asset => [asset.alias, asset]));
   const issue = (code, path) => issues.push({code, path});
   if (!document.metadata.name.trim()) issue('AUTHORING_NAME_REQUIRED', '/metadata/name');

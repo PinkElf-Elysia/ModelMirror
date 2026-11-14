@@ -1,3 +1,4 @@
+import createSingleCharacterCard from "./articles/create-single-character-card.md?raw";
 import listenRpgStory from "./articles/listen-rpg-story.md?raw";
 import playElderlandCard from "./articles/play-elderland-card.md?raw";
 import publishRpgWork from "./articles/publish-rpg-work.md?raw";
@@ -141,6 +142,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "create-single-character-card", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色、核对上下文、封存版本并恢复独立会话。", category: "按目标找指南", contentType: "how-to", audience: "单角色卡作者与玩家", estimatedMinutes: 6, keywords: ["RPG", "单角色卡", "角色书", "导入", "开场白", "独立会话"], relatedRoutes: ["/rpg"], verifiedCommit: "a6563a9b", verifiedDate: "2026-11-13", content: createSingleCharacterCard, nextSlug: "publish-rpg-work" },
   { slug: "review-vision-image-decisions", title: "区分看图、图片编辑与文字决策", summary: "核对新视觉模型、参考图要求和文字决策入口，不提交请求。", category: "按目标找指南", contentType: "how-to", audience: "需要视觉理解、图片编辑或文字决策的用户", estimatedMinutes: 5, keywords: ["Klein", "Krea", "Span", "Moondream", "Nemotron", "决策"], relatedRoutes: ["/models", "/decisions/:modelId", "/chat/:modelId"], verifiedCommit: "ae2493e2", verifiedDate: "2026-10-16", content: reviewVisionImageDecisions, nextSlug: "check-availability-cost-data" },
   { slug: "review-assembly-jev", title: "核对转写与 Jev 决策入口", summary: "检查 Universal-3.6 的格式限制与 Jev 1.14 的文字决策费用，不提交请求。", category: "按目标找指南", contentType: "how-to", audience: "需要转写或结构化决策的用户", estimatedMinutes: 4, keywords: ["AssemblyAI", "Universal", "Jev", "转写", "决策"], relatedRoutes: ["/models", "/decisions/:modelId"], verifiedCommit: "ec79e120", verifiedDate: "2026-10-15", content: reviewAssemblyJev, nextSlug: "check-availability-cost-data" },
   { slug: "prepare-scaledown-argon-speech", title: "准备摘要、字段提取与新语音任务", summary: "准备 ScaleDown 文字输入，核对 Argon 批处理和语音费用边界，不发送请求。", category: "按模块浏览", contentType: "how-to", audience: "需要整理文字或核对新模型入口的用户", estimatedMinutes: 6, keywords: ["ScaleDown", "摘要", "提取", "Argon", "HeyGen", "Drama"], relatedRoutes: ["/models", "/scaledown/:modelId", "/decisions/:modelId", "/chat/:modelId"], verifiedCommit: "2df7efba", verifiedDate: "2026-10-14", content: prepareScaleDownArgonSpeech, nextSlug: "check-availability-cost-data" },
@@ -639,6 +641,7 @@ export const helpSections: HelpSection[] = [
       { id: "ai-girls-guide", title: "AI 娘：创建主角与开始故事", summary: "浏览角色、控制音乐，并把主角档案带入聊天。", to: "/help/play-ai-girls-card", keywords: ["AI 娘", "音乐", "主角创建"] },
       { id: "harry-potter-guide", title: "制作霍格沃茨角色并开始聊天", summary: "核对角色、魔杖、天赋与聊天草稿。", to: "/help/play-harry-potter-card", keywords: ["哈利波特", "霍格沃茨", "魔杖"] },
       { id: "jinyong-guide", title: "制作金庸人物帖并开始聊天", summary: "核对人物帖、聊天草稿与状态连续性。", to: "/help/play-jinyong-card", keywords: ["金庸", "人物帖", "草稿"] },
+      { id: "single-character-guide", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色，封存版本后进入独立会话。", to: "/help/create-single-character-card", keywords: ["RPG", "单角色卡", "角色书", "开场白"] },
       { id: "publish-rpg-guide", title: "发布作品到本机故事馆", summary: "把保存的草稿发布为固定版本，自动显示首页入口。", to: "/help/publish-rpg-work", keywords: ["RPG", "发布", "作品版本"] },
       { id: "rpg-guide", title: "从 Studio 进入 RPG 并恢复故事", summary: "从空白作品开始创作，或选择角色卡恢复故事。", to: "/help/play-rpg-cards", keywords: ["RPG", "创作工作台", "角色卡", "历史"] },
       { id: "rpg-cg-creator-guide", title: "为作品添加可解锁插图", summary: "配置特殊 CG，并在画廊中查看解锁提示与剧情回顾。", to: "/help/create-rpg-cg-gallery", keywords: ["RPG", "创作", "CG", "画廊", "剧情回顾"] },

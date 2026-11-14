@@ -503,6 +503,7 @@ export class AuthoringStore {
       if (source.revision !== request.expectedRevision) fail('AUTHORING_REVISION_CONFLICT');
       for (const asset of source.assets) await this.#asset(asset);
       next.draft = structuredClone(source.draft); next.draft.metadata.name = request.name; next.assets = structuredClone(source.assets);
+      if (next.draft.kind === 'character') next.draft.character.card.data.name = request.name;
       next.origin = {kind: 'copy', workId, revision: source.revision, configurationHash: sha256(canonical(configuration(source.draft, source.assets)))};
       return {sourceId: workId};
     }, true));

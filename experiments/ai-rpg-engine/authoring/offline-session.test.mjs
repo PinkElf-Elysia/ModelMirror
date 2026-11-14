@@ -305,7 +305,7 @@ test('会话内容损坏不能隐藏在合法外层 hash 后：回合与请求�
 
 test('离线实现源码漂移在独立副本上验证，拒绝新建，不改当前预览或已有源码',async t=>{
   const f=await fixture(t),runtime=await openPublishedRuntime(f.store,f.reference),directory=join(f.directory,'isolated-source');
-  const paths=new Set([...Object.keys(runtime.descriptor.artifactHashes),...Object.keys(f.host.readiness.artifactHashes).map(p=>'authoring/'+p)]);
+  const paths=new Set(['plugins/speech.mjs','character/document.mjs','character/card.mjs','character/legacy-compat.mjs','character/legacy-transition.json',...Object.keys(runtime.descriptor.artifactHashes),...Object.keys(f.host.readiness.artifactHashes).map(p=>'authoring/'+p)]);
   const moduleRoot=fileURLToPath(new URL('../',import.meta.url));
   for(const path of paths){const target=join(directory,path);await mkdir(dirname(target),{recursive:true});await copyFile(join(moduleRoot,path),target);}
   const copied=await import(pathToFileURL(join(directory,'authoring','offline-session.mjs')).href);

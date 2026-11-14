@@ -148,7 +148,7 @@ test('异步校验前固定会话投影，调用方后续修改不能混入同�
 
 test('宿主源码漂移要求重启；新实现不接受旧绑定（只改隔离源码副本）', async t => {
   const f = await fixture(t), source = join(f.directory,'source-copy');
-  for(const path of Object.keys(f.runtime.descriptor.artifactHashes)){
+  for(const path of [...Object.keys(f.runtime.descriptor.artifactHashes), "character/legacy-compat.mjs", "character/legacy-transition.json", "character/document.mjs", "character/card.mjs"]){
     const target=join(source,path);await mkdir(dirname(target),{recursive:true});
     await copyFile(new URL('../'+path,import.meta.url),target);
   }

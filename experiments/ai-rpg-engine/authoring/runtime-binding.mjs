@@ -1,3 +1,4 @@
+import {legacyArtifacts} from '../character/legacy-compat.mjs';
 import {readFile} from 'node:fs/promises';
 import {AuthoringStore} from './store.mjs';
 import {canonical, fail, keys, sha256, validateConfiguration, publicationIssues} from './contracts.mjs';
@@ -21,7 +22,7 @@ const sourcePaths = [
     .flatMap(name => ['plugins/' + name + '.mjs', 'plugins/' + name + '.manifest.json']),
 ];
 async function artifactHashes() {
-  return Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, sha256(await readFile(new URL(path, root)))])));
+  return legacyArtifacts(Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, sha256(await readFile(new URL(path, root)))]))),root);
 }
 // These are binding/proposal artifacts, not a claim that the story runtime is wired.
 const loadedArtifacts = await artifactHashes();
@@ -49,6 +50,7 @@ export async function openPublishedRuntime(store, reference) {
   if (!(store instanceof AuthoringStore)) fail('AUTHORING_RUNTIME_STORE_REQUIRED');
   const ref = runtimeReference(reference);
   const config = freeze(validateConfiguration(await store.exportConfiguration(ref.workId, ref.versionId)));
+  if (config.document.kind === 'character') fail('CHARACTER_RUNTIME_REQUIRED');
   const issues = publicationIssues(config.document, config.assets);
   if (issues.length) fail('AUTHORING_PUBLICATION_INVALID', '', {issues});
   const descriptor = freeze({
