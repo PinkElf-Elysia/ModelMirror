@@ -126,6 +126,22 @@ class ImageGenerationService:
                 "创作描述需为 1–4,000 个字符。",
                 status_code=422,
             )
+        if clean_model == "tencent/hy-world-2.1-panorama" and (
+            len(clean_prompt) > 600
+            or n != 1
+            or reference_filenames
+            or reference_content_types
+            or reference_contents
+            or any(value is not None for value in (
+                resolution, aspect_ratio, quality, output_format, background,
+                output_compression, seed,
+            ))
+        ):
+            raise MultimodalServiceError(
+                "invalid_panorama_request",
+                "全景图仅接受最多 600 字符的文字提示，每次生成一张，不支持参考图或额外参数。",
+                status_code=422,
+            )
         profile = await self._profile(clean_model)
         self._validate_value(profile, "n", n, default=1)
         self._validate_value(profile, "resolution", resolution)

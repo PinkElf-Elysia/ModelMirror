@@ -103,7 +103,9 @@ function expectedOperations(raw, imageModelIds, videoModelIds) {
 
   if (inputs.has("image") && outputs.has("text")) operations.add("analyze_image");
   if (inputs.has("file") && outputs.has("text")) operations.add("analyze_document");
-  if (imageModelIds.has(raw.id)) operations.add("generate_image");
+  if (imageModelIds.has(raw.id) || (
+    outputs.has("image") && raw.endpoints?.includes("/api/v1/images")
+  )) operations.add("generate_image");
   if (outputs.has("transcription")) operations.add("transcribe");
   if (outputs.has("speech")) operations.add("synthesize_speech");
   if (outputs.has("audio")) operations.add("generate_audio");

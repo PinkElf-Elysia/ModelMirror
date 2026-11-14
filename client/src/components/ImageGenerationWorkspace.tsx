@@ -26,6 +26,8 @@ import {
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
+import { PanoramaViewer } from "./world/PanoramaViewer";
+
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_REFERENCE_BYTES = 10 * 1024 * 1024;
 
@@ -297,13 +299,13 @@ export default function ImageGenerationWorkspace({
               <span className="text-sm font-semibold text-white">创作描述</span>
               <textarea
                 className="mt-2 min-h-36 w-full rounded-lg border border-white/10 bg-ink-950/70 px-4 py-3 text-sm leading-6 outline-none focus:border-fuchsia-300/60"
-                maxLength={MAX_PROMPT_CHARS}
+                maxLength={model.id === "tencent/hy-world-2.1-panorama" ? 600 : MAX_PROMPT_CHARS}
                 onChange={(event) => setPrompt(event.target.value)}
                 placeholder="描述主体、场景、构图、光线和风格…"
                 value={prompt}
               />
               <span className="mt-1 block text-right text-xs text-slate-500">
-                {prompt.length}/{MAX_PROMPT_CHARS}
+                {prompt.length}/{model.id === "tencent/hy-world-2.1-panorama" ? 600 : MAX_PROMPT_CHARS}
               </span>
             </label>
 
@@ -497,6 +499,11 @@ export default function ImageGenerationWorkspace({
               </div>
               {result.images.map((image, index) => (
                 <figure className="overflow-hidden rounded-lg border border-white/10 bg-ink-950" key={`${image.media_type}-${index}`}>
+                  {model.id === "tencent/hy-world-2.1-panorama" && (
+                    <div className="aspect-video w-full">
+                      <PanoramaViewer source={image.data_url} />
+                    </div>
+                  )}
                   <img alt={`生成结果 ${index + 1}`} className="h-auto w-full" src={image.data_url} />
                   <figcaption className="flex items-center justify-between gap-3 p-3 text-xs text-slate-400">
                     <span>{image.media_type} · {(image.output_bytes / 1024).toFixed(0)} KiB</span>
