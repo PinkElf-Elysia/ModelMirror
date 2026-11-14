@@ -1,0 +1,11 @@
+import {mkdtemp,mkdir} from 'node:fs/promises';import {join} from 'node:path';
+import {AuthoringStore} from '../../authoring/store.mjs';import {blankDocument} from '../../authoring/contracts.mjs';import {characterDocument} from '../document.mjs';import {GroupStore} from './store.mjs';
+export const offlineModel={id:'fixture',label:'确定性测试模型',choice:null,contextTokens:32000,outputTokens:512,price:{revision:'fixture',inputMicroUsdPerMillion:100,outputMicroUsdPerMillion:200,overheadTokens:128}};
+export async function fixture(t,{fault,authorization={id:'test',mode:'fixture',calls:20,microUsd:1000000}}={}){
+ const root=process.env.CHARACTER_R2_TEST_ROOT||'C:/tmp/mm-cr2-data/tests';await mkdir(root,{recursive:true});const directory=await mkdtemp(join(root,'g-')),works=await AuthoringStore.open(join(directory,'works'));const doc=characterDocument(blankDocument());Object.assign(doc.character.card.data,{name:'中性同名夹具',description:'角色自己的定义',scenario:'SOLO_SCENE',first_mes:'你好 {{user}}',mes_example:'EXAMPLE_ONLY'});doc.metadata.name=doc.character.card.data.name;
+ const w=await works.create({operationId:'work',expectedRevision:null,document:doc}),v=await works.publish(w.workId,{operationId:'version',expectedRevision:0}),reference={workId:w.workId,versionId:v.result.versionId};
+ let store=await GroupStore.open({directory:join(directory,'groups'),works,models:[offlineModel],authorization,fault});await store.recover();
+ t.after(async()=>{await store.close();await works.close();});
+ const input={operationId:'create',expectedRevision:null,payload:{player:{id:null,name:'测试玩家'},scene:'共享群场景',members:[{reference,modelId:'fixture'},{reference,modelId:'fixture'}],opening:{memberIndex:0,kind:'ordinary',index:0},budget:{calls:10,microUsd:500000}}};const created=await store.create(input);
+ return {directory,works,reference,doc,input,id:created.id,get store(){return store;},async reopen(){await store.close();store=await GroupStore.open({directory:join(directory,'groups'),works,models:[offlineModel],authorization});await store.recover();},async op(action,operationId,payload){return store[action](created.id,{operationId,expectedRevision:(await store.read(created.id)).revision,payload});}};
+}

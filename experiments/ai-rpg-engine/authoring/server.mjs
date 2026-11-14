@@ -658,6 +658,8 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
   let closePromise;
   return {
     origin,
+    // Trusted in-process composition only; shares the owner lock and immutable versions.
+    works: store,
     // Trusted offline harness only; no browser dispatch route is exposed.
     sessionHost,
     close() {

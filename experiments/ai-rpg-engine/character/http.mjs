@@ -6,6 +6,8 @@ import {CharacterFixtureProvider} from './fixture-provider.mjs';import {Characte
 const prefix='/rpg-app/api/authoring/characters';
 export function isCharacterRoute(path){return path==='/characters'||path.startsWith('/character-assets/')||path===prefix||path.startsWith(prefix+'/');}
 export async function createCharacterHttp({store,directory,settings=null,recoverDeadOwner=false}){
+ const groupsUrl=settings?.groupsUrl??null;
+ if(groupsUrl!==null&&!/^http:\/\/127\.0\.0\.1:[0-9]+\/groups$/.test(groupsUrl))fail('CHARACTER_NAVIGATION_INVALID');
  const sources=await CharacterSources.open(join(directory,'sources'),{recoverDeadOwner});
  let provider=settings?.provider,own=false,host;
  try{if(!provider){provider=await CharacterFixtureProvider.open(join(directory,'fixture'),{recoverDeadOwner});own=true;}
@@ -22,6 +24,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
+   if(route==='/navigation')return send({groupsUrl});
    if(route==='/blank')return send(characterDocument(blankDocument()));
    if(route==='/status')return send(await host.status());
    if(route==='/models')return send(await host.models());

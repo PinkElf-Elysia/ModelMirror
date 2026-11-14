@@ -1,20 +1,108 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script></head><body>
-<header class="workspace-header"><div class="work-identity"><a href="/" class="back">← 创作工作台</a><div><strong id="title">单角色卡</strong><span id="save-state" role="status">正在载入…</span></div></div><div class="top-actions"><button id="import">导入角色卡</button><button id="save">保存草稿</button><button class="primary" id="publish">封存版本</button></div></header>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script></head><body data-screen="library">
+<header class="workspace-header">
+  <button id="header-library" type="button" aria-label="返回角色库">← 角色库</button><div class="work-identity"><h1 id="title">单角色卡</h1><span id="save-state" role="status">正在载入…</span></div>
+  <nav class="screen-switch" aria-label="工作区视图"><button type="button" id="back-edit">编辑</button><button id="show-preview" aria-pressed="true">预览</button><button id="show-chat" aria-pressed="false">对话</button></nav>
+  <div class="top-actions"><button id="save" aria-label="保存草稿">保存<span class="wide-only">草稿</span></button><button class="primary" id="publish" aria-label="创建对话版本">创建版本</button></div>
+  <a id="mobile-groups" hidden>我的群聊 →</a>
+</header>
 <div id="notice" role="status" aria-live="polite"></div><div id="error" role="alert" hidden></div>
-<main class="character-workspace"><aside class="character-nav"><div class="type-choice"><a href="/">世界卡</a><strong>单角色卡</strong></div><button id="new" class="wide-action">＋ 新建角色</button><label for="works">本地角色</label><select id="works"><option value="">选择作品</option></select><label for="versions">查看版本</label><select id="versions"><option value="">当前草稿</option></select><nav aria-label="角色创作章节"><a href="#basics">基础与肖像</a><a href="#definition">人物设定</a><a href="#openings">开场与示例</a><a href="#book">角色书</a><a href="#prompts">高级提示词</a><a href="#metadata">作者与兼容</a></nav><div class="export-actions"><label for="export-format">导出格式</label><select id="export-format"><option value="original">原版本 JSON</option><option value="v2-json">V2 JSON</option><option value="v2-png">V2 PNG</option></select><button id="export">导出角色卡</button><a id="original" hidden>下载原始材料</a></div><p class="hint">角色定义与会话经历分别保存。原始素材仅在本地保存。</p></aside>
-<section class="character-editor" aria-label="单角色卡编辑"><form id="editor-form">
-<section id="basics"><h1>单角色卡</h1><p class="intro">定义由 AI 扮演的人物，选择一句开场，开始独立对话。</p><label>角色名称<input data-field="name" maxlength="2000" autocomplete="off"></label><div class="portrait-row"><img id="portrait" alt="角色肖像" hidden><div><button type="button" id="upload-portrait">上传 PNG 肖像</button><p class="hint">不自动生成图片。肖像与完整导入文件分别保存。</p></div></div></section>
-<section id="definition"><h2>人物设定</h2><label>人物描述<textarea data-field="description" rows="6"></textarea></label><label>性格<textarea data-field="personality" rows="3"></textarea></label><label>场景<textarea data-field="scenario" rows="3"></textarea></label></section>
-<section id="openings"><h2>开场与示例</h2><label>主开场白<textarea data-field="first_mes" rows="4"></textarea></label><div id="alternates"></div><button type="button" id="add-greeting">＋ 候选开场白</button><label>对话示例<textarea data-field="mes_example" rows="5"></textarea></label><p class="hint">示例仅用于展示语气，不会成为本次聊天经历。</p></section>
-<section id="book"><h2>角色书</h2><p>关键词命中后才加入上下文。可在右侧输入关键词检查触发结果。</p><label>角色书 JSON<textarea id="book-json" rows="12" spellcheck="false"></textarea></label><button type="button" id="add-book">创建角色书样例条目</button><p class="hint">可编辑关键词、内容、扫描深度、预算与优先级。未知扩展保留。正则及 V3 装饰器条目仅保存，不运行。</p></section>
-<section id="prompts"><h2>高级提示词</h2><label>角色系统提示词<textarea data-field="system_prompt" rows="4"></textarea></label><p class="hint">留空使用角色默认提示词；{{original}} 引用默认值，不覆盖宿主权限。</p><label>历史之后的提示词<textarea data-field="post_history_instructions" rows="4"></textarea></label></section>
-<section id="metadata"><h2>作者与兼容信息</h2><label>作者说明（不进入模型）<textarea data-field="creator_notes" rows="4"></textarea></label><div class="two-fields"><label>作者<input data-field="creator"></label><label>作者版本<input data-field="character_version"></label></div><label>标签（JSON 字符串数组）<textarea id="tags-json" rows="2"></textarea></label><details><summary>查看完整交换数据与未知扩展</summary><pre id="raw-card"></pre></details></section>
+<main class="character-workspace">
+<aside class="character-nav" aria-label="角色与章节">
+  <div class="nav-top"><a href="/" class="back">← 创作工作台</a><div class="type-choice"><a href="/">世界卡</a><strong aria-current="page">单角色卡</strong></div></div>
+  <a id="groups-navigation" class="back" hidden>我的群聊 →</a>
+  <div class="nav-actions"><button id="new" class="wide-action primary">＋ 新建角色</button><button type="button" id="to-library">角色库</button><button id="import">导入角色卡</button></div>
+  <div class="nav-current">
+    <div class="nav-field"><label for="works">本地角色</label><select id="works"><option value="">选择作品</option></select></div>
+    <div class="nav-field"><label for="versions">可用版本</label><select id="versions"><option value="">当前草稿</option></select></div>
+  </div>
+  <nav class="section-nav" aria-label="角色创作章节"><span class="section-nav-title">创作章节</span><a href="#basics" data-section="basics">基础与肖像</a><a href="#definition" data-section="definition">人物设定</a><a href="#openings" data-section="openings">开场与示例</a><a href="#book" data-section="book">知识条目</a><a href="#prompts" data-section="prompts">补充指令</a><a href="#metadata" data-section="metadata">作者与标签</a></nav>
+  <details class="export-actions"><summary>导出角色卡</summary><label for="export-format">导出格式</label><select id="export-format"><option value="original">原始格式（JSON）</option><option value="v2-json">通用 V2 格式（JSON）</option><option value="v2-png">通用 V2 格式（PNG 图片）</option></select><button id="export">导出角色卡</button><a id="original" hidden>下载导入时的原始文件</a><p class="hint">导出内容不包含对话记录与对话记忆。</p></details>
+  <p class="hint">角色设定与对话经历分开保存，导入的原始文件只保存在本地。</p>
+</aside>
+<div class="workspace-main">
+<section id="character-library" class="character-library" aria-labelledby="library-title">
+  <div class="library-head"><div><h2 id="library-title">角色库</h2><p>选择一位角色继续创作，或新建、导入角色卡。</p></div><div class="library-actions"><button type="button" id="library-import">导入角色卡</button><button type="button" id="library-new" class="primary">＋ 新建角色</button></div></div>
+  <label class="library-search">搜索角色<input id="library-search" type="search" placeholder="按名称或标签查找" autocomplete="off"></label>
+  <div id="library-grid" class="library-grid"></div>
+  <p id="library-empty" class="library-empty">还没有角色。新建一位，或导入已有的 JSON / PNG 角色卡。</p>
+</section>
+<section class="character-editor" aria-label="单角色卡编辑">
+<label class="section-picker">当前章节<select id="section-select"><option value="basics">基础与肖像</option><option value="definition">人物设定</option><option value="openings">开场与示例</option><option value="book">知识条目</option><option value="prompts">补充指令</option><option value="metadata">作者与标签</option></select></label>
+<form id="editor-form" class="editor-sheet">
+<section id="basics" class="editor-section"><header class="section-head"><h2>基础与肖像</h2><p>角色的名字会出现在角色库、预览和对话中。</p></header>
+  <label>角色名称<input data-field="name" maxlength="2000" autocomplete="off" placeholder="为角色起一个名字"></label>
+  <div class="portrait-row"><div class="portrait-frame"><img id="portrait" alt="角色肖像" hidden><span id="portrait-placeholder" class="portrait-placeholder" aria-hidden="true">角</span></div><div class="portrait-copy"><strong>肖像</strong><p class="hint">可选。上传一张 PNG 图片，作为角色库与创作页的展示图片。</p><button type="button" id="upload-portrait">上传 PNG 肖像</button></div></div>
+</section>
+<section id="definition" class="editor-section"><header class="section-head"><h2>人物设定</h2><p>写下角色是谁、怎样说话、身处何地。先写关键特征，再补充细节。</p></header>
+  <label>人物描述<textarea data-field="description" rows="8" placeholder="外貌、身份、经历与说话方式"></textarea></label>
+  <label>性格<textarea data-field="personality" rows="3" placeholder="几个关键词或一段简短概括"></textarea></label>
+  <label>场景<textarea data-field="scenario" rows="3" placeholder="对话开始时的时间、地点与情境"></textarea></label>
+</section>
+<section id="openings" class="editor-section"><header class="section-head"><h2>开场与示例</h2><p>开场白是角色说的第一段话，决定对话的基调。可以准备多段候选。</p></header>
+  <label>主开场白<textarea data-field="first_mes" rows="5"></textarea></label>
+  <div id="alternates"></div>
+  <button type="button" id="add-greeting" class="add-button">＋ 添加候选开场白</button>
+  <label>对话示例<textarea data-field="mes_example" rows="6"></textarea></label>
+  <p class="hint">示例只用于展示语气，不会成为对话记录。</p>
+</section>
+<section id="book" class="editor-section"><header class="section-head"><h2>知识条目</h2><p>按关键词或常驻等规则，为对话补充相关知识。适合记录地点、人物关系与设定细节；可在“预览”中试写一句话，检查会触发哪些条目。</p></header>
+  <div id="book-entries" class="book-entries"></div>
+  <button type="button" id="add-book" class="add-button">添加知识条目</button>
+  <p class="hint">使用正则匹配或特殊格式的条目会原样保存，但不会生效。</p>
+  <details class="advanced"><summary>高级：角色书原始数据</summary><p class="hint">可直接编辑关键词、内容、扫描深度、预算与优先级。未识别的扩展字段会被保留。</p><label>角色书 JSON<textarea id="book-json" rows="12" spellcheck="false"></textarea></label></details>
+</section>
+<section id="prompts" class="editor-section"><header class="section-head"><h2>补充指令</h2><p>可选。用于精细控制扮演方式，多数角色留空即可。</p></header>
+  <label>角色扮演指令<textarea data-field="system_prompt" rows="5"></textarea></label>
+  <p class="hint">留空时使用默认指令；写入 {{original}} 可在默认指令的基础上补充。不会改变应用本身的权限设置。</p>
+  <label>每次回复前的提醒<textarea data-field="post_history_instructions" rows="4"></textarea></label>
+  <p class="hint">放在对话记录之后，适合强调语气、人称或格式。</p>
+</section>
+<section id="metadata" class="editor-section"><header class="section-head"><h2>作者与标签</h2><p>帮助你在角色库中整理角色。作者说明不会提供给角色。</p></header>
+  <label>作者说明<textarea data-field="creator_notes" rows="4" placeholder="写给使用者的介绍或注意事项"></textarea></label>
+  <div class="two-fields"><label>作者<input data-field="creator" autocomplete="off"></label><label>作者版本号<input data-field="character_version" autocomplete="off" placeholder="例如：1.0"></label></div>
+  <label>标签<input id="tag-input" autocomplete="off" placeholder="用逗号分隔，例如：悬疑，温柔，长篇"></label>
+  <details class="advanced"><summary>高级：原始数据与兼容信息</summary><label>标签原始数据（JSON 字符串数组）<textarea id="tags-json" rows="2" spellcheck="false"></textarea></label><h3 class="advanced-title">完整交换数据与未识别扩展</h3><pre id="raw-card"></pre></details>
+</section>
 </form></section>
-<aside class="character-preview"><div class="preview-tabs"><button id="show-preview" aria-pressed="true">上下文预览</button><button id="show-chat" aria-pressed="false">会话</button></div>
-<div id="preview-panel"><h2>开场与装配</h2><label>玩家称呼<input id="player-name" value="玩家" maxlength="120"></label><label>选择开场白<select id="greeting-index"></select></label><blockquote id="greeting-preview"></blockquote><label>测试输入<textarea id="preview-input" rows="2" placeholder="输入关键词检查角色书触发"></textarea></label><button id="preview">更新上下文预览</button><div id="compatibility"></div><details open><summary>装配结果与来源</summary><pre id="context-preview">保存前也可预览；不会调用模型。</pre></details><p id="version-note" class="hint">先封存版本，再创建会话。</p><button id="start-chat" class="primary">使用此版本开始对话</button></div>
-<div id="chat-panel" hidden><div class="chat-toolbar"><h2>独立会话</h2><button id="refresh-chat">刷新会话</button></div><p id="mode-note" class="hint"></p><div id="messages" aria-live="polite"></div><pre id="partial" hidden></pre><p id="operation-status" role="status"></p><button id="recover" hidden>核对原请求结果</button><label>消息<textarea id="message" rows="3" placeholder="向角色发送消息"></textarea></label><button id="send" class="primary">发送消息</button>
-<details><summary>本次会话设置与记忆</summary><label>历史保留回合<input id="history-turns" type="number" min="1" max="1000" placeholder="留空保留全部"></label><label class="check"><input type="checkbox" id="memory-enabled">启用本会话记忆召回</label><label>模型<select id="model"><option value="">尚未选择模型</option></select></label><label>最大输出 token<input id="max-output" type="number" min="1" value="4096"></label><button id="save-settings">保存会话设置</button><p class="hint">离线测试不需要模型。真实调用需要宿主单独配置和额度授权。</p><div id="memory-list"></div><label>记忆名称<input id="memory-name" maxlength="120"></label><label>触发词（逗号分隔）<input id="memory-keys"></label><label>记忆内容<textarea id="memory-content" rows="3"></textarea></label><button id="add-memory">保存本会话记忆</button></details></div>
-</aside></main>
-<dialog id="import-dialog"><header><h2>导入兼容报告</h2><button id="close-import" aria-label="关闭">×</button></header><pre id="import-report"></pre><label>素材来源（可留空）<input id="import-origin"></label><div id="fallback" hidden><p>V3 数据无效。原文件将完整保留。</p><button id="choose-v2">明确选择有效 V2 数据</button></div><footer><button id="confirm-import" class="primary">确认导入为新角色</button></footer></dialog>
+<aside class="character-preview" aria-label="预览与对话">
+<div id="preview-panel">
+  <div class="preview-main"><article class="character-sheet">
+    <p class="eyebrow">角色预览</p><h2 id="preview-name"></h2>
+    <h3>人物描述</h3><p id="preview-description" class="sheet-text"></p>
+    <h3>性格</h3><p id="preview-personality" class="sheet-text"></p>
+    <section class="sheet-opening"><h3>开场白</h3><div class="two-fields"><label>你的称呼<input id="player-name" value="玩家" maxlength="120"></label><label>选择开场白<select id="greeting-index"></select></label></div><blockquote id="greeting-preview"></blockquote></section>
+  </article></div>
+  <div class="preview-side">
+    <section class="start-block"><h3 class="side-title">开始对话</h3><p id="version-note" class="hint">先创建对话版本，再开始对话。</p><button id="make-version">创建对话版本</button><button id="start-chat" class="primary">使用此版本开始对话</button><p><a id="create-group" hidden>用此版本创建群聊 →</a></p><p class="hint">每段对话固定使用开始时的可用版本。之后修改草稿或创建新版本，旧对话仍保留原来的版本。</p></section>
+    <section class="trigger-test"><h3 class="side-title">检查知识条目</h3><label>试写一句话<textarea id="preview-input" rows="2" placeholder="输入可能出现的关键词，查看会触发哪些条目"></textarea></label><button id="preview">检查这句话</button><div id="knowledge-preview" role="status" aria-live="polite"></div></section>
+    <section class="compat-block"><div id="compatibility"></div></section>
+    <details class="send-details"><summary>查看发送内容</summary><pre id="context-preview">保存前也可预览；不会调用模型。</pre></details>
+  </div>
+</div>
+<div id="chat-panel" hidden>
+  <div class="chat-toolbar"><div><h2>对话</h2><p id="mode-note"></p></div><button id="refresh-chat">刷新对话</button></div>
+  <details class="chat-settings"><summary>对话设置与记忆</summary><div class="settings-body">
+    <div class="two-fields"><label>保留的历史回合<input id="history-turns" type="number" min="1" max="1000" placeholder="留空保留全部"></label><label>单次回复上限（token）<input id="max-output" type="number" min="1" value="4096"></label></div>
+    <label>回复模型<select id="model"><option value="">尚未选择模型</option></select></label>
+    <label class="check"><input type="checkbox" id="memory-enabled">启用本对话的记忆召回</label>
+    <button id="save-settings">保存对话设置</button>
+    <p class="hint">模型和可用额度由当前连接提供。</p>
+    <h3 class="settings-title">本对话记忆</h3><div id="memory-list"></div>
+    <label>记忆名称<input id="memory-name" maxlength="120"></label>
+    <label>触发词（逗号分隔）<input id="memory-keys"></label>
+    <label>记忆内容<textarea id="memory-content" rows="3"></textarea></label>
+    <button id="add-memory">保存本对话记忆</button>
+  </div></details>
+  <div class="chat-thread">
+    <p id="chat-empty">还没有进行中的对话。在“预览”中选择开场白，使用已创建的对话版本开始对话。</p>
+    <div id="messages" aria-live="polite" aria-label="对话消息" tabindex="0"></div>
+    <pre id="partial" hidden></pre>
+    <div class="chat-status"><p id="operation-status" role="status"></p><button id="recover" hidden>核对原请求结果</button></div>
+    <div class="composer"><label>消息<textarea id="message" rows="3" placeholder="向角色发送消息"></textarea></label><button id="send" class="primary">发送消息</button></div>
+  </div>
+</div>
+</aside>
+</div></main>
+<dialog id="import-dialog" aria-labelledby="import-title"><header><h2 id="import-title">导入角色卡</h2><button id="close-import" aria-label="关闭">×</button></header><p class="hint">确认之前不会创建角色。原始文件会完整保存在本地。</p><h3 class="dialog-sub">检查结果</h3><pre id="import-report"></pre><label>素材来源（可留空）<input id="import-origin" placeholder="例如：作者主页或获取途径"></label><div id="fallback" hidden><p>此文件中的 V3 数据无法读取，原文件会完整保留。</p><button id="choose-v2">改用文件中的有效 V2 数据</button></div><footer><button id="confirm-import" class="primary">确认导入为新角色</button></footer></dialog>
 <input type="file" id="card-file" accept=".json,.png,application/json,image/png" hidden><input type="file" id="portrait-file" accept="image/png" hidden>
 </body></html>
