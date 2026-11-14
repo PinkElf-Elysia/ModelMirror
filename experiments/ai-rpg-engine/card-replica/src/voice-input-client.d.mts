@@ -1,0 +1,17 @@
+export type Settings={enabled:boolean;model:string;language:string;seconds:number};
+export type VoiceModel={model_id:string;display_name:string;invocable:boolean;interaction_status:string;input_formats:string[]};
+export type VoiceProfile={model:string;name:string;formats:string[];managed:boolean};
+export type Format={mime:string;extension:string;convert:boolean};
+export const SETTINGS_KEY:string;
+export const MAX_BYTES:number;
+export const defaults:Settings;
+export const languages:string[][];
+export function readSettings(storage:Pick<Storage,'getItem'>):Settings;
+export function appendTranscript(draft:string,text:string):string;
+export function recordingFormat(accepted:string[],supported:(type:string)=>boolean):Format;
+export function catalog(fetcher?:typeof fetch,signal?:AbortSignal):Promise<{microphone_enabled:boolean;profiles:VoiceModel[]}>;
+export function profile(model:string,fetcher?:typeof fetch,signal?:AbortSignal):Promise<VoiceProfile>;
+export function toWav(blob:Blob):Promise<Blob>;
+export function capture(options:{mediaDevices:MediaDevices;Recorder:typeof MediaRecorder;onState:()=>void;onDone:(blob:Blob)=>void;onError:(e:unknown)=>void;seconds:number;format:Format}):{cancel:()=>void;stop:()=>void};
+export function transcribe(job:{blob:Blob;extension:string;model:string;language:string;id:string},fetcher?:typeof fetch,signal?:AbortSignal):Promise<{text:string;request_id?:string;actual_model?:string}>;
+export function recorderError(e:unknown):string;

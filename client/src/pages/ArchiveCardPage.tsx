@@ -51,6 +51,6 @@ export default function ArchiveCardPage({card}:{card:keyof typeof titles}){
     </header>}
     {sessionId&&!validSession(sessionId)?<p role="alert">会话地址无效，请返回角色与存档。</p>:
       <iframe ref={frame} title={titles[card]+(sessionId?'独立聊天':'角色与会话')} src={root+(sessionId?'?session='+encodeURIComponent(sessionId):route.pathname.endsWith('/editor')?'?editor=1':new URLSearchParams(location.search).has('plugins')?'?plugins=1':'')}
-        allow="clipboard-write"/>}
+        allow="clipboard-write; microphone 'self'"/>}
   </RpgShell>;
 }
