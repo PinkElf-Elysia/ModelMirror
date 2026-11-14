@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {canonical,sha,fail,SPEECH_ID,VOICE_LIBRARY_ID} from '../plugins/catalog.mjs';
 import {voiceLibraryService} from './voice-library.mjs';
 import {atomicJson} from './branch-archive.mjs';
+import {commonVoices} from './common-voices.mjs';
 
 const uuid=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const maxBytes=25*1024*1024;
@@ -67,6 +68,9 @@ export function speechService(baseURL,fetcher=fetch){
 
 export function createSpeech(directory,service){
  const active=new Map();
+ const common=()=>commonVoices(join(directory,'common-voices.json'),service?.voices);
+ async function isCommon(model,voice){return (await common()).some(v=>v.available&&v.model===model&&v.voice===voice);}
+
  return async function handle({card,id,action,method,data,query=new URLSearchParams(),plugins,store,res,send}){
   if(!plugins||!store||!service)throw fail('SPEECH_HOST_UNAVAILABLE',503);
   const grant=await plugins.sessionStatus(id,SPEECH_ID);
@@ -87,10 +91,25 @@ export function createSpeech(directory,service){
    res.writeHead(200,{'Content-Type':j.mediaType,'Content-Length':bytes.length,'Content-Disposition':'inline; filename="speech.'+j.format+'"','Content-Security-Policy':"default-src 'none'; sandbox"});return res.end(bytes);
   }
   if(!grant.enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);
-  if(method==='GET'&&action==='models')return send(200,await service.catalog(!!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled));
+  if(method==='GET'&&action==='models'){
+   const defaults=await common();
+   let catalog;
+   try{catalog=await service.catalog(!!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled);}
+   catch{catalog={status:'unavailable',profiles:[]};}
+   const profiles=[...catalog.profiles];
+   for(const v of defaults.filter(v=>v.available))if(!profiles.some(p=>p.model_id===v.model))profiles.push({model_id:v.model,display_name:v.model+' · 通用声线',invocable:true,interaction_status:'ready'});
+   return send(200,{...catalog,profiles,commonVoices:defaults});
+  }
   if(method==='GET'&&action==='profile'){
    const model=query.get('model');if(!model||model.length>256)throw fail('SPEECH_INPUT_INVALID',400);
-   return send(200,await service.profile(model));
+   const p=await service.profile(model);
+   if(p.library&&!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled){
+    const allowed=(await common()).filter(v=>v.available&&v.model===model).map(v=>v.voice);
+    p.voices=p.voices.filter(v=>allowed.includes(v));
+    p.labels=Object.fromEntries(Object.entries(p.labels||{}).filter(([v])=>allowed.includes(v)));
+    p.speeds=Object.fromEntries(Object.entries(p.speeds).filter(([v])=>allowed.includes(v)));
+   }
+   return send(200,p);
   }
   if(method!=='POST'||action!=='jobs')throw fail('NOT_FOUND',404);
   const {operationId:key,text,model,turn,voice,format,speed}=data;
@@ -100,7 +119,7 @@ export function createSpeech(directory,service){
   try{return send(200,await existing());}catch(e){if(e.code!=='ENOENT')throw e;}
   const ticket=await plugins.invoke({sessionId:id,pluginId:SPEECH_ID,capability:'session.speech.generate',input:{}});
   const libraryVoice=voice.startsWith('library:');
-  if(libraryVoice&&!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);
+  if(libraryVoice&&!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled&&!await isCommon(model,voice))throw fail('PLUGIN_NOT_AUTHORIZED',403);
   const session=await store.read(id),anchor=session.turns.find(t=>t.requestId===turn);
   if(!anchor&&!(libraryVoice&&turn==='voice-preview'))throw fail('SPEECH_TURN_INVALID',400);
   const p=await service.profile(model),range=p.speeds[voice];
@@ -114,7 +133,7 @@ export function createSpeech(directory,service){
    finally{try{await persistSpeechJob(join(path,'job.json'),job);}finally{active.delete(folder);}}
   }
   const result=await plugins.commitResult(ticket,async()=>{
-   if(libraryVoice&&!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled)throw fail('PLUGIN_NOT_AUTHORIZED',403);
+   if(libraryVoice&&!(await plugins.sessionStatus(id,VOICE_LIBRARY_ID)).enabled&&!await isCommon(model,voice))throw fail('PLUGIN_NOT_AUTHORIZED',403);
    if(active.has(folder))throw fail('SPEECH_BUSY');
    await mkdir(folder,{recursive:true});try{await mkdir(path);}catch(e){if(e.code==='EEXIST')return existing();throw e;}
    await atomicJson(join(path,'job.json'),job);active.set(folder,key);void finish().catch(()=>{});return {...job};

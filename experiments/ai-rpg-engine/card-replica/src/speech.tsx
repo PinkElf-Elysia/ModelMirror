@@ -5,6 +5,7 @@ import {extractSpeechText} from './speech-text.mjs';
 import './speech.css';
 import type {VoiceAsset} from './voice-library';
 
+type CommonVoice={id:string;name:string;available:boolean;reason:string;model?:string;voice?:string};
 type Model={model_id:string;display_name:string};
 type Profile={model:string;voices:string[];formats:string[];managed:boolean;library?:boolean;labels?:Record<string,string>;speeds:Record<string,{min:number;max:number}>};
 type Job={id:string;created:string;turn:string;text:string;model:string;voice:string;voiceName?:string;format:string;speed:number;state:'pending'|'complete'|'failed'|'unknown';requestId?:string;actualModel?:string;bytes?:number;costKind?:string};
@@ -25,6 +26,8 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
  const [open,setOpen]=useState(false),[tab,setTab]=useState<'create'|'history'>('create');
  const [turn,setTurn]=useState(''),[text,setText]=useState(''),[models,setModels]=useState<Model[]>([]),[model,setModel]=useState(''),[profile,setProfile]=useState<Profile|null>(null),[voice,setVoice]=useState(''),[format,setFormat]=useState(''),[speed,setSpeed]=useState(1),[name,setName]=useState('旁白');
  const [page,setPage]=useState(0),[jobs,setJobs]=useState<Job[]>([]),[selected,setSelected]=useState(''),[error,setError]=useState(''),[note,setNote]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[uncertain,setUncertain]=useState(false),[retry,setRetry]=useState(0);
+ const [common,setCommon]=useState<CommonVoice[]>([{id:'elysia',name:'爱莉希雅音色',available:false,reason:'正在读取状态'}]);
+ const defaults=useRef<CommonVoice[]>([]);
  const [roles,setRoles]=useState<{role:string;asset:VoiceAsset}[]>([]);
  const saved=useRef<Choice|null>(null),pending=useRef(''),locked=useRef(false),live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
@@ -40,11 +43,11 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
  useEffect(()=>{if(!open||!jobs.some(j=>j.state==='pending'))return;const timer=setInterval(()=>void refresh(),2000);return()=>clearInterval(timer);},[open,jobs]);
  useEffect(()=>{
   if(!open||!enabled)return;let ignore=false;setLoading(true);setError('');
-  api(root+'models').then(v=>{if(ignore)return;setModels(v.profiles);setModel(old=>v.profiles.some((m:Model)=>m.model_id===old)?old:v.profiles.some((m:Model)=>m.model_id===saved.current?.model)?saved.current!.model:v.profiles[0]?.model_id||'');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
+  api(root+'models').then(v=>{if(ignore)return;setModels(v.profiles);defaults.current=v.commonVoices||[];setCommon(defaults.current);setModel(old=>v.profiles.some((m:Model)=>m.model_id===old)?old:v.profiles.some((m:Model)=>m.model_id===saved.current?.model)?saved.current!.model:defaults.current.find(v=>v.available)?.model||v.profiles[0]?.model_id||'');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
  },[open,enabled,retry]);
  useEffect(()=>{
   setProfile(null);setVoice('');setFormat('');setPage(0);if(!open||!enabled||!model)return;let ignore=false;setLoading(true);setError('');
-  api(root+'profile?model='+encodeURIComponent(model)).then((p:Profile)=>{if(ignore)return;if(!p.voices.length)throw Error('此模型暂无已就绪的音色，请先在角色音色库查询状态。');setProfile(p);const s=saved.current?.model===model?saved.current:null;const v=s&&p.voices.includes(s.voice)?s.voice:p.voices[0];setVoice(v);setPage(Math.floor(p.voices.indexOf(v)/10));setFormat(s&&p.formats.includes(s.format)?s.format:p.formats[0]);const range=p.speeds[v];setSpeed(s&&s.speed>=range.min&&s.speed<=range.max?s.speed:1);if(s)setName(s.name);if(s&&!p.voices.includes(s.voice))setNote('保存的音色已不可用，请确认新音色后再生成。');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
+  api(root+'profile?model='+encodeURIComponent(model)).then((p:Profile)=>{if(ignore)return;if(!p.voices.length)throw Error('此模型暂无已就绪的音色，请先在角色音色库查询状态。');setProfile(p);const s=saved.current?.model===model?saved.current:null;const fallback=defaults.current.find(v=>v.available&&v.model===model&&p.voices.includes(v.voice||''));const v=s&&p.voices.includes(s.voice)?s.voice:fallback?.voice||p.voices[0];setVoice(v);setPage(Math.floor(Math.max(0,p.voices.filter(v=>!defaults.current.some(c=>c.model===model&&c.voice===v)).indexOf(v))/10));setFormat(s&&p.formats.includes(s.format)?s.format:p.formats[0]);const range=p.speeds[v];setSpeed(s&&s.speed>=range.min&&s.speed<=range.max?s.speed:1);if(s)setName(s.name);else if(fallback)setName(fallback.name);if(s&&!p.voices.includes(s.voice))setNote('保存的音色已不可用，请确认新音色后再生成。');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
  },[model,open,enabled,retry]);
  useEffect(()=>{
   if(!open||!libraryEnabled){setRoles([]);return;}let ignore=false;
@@ -58,7 +61,7 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
   if(locked.current||!canGenerate)return;locked.current=true;setBusy(true);setError('');
   const operationId=crypto.randomUUID();let dispatched=false;
   try{localStorage.setItem(pendingKey,operationId);pending.current=operationId;setUncertain(true);dispatched=true;
-   const job=await api(root+'jobs',{operationId,turn,text:text.trim(),model,voice,format,speed}) as Job;
+   const job=await api(root+'jobs',{operationId,turn:turn||'voice-preview',text:text.trim(),model,voice,format,speed}) as Job;
    if(!live.current)return;setJobs(list=>[job,...list.filter(j=>j.id!==job.id)]);setTab('history');setSelected(job.id);await refresh();
   }catch(e){
    if(e instanceof ApiError&&e.status<500){try{localStorage.removeItem(pendingKey);pending.current='';setUncertain(false);}catch{/* Preserve recovery marker. */}setError(errorText(e));}
@@ -66,13 +69,14 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
   }finally{locked.current=false;if(live.current)setBusy(false);}
  }
  const count=Array.from(text).length,range=profile?.speeds[voice];
- const canGenerate=enabled&&!busy&&!loading&&!uncertain&&!jobs.some(j=>j.state==='pending')&&!!turn&&!!text.trim()&&count<=4000&&profile?.model===model&&!!range&&profile.voices.includes(voice)&&profile.formats.includes(format)&&speed>=range.min&&speed<=range.max;
- const current=jobs.find(j=>j.id===selected),pages=Math.max(1,Math.ceil((profile?.voices.length||0)/10));
+ const canGenerate=enabled&&!busy&&!loading&&!uncertain&&!jobs.some(j=>j.state==='pending')&&(!!turn||common.some(v=>v.available&&v.voice===voice&&v.model===model))&&!!text.trim()&&count<=4000&&profile?.model===model&&!!range&&profile.voices.includes(voice)&&profile.formats.includes(format)&&speed>=range.min&&speed<=range.max;
+ const otherVoices=(profile?.voices||[]).filter(v=>!common.some(c=>c.model===model&&c.voice===v));
+ const current=jobs.find(j=>j.id===selected),pages=Math.max(1,Math.ceil(otherVoices.length/10));
  const close=()=>{if(!busy)setOpen(false);};
  return {
   preview,
   action:(id:string,raw:string)=>enabled?<button type="button" className="text-button" onClick={()=>begin(id,raw)}>朗读</button>:null,
-  toolbar:installed?<button type="button" className="text-button" onClick={()=>{setTab('history');setOpen(true);}}>沉浸语音</button>:null,
+  toolbar:installed?<button type="button" className="text-button" onClick={()=>{setTab('create');setOpen(true);}}>沉浸语音</button>:null,
   modal:open?<Modal title="沉浸语音" className="chat-dialog speech-dialog" close={close}>
    <div className="speech-tabs" role="tablist" aria-label="语音面板" onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'create':e.key==='End'?'history':tab==='create'?'history':'create';setTab(next);e.currentTarget.querySelector<HTMLButtonElement>('[data-tab="'+next+'"]')?.focus();}}}>
     <button id={panelId+'-create'} data-tab="create" role="tab" aria-controls={panelId+'-panel'} tabIndex={tab==='create'?0:-1} aria-selected={tab==='create'} onClick={()=>setTab('create')}><SpeechIcon name="voice"/>生成语音</button>
@@ -82,11 +86,13 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
    {!enabled&&<p className="speech-notice">插件已停用。已有音频仍可播放，启用后可生成新语音。</p>}
    {error&&<p className="speech-notice" role="alert">{error}<button onClick={()=>{setRetry(x=>x+1);void refresh();}} disabled={busy}>重新读取</button></p>}
    {tab==='create'?<>
+    {common.length>0&&<section className="speech-common" aria-label="通用声线"><div className="speech-common-heading"><strong>通用声线</strong><span>所有会话共用 · 统一额度</span></div><div className="speech-common-list">{common.map(v=><button key={v.id} type="button" aria-pressed={model===v.model&&voice===v.voice} disabled={busy||loading||!enabled||!v.available} onClick={()=>{if(!v.model||!v.voice)return;const choice={model:v.model,voice:v.voice,format:'wav',speed:1,name:v.name};saved.current=choice;setModel(v.model);setRetry(n=>n+1);setNote('已选择通用声线，本会话的历史语音保持不变。');}}><span className="speech-voice-mark tone-2"><SpeechIcon name="voice"/></span><span><strong>{v.name}</strong><small>{v.reason}</small></span><span className="speech-common-badge">默认</span>{model===v.model&&voice===v.voice&&<SpeechIcon name="check"/>}</button>)}</div>{common.some(v=>!v.available)&&<p className="speech-muted">声线会保留在这里。可用模型和剩余额度请在<a href="/settings?section=providers">统一模型设置</a>查看。</p>}</section>}
+
     {roles.length>0&&<label>使用角色绑定<select aria-label="角色音色绑定" value="" disabled={busy} onChange={e=>{const r=roles.find(r=>r.role===e.target.value);if(r)chooseAsset(r.asset,r.role);}}><option value="">选择本会话的角色</option>{roles.map(r=><option key={r.role} value={r.role}>{r.role} · {r.asset.name}</option>)}</select></label>}
     <div className="speech-model-row"><label className="speech-model">语音模型<select aria-label="语音模型" disabled={!enabled||busy||loading} value={model} onChange={e=>{setModel(e.target.value);setNote('');}}>{!models.length&&<option value="">{loading?'正在读取模型…':'暂无可用语音模型'}</option>}{models.map(m=><option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}</select></label><span className="speech-muted">手动生成 · 按条保存</span></div>
-    <fieldset className="speech-voice-field" disabled={busy||!enabled||loading} aria-busy={loading}><legend>选择音色 <span>{profile?profile.voices.length+' 个可用音色':''}</span></legend>
-     {loading&&!profile?<div className="speech-loading" role="status">正在读取音色…</div>:<div className="speech-voices">{profile?.voices.slice(page*10,page*10+10).map((v,i)=><button key={v} type="button" className={voice===v?'selected':''} aria-pressed={voice===v} title={v} onClick={()=>{setVoice(v);setSpeed(1);}}><span className={'speech-voice-mark tone-'+i%4}><SpeechIcon name="voice"/></span><span className="speech-voice-label">{profile?.labels?.[v]||voiceLabel(v)}</span><span className="speech-voice-check">{voice===v&&<SpeechIcon name="check"/>}</span></button>)}</div>}
-    </fieldset>
+    {(otherVoices.length>0||loading)&&<fieldset className="speech-voice-field" disabled={busy||!enabled||loading} aria-busy={loading}><legend>其他音色 <span>{profile?otherVoices.length+' 个可用音色':''}</span></legend>
+     {loading&&!profile?<div className="speech-loading" role="status">正在读取音色…</div>:<div className="speech-voices">{otherVoices.slice(page*10,page*10+10).map((v,i)=><button key={v} type="button" className={voice===v?'selected':''} aria-pressed={voice===v} title={v} onClick={()=>{setVoice(v);setSpeed(1);}}><span className={'speech-voice-mark tone-'+i%4}><SpeechIcon name="voice"/></span><span className="speech-voice-label">{profile?.labels?.[v]||voiceLabel(v)}</span><span className="speech-voice-check">{voice===v&&<SpeechIcon name="check"/>}</span></button>)}</div>}
+    </fieldset>}
     {pages>1&&<nav className="speech-pagination" aria-label="音色分页"><button disabled={page===0} aria-label="上一页音色" onClick={()=>setPage(p=>p-1)}><span className="speech-prev"><SpeechIcon name="chevron"/></span></button><span>{page+1} <span className="speech-muted">/ {pages}</span></span><button disabled={page>=pages-1} aria-label="下一页音色" onClick={()=>setPage(p=>p+1)}><SpeechIcon name="chevron"/></button></nav>}
     {profile?.managed&&!profile.library&&<p className="speech-muted">此路由使用已认证音色与格式，更换时请先前往模型设置认证。</p>}
     <details className="speech-options"><summary><span>高级配置 <span className="speech-option-summary">{speed.toFixed(2)}× · {format.toUpperCase()||'默认格式'}</span></span><SpeechIcon name="chevron"/></summary>
@@ -96,8 +102,8 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,lib
      {note&&<p role="status" className="speech-success"><SpeechIcon name="check"/>{note}</p>}
     </details>
     <div className="speech-editor-heading"><label htmlFor={panelId+'-text'}>提取文本</label><button className="speech-quiet" disabled={busy||!text} onClick={()=>setText('')}>清空</button></div>
-    <div className={'speech-editor '+(count>4000?'speech-editor-invalid':'')}><textarea id={panelId+'-text'} aria-label="提取文本" aria-describedby={panelId+'-count'} aria-invalid={count>4000} placeholder="从回复旁点击“朗读”，提取并编辑要生成的文字。" value={text} disabled={busy||!enabled} onChange={e=>setText(e.target.value)}/><div className="speech-text-meta"><span>可编辑，只朗读这里的文字</span><span id={panelId+'-count'} className={count>4000?'speech-over-limit':''}>{count.toLocaleString()} / 4,000 字</span></div></div>
-    {!turn&&<p className="speech-muted">请先点击一条已完成回复旁的“朗读”，选择本次来源。</p>}
+    <div className={'speech-editor '+(count>4000?'speech-editor-invalid':'')}><textarea id={panelId+'-text'} aria-label="提取文本" aria-describedby={panelId+'-count'} aria-invalid={count>4000} placeholder="输入想朗读的文字，或从回复旁点击“朗读”提取正文。" value={text} disabled={busy||!enabled} onChange={e=>setText(e.target.value)}/><div className="speech-text-meta"><span>可编辑，只朗读这里的文字</span><span id={panelId+'-count'} className={count>4000?'speech-over-limit':''}>{count.toLocaleString()} / 4,000 字</span></div></div>
+    {!turn&&<p className="speech-muted">选择通用声线后可直接输入试听文字；也可点击回复旁的“朗读”提取正文。</p>}
     {count>4000&&<p className="speech-over-limit" role="alert">文字超出上限，请缩短至 4,000 字以内。</p>}
     {uncertain&&<p className="speech-notice">上次请求待核对，请打开生成历史查看结果。</p>}
    </>:<>
