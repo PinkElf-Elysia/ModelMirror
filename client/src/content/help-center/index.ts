@@ -1,3 +1,4 @@
+import useRpgVoiceLibrary from "./articles/use-rpg-voice-library.md?raw";
 import listenRpgStory from "./articles/listen-rpg-story.md?raw";
 import playElderlandCard from "./articles/play-elderland-card.md?raw";
 import publishRpgWork from "./articles/publish-rpg-work.md?raw";
@@ -141,6 +142,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 };
 
 export const helpArticles: HelpArticle[] = [
+  { slug: "use-rpg-voice-library", title: "创建并使用角色音色", summary: "注册云端固定音色、绑定角色，复用沉浸语音朗读。", category: "按目标找指南", contentType: "how-to", audience: "RPG 玩家与管理员", estimatedMinutes: 5, keywords: ["音色库", "声音克隆", "Qwen", "CosyVoice", "TTS"], relatedRoutes: ["/rpg/plugins", "/settings"], verifiedCommit: "a6563a9b", verifiedDate: "2026-11-13", content: useRpgVoiceLibrary, nextSlug: "listen-rpg-story" },
   { slug: "review-vision-image-decisions", title: "区分看图、图片编辑与文字决策", summary: "核对新视觉模型、参考图要求和文字决策入口，不提交请求。", category: "按目标找指南", contentType: "how-to", audience: "需要视觉理解、图片编辑或文字决策的用户", estimatedMinutes: 5, keywords: ["Klein", "Krea", "Span", "Moondream", "Nemotron", "决策"], relatedRoutes: ["/models", "/decisions/:modelId", "/chat/:modelId"], verifiedCommit: "ae2493e2", verifiedDate: "2026-10-16", content: reviewVisionImageDecisions, nextSlug: "check-availability-cost-data" },
   { slug: "review-assembly-jev", title: "核对转写与 Jev 决策入口", summary: "检查 Universal-3.6 的格式限制与 Jev 1.14 的文字决策费用，不提交请求。", category: "按目标找指南", contentType: "how-to", audience: "需要转写或结构化决策的用户", estimatedMinutes: 4, keywords: ["AssemblyAI", "Universal", "Jev", "转写", "决策"], relatedRoutes: ["/models", "/decisions/:modelId"], verifiedCommit: "ec79e120", verifiedDate: "2026-10-15", content: reviewAssemblyJev, nextSlug: "check-availability-cost-data" },
   { slug: "prepare-scaledown-argon-speech", title: "准备摘要、字段提取与新语音任务", summary: "准备 ScaleDown 文字输入，核对 Argon 批处理和语音费用边界，不发送请求。", category: "按模块浏览", contentType: "how-to", audience: "需要整理文字或核对新模型入口的用户", estimatedMinutes: 6, keywords: ["ScaleDown", "摘要", "提取", "Argon", "HeyGen", "Drama"], relatedRoutes: ["/models", "/scaledown/:modelId", "/decisions/:modelId", "/chat/:modelId"], verifiedCommit: "2df7efba", verifiedDate: "2026-10-14", content: prepareScaleDownArgonSpeech, nextSlug: "check-availability-cost-data" },
@@ -681,6 +683,7 @@ export const helpSections: HelpSection[] = [
       { id: "elevenlabs-batch", title: "核对语音与批处理入口", summary: "查看 ElevenLabs、决策与 Haiku Batch 的费用和未配置边界。", to: "/help/review-elevenlabs-batch", keywords: ["ElevenLabs", "Scribe", "Haiku", "Batch", "决策"] },
       { id: "decisions-sol-batch", title: "核对文字决策与 Sol 批处理", summary: "查看文字状态、决策费用和批处理数据边界。", to: "/help/review-decisions-sol-batch", keywords: ["Clef", "Microsoft", "Drex", "Sol", "Batch", "决策"] },
       { id: "wonder-decisions", title: "核对 Wonder 与文字决策入口", summary: "查看附件门禁、专用决策和费用边界。", to: "/help/review-wonder-decisions", keywords: ["Wonder", "Drex", "Perplexity", "决策"] },
+      { id: "use-rpg-voice-library", title: "创建并使用角色音色", summary: "保存声音样本对应的云端音色并绑定角色。", to: "/help/use-rpg-voice-library", keywords: ["音色库", "声音克隆", "Qwen", "CosyVoice"] },
       { id: "listen-rpg-story", title: "手动朗读 RPG 回复", summary: "选择音色并保存故事语音。", to: "/help/listen-rpg-story", keywords: ["RPG", "TTS", "朗读", "沉浸语音"] },
       { id: "scaledown-argon-speech", title: "准备摘要、字段提取与新语音任务", summary: "区分文字工作台、批处理和语音的输入及费用。", to: "/help/prepare-scaledown-argon-speech", keywords: ["ScaleDown", "摘要", "提取", "Argon", "HeyGen", "Drama"] },
       { id: "cost", title: "查看价格与收费环节", summary: "看懂输入、输出、动态和按媒体计费。", to: "/help/check-availability-cost-data#费用怎么看", keywords: ["价格", "收费", "费用"] },

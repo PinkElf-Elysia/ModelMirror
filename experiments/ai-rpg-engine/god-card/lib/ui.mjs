@@ -29,6 +29,6 @@ export async function godUi(route,res,cardDist=null){
  if(imageRoutes.has(route))file=[new URL(route,output),route.endsWith('.webp')?'image/webp':route.endsWith('.png')?'image/png':'image/jpeg'];
  if(!file)return false;
  const bytes=await readFile(file[0]);
- res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+ res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
  res.writeHead(200,{'Content-Type':file[1]});res.end(bytes);return true;
 }

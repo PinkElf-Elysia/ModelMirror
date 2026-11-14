@@ -31,6 +31,8 @@ import {previewFetch} from './message-preview.mjs';
 import {settleStoryFailure} from './story-failure.mjs';
 import {createIllustrationWriter} from './illustration-rewrite.mjs';
 import {createSpeech,speechService} from './speech.mjs';
+import {createVoiceLibrary} from './voice-library.mjs';
+import {VOICE_LIBRARY_ID} from '../plugins/catalog.mjs';
 import {createIllustrations,imageService} from './illustrations.mjs';
 import {transcriptHttp} from './transcript.mjs';
 import {preserveOutputEditRuntime} from './output-edit-compatibility.mjs';
@@ -90,7 +92,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
  let plugins=null,pluginError=null;
  try {plugins=await createPluginService({directory:join(directory,'plugins'),recoverDeadOwner:!!generationCards&&generationCards.recoverDeadOwner!==false,loadCatalog:async()=>{
   const catalog=await (godHost?.loadPlugins?godHost.loadPlugins({rollingSummary,memoryPalace}):loadReviewedPlugins({rollingSummary,memoryPalace}));
-  if(speech)catalog.push(await loadReviewedCatalog(SPEECH_ID));
+  if(speech)catalog.push(await loadReviewedCatalog(SPEECH_ID),await loadReviewedCatalog(VOICE_LIBRARY_ID));
   if(illustrationService)catalog.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
   if(transcript)catalog.push(await loadReviewedCatalog(TRANSCRIPT_ID));
   if(messageTools)catalog.push(await loadReviewedCatalog(MESSAGE_TOOLS_ID));
@@ -151,11 +153,12 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
   return archiveHosts.get(id);
  }
  const speechHandler=createSpeech(join(directory,'speech'),speech);
+ const voiceHandler=createVoiceLibrary(join(directory,'voice-library'),speech?.voices);
  const illustrations=createIllustrations(join(directory,'illustrations'),illustrationService,illustrationService&&await createIllustrationWriter(directory,rewriteControl));
  const server=http.createServer(async(req,res)=>{
   const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(value));};
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
-  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
+  res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'");
   try{
    const assetPath=new URL(req.url,'http://rpg').pathname;
    if(req.method==='GET'&&isElderlandAsset(assetPath))return await serveElderland(req,res,assetPath);
@@ -187,7 +190,14 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
     attachSessionLifecycle(host.store);return await transcriptHttp({req,res,send,match:transfer.slice(1),store:host.store,plugins:host.plugins});
    }
    let data={};
-   if(req.method==='POST'){const bodyLimit=pathname==='/rpg-app/earth/api/shop/activate'?32*1024*1024:pathname==='/rpg-app/earth/api/shop/preview-transcript'?8*1024*1024:1000000;let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>bodyLimit)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   if(req.method==='POST'){const bodyLimit=/\/voice-library\/create$/.test(pathname)?14001024:pathname==='/rpg-app/earth/api/shop/activate'?32*1024*1024:pathname==='/rpg-app/earth/api/shop/preview-transcript'?8*1024*1024:1000000;let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>bodyLimit)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   const voiceRoute=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland|medieval|harry-potter)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/voice-library\/([a-zA-Z0-9-]+)$/);
+   if(voiceRoute&&speech){
+    const [,card,id,action]=voiceRoute;
+    const voiceHost=generationHost?.hosts.has(card)?{store:generationHost.hosts.get(card).store,plugins:generationHost.plugins}:card==='earth'?{store:earth,plugins}:card==='god'?{store:godHost?.store,plugins}:card==='xingjian'?await xingjian():await archiveHost(card);
+    return await voiceHandler({card,id,action,method:req.method,data,query:new URL(req.url,'http://rpg').searchParams,...voiceHost,res,send});
+   }
+
    const speechRoute=pathname.match(/^\/rpg-app\/(earth|god|xingjian|ancient|cultivation|lord-of-mysteries|douluo|dragon-raja|jinyong|elderland|medieval|harry-potter)\/(?:chat\/)?api\/sessions\/([a-zA-Z0-9-]{1,80})\/speech\/([a-zA-Z0-9-]+)$/);
    if(speechRoute&&speech){
     const [,card,id,action]=speechRoute;
@@ -208,13 +218,13 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
      // static asset route even when the document itself is nested under /chat/.
      const bytes=isSetup?await (await import('../xingjian-card/setup.mjs')).renderSetup():
       (await readFile(join(cardDist||join(root,'card-replica/dist'),'index.html'),'utf8')).replace(/(src|href)="\.\/assets\//g,'$1="/rpg-app/earth/assets/').replace(/<title>[^<]*<\/title>/, '<title>'+(chatRoute?archiveNames[chatRoute[1]]:'行间')+'</title>');
-     res.setHeader('Content-Security-Policy',isSetup?"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; frame-ancestors 'self'":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'self'");
+     res.setHeader('Content-Security-Policy',isSetup?"sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; frame-ancestors 'self'":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; media-src 'self' blob:; object-src 'none'; frame-ancestors 'self'");
      res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(bytes);
     }
     const card=chatRoute?await archiveHost(chatRoute[1]):await xingjian();
     if(route==='api/plugins'&&req.method==='GET')return send(200,await card.plugins.catalog());
     const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade)$/);
-    if(install&&req.method==='POST'&&data?.pluginId===install[1]&&(REVIEWED_PLUGIN_IDS.includes(install[1])||install[1]===SPEECH_ID))return send(200,await card.plugins.change(install[2],data));
+    if(install&&req.method==='POST'&&data?.pluginId===install[1]&&(REVIEWED_PLUGIN_IDS.includes(install[1])||[SPEECH_ID,VOICE_LIBRARY_ID].includes(install[1])))return send(200,await card.plugins.change(install[2],data));
     const cardId=chatRoute?chatRoute[1]:'xingjian';
     const reply=cardId==='harry-potter'?(status,value)=>send(status,harryPotterResponse(value)):send;
     if(await archivePluginHttp({route,req,res,data,send:reply,cardId,host:card,control:chatRoute?archiveControls[cardId]:xingjianControl,features:archiveFeatures,illustrations}))return;
@@ -266,7 +276,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
    if(pathname==='/rpg-app/api/plugins'&&req.method==='GET')return plugins?send(200,await plugins.catalog()):send(503,{error:pluginError});
    const pluginAction=pathname.match(/^\/rpg-app\/api\/plugins\/([a-z0-9.-]+)\/(install|uninstall|upgrade)$/);
    if(pluginAction&&req.method==='POST'){
-    if(!REVIEWED_PLUGIN_IDS.includes(pluginAction[1])&&pluginAction[1]!==SPEECH_ID)return send(404,{error:'PLUGIN_UNKNOWN'});
+    if(!REVIEWED_PLUGIN_IDS.includes(pluginAction[1])&&![SPEECH_ID,VOICE_LIBRARY_ID].includes(pluginAction[1]))return send(404,{error:'PLUGIN_UNKNOWN'});
     if(data?.pluginId!==pluginAction[1])return send(400,{error:'PLUGIN_ID_BINDING'});
     return plugins?send(200,await plugins.change(pluginAction[2],data)):send(503,{error:pluginError});
    }
@@ -296,7 +306,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
     const pluginSession=route.match(/^api\/sessions\/([a-zA-Z0-9-]+)\/plugins\/([a-z0-9.-]+)(?:\/(enable|disable))?$/);
     if(pluginSession){
      await earth.read(pluginSession[1]);
-     if(!REVIEWED_PLUGIN_IDS.includes(pluginSession[2])&&pluginSession[2]!==SPEECH_ID)return send(404,{error:'PLUGIN_UNKNOWN'});
+     if(!REVIEWED_PLUGIN_IDS.includes(pluginSession[2])&&![SPEECH_ID,VOICE_LIBRARY_ID].includes(pluginSession[2]))return send(404,{error:'PLUGIN_UNKNOWN'});
      if(!plugins)return send(503,{error:pluginError});
      if(req.method==='GET'&&!pluginSession[3])return send(200,await plugins.sessionStatus(pluginSession[1],pluginSession[2]));
      if(req.method==='POST'&&pluginSession[3]){

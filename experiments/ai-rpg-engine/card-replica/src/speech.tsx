@@ -3,10 +3,11 @@ import {Modal} from './modal';
 import {api,archiveRoot,cardStoragePrefix,ApiError} from './session-client';
 import {extractSpeechText} from './speech-text.mjs';
 import './speech.css';
+import type {VoiceAsset} from './voice-library';
 
 type Model={model_id:string;display_name:string};
-type Profile={model:string;voices:string[];formats:string[];managed:boolean;speeds:Record<string,{min:number;max:number}>};
-type Job={id:string;created:string;turn:string;text:string;model:string;voice:string;format:string;speed:number;state:'pending'|'complete'|'failed'|'unknown';requestId?:string;actualModel?:string;bytes?:number;costKind?:string};
+type Profile={model:string;voices:string[];formats:string[];managed:boolean;library?:boolean;labels?:Record<string,string>;speeds:Record<string,{min:number;max:number}>};
+type Job={id:string;created:string;turn:string;text:string;model:string;voice:string;voiceName?:string;format:string;speed:number;state:'pending'|'complete'|'failed'|'unknown';requestId?:string;actualModel?:string;bytes?:number;costKind?:string};
 type Choice={model:string;voice:string;format:string;speed:number;name:string};
 const stateNames={pending:'正在生成',complete:'已保存',failed:'请求被拒绝',unknown:'结果待核对'};
 const errorText=(e:unknown)=>({SPEECH_CONTROL_BLOCKED:'当前语音路由不可用，请在模型设置中检查认证。',SPEECH_CONTROL_UNAVAILABLE:'暂时无法读取语音路由状态。',SPEECH_MODEL_UNAVAILABLE:'此模型当前没有可用的语音能力。',SPEECH_PROFILE_UNAVAILABLE:'此模型缺少已验证的音色或音频格式。',SPEECH_MODEL_OR_OPTIONS_CHANGED:'音色或参数已变化，请重新选择模型。',SPEECH_BUSY:'本会话已有语音正在生成，请到生成历史查看。',PLUGIN_NOT_AUTHORIZED:'请先安装并启用沉浸语音插件。'}[(e as Error)?.message]||'暂时无法完成操作，请重新读取状态核对。');
@@ -15,15 +16,16 @@ function SpeechIcon({name}:{name:SpeechIconName}){
  const paths:Record<SpeechIconName,string>={voice:'M5 12v4m4-9v14m4-18v18m4-14v10m4-7v4',history:'M3 11a9 9 0 1 1 2 7M3 4v7h7m2-5v6l4 2',download:'M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5',refresh:'M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5m-4 9a8 8 0 0 0 14 2l3-3m0 5v-5h-5',chevron:'m9 5 7 7-7 7',check:'m5 12 4 4L19 6',text:'M5 5h14M5 10h14M5 15h9M5 20h7'};
  return <svg className="speech-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]}/></svg>;
 }
-const voiceLabel=(v:string)=>v==='__prompt__'?'提示词音色':v.replace(/_/g,' ');
+const voiceLabel=(v:string)=>v==='__prompt__'?'提示词音色':v.startsWith('library:')?'角色音色':v.replace(/_/g,' ');
 const jobDate=(date:string)=>new Date(date).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-export function useSpeech(sessionId:string,enabled:boolean,installed:boolean){
+export function useSpeech(sessionId:string,enabled:boolean,installed:boolean,libraryEnabled=false){
  const panelId=useId();
  const root='sessions/'+sessionId+'/speech/',scope=cardStoragePrefix()+':'+sessionId;
  const prefKey='rpg-speech-choice:'+scope,pendingKey='rpg-speech-pending:'+scope;
  const [open,setOpen]=useState(false),[tab,setTab]=useState<'create'|'history'>('create');
  const [turn,setTurn]=useState(''),[text,setText]=useState(''),[models,setModels]=useState<Model[]>([]),[model,setModel]=useState(''),[profile,setProfile]=useState<Profile|null>(null),[voice,setVoice]=useState(''),[format,setFormat]=useState(''),[speed,setSpeed]=useState(1),[name,setName]=useState('旁白');
  const [page,setPage]=useState(0),[jobs,setJobs]=useState<Job[]>([]),[selected,setSelected]=useState(''),[error,setError]=useState(''),[note,setNote]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[uncertain,setUncertain]=useState(false),[retry,setRetry]=useState(0);
+ const [roles,setRoles]=useState<{role:string;asset:VoiceAsset}[]>([]);
  const saved=useRef<Choice|null>(null),pending=useRef(''),locked=useRef(false),live=useRef(true);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  useEffect(()=>{try{const v=JSON.parse(localStorage.getItem(prefKey)||'null');saved.current=v&&typeof v.model==='string'&&typeof v.voice==='string'&&typeof v.format==='string'&&typeof v.name==='string'&&Number.isFinite(v.speed)?v:null;pending.current=localStorage.getItem(pendingKey)||'';setUncertain(!!pending.current);}catch{setError('无法读取本机语音设置，请检查浏览器存储。');}},[prefKey,pendingKey]);
@@ -42,8 +44,14 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean){
  },[open,enabled,retry]);
  useEffect(()=>{
   setProfile(null);setVoice('');setFormat('');setPage(0);if(!open||!enabled||!model)return;let ignore=false;setLoading(true);setError('');
-  api(root+'profile?model='+encodeURIComponent(model)).then((p:Profile)=>{if(ignore)return;setProfile(p);const s=saved.current?.model===model?saved.current:null;const v=s&&p.voices.includes(s.voice)?s.voice:p.voices[0];setVoice(v);setPage(Math.floor(p.voices.indexOf(v)/10));setFormat(s&&p.formats.includes(s.format)?s.format:p.formats[0]);const range=p.speeds[v];setSpeed(s&&s.speed>=range.min&&s.speed<=range.max?s.speed:1);if(s)setName(s.name);if(s&&!p.voices.includes(s.voice))setNote('保存的音色已不可用，请确认新音色后再生成。');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
+  api(root+'profile?model='+encodeURIComponent(model)).then((p:Profile)=>{if(ignore)return;if(!p.voices.length)throw Error('此模型暂无已就绪的音色，请先在角色音色库查询状态。');setProfile(p);const s=saved.current?.model===model?saved.current:null;const v=s&&p.voices.includes(s.voice)?s.voice:p.voices[0];setVoice(v);setPage(Math.floor(p.voices.indexOf(v)/10));setFormat(s&&p.formats.includes(s.format)?s.format:p.formats[0]);const range=p.speeds[v];setSpeed(s&&s.speed>=range.min&&s.speed<=range.max?s.speed:1);if(s)setName(s.name);if(s&&!p.voices.includes(s.voice))setNote('保存的音色已不可用，请确认新音色后再生成。');}).catch(e=>{if(!ignore)setError(errorText(e));}).finally(()=>{if(!ignore)setLoading(false);});return()=>{ignore=true;};
  },[model,open,enabled,retry]);
+ useEffect(()=>{
+  if(!open||!libraryEnabled){setRoles([]);return;}let ignore=false;
+  api('sessions/'+sessionId+'/voice-library/state').then(v=>{if(!ignore)setRoles(v.bindings.roles.flatMap((r:{role:string;assetId:string})=>{const asset=v.assets.find((a:VoiceAsset)=>a.id===r.assetId&&a.state==='ready'&&a.usable!==false);return asset?[{role:r.role,asset}]:[];}));}).catch(()=>{if(!ignore)setRoles([]);});return()=>{ignore=true;};
+ },[open,libraryEnabled,sessionId]);
+ function chooseAsset(asset:VoiceAsset,label=asset.name){const choice={model:asset.model,voice:'library:'+asset.id,format:'wav',speed:1,name:label};saved.current=choice;setModel(choice.model);setVoice(choice.voice);setFormat('wav');setSpeed(1);setName(label);setRetry(n=>n+1);}
+ function preview(asset:VoiceAsset){chooseAsset(asset);setTurn('voice-preview');setText('今天阳光很好。我们沿着河边慢慢走，听风吹过树叶。');setTab('create');setOpen(true);setNote('试听会生成一条语音，并保存在本会话的生成历史中。');}
  function begin(id:string,raw:string){if(!enabled)return;setTurn(id);setText(extractSpeechText(raw));setNote('');setError('');setTab('create');setOpen(true);}
  function saveChoice(){try{const choice={model,voice,format,speed,name:name.trim()||'旁白'};localStorage.setItem(prefKey,JSON.stringify(choice));saved.current=choice;setNote('已保存本会话的固定音色。');}catch{setError('音色未保存，请检查浏览器存储空间。');}}
  async function generate(){
@@ -62,6 +70,7 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean){
  const current=jobs.find(j=>j.id===selected),pages=Math.max(1,Math.ceil((profile?.voices.length||0)/10));
  const close=()=>{if(!busy)setOpen(false);};
  return {
+  preview,
   action:(id:string,raw:string)=>enabled?<button type="button" className="text-button" onClick={()=>begin(id,raw)}>朗读</button>:null,
   toolbar:installed?<button type="button" className="text-button" onClick={()=>{setTab('history');setOpen(true);}}>沉浸语音</button>:null,
   modal:open?<Modal title="沉浸语音" className="chat-dialog speech-dialog" close={close}>
@@ -73,12 +82,13 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean){
    {!enabled&&<p className="speech-notice">插件已停用。已有音频仍可播放，启用后可生成新语音。</p>}
    {error&&<p className="speech-notice" role="alert">{error}<button onClick={()=>{setRetry(x=>x+1);void refresh();}} disabled={busy}>重新读取</button></p>}
    {tab==='create'?<>
+    {roles.length>0&&<label>使用角色绑定<select aria-label="角色音色绑定" value="" disabled={busy} onChange={e=>{const r=roles.find(r=>r.role===e.target.value);if(r)chooseAsset(r.asset,r.role);}}><option value="">选择本会话的角色</option>{roles.map(r=><option key={r.role} value={r.role}>{r.role} · {r.asset.name}</option>)}</select></label>}
     <div className="speech-model-row"><label className="speech-model">语音模型<select aria-label="语音模型" disabled={!enabled||busy||loading} value={model} onChange={e=>{setModel(e.target.value);setNote('');}}>{!models.length&&<option value="">{loading?'正在读取模型…':'暂无可用语音模型'}</option>}{models.map(m=><option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}</select></label><span className="speech-muted">手动生成 · 按条保存</span></div>
     <fieldset className="speech-voice-field" disabled={busy||!enabled||loading} aria-busy={loading}><legend>选择音色 <span>{profile?profile.voices.length+' 个可用音色':''}</span></legend>
-     {loading&&!profile?<div className="speech-loading" role="status">正在读取音色…</div>:<div className="speech-voices">{profile?.voices.slice(page*10,page*10+10).map((v,i)=><button key={v} type="button" className={voice===v?'selected':''} aria-pressed={voice===v} title={v} onClick={()=>{setVoice(v);setSpeed(1);}}><span className={'speech-voice-mark tone-'+i%4}><SpeechIcon name="voice"/></span><span className="speech-voice-label">{voiceLabel(v)}</span><span className="speech-voice-check">{voice===v&&<SpeechIcon name="check"/>}</span></button>)}</div>}
+     {loading&&!profile?<div className="speech-loading" role="status">正在读取音色…</div>:<div className="speech-voices">{profile?.voices.slice(page*10,page*10+10).map((v,i)=><button key={v} type="button" className={voice===v?'selected':''} aria-pressed={voice===v} title={v} onClick={()=>{setVoice(v);setSpeed(1);}}><span className={'speech-voice-mark tone-'+i%4}><SpeechIcon name="voice"/></span><span className="speech-voice-label">{profile?.labels?.[v]||voiceLabel(v)}</span><span className="speech-voice-check">{voice===v&&<SpeechIcon name="check"/>}</span></button>)}</div>}
     </fieldset>
     {pages>1&&<nav className="speech-pagination" aria-label="音色分页"><button disabled={page===0} aria-label="上一页音色" onClick={()=>setPage(p=>p-1)}><span className="speech-prev"><SpeechIcon name="chevron"/></span></button><span>{page+1} <span className="speech-muted">/ {pages}</span></span><button disabled={page>=pages-1} aria-label="下一页音色" onClick={()=>setPage(p=>p+1)}><SpeechIcon name="chevron"/></button></nav>}
-    {profile?.managed&&<p className="speech-muted">此路由使用已认证音色与格式，更换时请先前往模型设置认证。</p>}
+    {profile?.managed&&!profile.library&&<p className="speech-muted">此路由使用已认证音色与格式，更换时请先前往模型设置认证。</p>}
     <details className="speech-options"><summary><span>高级配置 <span className="speech-option-summary">{speed.toFixed(2)}× · {format.toUpperCase()||'默认格式'}</span></span><SpeechIcon name="chevron"/></summary>
      <div className="speech-option-grid"><label><span className="speech-label-line">语速<output>{speed.toFixed(2)}×</output></span><input aria-label="语速" type="range" min={range?.min??1} max={range?.max??1} step="0.05" value={speed} disabled={busy||!enabled||!range||range.min===range.max} onChange={e=>setSpeed(Number(e.target.value))}/><small>{range?.min===range?.max?'此音色使用默认语速':range?range.min+'× 至 '+range.max+'×':'选择音色后可调整'}</small></label><label>音频格式<select aria-label="音频格式" value={format} disabled={busy||!enabled||!profile} onChange={e=>setFormat(e.target.value)}>{profile?.formats.map(f=><option key={f} value={f}>{f.toUpperCase()}</option>)}</select></label></div>
      <div className="speech-binding"><label>固定音色名称<input placeholder="例如：故事旁白" value={name} maxLength={40} disabled={busy} onChange={e=>setName(e.target.value)}/></label><button disabled={!profile||!voice||busy} onClick={saveChoice}>保存固定音色</button><small>下次打开本会话时沿用所选模型与音色。</small></div>
@@ -93,8 +103,8 @@ export function useSpeech(sessionId:string,enabled:boolean,installed:boolean){
    </>:<>
     <div className="speech-history-head"><span>本会话的语音记录</span><button className="speech-quiet" onClick={()=>void refresh()} disabled={busy}><SpeechIcon name="refresh"/>刷新记录</button></div>
     {!jobs.length?<div className="speech-empty"><SpeechIcon name="history"/><strong>还没有语音记录</strong><p>点击回复旁的“朗读”，编辑文字后生成第一段语音。</p></div>:<div className="speech-history-layout">
-     <div className="speech-history" aria-label="选择语音记录">{jobs.map(j=><button key={j.id} className={selected===j.id?'selected':''} aria-pressed={selected===j.id} onClick={()=>setSelected(j.id)}><span className="speech-record-meta"><time dateTime={j.created}>{jobDate(j.created)}</time><span className={'speech-state '+j.state}>{stateNames[j.state]}</span></span><strong>{j.text}</strong><small title={j.voice}>{voiceLabel(j.voice)} · {j.format.toUpperCase()}</small></button>)}</div>
-     {current&&<section className="speech-player" aria-label="语音详情"><div className="speech-player-heading"><span className="speech-player-symbol"><SpeechIcon name="voice"/></span><div><h3>语音详情</h3><p>{voiceLabel(current.voice)} · {current.format.toUpperCase()} · {current.speed}×</p></div>{current.state==='complete'&&<a className="speech-download" href={archiveRoot()+'api/'+root+current.id} download={'speech-'+current.id+'.'+current.format}><SpeechIcon name="download"/>下载音频</a>}</div>
+     <div className="speech-history" aria-label="选择语音记录">{jobs.map(j=><button key={j.id} className={selected===j.id?'selected':''} aria-pressed={selected===j.id} onClick={()=>setSelected(j.id)}><span className="speech-record-meta"><time dateTime={j.created}>{jobDate(j.created)}</time><span className={'speech-state '+j.state}>{stateNames[j.state]}</span></span><strong>{j.text}</strong><small title={j.voice}>{(j.voiceName||voiceLabel(j.voice))} · {j.format.toUpperCase()}</small></button>)}</div>
+     {current&&<section className="speech-player" aria-label="语音详情"><div className="speech-player-heading"><span className="speech-player-symbol"><SpeechIcon name="voice"/></span><div><h3>语音详情</h3><p>{(current.voiceName||voiceLabel(current.voice))} · {current.format.toUpperCase()} · {current.speed}×</p></div>{current.state==='complete'&&<a className="speech-download" href={archiveRoot()+'api/'+root+current.id} download={'speech-'+current.id+'.'+current.format}><SpeechIcon name="download"/>下载音频</a>}</div>
       {current.state==='complete'?<audio key={current.id} controls preload="metadata" src={archiveRoot()+'api/'+root+current.id} aria-label="播放生成的语音"/>:<p className="speech-notice">{current.state==='pending'?'正在生成，稍后可在这里播放。关闭面板不会取消生成。':current.state==='unknown'?'结果待核对，请先检查网关记录；不会自动重发。':'请求被拒绝，请检查参数与模型。'}</p>}
       <div className="speech-source-heading"><SpeechIcon name="text"/>生成时的文本</div><p className="speech-source">{current.text}</p>
       <details className="speech-receipt"><summary>模型与生成信息<SpeechIcon name="chevron"/></summary><dl><dt>模型</dt><dd>{models.find(m=>m.model_id===(current.actualModel||current.model))?.display_name||current.actualModel||current.model}</dd><dt>时间</dt><dd>{new Date(current.created).toLocaleString()}</dd><dt>费用</dt><dd>{current.costKind==='actual'?'费用已结算':current.costKind==='estimated'?'费用为估算值':'以网关账单为准'}</dd><dt>请求编号</dt><dd>{current.requestId||current.id}</dd></dl></details>

@@ -1,3 +1,4 @@
+import {beforeVoiceLibrary} from './voice-library-compatibility.mjs';
 // Exact pre-speech digests from d9dd7094. Only optional speech plumbing changes.
 // Compare complete descriptors; never rewrite saves, prompts or receipts.
 export const beforeSpeech={
@@ -76,7 +77,7 @@ export const beforeSpeechRelease={
 export const beforeSpeechReleaseBases=["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6", "a1bf4555ec41de75ce577419abac97a04329198cd2482950171af5eb6772f7c5", "63b6ed8e5096d835aa2318b8d27b2a92cf9fc4ffc960f823ba8fbd215d8d8490", "3e7bb29a8af25a68d4e6cf3738d9154ab946b2df0476405f53ad915ec5cf0016", "2c2a1931d5f185ba0929a92f68cbac7545612708439312a374d2ffbb60b75150"];
 
 export function speechPredecessorDescriptors(descriptor){
- return [beforeSpeech,beforeSpeechMain,beforeSpeechShop,beforeSpeechRelease,beforeSpeechUpgrade,beforeSpeechSynced].map(previous=>{
+ return [beforeVoiceLibrary,beforeSpeech,beforeSpeechMain,beforeSpeechShop,beforeSpeechRelease,beforeSpeechUpgrade,beforeSpeechSynced].map(previous=>{
   const next=structuredClone(descriptor);
   for(const key of ["artifacts","hostArtifacts"])if(next[key])for(const path of Object.keys(next[key]))if(previous[path])next[key][path]=previous[path];
   return next;
