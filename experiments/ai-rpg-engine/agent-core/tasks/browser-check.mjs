@@ -1,0 +1,33 @@
+import {createRequire} from 'node:module';import {mkdir,mkdtemp,writeFile} from 'node:fs/promises';import {join,resolve} from 'node:path';import {fileURLToPath} from 'node:url';import assert from 'node:assert/strict';import {startServer} from './server.mjs';
+if(!process.env.R7_PLAYWRIGHT_MODULE)throw Error('Use existing Playwright via R7_PLAYWRIGHT_MODULE');
+const require=createRequire(join(resolve(process.env.R7_PLAYWRIGHT_MODULE),'package.json')),{chromium}=require('./index.js');
+const root=fileURLToPath(new URL('../../.rpg03-work/r7-validation/',import.meta.url));await mkdir(root,{recursive:true});const dir=await mkdtemp(join(root,'browser-'));
+const app=await startServer({directory:join(dir,'data'),port:0,offlinePreview:true,limits:{calls:50,microUSD:2500000},delayMs:300});const checks=[],errors=[],external=[];let browser,page;
+try{
+ browser=await chromium.launch({channel:'msedge',headless:true});const context=await browser.newContext({viewport:{width:1440,height:1080}});
+ await context.route('**/*',route=>{if(new URL(route.request().url()).origin===new URL(app.url).origin)return route.continue();external.push(route.request().url());return route.abort();});
+ page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
+ const wait=()=>page.waitForFunction(()=>!document.querySelector('#create').disabled);
+ const get=()=>page.evaluate(async()=>await(await fetch('/api/runs/'+new URL(location.href).searchParams.get('run'))).json());
+ await page.goto(app.url);await page.getByRole('button',{name:'创建独立场景',exact:true}).click();await wait();await page.locator('#workspace').waitFor({state:'visible',timeout:5000});assert.equal(await page.locator('#quantity').innerText(),'5');checks.push('isolated-create-no-generation');
+ await page.locator('#strategy').selectOption('split');await page.locator('#prepare').click();assert.equal(await page.locator('#quantity').innerText(),'5');await page.locator('#execute').click();await wait();
+ assert.equal(await page.locator('#quantity').innerText(),'3');assert.match(await page.locator('#receipt').innerText(),/5 → 3/);assert.match(await page.locator('#conversation').innerText(),/服用了两份/);let state=await get();assert.equal(state.maxConcurrentRequests,2);checks.push('confirmed-action-parallel-two-owner-adoption');
+ await page.getByRole('button',{name:'还剩多少？',exact:true}).click();await wait();assert.match(await page.locator('#conversation').innerText(),/还剩3份/);assert.equal((await get()).tasks.at(-1).stages.length,2);checks.push('native-query-and-signed-continuation');
+ await page.locator('#actor').selectOption('outsider');await page.getByRole('button',{name:'刚才发生了什么？',exact:true}).click();await wait();assert.match(await page.locator('#conversation').innerText(),/没有这件事/);checks.push('actor-observation-isolation');
+ state=await get();await page.reload();await wait();assert.equal((await get()).budget.calls,state.budget.calls);checks.push('refresh-no-dispatch');
+ await page.locator('aside details summary').click();await page.locator('#strategy').selectOption('backup');await page.locator('#fault').selectOption('failed');await page.getByRole('button',{name:'刚才发生了什么？',exact:true}).click();await wait();state=await get();assert.equal(state.tasks.at(-1).fallbackUsed,true);assert.match(await page.locator('#tasks').innerText(),/已切换备用/);checks.push('visible-once-only-fallback');
+ await page.locator('#fault').selectOption('unknown');await page.getByRole('button',{name:'接下来呢？',exact:true}).click();await wait();state=await get();assert.equal(state.tasks.at(-1).adoption,'unknown');const count=state.budget.calls;await page.getByRole('button',{name:'核对原请求',exact:true}).click();await wait();assert.equal((await get()).budget.calls,count);assert.equal((await get()).tasks.at(-1).adoption,'completed');checks.push('unknown-lookup-no-redispatch');
+ await page.locator('#fault').selectOption('');await page.locator('#tasks details').last().evaluate(el=>el.open=true);await page.screenshot({path:join(dir,'desktop.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(dir,'mobile.png'),fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));checks.push('mobile-no-overflow');
+ await page.locator('#scene').selectOption('lighthouse');await page.locator('#create').click();await wait();await page.getByRole('button',{name:'聊聊今日安排',exact:true}).click();await wait();assert.equal((await get()).tasks[0].stages.length,1);
+ await page.getByRole('button',{name:'查看登记物资',exact:true}).click();await wait();assert.equal((await get()).tasks[1].stages.length,2);checks.push('second-adapter-direct-and-query');
+ await page.locator('#prepare').click();await page.locator('#execute').click();await wait();assert.equal((await get()).world.events.filter(e=>e.kind==='action').length,1);checks.push('second-adapter-rule-and-narration');
+ await page.locator('#scene').selectOption('cultivation');await page.locator('#create').click();await wait();
+ await page.locator('#parallel').uncheck();await page.locator('#strategy').selectOption('same');await page.locator('#fault').selectOption('failed');
+ await page.locator('#prepare').click();await page.locator('#execute').click();await wait();await page.locator('#finish').click();await wait();assert.equal((await get()).world.pending,null);assert.equal((await get()).world.resources[0].quantity,3);checks.push('failed-narration-receipt-only-finish');
+ await page.locator('#fault').selectOption('');await page.locator('#create').click();await wait();state=await get();
+ await app.runtime.bridge.worldAction(state.bridgeId,{operationId:'pre-task-interruption',revision:state.world.revision});
+ await page.locator('#refresh').click();await page.locator('#resume-narration').waitFor({state:'visible'});await page.locator('#resume-narration').click();await wait();state=await get();assert.equal(state.tasks.length,1);assert.equal(state.tasks[0].adoption,'completed');assert.equal(state.world.resources[0].quantity,3);checks.push('explicit-missing-task-narration-recovery');
+ assert.deepEqual(errors,[]);assert.deepEqual(external,[]);await writeFile(join(dir,'result.json'),JSON.stringify({checks,errors,external,mode:'offline-fixture',realCalls:0,actualUSD:0},null,2));console.log(JSON.stringify({directory:dir,checks:checks.length,errors,external}));
+}catch(e){if(page){await page.screenshot({path:join(dir,'failure.png'),fullPage:true}).catch(()=>{});await writeFile(join(dir,'page.txt'),await page.locator('body').innerText());}await writeFile(join(dir,'failure.json'),JSON.stringify({error:e.stack,checks,errors,external},null,2));console.error('Evidence: '+dir);throw e;}
+finally{await browser?.close();await app.close();}

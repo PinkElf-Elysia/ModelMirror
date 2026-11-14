@@ -1,0 +1,16 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
+import {TaskLedger} from './ledger.mjs';import {TaskExecutor} from './executor.mjs';import {MODEL_A,MODEL_B,totals} from './policy.mjs';
+const req={messages:[{role:'user',content:'hello'}],tools:[],tool_choice:'none'};
+async function setup(t,sequence,config={backup:MODEL_B}){const d=await mkdtemp(join(tmpdir(),'r7-ex-')),l=await TaskLedger.open(d);t.after(async()=>{await l.close();await rm(d,{recursive:true,force:true});});
+ let calls=0;const tr={mode:'offline',generate:async()=>sequence[calls++],lookup:async()=>sequence.at(-1)};
+ await l.begin({id:'task',session:'session',purpose:'actor-response',sourceHash:'frozen',ownerRef:{operationId:'one'}},config);
+ const e=new TaskExecutor(l,tr);return {l,e,get calls(){return calls;},run:()=>e.using('task',()=>e.generate('session','first',req,{}))};}
+const done={status:'completed',finishReason:'stop',message:{role:'assistant',content:'hello'},billing:{kind:'simulated',microUSD:100}};
+test('terminal failure selects configured backup once and retains attempts',async t=>{const f=await setup(t,[{status:'failed',terminal:true},done]);assert.equal((await f.run()).status,'completed');assert.equal(f.calls,2);assert.equal((await f.run()).status,'completed');assert.equal(f.calls,2);const task=(await f.l.read()).tasks.task;assert.equal(task.stages[0].attempts[1].model.id,MODEL_B.id);assert.equal(task.fallbackUsed,true);});
+test('unknown keeps reservation and lookup does not dispatch backup',async t=>{const f=await setup(t,[{status:'unknown'},done]);assert.equal((await f.run()).status,'unknown');assert.equal(f.calls,1);assert.ok(totals(await f.l.read()).reservedUnknownMicroUSD>0);assert.equal((await f.e.lookup('session','first')).status,'completed');assert.equal(f.calls,1);});
+test('generic failure is unknown, not permission to switch',async t=>{const f=await setup(t,[{status:'failed'}]);assert.equal((await f.run()).status,'unknown');assert.equal(f.calls,1);});
+test('budget failure prevents dispatch',async t=>{const f=await setup(t,[done],{capMicroUSD:1});assert.equal((await f.run()).status,'failed');assert.equal(f.calls,0);});
+test('native continuation remains pinned; terminal failure cannot strip signatures to switch',async t=>{const tool={...done,finishReason:'tool_calls',message:{role:'assistant',content:null,tool_calls:[{id:'call',extra_content:{google:{thought_signature:'opaque'}}}]}};
+ const f=await setup(t,[tool,{status:'failed',terminal:true}]);await f.run();const next={...req,messages:[...req.messages,tool.message,{role:'tool',tool_call_id:'call',content:'{}'}]};
+ const r=await f.e.using('task',()=>f.e.generate('session','second',next,{}));assert.equal(r.status,'failed');assert.equal(f.calls,2);const task=(await f.l.read()).tasks.task;assert.equal(task.fallbackUsed,false);assert.equal(task.stages[1].request.messages[1].tool_calls[0].extra_content.google.thought_signature,'opaque');assert.equal(task.stages[1].attempts[0].model.id,MODEL_A.id);});
+test('configured backup also failing stops after two attempts',async t=>{const f=await setup(t,[{status:'failed',terminal:true},{status:'failed',terminal:true}]);assert.equal((await f.run()).status,'failed');assert.equal(f.calls,2);});
