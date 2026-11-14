@@ -1,0 +1,14 @@
+import {assembleContext} from '../context.mjs';
+import {exampleState} from '../example.mjs';
+import {assembleToolsContext} from './adapter.mjs';
+import {queryLocalState} from './query.mjs';
+import {continueRequest,measureRequest} from './protocol.mjs';
+const record={source:{history:[]},turns:[],events:[],state:exampleState(),stateRevision:0,config:{profiles:[],mods:[]}};
+const input='核对丹药后服用两份养息丹';
+const legacy=await assembleContext(record,input),native=await assembleToolsContext(record,input);
+const first={messages:native.messages,tools:native.tools,tool_choice:native.tool_choice};
+const args={queries:[{domain:'items',kind:'丹药'}]};
+const message={role:'assistant',content:null,tool_calls:[{id:'offline-query',type:'function',function:{name:'query_local_state',arguments:JSON.stringify(args)}}]};
+const output=queryLocalState(record.state,record.stateRevision,args);
+const second=continueRequest(first,message,output);
+console.log(JSON.stringify({kind:'offline-request-assembly-only',input,notice:'同一开局与输入，查询决策为固定夹具；字节不是 token，不表示实际选择率、费用或正文质量。',legacy:measureRequest({messages:legacy.messages}),nativeDirect:measureRequest(first),nativeQuery:{first:measureRequest(first),continuation:measureRequest(second),totalWireBytes:measureRequest(first).wireBytes+measureRequest(second).wireBytes},toolResult:output},null,2));

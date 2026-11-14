@@ -57,7 +57,7 @@ export class LocalStateStore{
    const op=r.operations[operationId];need(r.pending===operationId&&op?.receipt,'STATE_RESULT_UNKNOWN');
    need(op.receipt.status!=='unknown','STATE_RESULT_UNKNOWN');need(op.receipt.status==='completed','STATE_GENERATION_FAILED');
    need(op.stateRevision===r.stateRevision,'STATE_STALE_RESULT');
-   let proposal;try{proposal=candidate(r.state,op.receipt);}catch(e){op.status='rejected';op.error=e.code||'STATE_INVALID';return;}
+   let proposal;try{proposal=candidate(r.state,op.receipt,op.context.statePolicy);}catch(e){op.status='rejected';op.error=e.code||'STATE_INVALID';return;}
    const before=clone(r.state);r.state=proposal.state;r.stateRevision++;
    const event={id:operationId,kind:'turn',stateRevision:r.stateRevision,before,after:clone(r.state),changes:proposal.changes};
    r.events.push(event);r.turns.push({id:operationId,input:op.input,body:proposal.body,changes:proposal.changes,stateRevision:r.stateRevision});

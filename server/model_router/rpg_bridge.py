@@ -264,17 +264,23 @@ def undispatched_response(value, selected, *, dispatch=None, reason="rpg_route_u
 
 @router.post("/chat/completions", dependencies=[Depends(require_service)])
 async def completion(request: Request, stable=Depends(get_stable), profile: str = "default"):
-    value = await body(request, profile)
+    return await _completion(request, stable, profile)
+
+
+async def _completion(request, stable, profile, protocol=None):
+    value = await (protocol.body(request, profile) if protocol else body(request, profile))
     selected = next((m for m in catalog(stable, profile) if m["selectionId"] == value["selectionId"]), None)
     if not selected or not selected["available"] or selected["selectionRevision"] != value["selectionRevision"]:
         raise HTTPException(409, "rpg_selection_unavailable_or_changed")
     if value["parameters"] != selected["parameters"]:
         raise HTTPException(422, "rpg_parameters_mismatch")
+    if protocol and not protocol.supports(selected):
+        raise HTTPException(409, "rpg_native_tools_unavailable")
     # Conservative byte-based admission estimate, not an exact model tokenizer.
     # Never truncate history to make a request fit.
     custom = getattr(request.state, "rpg_custom_story", None)
     messages = value["messages"] if custom is None else custom
-    estimated = sum(len(m["content"].encode()) + 32 for m in messages) + 256
+    estimated = (len(json.dumps({"messages":messages,"tools":value["tools"]}, ensure_ascii=False).encode()) + 256 if protocol else sum(len(m["content"].encode()) + 32 for m in messages) + 256)
     if estimated + selected["parameters"]["max_tokens"] > selected["contextLength"]:
         raise HTTPException(409, "rpg_context_capacity_exceeded")
     claim(stable, value, custom)
@@ -293,6 +299,8 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
         return undispatched_response(value, selected, dispatch=dispatch, reason="rpg_selection_changed", custom=custom, confirmed=confirmed)
     payload = {"model": selected["model"], "messages": messages, **selected["parameters"],
                "stream": True, "stream_options": {"include_usage": True}}
+    if protocol:
+        payload.update(tools=value["tools"], tool_choice=value["tool_choice"])
     if dispatch.target.provider_kind == "openrouter":
         provider = {"allow_fallbacks": False, "require_parameters": True}
         tag = binding["metadata"].get("rpg_provider_tag")
@@ -330,7 +338,9 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
                     chunks.append(chunk)
                     preview.feed(chunk)
                 sse = b"".join(chunks).decode("utf-8", errors="strict")
-                raw, actual, usage = parse_sse(sse, selected["model"], parsed)
+                raw, actual, usage = (protocol.parse_sse if protocol else parse_sse)(sse, selected["model"], parsed)
+                if protocol and value["tool_choice"] == "none" and parsed["finishReason"] != "stop":
+                    raise ValueError("rpg_non_text_output")
                 if await request.is_disconnected():
                     raise ValueError("rpg_client_disconnected")
             finally:
@@ -371,7 +381,11 @@ async def completion(request: Request, stable=Depends(get_stable), profile: str 
                "status": "failed_or_unknown" if error else "complete"}
     if custom is not None:
         receipt["effectiveRequestHash"] = digest({**value, "messages": messages})
-    return JSONResponse({"raw": raw, "sse": sse, "receipt": receipt}, status_code=502 if error else 200)
+    result = {"raw": raw, "sse": sse, "receipt": receipt}
+    if protocol and not error:
+        result.update(message=parsed["message"], finishReason=parsed["finishReason"])
+        receipt["messageHash"] = digest(parsed["message"])
+    return JSONResponse(result, status_code=502 if error else 200)
 
 
 AUTHORING_CATALOG_FORMAT = "modelmirror.rpg.control-model-catalog/1"
@@ -627,3 +641,15 @@ register_comparison_api(router, require_service, get_authoring_stable, _unique_j
 
 from .rpg_authoring_route import register_route_api
 register_route_api(router, require_service, get_stable, _unique_json_object)
+
+
+@router.post("/local-state/chat/completions")
+async def local_state_completion(request: Request, stable=Depends(get_stable), profile: str = "default"):
+    from . import rpg_local_state_tools
+    return await rpg_local_state_tools.completion(request, stable, profile)
+
+
+@router.get("/local-state/results/{session_id}/{request_id}")
+def local_state_result(session_id: str, request_id: str, stable=Depends(get_stable)):
+    from . import rpg_local_state_tools
+    return rpg_local_state_tools.lookup(stable, session_id, request_id)

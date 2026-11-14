@@ -52,6 +52,12 @@ function changeHTML(changes){return '<ul class="change-list">'+changes.map(c=>'<
 async function load(id){
  record=await api('/api/sessions/'+id);history.replaceState(null,'','/?session='+id);render();
 }
+function queryHTML(id){
+ const proof=record.nativeQueries?.[id];if(!proof)return '';
+ const entries=(proof.query?.results||[]).map(r=>'<li><strong>'+esc(({items:'物资',abilities:'能力',relations:'关系',balances:'账户',equipment:'装备',traits:'状态'})[r.query.domain])+'</strong> · '+esc(r.coverage==='partial'?'部分返回':'指定登记范围完整返回')+'<p>'+esc(r.entries.map(e=>e.name?(e.name+(e.quantity!==undefined?' × '+(e.quantity??'未设定'):e.progress?' · '+e.progress:e.relation!==undefined?' · 关系 '+e.relation+' / 信任 '+e.trust:'')):(e.id+'：'+(e.value??'未设定'))).join('、')||'没有匹配条目')+'</p></li>').join('');
+ const bytes=proof.stages.reduce((n,s)=>n+(s.measurement?.wireBytes||0),0);
+ return '<details><summary>本轮查询依据 · '+proof.totalModelRequests+' 次模拟生成</summary><p class="muted">'+(proof.query?'查询状态 v'+proof.query.stateRevision+'；查询本身没有入账。':'直接生成，未调用查询工具。')+'</p><ul>'+entries+'</ul><p class="footnote">本回合累计请求 '+bytes.toLocaleString()+' 字节；模拟费用为 0，未测真实 token 和正文首字。</p></details>';
+}
 function render(){
  $('setup').hidden=true;$('play').hidden=false;$('session-title').textContent=(record.state.profile.name||'未命名修士')+'的手记';
  $('session-meta').textContent=(record.state.traits.affiliation||'所属未设定')+' · '+(record.state.traits.realm||'境界未设定')+' · '+(record.enabled?'本地状态已启用':'已停用，档案保留');
@@ -60,7 +66,7 @@ function render(){
  $('metrics').innerHTML=[[qty,'养息丹'],[record.state.balances.low,'下品灵石'],[rel,'与周禾关系']].map(([n,label])=>'<div><strong>'+esc(n??'—')+'</strong><small>'+label+'</small></div>').join('');
  const last=record.events.at(-1);$('changes').innerHTML=last?'<details open><summary>本轮已提交变化</summary>'+changeHTML(last.changes)+'</details>':'<p class="footnote">已确认开局初值，等待第一步行动。</p>';
  $('story').innerHTML=(record.inheritedTurns||[]).map(t=>'<article class="turn"><p class="turn-input">继承正文 · '+esc(t.input)+'</p><div class="narrative">'+t.html+'</div></article>').join('')+'<article class="turn"><p class="turn-input">序 · 已确认开局</p><div class="narrative"><p>'+esc(record.opening)+'</p></div></article>'+
- record.turns.map((t,i)=>'<article class="turn"><p class="turn-input">'+String(i+1).padStart(2,'0')+' / '+esc(t.input)+'</p><div class="narrative">'+t.html+'</div><details><summary>本轮变化与原始回复</summary>'+changeHTML(t.changes)+'<button data-raw="'+esc(t.id)+'">查看原始回复</button></details></article>').join('');
+ record.turns.map((t,i)=>'<article class="turn"><p class="turn-input">'+String(i+1).padStart(2,'0')+' / '+esc(t.input)+'</p><div class="narrative">'+t.html+'</div><details><summary>本轮变化与原始回复</summary>'+changeHTML(t.changes)+'<button data-raw="'+esc(t.id)+'">查看原始回复</button></details>'+queryHTML(t.id)+'</article>').join('');
  document.querySelectorAll('[data-raw]').forEach(b=>b.onclick=()=>{const saved=record.operations[b.dataset.raw];modal('原始模拟回复',saved?'<p class="muted">只读；协议区块未进入后续正文历史。</p><pre>'+esc(saved.receipt?.text||saved.error)+'</pre>':'<p>此回合来自检查点。正文和状态已保留；完整原回执请查看源会话导出。</p>');});
  const p=record.pendingOperation;$('pending').hidden=!p;if(p){
  $('pending').innerHTML='<p><strong>本轮尚未完成</strong> · '+esc(({unknown:'结果未知',pending:'等待结果',received:'待提交',failed:'明确失败',rejected:'未通过校验'})[p.status]||p.status)+'</p><p>'+esc(errors[p.error]||p.error||'正在等待原操作结果')+'</p><button id="recover">核对原操作</button>'+(['failed','rejected'].includes(p.status)?'<button id="discard">放弃未完成回复</button>':'')+'<button id="pending-raw">查看记录</button>';
@@ -71,7 +77,13 @@ function render(){
 }
 async function send(options={}){
  const input=$('input').value.trim();if(!input)throw Error('请填写行动。');
- await api('/api/sessions/'+record.id+'/turn',{operationId:op(),revision:record.revision,input,options});await load(record.id);if(!record.pending)$('input').value='';
+ let polling=null;
+ if(bootstrap.mode==='cultivation-local-state-tools/2'){
+  notice('正在生成或选择工具…');
+  polling=setInterval(()=>api('/api/sessions/'+record.id+'/progress').then(p=>{if(p.text)notice(p.text+'…');}).catch(()=>{}),250);
+ }
+ try{await api('/api/sessions/'+record.id+'/turn',{operationId:op(),revision:record.revision,input,options});await load(record.id);if(!record.pending)$('input').value='';}
+ finally{if(polling){clearInterval(polling);notice();}}
 }
 $('composer').onsubmit=e=>{e.preventDefault();task(()=>send());};
 document.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>{$('input').value=b.dataset.action;$('input').focus();});
@@ -95,4 +107,9 @@ $('tools').onclick=()=>{
  $('request-view').onclick=()=>task(async()=>{const e=await api('/api/sessions/'+record.id+'/evidence'),last=Object.values(e.record.operations).filter(o=>o.kind==='turn').at(-1);modal('实际装配 · 只读','<p class="muted">这里展示冻结请求与待执行的总结／记忆输入；没有调用真实模型或记忆模型。</p><pre>'+esc(pretty({request:last?.context||'尚无回合',memoryTasks:e.memoryTasks}))+'</pre>');});
  document.querySelectorAll('[data-fault]').forEach(b=>b.onclick=()=>task(async()=>{await send({fault:b.dataset.fault});$('dialog').close();}));
 };
-try{bootstrap=await api('/api/bootstrap');for(const [,name]of bootstrap.scenarios){const option=document.createElement('option');option.value=name;option.textContent=name;$('scenario').append(option);}const id=new URL(location.href).searchParams.get('session');if(id)await load(id);else setup();}catch(e){notice(e.message);}
+try{bootstrap=await api('/api/bootstrap');if(bootstrap.mode==='cultivation-local-state-tools/2'){
+ document.title='修仙 · 原生工具查询预览';
+ const badge=document.querySelector('.offline');if(badge)badge.textContent='原生工具 · 离线模拟';
+ $('input').placeholder='试试：先查询丹药，再服用两份养息丹';
+ $('help').onclick=()=>modal('原生工具查询预览','<p>模型响应由确定性样例模拟；本地查询与状态提交真实执行。普通回合一次生成，需要查询时最多两次。</p><p>查询返回已登记状态，不改账。工具结果回传后，最终正文和增量才提交。展开每轮的“查询依据”可核对读取范围和请求大小。</p><p>未调用真实模型，不证明真实工具选择或费用收益。旧记录、原始提示词和正式故事馆保持不变。</p>');
+ }for(const [,name]of bootstrap.scenarios){const option=document.createElement('option');option.value=name;option.textContent=name;$('scenario').append(option);}const id=new URL(location.href).searchParams.get('session');if(id)await load(id);else setup();}catch(e){notice(e.message);}
