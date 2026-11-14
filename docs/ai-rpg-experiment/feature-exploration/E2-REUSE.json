@@ -1,0 +1,25 @@
+{
+  "e1Head": "fddf2877408477e7cb1a21f92a0eb2df8a2fe3c7",
+  "files": [
+    {
+      "path": "proposal.mjs",
+      "source": "C:\\tmp\\modelmirror-rpg-free-action-e1\\experiments\\ai-rpg-engine\\feature-exploration\\free-action\\proposal.mjs",
+      "exactCopy": true,
+      "sha256": "0d024d2987c850d025ac2336f214e3bcedf10417ea94e8367b44cadf523deb31"
+    },
+    {
+      "path": "fixtures.mjs",
+      "source": "C:\\tmp\\modelmirror-rpg-free-action-e1\\experiments\\ai-rpg-engine\\feature-exploration\\free-action\\fixtures.mjs",
+      "exactCopy": true,
+      "sha256": "4084cd0222db63cb6d3003ca3469c2fc738f6aa1780c174be8daf63d3193957c"
+    },
+    {
+      "path": "public\\style.css",
+      "source": "C:\\tmp\\modelmirror-rpg-free-action-e1\\experiments\\ai-rpg-engine\\feature-exploration\\free-action\\public\\style.css",
+      "exactCopy": true,
+      "sha256": "cc1c5ceff304e23445d82163503e566f9c4436b4d8982b3c60761b51ebdba105"
+    }
+  ],
+  "note": "E1 uncommitted files copied explicitly; not assumed merged",
+  "baseline": "e40f238cc71eeff4dcda267d4e07d46e18f915e1"
+}

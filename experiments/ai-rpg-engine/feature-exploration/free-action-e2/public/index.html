@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>修仙 · 自由行动提案</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="/e2.css"></head>
+<body><header class="topbar"><div><strong>超级修仙大世界</strong><span>自由行动 · E2 独立验收</span></div><span class="mode">模拟提案 / 未接执行</span></header>
+<main><div class="heading"><div><h1>先想好，再行动</h1><p>读取已保存的真实状态，拟定行动与条件；确认只保留方案，不改变世界。</p></div><button id="refresh">刷新来源与草稿</button></div>
+<div id="notice" role="status" aria-live="polite">正在读取会话…</div>
+<div class="workspace"><aside class="context"><div class="section-title"><h2>当前档案</h2><span id="version"></span></div><p id="profile"></p><p class="hint" id="source-kind"></p><div id="objects"></div><details class="basis"><summary>来源与完整状态</summary><pre id="source-data"></pre></details><details class="basis"><summary>历史情境参考</summary><p>开局曾提及药圃、周禾与歪斜竹架。这不证明竹架现在仍需帮忙，也不把它登记为物资。</p><p class="hint">人物是否在场、是否愿意接受物品，仍待后续执行阶段确认。</p></details></aside>
+<section class="proposal-column"><form id="composer"><label class="field-title" for="intent">你打算做什么？</label><textarea id="intent" maxlength="2000">想拿两份养息丹给周禾，先拟方案</textarea><div class="samples" id="samples"></div><div class="composer-actions"><button class="primary" id="generate" type="submit">生成模拟提案</button><span class="hint">仅验证装配链路。任意自由输入的模型理解尚未实测。</span></div></form><section id="proposal" aria-live="polite"></section></section>
+<aside class="handoff-column"><h2>确认与交接</h2><div id="handoff"></div><details class="basis"><summary>请求、模拟原文与资料依据</summary><pre id="evidence"></pre></details></aside></div>
+<footer>真实模型调用 0 次 · 无正式执行入口 · 原会话与故事历史保持不变</footer></main><script type="module" src="/app.mjs"></script></body></html>
