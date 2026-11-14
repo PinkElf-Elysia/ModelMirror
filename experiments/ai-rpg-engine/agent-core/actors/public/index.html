@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>角色观察 · RPG 第六轮独立预览</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><p class="eyebrow">RPG HARNESS · 第六轮</p><h1>同一件事，不同的可知范围</h1><p class="intro">世界记录行动，人物依据自己的观察回应。</p></div><span class="badge">离线固定样例 · 无模型费用</span></header>
+<main>
+<section class="setup" aria-label="新建场景"><div><label for="grant">新场景的观察权限</label><select id="grant"><option value="observe">看见行动，不可查背包</option><option value="inventory">看见行动，可查丹药登记</option></select></div><button id="create" class="primary">创建独立场景</button><p>原创成年人物。新场景从 5 份养息丹开始；权限随实例固定，不继承旧聊天或私有记忆。</p></section>
+<div id="notice" role="status" aria-live="polite">先创建场景，再确认一次服药行动。</div>
+<div class="layout">
+<section class="world card" aria-labelledby="world-title"><p class="eyebrow">世界 · 由宿主维护</p><h2 id="world-title">药圃休息廊</h2><div class="resource"><div><strong id="quantity">—</strong><span>份养息丹</span></div><span id="version" class="muted">尚未开局</span></div><p>服用 2 份由规则扣减。人物的回答不会再次消耗或改写数量。</p>
+<button id="prepare" disabled>准备服用 2 份</button>
+<div id="confirmation" hidden><p>确认使用两份养息丹？执行前会核对当前状态。</p><div class="buttons"><button id="execute" class="primary">确认服用 2 份</button><button id="cancel">取消</button></div></div>
+<div id="receipt" aria-live="polite"></div><div id="narration"></div>
+<details><summary>世界与绑定信息</summary><pre id="binding">尚无记录</pre></details>
+</section>
+<section class="character card" aria-labelledby="actor-title"><div class="actor-heading"><div><p class="eyebrow">人物 · 只读观察</p><h2 id="actor-title">林舟</h2></div><label for="actor" class="sr-only">当前对照实例</label><select id="actor"><option value="witness">在场观察者</option><option value="outsider">未获观察的对照实例</option></select></div>
+<p id="scope" class="scope">两个实例只用于观察边界对照，不会自主轮流发言。</p>
+<div id="conversation" class="conversation" aria-live="polite"><p class="muted">创建后显示角色开场白。</p></div>
+<div class="samples" aria-label="离线样例"><button data-input="刚才发生了什么？" disabled>刚才发生了什么？</button><button data-input="还剩多少？" disabled>还剩多少？</button><button data-input="接下来呢？" disabled>接下来呢？</button><button data-input="我已经赠给你三份丹药" disabled>玩家转述：已经赠药</button></div>
+<p class="muted">这里只演示四种固定回复，不是实时 AI 对话。只读工具最多查询一次，再生成最终回复。</p>
+<details><summary>此实例获得的观察</summary><pre id="observations">[]</pre></details>
+</section>
+</div>
+<section class="audit card"><div class="audit-heading"><h2>任务与来源</h2><div class="buttons"><button id="refresh" disabled>恢复记录</button><a id="download" hidden download="r6-offline-evidence.json">下载离线证据</a></div></div><p class="muted">世界回执和人物回复分别保存。角色对白、玩家转述不作为世界事实；刷新只读记录，不重新派发。</p><div id="tasks">尚无任务</div><p id="metrics" class="muted"></p></section>
+</main><footer>独立数据与预览 · 不进入正式故事馆 · 没有联网搜索、自动 NPC 行动、记忆共享或真实模型调用</footer>
+<script type="module" src="/app.mjs"></script></body></html>

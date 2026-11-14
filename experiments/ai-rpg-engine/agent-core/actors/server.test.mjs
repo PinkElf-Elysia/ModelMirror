@@ -1,0 +1,20 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {mkdir,mkdtemp} from 'node:fs/promises';import {fileURLToPath} from 'node:url';
+import {startServer} from './server.mjs';
+const root=fileURLToPath(new URL('../../.rpg03-work/actors-r6-tests/',import.meta.url));await mkdir(root,{recursive:true});
+test('loopback full flow; owner evidence, actor-scoped requests, no automatic refresh dispatch',async t=>{
+ const app=await startServer({directory:await mkdtemp(root+'http-'),port:0,offlinePreview:true});t.after(()=>app.close());
+ const post=async(path,body,headers={})=>fetch(app.url+path,{method:'POST',headers:{'content-type':'application/json','x-rpg-bridge':'offline-preview',...headers},body:JSON.stringify(body)});
+ const page=await fetch(app.url);assert.equal(page.status,200);assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);
+ let r=await (await post('api/sessions',{operationId:'http-create'})).json();assert.equal(r.world.medicine,5);
+ const execute={operationId:'http-exec',revision:r.world.revision};
+ r=await (await post('api/sessions/'+r.id+'/execute',execute)).json();assert.equal(r.world.medicine,3);
+ r=await (await post('api/sessions/'+r.id+'/execute',execute)).json();assert.equal(r.world.medicine,3);assert.equal(r.actors.find(a=>a.id==='witness').observations.length,1);
+ r=await (await post('api/sessions/'+r.id+'/respond',{operationId:'http-read',actorId:'witness',input:'还剩多少？'})).json();
+ assert.equal(r.tasks.at(-1).status,'completed');assert.match(r.actors.find(a=>a.id==='witness').history.at(-1).content,/没有查阅/);
+ const calls=r.metrics.actorGenerations,reread=await (await fetch(app.url+'api/sessions/'+r.id)).json();assert.equal(reread.metrics.actorGenerations,calls);
+ const evidence=await (await fetch(app.url+'api/sessions/'+r.id+'/evidence')).json();assert.equal(evidence.realCalls,0);
+ assert.equal((await post('api/sessions',{operationId:'bad'},{origin:'https://evil.example'})).status,400);
+ assert.equal((await post('api/sessions/'+r.id+'/respond',{operationId:'forged',actorId:'outsider',input:'你好',grant:{inventory:true}})).status,400);
+});
+test('explicit offline gate remains required',async()=>{await assert.rejects(startServer({port:0}),{code:'BRIDGE_PREVIEW_DISABLED'});});
