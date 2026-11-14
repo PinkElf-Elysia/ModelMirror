@@ -230,11 +230,11 @@ describe("OpenRouter model refresh", () => {
   });
   it("reconciles the refreshed counted catalog totals", () => {
     const counted = models.filter((model) => model.catalog_counted);
-    expect(counted).toHaveLength(822);
-    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(646);
+    expect(counted).toHaveLength(826);
+    expect(counted.filter((model) => model.catalog_status === "live")).toHaveLength(650);
     expect(counted.filter((model) => model.catalog_status === "uncertain")).toHaveLength(139);
     expect(counted.filter((model) => model.catalog_status === "expired")).toHaveLength(37);
-    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(785);
+    expect(counted.filter((model) => model.catalog_status !== "expired")).toHaveLength(789);
   });
 
   it("keeps October 7 decisions and media off the ordinary text-only route", () => {
@@ -992,7 +992,7 @@ describe("OpenRouter model refresh", () => {
     expect(models.find((item) => item.id === "meta/muse-spark-1.3-contributor")?.openrouter_market.categories)
       .toEqual([
         "programming", "marketing", "marketing/seo", "technology",
-        "science", "translation", "legal", "finance", "trivia", "academia",
+        "science", "translation", "legal", "finance", "academia",
       ]);
   });
 
@@ -1042,7 +1042,7 @@ describe("OpenRouter model refresh", () => {
       catalog_status: "live",
       active: true,
       context_length: 1_048_576,
-      pricing: { input: 0.3, output: 1.2 },
+      pricing: { input: expect.closeTo(0.0507, 8), output: expect.closeTo(0.2028, 8) },
       input_modalities: ["text", "image"],
       output_modalities: ["text"],
       reasoning_declared: true,
@@ -1274,7 +1274,7 @@ describe("OpenRouter model refresh", () => {
         "analyze_video",
         "chat",
       ]),
-      context_length: 1_048_575,
+      context_length: 1_024_000,
       pricing_status: "fixed",
       pricing_basis: "token",
       openrouter_market: {
@@ -2345,7 +2345,7 @@ describe("OpenRouter model refresh", () => {
     expect(byId.get("~moonshotai/kimi-latest")?.pricing).toEqual({"input":0.18239999999999998,"output":11.0055});
     expect(byId.get("deepseek/deepseek-chat-v3.1")?.pricing).toEqual({"input":0.25,"output":0.95});
     expect(byId.get("qwen/qwen2.5-vl-72b-instruct")?.pricing).toEqual({"input":0.7999999999999999,"output":1});
-    expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({"input":0.32,"output":0.8899999999999999});
+    expect(byId.get("deepseek/deepseek-chat")?.pricing).toEqual({"input":0.2574,"output":1.0287});
     expect(byId.get("meta-llama/llama-3.3-70b-instruct")?.pricing).toEqual({"input":0.71,"output":0.71});
     expect(byId.get("undi95/remm-slerp-l2-13b")?.pricing).toEqual({"input":0.3,"output":0.5});
     expect(byId.get("ibm-granite/granite-4.2-8b")?.supported_parameters).toEqual(

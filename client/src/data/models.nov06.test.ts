@@ -11,7 +11,7 @@ describe("November 6 refresh", () => {
   it("keeps Parallel on request-priced Decisions, not free chat", () => {
     const id = "parallel/decisions-fast";
     expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
-    expect(models.find((model) => model.id === id)).toMatchObject({primary_operation:"decide", ui_entrypoint:"decisions", pricing_basis:"request", pricing_status:"dynamic", catalog_status:"uncertain"});
+    expect(models.find((model) => model.id === id)).toMatchObject({primary_operation:"decide", ui_entrypoint:"decisions", pricing_basis:"request", pricing_status:"dynamic", catalog_status:"live"});
   });
   it("places Claude Fable 5.2 in the first-row flagship slot, moves Opus 5.5 to row 2, and places Gemini 4 Carbon in the front six rows", () => {
     expect(models[0]?.id).toBe("anthropic/claude-fable-5.2");

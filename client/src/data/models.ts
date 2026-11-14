@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-13T12:32:52.752Z.
+// Merged with OpenRouter model catalog on 2026-11-14T11:49:41.354Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,111 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "recraft/recraft-v4.1-flash-v2",
+    "canonical_slug": "recraft/recraft-v4.1-flash-v2-20261113",
+    "name": "Recraft: Recraft V4.1 Flash V2",
+    "raw_description": "Recraft V4.1 Flash V2 is a text-to-image model from Recraft, an updated version of [Recraft V4.1 Flash](/recraft/recraft-v4.1-flash) in the speed tier of the V4.1 family. It is suited for rapid...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794608385,
+    "expiration_date": null,
+    "model_author": "Recraft"
+  },
+  {
+    "id": "recraft/recraft-v4.1-flash-v2:free",
+    "canonical_slug": "recraft/recraft-v4.1-flash-v2-20261113",
+    "name": "Recraft: Recraft V4.1 Flash V2 (free)",
+    "raw_description": "Recraft V4.1 Flash V2 is a text-to-image model from Recraft, an updated version of [Recraft V4.1 Flash](/recraft/recraft-v4.1-flash) in the speed tier of the V4.1 family. It is suited for rapid...",
+    "context_length": 65536,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794608385,
+    "expiration_date": 1795824000,
+    "model_author": "Recraft"
+  },
+  {
+    "id": "tencent/hy-world-2.1-panorama",
+    "canonical_slug": "tencent/hy-world-2.1-panorama-20261112",
+    "name": "Tencent: HY-World 2.1 Panorama",
+    "raw_description": "HY-World 2.1 Panorama is a 360-degree panorama generation model from Tencent, part of the Hunyuan World family. It turns a single text prompt into one high-resolution equirectangular panorama suitable for...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794608245,
+    "expiration_date": null,
+    "model_author": "Tencent"
+  },
+  {
+    "id": "inclusionai/ling-3.2-flash:free",
+    "canonical_slug": "inclusionai/ling-3.2-flash-20261113",
+    "name": "inclusionAI: Ling 3.2 Flash (free)",
+    "raw_description": "Ling 3.2 Flash is a hybrid reasoning model from inclusionAI that accepts text and image input, with a 1M-token context window and up to 200 images per request. Thinking can...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "max_tokens",
+      "presence_penalty",
+      "reasoning",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1794591958,
+    "expiration_date": null,
+    "model_author": "InclusionAI",
+    "reasoning_declared": true
+  },
   {
     "id": "heygen/heygen-decision-1-turbo",
     "canonical_slug": "heygen/heygen-decision-1-turbo-20261112",
@@ -6345,6 +6450,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "reasoning",
       "reasoning_effort",
       "response_format",
+      "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
@@ -7027,8 +7133,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.050699999999999995,
+      "output": 0.20279999999999998
     },
     "input_modalities": [
       "text",
@@ -8748,7 +8854,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "qwen/qwen3.8-27b-20260814",
     "name": "Qwen: Qwen3.8 27B",
     "raw_description": "Qwen3.8 27B is an open-weight dense vision-language model from Qwen. It is suited for coding, professional workflows, research, multimodal interaction, and long-running agent tasks, with flexible thinking that can be...",
-    "context_length": 1048575,
+    "context_length": 1024000,
     "pricing": {
       "input": 0.15,
       "output": 1.875
@@ -9736,6 +9842,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -9750,6 +9857,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1786302394,
@@ -11494,10 +11602,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
-      "max_completion_tokens",
       "max_tokens",
       "min_p",
-      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -11944,13 +12050,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GPT-5.6 Sol is the flagship model in OpenAI's GPT-5.6 series. It is suited for complex reasoning, coding, and agentic workflows, and is particularly strong at command-line and multi-step coding tasks...",
     "context_length": 1050000,
     "pricing": {
-      "input": 4.4,
-      "output": 22,
+      "input": 4,
+      "output": 20,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 8.8,
-          "output": 33
+          "input": 8,
+          "output": 30
         }
       ]
     },
@@ -14893,10 +14999,8 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "logit_bias",
       "logprobs",
-      "max_completion_tokens",
       "max_tokens",
       "min_p",
-      "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
@@ -16413,8 +16517,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
-      "output": 0.3
+      "input": 0.0675,
+      "output": 0.22499999999999998
     },
     "input_modalities": [
       "image",
@@ -17402,8 +17506,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.024,
-      "output": 0.035
+      "input": 0.16999999999999998,
+      "output": 0.25
     },
     "input_modalities": [
       "text",
@@ -25940,8 +26044,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek-V3 is the latest model from the DeepSeek team, building upon the instruction following and coding abilities of the previous versions. Pre-trained on nearly 15 trillion tokens, the reported evaluations...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.32,
-      "output": 0.8899999999999999
+      "input": 0.2574,
+      "output": 1.0287
     },
     "input_modalities": [
       "text"
@@ -26690,8 +26794,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.049999999999999996,
-      "output": 0.33
+      "input": 0.0509,
+      "output": 0.335
     },
     "input_modalities": [
       "text"
@@ -26717,7 +26821,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1727222400,
-    "expiration_date": null,
+    "expiration_date": 1795132800,
     "model_author": "Meta"
   },
   {
@@ -28217,14 +28321,23 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
+      "logprobs",
       "max_tokens",
+      "min_p",
       "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1792225624,
@@ -28713,6 +28826,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -28727,6 +28841,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1789021285,
@@ -29004,6 +29119,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
+      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -29018,6 +29134,7 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
+      "top_logprobs",
       "top_p"
     ],
     "created": 1787086655,
@@ -31620,7 +31737,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "openai/o4-mini-high",
   "openai/sora-2-pro",
   "openrouter/owl-alpha",
-  "parallel/decisions-fast",
+  "parallel/decisions-fast:free",
   "perplexity/pplx-decider-v1-27b",
   "poolside/laguna-xs.2:free",
   "prime-intellect/intellect-3",
@@ -32498,6 +32615,8 @@ const MID_CATALOG_MODEL_IDS = [
   "inclusionai/ling-3.0-tiny:free",
 ];
 const LATEST_REFRESH_MODEL_IDS = [
+  "recraft/recraft-v4.1-flash-v2", "recraft/recraft-v4.1-flash-v2:free",
+  "tencent/hy-world-2.1-panorama", "inclusionai/ling-3.2-flash:free",
   "heygen/heygen-decision-1", "heygen/heygen-decision-1-turbo",
   "bytedance-seed/seedream-5-5",
   "perplexity/pplx-decider-flash-v1.3:free",
