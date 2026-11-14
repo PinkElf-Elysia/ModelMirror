@@ -1,0 +1,223 @@
+{
+  "baseline": "ae67eb2510066a7301825a58de96872c64593298",
+  "manifestHash": "7c318377dcc11a1a2f8d0f858009cd09eb7adb7d31a348344f6e10a9eb0fdd00",
+  "note": "Offline bytes and deterministic fixtures only; no token or quality/cost improvement claim.",
+  "samples": [
+    {
+      "adapter": "cultivation",
+      "kind": "direct",
+      "input": "服用两份养息丹",
+      "mode": "offline-simulator",
+      "stages": [
+        {
+          "measurement": {
+            "characters": 190374,
+            "inputHash": "f0b09ba852589180d012d60d9a118e155c4baeec6e400ab4c8f2c0cc65747827",
+            "systemBytes": 528857,
+            "textHistoryAndInputBytes": 21,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 537799
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        }
+      ],
+      "totalRequestBytes": 537799,
+      "simulationWallMs": 734,
+      "stateRevision": 1,
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "bodyChars": 49,
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "服用两份养息丹",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "actualProviderCostUSD": null,
+      "proseFirstMs": null
+    },
+    {
+      "adapter": "cultivation",
+      "kind": "query",
+      "input": "先查询丹药，再服用两份养息丹",
+      "mode": "offline-simulator",
+      "stages": [
+        {
+          "measurement": {
+            "characters": 190381,
+            "inputHash": "ab40682d572d90ecb280b1b4fe3b36626960d689448f62fe709f7e539dceb13d",
+            "systemBytes": 528857,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 766,
+            "wireBytes": 537820
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        },
+        {
+          "measurement": {
+            "characters": 190765,
+            "inputHash": "539527d49448358fa1d5fbc4cab0a39e4762f3fcad5f323f59cfb47ab40ac8dc",
+            "systemBytes": 528857,
+            "textHistoryAndInputBytes": 43,
+            "tokens": null,
+            "toolResultBytes": 534,
+            "toolsBytes": 766,
+            "wireBytes": 538749
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1076569,
+      "simulationWallMs": 1348,
+      "stateRevision": 1,
+      "finalStateHash": "8aac5e49822653039433cd71773bf6db8d463135159df73d1d320f89d71e00ff",
+      "bodyChars": 49,
+      "changes": [
+        {
+          "path": "items.medicine.quantity",
+          "before": 5,
+          "after": 3,
+          "reason": "先查询丹药，再服用两份养息丹",
+          "authority": "rule-calculation",
+          "type": "quantity"
+        }
+      ],
+      "realCalls": 0,
+      "actualProviderCostUSD": null,
+      "proseFirstMs": null
+    },
+    {
+      "adapter": "lighthouse",
+      "kind": "direct",
+      "input": "给灯具添油两份",
+      "mode": "offline-simulator",
+      "stages": [
+        {
+          "measurement": {
+            "characters": 270,
+            "inputHash": "c16fb19779190c833b8a2dc68f2fbc5b3ab9dcefd0a1af16b4d1e8bc8309d164",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 21,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1200
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        }
+      ],
+      "totalRequestBytes": 1200,
+      "simulationWallMs": 367,
+      "stateRevision": 1,
+      "finalStateHash": "b9c36284709fd62ee32acd753af67f5e2563ebb64113078bf20003a23269f749",
+      "bodyChars": 46,
+      "changes": [
+        {
+          "path": "supplies.lamp-oil.quantity",
+          "before": 5,
+          "after": 3,
+          "requestedDelta": -2,
+          "actualDelta": -2,
+          "reason": "给灯具添油两份",
+          "authority": "rule-calculation",
+          "type": "consumeSupply"
+        }
+      ],
+      "realCalls": 0,
+      "actualProviderCostUSD": null,
+      "proseFirstMs": null
+    },
+    {
+      "adapter": "lighthouse",
+      "kind": "query",
+      "input": "先查询灯油，再给灯具添油两份",
+      "mode": "offline-simulator",
+      "stages": [
+        {
+          "measurement": {
+            "characters": 277,
+            "inputHash": "ef489e36a0d8e0c566bab801a34acf28ce52b8ee74c253f1c8dc46d62577b684",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 42,
+            "tokens": null,
+            "toolResultBytes": 0,
+            "toolsBytes": 559,
+            "wireBytes": 1221
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        },
+        {
+          "measurement": {
+            "characters": 612,
+            "inputHash": "ffd0fb7557003efff1748dedba383af0e3450fa7e546771bbf03d6a9e1656c7c",
+            "systemBytes": 501,
+            "textHistoryAndInputBytes": 43,
+            "tokens": null,
+            "toolResultBytes": 425,
+            "toolsBytes": 559,
+            "wireBytes": 2026
+          },
+          "usage": {
+            "costUSD": 0,
+            "inputTokens": null,
+            "kind": "simulated",
+            "outputTokens": null
+          }
+        }
+      ],
+      "totalRequestBytes": 3247,
+      "simulationWallMs": 599,
+      "stateRevision": 1,
+      "finalStateHash": "b9c36284709fd62ee32acd753af67f5e2563ebb64113078bf20003a23269f749",
+      "bodyChars": 46,
+      "changes": [
+        {
+          "path": "supplies.lamp-oil.quantity",
+          "before": 5,
+          "after": 3,
+          "requestedDelta": -2,
+          "actualDelta": -2,
+          "reason": "先查询灯油，再给灯具添油两份",
+          "authority": "rule-calculation",
+          "type": "consumeSupply"
+        }
+      ],
+      "realCalls": 0,
+      "actualProviderCostUSD": null,
+      "proseFirstMs": null
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "authorization": "User authorized the finite real bridge for two exact adapter schemas and an 8192-token query profile; old endpoints remain strict.",
+  "files": {
+    "server/model_router/rpg_bridge.py": {
+      "before": "2e9cb9711827c8e2ab749aeb437dcd823c204fcc148668a94794326097b522b6",
+      "after": "890ec16588ee27977c3d76cf52518979e0d0f4c94e1fcb0b572d64b4bf331297"
+    },
+    "server/model_router/rpg_local_state_tools.py": {
+      "before": "d782ac060ea615248400d9805acfc832bef0120149fb48f663d8569cae527fce",
+      "after": "1fc1b4b13206792da1c20ce3111d32c9844060fd735bcda2c64eb3e5cf74cf0a"
+    }
+  }
+}

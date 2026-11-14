@@ -18,7 +18,7 @@ def require(ok, code="rpg_tool_protocol"):
     if not ok:
         raise ValueError(code)
 
-def call_valid(call):
+def call_valid(call, validator=None):
     require(isinstance(call, dict) and set(call) <= {"id", "type", "function", "extra_content"})
     require(isinstance(call.get("id"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", call["id"]))
     require(call.get("type") == "function")
@@ -26,7 +26,7 @@ def call_valid(call):
     require(isinstance(fn, dict) and set(fn) == {"name", "arguments"})
     require(fn["name"] == "query_local_state" and isinstance(fn["arguments"], str) and len(fn["arguments"]) <= 8192)
     args = json.loads(fn["arguments"])
-    validate_args(args)
+    (validator or validate_args)(args)
     metadata(call.get("extra_content"))
 
 def metadata(value):
@@ -50,9 +50,11 @@ def validate_args(args):
             kinds = {"items": ["法宝", "装备", "丹药", "材料", "物资"], "abilities": ["功法", "术法", "神通", "体质能力", "丹方", "器谱", "炼丹炼器术", "天赋", "弱点"]}
             require(q["kind"] in kinds.get(q["domain"], []))
 
-async def body(request, profile):
+async def body(request, profile, tool=None, validator=None):
     from . import rpg_bridge as b
     enabled()
+    if tool is None and profile not in ("default", "god-long-v1"):
+        raise HTTPException(422, "rpg_parameter_profile_invalid")
     data = bytearray()
     async for part in request.stream():
         data.extend(part)
@@ -63,7 +65,7 @@ async def body(request, profile):
         require(isinstance(value, dict) and set(value) == {"sessionId","requestId","selectionId","selectionRevision","messages","parameters","tools","tool_choice"})
         for key in ("sessionId","requestId","selectionId","selectionRevision"):
             require(isinstance(value[key], str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value[key]))
-        require(value["tools"] == [TOOL] and value["tool_choice"] in ("auto","none"))
+        require(value["tools"] == [TOOL if tool is None else tool] and value["tool_choice"] in ("auto","none"))
         allowed = [b.parameters_for("google/gemini-3.8-flash",profile)]
         if profile == "default":
             allowed.append({"max_tokens":16384})
@@ -80,7 +82,7 @@ async def body(request, profile):
             require(isinstance(assistant,dict) and set(assistant) <= {"role","content","tool_calls","extra_content"} and assistant.get("role") == "assistant")
             require(assistant.get("content") is None or isinstance(assistant["content"],str))
             require(isinstance(assistant.get("tool_calls"),list) and len(assistant["tool_calls"]) == 1)
-            call_valid(assistant["tool_calls"][0]); metadata(assistant.get("extra_content"))
+            call_valid(assistant["tool_calls"][0], validator); metadata(assistant.get("extra_content"))
             require(isinstance(result,dict) and set(result) == {"role","tool_call_id","content"} and result["role"] == "tool" and result["tool_call_id"] == assistant["tool_calls"][0]["id"] and isinstance(result["content"],str))
         return value
     except (ValueError, TypeError, KeyError):
@@ -90,7 +92,7 @@ def supports(selected):
     supported = selected["_binding"]["metadata"].get("supported_parameters", [])
     return all(name in supported for name in ("tools","tool_choice"))
 
-def parse_sse(sse, model, evidence=None):
+def parse_sse(sse, model, evidence=None, validator=None):
     evidence = evidence if evidence is not None else {}
     parts = sse.replace("\r\n","\n").split("\n\n")
     require(not parts.pop().strip())
@@ -141,7 +143,7 @@ def parse_sse(sse, model, evidence=None):
         message["extra_content"] = extra
     if calls:
         require(finish == "tool_calls")
-        call_valid(calls[0]); message["tool_calls"] = [calls[0]]
+        call_valid(calls[0], validator); message["tool_calls"] = [calls[0]]
     else:
         require(finish == "stop" and content.strip(), "rpg_incomplete_output")
     evidence.update(raw=content,actual=actual,message=message,finishReason=finish)

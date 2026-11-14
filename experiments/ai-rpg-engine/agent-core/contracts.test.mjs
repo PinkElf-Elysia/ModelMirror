@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {bounded,hash,validateBinding,validateAdapter} from './contracts.mjs';
+test('bounded JSON rejects unsafe shape and capacity',()=>{assert.throws(()=>bounded({x:Infinity}));assert.throws(()=>bounded({x:'long'},{bytes:2}));assert.throws(()=>bounded(new Date()));assert.deepEqual(bounded({x:null}),{x:null});});
+test('bindings require actual hashes and complete adapter ports',()=>{const b={adapterId:'test',adapterVersion:'1',stateSchemaVersion:'1',rulesVersion:'1',sourceHash:hash('x'),effectiveContextHash:hash('y'),manifestHash:hash('z')};assert.equal(validateBinding(b),b);assert.throws(()=>validateBinding({...b,manifestHash:'draft'}));assert.throws(()=>validateAdapter({id:'test',binding:b}));assert.equal(hash({b:2,a:1}),hash({a:1,b:2}));});
