@@ -38,6 +38,8 @@ function problemHtml(operation,details=false){
  }return html;
 }
 function install({api,getWork,getInput,setInput,openModels,notice}){
+ const listeners=new Set();
+ const snapshot=()=>({view,settings,reading,busy:busy||reading||!!view?.busy,canSend:!send.disabled,canSwitch:!busy&&!reading&&!view?.busy&&!view?.pending&&!blocked(),error:error?.text||null,controlled,estimate,routes:client?.branches()||[]});
  const controlled=document.body.dataset.execution==='controlled',sendLabel=controlled?'发送':'发送演练';
  const panel=document.createElement('section');panel.className='runtime-panel joint-panel';panel.setAttribute('aria-label','会话调试');document.querySelector('.preview-tabs').before(panel);
  const send=document.createElement('button');send.type='button';send.className='primary runtime-send';send.textContent=sendLabel;document.querySelector('.composer footer').append(send);
@@ -63,7 +65,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  }
  function displayError(){return error?'<p class="runtime-warning" role="status">'+esc(error.text)+'</p><details class="runtime-diagnostic"><summary>诊断信息</summary><code>'+esc(error.code)+'</code></details>':'';}
  async function refresh(){
-  const gen=++generation,w=getWork();clearTimeout(timer);clearTimeout(estimateTimer);estimate=null;sendBody=null;
+  const gen=++generation,w=getWork();quoteGeneration++;if(error?.source==='estimate')error=null;clearTimeout(timer);clearTimeout(estimateTimer);estimate=null;sendBody=null;
   if(!w){workId=null;client=null;view=null;settings=null;render();return;}workId=w.id;
   let id;try{id=JSON.parse(localStorage.getItem(modelSessionKey(workId,getWork()?.publishedVersionId))||'null');}catch{throw {code:'JOINT_LOCAL_RECORD_INVALID'};}
   if(!id){selectRequirements(null);client=null;view=null;settings=null;render();return;}
@@ -118,6 +120,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
   send.disabled=!ready()||!sendBody||sendBody.kind!=='send'||sendBody.input!==getInput()||estimate.budget.remaining<estimate.plan.maximumCalls;
   send.textContent=busy||view?.busy?'处理中…':sendLabel;
   if(dialog?.open&&!['edit','branch'].includes(mode))renderDialog();
+  for(const listener of listeners)listener(snapshot());
  }
  function renderRequirements(){
   const currentText=view.session.requirements?.text??'',text=requirementsDraft??currentText;
@@ -145,7 +148,7 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
   document.body.append(d);renderDialog();d.showModal();
  }
  async function switchSession(id){
-  if(busy||!view)return;busy=true;error=null;render();
+  if(busy||reading||view?.busy||view?.pending||blocked()||!getWork())return;busy=true;error=null;render();
   try{
    const key=modelSessionKey(workId,getWork()?.publishedVersionId),text=JSON.stringify(id);
    try{localStorage.setItem(key,text);if(localStorage.getItem(key)!==text)throw Error();}catch{throw {code:'JOINT_LOCAL_STORAGE_UNAVAILABLE'};}
@@ -229,6 +232,6 @@ function install({api,getWork,getInput,setInput,openModels,notice}){
  input.addEventListener('input',()=>{clearTimeout(estimateTimer);estimate=null;sendBody=null;render();estimateTimer=setTimeout(()=>quote(),250);});
  document.addEventListener('close',e=>{if(e.target.matches('.model-settings-dialog'))refresh().catch(issue);},true);
  window.addEventListener('storage',e=>{if(e.key?.startsWith('modelmirror.authoring.'))refresh().catch(issue);});window.addEventListener('pagehide',()=>{clearTimeout(timer);clearTimeout(estimateTimer);});
- return {initialize(){refresh().catch(issue);},workChanged(){comparison?.dispose();comparison=null;comparisonSession=null;comparisonBlocked=false;generation++;quoteGeneration++;selectRequirements(null);reading=false;close();view=null;settings=null;client=null;error=null;retry=null;workId=getWork()?.id||null;refresh().catch(issue);}};
+ return {subscribe(listener){listeners.add(listener);listener(snapshot());return()=>listeners.delete(listener);},open,refresh:()=>refresh().catch(issue),recover,send:()=>send.click(),switchSession,branch(turn){branchTurn=turn;open('branch');},initialize(){refresh().catch(issue);},workChanged(){comparison?.dispose();comparison=null;comparisonSession=null;comparisonBlocked=false;generation++;quoteGeneration++;selectRequirements(null);reading=false;close();view=null;settings=null;client=null;error=null;retry=null;workId=getWork()?.id||null;refresh().catch(issue);}};
 }
 attachSessionPanel(install);

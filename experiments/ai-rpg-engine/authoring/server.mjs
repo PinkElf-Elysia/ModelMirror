@@ -205,7 +205,7 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       // All drafts, resource libraries, runtime APIs and writes retain same-origin checks.
       const libraryRead = req.method === 'GET' && (path === api+'/library' || /^\/rpg-app\/api\/authoring\/library\/work-[a-f0-9]{64}\/version-[a-f0-9]{64}\/cover$/.test(path));
       const libraryOrigin = libraryRead && isLoopbackOrigin(suppliedOrigin);
-      const characterNavigation = req.method === 'GET' && path === '/characters' && !suppliedOrigin && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
+      const characterNavigation = req.method === 'GET' && (path === '/characters' || creatorExperience && path === '/play') && !suppliedOrigin && req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
       if (!libraryOrigin && !characterNavigation && ((suppliedOrigin && suppliedOrigin !== origin) || site === 'cross-site')) fail('AUTHORING_ORIGIN_REJECTED');
       if (libraryOrigin) { res.setHeader('Access-Control-Allow-Origin',suppliedOrigin); res.setHeader('Vary','Origin'); }
       if (libraryRead) {
@@ -225,13 +225,26 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       if(isCharacterRoute(path))return await (await characterHost()).handle({req,res,url,send,body:()=>jsonBody(req,45*1024*1024)});
       if(req.method==='GET'&&path==='/'&&url.searchParams.has('work')){const w=await store.read(url.searchParams.get('work'));if(w.draft.kind==='character'){res.writeHead(302,{Location:'/characters'+url.search});res.end();return;}}
       if (req.method === 'GET' && !path.startsWith(api + '/')) {
-        query(url, path === '/' ? ['work','version','library'] : path === '/chat' && chatParameters ? ['session'] : []);
+        query(url, (path === '/' || path === '/play') ? ['work','version','library'] : path === '/chat' && chatParameters ? ['session'] : []);
         if(path==='/chat'&&chatParameters){
           if(!/^session-[a-f0-9]{64}$/.test(url.searchParams.get('session')||''))fail('OFFLINE_SESSION_NOT_FOUND');
           return send('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>RPG · 会话参数</title><link rel="stylesheet" href="/chat-parameter-ui.css"><link rel="stylesheet" href="/comparison-ui.css"><script type="module" src="/chat-parameter-ui.mjs"></script></head><body><div data-chat-root><p role="status">正在读取会话…</p></div></body></html>',200,'text/html; charset=utf-8');
         }
         // Keep the creator root unavailable in chat mode; use the separate /chat surface.
         if (path === '/' && chatParameters) fail('AUTHORING_ROUTE_NOT_FOUND');
+        if (path === '/' && url.searchParams.has('version') && creatorExperience) {
+          url.pathname='/play';res.writeHead(302,{Location:url.pathname+url.search});return res.end();
+        }
+        if (path === '/play') {
+          if(!creatorExperience)fail('AUTHORING_ROUTE_NOT_FOUND');
+          const workId=url.searchParams.get('work'),versionId=url.searchParams.get('version');
+          if(!/^work-[a-f0-9]{64}$/.test(workId||'')||!/^version-[a-f0-9]{64}$/.test(versionId||''))fail('AUTHORING_VERSION_ID_INVALID');
+          await publishedWork(store,workId,versionId);
+          const shell=await page(origin,sessionHost!==null,!!historyUI,!!summaryUI,true,!!jointApi,!!turnPlayback,sessionHost?.readiness?.realProvider===true);
+          return send(shell.replace('data-authoring="persistent"','data-authoring="persistent" data-player="true" data-player-view="opening"')
+            .replace('<title>RPG 创作工作台</title>','<title>RPG · 作品游玩</title>')
+            .replace('</head>','<link rel="stylesheet" href="/published-player.css"><link rel="stylesheet" href="/player-chat-workspace.css"><link rel="stylesheet" href="/published-chat.css"></head>'),200,'text/html; charset=utf-8');
+        }
         if (path === '/') return send(await page(origin,sessionHost!==null,!!historyUI,!!summaryUI,creatorExperience,!!jointApi,!!turnPlayback,sessionHost?.readiness?.realProvider===true), 200, 'text/html; charset=utf-8');
         const files = {
           '/styles.css': [resolve(here, '../authoring-prototype/styles.css'), 'text/css; charset=utf-8'],
@@ -262,7 +275,8 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
           '/browser-api.mjs': [resolve(here, 'browser-api.mjs'), 'text/javascript; charset=utf-8'],
         };
         for(const name of ['variable-panel-ui.mjs','variable-frame-ui.mjs','variable-panel-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
-        if(creatorExperience)for(const name of ['creator-guide.html','creator-experience.css'])files['/'+name]=[resolve(here,name),name.endsWith('.html')?'text/html; charset=utf-8':'text/css; charset=utf-8'];
+        if(creatorExperience)for(const name of ['creator-guide.html','creator-experience.css','published-player.css','published-player.mjs','published-chat.mjs','published-chat.css','joint-client.mjs'])files['/'+name]=[resolve(here,name),name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.mjs')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'];
+        if(creatorExperience)files['/player-chat-workspace.css']=[resolve(here,'../card-replica/src/chat-workspace.css'),'text/css; charset=utf-8'];
         if(summaryUI)for(const name of ['session-ui.mjs','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(turnPlayback)for(const name of ['playback-ui.mjs','playback-ui.css','special-cg-ui.mjs'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];
         if(jointApi)for(const name of ['joint-ui.mjs','joint-client.mjs','joint-ui.css','session-client.mjs','session-ui.css'])files['/'+name]=[resolve(here,name),name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'];

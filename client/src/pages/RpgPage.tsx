@@ -67,6 +67,7 @@ export default function RpgPage(){
  },[cardId,attempt]);
  const handoff=(()=>{if(!creator)return;const url=new URL(creator),params=new URLSearchParams(window.location.search);
   for(const [key,pattern] of [['work',/^work-[a-f0-9]{64}$/],['version',/^version-[a-f0-9]{64}$/]] as const){const value=params.get(key);if(value&&pattern.test(value))url.searchParams.set(key,value);}
+  if(url.searchParams.has('work')&&url.searchParams.has('version'))url.pathname='/play';
   return url.href;
  })();
  useEffect(()=>{if(cardId==='authoring'&&handoff)window.location.replace(handoff);},[cardId,handoff]);

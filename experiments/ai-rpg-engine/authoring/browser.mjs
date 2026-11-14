@@ -18,6 +18,7 @@ const esc = editor.escapeHtml;
 const apiRoot = '/rpg-app/api/authoring';
 const publishedVersion = new URL(location.href).searchParams.get('version');
 const publishedMode = publishedVersion !== null;
+const playerMode = document.body.dataset.player === 'true';
 if(publishedMode)document.body.dataset.published='true';
 const creatorMode = document.body.dataset.experience === 'creator';
 const savedText = revision => creatorMode ? '已保存' : '已保存 · revision ' + revision;
@@ -26,7 +27,7 @@ const button = (label, action, extra = '') => '<button type="button" data-b1="' 
 const field = (label, id, value = '', extra = '') => '<label class="form-label" for="' + id + '">' + label + '</label><input id="' + id + '" value="' + esc(value) + '" ' + extra + '>';
 let work = null, blank = null, busy = false, pending = null, conflict = false, database = null;
 let validation = null, uploadTarget = null, focusBeforeWrite = null, composing = false;
-let sessionPanel = null, playbackPanel = null;
+let sessionPanel = null, playbackPanel = null, publishedPlayer = null;
 let draftWriteSettled = null;
 const busyButtons = new Map();
 const failureText = {
@@ -98,6 +99,7 @@ window.addEventListener('pagehide',()=>{
 async function renderPreview(mode,createCG=false){
   const generation=++previewGeneration;
   const requestedWorkId=work?.id;
+  if(playerMode&&!publishedPlayer?.visible)document.body.dataset.playerView='opening';
   // A local save can reach disk before its receipt updates the editor revision.
   while(draftWriteSettled){
     await draftWriteSettled;
@@ -129,7 +131,7 @@ async function renderPreview(mode,createCG=false){
   if(!$('#presentation-suggestions'))$('#presentation-frame').insertAdjacentHTML('afterend','<div id="presentation-suggestions" class="assistance-choices" aria-label="下一步建议"></div>');
   $('#presentation-suggestions').replaceChildren();
   $('#presentation-reply-controls').innerHTML=replyControl+cgControl;
-  $('#presentation-status').textContent='正在准备预览…';$('#presentation-proposal').hidden=true;$('#stop-script').hidden=true;
+  $('#presentation-status').textContent=playerMode?'正在准备开局…':'正在准备预览…';$('#presentation-proposal').hidden=true;$('#stop-script').hidden=true;
   if(mode==='reply'){
     document.querySelectorAll('[name="preview-role"]').forEach(input=>input.onchange=()=>{previewRole=input.value;$('#create-cg-replay').disabled=previewRole!=='assistant';$('#presentation-status').textContent='来源已变化，点击渲染回复更新显示。';});
     $('#preview-reply-source').oninput=event=>{previewReply=event.target.value;};
@@ -158,17 +160,17 @@ async function renderPreview(mode,createCG=false){
     if(work.revision!==revision||JSON.stringify(currentDocument())!==documentText||(mode==='reply'&&(previewReply!==replyText||previewRole!==messageRole||previewCGUser!==cgUser))){releasePresentation(result);throw {code:'AUTHORING_PRESENTATION_STALE'};}
     if(result.manifest.cg&&previewCG?.request.operationId===result.manifest.cg.plan.binding.operationId){previewCG.expiresAt=result.manifest.cg.expiresAt;keepCGReplay();}
     const frame=documentElement('iframe');
-    frame.title=mode==='opening'?'开局隔离预览':'回复隔离预览';frame.width='100%';frame.height='420';frame.setAttribute('frameborder','0');
+    frame.title=playerMode?'作品开局':mode==='opening'?'开局隔离预览':'回复隔离预览';frame.width='100%';frame.height='420';frame.setAttribute('frameborder','0');
     // A reply may use 100vh/min-height. Feeding its measured content height
     // back into its viewport makes it grow forever. Keep a stable viewport;
     // long replies scroll inside it, with the author's own viewport CSS intact.
-    frame.style.height='clamp(320px, calc(100dvh - 300px), 800px)';
+    frame.style.height=playerMode?'calc(100dvh - 64px)':'clamp(320px, calc(100dvh - 300px), 800px)';
     frame.setAttribute('sandbox','allow-scripts');frame.referrerPolicy='no-referrer';
     frame.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'");
     releasePresentation(previous);
     activePresentation={...result,frame,mode,workId,revision,documentText,replyText,messageRole,generation,scriptSequence:0,proposals:[]};
     frame.src=result.frameUrl;$('#presentation-frame').replaceChildren(frame);
-    $('#presentation-status').textContent=(mode==='opening'?'开局页面':'回复展示')+(publishedMode?' · 已发布版本 '+work.versions[0].number:creatorMode?' · '+(documentsEqual(document,work.draft)?'已保存草稿':'含未保存修改'):' · 当前编辑快照；未保存、未派发')+(result.manifest.cg?' · CG 已冻结，渲染不重抽':'');
+    $('#presentation-status').textContent=playerMode?'':(mode==='opening'?'开局页面':'回复展示')+(publishedMode?' · 已发布版本 '+work.versions[0].number:creatorMode?' · '+(documentsEqual(document,work.draft)?'已保存草稿':'含未保存修改'):' · 当前编辑快照；未保存、未派发')+(result.manifest.cg?' · CG 已冻结，渲染不重抽':'');
     renderPresentationDiagnostics(result.manifest);
     syncChatBGM(true);
     renderSuggestionChoices(activePresentation);
@@ -181,7 +183,7 @@ async function renderPreview(mode,createCG=false){
         error={code:'AUTHORING_PRESENTATION_STALE'};
       }
       if(previous?.workId===work?.id){activePresentation=previous;stopScript(previous,'新预览未生成，保留上一份画面。'+describe(error));}
-      else{$('#presentation-status').textContent='预览未生成，源码已保留。'+describe(error);releasePresentation(previous);}
+      else{$('#presentation-status').textContent=(playerMode?'开局暂时无法显示，角色输入已保留。':'预览未生成，源码已保留。')+describe(error);releasePresentation(previous);}
       if(error.details?.diagnostic)$('#presentation-diagnostics').textContent=error.details.diagnostic;
     }else releasePresentation(previous);
   }finally{
@@ -600,6 +602,7 @@ function applyWork(next, preserved = null) {
   const url = new URL(location.href); url.searchParams.set('work',id); history.replaceState(null,'',url);
   sessionPanel?.workChanged();
   playbackPanel?.workChanged();
+  publishedPlayer?.workChanged();
   if (work.pending && !pending) {
     pending = {...work.pending, document:doc, sourceId:id, serverOnly:true};
     notice('本地库有待核对操作，请在“更多”中核对原操作。');
@@ -774,12 +777,12 @@ async function inspectImport(payload,target) {
       }); return false;
     },'确认导入','取消');
 }
-function publishedHref(versionId){const url=new URL(location.href);url.searchParams.set('work',work.id);url.searchParams.set('version',versionId);url.hash='';return url.href;}
+function publishedHref(versionId){const url=new URL(location.href);url.pathname='/play';url.searchParams.set('work',work.id);url.searchParams.set('version',versionId);url.hash='';return url.href;}
 async function versions() {
   if (!work) return;
   const current = await api('/works/' + work.id);
   validation = await api('/works/' + work.id + '/validation');
-  editor.openDialog(creatorMode?'作品版本':'版本与本地封存',(creatorMode?'<p>发布后自动显示在本机故事馆，可以选择它开始新会话。已有会话保留原来的设定，后续草稿修改不会影响它们。</p>':'<p>版本保存不可变的配置与资源。<strong>当前仅封存数据，尚不可游玩。</strong>通用运行能力在 B6 接入。</p>') +
+  editor.openDialog(creatorMode?'发布作品':'版本与本地封存',(creatorMode?'<p>发布后自动显示在本机故事馆，可以选择它开始新会话。已有会话保留原来的设定，后续草稿修改不会影响它们。</p>':'<p>版本保存不可变的配置与资源。<strong>当前仅封存数据，尚不可游玩。</strong>通用运行能力在 B6 接入。</p>') +
     (editor.isDirty() ? '<p class="danger">请先保存未保存修改。</p>' : '') +
     (!validation.valid ? '<div class="validation-row"><strong>请先修复以下项目</strong>' + issueList(validation.issues) + '</div>' : '') +
     button(creatorMode?'发布当前草稿':'封存当前已保存草稿','seal','class="primary"' + ((!validation.valid || editor.isDirty() || conflict || pending) ? ' disabled' : '')) +
@@ -790,13 +793,13 @@ async function seal() {
   writable();
   if (editor.isDirty() || !validation?.valid || validation.revision !== work.revision) throw {code:'AUTHORING_REVISION_CONFLICT'};
   const revision = work.revision;
-  editor.openDialog(creatorMode?'发布本地版本':'确认封存版本',creatorMode?'<p>将当前已保存的草稿与资源发布为固定版本。首页将自动显示本版本的名称、简介与封面。仅保存在本地，不会公开到外部网站，也不会调用模型。</p>':'<p>将当前 revision ' + revision + ' 封存为不可变数据快照。不会创建会话、游玩入口或调用模型。</p>',() => {
+  editor.openDialog(creatorMode?'发布作品':'确认封存版本',creatorMode?'<p>将当前已保存的草稿与资源发布为固定版本。首页将自动显示本版本的名称、简介与封面。仅保存在本地，不会公开到外部网站，也不会调用模型。</p>':'<p>将当前 revision ' + revision + ' 封存为不可变数据快照。不会创建会话、游玩入口或调用模型。</p>',() => {
     run(async () => {
       if (work.revision !== revision) throw {code:'AUTHORING_REVISION_CONFLICT'};
       await mutate('/works/' + work.id + '/publish',{});
       await versions(); notice(creatorMode?'已发布到本机故事馆，返回首页即可看到入口。':'版本数据已封存，运行能力尚未接入。');
     }); return false;
-  },creatorMode?'发布版本':'确认封存','取消');
+  },creatorMode?'发布作品':'确认封存','取消');
 }
 function workResources(target=null,audio=false) {
   if (!work) return;
@@ -1016,7 +1019,7 @@ if(creatorMode){
  $('.edit-scroll').setAttribute('tabindex','0');$('.edit-scroll').setAttribute('aria-label','作品编辑区');
  $('#tab-world').textContent='世界书';
  $('#save-button').textContent='保存作品';
- $('#publish-button').textContent='作品版本';
+ $('#publish-button').textContent='发布作品';
  $('[data-preview="reply"]').textContent='样式回放';
  $('[data-preview="assembly"]').textContent='提示词预览';
  $('#player-input').placeholder='输入角色资料或下一步行动…';
@@ -1026,6 +1029,7 @@ if(creatorMode){
  const previewPane=$('.preview-pane'),previewBackground=[$('.workspace-header'),$('.edit-pane')];
  const previewFocusables=()=>[...previewPane.querySelectorAll('button,a[href],input,textarea,select,summary,iframe,[tabindex]')].filter(node=>!node.disabled&&node.tabIndex>=0&&node.getClientRects().length>0&&!node.closest('[hidden],[inert]'));
  const syncPreviewFocus=()=>{
+   if(playerMode)return;
    const expanded=previewPane.classList.contains('open');
    for(const node of previewBackground)node.inert=expanded;
    if(expanded){previewPane.setAttribute('role','dialog');previewPane.setAttribute('aria-modal','true');}
@@ -1033,7 +1037,7 @@ if(creatorMode){
  };
  new MutationObserver(syncPreviewFocus).observe(previewPane,{attributes:true,attributeFilter:['class']});
  previewPane.addEventListener('keydown',event=>{
-   if(event.key!=='Tab'||!previewPane.classList.contains('open')||document.querySelector('dialog[open]'))return;
+   if(playerMode||event.key!=='Tab'||!previewPane.classList.contains('open')||document.querySelector('dialog[open]'))return;
    const nodes=previewFocusables(),first=nodes[0],last=nodes.at(-1);
    if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
    else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
@@ -1041,7 +1045,7 @@ if(creatorMode){
 }
 if(publishedMode){
  const edit=document.createElement('a');edit.className='creator-help';edit.textContent='编辑作品';
- const url=new URL(location.href);url.searchParams.delete('version');edit.href=url.href;
+ const url=new URL(location.href);url.pathname='/';url.searchParams.delete('version');edit.href=url.href;
  $('.top-actions').append(edit);
  const context=$('.creator-context');if(context)context.textContent='已发布作品';
  $('.preview-pane').setAttribute('aria-label','作品游玩');$('.preview-header strong').textContent='作品游玩';
@@ -1117,6 +1121,7 @@ async function start() {
       const target=new URL(location.href).searchParams.get('work');
       if(!target||!/^work-[a-f0-9]{64}$/.test(target)||!/^version-[a-f0-9]{64}$/.test(publishedVersion))throw {code:'AUTHORING_VERSION_ID_INVALID'};
       await loadWork(target);
+      if(playerMode&&!publishedPlayer?.visible)document.body.dataset.playerView='opening';
       editor.saved('已发布 · 版本 '+work.versions[0].number);
       return;
     }
@@ -1163,15 +1168,21 @@ export function attachSessionPanel(factory){
     setInput(text){$('#player-input').value=text;$('#player-input').dispatchEvent(new Event('input',{bubbles:true}));},
     openModels(purpose){ return modelUI.open(purpose); },notice});
   sessionPanel.initialize();
+  publishedPlayer?.connect(sessionPanel);
 }
 
 // Only the new host flag loads persistent turn playback. Preserved hosts keep
 // their existing module graph and draft preview behavior.
-if(document.body.dataset.turnPlayback==='true'){
+if(document.body.dataset.turnPlayback==='true'&&!playerMode){
  const {createPlaybackPanel}=await import('./playback-ui.mjs');
  playbackPanel=createPlaybackPanel({api,getWork:()=>work,
   setInput(text){$('#player-input').value=text;$('#player-input').dispatchEvent(new Event('input',{bubbles:true}));},notice,
-  activate(){++previewGeneration;const old=activePresentation;activePresentation=null;releasePresentation(old);bgmMode='playback';syncChatBGM(false);$('#preview-content').hidden=true;document.querySelectorAll('[data-preview]').forEach(e=>e.setAttribute('aria-pressed','false'));}
+  activate(){if(playerMode)document.body.dataset.playerView='chat';else{++previewGeneration;const old=activePresentation;activePresentation=null;releasePresentation(old);}bgmMode='playback';syncChatBGM(false);$('#preview-content').hidden=true;document.querySelectorAll('[data-preview]').forEach(e=>e.setAttribute('aria-pressed','false'));}
  });
  playbackPanel.initialize();playbackPanel.workChanged();
 }
+
+if(playerMode){const {mountPublishedPlayer}=await import('./published-player.mjs');publishedPlayer=mountPublishedPlayer({api,getWork:()=>work,getInput:()=>$('#player-input').value,setInput(text){$('#player-input').value=text;$('#player-input').dispatchEvent(new Event('input',{bubbles:true}));},openModels:()=>modelUI.open(),getSessionPanel:()=>sessionPanel,openOpening:()=>run(()=>{
+ if(activePresentation?.mode==='opening'&&activePresentation.workId===work?.id){playbackPanel?.hide();document.body.dataset.playerView='opening';$('#preview-content').hidden=false;bgmMode='opening';syncChatBGM(false);return;}
+ return renderPreview('opening');
+ }),notice});}

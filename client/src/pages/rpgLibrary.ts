@@ -32,7 +32,7 @@ export function authoringOrigin(port:string|undefined,page:Pick<Location,'protoc
 }
 export function workbenchHref(port:string|undefined,page:Pick<Location,'protocol'|'hostname'|'port'>, work?:{id:string;versionId:string}) {
   const base=localAuthoringHref(port,page); if(!base)return;
-  const url=new URL(base);
+  const url=new URL(work?'/play':base,authoringOrigin(port,page));
   url.searchParams.set('library',`http://127.0.0.1${page.port?':'+page.port:''}/rpg`);
   if(work){url.searchParams.set('work',work.id);url.searchParams.set('version',work.versionId);}
   return url.href;
