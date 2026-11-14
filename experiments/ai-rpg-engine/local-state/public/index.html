@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>修真手记 · 本地状态预览</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.mjs"></script></head>
+<body>
+<header class="masthead"><a class="brand" href="/"><span class="seal" aria-hidden="true">修</span><span>修真手记<small>超级修仙大世界 · 独立试验</small></span></a><nav><span class="offline">离线模拟</span><button id="help">使用说明</button><button id="new-session">新建档案</button></nav></header>
+<div id="notice" role="status" aria-live="polite"></div>
+<main>
+<section id="setup" class="setup">
+ <div class="eyebrow">LOCAL STATE / 01</div><h1>故事往前走，<br>档案留得住。</h1><p class="lead">以林清的一日杂务，检验丹药、灵石、能力与关系的持续变化。完整档案由本地保存，回复只交付正文和本轮变化。</p>
+ <div class="setup-grid"><div><h2>确认开局档案</h2><p class="muted">原创成年修士样例。未设定的字段保留为空，不猜测数值。</p>
+ <div class="fields"><label>姓名<input id="init-name" maxlength="100"></label><label>初始年龄<input id="init-age" maxlength="30"></label><label>养息丹数量<input id="init-medicine" type="number" min="0" step="1"></label><label>下品灵石<input id="init-low" type="number" min="0" step="1"></label></div>
+ <details><summary>查看／编辑完整初值</summary><label>初始状态 JSON<textarea id="initial-json" rows="15" spellcheck="false"></textarea></label></details>
+ <details><summary>插件装配配置</summary><p class="muted">复用本地配置格式；前后置词、世界书和正则按原语义装配。此处不联网获取 Mod。</p><button id="example-config">填入组合测试配置</button><label>配置 JSON<textarea id="config-json" rows="8" spellcheck="false"></textarea></label></details>
+ <label class="check"><input type="checkbox" id="confirmed">我已核对初值，将它作为新分支的起点</label>
+ <button id="create" class="primary">开启药圃手记 <span aria-hidden="true">→</span></button></div>
+ <aside class="intro"><span class="chapter">本次可以体验</span><ol><li><strong>状态不重写</strong><p>消耗丹药，档案与来源依然保留。</p></li><li><strong>计算在本地</strong><p>程序处理整数收支与关系区间。</p></li><li><strong>变化有依据</strong><p>区分规则计算、模型判断与明确改写。</p></li></ol>
+ <hr><h3>从旧记录建立分支</h3><p>导入本预览导出的 JSON，核对初值后创建新档案。其他旧存档需先整理为这里的状态格式；不会自动扫描历史或修改原文件。</p><label class="file-button">选择本地记录<input id="import" type="file" accept=".json,application/json"></label><p id="source-note" class="muted">当前来源：原创中性样例</p></aside></div>
+</section>
+<section id="play" hidden>
+ <div class="session-heading"><div><span class="eyebrow">药圃 · 一日手记</span><h1 id="session-title"></h1><p id="session-meta" class="muted"></p></div><div class="session-actions"><button id="refresh">刷新核对</button><button id="export">导出记录</button><button id="tools">档案工具</button></div></div>
+ <div class="play-grid"><section class="story-column"><div class="journal-label"><span>正文</span><span>模拟供应商 · 不计费</span></div><div id="story"></div>
+ <div id="pending" class="pending" hidden></div>
+ <form id="composer" class="composer"><label for="input">接下来做什么？</label><textarea id="input" rows="3" placeholder="试试：帮周禾扶好竹架"></textarea><div class="quick"><button type="button" data-action="服用两份养息丹">服用两份养息丹</button><button type="button" data-action="帮周禾扶好竹架">帮助周禾</button><button type="button" data-action="劳作后感到疲惫">劳作后休息</button></div>
+ <div class="compose-actions"><label class="scenario-label">更多样例<select id="scenario"><option value="">选择动作…</option></select></label><button id="compare" type="button">预览双候选</button><button id="send" class="primary">继续故事 →</button></div><p class="footnote">这是固定规则的离线回复样例；未匹配的输入仅作对话，不模拟真实模型的理解能力。</p></form>
+ </section><aside class="ledger"><div class="ledger-title"><h2>本地档案</h2><span id="state-version"></span></div><div id="metrics" class="metrics"></div><div id="changes"></div><div id="panels"></div></aside></div>
+</section>
+</main>
+<dialog id="dialog"><div class="dialog-head"><h2 id="dialog-title"></h2><button id="close-dialog" aria-label="关闭">×</button></div><div id="dialog-body"></div></dialog>
+<footer>独立预览 · 原卡材料保持不变 · 未接入正式故事馆</footer>
+</body></html>
