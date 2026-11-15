@@ -1,3 +1,4 @@
+import {compatible} from '../daily/compatibility.mjs';
 import {join} from 'node:path';
 import {SessionRecords} from '../../authoring/session-storage.mjs';
 import {AuthoringStore} from '../../authoring/store.mjs';
@@ -36,10 +37,10 @@ export class GroupStore {
   return {id:idFor('request',s.id,operationId),operationId,groupId:s.id,targetId:m.id,binding:clone(m.binding),model:clone(m.model),...context,reservation:reservation(context.messages,m.model),sourceHash:digest({revision:s.revision,scene:s.scene,messages:staged.messages.map(x=>x.id),target:m.id})};
  }
  async #validate(data){
-  keys(data,['format','runtimeHash','authorization','catalogHash','groups']);check(data.format===FORMAT&&data.runtimeHash===this.#runtime.hash,'RUNTIME_MISMATCH');check(data.catalogHash===digest(this.#models),'MODEL_CATALOG_CHANGED');check(digest(data.authorization)===digest(this.#policy),'AUTHORIZATION_CHANGED');check(data.groups&&typeof data.groups==='object'&&!Array.isArray(data.groups)&&Object.keys(data.groups).length<=50,'GROUP_LIMIT');
+  keys(data,['format','runtimeHash','authorization','catalogHash','groups']);check(data.format===FORMAT&&(data.runtimeHash===this.#runtime.hash||await compatible('group',data.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');check(data.catalogHash===digest(this.#models),'MODEL_CATALOG_CHANGED');check(digest(data.authorization)===digest(this.#policy),'AUTHORIZATION_CHANGED');check(data.groups&&typeof data.groups==='object'&&!Array.isArray(data.groups)&&Object.keys(data.groups).length<=50,'GROUP_LIMIT');
   const states={};let calls=0,microUsd=0;
   for(const [id,r] of Object.entries(data.groups)){
-   check(id===r.id&&r.runtimeHash===this.#runtime.hash,'RUNTIME_MISMATCH');const s=replay(r);states[id]=s;
+   check(id===r.id&&(r.runtimeHash===this.#runtime.hash||await compatible('group',r.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');const s=replay(r);states[id]=s;
    for(const m of s.members.filter(x=>x.kind==='character')){const c=await this.#configuration(m.binding.reference);check(digest(c)===m.binding.configurationHash&&c.document.character.card.data.name.slice(0,120)===m.name,'VERSION_CHANGED');check(digest(m.model)===digest(this.#model(m.model.id)),'MODEL_CHANGED');}
    const first=r.events[0].payload;if(first.opening){const {content,...selection}=first.opening;check(digest(await this.#opening(selection,first.members,first.player.name))===digest(first.opening),'OPENING_CHANGED');}
    // Reconstruct each request from the original visible history and template.
@@ -79,7 +80,7 @@ export class GroupStore {
    if(action==='model'){keys(p,['memberId','modelId']);p={memberId:p.memberId,model:this.#model(p.modelId)};}
    if(action==='prepare'){check(this.#policy.mode!=='disabled','EXECUTION_DISABLED');check(!pending(s),'REQUEST_PENDING');p={...p,request:await this.#request(s,input.operationId,p)};}
    const e={action,operationId:input.operationId,expectedRevision:input.expectedRevision,payload:p,intentHash};
-   data.groups[id]={format:FORMAT,id,runtimeHash:this.#runtime.hash,events:[...(old?.events??[]),e]};await this.#put(saved,data);return {id,revision:data.groups[id].events.length-1,requestId:p.request?.id??null};
+   data.groups[id]={format:old?.format??(p.player?.format?'modelmirror.rpg.character-group/2':FORMAT),id,runtimeHash:old?.runtimeHash??this.#runtime.hash,events:[...(old?.events??[]),e]};await this.#put(saved,data);return {id,revision:data.groups[id].events.length-1,requestId:p.request?.id??null};
   });
  }
  async close(){await this.#queue;this.#ready=false;await this.#records.close();}

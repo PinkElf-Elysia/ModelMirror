@@ -1,4 +1,6 @@
-import {readFile} from 'node:fs/promises';
+import {runtimePlayer,assembleIdentity} from './daily/identity.mjs';
+import {compatible} from './daily/compatibility.mjs';
+import {readFile,readdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {SessionRecords} from '../authoring/session-storage.mjs';
 import {canonical,sha256,keys,isId,fail} from '../authoring/contracts.mjs';
@@ -13,16 +15,16 @@ import {assembleCharacter,greeting} from './context.mjs';
 const digest=v=>sha256(canonical(v)),clone=structuredClone;
 const pending=o=>['prepared','dispatching','unknown'].includes(o.state);
 const SID=/^session-[a-f0-9]{64}$/;
-const sourcePaths=['authoring/contracts.mjs','authoring/store.mjs','character/session.mjs','character/context.mjs','character/card.mjs','character/document.mjs','authoring/session-storage.mjs','authoring/controlled-provider.mjs','authoring/controlled-receipt.mjs','authoring/model-control.mjs','authoring/joint-budget.mjs','authoring/joint-plan.mjs','plugins/memory-palace.mjs'];
+const sourcePaths=['character/daily/identity.mjs','character/daily/compatibility.mjs','character/daily/compatibility.json','authoring/contracts.mjs','authoring/store.mjs','character/session.mjs','character/context.mjs','character/card.mjs','character/document.mjs','authoring/session-storage.mjs','authoring/controlled-provider.mjs','authoring/controlled-receipt.mjs','authoring/model-control.mjs','authoring/joint-budget.mjs','authoring/joint-plan.mjs','plugins/memory-palace.mjs'];
 const artifacts=async()=>Object.fromEntries(await Promise.all(sourcePaths.map(async p=>[p,sha256(await readFile(new URL('../'+p,import.meta.url)))])));
 export class CharacterSessionHost{
- #records;#works;#provider;#port;#budget;#control;#files;#queue=Promise.resolve();#active=new Map();#closed=false;#listeners=new Map();
- constructor({records,works,provider,budget,control,files}){this.#records=records;this.#works=works;this.#provider=provider;this.#port=controlledProviderPort(provider);this.#budget=budget;this.#control=control;this.#files=files;if(!this.#port&&!(provider instanceof CharacterFixtureProvider))fail('CHARACTER_PROVIDER_REQUIRED');}
+ #directory;#records;#works;#provider;#port;#budget;#control;#files;#queue=Promise.resolve();#active=new Map();#closed=false;#listeners=new Map();
+ constructor({directory,records,works,provider,budget,control,files}){this.#directory=directory;this.#records=records;this.#works=works;this.#provider=provider;this.#port=controlledProviderPort(provider);this.#budget=budget;this.#control=control;this.#files=files;if(!this.#port&&!(provider instanceof CharacterFixtureProvider))fail('CHARACTER_PROVIDER_REQUIRED');}
  static async open({directory,works,provider,control=null,limit=0,recoverDeadOwner=false}){
   if(controlledProviderPort(provider)&&!control)fail('CHARACTER_MODEL_CONTROL_REQUIRED');
   const records=await SessionRecords.open(join(directory,'records'),{scope:'single-character-sessions',recoverDeadOwner});
   let budget;try{await records.reconcile();budget=await JointBudget.open({directory:join(directory,'budget'),allowanceId:'single-character',limit:controlledProviderPort(provider)?limit:1000,recoverDeadOwner});
-   return new CharacterSessionHost({records,works,provider,budget,control,files:await artifacts()});
+   return new CharacterSessionHost({directory,records,works,provider,budget,control,files:await artifacts()});
   }catch(e){await budget?.close();await records.close();throw e;}
  }
  get mode(){return this.#port?'controlled':'offline-fixture';}
@@ -32,8 +34,9 @@ export class CharacterSessionHost{
  async #load(id){
   if(!SID.test(id))fail('CHARACTER_SESSION_INVALID');await this.#verify();
   const r=await this.#records.get(id);if(!r)fail('CHARACTER_SESSION_NOT_FOUND');const s=r.data;
-  if(s.format!=='modelmirror.rpg.character-session/1'||s.id!==id||s.memoryScope!==id||s.runtimeHash!==digest(this.#files)||digest(s.binding)!==s.bindingHash||s.mode!==this.mode)fail('CHARACTER_SESSION_CORRUPT');
+  if(!['modelmirror.rpg.character-session/1','modelmirror.rpg.character-session/2'].includes(s.format)||s.id!==id||s.memoryScope!==id||(s.runtimeHash!==digest(this.#files)&&!(await compatible('single',s.runtimeHash,this.#files)))||digest(s.binding)!==s.bindingHash||s.mode!==this.mode)fail('CHARACTER_SESSION_CORRUPT');
   const config=await this.#config(s.binding.reference);if(digest(config)!==s.binding.configurationHash||greeting(config.document.character.card,s.binding.openingIndex,s.binding.player.name)!==s.binding.openingText)fail('CHARACTER_VERSION_CHANGED');
+  runtimePlayer(s.binding.player);if(s.format==='modelmirror.rpg.character-session/1'&&s.binding.player.format)fail('CHARACTER_SESSION_CORRUPT');
   requireLibrary(s.memories);
   if(!Array.isArray(s.turns)||s.turns.length>1000||!Number.isSafeInteger(s.revision)||s.revision<0)fail('CHARACTER_SESSION_CORRUPT');
   for(const t of s.turns){const o=s.operations[t.operationId];if(!o||o.state!=='completed'||t.raw!==o.receipt?.result.text||t.input!==o.intent.input||digest(o.request.messages)!==o.request.messagesHash||digest(o.request)!==o.requestHash)fail('CHARACTER_TURN_CORRUPT');this.#receipt(o,o.receipt);}
@@ -50,16 +53,19 @@ export class CharacterSessionHost{
   operations:Object.fromEntries(Object.entries(s.operations).map(([id,o])=>[id,{state:o.state,input:o.intent.input,error:o.error||null,trace:o.trace,partial:this.#active.get(s.id)?.operationId===id?this.#active.get(s.id).text:'',canRecover:pending(o)&&!this.#active.has(s.id)}]))};}
  async status(){return {mode:this.mode,budget:await this.#budget.status(),streaming:this.#port?'receipt-buffered':'fixture-deltas',realProvider:!!this.#port};}
  async models(){if(!this.#control)return {models:[]};await this.#control.refresh();return this.#control.list();}
- create(input){input=clone(input);keys(input,['operationId','reference','openingIndex','player']);if(!isId(input.operationId))fail('CHARACTER_OPERATION_INVALID');keys(input.player,['id','name']);
-  if(!(input.player.id===null||typeof input.player.id==='string'&&input.player.id.length<=200)||typeof input.player.name!=='string'||!input.player.name.trim()||input.player.name.length>120)fail('CHARACTER_PLAYER_INVALID');
+ create(input){input=clone(input);keys(input,['operationId','reference','openingIndex','player']);if(!isId(input.operationId))fail('CHARACTER_OPERATION_INVALID');runtimePlayer(input.player);
+
   return this.#serial(async()=>{await this.#verify();const id='session-'+digest({type:'character',operationId:input.operationId}),old=await this.#records.get(id);
    if(old){if(old.data.createHash!==digest(input))fail('CHARACTER_OPERATION_COLLISION');return this.#view((await this.#load(id)).data);}
    const config=await this.#config(input.reference),card=config.document.character.card;
    const openingText=greeting(card,input.openingIndex,input.player.name);if(!openingText.trim())fail('CHARACTER_GREETING_EMPTY');
    const binding={reference:input.reference,configurationHash:digest(config),openingIndex:input.openingIndex,openingText,player:input.player,worldInstanceRef:null};
-   const s={format:'modelmirror.rpg.character-session/1',id,revision:0,createHash:digest(input),runtimeHash:digest(this.#files),mode:this.mode,binding,bindingHash:digest(binding),memoryScope:id,memories:[],settings:{memoryEnabled:false,historyTurns:null},model:null,turns:[],operations:{}};
+   const s={format:input.player.format?'modelmirror.rpg.character-session/2':'modelmirror.rpg.character-session/1',id,revision:0,createHash:digest(input),runtimeHash:digest(this.#files),mode:this.mode,binding,bindingHash:digest(binding),memoryScope:id,memories:[],settings:{memoryEnabled:false,historyTurns:null},model:null,turns:[],operations:{}};
    await this.#records.put(id,null,s);return this.#view(s);
   });
+ }
+ async list(){
+  const result=[];for(const file of await readdir(join(this.#directory,'records','records'))){if(!/^session-[a-f0-9]{64}\.json$/.test(file))continue;const id=file.slice(0,-5);try{result.push({id,view:await this.read(id)});}catch{result.push({id,unavailable:true});}}return result;
  }
  async read(id){return this.#view((await this.#load(id)).data);}
  async configure(id,input){
@@ -84,7 +90,7 @@ export class CharacterSessionHost{
    const turns=s.settings.historyTurns?s.turns.slice(-s.settings.historyTurns):s.turns,history=turns.flatMap(t=>[{role:'user',content:t.input},{role:'assistant',content:t.raw}]);
    const memory=s.settings.memoryEnabled?recallMemories({entries:s.memories,turns:s.turns,input:input.input}).entries:[];
    const maxTokens=s.model?Math.max(1,s.model.entry.contextLength-(s.model.wireParameters.max_tokens||4096)-256):24000;
-   const a=assembleCharacter({card:r.config.document.character.card,player:s.binding.player.name,opening:s.binding.openingText,history,input:input.input,memory,maxTokens});
+   const a=assembleIdentity({card:r.config.document.character.card,player:s.binding.player.name,opening:s.binding.openingText,history,input:input.input,memory,maxTokens},s.binding.player);
    if(s.model)modelCapacity(s.model,a.messages);
    const opId='op-'+digest({id,operationId:input.operationId}),request={id:'request-'+digest({id,operationId:input.operationId}),operationId:opId,sessionId:id,kind:'story',messageContract:'modelmirror.rpg.character-messages/1',messages:a.messages,messagesHash:digest(a.messages),...(s.model?{modelChoice:clone(s.model)}:{})};
    const off={enabled:false,revision:digest({disabled:true})};

@@ -1,3 +1,6 @@
+import {assembleIdentity} from './daily/identity.mjs';
+import {DailyWorkspace} from './daily/workspace.mjs';
+import {markdown} from './daily/markdown.mjs';
 import {readFile} from 'node:fs/promises';import {join} from 'node:path';
 import {blankDocument,keys,fail,sha256} from '../authoring/contracts.mjs';
 import {characterDocument} from './document.mjs';import {compatibility} from './card.mjs';import {decode64,pngChunks,portrait} from './png.mjs';
@@ -14,13 +17,20 @@ export async function createCharacterHttp({store,directory,settings=null,recover
   host=await CharacterSessionHost.open({directory:join(directory,'sessions'),works:store,provider,control:settings?.control||null,limit:settings?.limit??0,recoverDeadOwner});
  }catch(e){await sources.close();if(own)await provider?.close();throw e;}
  async function document(workId,versionId){return versionId?(await store.exportConfiguration(workId,versionId)).document:(await store.read(workId)).draft;}
+ const ownWorkspace=!settings?.workspace,workspace=settings?.workspace??await DailyWorkspace.open(directory,{recoverDeadOwner});workspace.single=host;workspace.works=store;
+ const decorated=v=>({...v,messages:v.messages.map(m=>({...m,html:markdown(m.content)}))});
  return {
- host,
+ host,workspace,
  async handle({req,res,url,send,body}){
-  const path=url.pathname,route=path.slice(prefix.length);
+  const path=url.pathname,route=path.slice(prefix.length);workspace.singleUrl=url.origin+'/characters';
+  if(path==='/characters'&&url.searchParams.has('desk'))return send(await readFile(new URL('./daily/page.html',import.meta.url)),200,'text/html; charset=utf-8');
+  if(req.method==='GET'&&route.startsWith('/daily/avatars/')){const a=await workspace.store.avatar(route.split('/').at(-1));return send(Buffer.from(a.base64,'base64'),200,a.mediaType);}
+  if(route.startsWith('/daily/')&&!['GET','POST'].includes(req.method))fail('CHARACTER_ROUTE_NOT_FOUND');
+  if(route.startsWith('/daily/'))return await workspace.run(async()=>send(await workspace.api(route.slice(6),req.method==='GET'?null:await body(),url)));
+
   if(req.method==='GET'&&path==='/characters')return send(await readFile(new URL('./editor.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&path.startsWith('/character-assets/')){
-   const files={'editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8'};
+   const files={'editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
@@ -31,9 +41,9 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    if(route==='/works'){const list=await store.list(),out=[];for(const w of list){const r=await store.read(w.id);if(r.draft.kind==='character')out.push({...w,kind:'character'});}return send(out);}
    const match=route.match(/^\/sessions\/(session-[a-f0-9]{64})(\/events)?$/);
    if(match){
-    if(!match[2])return send(await host.read(match[1]));
+    if(!match[2])return send(decorated(await host.read(match[1])));
     const initial=await host.read(match[1]);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store','Connection':'keep-alive'});
-    const emit=e=>{if(!res.destroyed)res.write('data: '+JSON.stringify(e)+'\n\n');};const unsubscribe=host.subscribe(match[1],emit);emit({type:'snapshot',session:initial});
+    const emit=e=>{if(!res.destroyed)res.write('data: '+JSON.stringify(e)+'\n\n');};const unsubscribe=host.subscribe(match[1],emit);emit({type:'snapshot',session:decorated(initial)});
     const timer=setInterval(()=>{if(!res.destroyed)res.write(': heartbeat\n\n');},15000);res.on('close',()=>{clearInterval(timer);unsubscribe();});return;
    }
    if(route==='/source'){const doc=await document(url.searchParams.get('work'),url.searchParams.get('version'));if(doc.kind!=='character'||!doc.character.source)fail('CHARACTER_SOURCE_NOT_FOUND');
@@ -61,7 +71,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    return send({workId:made.workId,report:inspection.report,portraitStored:!!inspection.cover&&inspection.cover.length<=5*1024*1024});
   }
   if(route==='/preview'){keys(input,['document','player','openingIndex','input']);const d=input.document;if(d.kind!=='character')fail('CHARACTER_TYPE_REQUIRED');
-   return send({report:compatibility(d.character.card),assembly:assembleCharacter({card:d.character.card,player:input.player,opening:greeting(d.character.card,input.openingIndex,input.player),input:input.input})});
+   const player=typeof input.player==='string'?{id:null,name:input.player}:await workspace.resolvePlayer(input.player);return send({report:compatibility(d.character.card),assembly:assembleIdentity({card:d.character.card,player:player.name,opening:greeting(d.character.card,input.openingIndex,player.name),input:input.input,maxTokens:24000},player)});
   }
   if(route==='/export'){
    keys(input,['workId','versionId','format','version','acceptLoss']);const doc=await document(input.workId,input.versionId);if(doc.kind!=='character')fail('CHARACTER_TYPE_REQUIRED');
@@ -74,11 +84,11 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    const result=await store.putAsset(input.workId,{operationId:input.operationId,expectedRevision:input.expectedRevision,alias:'portrait',fileName:'portrait.png',mediaType:'image/png',bytes});
    return send(result);
   }
-  if(route==='/sessions')return send(await host.create(input),201);
+  if(route==='/sessions')return await workspace.run(async()=>{const v=await host.create({...input,player:await workspace.resolvePlayer(input.player)});await workspace.store.observe('single',v.id,v.revision);return send(decorated(v),201);});
   const action=route.match(/^\/sessions\/(session-[a-f0-9]{64})\/(send|recover|settings|memory)$/);
-  if(action){const [,id,kind]=action;return send(await (kind==='settings'?host.configure(id,input):kind==='memory'?host.editMemory(id,input):host[kind](id,input)));}
+  if(action){const [,id,kind]=action;return await workspace.run(async()=>{const v=await (kind==='settings'?host.configure(id,input):kind==='memory'?host.editMemory(id,input):host[kind](id,input));await workspace.store.observe('single',id,v.revision);return send(decorated(v));});}
   fail('CHARACTER_ROUTE_NOT_FOUND');
  },
- async close(){await host.close();if(own)await provider.close();await sources.close();}
+ async close(){if(ownWorkspace)await workspace.close();await host.close();if(own)await provider.close();await sources.close();}
  };
 }

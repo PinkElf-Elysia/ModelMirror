@@ -1,3 +1,6 @@
+// Optional loopback navigation; never grants execution or changes saved bindings.
+const revisionNavigation = (()=>{try{const v=new URL(location.href).searchParams.get('revisions')||sessionStorage.getItem('character-revisions-url');if(v&&/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(v)){sessionStorage.setItem('character-revisions-url',v);return v;}}catch{}return null;})();
+import {renderRich,playerPicker} from './daily/client.mjs';
 export function readBook(raw){
  const book=raw.trim()?JSON.parse(raw):{scan_depth:4,token_budget:1024,recursive_scanning:false,extensions:{},entries:[]};
  if(!book||typeof book!=='object'||!Array.isArray(book.entries)||book.entries.some(e=>!e||typeof e!=='object'||Array.isArray(e)||!Array.isArray(e.keys)||e.keys.some(k=>typeof k!=='string')||typeof e.content!=='string'||typeof e.enabled!=='boolean'))throw Error('请检查角色知识的高级数据。');return book;
@@ -9,10 +12,11 @@ export function updateBookEntry(raw,index,field,value){
 export function appendBookEntry(raw){const book=readBook(raw);book.entries.push({keys:[],content:'',enabled:true,insertion_order:book.entries.length,extensions:{}});return JSON.stringify(book,null,2);}
 export async function mountCharacterStudio({window,document,fetch,EventSource}){
  const {location,history,crypto,localStorage,URL,Blob,Option,Uint8Array}=window;
+ const initialMessage=new URLSearchParams(location.search).get('message');
  const confirm=window.confirm.bind(window),atob=window.atob.bind(window),btoa=window.btoa.bind(window);
 const $=s=>document.querySelector(s),api='/rpg-app/api/authoring',cp='/characters';
 let work=null,doc=null,version=null,dirty=false,session=null,stream=null,importing=null,catalog=null,busy=false;
-let groupsUrl=null;
+let groupsUrl=null;let selectedPlayer=()=>({id:null,name:$('#player-name').value||'玩家'});
 let screen='library',activeSection='basics',worksList=[];
 const sectionNames={basics:'基础与肖像',definition:'人物设定',openings:'开场与示例',book:'角色知识',prompts:'高级设置',metadata:'作者与分享'};
 const uid=()=>crypto.randomUUID();
@@ -111,7 +115,7 @@ async function load(id,v=null){const w=await request('/works/'+id);if(w.draft.ki
 }
 async function save(){doc=collect();const priorKey=key();let result;if(!work)result=await request('/works',{operationId:uid(),expectedRevision:null,document:doc});else result=await request('/works/'+work.id+'/save',{operationId:uid(),expectedRevision:work.revision,document:doc});
  localStorage.removeItem(priorKey);await load(result.workId||work.id);await refreshWorks();notice('草稿已保存。');}
-async function preview(){if(!doc)return;const value=await request(cp+'/preview',{document:collect(),player:$('#player-name').value||'玩家',openingIndex:Number($('#greeting-index').value||0),input:$('#preview-input').value});
+async function preview(){if(!doc)return;const value=await request(cp+'/preview',{document:collect(),player:selectedPlayer(),openingIndex:Number($('#greeting-index').value||0),input:$('#preview-input').value});
  profile();
  const bookStatus={triggered:'会用于这段对话','not-triggered':'未提及关键词',disabled:'未启用','unsupported-behavior':'暂不支持此触发方式','budget-excluded':'超出本次容量','recursion-limit':'已到递归上限'};
  const hits=value.assembly.trace?.book||[],entries=collect().character.card.data.character_book?.entries||[];
@@ -123,13 +127,13 @@ function download(base64,type,name){const bytes=Uint8Array.from(atob(base64),c=>
 async function asBase64(file){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(binary);}
 async function inspect(){try{const result=await request(cp+'/imports/inspect',{base64:importing.base64,selection:importing.selection});importing.inspection=result;$('#import-report').textContent=[result.card.data.name,`角色卡格式：${result.report.version}`,result.report.warnings.length?'需要留意：':'常用角色字段可以读取。',...result.report.warnings.map(w=>'• '+w.message)].join('\n');$('#confirm-import').disabled=false;$('#fallback').hidden=true;}catch(e){$('#import-report').textContent=JSON.stringify(e.details||{error:e.code},null,2);$('#confirm-import').disabled=true;$('#fallback').hidden=e.code!=='CHARACTER_METADATA_SELECTION_REQUIRED';}}
 function showChat(value=true){setScreen(value?'chat':'edit');}
-function displaySession(){if(!session)return;const box=$('#messages'),follow=box.scrollHeight-box.scrollTop-box.clientHeight<80;$('#messages').replaceChildren(...session.messages.map(m=>{const p=text('div','');p.className='message '+m.role;p.append(text('strong',m.role==='assistant'?doc?.character.card.data.name||'角色':session.binding.player.name),text('span',m.content));return p;}));
+function displaySession(){if(!session)return;const activeMessage=document.activeElement?.id?.startsWith('single-message-')?document.activeElement.id:null;const box=$('#messages'),follow=box.scrollHeight-box.scrollTop-box.clientHeight<80;$('#messages').replaceChildren(...session.messages.map(m=>{const p=text('div','');p.className='message '+m.role;p.id='single-message-'+session.messages.indexOf(m);p.append(text('strong',m.role==='assistant'?doc?.character.card.data.name||'角色':session.binding.player.name));renderRich(document,p,m);return p;}));
  const latest=Object.values(session.operations).at(-1);if(latest&&['prepared','dispatching','unknown','failed'].includes(latest.state)){const p=text('div','');p.className='message user';p.append(text('strong',latest.state==='failed'?'上次未完成的输入':'待确认的输入'),text('span',latest.input));$('#messages').append(p);}
  const pending=Object.entries(session.operations).find(([,o])=>['prepared','dispatching','unknown'].includes(o.state));
  $('#send').disabled=!!pending;$('#recover').hidden=!pending||!pending[1].canRecover;$('#recover').dataset.operation=pending?.[0]||'';$('#operation-status').textContent=pending?(pending[1].canRecover?'原请求结果待核对；不会自动重发。':'正在等待回复…'):latest?.state==='failed'?'上次请求未形成完整回复（'+latest.error+'）。输入保留在上方，不会自动重发。':'已保存 '+session.turns+' 回合';
  $('#partial').hidden=!pending?.[1].partial;$('#partial').textContent=pending?.[1].partial||'';
  $('#memory-enabled').checked=session.settings.memoryEnabled;$('#history-turns').value=session.settings.historyTurns??'';
- if(follow)box.scrollTop=box.scrollHeight;$('#memory-list').replaceChildren(...session.memories.filter(m=>!m.deleted).map(m=>text('p',m.value.name+'：'+m.value.content)));setUrl();
+ if(follow)box.scrollTop=box.scrollHeight;$('#memory-list').replaceChildren(...session.memories.filter(m=>!m.deleted).map(m=>text('p',m.value.name+'：'+m.value.content)));setUrl();if(activeMessage){const hit=document.getElementById(activeMessage);if(hit){hit.tabIndex=-1;hit.focus({preventScroll:true});}}
 }
 async function reloadSession(){if(session){session=await request(cp+'/sessions/'+session.id);displaySession();}}
 async function attachSession(s){notice('');stream?.close();session=s;showChat();displaySession();
@@ -153,7 +157,7 @@ $('#add-greeting').onclick=()=>run(async()=>{doc=collect();doc.character.card.da
 $('#add-book').onclick=()=>run(async()=>{$('#book-json').value=appendBookEntry($('#book-json').value);changed();renderBook();});
 $('#preview').onclick=()=>run(preview);$('#greeting-index').onchange=()=>run(preview);$('#player-name').onchange=()=>run(preview);
 $('#show-preview').onclick=()=>run(async()=>{await preview();setScreen('preview');});$('#show-chat').onclick=()=>showChat(true);
-$('#start-chat').onclick=()=>run(async()=>{const s=await request(cp+'/sessions',{operationId:uid(),reference:{workId:work.id,versionId:version},openingIndex:Number($('#greeting-index').value),player:{id:null,name:$('#player-name').value||'玩家'}});await attachSession(s);});
+$('#start-chat').onclick=()=>run(async()=>{const s=await request(cp+'/sessions',{operationId:uid(),reference:{workId:work.id,versionId:version},openingIndex:Number($('#greeting-index').value),player:selectedPlayer()});await attachSession(s);});
 $('#refresh-chat').onclick=()=>run(reloadSession);
 $('#send').onclick=()=>run(async()=>{if(!session)throw new Error('请先选择可用版本并开始对话。');const input=$('#message').value;if(!input.trim())return;
  const intent={operationId:uid(),expectedRevision:session.revision,input};localStorage.setItem('rpg-character-request:'+session.id,JSON.stringify(intent));$('#partial').textContent='';
@@ -177,9 +181,13 @@ $('#section-select').onchange=()=>selectSection($('#section-select').value);
 $('#portrait').onerror=()=>{$('#portrait').hidden=true;profile();};
 window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
 for(const id of ['groups-navigation','mobile-groups','create-group'])$('#'+id).onclick=e=>{if(busy)e.preventDefault();};
+selectedPlayer=await playerPicker(document,path=>request(cp+'/daily'+path),'player-name');
 await run(async()=>{const navigation=await request(cp+'/navigation').catch(e=>{if(e.code==='CHARACTER_ROUTE_NOT_FOUND')return {groupsUrl:null};throw e;});groupsUrl=navigation.groupsUrl;for(const id of ['groups-navigation','mobile-groups']){$('#'+id).hidden=!groupsUrl;if(groupsUrl)$('#'+id).href=groupsUrl;}await refreshWorks();const params=new URLSearchParams(location.search);if(sectionNames[params.get('section')])activeSection=params.get('section');if(params.get('session')){const s=await request(cp+'/sessions/'+params.get('session'));await load(s.binding.reference.workId,s.binding.reference.versionId);await attachSession(s);}
  else if(params.get('work')){await load(params.get('work'),params.get('version'));setScreen(params.get('version')||params.get('view')==='preview'?'preview':'edit');}else {doc=await request(cp+'/blank');render();setScreen(params.has('section')?'edit':params.get('view')==='preview'?'preview':'library');notice('');if(screen!=='library')restoreDraft(null);}});
 
+if(initialMessage){const hit=document.getElementById(initialMessage);if(hit){hit.tabIndex=-1;hit.focus();hit.scrollIntoView?.({block:'center'});}}
 return {close(){stream?.close();}};
 }
 if(typeof window!=='undefined'&&window.document)await mountCharacterStudio({window,document,fetch:window.fetch.bind(window),EventSource:window.EventSource});
+
+if(revisionNavigation){const nav=document.querySelector('header');if(nav){const a=document.createElement('a');a.href=revisionNavigation;a.textContent='续写分支';nav.append(a);}}

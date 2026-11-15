@@ -1,8 +1,8 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script></head><body data-screen="library">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script><link rel="stylesheet" href="/character-assets/daily/page.css"></head><body data-screen="library">
 <header class="workspace-header">
   <button id="header-library" type="button" aria-label="返回角色库">← 角色库</button><div class="work-identity"><h1 id="title">单角色卡</h1><span id="save-state" role="status">正在载入…</span></div>
   <nav class="screen-switch" aria-label="工作区视图"><button type="button" id="back-edit">编辑</button><button id="show-preview" aria-pressed="true">预览</button><button id="show-chat" aria-pressed="false">对话</button></nav>
-  <div class="top-actions"><button id="save" aria-label="保存草稿">保存<span class="wide-only">草稿</span></button><button class="primary" id="publish" aria-label="创建对话版本">创建版本</button></div>
+  <a href="/characters?desk=sessions">会话</a><a href="/characters?desk=profiles">玩家档案</a><div class="top-actions"><button id="save" aria-label="保存草稿">保存<span class="wide-only">草稿</span></button><button class="primary" id="publish" aria-label="创建对话版本">创建版本</button></div>
   <a id="mobile-groups" hidden>我的群聊 →</a>
 </header>
 <div id="notice" role="status" aria-live="polite"></div><div id="error" role="alert" hidden></div>
