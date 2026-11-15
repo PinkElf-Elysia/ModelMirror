@@ -1,3 +1,4 @@
+import controlCharacterContext from "./articles/control-character-context.md?raw";
 import reviseCharacterConversations from "./articles/revise-character-conversations.md?raw";
 import manageCharacterConversations from "./articles/manage-character-conversations.md?raw";
 import useCharacterGroupChat from "./articles/use-character-group-chat.md?raw";
@@ -149,6 +150,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 export const helpArticles: HelpArticle[] = [
   { slug: "use-rpg-voice-library", title: "创建并使用角色音色", summary: "注册云端固定音色、绑定角色，复用沉浸语音朗读。", category: "按目标找指南", contentType: "how-to", audience: "RPG 玩家与管理员", estimatedMinutes: 5, keywords: ["音色库", "声音克隆", "Qwen", "CosyVoice", "TTS"], relatedRoutes: ["/rpg/plugins", "/settings"], verifiedCommit: "ae67eb25", verifiedDate: "2026-11-14", content: useRpgVoiceLibrary, nextSlug: "listen-rpg-story" },
   { slug: "create-single-character-card", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色、核对上下文、封存版本并恢复独立会话。", category: "按目标找指南", contentType: "how-to", audience: "单角色卡作者与玩家", estimatedMinutes: 6, keywords: ["RPG", "单角色卡", "角色书", "导入", "开场白", "独立会话"], relatedRoutes: ["/rpg"], verifiedCommit: "92849f31", verifiedDate: "2026-11-14", content: createSingleCharacterCard, nextSlug: "use-character-group-chat" },
+  { slug: "control-character-context", title: "调整角色上下文与本次参数", summary: "查看模型可见内容、裁剪原因、输出预留与分支默认值。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["上下文", "历史窗口", "本次参数", "长对话", "预算"], relatedRoutes: ["/rpg"], verifiedCommit: "aebda0a1", verifiedDate: "2026-11-14", content: controlCharacterContext, nextSlug: "revise-character-conversations" },
   { slug: "revise-character-conversations", title: "修改角色对话并选择续写分支", summary: "保留原回复，编辑消息、比较候选并从选定位置继续。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["续写分支", "候选回复", "消息编辑", "重新生成", "原始回复"], relatedRoutes: ["/rpg"], verifiedCommit: "f31bf50b", verifiedDate: "2026-11-14", content: reviseCharacterConversations, nextSlug: "manage-character-conversations" },
   { slug: "manage-character-conversations", title: "管理玩家档案与角色会话", summary: "固定玩家身份，检索、命名和归档单角色或群聊，独立导出文字记录。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["玩家档案", "角色会话", "归档", "正文检索", "会话导出"], relatedRoutes: ["/rpg"], verifiedCommit: "2a7dfea1", verifiedDate: "2026-11-14", content: manageCharacterConversations, nextSlug: "use-character-group-chat" },
   { slug: "use-character-group-chat", title: "创建角色群聊并手动选择回应者", summary: "从角色库选择固定版本，安排共享场景与开场，再分别请求角色回应。", category: "按目标找指南", contentType: "how-to", audience: "本地角色卡创作者与玩家", estimatedMinutes: 6, keywords: ["角色群聊", "单角色卡", "回应者", "群场景", "固定版本", "预算", "恢复"], relatedRoutes: ["/rpg"], verifiedCommit: "92849f31", verifiedDate: "2026-11-14", content: useCharacterGroupChat, nextSlug: "create-single-character-card" },
@@ -652,6 +654,7 @@ export const helpSections: HelpSection[] = [
       { id: "harry-potter-guide", title: "制作霍格沃茨角色并开始聊天", summary: "核对角色、魔杖、天赋与聊天草稿。", to: "/help/play-harry-potter-card", keywords: ["哈利波特", "霍格沃茨", "魔杖"] },
       { id: "jinyong-guide", title: "制作金庸人物帖并开始聊天", summary: "核对人物帖、聊天草稿与状态连续性。", to: "/help/play-jinyong-card", keywords: ["金庸", "人物帖", "草稿"] },
       { id: "single-character-guide", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色，封存版本后进入独立会话。", to: "/help/create-single-character-card", keywords: ["RPG", "单角色卡", "角色书", "开场白"] },
+      { id: "character-context-guide", title: "调整角色上下文与本次参数", summary: "先预览可见内容，再安排本次生成。", to: "/help/control-character-context", keywords: ["上下文", "参数", "历史窗口"] },
       { id: "character-revision-guide", title: "修改角色对话并选择续写分支", summary: "保留原回复、比较候选并续写不同走向。", to: "/help/revise-character-conversations", keywords: ["续写分支", "候选回复", "消息编辑"] },
       { id: "character-daily-guide", title: "管理玩家档案与角色会话", summary: "保存身份、查找对话并归档或导出记录。", to: "/help/manage-character-conversations", keywords: ["玩家档案", "会话", "归档", "导出"] },
       { id: "character-group-guide", title: "创建角色群聊并手动选择回应者", summary: "选择版本与群场景，查看共享预算并恢复原请求。", to: "/help/use-character-group-chat", keywords: ["角色群聊", "回应者", "群场景", "预算"] },
