@@ -3,20 +3,24 @@ import {clone,hash,need,id,bounded} from '../contracts.mjs';
 import {FORMAT,policy,totals} from './policy.mjs';
 // This is the sole allowance owner for NEW R7 runs, not the platform billing ledger.
 export class TaskLedger{
- static async open(directory,limits={calls:24,microUSD:1200000}){
+ static async open(directory,limits={calls:24,microUSD:1200000},registration=null){
   need(Number.isSafeInteger(limits.calls)&&limits.calls>=0&&limits.calls<=100&&Number.isSafeInteger(limits.microUSD)&&limits.microUSD>=0,'R7_LIMITS');
   const records=await SessionRecords.open(directory,{scope:'rpg-task-runtime-r7',recoverDeadOwner:true});
-  try{await records.reconcile();const old=await records.get('allowance');
-   if(old)need(old.data.format===FORMAT&&hash(old.data.limits)===hash(limits),'R7_ALLOWANCE_CHANGED');
-   else await records.put('allowance',null,{format:FORMAT,revision:0,limits:clone(limits),tasks:{}});
-   return new TaskLedger(records);
+  try{await records.reconcile();
+   if(registration)need(registration.version==='task-owners/8'&&Array.isArray(registration.purposes)&&registration.purposes.length>0&&registration.purposes.length<=16&&registration.purposes.every(id)&&new Set(registration.purposes).size===registration.purposes.length,'R8_TASK_REGISTRATION');
+   const old=await records.get('allowance');
+   if(old){
+    need(old.data.format===FORMAT&&hash(old.data.limits)===hash(limits),'R7_ALLOWANCE_CHANGED');
+    need(hash(old.data.registration??null)===hash(registration),'R8_TASK_REGISTRATION_CHANGED');
+   }else await records.put('allowance',null,{format:FORMAT,revision:0,limits:clone(limits),tasks:{},...(registration?{registration:clone(registration)}:{})});
+   return new TaskLedger(records,registration);
   }catch(e){await records.close();throw e;}
  }
- constructor(records){this.records=records;this.queue=Promise.resolve();}
+ constructor(records,registration=null){this.records=records;this.registration=clone(registration);this.queue=Promise.resolve();}
  async read(){return clone((await this.records.get('allowance')).data);}
  change(fn){const p=this.queue.then(async()=>{const e=await this.records.get('allowance'),r=clone(e.data);const result=fn(r);r.revision++;bounded(r,{bytes:16*1024*1024,depth:60});await this.records.put('allowance',e.hash,r);return clone(result??r);});this.queue=p.catch(()=>{});return p;}
  async begin(spec,config){
-  need(id(spec.id)&&['world-narration','world-dialogue','actor-response'].includes(spec.purpose)&&id(spec.session)&&typeof spec.sourceHash==='string'&&spec.ownerRef,'R7_TASK');
+  need(id(spec.id)&&(this.registration?.purposes??['world-narration','world-dialogue','actor-response']).includes(spec.purpose)&&id(spec.session)&&typeof spec.sourceHash==='string'&&spec.ownerRef,'R7_TASK');
   const p=policy(config),signature=hash({spec,policy:p});
   return this.change(r=>{const old=r.tasks[spec.id];if(old){need(old.signature===signature,'R7_TASK_COLLISION');return old;}
    const t={...clone(spec),sequence:Object.keys(r.tasks).length+1,signature,policy:p,stages:[],adoption:'pending',receipt:null,error:null,fallbackUsed:false,pinnedModel:null};r.tasks[spec.id]=t;return t;});

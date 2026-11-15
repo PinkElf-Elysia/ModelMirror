@@ -1,0 +1,17 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>公共运行装配 · RPG 第八轮</title><link rel="stylesheet" href="/style.css"></head><body>
+<header><div><p class="muted">RPG 独立实验 · 第八轮</p><h1>同一条链路，两种世界</h1><p>查询登记、确认行动、继续叙述，保留每一步的依据。</p></div><span class="badge">离线模拟 · 真实调用 0</span></header>
+<main><section class="toolbar" aria-label="场景"><label>示例世界<select id="scene"></select></label><button id="create" class="primary">创建独立场景</button><label class="saved">已保存场景<select id="saved"><option value="">选择场景</option></select></label><button id="refresh">刷新记录</button></section>
+<p id="notice" role="status" aria-live="polite">创建成年中性示例，或恢复本预览中保存的场景。不会修改正式存档。</p>
+<div id="workspace" hidden><div class="layout"><aside>
+<section><h2>已确认状态</h2><div id="resources"></div><div id="receipt"></div><details><summary>完整本地状态</summary><pre id="state"></pre></details></section>
+<section><h2>运行选择</h2><label>本次任务<select id="owner"></select></label><label>模型策略<select id="strategy"><option value="same">均衡模型桩</option><option value="swift">迅捷模型桩</option><option value="backup">明确失败后备用一次</option></select></label><p id="scope" class="muted"></p>
+<details><summary>启用的本地能力</summary><div id="capabilities"></div><button id="save-capabilities">保存能力选择</button><p class="muted">停用仅停止新调用，已有记录仍保留。</p></details>
+<details><summary>离线故障样例</summary><label>下次生成<select id="fault"><option value="">正常</option><option value="failed">明确失败</option><option value="unknown">回执丢失，可核对</option><option value="unknown-sticky">结果持续未知</option><option value="continuation-failed">查询后续写失败</option><option value="truncated">回复截断</option><option value="foreign-tool">未登记工具</option><option value="write">叙事夹带状态写入</option></select></label></details></section>
+<section><h2>累计用量</h2><div id="budget"></div><p class="muted">所有场景与分支共用本预览额度；以下费用为模拟记录。</p></section>
+<section><h2>检查点与分支</h2><button id="checkpoint">保存当前检查点</button><label>从已确认记录开始<select id="checkpoints"></select></label><button id="fork">从检查点创建分支</button><p class="muted">新分支保留当时正文与状态，不复制待执行任务或重置额度。</p></section>
+</aside><div class="content"><section><h2>世界叙述</h2><div id="story" class="prose"></div><div id="proposal"></div><div id="pending"></div>
+<form id="composer"><label for="input">你的行动或对话</label><textarea id="input" rows="3" maxlength="20000" placeholder="例如：先查询，再拟定使用两份的方案"></textarea><div class="samples"><button type="button" data-input="聊聊今日安排">交流</button><button type="button" data-input="查看登记物资">查询物资</button><button type="button" data-input="统计登记物资">统计数量</button><button type="button" data-input="先查询，再拟定使用两份的方案">查询并拟定方案</button></div><button id="send" class="primary" type="submit">发送</button></form>
+<p class="muted">此页使用固定模式模拟工具选择。任意文本可提交，未覆盖的输入仅返回交流样例，不代表真实模型理解。</p></section>
+<section><h2>任务与查询依据</h2><div id="tasks"></div></section>
+<details class="help"><summary>验收操作与当前边界</summary><ol><li>创建场景，点击“统计数量”，核对工具依据和本地状态。</li><li>点击“查询并拟定方案”；未确认前，数量不变。</li><li>确认执行后查看回执，再点击“生成结果叙事”。</li><li>保存检查点、继续交流，再创建分支，核对历史截断。</li><li>选择“独立观察记录”，生成后单独采用；它不能读取完整物资状态。</li></ol><p>角色真实会话、探索方案、联网搜索和正式前端均未接入。故障样例只在此离线目录生效。</p></details>
+</div></div></div></main><footer>本轮验证公共装配与执行机制。模拟文字、时间和费用不能用于评价真实模型效果。</footer><script type="module" src="/app.mjs"></script></body></html>

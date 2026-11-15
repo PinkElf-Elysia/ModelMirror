@@ -7,6 +7,7 @@ import {ActorSimulator} from '../actors/simulator.mjs';
 import {TaskRecords} from '../actors/tasks.mjs';
 import {BridgeHost} from '../actors/host.mjs';
 import {cultivationWorldPort} from '../actors/world-port.mjs';
+import {TaskScheduling} from './scheduling.mjs';
 import {ensureCharacter} from '../actors/fixtures.mjs';
 import {runtimeManifest} from '../manifest.mjs';
 import {clone,hash,need,id,keys} from '../contracts.mjs';
@@ -38,12 +39,8 @@ export async function openRuntime(directory,{offlinePreview=false,limits,delayMs
   return new Runtime({ledger,worlds,transports,worldProviders,actorProviders,bridge,owners,manifest});
  }catch(e){for(const o of owners.reverse())await o.close().catch(()=>{});throw e;}
 }
-class Runtime{
- constructor(ports){Object.assign(this,ports);this.busy=new Set();this.activeJobs=0;this.maxJobs=0;this.waiters=[];}
- async exclusive(run,fn){need(!this.busy.has(run),'R7_RUN_BUSY');this.busy.add(run);try{return await fn();}finally{this.busy.delete(run);}}
- // Only two registered owner tasks; not a general workflow/DAG interpreter.
- async slot(fn){if(this.activeJobs>=2)await new Promise(ok=>this.waiters.push(ok));else this.activeJobs++;
-  this.maxJobs=Math.max(this.maxJobs,this.activeJobs);try{return await fn();}finally{const next=this.waiters.shift();if(next)next();else this.activeJobs--;}}
+class Runtime extends TaskScheduling{
+ constructor(ports){super();Object.assign(this,ports);}
  async create({operationId,adapterId='cultivation',inventory=true}){
   need(id(operationId)&&this.worlds.has(adapterId)&&typeof inventory==='boolean','R7_CREATE');
   return this.exclusive('create',async()=>{

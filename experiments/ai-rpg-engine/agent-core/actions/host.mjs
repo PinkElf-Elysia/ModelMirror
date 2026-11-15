@@ -44,7 +44,10 @@ export class ActionHost extends CoreHost{
     if(!stage||stage.status==='queried'){
      need(op.stages.length<(narrative?1:2),'TOOL_STAGE_LIMIT');
      const first={messages:op.context.messages,tools:op.context.tools,tool_choice:op.context.tool_choice};
-     const req=stage?continuation(first,stage.result.message,op.query,this.adapter.tools.tools(['prepare_action'])):first;
+     const nextTools=this.adapter.continuationTools??['prepare_action'];
+     need(Array.isArray(nextTools)&&nextTools.every(n=>this.adapter.tools.entries.some(e=>e.name===n&&e.effect==='proposal')),'TOOL_CONTINUATION_POLICY');
+     const nextAllowed=nextTools.filter(n=>first.tools.some(t=>t.function.name===n));
+     const req=stage?continuation(first,stage.result.message,op.query,this.adapter.tools.tools(nextAllowed)):first;
      stage={id:'stage-'+hash([id,opId,op.previousAttempts?.length??0,op.stages.length]).slice(0,40),index:op.stages.length+1,request:req,measurement:measureRequest(req),status:'ready',result:null};
      await this.store.update(id,row=>{row.operations[opId].stages.push(stage);});
     }

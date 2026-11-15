@@ -2,9 +2,10 @@ import {clone,need,hash} from '../contracts.mjs';
 import {parseResult} from './protocol.mjs';
 // Restricted native transport validation, no network or credentials.
 // Only a trusted composition can supply the registry; requests cannot register tools.
-export function validateRequest(request,registryTools){
+export function validateRequest(request,registryTools,{maxTools=2}={}){
  need(request&&Object.keys(request).every(k=>['messages','tools','tool_choice'].includes(k)),'TRANSPORT_REQUEST');
- need(Array.isArray(request.tools)&&request.tools.length<=2&&new Set(request.tools.map(t=>t.function?.name)).size===request.tools.length,'TRANSPORT_TOOLS');
+ need(Number.isSafeInteger(maxTools)&&maxTools>=0&&maxTools<=16,'TRANSPORT_TOOLS');
+ need(Array.isArray(request.tools)&&request.tools.length<=maxTools&&new Set(request.tools.map(t=>t.function?.name)).size===request.tools.length,'TRANSPORT_TOOLS');
  for(const t of request.tools)need(registryTools.some(x=>hash(x)===hash(t)),'TRANSPORT_TOOLS');
  need(request.tool_choice===(request.tools.length?'auto':'none'),'TRANSPORT_CHOICE');
  const ms=request.messages;need(Array.isArray(ms)&&ms.length>=2&&ms.length<=1006&&ms[0].role==='system','TRANSPORT_MESSAGES');
