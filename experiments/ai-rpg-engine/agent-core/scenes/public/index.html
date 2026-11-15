@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>场景中的对话 · R9 离线预览</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header><div><p class="eyebrow">RPG / 场景会话</p><h1>场景中的对话</h1><p class="muted">与人物交谈，让已确认的行动延续到下一段故事。</p></div><span class="badge">离线原型 · 无真实调用</span></header>
+<main>
+ <div class="toolbar"><label>新场景<select id="scene"></select></label><button id="create" class="primary" type="button">开始新场景</button><label class="saved">已有记录<select id="saved"><option value="">选择记录</option></select></label><button id="refresh" type="button">刷新记录</button></div>
+ <p id="notice" role="status" aria-live="polite">正在读取本地记录…</p>
+ <div id="workspace" class="layout" hidden>
+  <section class="story-pane" aria-labelledby="story-title">
+   <div class="section-heading"><h2 id="story-title">场景记录</h2><span id="scene-name" class="muted"></span></div>
+   <div id="story" class="prose"></div><div id="review"></div><div id="proposal"></div><div id="pending"></div>
+   <form id="composer">
+    <label>交谈对象<select id="owner"><option value="participant-keeper">沈砚 · 值守员</option><option value="participant-visitor">陆遥 · 来访者</option><option value="world-dialogue">世界 · 行动与叙事</option></select></label>
+    <p id="scope" class="muted"></p>
+    <label for="input">你的话或行动</label><textarea id="input" rows="3" maxlength="20000" placeholder="先问问值守员，今晚有什么安排？"></textarea>
+    <div class="compose-footer"><span class="muted">人物回应需采用后才进入记录。</span><button id="send" class="primary" type="submit">发送</button></div>
+   </form>
+   <details class="examples"><summary>固定验收示例</summary><p class="muted">仅填写输入，不会自动执行；这些不是情境建议。</p><div class="samples"><button type="button" data-owner="participant-keeper" data-text="现在如何值守？">询问安排</button><button type="button" data-owner="world-dialogue" data-text="使用 2">拟定使用两份</button><button type="button" data-owner="participant-keeper" data-text="查询登记余量多少？">询问余量</button><button type="button" data-owner="participant-visitor" data-text="刚才处理好了吗？">询问来访者</button></div></details>
+  </section>
+  <aside>
+   <section><h2>登记物资</h2><div id="resources"></div><div id="receipt"></div><p class="muted">数量由本地规则维护。人物言论不会改动账目。</p><details><summary>完整世界状态</summary><pre id="state"></pre></details></section>
+   <section><h2>场景参与者</h2><div id="participants"></div></section>
+   <section><h2>保留此刻</h2><p class="muted">检查点同时保存世界状态和已采用对话。</p><button id="checkpoint" type="button">保存检查点</button><label>从检查点继续<select id="checkpoints"></select></label><button id="fork" type="button">创建独立分支</button></section>
+  </aside>
+ </div>
+ <details id="diagnostics" hidden><summary>运行与查询依据</summary><p id="budget"></p><label>下一次请求的离线故障样例<select id="fault"><option value="">正常</option><option value="failed">明确失败</option><option value="unknown">回执丢失，可核对</option><option value="unknown-sticky">结果持续未知</option></select></label><div id="tasks"></div></details>
+</main><footer>R9 独立离线预览。示例回应由确定性脚本提供；不证明真实模型的人设、叙事质量或长期记忆表现。</footer>
+<script type="module" src="/app.mjs"></script></body></html>
