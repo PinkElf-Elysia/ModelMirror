@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {parse,fixture,build} from './contract.mjs';
+const f={source:{},facts:{people:[{id:'zhou'}],resources:[{id:'medicine',quantity:5}]}};
+test('real contract preserves explicit evidence and independent question',()=>{for(let i=0;i<2;i++)assert.deepEqual(parse(JSON.stringify(fixture(i)),f),fixture(i));assert(!build(f,1).messages[1].content.includes('先给我选择'));});
+test('reject extra fields unknown IDs and prefilled quantity without repair',()=>{for(const mutate of [v=>v.options[0].quantity=2,v=>v.options[0].targetId='other',v=>v.options[0].evidence=['items:container']]){const v=fixture(0);mutate(v);assert.throws(()=>parse(JSON.stringify(v),f));}assert.throws(()=>parse('before '+JSON.stringify(fixture(0)),f));});
+test('accept one complete JSON fence only',()=>{assert.deepEqual(parse('\x60\x60\x60json\n'+JSON.stringify(fixture(1))+'\n\x60\x60\x60',f),fixture(1));assert.throws(()=>parse('\x60\x60\x60json\n{}\n\x60\x60\x60\nmore',f));});
