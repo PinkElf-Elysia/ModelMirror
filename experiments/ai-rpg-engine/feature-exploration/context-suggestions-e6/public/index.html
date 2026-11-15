@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>青云药圃 · 情境建议</title><link rel="stylesheet" href="/style.css"></head>
+<body><header><strong>青云药圃</strong><span>成年修士 · 独立离线原型</span></header>
+<main><div class="intro"><h1>想做什么，由你决定。</h1><p>先说出目标，再挑选适合你的做法。这里保存想法，尚不执行行动。</p></div>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="workspace"><aside><h2>眼前的依据</h2><div id="context">正在读取独立情境…</div><button id="refresh" type="button">重新读取情境</button>
+<details><summary>这个原型能做什么？</summary><p>建议来自固定离线样例，不会调用真实模型。输入“感谢周禾”等示例可以体验建议和澄清；其他目标可直接原样保存。</p><p>登记人物不代表在场或同意；当前没有赠送规则。建议、保存和 E5 草稿都不代表行动发生。</p></details></aside>
+<section class="interaction" aria-label="目标和选择"><form id="goal-form"><label for="goal">你现在想做什么？</label><textarea id="goal" rows="3" maxlength="1500" required>我想向周禾表达谢意，但尽量保留自己的丹药，有哪些办法？</textarea>
+<div class="actions"><button class="primary" type="submit">看看可以怎么做</button><button type="button" id="example">试试含糊的目标</button></div><small>固定模拟建议 · 无真实调用 · 不会改变世界</small></form>
+<section id="results" aria-label="备选建议"></section>
+<section id="choice" hidden><h2 id="choice-title">留下你的选择</h2><form id="save-form">
+<div id="quantity-row" hidden><label for="quantity">考虑赠送多少份养息丹？</label><input id="quantity" type="number" min="1" step="1" placeholder="由你填写，不预先决定"><small>数量只是意图；不会扣减丹药，也不代表对方接受。</small></div>
+<label for="choice-text">你的想法，可以修改</label><textarea id="choice-text" rows="3" maxlength="2000" required></textarea>
+<p id="choice-mode" class="muted"></p><div class="actions"><button class="primary" type="submit">保存意图，不执行</button><button id="cancel-choice" type="button">取消选择</button></div></form></section>
+<div class="actions"><button id="free" type="button">不选建议，我自己写</button></div>
+<section id="saved-section"><h2>已留下的想法</h2><div id="saved"></div></section>
+<details><summary>查看依据与请求样本</summary><pre id="trace"></pre></details>
+</section></div><footer>情境来自独立 R8 样例；意图独立保存。此页没有执行、正式聊天或供应商入口。</footer></main><script type="module" src="/app.mjs"></script></body></html>

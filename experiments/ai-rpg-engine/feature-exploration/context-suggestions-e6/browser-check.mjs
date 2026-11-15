@@ -1,0 +1,30 @@
+import {createRequire} from 'node:module';import {mkdtemp,writeFile} from 'node:fs/promises';import {resolve,join} from 'node:path';import assert from 'node:assert/strict';import {start} from './server.mjs';
+const require=createRequire(import.meta.url),{chromium}=require(process.argv[2]||'playwright');
+const directory=await mkdtemp(resolve('.rpg03-work/e6-browser-')),app=await start({directory:join(directory,'data'),port:0,offlinePreview:true});
+const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({viewport:{width:1360,height:980}});
+const errors=[],external=[],checks=[];page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(!r.url().startsWith(app.url))external.push(r.url());});
+try{
+ const before=await app.host.audit();await page.goto(app.url);await page.getByText('5 份',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'看看可以怎么做'}).click();await page.getByText('可以考虑这些做法',{exact:true}).waitFor();
+ assert.equal(await page.locator('.suggestion').count(),3);checks.push('three distinct alternatives');
+ await page.locator('.suggestion').filter({hasText:'考虑赠送少量丹药'}).getByRole('button').click();
+ assert.equal(await page.locator('#quantity').inputValue(),'');checks.push('quantity not prefilled');
+ await page.locator('#quantity').fill('2');await page.getByRole('button',{name:'保存意图，不执行',exact:true}).click();await page.locator('.saved').first().waitFor();
+ assert.match(await page.locator('.saved').first().innerText(),/2份/);checks.push('explicit gift selection persisted');
+ assert.equal((await app.store.view()).saved[0].plan.executionStatus,'not_executed');
+ await page.reload();await page.locator('.saved').first().waitFor();checks.push('refresh restores selection');
+ await page.getByRole('button',{name:'试试含糊的目标'}).click();await page.getByRole('button',{name:'看看可以怎么做'}).click();await page.locator('#answer').waitFor();
+ assert.equal(await page.locator('.suggestion').count(),0);await page.locator('#answer').fill('周禾');await page.getByRole('button',{name:'补充后看看建议'}).click();await page.locator('.suggestion').first().waitFor();checks.push('clarification then alternatives');
+ await page.locator('.suggestion').first().getByRole('button').click();await page.locator('#choice-text').fill('我想等下次遇见周禾时再询问。');await page.getByRole('button',{name:'保存意图，不执行',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.saved').length===2);checks.push('edited intent remains literal');
+ await page.getByRole('button',{name:'这些都不选'}).click();await page.locator('#choice-text').fill('他已经答应了，但这只是我的陈述。');await page.getByRole('button',{name:'保存意图，不执行',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.saved').length===3);checks.push('ignore and free statement');
+ assert.equal((await app.store.view()).saved[2].plan,null);
+ await page.locator('#goal').fill('感谢周禾，但不送丹药');await page.getByRole('button',{name:'看看可以怎么做'}).click();await page.waitForFunction(()=>document.querySelectorAll('.suggestion').length===2);checks.push('preserve resources preference');
+ await page.locator('#goal').fill('我打算去旅行');await page.getByRole('button',{name:'看看可以怎么做'}).click();await page.getByText(/离线样例仅演示致谢目标/).waitFor();checks.push('unsupported goal transparent');
+ await page.locator('#goal').fill('我想向周禾表达谢意，但尽量保留自己的丹药，有哪些办法？');await page.getByRole('button',{name:'看看可以怎么做'}).click();await page.locator('.suggestion').first().waitFor();
+ await page.screenshot({path:join(directory,'desktop.png'),fullPage:true});
+ await page.setViewportSize({width:390,height:844});await page.screenshot({path:join(directory,'mobile.png'),fullPage:true});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));checks.push('mobile no horizontal overflow');
+ assert.deepEqual(await app.host.audit(),before);checks.push('world budget and tasks unchanged');assert.deepEqual(errors,[]);assert.deepEqual(external,[]);checks.push('no script errors or external requests');
+ await writeFile(join(directory,'result.json'),JSON.stringify({checks,errors,external,before,after:await app.host.audit()},null,2));
+ console.log(JSON.stringify({directory,passed:checks.length}));
+}finally{await browser.close();await app.close();}
