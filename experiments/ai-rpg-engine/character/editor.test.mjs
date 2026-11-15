@@ -9,15 +9,16 @@ const {JSDOM}=createRequire(new URL('../../../client/package.json',import.meta.u
 const html=await readFile(new URL('./editor.html',import.meta.url),'utf8');
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(){const d=characterDocument(blankDocument());Object.assign(d.character.card.data,{name:'中性旅人',description:'第一行\n第二行',personality:'耐心',first_mes:'你好，旅人。',tags:['原创'],alternate_greetings:['另一个开场'],character_book:{extensions:{vendor:{untouched:true}},entries:[{keys:['茶','桥'],content:'旧茶馆',enabled:true,insertion_order:0,extensions:{unknown:[1,2]},priority:8}]}});d.metadata.name='中性旅人';return d;}
-async function page(t,{url='http://localhost/characters',onPost,session,storage={}}={}){
- const dom=new JSDOM(html,{url});t.after(()=>dom.window.close());const {window}=dom;window.confirm=()=>true;window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};window.HTMLDialogElement.prototype.close=function(){this.open=false;};
+async function page(t,{url='http://localhost/characters',onPost,session,storage={},profiles=[],width=1024}={}){
+ const dom=new JSDOM(html,{url});t.after(()=>dom.window.close());const {window}=dom;Object.defineProperty(window,'innerWidth',{value:width,configurable:true});window.confirm=()=>true;window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};window.HTMLDialogElement.prototype.close=function(){this.open=false;};
  for(const [key,value] of Object.entries(storage))window.localStorage.setItem(key,JSON.stringify(value));
  const work={id:'work-fixture',revision:0,draft:fixture(),versions:[{id:'version-1',number:1}]},published=structuredClone(work.draft),calls=[],streams=[];
  const state=session||{id:'session-1',revision:0,turns:0,binding:{reference:{workId:work.id,versionId:'version-1'},player:{name:'玩家'}},messages:[{role:'assistant',content:'你好，旅人。'}],operations:{},settings:{memoryEnabled:false,historyTurns:null},memories:[]};
  class Events{constructor(url){this.url=url;streams.push(this);}close(){this.closed=true;}}
  const fetch=async(path,init={})=>{const body=init.body?JSON.parse(init.body):null;calls.push({path,method:init.method,body});let value;
   if(body&&onPost){const result=await onPost(path,body);if(result)return result;}
-  if(path.endsWith('/characters/works'))value=[{id:work.id,name:work.draft.character.card.data.name,tags:[],versions:work.versions.length}];
+  if(path.endsWith('/daily/profiles'))value=profiles;
+  else if(path.endsWith('/characters/works'))value=[{id:work.id,name:work.draft.character.card.data.name,tags:[],versions:work.versions.length}];
   else if(path.endsWith('/characters/navigation'))value={groupsUrl:'http://127.0.0.1:43133/groups'};
   else if(path.endsWith('/characters/blank'))value=fixture();
   else if(path.includes('/published?'))value={draft:published};
@@ -82,4 +83,14 @@ test('recovered unsaved drafts report unsaved, including a never-saved new chara
   assert.equal(p.$('[data-field=name]').value,'未保存的恢复夹具');assert.equal(p.$('#save-state').textContent,'未保存');assert.equal(p.window.document.body.dataset.screen,'edit');assert.equal(p.$('#mobile-groups').href,p.$('#groups-navigation').href);
   const event=new p.window.Event('beforeunload',{cancelable:true});p.window.dispatchEvent(event);assert.equal(event.defaultPrevented,true);assert.equal(p.calls.filter(c=>c.body&&c.path.endsWith('/save')).length,0);
  }
+});
+
+test('search deep link focuses matched message after session navigation updates URL',async t=>{const p=await page(t,{url:'http://localhost/characters?session=session-1&message=single-message-0'});assert.equal(p.window.document.activeElement.id,'single-message-0');p.streams.at(-1).onmessage({data:JSON.stringify({type:'snapshot',session:p.state})});assert.equal(p.window.document.activeElement.id,'single-message-0');assert.equal(p.calls.some(c=>c.method==='POST'&&!c.path.endsWith('/characters/preview')),false);});
+
+
+test('narrow-screen single preview and creation submit selected profile revision, not editable snapshot',async t=>{
+ const profiles=[{profileId:'profile-neutral',profileRevision:2,name:'档案玩家',description:'公开身份快照'}],p=await page(t,{profiles,width:390,url:'http://localhost/characters?work=work-fixture&version=version-1&view=preview'});
+ p.change('#player-name-profile','profile-neutral');await p.flush();assert.equal(p.$('#player-name').readOnly,true);assert.equal(p.$('#player-name-description').value,'公开身份快照');
+ const preview=p.calls.filter(c=>c.path.endsWith('/characters/preview')).at(-1);assert.deepEqual(preview.body.player,{profileId:'profile-neutral',revision:2});
+ const create=p.window.document.querySelector('#start-chat');assert.ok(create);create.click();await p.flush();const sent=p.calls.find(c=>c.method==='POST'&&c.path.endsWith('/characters/sessions'));assert.deepEqual(sent.body.player,{profileId:'profile-neutral',revision:2});assert.deepEqual(sent.body.reference,{workId:'work-fixture',versionId:'version-1'});assert.equal(p.calls.some(c=>c.path.endsWith('/send')),false);
 });

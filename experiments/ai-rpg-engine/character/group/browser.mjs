@@ -1,11 +1,19 @@
+// Optional loopback navigation; never grants execution or changes saved bindings.
+const revisionNavigation = (()=>{try{const v=new URL(location.href).searchParams.get('revisions')||sessionStorage.getItem('character-revisions-url');if(v&&/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(v)){sessionStorage.setItem('character-revisions-url',v);return v;}}catch{}return null;})();
+import {playerPicker} from '../daily/client.mjs';
 import {renderMessageBody} from './message-display.mjs';
 
 // Dependencies are explicit so interaction regressions can run without a model or browser network.
 export async function mountGroupUI({document,window,fetch,location,history,crypto}) {
  const $=id=>document.getElementById(id);
+ const initialMessage=new URL(location.href).searchParams.get('message');
  const el=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
  let boot,state=null,busy=false,slots=2,screen='home';
- const drafts=new Map();let setupDirty=false;const setupKey='rpg-group-setup:1';
+ let selectedPlayer=()=>({id:null,name:$('player').value});
+ const drafts=new Map();
+ const draftKey=id=>'rpg-group-input:'+id;
+ const draftRead=id=>{try{return window.sessionStorage.getItem(draftKey(id))??drafts.get(id)??'';}catch{return drafts.get(id)??'';}};
+ const draftWrite=(id,value)=>{drafts.set(id,value);try{window.sessionStorage.setItem(draftKey(id),value);}catch{notice(Error('输入暂存失败，请先复制草稿。'));}};let setupDirty=false;const setupKey='rpg-group-setup:1';
  const labels={prepared:'已准备，尚未派发',dispatching:'正在等待回复',unknown:'结果未知，额度已保留',completed:'已完成',failed:'失败，未追加回复'};
  const errors={GROUP_REQUEST_PENDING:'有尚未解决的请求，请先核对原请求结果。',GROUP_REVISION_CONFLICT:'会话已在其他页面更新，请刷新后重新操作。',GROUP_EXECUTION_DISABLED:'当前宿主未开放发送。你仍可查看和创建群聊。',GROUP_TASK_BUDGET_EXHAUSTED:'任务总额度不足，创建新群聊不会增加额度。',GROUP_BUDGET_EXHAUSTED:'本群剩余额度不足。',GROUP_PRICE_UNKNOWN:'无法确认费用上界，已阻止发送。',GROUP_RECOVERY_REQUIRED:'本地写入结果需要核对。请先刷新状态，不要重复发送。'};
  const pending=s=>s.requests.find(r=>['prepared','dispatching','unknown'].includes(r.status));
@@ -16,7 +24,7 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  async function api(path,body){const response=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Group-CSRF':boot.csrf}:{},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();if(!response.ok)throw Error(value.error);return value;}
  function options(select,values,selected){select.replaceChildren(...values.map(([value,label])=>{const option=el('option',label);option.value=value;return option;}));if(selected!==undefined)select.value=selected;}
  const cardKey=c=>c?.reference?c.reference.workId+'/'+c.reference.versionId:'';
- function catalog(value){boot=value;boot.cards.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')||b.version-a.version);$('character-library').hidden=!boot.charactersUrl;if(boot.charactersUrl)$('character-library').href=boot.charactersUrl;}
+ function catalog(value){boot=value;boot.cards.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')||b.version-a.version);$('character-library').hidden=!boot.charactersUrl;if(boot.charactersUrl)$('character-library').href=boot.charactersUrl;if($('daily-navigation')){$('daily-navigation').hidden=!boot.dailyUrl;if(boot.dailyUrl)$('daily-navigation').href=boot.dailyUrl;}}
  const choices=()=>Array.from({length:slots},(_,i)=>{const card=$('card-'+i);return card?{key:card.value===''?'':cardKey(boot.cards[Number(card.value)]),model:$('model-'+i)?.value}:undefined;});
  const cardOptions=()=>[['','选择已封存版本'],...boot.cards.map((c,i)=>[String(i),`${c.name} · 版本 ${c.version}`])];
  const modelOptions=()=>boot.models.map(m=>[m.id,m.label]);
@@ -47,14 +55,15 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  }
  function saveSetup(){
   if(screen!=='setup'||!setupDirty)return;
-  const fields=Object.fromEntries(['player','scene','calls','money','batch-model'].map(id=>[id,$(id).value]));
+  const fields=Object.fromEntries(['player','scene','calls','money','batch-model','player-profile','player-description'].filter(id=>$(id)).map(id=>[id,$(id).value]));
   try{window.sessionStorage.setItem(setupKey,JSON.stringify({format:1,fields,slots,selected:choices(),opening:$('opening').value}));}catch{notice(Error('本标签页无法暂存草稿，请勿刷新或离开，先完成创建。'));}
  }
  function restoreSetup(preferred=null){
   let saved;try{saved=JSON.parse(window.sessionStorage.getItem(setupKey)||'null');}catch{}
   const valid=saved?.format===1&&[2,3].includes(saved.slots)&&Array.isArray(saved.selected)&&saved.selected.length===saved.slots&&saved.selected.every(x=>x&&typeof x.key==='string'&&typeof x.model==='string')&&saved.fields&&['player','scene','calls','money','batch-model'].every(id=>typeof saved.fields[id]==='string')&&typeof saved.opening==='string';
   setupDirty=!!valid;
-  if(valid){slots=saved.slots;for(const [id,value] of Object.entries(saved.fields))if(['player','scene','calls','money','batch-model'].includes(id))$(id).value=value;}
+  if(valid){slots=saved.slots;for(const [id,value] of Object.entries(saved.fields))if(['player','scene','calls','money','batch-model','player-profile','player-description'].includes(id)&&$(id))$(id).value=value;}
+  if(valid&&$('player-profile')?.value)$('player-profile').onchange();
   const selected=valid?saved.selected:[];
   const same=preferred&&selected[0]?.key===preferred;if(preferred)selected[0]={key:preferred,model:selected[0]?.model};
   renderSlots(selected);if(valid&&(!preferred||same)&&[...$('opening').options].some(x=>x.value===saved.opening)){$('opening').value=saved.opening;openingPreview();}
@@ -96,14 +105,14 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
   for(const group of groups){const button=el('button');button.className='group-item';const text=el('span');text.append(el('strong',group.scene.slice(0,60)),el('small',`${characterNames(group)} · ${group.messages.length} 条消息 · ${group.id.slice(-6)}`));button.append(text,el('em',pending(group)?'有请求待核对':'继续聊天'));button.disabled=busy;button.onclick=()=>openGroup(group.id);$('group-list').append(button);}
   if(!groups.length)$('group-list').append(el('p',query?'没有匹配的群聊，试试角色名称或清空搜索。':'还没有群聊。点击“创建群聊”，选择两位角色和相遇的场景。'));
  }
- function saveDraft(){if(state)drafts.set(state.id,$('input').value);if(screen==='setup')saveSetup();}
- async function openGroup(id){saveDraft();await run(async()=>{state=await api('/api/groups/'+id);$('input').value=drafts.get(id)??'';remember();show('chat');});if(screen==='chat')$('chat-title').focus();}
+ function saveDraft(){if(state)draftWrite(state.id,$('input').value);if(screen==='setup')saveSetup();}
+ async function openGroup(id){saveDraft();await run(async()=>{state=await api('/api/groups/'+id);$('input').value=draftRead(id);remember();show('chat');});if(screen==='chat')$('chat-title').focus();}
  async function newGroup(preferred=null){if(busy)return;saveDraft();await run(async()=>{catalog(await api('/api/bootstrap'));state=null;history.replaceState(null,'','/groups?create=1');show('setup');restoreSetup(preferred);if(preferred&&!boot.cards.some(c=>cardKey(c)===preferred))notice(Error('指定的角色版本不在当前目录中，请重新选择已封存版本。'));$('setup-title').focus();});}
  function goHome(){if(busy)return;saveDraft();state=null;history.replaceState(null,'','/groups');show('home');renderList();$('library-title').focus();}
- $('create-form').onsubmit=event=>{event.preventDefault();run(async()=>{const members=Array.from({length:slots},(_,i)=>({reference:boot.cards[Number($('card-'+i).value)].reference,modelId:$('model-'+i).value}));state=await api('/api/groups',{operationId:crypto.randomUUID(),expectedRevision:null,payload:{player:{id:null,name:$('player').value},scene:$('scene').value,members,opening:$('opening').value?JSON.parse($('opening').value):null,budget:{calls:Number($('calls').value),microUsd:Math.round(Number($('money').value)*1e6)}}});$('input').value='';setupDirty=false;try{window.sessionStorage.removeItem(setupKey);}catch{}remember();show('chat');$('chat-title').focus();});};
- async function send(input){const caret=[$('input').selectionStart,$('input').selectionEnd];await run(async()=>{state=await api(`/api/groups/${state.id}/send`,envelope({targetId:$('target').value,input}));if(input!==null){$('input').value='';drafts.delete(state.id);}remember();});if(!$('input').disabled){$('input').focus();if(input===null)$('input').setSelectionRange(...caret);}}
+ $('create-form').onsubmit=event=>{event.preventDefault();run(async()=>{const members=Array.from({length:slots},(_,i)=>({reference:boot.cards[Number($('card-'+i).value)].reference,modelId:$('model-'+i).value}));state=await api('/api/groups',{operationId:crypto.randomUUID(),expectedRevision:null,payload:{player:boot.dailyEnabled?selectedPlayer():{id:null,name:$('player').value},scene:$('scene').value,members,opening:$('opening').value?JSON.parse($('opening').value):null,budget:{calls:Number($('calls').value),microUsd:Math.round(Number($('money').value)*1e6)}}});$('input').value='';setupDirty=false;try{window.sessionStorage.removeItem(setupKey);}catch{}remember();show('chat');$('chat-title').focus();});};
+ async function send(input){const caret=[$('input').selectionStart,$('input').selectionEnd];await run(async()=>{state=await api(`/api/groups/${state.id}/send`,envelope({targetId:$('target').value,input}));if(input!==null){$('input').value='';draftWrite(state.id,'');}remember();});if(!$('input').disabled){$('input').focus();if(input===null)$('input').setSelectionRange(...caret);}}
  $('send-form').onsubmit=event=>{event.preventDefault();if($('input').value.trim())send($('input').value);};$('continue').onclick=()=>send(null);
- $('target').onchange=composer;$('input').oninput=composer;
+ $('target').onchange=composer;$('input').oninput=()=>{if(state)draftWrite(state.id,$('input').value);composer();};
  $('refresh').onclick=()=>run(async()=>{const selected=choices();catalog(await api('/api/bootstrap'));if(state){state=await api('/api/groups/'+state.id);remember();}else if(screen==='setup'){renderSlots(selected);saveSetup();}else renderList();});
  $('new').onclick=()=>newGroup();$('start').onclick=()=>newGroup();$('home').onclick=goHome;$('cancel-create').onclick=goHome;
  $('add-slot').onclick=()=>{const selected=choices();slots=slots===2?3:2;renderSlots(selected);lock();setupDirty=true;saveSetup();};$('batch-model').onchange=()=>{for(let i=0;i<slots;i++)$('model-'+i).value=$('batch-model').value;};$('opening').onchange=openingPreview;$('search').oninput=renderList;
@@ -114,6 +123,9 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  for(const type of ['input','change'])$('create-form').addEventListener(type,()=>{setupDirty=true;saveSetup();});
  $('character-library').onclick=event=>{if(busy)event.preventDefault();};
  window.addEventListener('beforeunload',event=>{if($('input').value.trim()||(screen==='setup'&&setupDirty)){event.preventDefault();event.returnValue='';}});
- try{catalog(await api('/api/bootstrap'));$('mode').textContent=boot.mode==='fixture'?'离线演示 · 确定性回复，不调用模型':boot.mode==='disabled'?'发送未开放 · 可查看和创建':'受控模型 · 发送受共享授权限制';options($('batch-model'),modelOptions());renderSlots();renderList();lock();if(!boot.cards.length||!boot.models.length)notice(Error('尚无可用的角色版本或模型目录，请先由本地宿主载入。'));const id=new URL(location.href).searchParams.get('id');if(id){state=await api('/api/groups/'+id);remember();render();}else {const params=new URL(location.href).searchParams;if(params.get('create')==='1'){const preferred=params.get('work')&&params.get('version')?params.get('work')+'/'+params.get('version'):null;show('setup');restoreSetup(preferred);history.replaceState(null,'','/groups?create=1');lock();if(preferred&&!boot.cards.some(c=>cardKey(c)===preferred))notice(Error('指定的角色版本不在当前目录中，请重新选择已封存版本。'));}else show('home');}}catch(error){notice(error);}
+ try{catalog(await api('/api/bootstrap'));if(boot.dailyEnabled)selectedPlayer=await playerPicker(document,path=>api('/api/daily'+path),'player');$('mode').textContent=boot.mode==='fixture'?'离线演示 · 确定性回复，不调用模型':boot.mode==='disabled'?'发送未开放 · 可查看和创建':'受控模型 · 发送受共享授权限制';options($('batch-model'),modelOptions());renderSlots();renderList();lock();if(!boot.cards.length||!boot.models.length)notice(Error('尚无可用的角色版本或模型目录，请先由本地宿主载入。'));const id=new URL(location.href).searchParams.get('id');if(id){state=await api('/api/groups/'+id);$('input').value=draftRead(id);remember();render();}else {const params=new URL(location.href).searchParams;if(params.get('create')==='1'){const preferred=params.get('work')&&params.get('version')?params.get('work')+'/'+params.get('version'):null;show('setup');restoreSetup(preferred);history.replaceState(null,'','/groups?create=1');lock();if(preferred&&!boot.cards.some(c=>cardKey(c)===preferred))notice(Error('指定的角色版本不在当前目录中，请重新选择已封存版本。'));}else show('home');}}catch(error){notice(error);}
+ if(initialMessage){const hit=$(initialMessage);if(hit){hit.tabIndex=-1;hit.focus();hit.scrollIntoView?.({block:'center'});}}
 }
 if(typeof window!=='undefined'&&window.document)await mountGroupUI({document,window,fetch:window.fetch.bind(window),location:window.location,history:window.history,crypto:window.crypto});
+
+if(revisionNavigation){const nav=document.querySelector('header nav')||document.querySelector('header');if(nav){const a=document.createElement('a');a.href=revisionNavigation;a.textContent='续写分支';nav.append(a);}}

@@ -1,0 +1,61 @@
+{
+  "baseline": "2a7dfea1e8475ba2654ee4055e1c4cb544028483",
+  "single": {
+    "hash": "bb2b70f63810259ca652aff3517e32f0e68c398fa66ffb9bf377d7ace1d2aae1",
+    "artifacts": {
+      "authoring/contracts.mjs": "06a8496ca8eb1875c5f217e85cfc6b465771419d12cdf6cfa45aeb14952b7340",
+      "authoring/store.mjs": "be96ce994625c711816e292d0e6f7cd0d8c838c282b0889978e324664149235d",
+      "character/session.mjs": "26ed80f14d33d63431e0421bc96b774867732e2f68e5f4eeb57a3f7fb11d14a6",
+      "character/context.mjs": "442fa20ee6b106f69366b7660f5e039c4a7d2b877ac8ceeeffbbec5616da6d67",
+      "character/card.mjs": "6961d83f7815bfe69f4efdc9835c62a5a6a225c827309f2dcd122daa3468412e",
+      "character/document.mjs": "0b5e09527704de8f6e58282de838e2d5b8d49b7328456fd287787589a7f00989",
+      "authoring/session-storage.mjs": "cfff20ecb58d908ebe98d3b982d3009103db8f25b28baddc280f08c2d4900685",
+      "authoring/controlled-provider.mjs": "11138eb891bc567df4d515d2455cdeaf55931aba8a3ca8953c618cdd2cf5c164",
+      "authoring/controlled-receipt.mjs": "3c46f73d3200ad6b7f2ffc5850e81bc28847b37908b5a30027d340a9bd31ebd2",
+      "authoring/model-control.mjs": "653d3c73359bcdedd59d45bcd24ecce5ffd04c8a27b24c3d5c8e353acbdf2cb0",
+      "authoring/joint-budget.mjs": "ea81eac9d28a102b075cc8aa9cd9055955c458377d3ca438a129b2cd73f5726e",
+      "authoring/joint-plan.mjs": "90f2095cdf1d924a43a030c27667ae916553584698fdbf2c1611634f2844d476",
+      "plugins/memory-palace.mjs": "e8180ffb13db06e8a9bc099a91366df4a454569c26af1aa32a3dffcb708878e7"
+    }
+  },
+  "group": {
+    "format": "modelmirror.rpg.character-group/1",
+    "artifacts": {
+      "character/conversation/contracts.mjs": "d0a37e98e828d2fc1eae8e92abb2f2f630efc9faf56ead8dd8bf3013ad399aed",
+      "character/conversation/store.mjs": "fdc22b220f3943a13442e0d2fc16fd2c78c1d53f0f09aa9ac4d49508db1dce4c",
+      "character/conversation/runtime.mjs": "3c2bf09317a37496e65f58fc38503592829069073b221166eb78af0aee875e75",
+      "authoring/gallery.mjs": "c77a9e27962c3da0a3e88e8c607bda3e30f2a3ccb6a68d50a70899a544f76a14",
+      "authoring/model-control.mjs": "653d3c73359bcdedd59d45bcd24ecce5ffd04c8a27b24c3d5c8e353acbdf2cb0",
+      "authoring/model-plugin.mjs": "232b7ae872afd1e5de0ae98dda78609ff9697f7ba0598d9f34ba692c3dd045d8",
+      "authoring/contracts.mjs": "06a8496ca8eb1875c5f217e85cfc6b465771419d12cdf6cfa45aeb14952b7340",
+      "authoring/store.mjs": "be96ce994625c711816e292d0e6f7cd0d8c838c282b0889978e324664149235d",
+      "authoring/session-storage.mjs": "cfff20ecb58d908ebe98d3b982d3009103db8f25b28baddc280f08c2d4900685",
+      "authoring/generation-settings.mjs": "5b9dfcaa3edfc5a1e5e509a529a70f5c00ca1d2d6be7636f936951f32ac6d8e2",
+      "authoring/variable-panel.mjs": "a0a18227e7b263ff2fc991c90baa43c796e4fc5f11ae26c7952c2e9f6f2a6395",
+      "authoring/variable-template-syntax.mjs": "f11377197571a88fe9ff5321314c3b5cc1dc2176d6b4935bb5f00ddc44f3fd18",
+      "authoring/metadata.mjs": "ec5b777f7d889eebb34e0e65836b174b0f4e036176b8eb71650117f06ef298df",
+      "authoring/dialogue.mjs": "38d3521f40a0e0e6181f53cdfc2ac999ca7c0da3ecf896842fb45153363670d6",
+      "character/document.mjs": "0b5e09527704de8f6e58282de838e2d5b8d49b7328456fd287787589a7f00989",
+      "character/card.mjs": "6961d83f7815bfe69f4efdc9835c62a5a6a225c827309f2dcd122daa3468412e",
+      "character/context.mjs": "442fa20ee6b106f69366b7660f5e039c4a7d2b877ac8ceeeffbbec5616da6d67",
+      "package-lock.json": "60cec385a7cf47f2729011573979164e59e12f53a5d10768923415b7740c19dd",
+      "character/group/contracts.mjs": "b9f68f21daa577e502eeb514e6a0cd457c133c0bc6803e5c3a13f94fac873820",
+      "character/group/context.mjs": "f72911c114093dacdcb4fe82d3453f6f652faa283191f3b872e2fb5e78ba603c",
+      "character/group/runtime.mjs": "85d78f8e8e158aca482212034b10514de4fe5c5e4207c22ddb913f2622d2f182",
+      "character/group/store.mjs": "c31473ebe10054ae54ac2964de7c815cb4fc399ecf0736d4e62560ab3ac70524",
+      "character/group/host.mjs": "de3d6159162731109fa1f93fbbe33edce8bff057d9dc366b61e83b6e1b595e98",
+      "character/group/gateway-receipt.mjs": "91a8d3b2c0f45b27427ee06fcc8364da28d96321120ffb882e570e768ea25ee3",
+      "character/group/gateway-transport.mjs": "c41c6274c2cfc350b25291e7942fccd70a7bfcafe6e095f695f962752d509807"
+    },
+    "hash": "0f27356f7c87dc3ae1b60d8c101687d096e2fc6ea00a090e5ee714debce1d301"
+  },
+  "approved": {
+    "character/daily/identity.mjs": "eba362678f273488a999ae6a9e5c795ab30e74818cd03153de8907ff7e4eab9f",
+    "character/daily/compatibility.mjs": "3ed7ff85f00f77d70f15c03320f8203ebcf41d7bb7c723fc88af083cd3d8878d",
+    "character/group/contracts.mjs": "437a72aac4cda43e7fb477f5c5ab95225107c65395be9623e418320b8490ac3e",
+    "character/group/context.mjs": "957accfc2899408cc6fa225c88d5b2ba5b28888d53f0cf9f6f115d93e22e576e",
+    "character/group/runtime.mjs": "becf7669c6f4567c7120d5b0024248308bed53c9c958e572e338ef3dfbe9c653",
+    "character/group/store.mjs": "9866e5132772283caec7c56a19fdd8eaba81306e9f071679b18696bb9aee734d",
+    "character/session.mjs": "f1387f3048db50ad95144f676a5c9cf491d09da4f3a761476b272ddce441c56e"
+  }
+}

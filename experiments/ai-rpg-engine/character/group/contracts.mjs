@@ -1,3 +1,4 @@
+import {runtimePlayer} from '../daily/identity.mjs';
 import {keys,isId,isHash,fail} from '../../authoring/contracts.mjs';
 import {digest,idFor,text,player,reference,active,memberOf,projectMember} from '../conversation/contracts.mjs';
 export {digest,idFor,active,memberOf};
@@ -29,14 +30,14 @@ function message(s,operationId,speakerId,content,source,addressedTo=[]){
  s.messages.push({id:idFor('message',s.id,operationId),sequence:s.messages.length+1,speakerId,content,source,visibility:{kind:'public'},addressedTo});
 }
 export function replay(record){
- keys(record,['format','id','runtimeHash','events']);check(record.format===FORMAT&&isHash(record.runtimeHash),'FORMAT_INVALID');
+ keys(record,['format','id','runtimeHash','events']);check([FORMAT,'modelmirror.rpg.character-group/2'].includes(record.format)&&isHash(record.runtimeHash),'FORMAT_INVALID');
  check(/^group-[a-f0-9]{64}$/.test(record.id)&&Array.isArray(record.events)&&record.events.length>0&&record.events.length<=3000,'RECORD_INVALID');
  let s=null;const seen=new Set();
  for(const [i,e] of record.events.entries()){
   keys(e,['operationId','expectedRevision','action','payload','intentHash']);check(isId(e.operationId)&&isHash(e.intentHash)&&!seen.has(e.operationId),'OPERATION_COLLISION');seen.add(e.operationId);check(e.expectedRevision===(i?i-1:null),'REVISION_CONFLICT');const p=e.payload;
   if(!i){
-   check(e.action==='create'&&record.id===idFor('group',e.operationId),'CREATE_REQUIRED');keys(p,['player','scene','members','opening','budget']);player(p.player);text(p.scene,20000);limits(p.budget);check(Array.isArray(p.members)&&p.members.length>=2&&p.members.length<=3,'MEMBER_LIMIT');
-   s={format:FORMAT,id:record.id,revision:0,scene:p.scene,members:[],messages:[],privateRecords:[],requests:[],budget:{...p.budget,usedCalls:0,usedMicroUsd:0},worldInstanceRef:null};
+   check(e.action==='create'&&record.id===idFor('group',e.operationId),'CREATE_REQUIRED');keys(p,['player','scene','members','opening','budget']);runtimePlayer(p.player);check(record.format!==FORMAT||!p.player.format,'FORMAT_INVALID');text(p.scene,20000);limits(p.budget);check(Array.isArray(p.members)&&p.members.length>=2&&p.members.length<=3,'MEMBER_LIMIT');
+   s={format:record.format,id:record.id,revision:0,scene:p.scene,members:[],messages:[],privateRecords:[],requests:[],budget:{...p.budget,usedCalls:0,usedMicroUsd:0},worldInstanceRef:null};
    s.members.push({id:idFor('member',s.id,e.operationId,'player'),kind:'player',name:p.player.name,identity:p.player,binding:null,intervals:[{from:1,until:null}]});
    p.members.forEach((m,n)=>s.members.push(newMember(s,m,e.operationId,n)));
    if(p.opening!==null){keys(p.opening,['memberIndex','kind','index','content']);check(integer(p.opening.memberIndex)&&p.opening.memberIndex<p.members.length&&['ordinary','group'].includes(p.opening.kind)&&integer(p.opening.index),'OPENING_INVALID');message(s,e.operationId,s.members[p.opening.memberIndex+1].id,p.opening.content,{kind:'opening',selection:{kind:p.opening.kind,index:p.opening.index}});}

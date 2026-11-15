@@ -1,3 +1,4 @@
+import type {PlayerSelection} from '../daily/types';
 export type GroupId = `group-${string}`;
 export type MemberId = `member-${string}`;
 export type RequestId = `request-${string}`;
@@ -5,7 +6,7 @@ export interface VersionReference { workId: `work-${string}`; versionId: `versio
 export interface Write<T> { operationId: string; expectedRevision: number | null; payload: T }
 export interface Budget { calls: number; microUsd: number }
 export interface CreateGroup {
- player: { id: string | null; name: string }; scene: string;
+ player: PlayerSelection; scene: string;
  members: Array<{reference: VersionReference; modelId: string}>;
  opening: null | {memberIndex: number; kind: 'ordinary' | 'group'; index: number}; budget: Budget;
 }

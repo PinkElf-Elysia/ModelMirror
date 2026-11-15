@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>角色群聊 · 模镜</title><link rel="stylesheet" href="/group.css"><script type="module" src="/group.mjs"></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>角色群聊 · 模镜</title><link rel="stylesheet" href="/group.css"><script type="module" src="/group.mjs"></script><link rel="stylesheet" href="/daily.css"></head>
 <body>
 <a class="skip-link" href="#main">跳到主要内容</a>
-<header class="app-header"><div class="brand"><strong>模镜 <span>角色群聊</span></strong><small id="mode">正在载入本地会话…</small></div><nav aria-label="群聊导航"><a id="character-library" hidden>角色库与创作</a><button id="home">我的群聊</button><button id="new">新建群聊</button><button id="refresh">刷新状态</button><button id="toggle-members" aria-haspopup="dialog" aria-controls="member-dialog" hidden>成员与预算</button></nav></header>
+<header class="app-header"><div class="brand"><strong>模镜 <span>角色群聊</span></strong><small id="mode">正在载入本地会话…</small></div><nav aria-label="群聊导航"><a id="daily-navigation" hidden>全部会话与玩家档案</a><a id="character-library" hidden>角色库与创作</a><button id="home">我的群聊</button><button id="new">新建群聊</button><button id="refresh">刷新状态</button><button id="toggle-members" aria-haspopup="dialog" aria-controls="member-dialog" hidden>成员与预算</button></nav></header>
 <div class="feedback"><div id="error" role="alert" hidden></div><div id="status" role="status" aria-live="polite"></div></div>
 <main id="main" tabindex="-1">
 <section id="welcome-history" hidden aria-labelledby="library-title"><div class="section-heading"><div><h1 id="library-title" tabindex="-1">我的群聊</h1><p class="muted">选一个场景继续，或让角色开始新的相遇。</p></div><button id="start" class="primary">创建群聊</button></div><label class="search">查找群聊<input id="search" type="search" placeholder="按场景或角色名称查找"></label><div id="group-list"></div></section>
