@@ -17,8 +17,9 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 本文件是模镜仓库内 AI Agent、人类开发者和自动化任务的项目级操作说明。任何代码生成、重构、测试、提交和发布都必须优先遵守本文档。
 
-最后更新日期：2026-08-25
+最后更新日期：2026-11-15
 维护人：模镜团队
+规则复核基线：`main@d281e57d`；依据该基线的源码、测试定义、CI 与模块契约校准，不代表已重新执行全部功能验收。
 
 ## 1. 项目边界
 
@@ -26,11 +27,11 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 - 前端：React + TypeScript + Tailwind CSS + Vite。
 - 后端：FastAPI + httpx + Pydantic。
-- 模型调用：优先通过 `LLM_GATEWAY_URL` / `LLM_GATEWAY_KEY` 接入 newAPI 或其他 OpenAI 兼容网关，未配置时回退 OpenRouter。
+- 模型调用：环境网关路径通过 `LLM_GATEWAY_URL` / `LLM_GATEWAY_KEY` 接入 OpenAI 兼容网关，未配置时按既有规则使用 OpenRouter；Managed Provider 是独立的精确绑定、资格与策略准入路径，不得用环境回退绕过受管失败关闭。
 - 聊天：`/api/chat` 使用 SSE，支持文本、多模态输入和图片生成模型输出。
 - 智能体：`/agents` 是智能体入口，`/agents/studio` 管理可保存、版本化发布的 Xpert，`/agents/meta-agent` 是元智能体任务工作台。
 - 工作流：`/workflow` 默认使用经典自研 React Flow 画布，`/workflow-native` 是实验线。
-- 协作 Runtime：AgentTask、HandoffExecutor、Conversation Goal 与 RunRegistry 共同提供单进程文件型协作闭环。
+- 协作 Runtime：AgentTask、HandoffExecutor、Conversation Goal 与 RunRegistry 提供单实例协作闭环；运行目录由后端独占，持久预算、租约与恢复仅覆盖各自已接入的执行路径，不代表多进程安全或 Goal 全局预算。
 - RAG：`/rag` 是本地资料库、版本化 Knowledge Pipeline 与检索增强页面。
 - Data X：`/datax` 提供文件快照、语义模型、版本化指标、受限分析查询和指标提案审批。
 - Agent Table：`/data-tables` 提供本地类型化业务记录、Schema 版本和人工 CRUD；它不是 Data X 或外部 Database MCP。
@@ -39,8 +40,11 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - 设置：`/settings` 提供 Provider 控制面和可选的 newAPI 外部管理链接；不得嵌入或代理 newAPI 管理界面。
 - 资源页：模型、智能体、MCP/Toolset、Skill、版本化 Prompt Command、声明式 Plugin、专家团。
 - 平台自编写：私有 Xpert 可创建版本化 Xpert/Skill 提案；批准只写草稿，发布与安装必须由用户另行确认。
+- 评测与进化：`/agents/evaluations` 和 `/agents/evolution` 提供固定快照评测与候选优化；不能自动批准或发布。
+- 帮助中心：`/help` 提供用户任务教程；正式内容源与验收规则见第 2.6 节。
+- 独立能力：RPG、Matrix Oasis 与科研扩展有各自宿主、存储、授权和资格边界；必须同时读取所属目录的 `AGENTS.md` 与当前契约，不能因主站出现入口而视为默认可用。
 
-稳定入口：
+主要入口（路由存在不等于已启用或已通过真实验收，实验入口不改变其成熟度）：
 
 - `/models`
 - `/agents`
@@ -61,6 +65,11 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 - `/toolsets`
 - `/runtime`
 - `/settings`
+- `/agents/evaluations`
+- `/agents/evolution`
+- `/help`
+- `/rpg`
+- `/matrix-oasis`
 
 ## 2. Harness Engineering 原则
 
@@ -86,6 +95,8 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 - **待确认**：缺少负责人决定或可靠证据，必须保留给用户或产品负责人确认。
 
 目标客户、用户故事、商业目标、SLA、组织权限和合规承诺若没有明确输入，统一标记为“待确认”，禁止 AI 自行补写。
+
+规则中的阶段、节点数量、冻结基线与实验资格必须结合当前权威契约核对；日期较旧不等于限制失效。发现子目录规则、路线图与已合入实现冲突时，记录适用路径、阶段及证据并请求确认，不得自行选择较宽松的规则、恢复历史授权或解除安全门禁。
 
 ### 2.2 任务开工契约
 
@@ -129,7 +140,9 @@ Harness Engineering 的意思是：先搭护栏，再做功能。任何变更都
 - 验证结果只允许使用：`通过`、`失败`、`未运行`、`不适用`。
 - “通过”必须附实际执行命令和可核对摘要；不得把预计结果写成已运行结果。
 - 修改后必须检查 `git diff`、`git diff --check`、暂存文件清单和敏感信息扫描结果。
-- 本治理 PR 包含既有 `.github/workflows/multimodal-readiness.yml` 和新增 `.github/workflows/quality.yml`；后者执行前端 typecheck、单元测试与构建、后端测试和 Compose 配置检查。`main` 的 required rules 尚未开启，因此工作流结果是自动化证据，不是强制合并门；只有实际 GitHub run 成功后才能表述为“CI 已通过”。
+- 当前自动化验收以 `.github/workflows/quality.yml`、对应领域工作流和包脚本为准；覆盖前端类型/测试/构建、帮助图片、Provider 出口、跨语言依赖、后端及 Windows Host 等检查，具体命令见第 5 节。
+- GitHub 分支保护、Ruleset 与 required checks 是外部状态，提交或创建 PR 时须按当前权限现场核实；无法读取时标记“待确认”，不得沿用旧文档推断。工作流存在或 PR 已合并均不等于检查通过；只有对应提交的实际 GitHub run 成功后才能表述为“CI 已通过”。
+- 验收必须区分基线已有失败、本次新增失败、未运行和不适用；记录相同命令、环境及证据，不得因任务只改文档就声称业务测试通过，也不得把失败自动归因于基线。无法证明变更安全时仍按第 2.3 节停止。
 
 ### 2.6 用户帮助中心与用户体验 PR 门禁
 
@@ -184,23 +197,54 @@ PR 描述必须填写 `Help Center Impact` 小节，列出：是否影响用户�
 3. Implement：小步修改，避免无关重构。
 4. Verify：运行最小必要检查。
 5. Document：更新 README、模块文档、术语表或 harness。
-6. Commit：使用清晰提交信息。
+6. Commit：经用户明确授权后，使用清晰提交信息；推送、创建/合并 PR、部署与发布仍需各自授权。
 
 ## 5. 验证命令
+
+复核基线的 Quality CI 使用 Node.js `24.18.0`、Python `3.12`；RPG 模块声明 Node `>=24.18.0 <25`、npm `>=11.16.0 <12`。实际要求以 `.github/workflows/quality.yml`、对应模块的包配置和锁文件为准，不把前端、服务镜像与独立 Worker 的版本混为一谈。
+
+本节每个代码块均从仓库根目录开始；`npm.cmd` 是 Windows 写法，POSIX 环境使用 `npm`。按影响范围选择针对性检查、完整回归及真实验收，领域章节要求的回归不能被语法检查替代。安装仅限任务所需的既有锁定依赖，不构成升级依赖、访问真实 Provider 或部署共享服务的授权。
+
+后端测试前（包括单个用例），须在启动测试进程及导入 `server.main` 前，将 `AGENT_TASK_STORAGE_DIR`、`CODING_PROJECT_UPLOAD_ROOT` 分别设置为本任务独立临时目录，并核对相关用例的其他存储覆盖；不得指向共享服务或真实运行数据。`server.main` 在导入时领取 Runtime 目录锁，后续 Store 构造可能恢复写盘，仅隔离上传目录不能保护 Runtime 数据。
+
+前端依赖准备（全新工作树需同时安装主前端与 RPG 共享组件依赖）：
+
+```bash
+npm.cmd ci --prefix client
+npm.cmd ci --prefix experiments/ai-rpg-engine/card-replica
+```
 
 前端：
 
 ```bash
-cd client
-npm.cmd run typecheck
-npm.cmd run test:run
-npm.cmd run build
+npm.cmd run typecheck --prefix client
+npm.cmd run test:run --prefix client
+npm.cmd run build --prefix client
+npm.cmd run verify:help-images --prefix client
 ```
 
-后端语法（按变更模块补充显式文件）：
+后端与跨语言依赖准备（全量后端测试不能只安装 Python 依赖）：
 
 ```bash
-python -m py_compile server/main.py server/rag/*.py server/xpert_runtime/*.py server/workflow_native/*.py server/xperts/*.py
+python -m pip install -r server/requirements.txt
+npm.cmd ci --prefix experiments/ai-rpg-engine
+npm.cmd ci --prefix server/orchestration_worker
+npm.cmd run build --prefix server/orchestration_worker
+```
+
+跨语言、目录更新与 Provider 出口检查：
+
+```bash
+npm.cmd run test:all --prefix server/orchestration_worker
+node --test scripts/update-openrouter-models.test.mjs scripts/openrouter-pricing-contracts.test.mjs .agents/skills/openrouter-update/scripts/inspect-json.test.mjs .agents/skills/openrouter-update/scripts/stable-signature.test.mjs
+python -B -m unittest discover -s server/tests -p test_provider_coverage.py -v
+python -B scripts/check_provider_coverage.py
+```
+
+后端语法（按改动追加明确的 `.py` 文件路径，不依赖各 shell 对通配符的不同处理）：
+
+```bash
+python -m py_compile server/main.py
 ```
 
 重点测试：
@@ -223,20 +267,29 @@ python -m pytest server/tests/test_xpert_runtime_authoring.py -q
 python -m pytest server/tests/test_workspace_skill_drafts.py -q
 ```
 
-全量后端测试：
+全量后端测试（按 Quality CI 拆分用例集，先独立运行工作流合同，再运行其余测试；数据隔离须先满足本节测试前置要求）：
 
 ```bash
-python -m pytest server/tests/ -q
+python -m pytest server/tests/test_workflow_run_contract.py -q
+python -m pytest server/tests/ -q --ignore=server/tests/test_workflow_run_contract.py
 ```
 
-Docker Compose：
+Windows Host、原生提交/撤销及 Applier 临时文件路径的改动还须执行 Quality CI 的 `coding-project-host-windows` 检查；其他系统的通过结果不能替代 Windows 验收。
+
+Docker Compose 配置检查（不构建、不启动服务）：
+
+```bash
+docker compose -p modelmirror config --quiet
+```
+
+以下是共享栈重建命令，**仅在明确获得该栈重建授权、确认空闲并核对持久化挂载后执行**；常规任务应使用独立预览的端口、容器、卷与数据目录。固定 `-p modelmirror` 会指向同一项目，单改项目名也不能消除固定容器名、端口或 bind mount 冲突；隔离预览须同时核对配置覆盖，不能照抄为默认验收步骤。
 
 ```bash
 docker compose -p modelmirror up -d --build --force-recreate
-docker ps
+docker compose -p modelmirror ps
 ```
 
-健康检查：
+健康检查（地址仅适用于对应本地栈，独立预览使用自己的端口）：
 
 ```bash
 curl http://localhost:8000/api/health
@@ -268,6 +321,22 @@ docker compose -p modelmirror exec server npx --version
 - 图片生成模型可能返回 `content` 字符串、多模态 parts、`delta.images`、`message.images`、`image_url.url` 或 `data:image/...`。
 - 接收到图片 URL 时统一转换为 `![图片](URL)` 或等价图片卡片，让 `ChatPage` 走已有 Lightbox。
 - 用户上传图片的发送逻辑和 `message.images` 展示逻辑不得被破坏。
+
+### 6.1 Provider 准入与公共上下文护栏
+
+以下是修改 `server/model_router/`、`server/context_engine/` 及其已接入的 Chat、Workflow、Xpert、RAG、多模态和 Worker 调用出口时的验收要求，不仅限于普通聊天，也不是全入口已经达标的声明。
+
+公共上下文引擎的报告与调用方实际采用情况必须分别核验；`server/xpert_runtime/core_middlewares.py` 保留的兼容压缩路径尚未完整落实下述预算与保真检查。修改相关调用时须逐入口核验失败、超限与降级分支，明确记录未覆盖项，不得以文档校准或单元测试代替调用链修复与验收。
+
+- 环境网关与 Managed Provider 分别遵循自身策略。目录在列、连接在线、认证成功和当前可调用是不同状态；受管准入必须核对精确入口、形态、模型、连接、Adapter、有效资格及当前策略，不能把 Readiness 展示当作调用授权。
+- `ProviderCallContext` 必须由服务端可信执行身份构造，并与服务端拥有的 actor、purpose、entry、父运行、逻辑调用、attempt 和 policy revision 比较；不能从同一份客户端/模型 payload 同时构造来源与核验值，也不能从任意字典或 metadata 补造可信来源。
+- 已要求调用来源的入口在来源缺失、身份或策略漂移时失败关闭，不得降级到 legacy 绕过；受管请求派发后不得换连接、模型、Adapter 或网关重试未知结果。恢复必须沿用并核验原执行身份，不能改逻辑调用 ID 伪装成新请求。
+- 上下文优化必须保留 system、最新用户输入及受保护的结构/引用标记；确定性压缩不得改写非文本 parts。保真失败应按既有合同回退原文并重新核对预算，不能继续使用失真结果。
+- 压缩或摘要完成不等于满足上下文上限；准入须同时计入输入估算、输出预算和安全余量，并检查 `fits_context`。估算 Token 不等于供应商实际 tokenizer 或账单，不得通过破坏保真约束或静默替换模型来绕过预算拒绝。
+- 日志、审计、安全回执和 checkpoint 只能保存允许的脱敏身份、计数和错误摘要，不得写入凭据、完整上下文、派生摘要或隐藏推理正文。
+- 修改上述边界至少运行 `server/tests/test_provider_call_context.py`、`server/tests/test_provider_readiness_admission.py`、`server/tests/test_context_engine.py`，并补充受影响入口的 `test_provider_context_*` / `test_provider_call_context_*` 用例及第 5 节 Provider 出口检查；不能以一个入口通过代表所有入口通过。
+
+事实入口：[Provider 控制面](docs/MODEL_PROVIDER_CONTROL_PLANE.md)、[可信调用来源](server/model_router/call_context.py)、[上下文实现](server/context_engine/core.py)。
 
 ## 7. workflow-native 与经典工作流规则
 
@@ -598,6 +667,11 @@ MCP 原生集成属于后端进程管理和工具执行能力，开发时必须�
 - `continue_on_error` 仅在至少一个文档成功时允许生成带 warning 的候选；`strict` 任一文档失败都必须阻断 ready；所有文档失败不得产生版本。
 - Processor preview 不得写草稿、Job 或索引，只能返回最多 20 个截断结构块/生成项。生成请求、preview、Job API 和 checkpoint 不得暴露正文全集、问答全文、prompt、路径或密钥。
 - 候选索引不得自动上线。必须支持隔离预览、人工激活和历史版本回滚。
+- 诊断候选、可首次激活版本和 Formal/promotion 证据必须区分。解析降级、缺页、截断、缺失回执或文档失败不能因为 `continue_on_error` 保留了其他结果，就取得首次激活或晋级资格。
+- 内容合同须核对 parser、chunker、lexical 组件的实际回执与源文件/处理产物，不信任单独保存的 `current` 标签。旧 Formal 记录可读，但缺失当前内容证据不能授权新晋级；旧已激活版本的读取与回滚按既有合同保留，不静默迁移。
+- 新估算 Token 分块合同的 `estimated_tokens` 是可重放、与模型无关的预算单位，不是供应商 tokenizer。标题前缀后的 `index_text` / `context_text` 仍须受预算约束；生成 QA/摘要也必须通过相同分块、来源绑定和去重，不能直接绕过分块器入索引。
+- 完整内容合同只是资格前提，不能替代固定 Gold、独立 calibration、真实 Provider 身份与评测门禁；内容哈希是完整性绑定，不是匿名化或认证签名。当前合同与历史阶段的适用边界见 [RAG 集成指南](docs/RAG_INTEGRATION.md)。
+- 修改内容合同须补充 `test_rag_parser_contract.py`、`test_rag_parser_pipeline_contract.py`、`test_rag_chunking_contract.py`、`test_rag_generated_chunking_contract.py`、`test_rag_lexical_contract.py`、`test_rag_lexical_pipeline_contract.py` 与 `test_rag_evaluation_integrity.py`；这些用例均在 `server/tests/`，不替代本节既有流水线回归。
 - Advanced RAG V2 的向量与 FTS5 索引必须同生共灭；任一索引构建或计数校验失败，必须清理两个候选 namespace，且不得生成 ready 版本。
 - 分块、Embedding、检索模式、权重、Top-K、阈值和 Rerank 必须固定在候选版本 profile；预览覆盖不得静默修改版本配置。
 - 父子分段只索引子段，返回父段上下文时必须保留命中子段、字符偏移和 CitationAnchor，避免引用漂移。
@@ -629,6 +703,12 @@ MCP 原生集成属于后端进程管理和工具执行能力，开发时必须�
 
 - `server/xperts/storage/`、`server/xpert_runtime/storage/`、`server/rag/storage/`、`pipeline_processed/` 与上传目录是运行数据，不得提交。
 - 影响文件型 Store 时必须覆盖进程重载、原子写入、损坏/缺失数据降级和并发更新边界。
+- 后端必须在构造 Runtime Store 前取得 `AGENT_TASK_STORAGE_DIR` 的 OS 独占锁，并持有至进程退出；不能等到 startup 才领取。不支持同目录多 worker、预加载后 fork 或跨主机共享，进程内锁与原子写入不能代替目录所有权。
+- `.runtime-owner.lock` 文件存在不等于当前被占用；不得删除、替换锁文件抢占，或在原进程存活时替换运行目录。离线恢复须先停止原后端、独占目录并保存证据，不能把备份恢复当作重发未知外部请求的许可。
+- 已接入持久根预算的执行必须使用服务端登记的父子关联；不得用用户输入、`runtime_metadata` 或旧 ContextVar 猜测父身份。准入应原子检查并扣减子执行与全部祖先，恢复沿用持久计数，取消、失效 lease 或不确定持久化结果阻断后续派发。
+- 已完成的子项只复用原结果；已派发但结果未知的请求不得自动重发，也不得删除关联或更换调用位置作为新根执行。已发生副作用与已准入计数不因取消自动回滚或退款；恢复和只读状态查询不能创建第二次执行。
+- 恢复承诺限于已支持的持久等待与顺序批量窗口，并须核验原执行身份、快照和回执；不能推导为任意节点恢复、多实例高可用、Goal 全局预算、外部“恰好一次”或自动补偿。详细边界以 [Runtime 契约](docs/XPERT_RUNTIME.md) 与[恢复教程](client/src/content/help-center/articles/recover-workflow-run.md)为准。
+- 修改目录所有权、预算或恢复至少运行 `server/tests/test_workflow_r8a_directory_owner.py`、`server/tests/test_xpert_execution_budget.py`、`server/tests/test_workflow_r8a_execution_fencing.py` 及受影响的 `test_workflow_r8a_*` / `test_workflow_r8b_*` 用例；涉及持久化还需独立目录的重启恢复验收，不能复用共享数据。
 - 当前主工作区有无关脏改动时，优先创建独立 `codex/` worktree/branch；不得把 APK、根级临时 package 文件、`.env` 或其他轮次改动混入提交。
 - Docker 重建前先确认 compose 挂载覆盖 Xpert、Runtime 与 RAG 持久化目录；重启后执行恢复验收。
 
