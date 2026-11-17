@@ -3,6 +3,7 @@ import { models } from "./models";
 import {
   estimateImageCost,
   imageTokenPricingSummary,
+  MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   SEEDREAM_5_5_PRICING,
 } from "../utils/imageCostEstimate";
@@ -329,5 +330,96 @@ describe("November 6 refresh", () => {
       },
     );
     expect(flashCost).toBeCloseTo(((1280 * 720 * 5 * 24) / 1024) * 0.000007);
+  });
+
+  it("places GPT-6.2 Astra and Sol in flagship slots and adapts November 17 GPT-6.2 Pro, MAI-Image 2.7, and Decision 1.1 contracts", () => {
+    expect(models[0]?.id).toBe("anthropic/claude-fable-5.2");
+    expect(models[1]?.id).toBe("openai/gpt-6.2-astra");
+    expect(models[2]?.id).toBe("openai/gpt-6.2-sol");
+    expect(models.findIndex((m) => m.id === "openai/gpt-6-astra")).toBeGreaterThanOrEqual(20);
+    expect(models.findIndex((m) => m.id === "openai/gpt-6.1-sol")).toBeGreaterThanOrEqual(20);
+
+    for (const [id, input, output, highInput, highOutput] of [
+      ["openai/gpt-6.2-astra", 8, 40, 16, 60],
+      ["openai/gpt-6.2-astra-pro", 8, 40, 16, 60],
+      ["openai/gpt-6.2-sol", 2, 10, 4, 15],
+      ["openai/gpt-6.2-sol-pro", 2, 10, 4, 15],
+    ] as const) {
+      expect(models.filter((m) => m.id === id)).toHaveLength(1);
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        context_length: 1_050_000,
+        input_modalities: ["file", "image", "text"],
+        output_modalities: ["text"],
+        pricing: { input, output },
+        pricing_overrides: [
+          expect.objectContaining({
+            min_prompt_tokens: 272_000,
+            pricing: { input: highInput, output: highOutput },
+          }),
+        ],
+        reasoning_declared: true,
+        primary_operation: "chat",
+        ui_entrypoint: "chat",
+        interaction_status: "ready",
+        catalog_status: "live",
+      });
+    }
+
+    for (const id of [
+      "openai/gpt-6.2-astra-pro",
+      "openai/gpt-6.2-sol-pro",
+      "microsoft/mai-image-2.7",
+      "microsoft/mai-image-2.7-flash",
+      "microsoft/microsoft-decision-1.1",
+    ]) {
+      expect(models.filter((model) => model.id === id)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    for (const [id, summary] of [
+      [
+        "microsoft/mai-image-2.7",
+        "文本输入 $5/M Token · 图片输入 $8/M Token · 图片输出 $34/M Token",
+      ],
+      [
+        "microsoft/mai-image-2.7-flash",
+        "文本输入 $1.75/M Token · 图片输入 $2.50/M Token · 图片输出 $10/M Token",
+      ],
+    ] as const) {
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        primary_operation: "generate_image",
+        ui_entrypoint: "multimodal",
+        interaction_status: "ready",
+        pricing_basis: "media",
+        supported_parameters: ["aspect_ratio", "background", "n", "input_references"],
+      });
+      const pricing = MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID[id];
+      expect(estimateImageCost(pricing, { outputCount: 1, referenceCount: 2, resolution: "2K" })).toBeNull();
+      expect(imageTokenPricingSummary(pricing)).toBe(summary);
+    }
+
+    expect(models.find((m) => m.id === "microsoft/microsoft-decision-1.1")).toMatchObject({
+      context_length: 32_768,
+      input_modalities: ["text", "image"],
+      output_modalities: ["decisions"],
+      pricing: { input: 0.041999999999999996, output: 0 },
+      primary_operation: "decide",
+      ui_entrypoint: "decisions",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    for (const id of ["heygen/heygen-avatar-6", "heygen/heygen-avatar-6-turbo"]) {
+      expect(models.filter((model) => model.id === id)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
+      expect(models.find((model) => model.id === id)).toMatchObject({
+        primary_operation: "generate_video",
+        interaction_status: "planned",
+        ui_entrypoint: "planned",
+        pricing_basis: "media",
+        pricing_status: "dynamic",
+        catalog_status: "live",
+      });
+    }
   });
 });

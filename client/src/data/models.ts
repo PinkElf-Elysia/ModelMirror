@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-17T03:44:54.440Z.
+// Merged with OpenRouter model catalog on 2026-11-17T19:19:37.233Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,316 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "heygen/heygen-avatar-6-turbo",
+    "canonical_slug": "heygen/heygen-avatar-6-turbo-20261117",
+    "name": "HeyGen: Avatar 6 Turbo",
+    "raw_description": "HeyGen: Avatar 6 Turbo is the faster, lower-cost variant of HeyGen's Avatar 6 avatar video model. It turns a single photo, a short reference video, or both into a lip-synced...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794940883,
+    "expiration_date": null,
+    "model_author": "HeyGen",
+    "note": "通过 OpenRouter 异步 Video API 调用；需提供 1 段驱动音频及 1 张人物参考图或参考视频（或同人照片+视频），支持 1080p（$0.05/秒）与 2K（$0.0875/秒）及 motion_expressiveness 参数。当前本地视频工作台暂未开放外部驱动音轨与多模态数字人组合上传，等待专项界面适配与人工验证。"
+  },
+  {
+    "id": "heygen/heygen-avatar-6",
+    "canonical_slug": "heygen/heygen-avatar-6-20261117",
+    "name": "HeyGen: Avatar 6",
+    "raw_description": "HeyGen: Avatar 6 is HeyGen's avatar video model for turning a single photo, a short reference video, or both into an expressive, lip-synced talking video driven by a supplied audio...",
+    "context_length": 0,
+    "pricing": {
+      "input": 0,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image",
+      "video",
+      "audio"
+    ],
+    "output_modalities": [
+      "video"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794940882,
+    "expiration_date": null,
+    "model_author": "HeyGen",
+    "note": "通过 OpenRouter 异步 Video API 调用；需提供 1 段驱动音频及 1 张人物参考图或参考视频（或同人照片+视频），支持 1080p（$0.10/秒）与 2K（$0.145/秒）及 motion_expressiveness 参数。当前本地视频工作台暂未开放外部驱动音轨与多模态数字人组合上传，等待专项界面适配与人工验证。"
+  },
+  {
+    "id": "openai/gpt-6.2-astra-pro",
+    "canonical_slug": "openai/gpt-6.2-astra-pro-20261117",
+    "name": "OpenAI: GPT-6.2 Astra Pro",
+    "raw_description": "GPT-6.2 Astra Pro is the same underlying model as [GPT-6.2 Astra](https://openrouter.ai/openai/gpt-6.2-astra), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 8,
+      "output": 40,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 16,
+          "output": 60
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1794938432,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6.2-astra",
+    "canonical_slug": "openai/gpt-6.2-astra-20261117",
+    "name": "OpenAI: GPT-6.2 Astra",
+    "raw_description": "GPT-6.2 Astra is the flagship model in the GPT-6.2 series from OpenAI, built for the hardest projects. It is suited for real-world engineering, professional work and scientific research, with stronger...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 8,
+      "output": 40,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 16,
+          "output": 60
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1794938423,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6.2-sol-pro",
+    "canonical_slug": "openai/gpt-6.2-sol-pro-20261117",
+    "name": "OpenAI: GPT-6.2 Sol Pro",
+    "raw_description": "GPT-6.2 Sol Pro is the same underlying model as [GPT-6.2 Sol](https://openrouter.ai/openai/gpt-6.2-sol), served with `reasoning.mode` set to `pro` for higher-quality responses on complex tasks. **Cost note:** pro mode spends far more...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1794938409,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "openai/gpt-6.2-sol",
+    "canonical_slug": "openai/gpt-6.2-sol-20261117",
+    "name": "OpenAI: GPT-6.2 Sol",
+    "raw_description": "GPT-6.2 Sol is an upgrade to GPT-6.1 Sol from OpenAI, positioned below the flagship GPT-6.2 Astra in the GPT-6.2 series. It is an efficient, versatile model for everyday work, suited...",
+    "context_length": 1050000,
+    "pricing": {
+      "input": 2,
+      "output": 10,
+      "overrides": [
+        {
+          "min_prompt_tokens": 272000,
+          "input": 4,
+          "output": 15
+        }
+      ]
+    },
+    "input_modalities": [
+      "file",
+      "image",
+      "text"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "GPT",
+    "supported_parameters": [
+      "include_reasoning",
+      "max_completion_tokens",
+      "max_tokens",
+      "reasoning",
+      "reasoning_effort",
+      "response_format",
+      "seed",
+      "structured_outputs",
+      "tool_choice",
+      "tools",
+      "verbosity"
+    ],
+    "created": 1794938371,
+    "expiration_date": null,
+    "model_author": "OpenAI",
+    "reasoning_declared": true
+  },
+  {
+    "id": "microsoft/mai-image-2.7-flash",
+    "canonical_slug": "microsoft/mai-image-2.7-flash-20261117",
+    "name": "Microsoft AI: MAI-Image-2.7 Flash",
+    "raw_description": "MAI-Image-2.7 Flash is the lower-latency, lower-cost member of the [MAI-Image-2.7](/microsoft/mai-image-2.7) family from Microsoft AI, built for latency-sensitive, high-throughput image generation and editing at comparable quality to the precision tier. It...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 1.75,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "aspect_ratio",
+      "background",
+      "n",
+      "input_references"
+    ],
+    "created": 1794938265,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "OpenRouter 专用 Images API：低延迟、非流式；支持 8 种画幅、opaque/transparent 背景、每次生成 1 张，以及最多 5 张参考图。按 Token 计费：文本输入 $1.75/M、图片输入 $2.50/M、图片输出 $10/M；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
+    "id": "microsoft/mai-image-2.7",
+    "canonical_slug": "microsoft/mai-image-2.7-20261117",
+    "name": "Microsoft AI: MAI-Image-2.7",
+    "raw_description": "MAI-Image-2.7 is an image generation and editing model from Microsoft AI, the precision tier of the MAI-Image-2.7 family alongside the faster [MAI-Image-2.7 Flash](/microsoft/mai-image-2.7-flash). It is suited for design-ready visuals and...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 5,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "image"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "aspect_ratio",
+      "background",
+      "n",
+      "input_references"
+    ],
+    "created": 1794938261,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "OpenRouter 专用 Images API：非流式；支持 8 种画幅、opaque/transparent 背景、每次生成 1 张，以及最多 5 张参考图。按 Token 计费：文本输入 $5/M、图片输入 $8/M、图片输出 $34/M；生成前无法可靠预知图片 Token 数，最终费用以网关回执为准。"
+  },
+  {
+    "id": "microsoft/microsoft-decision-1.1",
+    "canonical_slug": "microsoft/microsoft-decision-1.1-20261117",
+    "name": "Microsoft: Microsoft-Decision-1.1",
+    "raw_description": "Microsoft-Decision-1.1 is a model from Microsoft built for fast decision-making, and the successor to Microsoft-Decision-1. Instead of generating text, it reads the provided content and returns a calibrated probability for...",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0.041999999999999996,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1794938255,
+    "expiration_date": null,
+    "model_author": "Microsoft",
+    "note": "结构化决策专用入口，当前仅开放文字状态；图片输入尚未适配。未执行真实调用。"
+  },
   {
     "id": "bytedance/seedance-2.5-flash",
     "canonical_slug": "bytedance/seedance-2.5-flash-20261115",
@@ -2147,7 +2457,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "~liquid/d1-ultra-latest",
     "name": "LiquidAI: d1-ultra Latest",
     "raw_description": "This model always redirects to the latest model in the d1-ultra family.",
-    "context_length": 32768,
+    "context_length": 65536,
     "pricing": {
       "input": 0.041999999999999996,
       "output": 0
@@ -2733,8 +3043,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
+      "input": 0.075,
+      "output": 0.3,
       "time_overrides": [
         {
           "utc_start": 1500,
@@ -6929,13 +7239,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the GPT Astra family.",
     "context_length": 1050000,
     "pricing": {
-      "input": 10,
-      "output": 50,
+      "input": 8,
+      "output": 40,
       "overrides": [
         {
           "min_prompt_tokens": 272000,
-          "input": 20,
-          "output": 75
+          "input": 16,
+          "output": 60
         }
       ]
     },
@@ -7289,8 +7599,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.14,
-      "output": 0.42
+      "input": 0.3,
+      "output": 1.2
     },
     "input_modalities": [
       "text",
@@ -8138,8 +8448,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.834,
-      "output": 2.501,
+      "input": 0.7505999999999999,
+      "output": 2.2509,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -8419,8 +8729,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.0399,
-      "output": 0.0784
+      "input": 0.15,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -12408,8 +12718,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -13064,8 +13374,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MoonshotAI: Kimi K2.7 Code is a coding-focused model in Moonshot AI's Kimi K2 family, built to complete end-to-end programming tasks reliably over long contexts. It uses a native multimodal mixture-of-experts...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.6,
-      "output": 3.5
+      "input": 0.7,
+      "output": 3.75
     },
     "input_modalities": [
       "text",
@@ -14748,7 +15058,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1777570439,
-    "expiration_date": null,
+    "expiration_date": 1801353600,
     "model_author": "Mistral AI",
     "reasoning_declared": true
   },
@@ -17660,8 +17970,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3.5-9B is a multimodal foundation model from the Qwen3.5 family, designed to deliver strong reasoning, coding, and visual understanding in an efficient 9B-parameter architecture. It uses a unified vision-language design...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13699999999999998,
-      "output": 0.201
+      "input": 0.16999999999999998,
+      "output": 0.25
     },
     "input_modalities": [
       "text",
@@ -22884,8 +23194,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral Medium 3.1 is an updated version of Mistral Medium 3, which is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 2
+      "input": 0.44,
+      "output": 2.2
     },
     "input_modalities": [
       "text",
@@ -23204,8 +23514,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.03,
-      "output": 0.13
+      "input": 0.018,
+      "output": 0.09
     },
     "input_modalities": [
       "text"
@@ -24036,8 +24346,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral-Small-3.2-24B-Instruct-2506 is an updated 24B parameter model from Mistral optimized for instruction following, repetition reduction, and improved function calling. Compared to the 3.1 release, version 3.2 significantly improves accuracy on...",
     "context_length": 256000,
     "pricing": {
-      "input": 0.09999999999999999,
-      "output": 0.3
+      "input": 0.075,
+      "output": 0.19999999999999998
     },
     "input_modalities": [
       "image",
@@ -24431,8 +24741,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Mistral Medium 3 is a high-performance enterprise-grade language model designed to deliver frontier-level capabilities at significantly reduced operational cost. It balances state-of-the-art reasoning and multimodal performance with 8× lower cost...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.39999999999999997,
-      "output": 2
+      "input": 0.44,
+      "output": 2.2
     },
     "input_modalities": [
       "text",
@@ -32236,6 +32546,8 @@ const VERIFIED_IMAGE_MODEL_IDS = new Set([
   "inclusionai/ming-image-0.1-design-layer",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
+  "microsoft/mai-image-2.7",
+  "microsoft/mai-image-2.7-flash",
   "openai/gpt-image-2.5-flare",
   "openai/gpt-image-2.5-sunburst",
   "recraft/recraft-v4.1-flash",
@@ -32962,6 +33274,8 @@ const LATEST_REFRESH_MODEL_IDS = [
   "openai/gpt-6-astra-pro",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
+  "microsoft/mai-image-2.7",
+  "microsoft/mai-image-2.7-flash",
   "inclusionai/ling-3.0-flash-sante:free",
   "inclusionai/ling-3.0-flash-fin",
   "nvidia/nemotron-3.5-content-safety",
@@ -33032,9 +33346,10 @@ const LATEST_REFRESH_MODEL_IDS = [
 ];
 const FRONT_ROW_MODEL_IDS = [
   "anthropic/claude-fable-5.2",
+  "openai/gpt-6.2-astra",
   "moonshotai/kimi-k3.1-pro",
   "anthropic/claude-opus-5.5", "google/gemini-4-argon", "google/gemini-4-carbon", "google/gemini-4-hydrogen",
-  "openai/gpt-6.1-sol", "anthropic/claude-sonnet-5.5",
+  "openai/gpt-6.2-sol", "anthropic/claude-sonnet-5.5",
   "openai/gpt-6-luna", "anthropic/claude-haiku-5.5",
 ];
 const frontRowModel = (id: string) => sortedCatalogModels.filter((model) => model.id === id);
@@ -33090,12 +33405,13 @@ const normallyOrderedCatalogModels = sortedCatalogModels.filter(
 );
 
 // The list has one router card followed by two model cards in its first row.
-// Fable 5.2 replaces Opus 5.5 in the flagship slot; Opus 5.5 moves to row 2
-// as an ordinary front-six-row flagship.
+// Fable 5.2 and GPT-6.2 Astra occupy the first-row flagship slots; GPT-6.2 Sol
+// replaces GPT-6.1 Sol as the front-six-row secondary flagship, demoting GPT-6
+// Astra and GPT-6.1 Sol below the first six rows.
 const primaryCatalogModels: Model[] = [
   ...frontRowModel("anthropic/claude-fable-5.2"),
-  ...(gpt6AstraModel ? [gpt6AstraModel] : []),
-  ...frontRowModel("openai/gpt-6.1-sol"),
+  ...frontRowModel("openai/gpt-6.2-astra"),
+  ...frontRowModel("openai/gpt-6.2-sol"),
   ...(deepseekV41FlashModel ? [deepseekV41FlashModel] : []),
   ...frontRowModel("anthropic/claude-opus-5.5"),
   ...frontRowModel("google/gemini-4-argon"),
@@ -33111,6 +33427,7 @@ const primaryCatalogModels: Model[] = [
   ...(claudeFable51Model ? [claudeFable51Model] : []),
   ...frontRowModel("google/gemini-4-carbon"),
   ...frontRowModel("google/gemini-4-hydrogen"),
+  ...(gpt6AstraModel ? [gpt6AstraModel] : []),
   ...(gpt56SolModel ? [gpt56SolModel] : []),
   ...(claudeOpus5Model ? [claudeOpus5Model] : []),
   ...normallyOrderedCatalogModels,

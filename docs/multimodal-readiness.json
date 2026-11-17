@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-11-16",
+  "reviewed_at": "2026-11-17",
   "catalog": {
-    "snapshot_total": 831,
+    "snapshot_total": 840,
     "serving_variant_total": 92,
     "serving_variants_by_type": {
       "batch": 92
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 635,
+    "live": 644,
     "uncertain": 140,
     "expired": 56,
-    "onsite_openrouter": 775,
-    "adaptation_denominator": 775,
+    "onsite_openrouter": 784,
+    "adaptation_denominator": 784,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
@@ -348,6 +348,30 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "microsoft/mai-image-2.7",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的 8 种画幅、opaque/transparent 背景、最多 5 张参考图与 Token 费率（文本输入 $5/M、图片输入 $8/M、图片输出 $34/M）已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "microsoft/mai-image-2.7-flash",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的 8 种画幅、opaque/transparent 背景、最多 5 张参考图与 Token 费率（文本输入 $1.75/M、图片输入 $2.50/M、图片输出 $10/M）已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "microsoft/microsoft-decision-1.1",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态未开放，未执行真实调用。"
+    },
     {
       "model_id": "liquid/d1.2-ultra",
       "operation": "decide",
@@ -947,6 +971,24 @@
       "verification_status": "not_applicable",
       "support_level": "native",
       "status_reason": "浮动别名不作为独立候选，请选择固定版本。"
+    },
+    {
+      "model_id": "heygen/heygen-avatar-6",
+      "operation": "generate_video",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 异步 Video API 契约已审计（1080p $0.10/秒、2K $0.145/秒，含 motion_expressiveness 透传）；因需提供外部驱动音轨及人物参考图/参考视频，当前本地视频工作台暂未开放该组合上传，等待专项界面适配与人工验收。",
+      "evidence": "GET https://openrouter.ai/api/frontend/models/find?fmt=cards&output_modalities=video on 2026-11-17 exposes /api/v1/videos with 1080p ($0.10/s) and 2K ($0.145/s) duration_seconds SKUs, motion_expressiveness passthrough, and required audio reference track plus reference image/video inputs; local video workspace does not yet expose driving audio reference upload."
+    },
+    {
+      "model_id": "heygen/heygen-avatar-6-turbo",
+      "operation": "generate_video",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 异步 Video API 契约已审计（1080p $0.05/秒、2K $0.0875/秒，含 motion_expressiveness 透传）；因需提供外部驱动音轨及人物参考图/参考视频，当前本地视频工作台暂未开放该组合上传，等待专项界面适配与人工验收。",
+      "evidence": "GET https://openrouter.ai/api/frontend/models/find?fmt=cards&output_modalities=video on 2026-11-17 exposes /api/v1/videos with 1080p ($0.05/s) and 2K ($0.0875/s) duration_seconds SKUs, motion_expressiveness passthrough, and required audio reference track plus reference image/video inputs; local video workspace does not yet expose driving audio reference upload."
     }
   ],
   "deferred_capabilities": [
