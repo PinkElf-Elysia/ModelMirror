@@ -12,6 +12,8 @@ import {createGodPluginStore} from './transport/offline-store.mjs';
 import {createCardHttp} from '../god-card/lib/http.mjs';
 import {safeHtml} from '../card-replica/lib/render.mjs';
 
+const previousAdapter='1abc1cd4ef41cf8a680ae8a736ef750001db27b2224be3fac7592c04b6311b3e'; // exact pre-voice adapter only
+
 export async function createArchiveHost(directory,control,{cardId,name,system,autoSummaryV2=false,pluginFeatures={}}){
   if(cardId!=='ai-girls')throw fail('CONTROL_CARD_INCOMPATIBLE');
   const mode=control?'real':'offline',systemHash=sha(system);
@@ -38,7 +40,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return s.runtime.hash===sha(canonical({...descriptor,model:bound}));
+    return [descriptor.adapterHash,previousAdapter].some(adapterHash=>s.runtime.hash===sha(canonical({...descriptor,model:bound,adapterHash})));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){
@@ -58,7 +60,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   const {store}=integrated;
   store.autoSummaryV2=autoSummaryV2;
   const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:async()=>{
-    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools});
+    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools,speech:!!pluginFeatures.speech});
     if(pluginFeatures.transcript)entries.push(await loadReviewedCatalog(TRANSCRIPT_ID));
     if(pluginFeatures.illustrations)entries.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
     return entries.map(entry=>{

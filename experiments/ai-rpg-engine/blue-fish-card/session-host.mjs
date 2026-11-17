@@ -18,6 +18,7 @@ const previousAdapters=[
   '4bc419471a92b7ddaf0838b5d0ba1eb576c5af01a2eb532337f092e1fc95f6df', // main before the shared compatibility patch
   'd27155b04a9759ee66794c841c5415e6d356a35b56d3497605571763ba807f8e', // deployed compatibility patch
 ];
+previousAdapters.push('4d94f34b3ff884326bb691942b9e8171ab7bb3d0857b4bfbd8687212ee4a229c'); // exact pre-voice adapter; other bindings unchanged
 const legacySystemHash='885def05b8628dce5428b39dcc5387c2548d082f7dc1635f7c765d5fa810f59a';
 const legacyTransport={
   'transport/memory-budget.mjs':'f01bb51fa0341c4058575d84aea34bbede45259f875913fa9b76101ae380edaa',
@@ -80,7 +81,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   const {store}=integrated;
   store.autoSummaryV2=autoSummaryV2;
   const plugins=await createPluginService({directory:join(directory,'plugins'),lookupSession:id=>store.pluginSession(id),loadCatalog:async()=>{
-    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools});
+    const entries=await loadReviewedPlugins({rollingSummary:true,memoryPalace:true,messageTools:!!pluginFeatures.messageTools,speech:!!pluginFeatures.speech});
     if(pluginFeatures.transcript)entries.push(await loadReviewedCatalog(TRANSCRIPT_ID));
     if(pluginFeatures.illustrations)entries.push(await loadReviewedCatalog(ILLUSTRATIONS_ID));
     return entries.map(entry=>{

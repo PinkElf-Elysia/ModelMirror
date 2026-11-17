@@ -3,14 +3,17 @@ import {join} from 'node:path';
 import {aiGirlsAsset} from './host.mjs';
 import {systemPrompt} from './assembly.mjs';
 import {createArchiveHost} from './session-host.mjs';
-import {REVIEWED_PLUGIN_IDS} from '../plugins/catalog.mjs';
+import {createSpeech} from '../studio/speech.mjs';
+import {createVoiceLibrary} from '../studio/voice-library.mjs';
+import {REVIEWED_PLUGIN_IDS,SPEECH_ID,VOICE_LIBRARY_ID} from '../plugins/catalog.mjs';
 import {archivePluginHttp} from '../studio/archive-plugin-http.mjs';
 import {transcriptHttp} from '../studio/transcript.mjs';
 export function aiGirlsOptions(env){return env.RPG_AI_GIRLS_CHAT_ENABLED==='true'?{enabled:true,limit:Number(env.RPG_AI_GIRLS_CHAT_CALL_LIMIT||0),baseURL:env.RPG_CONTROL_URL,serviceToken:env.RPG_S2S_TOKEN}:null;}
 // New-card mount deliberately leaves the session-fingerprinted studio host unchanged.
-export function installAiGirls(server,{directory,control=null,origins=[],ownDirectory,autoSummaryV2=true,transcript=true,messageTools=true,cardDist=new URL('../card-replica/dist/',import.meta.url)}={}){
+export function installAiGirls(server,{directory,control=null,origins=[],ownDirectory,autoSummaryV2=true,transcript=true,messageTools=true,speech=null,cardDist=new URL('../card-replica/dist/',import.meta.url)}={}){
  const previous=server.listeners('request');server.removeAllListeners('request');
- const features={transcript,messageTools,illustrations:false};let pending;
+ const features={transcript,messageTools,illustrations:false,speech:!!speech};let pending;
+ const speechHandler=createSpeech(join(directory,'speech'),speech),voiceHandler=createVoiceLibrary(join(directory,'voice-library'),speech?.voices);
  const getHost=()=>pending??=(async()=>{
   const dir=join(directory,'archive-chat','ai-girls',control?'real':'offline'),lease=await ownDirectory?.(join(dir,'plugins'));let host;
   try{host=await createArchiveHost(dir,control,{cardId:'ai-girls',name:'完蛋！我被AI娘包围了！',system:systemPrompt(),autoSummaryV2,pluginFeatures:features});await lease?.remember();return {...host,close:async()=>{try{await host.plugins.close();}finally{await lease?.fd.close();}}};}
@@ -33,15 +36,17 @@ export function installAiGirls(server,{directory,control=null,origins=[],ownDire
    if(req.method==='GET'&&route===''){
     const file=cardDist instanceof URL?new URL('index.html',cardDist):join(cardDist,'index.html');
     const html=(await readFile(file,'utf8')).replace(/(src|href)="\.\/assets\//g,'$1="/rpg-app/earth/assets/');
-    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'self'");
+    res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self' data:; media-src 'self' blob:; object-src 'none'; frame-ancestors 'self'");
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(html);
    }
    const host=await getHost();
    if(transfer&&transcript)return transcriptHttp({req,res,send,match:['ai-girls/chat',...transfer.slice(1)],store:host.store,plugins:host.plugins});
-   let data={};if(req.method==='POST'){let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>1000000)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   let data={};if(req.method==='POST'){const bodyLimit=/\/voice-library\/create$/.test(route)?14001024:1000000;let size=0;const chunks=[];for await(const chunk of req){size+=chunk.length;if(size>bodyLimit)return send(413,{error:'REQUEST_TOO_LARGE'});chunks.push(chunk);}data=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+   const voiceRoute=route.match(/^api\/sessions\/([a-zA-Z0-9-]{1,80})\/(speech|voice-library)\/([a-zA-Z0-9-]+)$/);
+   if(voiceRoute&&speech){const [,id,kind,action]=voiceRoute;return (kind==='speech'?speechHandler:voiceHandler)({card:'ai-girls',id,action,method:req.method,data,query:url.searchParams,...host,res,send});}
    if(route==='api/plugins'&&req.method==='GET')return send(200,await host.plugins.catalog());
    const install=route.match(/^api\/plugins\/(rpg\.[a-z-]+)\/(install|uninstall|upgrade)$/);
-   if(install&&req.method==='POST'&&data?.pluginId===install[1]&&REVIEWED_PLUGIN_IDS.includes(install[1]))return send(200,await host.plugins.change(install[2],data));
+   if(install&&req.method==='POST'&&data?.pluginId===install[1]&&[...REVIEWED_PLUGIN_IDS,SPEECH_ID,VOICE_LIBRARY_ID].includes(install[1]))return send(200,await host.plugins.change(install[2],data));
    if(await archivePluginHttp({route,req,res,data,send,cardId:'ai-girls',host,control,features}))return;
    await host.handle({route,method:req.method,data,plugins:host.plugins,send,query:url.searchParams});
   })().catch(e=>{if(!res.headersSent)send(e.status||500,{error:e.code||'AI_GIRLS_UNAVAILABLE'});else res.destroy();});

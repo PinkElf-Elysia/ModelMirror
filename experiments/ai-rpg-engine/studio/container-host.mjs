@@ -64,9 +64,10 @@ async function run(env){
   const {start,archiveChatOptions}=await import('./server.mjs');
   const archiveOptions=archiveChatOptions(env);
   for(const route of [archiveOptions.xingjianControl,...Object.values(archiveOptions.archiveControls)])if(route)route.fetcher=configFetch;
+  const speech=yes('RPG_SPEECH_ENABLED')?speechService(env.RPG_CONTROL_URL||'http://server:8000/'):null;
   const {server,plugins,god}=await start({...archiveOptions,ownArchiveDirectory:ownDirectory,directory,key,limit,fetcher:configFetch,enabled:yes('RPG_ENABLED'),port:Number(env.PORT||18420),
     host:env.RPG_BIND||'127.0.0.1',origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),
-    speech:yes('RPG_SPEECH_ENABLED')?speechService(env.RPG_CONTROL_URL||'http://server:8000/'):null,
+    speech,
     illustrationService:env.RPG_IMAGE_ENABLED==='false'?null:imageService(env.RPG_CONTROL_URL||'http://server:8000/'),
     transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',
     messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false',
@@ -76,9 +77,9 @@ async function run(env){
     modelControl:yes('RPG_MODEL_SELECTION_ENABLED')?control:null,godControl:yes('RPG_GOD_REAL_ENABLED')?{...control,limit}:null,
     cultivationControl:yes('RPG_CULTIVATION_ENABLED')?{...control,enabled:true,limit:Number(env.RPG_CULTIVATION_CALL_LIMIT||0)}:null});
   const blueFishControl=blueFishOptions(env);if(blueFishControl)blueFishControl.fetcher=configFetch;
-  installBlueFish(server,{directory,control:blueFishControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  installBlueFish(server,{directory,speech,control:blueFishControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const aiGirlsControl=aiGirlsOptions(env);if(aiGirlsControl)aiGirlsControl.fetcher=configFetch;
-  installAiGirls(server,{directory,control:aiGirlsControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  installAiGirls(server,{directory,speech,control:aiGirlsControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();
