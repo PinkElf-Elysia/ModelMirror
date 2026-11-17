@@ -6,6 +6,7 @@ import {
   MINIMAX_H3_IMAGE_TOKEN_PRICING_BY_MODEL_ID,
   SEEDREAM_5_5_PRICING,
 } from "../utils/imageCostEstimate";
+import { estimateVideoCost } from "../utils/videoCostEstimate";
 
 describe("November 6 refresh", () => {
   it("keeps Parallel on request-priced Decisions, not free chat", () => {
@@ -174,7 +175,7 @@ describe("November 6 refresh", () => {
     expect(models.find((m) => m.id === "moonshotai/kimi-k3.1-pro")?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
       catalog_id: "moonshotai/kimi-k3.1-pro:batch",
       request_model_id: "moonshotai/kimi-k3.1-pro",
-      pricing: { input: 0.7, output: 6 },
+      pricing: { input: 0.372, output: 5.582999999999999 },
       input_modalities: ["text"],
       output_modalities: ["text"],
     });
@@ -223,5 +224,110 @@ describe("November 6 refresh", () => {
         interaction_status: "ready",
       });
     }
+  });
+
+  it("adds November 16 Qwen4 Max below the first six rows and reconciles Batch drift", () => {
+    const qwen4Index = models.findIndex((model) => model.id === "qwen/qwen4-max");
+    expect(models.filter((model) => model.id === "qwen/qwen4-max")).toHaveLength(1);
+    expect(qwen4Index).toBeGreaterThanOrEqual(20);
+    expect(models[qwen4Index]).toMatchObject({
+      context_length: 1_000_000,
+      input_modalities: ["text", "image", "video"],
+      output_modalities: ["text"],
+      pricing: { input: 1.4249999999999998, output: 4.2749999999999995 },
+      pricing_basis: "token",
+      reasoning_declared: true,
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    expect(
+      models.find((m) => m.id === "z-ai/glm-5.2")?.serving_variants.filter((v) => v.type === "batch"),
+    ).toHaveLength(1);
+    expect(
+      models.find((m) => m.id === "deepseek/deepseek-v4.1-flash-1017")?.serving_variants.find((v) => v.type === "batch"),
+    ).toMatchObject({
+      catalog_id: "deepseek/deepseek-v4.1-flash-1017:batch",
+      request_model_id: "deepseek/deepseek-v4.1-flash-1017",
+      pricing: { input: 0.036, output: 0.15 },
+    });
+  });
+
+  it("adapts November 16/17 Hy4 flash, Liquid d1.2 decisions, and Seedance 2.5 Flash below the first six rows", () => {
+    for (const id of [
+      "tencent/hy4-flash",
+      "liquid/d1.2",
+      "liquid/d1.2-ultra",
+      "bytedance/seedance-2.5-flash",
+    ]) {
+      expect(models.filter((model) => model.id === id)).toHaveLength(1);
+      expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    expect(models.find((m) => m.id === "tencent/hy4-flash")).toMatchObject({
+      context_length: 1_048_576,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      pricing: { input: 0.035, output: 0.14049999999999999 },
+      pricing_basis: "token",
+      reasoning_declared: true,
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    expect(models.find((m) => m.id === "liquid/d1.2")).toMatchObject({
+      context_length: 65_536,
+      input_modalities: ["text", "image"],
+      output_modalities: ["decisions"],
+      pricing: { input: 0.02, output: 0 },
+      primary_operation: "decide",
+      ui_entrypoint: "decisions",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+    expect(models.find((m) => m.id === "liquid/d1.2-ultra")).toMatchObject({
+      context_length: 65_536,
+      input_modalities: ["text", "image"],
+      output_modalities: ["decisions"],
+      pricing: { input: 0.041999999999999996, output: 0 },
+      primary_operation: "decide",
+      ui_entrypoint: "decisions",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    expect(models.find((m) => m.id === "bytedance/seedance-2.5-flash")).toMatchObject({
+      input_modalities: ["text", "image", "video", "audio"],
+      output_modalities: ["video"],
+      pricing_basis: "media",
+      primary_operation: "generate_video",
+      ui_entrypoint: "multimodal",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    const flashCost = estimateVideoCost(
+      {
+        supported_resolutions: ["480p", "720p"],
+        supported_aspect_ratios: ["16:9"],
+        supported_sizes: ["1280x720"],
+        pricing_skus: {
+          video_tokens: "0.000007",
+          video_tokens_without_audio: "0.000007",
+        },
+      },
+      {
+        duration: 5,
+        resolution: "720p",
+        aspectRatio: "16:9",
+        generateAudio: true,
+        imageInputCount: 0,
+      },
+    );
+    expect(flashCost).toBeCloseTo(((1280 * 720 * 5 * 24) / 1024) * 0.000007);
   });
 });

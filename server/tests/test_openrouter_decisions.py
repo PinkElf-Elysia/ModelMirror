@@ -102,6 +102,8 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "upstage/solar-decide",
         "jaredpalmer/kev-4b",
         "liquid/d1",
+        "liquid/d1.2",
+        "liquid/d1.2-ultra",
         "respan/span-01",
         "respan/span-01-lite",
         "respan/span-01-lite:free",

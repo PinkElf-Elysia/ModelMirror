@@ -54,6 +54,9 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         "bytedance/seedance-2.0-fast",
         # 2026-08-11：复用统一异步视频链路，首尾帧、本地参考图与费用估算已适配。
         "bytedance/seedance-2.5",
+        # 2026-11-16：专用视频目录确认 480p/720p、4–30 秒、首尾帧、
+        # 最多 3 张参考图、生成音频、seed 与视频 token 价格契约；未执行付费生成。
+        "bytedance/seedance-2.5-flash",
         # 2026-08-13：实时目录确认 480p/720p、4–15 秒、首尾帧、
         # 生成音频、seed 与 video-token 价格契约；复用同一异步链路。
         "bytedance/seedance-2.0-mini",
@@ -158,6 +161,7 @@ REFERENCE_IMAGE_AUDIT: dict[str, int] = {
     "alibaba/wan-3.0": 1,
     "bytedance/seedance-2.0-fast": 3,
     "bytedance/seedance-2.5": 3,
+    "bytedance/seedance-2.5-flash": 3,
     "heygen/avatar-iv": 1,
 }
 

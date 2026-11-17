@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-11-12",
+  "reviewed_at": "2026-11-16",
   "catalog": {
-    "snapshot_total": 826,
+    "snapshot_total": 831,
     "serving_variant_total": 92,
     "serving_variants_by_type": {
       "batch": 92
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 636,
-    "uncertain": 139,
-    "expired": 51,
+    "live": 635,
+    "uncertain": 140,
+    "expired": 56,
     "onsite_openrouter": 775,
     "adaptation_denominator": 775,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 30,
+    "dedicated_profiles": 31,
     "verified": [
       {
         "model_id": "bytedance/seedance-2.0",
@@ -194,6 +194,18 @@
         ]
       },
       {
+        "model_id": "bytedance/seedance-2.5-flash",
+        "verified_at": "2026-11-16",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_images",
+          "size_matrix",
+          "cost_estimate"
+        ]
+      },
+      {
         "model_id": "bytedance/seedance-2.0-mini",
         "verified_at": "2026-08-13",
         "verification_status": "adapted_contract",
@@ -336,6 +348,22 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "liquid/d1.2-ultra",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态与 /api/alpha/extractions 未开放，未执行真实调用。"
+    },
+    {
+      "model_id": "liquid/d1.2",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态与 /api/alpha/extractions 未开放，未执行真实调用。"
+    },
     {
       "model_id": "bytedance-seed/seedream-5-5",
       "operation": "generate_image",
