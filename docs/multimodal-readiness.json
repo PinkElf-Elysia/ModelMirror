@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-11-12",
+  "reviewed_at": "2026-11-19",
   "catalog": {
-    "snapshot_total": 826,
-    "serving_variant_total": 92,
+    "snapshot_total": 841,
+    "serving_variant_total": 97,
     "serving_variants_by_type": {
-      "batch": 92
+      "batch": 97
     },
     "serving_variants_counted_in_snapshot": false,
-    "live": 636,
-    "uncertain": 139,
-    "expired": 51,
-    "onsite_openrouter": 775,
-    "adaptation_denominator": 775,
+    "live": 644,
+    "uncertain": 140,
+    "expired": 57,
+    "onsite_openrouter": 784,
+    "adaptation_denominator": 784,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 30,
+    "dedicated_profiles": 33,
     "verified": [
       {
         "model_id": "bytedance/seedance-2.0",
@@ -194,6 +194,18 @@
         ]
       },
       {
+        "model_id": "bytedance/seedance-2.5-flash",
+        "verified_at": "2026-11-16",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_images",
+          "size_matrix",
+          "cost_estimate"
+        ]
+      },
+      {
         "model_id": "bytedance/seedance-2.0-mini",
         "verified_at": "2026-08-13",
         "verification_status": "adapted_contract",
@@ -282,6 +294,34 @@
         ]
       },
       {
+        "model_id": "heygen/heygen-avatar-6",
+        "verified_at": "2026-11-19",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_audio",
+          "reference_images",
+          "reference_video",
+          "provider_options",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "heygen/heygen-avatar-6-turbo",
+        "verified_at": "2026-11-19",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_audio",
+          "reference_images",
+          "reference_video",
+          "provider_options",
+          "cost_estimate"
+        ]
+      },
+      {
         "model_id": "heygen/heygen-video-1",
         "verified_at": "2026-09-30",
         "verification_status": "adapted_contract",
@@ -336,6 +376,46 @@
     "verification_required": []
   },
   "operation_readiness": [
+    {
+      "model_id": "microsoft/mai-image-2.7",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的 8 种画幅、opaque/transparent 背景、最多 5 张参考图与 Token 费率（文本输入 $5/M、图片输入 $8/M、图片输出 $34/M）已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "microsoft/mai-image-2.7-flash",
+      "operation": "generate_image",
+      "status": "planned",
+      "verification_status": "contract_verified",
+      "support_level": "native",
+      "status_reason": "OpenRouter 专用 Images API 的 8 种画幅、opaque/transparent 背景、最多 5 张参考图与 Token 费率（文本输入 $1.75/M、图片输入 $2.50/M、图片输出 $10/M）已适配；尚未执行真实付费图片生成。"
+    },
+    {
+      "model_id": "microsoft/microsoft-decision-1.1",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态未开放，未执行真实调用。"
+    },
+    {
+      "model_id": "liquid/d1.2-ultra",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态与 /api/alpha/extractions 未开放，未执行真实调用。"
+    },
+    {
+      "model_id": "liquid/d1.2",
+      "operation": "decide",
+      "status": "planned",
+      "verification_status": "manual_required",
+      "support_level": "native",
+      "status_reason": "结构化决策专用入口（文字状态与 50 问题上限）已适配；图片状态与 /api/alpha/extractions 未开放，未执行真实调用。"
+    },
     {
       "model_id": "bytedance-seed/seedream-5-5",
       "operation": "generate_image",
@@ -919,6 +999,24 @@
       "verification_status": "not_applicable",
       "support_level": "native",
       "status_reason": "浮动别名不作为独立候选，请选择固定版本。"
+    },
+    {
+      "model_id": "heygen/heygen-avatar-6",
+      "operation": "generate_video",
+      "status": "ready",
+      "verification_status": "adapted_contract",
+      "support_level": "native",
+      "status_reason": "已适配 OpenRouter 异步 Video API 契约（1080p $0.10/秒、2K $0.145/秒）、驱动音频轨、人物参考图与/或参考视频组合上传以及 motion_expressiveness 透传参数；未执行真实付费调用，等待人工验收。",
+      "evidence": "GET https://openrouter.ai/api/v1/videos/models & openapi.json on 2026-11-19 confirm /api/v1/videos input_references (audio_url/image_url/video_url), 1080p ($0.10/s) and 2K ($0.145/s) duration_seconds SKUs, and heygen motion_expressiveness passthrough."
+    },
+    {
+      "model_id": "heygen/heygen-avatar-6-turbo",
+      "operation": "generate_video",
+      "status": "ready",
+      "verification_status": "adapted_contract",
+      "support_level": "native",
+      "status_reason": "已适配 OpenRouter 异步 Video API 契约（1080p $0.05/秒、2K $0.0875/秒）、驱动音频轨、人物参考图与/或参考视频组合上传以及 motion_expressiveness 透传参数；未执行真实付费调用，等待人工验收。",
+      "evidence": "GET https://openrouter.ai/api/v1/videos/models & openapi.json on 2026-11-19 confirm /api/v1/videos input_references (audio_url/image_url/video_url), 1080p ($0.05/s) and 2K ($0.0875/s) duration_seconds SKUs, and heygen motion_expressiveness passthrough."
     }
   ],
   "deferred_capabilities": [

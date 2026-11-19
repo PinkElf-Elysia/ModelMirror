@@ -3416,6 +3416,9 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "microsoft/microsoft-decision-1.1",
+        "liquid/d1.2-ultra",
+        "liquid/d1.2",
         "heygen/heygen-decision-1",
         "heygen/heygen-decision-1-turbo",
         "google/gemini-decision-1",

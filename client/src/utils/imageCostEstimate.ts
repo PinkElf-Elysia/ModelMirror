@@ -92,6 +92,16 @@ export const MAI_IMAGE_TOKEN_PRICING_BY_MODEL_ID: Record<
   string,
   ImagePricingItem[]
 > = {
+  "microsoft/mai-image-2.7-flash": [
+    { billable: "input_text", unit: "token", cost_usd: 0.00000175 },
+    { billable: "input_image", unit: "token", cost_usd: 0.0000025 },
+    { billable: "output_image", unit: "token", cost_usd: 0.00001 },
+  ],
+  "microsoft/mai-image-2.7": [
+    { billable: "input_text", unit: "token", cost_usd: 0.000005 },
+    { billable: "input_image", unit: "token", cost_usd: 0.000008 },
+    { billable: "output_image", unit: "token", cost_usd: 0.000034 },
+  ],
   "microsoft/mai-image-2.6-flash": [
     { billable: "input_text", unit: "token", cost_usd: 0.00000175 },
     { billable: "input_image", unit: "token", cost_usd: 0.0000025 },

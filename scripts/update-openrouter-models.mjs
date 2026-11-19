@@ -82,6 +82,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "openai/gpt-image-2.5-sunburst",
   "microsoft/mai-image-2.6",
   "microsoft/mai-image-2.6-flash",
+  "microsoft/mai-image-2.7",
+  "microsoft/mai-image-2.7-flash",
   "minimax/hailuo-3-max",
   "recraft/recraft-v4-styles",
   "recraft/recraft-v4-styles-pro",
