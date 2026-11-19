@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-11-17",
+  "reviewed_at": "2026-11-19",
   "catalog": {
-    "snapshot_total": 840,
-    "serving_variant_total": 92,
+    "snapshot_total": 841,
+    "serving_variant_total": 97,
     "serving_variants_by_type": {
-      "batch": 92
+      "batch": 97
     },
     "serving_variants_counted_in_snapshot": false,
     "live": 644,
     "uncertain": 140,
-    "expired": 56,
+    "expired": 57,
     "onsite_openrouter": 784,
     "adaptation_denominator": 784,
     "uncertain_included_in_onsite": true,
     "expired_excluded_from_onsite": true
   },
   "video_generation": {
-    "dedicated_profiles": 31,
+    "dedicated_profiles": 33,
     "verified": [
       {
         "model_id": "bytedance/seedance-2.0",
@@ -290,6 +290,34 @@
           "async_submission",
           "reference_images",
           "unit_cost",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "heygen/heygen-avatar-6",
+        "verified_at": "2026-11-19",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_audio",
+          "reference_images",
+          "reference_video",
+          "provider_options",
+          "cost_estimate"
+        ]
+      },
+      {
+        "model_id": "heygen/heygen-avatar-6-turbo",
+        "verified_at": "2026-11-19",
+        "verification_status": "adapted_contract",
+        "evidence": [
+          "catalog_contract",
+          "async_submission",
+          "reference_audio",
+          "reference_images",
+          "reference_video",
+          "provider_options",
           "cost_estimate"
         ]
       },
@@ -975,20 +1003,20 @@
     {
       "model_id": "heygen/heygen-avatar-6",
       "operation": "generate_video",
-      "status": "planned",
-      "verification_status": "contract_verified",
+      "status": "ready",
+      "verification_status": "adapted_contract",
       "support_level": "native",
-      "status_reason": "OpenRouter 异步 Video API 契约已审计（1080p $0.10/秒、2K $0.145/秒，含 motion_expressiveness 透传）；因需提供外部驱动音轨及人物参考图/参考视频，当前本地视频工作台暂未开放该组合上传，等待专项界面适配与人工验收。",
-      "evidence": "GET https://openrouter.ai/api/frontend/models/find?fmt=cards&output_modalities=video on 2026-11-17 exposes /api/v1/videos with 1080p ($0.10/s) and 2K ($0.145/s) duration_seconds SKUs, motion_expressiveness passthrough, and required audio reference track plus reference image/video inputs; local video workspace does not yet expose driving audio reference upload."
+      "status_reason": "已适配 OpenRouter 异步 Video API 契约（1080p $0.10/秒、2K $0.145/秒）、驱动音频轨、人物参考图与/或参考视频组合上传以及 motion_expressiveness 透传参数；未执行真实付费调用，等待人工验收。",
+      "evidence": "GET https://openrouter.ai/api/v1/videos/models & openapi.json on 2026-11-19 confirm /api/v1/videos input_references (audio_url/image_url/video_url), 1080p ($0.10/s) and 2K ($0.145/s) duration_seconds SKUs, and heygen motion_expressiveness passthrough."
     },
     {
       "model_id": "heygen/heygen-avatar-6-turbo",
       "operation": "generate_video",
-      "status": "planned",
-      "verification_status": "contract_verified",
+      "status": "ready",
+      "verification_status": "adapted_contract",
       "support_level": "native",
-      "status_reason": "OpenRouter 异步 Video API 契约已审计（1080p $0.05/秒、2K $0.0875/秒，含 motion_expressiveness 透传）；因需提供外部驱动音轨及人物参考图/参考视频，当前本地视频工作台暂未开放该组合上传，等待专项界面适配与人工验收。",
-      "evidence": "GET https://openrouter.ai/api/frontend/models/find?fmt=cards&output_modalities=video on 2026-11-17 exposes /api/v1/videos with 1080p ($0.05/s) and 2K ($0.0875/s) duration_seconds SKUs, motion_expressiveness passthrough, and required audio reference track plus reference image/video inputs; local video workspace does not yet expose driving audio reference upload."
+      "status_reason": "已适配 OpenRouter 异步 Video API 契约（1080p $0.05/秒、2K $0.0875/秒）、驱动音频轨、人物参考图与/或参考视频组合上传以及 motion_expressiveness 透传参数；未执行真实付费调用，等待人工验收。",
+      "evidence": "GET https://openrouter.ai/api/v1/videos/models & openapi.json on 2026-11-19 confirm /api/v1/videos input_references (audio_url/image_url/video_url), 1080p ($0.05/s) and 2K ($0.0875/s) duration_seconds SKUs, and heygen motion_expressiveness passthrough."
     }
   ],
   "deferred_capabilities": [

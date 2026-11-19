@@ -702,6 +702,9 @@ async def create_video_job(
     first_frame: UploadFile | None = File(default=None),
     last_frame: UploadFile | None = File(default=None),
     reference_images: list[UploadFile] | None = File(default=None),
+    reference_audio_source_type: str | None = Form(default=None),
+    reference_audio: UploadFile | None = File(default=None),
+    reference_audio_url: str | None = Form(default=None),
     source_type: str | None = Form(default=None),
     source_video: UploadFile | None = File(default=None),
     source_video_url: str | None = Form(default=None),
@@ -731,6 +734,11 @@ async def create_video_job(
             await image.read(MAX_FIRST_FRAME_BYTES + 1)
             for image in reference_files
         ]
+        reference_audio_content = (
+            await reference_audio.read(MAX_AUDIO_BYTES + 1)
+            if reference_audio is not None
+            else None
+        )
         source_content = (
             await source_video.read(MAX_VIDEO_BYTES + 1)
             if source_video is not None
@@ -771,6 +779,19 @@ async def create_video_job(
                 image.content_type for image in reference_files
             ],
             reference_image_contents=reference_contents,
+            reference_audio_source_type=reference_audio_source_type,
+            reference_audio_filename=(
+                reference_audio.filename
+                if reference_audio is not None
+                else None
+            ),
+            reference_audio_content_type=(
+                reference_audio.content_type
+                if reference_audio is not None
+                else None
+            ),
+            reference_audio_content=reference_audio_content,
+            reference_audio_url=reference_audio_url,
             source_type=source_type,
             source_video_filename=(
                 source_video.filename if source_video is not None else None
@@ -795,6 +816,8 @@ async def create_video_job(
             await last_frame.close()
         for image in reference_files:
             await image.close()
+        if reference_audio is not None:
+            await reference_audio.close()
         if source_video is not None:
             await source_video.close()
 

@@ -76,6 +76,10 @@ VERIFIED_VIDEO_GENERATION_MODELS = frozenset(
         # Avatar IV 使用单张人物参考图且不发送未公开的音频上传字段，
         # Wan 3.0 支持 2–30 秒、首帧/参考图、生成音频与 seed。
         "heygen/avatar-iv",
+        # 2026-11-18：专用视频目录确认 1080p/2K、驱动音频轨、
+        # 单张人物参考图与/或参考视频组合及 motion_expressiveness 透传契约；未执行付费生成。
+        "heygen/heygen-avatar-6",
+        "heygen/heygen-avatar-6-turbo",
         # 2026-09-30：专用视频目录确认 480p/768p、5–15 秒、
         # 六种画幅、首帧、seed 与文本/参考素材分档价格；
         # 本地仅开放通用契约能严格表达的文本与首帧路径，未执行付费生成。
@@ -105,6 +109,13 @@ SOURCE_VIDEO_TASK_AUDIT: dict[str, Literal["edit", "upscale"]] = {
     "black-forest-labs/flux-video-edit": "edit",
     "black-forest-labs/flux-video-upscale": "upscale",
 }
+
+AVATAR_AUDIO_DRIVEN_AUDIT = frozenset(
+    {
+        "heygen/heygen-avatar-6",
+        "heygen/heygen-avatar-6-turbo",
+    }
+)
 
 
 class VideoProviderOption(BaseModel):
@@ -142,6 +153,8 @@ class VideoModelProfile(BaseModel):
     supports_seed: bool = False
     requires_source_video: bool = False
     source_video_task: Literal["edit", "upscale"] | None = None
+    requires_reference_audio: bool = False
+    supports_reference_video: bool = False
     upscale_factor: VideoUpscaleFactorRange | None = None
     creativity: list[int] = Field(default_factory=list)
     provider_options: list[VideoProviderOption] = Field(
@@ -163,6 +176,8 @@ REFERENCE_IMAGE_AUDIT: dict[str, int] = {
     "bytedance/seedance-2.5": 3,
     "bytedance/seedance-2.5-flash": 3,
     "heygen/avatar-iv": 1,
+    "heygen/heygen-avatar-6": 1,
+    "heygen/heygen-avatar-6-turbo": 1,
 }
 
 PROVIDER_OPTION_AUDIT: dict[
@@ -182,6 +197,30 @@ PROVIDER_OPTION_AUDIT: dict[
                 label="自动增强提示词",
                 type="boolean",
                 default=True,
+            ),
+        ),
+    ),
+    "heygen/heygen-avatar-6": (
+        "heygen",
+        (
+            VideoProviderOption(
+                key="motion_expressiveness",
+                label="动作表现力",
+                type="select",
+                options=["default", "less"],
+                default="default",
+            ),
+        ),
+    ),
+    "heygen/heygen-avatar-6-turbo": (
+        "heygen",
+        (
+            VideoProviderOption(
+                key="motion_expressiveness",
+                label="动作表现力",
+                type="select",
+                options=["default", "less"],
+                default="default",
             ),
         ),
     ),
@@ -381,6 +420,7 @@ class VideoCatalogService:
                 )
                 reference_limit = REFERENCE_IMAGE_AUDIT.get(model_id)
                 source_video_task = SOURCE_VIDEO_TASK_AUDIT.get(model_id)
+                avatar_audio_driven = model_id in AVATAR_AUDIO_DRIVEN_AUDIT
                 verified = model_id in VERIFIED_VIDEO_GENERATION_MODELS
                 status_reason = (
                     None
@@ -392,7 +432,9 @@ class VideoCatalogService:
                         model_id=model_id,
                         operation="generate_video",
                         supported_input_sources=(
-                            ["file", "url"] if source_video_task else []
+                            ["file", "url"]
+                            if (source_video_task or avatar_audio_driven)
+                            else []
                         ),
                         supported_resolutions=self._strings(
                             item.get("supported_resolutions")
@@ -418,6 +460,8 @@ class VideoCatalogService:
                         supports_seed=self._supports_seed(item),
                         requires_source_video=source_video_task is not None,
                         source_video_task=source_video_task,
+                        requires_reference_audio=avatar_audio_driven,
+                        supports_reference_video=avatar_audio_driven,
                         upscale_factor=upscale_factor,
                         creativity=self._creativity(item.get("creativity")),
                         provider_options=self._provider_options(

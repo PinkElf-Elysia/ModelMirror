@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel, Field
@@ -59,7 +60,13 @@ if TYPE_CHECKING:
             ManagedMultimodalGateway,
         )
 
-from .stt import MultimodalServiceError, OpenRouterTarget
+from .stt import (
+    ALLOWED_AUDIO_FORMATS,
+    MAX_AUDIO_BYTES,
+    MultimodalServiceError,
+    OpenRouterTarget,
+    _signature_matches as audio_signature_matches,
+)
 from .video_analysis import video_file_data_url, validated_video_url
 from .video_catalog import (
     PROVIDER_OPTION_AUDIT,
@@ -106,6 +113,17 @@ FIRST_FRAME_FORMATS: dict[str, tuple[str, tuple[str, ...]]] = {
     "webp": ("image/webp", ("image/webp", "application/octet-stream")),
 }
 
+MAX_REFERENCE_AUDIO_URL_CHARS = 2_048
+AUDIO_REFERENCE_MIME_TYPES: dict[str, str] = {
+    "wav": "audio/wav",
+    "mp3": "audio/mpeg",
+    "flac": "audio/flac",
+    "m4a": "audio/mp4",
+    "ogg": "audio/ogg",
+    "webm": "audio/webm",
+    "aac": "audio/aac",
+}
+
 SAFE_JOB_ERRORS: dict[str, str] = {
     "provider_generation_failed": (
         "视频生成未成功，请调整提示词或参数后重新提交。"
@@ -141,6 +159,7 @@ class VideoJobParameters(BaseModel):
     has_first_frame: bool = False
     has_last_frame: bool = False
     reference_image_count: int = 0
+    has_reference_audio: bool = False
     has_source_video: bool = False
     upscale_factor: float | None = None
     creativity: int | None = None
@@ -663,6 +682,11 @@ class VideoJobService:
         reference_image_filenames: list[str] | None = None,
         reference_image_content_types: list[str | None] | None = None,
         reference_image_contents: list[bytes] | None = None,
+        reference_audio_source_type: str | None = None,
+        reference_audio_filename: str | None = None,
+        reference_audio_content_type: str | None = None,
+        reference_audio_content: bytes | None = None,
+        reference_audio_url: str | None = None,
         source_type: str | None = None,
         source_video_filename: str | None = None,
         source_video_content_type: str | None = None,
@@ -710,6 +734,9 @@ class VideoJobService:
                 clean_model,
                 force=bool(
                     provider_options
+                    or reference_audio_source_type
+                    or reference_audio_filename
+                    or reference_audio_url
                     or source_type
                     or source_video_filename
                     or source_video_url
@@ -721,9 +748,19 @@ class VideoJobService:
         clean_prompt = self._prompt(
             prompt,
             required=(
-                not profile.requires_source_video
+                (
+                    not profile.requires_source_video
+                    and not profile.requires_reference_audio
+                )
                 or profile.source_video_task == "edit"
             ),
+        )
+        reference_audio = self._reference_audio(
+            source_type=reference_audio_source_type,
+            filename=reference_audio_filename,
+            content_type=reference_audio_content_type,
+            content=reference_audio_content,
+            audio_url=reference_audio_url,
         )
         source_video = self._source_video(
             source_type=source_type,
@@ -783,6 +820,7 @@ class VideoJobService:
             has_first_frame=frame_data_url is not None,
             has_last_frame=last_frame_data_url is not None,
             reference_image_count=len(reference_data_urls),
+            has_reference_audio=reference_audio is not None,
             has_source_video=source_video is not None,
             upscale_factor=upscale_factor,
             creativity=creativity,
@@ -808,6 +846,8 @@ class VideoJobService:
                 status_code=422,
             )
         stored_option_keys = list(provider_option_keys)
+        if reference_audio is not None:
+            stored_option_keys.append("reference_audio")
         if source_video is not None:
             stored_option_keys.append("source_video")
         if upscale_factor is not None:
@@ -846,21 +886,30 @@ class VideoJobService:
             )
         if frame_images:
             payload["frame_images"] = frame_images
-        if reference_data_urls:
-            payload["input_references"] = [
+        input_references: list[dict[str, object]] = []
+        if reference_audio:
+            input_references.append(
+                {
+                    "type": "audio_url",
+                    "audio_url": {"url": reference_audio},
+                }
+            )
+        for data_url in reference_data_urls:
+            input_references.append(
                 {
                     "type": "image_url",
                     "image_url": {"url": data_url},
                 }
-                for data_url in reference_data_urls
-            ]
+            )
         if source_video:
-            payload["input_references"] = [
+            input_references.append(
                 {
                     "type": "video_url",
                     "video_url": {"url": source_video},
                 }
-            ]
+            )
+        if input_references:
+            payload["input_references"] = input_references
         if upscale_factor is not None:
             payload["upscale_factor"] = upscale_factor
         if creativity is not None:
@@ -872,6 +921,7 @@ class VideoJobService:
             + len(first_frame_content or b"")
             + len(last_frame_content or b"")
             + sum(len(content) for content in (reference_image_contents or []))
+            + len(reference_audio_content or b"")
             + len(source_video_content or b"")
         )
         if managed_mode:
@@ -1739,6 +1789,7 @@ class VideoJobService:
         has_first_frame: bool,
         has_last_frame: bool,
         reference_image_count: int,
+        has_reference_audio: bool = False,
         has_source_video: bool,
         upscale_factor: float | None,
         creativity: int | None,
@@ -1761,6 +1812,7 @@ class VideoJobService:
                         has_first_frame,
                         has_last_frame,
                         reference_image_count > 0,
+                        has_reference_audio,
                         upscale_factor is not None,
                         creativity is not None,
                     )
@@ -1800,6 +1852,7 @@ class VideoJobService:
                     has_first_frame,
                     has_last_frame,
                     reference_image_count > 0,
+                    has_reference_audio,
                 )
             ):
                 raise MultimodalServiceError(
@@ -1808,7 +1861,30 @@ class VideoJobService:
                     status_code=422,
                 )
             return
-        if has_source_video or upscale_factor is not None or creativity is not None:
+        if profile.requires_reference_audio:
+            if not has_reference_audio:
+                raise MultimodalServiceError(
+                    "reference_audio_required",
+                    "该数字人模型必须提供 1 段驱动音频。",
+                    status_code=422,
+                )
+            if reference_image_count <= 0 and not has_source_video:
+                raise MultimodalServiceError(
+                    "avatar_subject_required",
+                    "请至少提供 1 张人物参考图或 1 段参考视频（也可同时提供同人照片与参考视频）。",
+                    status_code=422,
+                )
+        elif has_reference_audio:
+            raise MultimodalServiceError(
+                "reference_audio_unsupported",
+                "所选模型不支持驱动音频上传，请移除音频或更换模型。",
+                status_code=422,
+            )
+        if (
+            (has_source_video and not profile.supports_reference_video)
+            or upscale_factor is not None
+            or creativity is not None
+        ):
             raise MultimodalServiceError(
                 "video_upscale_unsupported",
                 "所选模型不支持源视频增强，请移除增强参数或更换模型。",
@@ -2014,6 +2090,111 @@ class VideoJobService:
         return (
             per_second * duration
             + image_input_cents * image_input_count / 100
+        )
+
+    @staticmethod
+    def _validated_audio_url(value: str) -> str:
+        url = str(value or "").strip()
+        if len(url) > MAX_REFERENCE_AUDIO_URL_CHARS:
+            raise MultimodalServiceError(
+                "invalid_audio_url",
+                "音频网址过长，请使用有效的 HTTPS 音频直链。",
+                status_code=422,
+            )
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.fragment
+        ):
+            raise MultimodalServiceError(
+                "invalid_audio_url",
+                "仅支持不含账号信息的 HTTPS 音频直链。",
+                status_code=422,
+            )
+        return url
+
+    @classmethod
+    def _reference_audio(
+        cls,
+        *,
+        source_type: str | None,
+        filename: str | None,
+        content_type: str | None,
+        content: bytes | None,
+        audio_url: str | None,
+    ) -> str | None:
+        supplied = any(
+            value is not None
+            for value in (
+                source_type,
+                filename,
+                content_type,
+                content,
+                audio_url,
+            )
+        )
+        if not supplied:
+            return None
+        if source_type == "file":
+            if audio_url or not filename or content is None:
+                raise MultimodalServiceError(
+                    "invalid_audio_source",
+                    "请只提交一种驱动音频来源：本地文件或 HTTPS 音频网址。",
+                    status_code=422,
+                )
+            if not content:
+                raise MultimodalServiceError(
+                    "empty_audio",
+                    "驱动音频文件为空，请重新选择文件。",
+                    status_code=422,
+                )
+            if len(content) > MAX_AUDIO_BYTES:
+                raise MultimodalServiceError(
+                    "audio_too_large",
+                    "驱动音频不能超过 25 MiB，请压缩或缩短后重试。",
+                    status_code=413,
+                )
+            extension = Path(filename).suffix.lower().lstrip(".")
+            allowed_types = ALLOWED_AUDIO_FORMATS.get(extension)
+            if allowed_types is None:
+                raise MultimodalServiceError(
+                    "unsupported_audio_format",
+                    "驱动音频仅支持 WAV、MP3、FLAC、M4A、OGG、WebM 和 AAC。",
+                    status_code=422,
+                )
+            clean_type = str(
+                content_type or "application/octet-stream"
+            ).split(";", 1)[0].strip().lower()
+            if clean_type not in allowed_types:
+                raise MultimodalServiceError(
+                    "audio_type_mismatch",
+                    "音频扩展名与文件类型不一致，请重新导出音频后重试。",
+                    status_code=422,
+                )
+            if not audio_signature_matches(extension, content):
+                raise MultimodalServiceError(
+                    "invalid_audio_file",
+                    "驱动音频内容无效或与扩展名不一致，请重新选择有效的音频文件。",
+                    status_code=422,
+                )
+            media_type = AUDIO_REFERENCE_MIME_TYPES[extension]
+            encoded = base64.b64encode(content).decode("ascii")
+            return f"data:{media_type};base64,{encoded}"
+        if source_type == "url":
+            if filename or content_type or content is not None or not audio_url:
+                raise MultimodalServiceError(
+                    "invalid_audio_source",
+                    "请只提交一种驱动音频来源：本地文件或 HTTPS 音频网址。",
+                    status_code=422,
+                )
+            return cls._validated_audio_url(audio_url)
+        raise MultimodalServiceError(
+            "invalid_audio_source",
+            "请选择上传本地驱动音频或使用 HTTPS 音频网址。",
+            status_code=422,
         )
 
     @staticmethod
@@ -2288,18 +2469,32 @@ class VideoJobService:
                         status_code=422,
                     )
                 normalized[key] = value
+            elif definition.type == "select":
+                if (
+                    not isinstance(value, str)
+                    or value not in definition.options
+                ):
+                    raise MultimodalServiceError(
+                        "invalid_provider_option_value",
+                        f"“{definition.label}”必须是模型支持的选项之一。",
+                        status_code=422,
+                    )
+                normalized[key] = value
             else:
                 raise MultimodalServiceError(
                     "provider_option_not_implemented",
                     "该高级参数尚未完成安全适配，请关闭后重试。",
                     status_code=422,
                 )
+        options_body: dict[str, object] = (
+            {"parameters": normalized}
+            if provider_slug == "google-vertex"
+            else normalized
+        )
         return (
             {
                 "options": {
-                    provider_slug: {
-                        "parameters": normalized,
-                    }
+                    provider_slug: options_body,
                 }
             },
             sorted(normalized),
@@ -2665,6 +2860,7 @@ class VideoJobService:
             dispatch_state = ""
         (
             provider_option_keys,
+            has_reference_audio,
             has_source_video,
             upscale_factor,
             creativity,
@@ -2689,7 +2885,7 @@ class VideoJobService:
                     "upscale"
                     if upscale_factor is not None
                     else "edit"
-                    if has_source_video
+                    if has_source_video and not has_reference_audio
                     else "generate"
                 ),
                 duration=(
@@ -2713,6 +2909,7 @@ class VideoJobService:
                 reference_image_count=max(
                     0, int(row.get("reference_image_count") or 0)
                 ),
+                has_reference_audio=has_reference_audio,
                 has_source_video=has_source_video,
                 upscale_factor=upscale_factor,
                 creativity=creativity,
@@ -2836,13 +3033,14 @@ class VideoJobService:
     @staticmethod
     def _stored_parameter_metadata(
         raw: object,
-    ) -> tuple[list[str], bool, float | None, int | None]:
+    ) -> tuple[list[str], bool, bool, float | None, int | None]:
         try:
             values = json.loads(str(raw or "[]"))
         except (TypeError, ValueError):
-            return [], False, None, None
+            return [], False, False, None, None
         if not isinstance(values, list):
-            return [], False, None, None
+            return [], False, False, None, None
+        has_reference_audio = "reference_audio" in values
         has_source_video = "source_video" in values
         upscale_factor: float | None = None
         creativity: int | None = None
@@ -2865,10 +3063,16 @@ class VideoJobService:
                 for value in values
                 if isinstance(value, str)
                 and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", value)
-                and value != "source_video"
+                and value not in {"source_video", "reference_audio"}
             }
         )
-        return option_keys, has_source_video, upscale_factor, creativity
+        return (
+            option_keys,
+            has_reference_audio,
+            has_source_video,
+            upscale_factor,
+            creativity,
+        )
 
     @staticmethod
     def _not_found() -> MultimodalServiceError:

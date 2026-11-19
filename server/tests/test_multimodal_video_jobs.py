@@ -16,12 +16,14 @@ from httpx import (
     Response,
 )
 
+from server.model_router.egress import ProviderEgressPolicy
 from server.model_router.repository import SCHEMA_VERSION, SQLiteRouterRepository
 from server.model_router.schemas import RouterConnectionCreate
 from server.model_router.service import ModelRouterService
 from server.multimodal.api import configure_video_job_service, router
 from server.multimodal.stt import MultimodalServiceError, OpenRouterTarget
 from server.multimodal.video_catalog import (
+    VideoCatalogService,
     VideoModelCatalogResponse,
     VideoModelProfile,
     VideoProviderOption,
@@ -93,6 +95,8 @@ class StubCatalog:
         pricing_skus: dict[str, str] | None = None,
         requires_source_video: bool = False,
         source_video_task: Literal["edit", "upscale"] | None = None,
+        requires_reference_audio: bool = False,
+        supports_reference_video: bool = False,
         upscale_factor: tuple[float, float] | None = None,
         creativity: list[int] | None = None,
         catalog_status: Literal[
@@ -126,13 +130,17 @@ class StubCatalog:
             supports_generated_audio=supports_generated_audio,
             supports_seed=supports_seed,
             supported_input_sources=(
-                ["file", "url"] if requires_source_video else []
+                ["file", "url"]
+                if (requires_source_video or requires_reference_audio)
+                else []
             ),
             requires_source_video=requires_source_video,
             source_video_task=(
                 source_video_task
                 or ("upscale" if requires_source_video else None)
             ),
+            requires_reference_audio=requires_reference_audio,
+            supports_reference_video=supports_reference_video,
             upscale_factor=(
                 VideoUpscaleFactorRange(
                     min=upscale_factor[0], max=upscale_factor[1]
@@ -1262,6 +1270,7 @@ async def test_api_accepts_flux_upscale_multipart_contract(
         "has_first_frame": False,
         "has_last_frame": False,
         "reference_image_count": 0,
+        "has_reference_audio": False,
         "has_source_video": True,
         "upscale_factor": 2.5,
         "creativity": 1,
@@ -1517,3 +1526,348 @@ async def test_adapter_content_uses_authenticated_derived_endpoint() -> None:
     assert requests[0].headers["authorization"] == (
         "Bearer content-proxy-secret"
     )
+
+
+WAV_AUDIO = b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model_id", "rate_1080p", "rate_2k"),
+    [
+        ("heygen/heygen-avatar-6", "0.1", "0.145"),
+        ("heygen/heygen-avatar-6-turbo", "0.05", "0.0875"),
+    ],
+)
+async def test_heygen_avatar_6_catalog_and_submission_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    model_id: str,
+    rate_1080p: str,
+    rate_2k: str,
+) -> None:
+    monkeypatch.delenv("MULTIMODAL_VIDEO_ANALYSIS_ENABLED", raising=False)
+    monkeypatch.setenv("MULTIMODAL_VIDEO_GENERATION_ENABLED", "true")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    router_instance = router_service(tmp_path)
+    router_instance.egress_policy = ProviderEgressPolicy(
+        resolver=lambda _host, _port: ["8.8.8.8"]
+    )
+
+    def handler(request: Request) -> Response:
+        assert request.url.path.endswith("/videos/models")
+        return Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": model_id,
+                        "supported_resolutions": ["1080p", "2K"],
+                        "supported_aspect_ratios": None,
+                        "supported_sizes": None,
+                        "supported_durations": None,
+                        "supported_frame_images": None,
+                        "generate_audio": False,
+                        "seed": False,
+                        "pricing_skus": {
+                            "duration_seconds_1080p": rate_1080p,
+                            "duration_seconds_2k": rate_2k,
+                        },
+                        "allowed_passthrough_parameters": [
+                            "motion_expressiveness"
+                        ],
+                    }
+                ]
+            },
+        )
+
+    catalog = VideoCatalogService(
+        router_instance,
+        client_factory=lambda: httpx.AsyncClient(
+            transport=MockTransport(handler)
+        ),
+    )
+    response = await catalog.get_catalog(force=True)
+    assert len(response.profiles) == 1
+    profile = response.profiles[0]
+    assert profile.model_id == model_id
+    assert profile.interaction_status == "ready"
+    assert profile.requires_reference_audio is True
+    assert profile.supports_reference_video is True
+    assert profile.supports_reference_images is True
+    assert profile.max_reference_images == 1
+    assert profile.supported_input_sources == ["file", "url"]
+    assert len(profile.provider_options) == 1
+    assert profile.provider_options[0].key == "motion_expressiveness"
+    assert profile.provider_options[0].type == "select"
+    assert profile.provider_options[0].options == ["default", "less"]
+
+    adapter = FakeAdapter()
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+
+    # 1) Driving audio file + reference photo + motion_expressiveness + empty motion prompt
+    job = await service.create(
+        model_id=model_id,
+        prompt="",
+        resolution="1080p",
+        reference_audio_source_type="file",
+        reference_audio_filename="speech.wav",
+        reference_audio_content_type="audio/wav",
+        reference_audio_content=WAV_AUDIO,
+        reference_image_filenames=["avatar.png"],
+        reference_image_content_types=["image/png"],
+        reference_image_contents=[PNG],
+        provider_options={"motion_expressiveness": "less"},
+        idempotency_key=f"{model_id.replace('/', '-')}-audio-photo-0001",
+    )
+
+    payload = adapter.submit_calls[0]
+    assert payload["model"] == model_id
+    assert payload["resolution"] == "1080p"
+    assert "prompt" not in payload
+    assert "duration" not in payload
+    assert payload["provider"] == {
+        "options": {"heygen": {"motion_expressiveness": "less"}}
+    }
+    references = payload["input_references"]
+    assert isinstance(references, list)
+    assert [ref["type"] for ref in references] == ["audio_url", "image_url"]
+    assert references[0]["audio_url"]["url"].startswith("data:audio/wav;base64,")
+    assert references[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert job.parameters.task_type == "generate"
+    assert job.parameters.has_reference_audio is True
+    assert job.parameters.reference_image_count == 1
+    assert job.parameters.has_source_video is False
+    assert job.parameters.provider_option_keys == ["motion_expressiveness"]
+
+    # 2) Driving audio URL + same-person photo + reference video + motion prompt
+    combined_job = await service.create(
+        model_id=model_id,
+        prompt="Keep head movement calm and natural.",
+        resolution="2K",
+        reference_audio_source_type="url",
+        reference_audio_url="https://example.com/driving-track.mp3",
+        reference_image_filenames=["avatar.png"],
+        reference_image_content_types=["image/png"],
+        reference_image_contents=[PNG],
+        source_type="file",
+        source_video_filename="clip.mp4",
+        source_video_content_type="video/mp4",
+        source_video_content=VIDEO,
+        idempotency_key=f"{model_id.replace('/', '-')}-combined-0002",
+    )
+
+    combined_payload = adapter.submit_calls[1]
+    assert combined_payload["resolution"] == "2K"
+    assert combined_payload["prompt"] == "Keep head movement calm and natural."
+    combined_refs = combined_payload["input_references"]
+    assert isinstance(combined_refs, list)
+    assert [ref["type"] for ref in combined_refs] == [
+        "audio_url",
+        "image_url",
+        "video_url",
+    ]
+    assert combined_refs[0]["audio_url"]["url"] == (
+        "https://example.com/driving-track.mp3"
+    )
+    assert combined_job.parameters.task_type == "generate"
+    assert combined_job.parameters.has_reference_audio is True
+    assert combined_job.parameters.reference_image_count == 1
+    assert combined_job.parameters.has_source_video is True
+
+    # Ensure raw media, URLs, and prompt text are never stored in SQLite
+    with sqlite3.connect(
+        service.router_service.repository.database_path
+    ) as connection:
+        dump = "\n".join(connection.iterdump())
+    assert "driving-track.mp3" not in dump
+    assert "Keep head movement" not in dump
+    assert "WAVEfmt" not in dump
+
+
+@pytest.mark.asyncio
+async def test_heygen_avatar_6_validation_guards(tmp_path: Path) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="heygen/heygen-avatar-6",
+        supports_first_frame=False,
+        supports_last_frame=False,
+        supports_generated_audio=False,
+        supports_seed=False,
+        supports_reference_images=True,
+        max_reference_images=1,
+        requires_reference_audio=True,
+        supports_reference_video=True,
+        provider_options=[
+            VideoProviderOption(
+                key="motion_expressiveness",
+                label="动作表现力",
+                type="select",
+                options=["default", "less"],
+                default="default",
+            )
+        ],
+    )
+    catalog.profile.supported_resolutions = ["1080p", "2K"]
+    catalog.profile.supported_aspect_ratios = []
+    catalog.profile.supported_durations = []
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+
+    with pytest.raises(MultimodalServiceError) as missing_audio:
+        await service.create(
+            model_id="heygen/heygen-avatar-6",
+            prompt="",
+            resolution="1080p",
+            reference_image_filenames=["avatar.png"],
+            reference_image_content_types=["image/png"],
+            reference_image_contents=[PNG],
+            idempotency_key="avatar6-missing-audio-0001",
+        )
+    assert missing_audio.value.code == "reference_audio_required"
+
+    with pytest.raises(MultimodalServiceError) as missing_subject:
+        await service.create(
+            model_id="heygen/heygen-avatar-6",
+            prompt="",
+            resolution="1080p",
+            reference_audio_source_type="url",
+            reference_audio_url="https://example.com/audio.mp3",
+            idempotency_key="avatar6-missing-subject-0001",
+        )
+    assert missing_subject.value.code == "avatar_subject_required"
+
+    with pytest.raises(MultimodalServiceError) as bad_option:
+        await service.create(
+            model_id="heygen/heygen-avatar-6",
+            prompt="",
+            resolution="1080p",
+            reference_audio_source_type="url",
+            reference_audio_url="https://example.com/audio.mp3",
+            reference_image_filenames=["avatar.png"],
+            reference_image_content_types=["image/png"],
+            reference_image_contents=[PNG],
+            provider_options={"motion_expressiveness": "extreme"},
+            idempotency_key="avatar6-bad-option-0001",
+        )
+    assert bad_option.value.code == "invalid_provider_option_value"
+
+    with pytest.raises(MultimodalServiceError) as bad_audio:
+        await service.create(
+            model_id="heygen/heygen-avatar-6",
+            prompt="",
+            resolution="1080p",
+            reference_audio_source_type="file",
+            reference_audio_filename="fake.wav",
+            reference_audio_content_type="audio/wav",
+            reference_audio_content=b"not-a-real-wav-file",
+            reference_image_filenames=["avatar.png"],
+            reference_image_content_types=["image/png"],
+            reference_image_contents=[PNG],
+            idempotency_key="avatar6-bad-audio-0001",
+        )
+    assert bad_audio.value.code == "invalid_audio_file"
+
+    # Non-avatar model rejects driving audio upload
+    standard_catalog = StubCatalog(router_instance, model_id="google/veo-test")
+    standard_service = VideoJobService(
+        router_instance, standard_catalog, adapter=adapter
+    )
+    with pytest.raises(MultimodalServiceError) as unsupported_audio:
+        await standard_service.create(
+            model_id="google/veo-test",
+            prompt="A sunrise over the ocean",
+            resolution="720p",
+            duration=5,
+            reference_audio_source_type="url",
+            reference_audio_url="https://example.com/audio.mp3",
+            idempotency_key="veo-unsupported-audio-0001",
+        )
+    assert unsupported_audio.value.code == "reference_audio_unsupported"
+    assert len(adapter.submit_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_api_accepts_heygen_avatar_6_multipart_contract(
+    tmp_path: Path,
+) -> None:
+    router_instance = router_service(tmp_path)
+    adapter = FakeAdapter()
+    catalog = StubCatalog(
+        router_instance,
+        model_id="heygen/heygen-avatar-6-turbo",
+        supports_first_frame=False,
+        supports_last_frame=False,
+        supports_generated_audio=False,
+        supports_seed=False,
+        supports_reference_images=True,
+        max_reference_images=1,
+        requires_reference_audio=True,
+        supports_reference_video=True,
+        provider_options=[
+            VideoProviderOption(
+                key="motion_expressiveness",
+                label="动作表现力",
+                type="select",
+                options=["default", "less"],
+                default="default",
+            )
+        ],
+    )
+    catalog.profile.supported_resolutions = ["1080p", "2K"]
+    catalog.profile.supported_aspect_ratios = []
+    catalog.profile.supported_durations = []
+    service = VideoJobService(router_instance, catalog, adapter=adapter)
+    configure_video_job_service(service)
+    app = FastAPI()
+    app.include_router(router)
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as client:
+            response = await client.post(
+                "/api/multimodal/video/jobs",
+                data={
+                    "model_id": "heygen/heygen-avatar-6-turbo",
+                    "idempotency_key": "api-avatar-6-turbo-0001",
+                    "resolution": "1080p",
+                    "reference_audio_source_type": "file",
+                    "source_type": "file",
+                    "provider_options": '{"motion_expressiveness": "less"}',
+                },
+                files=[
+                    ("reference_audio", ("speech.wav", WAV_AUDIO, "audio/wav")),
+                    ("reference_images", ("avatar.png", PNG, "image/png")),
+                    ("source_video", ("ref.mp4", VIDEO, "video/mp4")),
+                ],
+            )
+    finally:
+        configure_video_job_service(None)
+
+    assert response.status_code == 200
+    assert response.json()["parameters"] == {
+        "task_type": "generate",
+        "duration": None,
+        "resolution": "1080p",
+        "aspect_ratio": None,
+        "generate_audio": False,
+        "has_first_frame": False,
+        "has_last_frame": False,
+        "reference_image_count": 1,
+        "has_reference_audio": True,
+        "has_source_video": True,
+        "upscale_factor": None,
+        "creativity": None,
+        "provider_option_keys": ["motion_expressiveness"],
+    }
+    submitted = adapter.submit_calls[0]
+    assert [ref["type"] for ref in submitted["input_references"]] == [
+        "audio_url",
+        "image_url",
+        "video_url",
+    ]
+    assert submitted["provider"] == {
+        "options": {"heygen": {"motion_expressiveness": "less"}}
+    }

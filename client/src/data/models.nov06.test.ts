@@ -414,11 +414,48 @@ describe("November 6 refresh", () => {
       expect(models.findIndex((model) => model.id === id)).toBeGreaterThanOrEqual(20);
       expect(models.find((model) => model.id === id)).toMatchObject({
         primary_operation: "generate_video",
-        interaction_status: "planned",
-        ui_entrypoint: "planned",
+        interaction_status: "ready",
+        ui_entrypoint: "multimodal",
         pricing_basis: "media",
         pricing_status: "dynamic",
         catalog_status: "live",
+      });
+    }
+  });
+
+  it("places Gemini 4 Neon in the front six rows, demotes Fable 5.1, and attaches November 18 Batch variants", () => {
+    const neonIndex = models.findIndex((m) => m.id === "google/gemini-4-neon");
+    expect(neonIndex).toBe(17);
+    expect(neonIndex).toBeLessThan(20);
+    expect(models.findIndex((m) => m.id === "anthropic/claude-fable-5.1")).toBeGreaterThanOrEqual(20);
+    expect(models[neonIndex]).toMatchObject({
+      context_length: 1_048_576,
+      pricing: { input: 3, output: 15 },
+      input_modalities: ["audio", "file", "image", "text", "video"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      reasoning_declared: true,
+      catalog_status: "live",
+    });
+    expect(models[neonIndex]?.serving_variants.find((v) => v.type === "batch")).toMatchObject({
+      catalog_id: "google/gemini-4-neon:batch",
+      request_model_id: "google/gemini-4-neon",
+      pricing: { input: 1.5, output: 7.5 },
+    });
+    for (const [id, batchIn, batchOut] of [
+      ["openai/gpt-6.2-astra", 4, 20],
+      ["openai/gpt-6.2-astra-pro", 4, 20],
+      ["openai/gpt-6.2-sol", 1, 5],
+      ["openai/gpt-6.2-sol-pro", 1, 5],
+    ] as const) {
+      expect(
+        models.find((m) => m.id === id)?.serving_variants.find((v) => v.type === "batch"),
+      ).toMatchObject({
+        catalog_id: `${id}:batch`,
+        request_model_id: id,
+        pricing: { input: batchIn, output: batchOut },
       });
     }
   });

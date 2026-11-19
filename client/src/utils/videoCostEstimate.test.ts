@@ -265,6 +265,65 @@ describe("estimateVideoCost", () => {
       }),
     ).toBeNull();
   });
+
+  it("prices HeyGen Avatar 6 and Avatar 6 Turbo 1080p and 2K unit rates", () => {
+    const avatar6 = {
+      supported_resolutions: ["1080p", "2K"],
+      supported_aspect_ratios: [],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds_1080p: "0.1",
+        duration_seconds_2k: "0.145",
+      },
+    };
+    const avatar6Turbo = {
+      supported_resolutions: ["1080p", "2K"],
+      supported_aspect_ratios: [],
+      supported_sizes: [],
+      pricing_skus: {
+        duration_seconds_1080p: "0.05",
+        duration_seconds_2k: "0.0875",
+      },
+    };
+
+    expect(
+      videoGenerationUnitRate(avatar6, {
+        resolution: "1080p",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.1);
+    expect(
+      videoGenerationUnitRate(avatar6, {
+        resolution: "2K",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.145);
+    expect(
+      videoGenerationUnitRate(avatar6Turbo, {
+        resolution: "1080p",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.05);
+    expect(
+      videoGenerationUnitRate(avatar6Turbo, {
+        resolution: "2K",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBe(0.0875);
+    expect(
+      estimateVideoCost(avatar6, {
+        duration: null,
+        resolution: "1080p",
+        aspectRatio: "",
+        generateAudio: false,
+        imageInputCount: 1,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("estimateVideoUpscaleCost", () => {

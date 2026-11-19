@@ -22,10 +22,20 @@ const MAX_PROMPT_CHARS = 4_000;
 const MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_COUNT = 3;
+const MAX_REFERENCE_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_SOURCE_VIDEO_BYTES = 20 * 1024 * 1024;
 const POLL_DELAYS = [30_000, 60_000, 120_000] as const;
 const ACTIVE_STATUSES = new Set<VideoJobStatus>(["queued", "running"]);
 const FIRST_FRAME_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+const REFERENCE_AUDIO_EXTENSIONS = new Set([
+  "wav",
+  "mp3",
+  "flac",
+  "m4a",
+  "ogg",
+  "webm",
+  "aac",
+]);
 const SOURCE_VIDEO_EXTENSIONS = new Set(["mp4", "mpeg", "mpg", "mov", "webm"]);
 
 type VideoJobStatus =
@@ -64,6 +74,8 @@ interface VideoModelProfile {
   supports_seed: boolean;
   requires_source_video: boolean;
   source_video_task: "edit" | "upscale" | null;
+  requires_reference_audio?: boolean;
+  supports_reference_video?: boolean;
   upscale_factor: { min: number; max: number } | null;
   creativity: number[];
   provider_options: VideoProviderOption[];
@@ -96,6 +108,7 @@ interface VideoJob {
     has_first_frame: boolean;
     has_last_frame: boolean;
     reference_image_count: number;
+    has_reference_audio?: boolean;
     has_source_video: boolean;
     upscale_factor: number | null;
     creativity: number | null;
@@ -234,6 +247,8 @@ function formatCost(job: VideoJob) {
 function resolutionRank(value: string) {
   const normalized = value.trim().toLowerCase();
   if (normalized === "4k") return 2160;
+  if (normalized === "2k") return 1440;
+  if (normalized === "1k") return 720;
   const match = normalized.match(/^(\d+)p$/);
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
 }
@@ -288,6 +303,44 @@ function validateGenerationImage(file: File, label: string) {
   return "";
 }
 
+function validateReferenceAudio(file: File) {
+  if (!REFERENCE_AUDIO_EXTENSIONS.has(fileExtension(file))) {
+    return "驱动音频只支持 WAV、MP3、FLAC、M4A、OGG、WebM 和 AAC。";
+  }
+  if (file.size <= 0) return "驱动音频没有可读取的内容。";
+  if (file.size > MAX_REFERENCE_AUDIO_BYTES) {
+    return "驱动音频超过 25 MiB，请压缩或缩短后重试。";
+  }
+  return "";
+}
+
+function readReferenceAudioDuration(file: File) {
+  return new Promise<number | null>((resolve) => {
+    const audio = document.createElement("audio");
+    const url = URL.createObjectURL(file);
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      audio.removeAttribute("src");
+      audio.load();
+    };
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const durationSeconds = audio.duration;
+      cleanup();
+      resolve(
+        Number.isFinite(durationSeconds) && durationSeconds > 0
+          ? durationSeconds
+          : null,
+      );
+    };
+    audio.onerror = () => {
+      cleanup();
+      resolve(null);
+    };
+    audio.src = url;
+  });
+}
+
 function validateSourceVideo(file: File) {
   if (!SOURCE_VIDEO_EXTENSIONS.has(fileExtension(file))) {
     return "源视频只支持 MP4、MPEG、MOV 和 WebM。";
@@ -337,11 +390,23 @@ function generationModeLabel({
   hasFirstFrame,
   hasLastFrame,
   referenceImageCount,
+  hasReferenceAudio,
+  hasReferenceVideo,
 }: {
   hasFirstFrame: boolean;
   hasLastFrame: boolean;
   referenceImageCount: number;
+  hasReferenceAudio?: boolean;
+  hasReferenceVideo?: boolean;
 }) {
+  if (hasReferenceAudio) {
+    if (referenceImageCount > 0 && hasReferenceVideo) {
+      return "音频驱动数字人（照片 + 参考视频）";
+    }
+    if (hasReferenceVideo) return "音频驱动数字人（参考视频）";
+    if (referenceImageCount > 0) return "音频驱动数字人（人物照片）";
+    return "音频驱动数字人";
+  }
   if (referenceImageCount > 0) return "参考图生成";
   if (hasFirstFrame && hasLastFrame) return "首尾帧生成";
   if (hasFirstFrame) return "首帧图生视频";
@@ -375,6 +440,15 @@ export default function VideoGenerationWorkspace({
   const [referenceImages, setReferenceImages] = useState<
     SelectedReferenceImage[]
   >([]);
+  const [referenceAudioSourceType, setReferenceAudioSourceType] = useState<
+    "file" | "url"
+  >("file");
+  const [referenceAudio, setReferenceAudio] = useState<File | null>(null);
+  const [referenceAudioPreviewUrl, setReferenceAudioPreviewUrl] = useState("");
+  const [referenceAudioUrl, setReferenceAudioUrl] = useState("");
+  const [referenceAudioDuration, setReferenceAudioDuration] = useState<
+    number | null
+  >(null);
   const [sourceType, setSourceType] = useState<"file" | "url">("file");
   const [sourceVideo, setSourceVideo] = useState<File | null>(null);
   const [sourceVideoUrl, setSourceVideoUrl] = useState("");
@@ -405,6 +479,7 @@ export default function VideoGenerationWorkspace({
   const firstFrameInputRef = useRef<HTMLInputElement>(null);
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
+  const referenceAudioInputRef = useRef<HTMLInputElement>(null);
   const sourceVideoInputRef = useRef<HTMLInputElement>(null);
   const referenceReplaceIndexRef = useRef<number | null>(null);
   const referenceImagesRef = useRef<SelectedReferenceImage[]>([]);
@@ -463,6 +538,16 @@ export default function VideoGenerationWorkspace({
     setLastFrameUrl(nextUrl);
     return () => URL.revokeObjectURL(nextUrl);
   }, [lastFrame]);
+
+  useEffect(() => {
+    if (!referenceAudio) {
+      setReferenceAudioPreviewUrl("");
+      return undefined;
+    }
+    const nextUrl = URL.createObjectURL(referenceAudio);
+    setReferenceAudioPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [referenceAudio]);
 
   const loadJobs = useCallback(async () => {
     const response = await fetch("/api/multimodal/video/jobs");
@@ -556,6 +641,19 @@ export default function VideoGenerationWorkspace({
         nextProfile.supported_frame_types.includes("last_frame");
       if (!supportsFirst) setFirstFrame(null);
       if (!supportsLast) setLastFrame(null);
+      if (!nextProfile.requires_reference_audio) {
+        setReferenceAudio(null);
+        setReferenceAudioUrl("");
+        setReferenceAudioDuration(null);
+      }
+      if (
+        !nextProfile.requires_source_video &&
+        !nextProfile.supports_reference_video
+      ) {
+        setSourceVideo(null);
+        setSourceVideoUrl("");
+        setSourceVideoMetadata(null);
+      }
       setReferenceImages((current) => {
         const limit = Math.min(
           MAX_REFERENCE_IMAGE_COUNT,
@@ -746,6 +844,25 @@ export default function VideoGenerationWorkspace({
     setError("");
   }
 
+  async function chooseReferenceAudio(file: File | undefined) {
+    if (!file || submitting) return;
+    const validationError = validateReferenceAudio(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+    const durationSeconds = await readReferenceAudioDuration(file);
+    setReferenceAudio(file);
+    setReferenceAudioDuration(durationSeconds);
+    markFormChanged();
+  }
+
+  function handleReferenceAudioInput(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    void chooseReferenceAudio(file);
+  }
+
   async function chooseSourceVideo(file: File | undefined) {
     if (!file || submitting) return;
     const validationError = validateSourceVideo(file);
@@ -897,6 +1014,8 @@ export default function VideoGenerationWorkspace({
   const isUpscaler = profile?.source_video_task === "upscale";
   const isVideoEditor = profile?.source_video_task === "edit";
   const requiresSourceVideo = Boolean(profile?.requires_source_video);
+  const requiresReferenceAudio = Boolean(profile?.requires_reference_audio);
+  const supportsReferenceVideo = Boolean(profile?.supports_reference_video);
   const supportsLastFrame = Boolean(
     profile?.supported_frame_types.includes("last_frame"),
   );
@@ -921,9 +1040,19 @@ export default function VideoGenerationWorkspace({
     Number(Boolean(firstFrame)) +
     Number(Boolean(lastFrame)) +
     referenceImages.length;
+  const referenceAudioReady =
+    referenceAudioSourceType === "file"
+      ? Boolean(referenceAudio)
+      : /^https:\/\/[^\s]+$/i.test(referenceAudioUrl.trim());
+  const sourceReady =
+    sourceType === "file"
+      ? Boolean(sourceVideo)
+      : /^https:\/\/[^\s]+$/i.test(sourceVideoUrl.trim());
   const enhancedInputsSelected =
     Boolean(lastFrame) ||
     referenceImages.length > 0 ||
+    requiresReferenceAudio ||
+    (supportsReferenceVideo && sourceReady) ||
     providerOptionCount > 0;
   const capabilityRefreshRequired =
     catalogStale && (enhancedInputsSelected || requiresSourceVideo);
@@ -933,25 +1062,6 @@ export default function VideoGenerationWorkspace({
   const sourceVideoEditUnitRate = profile && isVideoEditor
     ? videoGenerationUnitRate(profile, { resolution: "source", generateAudio: false, imageInputCount: 0 })
     : null;
-
-  const estimate =
-    profile && isUpscaler && sourceVideoMetadata
-      ? estimateVideoUpscaleCost(profile, {
-          ...sourceVideoMetadata,
-          upscaleFactor,
-          creativity,
-        })
-      : profile && isVideoEditor && sourceVideoMetadata
-        ? sourceVideoEditUnitRate === null ? null : sourceVideoEditUnitRate * sourceVideoMetadata.durationSeconds
-      : profile && !requiresSourceVideo
-        ? estimateVideoCost(profile, {
-            duration,
-            resolution,
-            aspectRatio,
-            generateAudio,
-            imageInputCount,
-          })
-        : null;
   const upscaleUnitRate =
     profile && isUpscaler
       ? videoUpscaleUnitRate(profile, creativity)
@@ -964,10 +1074,31 @@ export default function VideoGenerationWorkspace({
           imageInputCount,
         })
       : null;
-  const sourceReady =
-    sourceType === "file"
-      ? Boolean(sourceVideo)
-      : /^https:\/\/[^\s]+$/i.test(sourceVideoUrl.trim());
+
+  const estimate =
+    profile && isUpscaler && sourceVideoMetadata
+      ? estimateVideoUpscaleCost(profile, {
+          ...sourceVideoMetadata,
+          upscaleFactor,
+          creativity,
+        })
+      : profile && isVideoEditor && sourceVideoMetadata
+        ? sourceVideoEditUnitRate === null ? null : sourceVideoEditUnitRate * sourceVideoMetadata.durationSeconds
+        : profile &&
+            requiresReferenceAudio &&
+            referenceAudioSourceType === "file" &&
+            referenceAudioDuration !== null &&
+            generationUnitRate !== null
+          ? generationUnitRate * referenceAudioDuration
+          : profile && !requiresSourceVideo
+            ? estimateVideoCost(profile, {
+                duration,
+                resolution,
+                aspectRatio,
+                generateAudio,
+                imageInputCount,
+              })
+            : null;
   const factorRange = profile?.upscale_factor ?? null;
   const upscalerSelectionValid =
     sourceReady &&
@@ -984,9 +1115,14 @@ export default function VideoGenerationWorkspace({
     prompt.trim().length <= MAX_PROMPT_CHARS &&
     (requiresSourceVideo
       ? sourceReady && (isUpscaler ? upscalerSelectionValid : prompt.trim().length > 0)
-      : prompt.trim().length > 0 &&
-        (!durationRequired || duration !== null) &&
-        (!resolutionRequired || Boolean(resolution))) &&
+      : requiresReferenceAudio
+        ? referenceAudioReady &&
+          (referenceImages.length > 0 ||
+            (supportsReferenceVideo && sourceReady)) &&
+          (!resolutionRequired || Boolean(resolution))
+        : prompt.trim().length > 0 &&
+          (!durationRequired || duration !== null) &&
+          (!resolutionRequired || Boolean(resolution))) &&
     (!profile?.verification_entry_enabled || manualVerificationConfirmed) &&
     (!profile?.verification_requires_cost_estimate || estimate !== null) &&
     !capabilityRefreshRequired &&
@@ -1020,7 +1156,7 @@ export default function VideoGenerationWorkspace({
   async function submitJob() {
     if (!profile || !canSubmit) return;
     const cleanPrompt = prompt.trim();
-    if (!isUpscaler && !cleanPrompt) {
+    if (!isUpscaler && !requiresReferenceAudio && !cleanPrompt) {
       setError("请先描述希望生成的视频内容。");
       promptRef.current?.focus();
       return;
@@ -1054,6 +1190,22 @@ export default function VideoGenerationWorkspace({
       referenceImages.forEach((item) => {
         form.append("reference_images", item.file, item.file.name);
       });
+      if (requiresReferenceAudio) {
+        form.append("reference_audio_source_type", referenceAudioSourceType);
+        if (referenceAudioSourceType === "file" && referenceAudio) {
+          form.append("reference_audio", referenceAudio, referenceAudio.name);
+        } else if (referenceAudioSourceType === "url") {
+          form.append("reference_audio_url", referenceAudioUrl.trim());
+        }
+      }
+      if (supportsReferenceVideo && sourceReady) {
+        form.append("source_type", sourceType);
+        if (sourceType === "file" && sourceVideo) {
+          form.append("source_video", sourceVideo, sourceVideo.name);
+        } else if (sourceType === "url") {
+          form.append("source_video_url", sourceVideoUrl.trim());
+        }
+      }
       if (providerOptionCount > 0) {
         form.append("provider_options", JSON.stringify(providerPayload));
       }
@@ -1186,9 +1338,11 @@ export default function VideoGenerationWorkspace({
                   ? "源视频不会保存在模镜；费用按输出百万像素秒估算。"
                   : isVideoEditor
                     ? "源视频不会保存在模镜；本地文件可按源视频时长估算输出费用。"
-                  : durationRequired
-                    ? "默认选择可用的最短时长和最低费用分辨率。"
-                    : "该模型不接受固定时长参数；成片时长由脚本与上游模型决定。"}
+                    : requiresReferenceAudio
+                      ? "提供 1 段驱动音频及人物参考图或参考视频（可组合）；成片时长由驱动音频决定，本地音频可按时长预估费用。"
+                      : durationRequired
+                        ? "默认选择可用的最短时长和最低费用分辨率。"
+                        : "该模型不接受固定时长参数；成片时长由脚本与上游模型决定。"}
               </p>
             </div>
 
@@ -1228,7 +1382,13 @@ export default function VideoGenerationWorkspace({
                       className="text-sm font-semibold text-slate-200"
                       htmlFor="video-generation-prompt"
                     >
-                      {isUpscaler ? "增强说明（可选）" : isVideoEditor ? "编辑说明" : "视频描述"}
+                      {isUpscaler
+                        ? "增强说明（可选）"
+                        : isVideoEditor
+                          ? "编辑说明"
+                          : requiresReferenceAudio
+                            ? "动作提示词（可选）"
+                            : "视频描述"}
                     </label>
                     <span className="text-xs tabular-nums text-slate-400">
                       {prompt.length} / {MAX_PROMPT_CHARS}
@@ -1248,7 +1408,9 @@ export default function VideoGenerationWorkspace({
                         ? "可选：例如保留人物面部与字幕边缘，减少压缩噪点。"
                         : isVideoEditor
                           ? "例如：把背景替换成清晨海边，保留人物动作、镜头运动和原始音频。"
-                        : "例如：清晨的海边车站，一列复古列车缓慢进站，固定广角镜头，柔和自然光。"
+                          : requiresReferenceAudio
+                            ? "可选：描述人物说话时的头部姿态、表情或手势，留空则由音频自动驱动。"
+                            : "例如：清晨的海边车站，一列复古列车缓慢进站，固定广角镜头，柔和自然光。"
                     }
                     ref={promptRef}
                     value={prompt}
@@ -1452,16 +1614,124 @@ export default function VideoGenerationWorkspace({
                 </div>
                 )}
 
+                {requiresReferenceAudio ? (
+                  <div className="space-y-4 rounded-lg bg-white/[0.045] p-4">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">
+                        驱动音频（必选）
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        必须提供 1 段语音音频以驱动人物口型、表情与动作，成片时长由音频长度决定；支持 WAV、MP3、FLAC、M4A、OGG、WebM、AAC（本地最大 25 MiB）或 HTTPS 音频直链。
+                      </p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {(profile.supported_input_sources.length > 0
+                        ? profile.supported_input_sources
+                        : (["file", "url"] as const)
+                      ).map((value) => (
+                        <button
+                          className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                            referenceAudioSourceType === value
+                              ? "border-hire-300/50 bg-hire-300/10 text-hire-100"
+                              : "border-white/10 bg-ink-950/60 text-slate-300 hover:border-white/20"
+                          }`}
+                          disabled={submitting}
+                          key={value}
+                          onClick={() => {
+                            setReferenceAudioSourceType(value);
+                            markFormChanged();
+                          }}
+                          type="button"
+                        >
+                          {value === "file" ? "上传本地音频" : "使用 HTTPS 音频网址"}
+                        </button>
+                      ))}
+                    </div>
+                    {referenceAudioSourceType === "file" ? (
+                      <div className="space-y-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <input
+                            accept=".wav,.mp3,.flac,.m4a,.ogg,.webm,.aac,audio/*"
+                            className="hidden"
+                            disabled={submitting}
+                            onChange={handleReferenceAudioInput}
+                            ref={referenceAudioInputRef}
+                            type="file"
+                          />
+                          <button
+                            className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+                            disabled={submitting}
+                            onClick={() => referenceAudioInputRef.current?.click()}
+                            type="button"
+                          >
+                            {referenceAudio ? "替换驱动音频" : "选择驱动音频"}
+                          </button>
+                          {referenceAudio ? (
+                            <>
+                              <span className="min-w-0 truncate text-xs text-slate-300">
+                                {referenceAudio.name} · {formatBytes(referenceAudio.size)}
+                                {referenceAudioDuration !== null
+                                  ? ` · ${referenceAudioDuration.toFixed(1)} 秒`
+                                  : " · 时长待上游计算"}
+                              </span>
+                              <button
+                                className="text-xs font-semibold text-rose-200 hover:text-rose-100"
+                                disabled={submitting}
+                                onClick={() => {
+                                  setReferenceAudio(null);
+                                  setReferenceAudioDuration(null);
+                                  markFormChanged();
+                                }}
+                                type="button"
+                              >
+                                移除音频
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
+                        {referenceAudioPreviewUrl ? (
+                          <audio
+                            className="w-full"
+                            controls
+                            preload="metadata"
+                            src={referenceAudioPreviewUrl}
+                          />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <label className="block text-sm font-semibold text-slate-200">
+                        HTTPS 音频直链
+                        <input
+                          className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
+                          disabled={submitting}
+                          onChange={(event) => {
+                            setReferenceAudioUrl(event.target.value);
+                            markFormChanged();
+                          }}
+                          placeholder="https://example.com/speech.mp3"
+                          type="url"
+                          value={referenceAudioUrl}
+                        />
+                      </label>
+                    )}
+                  </div>
+                ) : null}
+
                 {supportsFirstFrame ||
                 supportsLastFrame ||
-                (profile.supports_reference_images && referenceLimit > 0) ? (
+                (profile.supports_reference_images && referenceLimit > 0) ||
+                supportsReferenceVideo ? (
                   <div className="space-y-4">
                     <div>
                       <h3 className="text-sm font-semibold text-slate-200">
-                        画面引导（可选）
+                        {requiresReferenceAudio
+                          ? "人物主体参考（必选，至少 1 项）"
+                          : "画面引导（可选）"}
                       </h3>
                       <p className="mt-1 text-xs leading-5 text-slate-400">
-                        只显示当前模型已确认支持的图片用途。单张最大 10 MiB，支持 JPEG、PNG、WebP。
+                        {requiresReferenceAudio
+                          ? "请至少提供 1 张人物参考图或 1 段参考视频，也可同时提供同人照片与参考视频以稳定人物身份与动作。图片单张最大 10 MiB，本地视频最大 20 MiB。"
+                          : "只显示当前模型已确认支持的图片用途。单张最大 10 MiB，支持 JPEG、PNG、WebP。"}
                       </p>
                     </div>
 
@@ -1696,6 +1966,102 @@ export default function VideoGenerationWorkspace({
                         ) : null}
                       </div>
                     ) : null}
+
+                    {supportsReferenceVideo ? (
+                      <div className="space-y-4 rounded-lg bg-white/[0.045] p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">
+                              参考视频（可选，可与同人照片组合）
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-slate-400">
+                              支持 MP4、MPEG、MOV、WebM（本地最大 20 MiB）或 HTTPS 视频直链；未上传人物照片时必须提供参考视频。
+                            </p>
+                          </div>
+                          {sourceVideo || sourceVideoUrl.trim() ? (
+                            <button
+                              className="text-xs font-semibold text-rose-200 hover:text-rose-100"
+                              disabled={submitting}
+                              onClick={() => {
+                                setSourceVideo(null);
+                                setSourceVideoUrl("");
+                                setSourceVideoMetadata(null);
+                                markFormChanged();
+                              }}
+                              type="button"
+                            >
+                              清除参考视频
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {(profile.supported_input_sources.length > 0
+                            ? profile.supported_input_sources
+                            : (["file", "url"] as const)
+                          ).map((value) => (
+                            <button
+                              className={`rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                                sourceType === value
+                                  ? "border-hire-300/50 bg-hire-300/10 text-hire-100"
+                                  : "border-white/10 bg-ink-950/60 text-slate-300 hover:border-white/20"
+                              }`}
+                              disabled={submitting}
+                              key={value}
+                              onClick={() => {
+                                setSourceType(value);
+                                markFormChanged();
+                              }}
+                              type="button"
+                            >
+                              {value === "file" ? "上传本地参考视频" : "使用 HTTPS 视频网址"}
+                            </button>
+                          ))}
+                        </div>
+                        {sourceType === "file" ? (
+                          <div className="flex flex-wrap items-center gap-3">
+                            <input
+                              accept=".mp4,.mpeg,.mpg,.mov,.webm,video/mp4,video/mpeg,video/quicktime,video/webm"
+                              className="hidden"
+                              disabled={submitting}
+                              onChange={handleSourceVideoInput}
+                              ref={sourceVideoInputRef}
+                              type="file"
+                            />
+                            <button
+                              className="rounded-full border border-white/15 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-hire-300/40 hover:bg-hire-300/10 hover:text-hire-100"
+                              disabled={submitting}
+                              onClick={() => sourceVideoInputRef.current?.click()}
+                              type="button"
+                            >
+                              {sourceVideo ? "替换参考视频" : "选择参考视频"}
+                            </button>
+                            {sourceVideo ? (
+                              <span className="min-w-0 truncate text-xs text-slate-300">
+                                {sourceVideo.name} · {formatBytes(sourceVideo.size)}
+                                {sourceVideoMetadata
+                                  ? ` · ${sourceVideoMetadata.width}×${sourceVideoMetadata.height} · ${sourceVideoMetadata.durationSeconds.toFixed(1)} 秒`
+                                  : ""}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <label className="block text-sm font-semibold text-slate-200">
+                            HTTPS 参考视频直链
+                            <input
+                              className="mt-2 w-full rounded-lg border border-white/15 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-400 focus:border-brand-300/60"
+                              disabled={submitting}
+                              onChange={(event) => {
+                                setSourceVideoUrl(event.target.value);
+                                markFormChanged();
+                              }}
+                              placeholder="https://example.com/avatar-ref.mp4"
+                              type="url"
+                              value={sourceVideoUrl}
+                            />
+                          </label>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1832,7 +2198,13 @@ export default function VideoGenerationWorkspace({
                                 <option value="">使用模型默认值</option>
                                 {option.options.map((item) => (
                                   <option key={item} value={item}>
-                                    {item}
+                                    {option.key === "motion_expressiveness"
+                                      ? item === "less"
+                                        ? "减弱动作幅度（less）"
+                                        : item === "default"
+                                          ? "默认自然动作（default）"
+                                          : item
+                                      : item}
                                   </option>
                                 ))}
                               </select>
@@ -1956,9 +2328,11 @@ export default function VideoGenerationWorkspace({
                     <p className="mt-1 text-xs text-slate-400">
                       {isUpscaler
                         ? "本地文件可按输出尺寸与时长预估；网址来源或无法读取元数据时仅显示单价。最终金额以网关回执为准。"
-                        : !durationRequired && generationUnitRate !== null
-                          ? "成片时长由脚本与上游模型决定，因此仅显示目录单价；最终金额以网关回执为准。"
-                          : "提交会产生费用，最终金额以网关回执为准。"}
+                        : requiresReferenceAudio && generationUnitRate !== null
+                          ? "成片时长由驱动音频决定；上传本地音频时按音频时长预估，使用网址或无法读取元数据时仅显示目录单价，最终金额以网关回执为准。"
+                          : !durationRequired && generationUnitRate !== null
+                            ? "成片时长由脚本与上游模型决定，因此仅显示目录单价；最终金额以网关回执为准。"
+                            : "提交会产生费用，最终金额以网关回执为准。"}
                     </p>
                     {profile.verification_entry_enabled ? (
                       <label className="mt-3 flex max-w-xl items-start gap-2 text-xs leading-5 text-amber-100">
@@ -2023,6 +2397,9 @@ export default function VideoGenerationWorkspace({
                           hasFirstFrame: Boolean(firstFrame),
                           hasLastFrame: Boolean(lastFrame),
                           referenceImageCount: referenceImages.length,
+                          hasReferenceAudio: requiresReferenceAudio,
+                          hasReferenceVideo:
+                            supportsReferenceVideo && sourceReady,
                         })}
                   </dd>
                 </div>
@@ -2031,21 +2408,38 @@ export default function VideoGenerationWorkspace({
                   <dd className="mt-1 leading-6 text-slate-300">
                     {isUpscaler
                       ? `${upscaleFactor} 倍 · ${creativity === 1 ? "创意增强" : "精确保真"}`
-                      : [duration ? `${duration} 秒` : "", resolution, aspectRatio]
+                      : [
+                          duration
+                            ? `${duration} 秒`
+                            : requiresReferenceAudio &&
+                                referenceAudioDuration !== null
+                              ? `音频约 ${referenceAudioDuration.toFixed(1)} 秒`
+                              : "",
+                          resolution,
+                          aspectRatio,
+                        ]
                           .filter(Boolean)
                           .join(" · ") || "等待模型能力"}
                   </dd>
                 </div>
                 {lastFrame ||
                 referenceImages.length > 0 ||
+                (requiresReferenceAudio && referenceAudioReady) ||
+                (supportsReferenceVideo && sourceReady) ||
                 providerOptionCount > 0 ? (
                   <div>
                     <dt className="text-slate-400">增强设置</dt>
                     <dd className="mt-1 leading-6 text-slate-300">
                       {[
+                        requiresReferenceAudio && referenceAudioReady
+                          ? "已提供驱动音频"
+                          : "",
                         lastFrame ? "使用尾帧" : "",
                         referenceImages.length
                           ? `${referenceImages.length} 张参考图`
+                          : "",
+                        supportsReferenceVideo && sourceReady
+                          ? "已提供参考视频"
                           : "",
                         providerOptionCount
                           ? `${providerOptionCount} 项高级设置`
@@ -2175,8 +2569,15 @@ export default function VideoGenerationWorkspace({
                               {job.parameters.reference_image_count} 张参考图
                             </span>
                           ) : null}
+                          {job.parameters.has_reference_audio ? (
+                            <span>使用驱动音频</span>
+                          ) : null}
                           {job.parameters.has_source_video ? (
-                            <span>使用源视频</span>
+                            <span>
+                              {job.parameters.has_reference_audio
+                                ? "使用参考视频"
+                                : "使用源视频"}
+                            </span>
                           ) : null}
                           {job.parameters.provider_option_keys.length > 0 ? (
                             <span>
