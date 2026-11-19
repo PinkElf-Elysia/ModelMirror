@@ -18,6 +18,8 @@ import {
 import BrandLogo from "./BrandLogo";
 import ResourceNav from "./ResourceNav";
 
+import { createLatestSelection } from "../utils/latestSelection";
+
 const MAX_PROMPT_CHARS = 4_000;
 const MAX_FIRST_FRAME_BYTES = 10 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_BYTES = 30 * 1024 * 1024;
@@ -480,6 +482,12 @@ export default function VideoGenerationWorkspace({
   const lastFrameInputRef = useRef<HTMLInputElement>(null);
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const referenceAudioInputRef = useRef<HTMLInputElement>(null);
+  const referenceAudioSelection = useRef(createLatestSelection());
+  useEffect(() => {
+    const selection = referenceAudioSelection.current;
+    selection.invalidate();
+    return () => selection.invalidate();
+  }, [model.id, referenceAudioSourceType]);
   const sourceVideoInputRef = useRef<HTMLInputElement>(null);
   const referenceReplaceIndexRef = useRef<number | null>(null);
   const referenceImagesRef = useRef<SelectedReferenceImage[]>([]);
@@ -642,6 +650,7 @@ export default function VideoGenerationWorkspace({
       if (!supportsFirst) setFirstFrame(null);
       if (!supportsLast) setLastFrame(null);
       if (!nextProfile.requires_reference_audio) {
+        referenceAudioSelection.current.invalidate();
         setReferenceAudio(null);
         setReferenceAudioUrl("");
         setReferenceAudioDuration(null);
@@ -846,15 +855,18 @@ export default function VideoGenerationWorkspace({
 
   async function chooseReferenceAudio(file: File | undefined) {
     if (!file || submitting) return;
+    const isCurrent = referenceAudioSelection.current.begin();
     const validationError = validateReferenceAudio(file);
     if (validationError) {
       setError(validationError);
       return;
     }
-    const durationSeconds = await readReferenceAudioDuration(file);
     setReferenceAudio(file);
-    setReferenceAudioDuration(durationSeconds);
+    setReferenceAudioDuration(null);
     markFormChanged();
+    const durationSeconds = await readReferenceAudioDuration(file);
+    if (!isCurrent()) return;
+    setReferenceAudioDuration(durationSeconds);
   }
 
   function handleReferenceAudioInput(event: ChangeEvent<HTMLInputElement>) {
@@ -1678,6 +1690,7 @@ export default function VideoGenerationWorkspace({
                                 className="text-xs font-semibold text-rose-200 hover:text-rose-100"
                                 disabled={submitting}
                                 onClick={() => {
+                                  referenceAudioSelection.current.invalidate();
                                   setReferenceAudio(null);
                                   setReferenceAudioDuration(null);
                                   markFormChanged();
