@@ -36,6 +36,7 @@ import ReactMarkdown from 'react-markdown';
 import './card-presentation.css';
 import './star-rail.css';
 import {Modal} from './modal';
+import {AncientFrontier} from './ancient-frontier';
 import {archiveRoot,localCatalog,cardStoragePrefix,inStudioCard,api,ApiError,catalogApi,emptyClientState,readClientState,writeClientState,reconcileClientState,sendBlocked} from './session-client';
 import type {Session,ClientState,BranchRecord,SelectionRecord} from './session-client';
 const genshinShortcuts = [
@@ -67,7 +68,8 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  useEffect(()=>{try{localStorage.setItem('rpg-reading',JSON.stringify(reading));}catch{/* Reading preferences must never block the session. */}},[reading]);
  const world=worlds.find(w=>w.id===worldId(cardStoragePrefix()));
  useEffect(()=>{if(inStudioCard()&&window.parent!==window)window.parent.postMessage({type:'rpg-chat-route',card:cardStoragePrefix(),id:sessionId},location.origin);},[sessionId]);
- const configScope=customScope(sessionId);const configView=useConfigView<HTMLElement>(configScope);
+ const frontierPreview=cardStoragePrefix()==='ancient'&&document.documentElement.dataset.ancientFrontier==='1';
+ const configScope=frontierPreview?'':customScope(sessionId);const configView=useConfigView<HTMLElement>(configScope);
  const [initial]=useState(()=>{try{return {state:readClientState(sessionId),error:''};}catch{return {state:emptyClientState(),error:'无法读取本地草稿或请求记录。请保留浏览器数据，暂不发送或切换。'};}});
  const [local,setLocal]=useState(initial.state),[storageError,setStorageError]=useState(initial.error),[s,setS]=useState<Session|null>(null),[working,setBusy]=useState(false),[generating,setGenerating]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[raw,setRaw]=useState<string|null>(null),[copied,setCopied]=useState(false),[panel,setPanel]=useState(''),[list,setList]=useState<Listed[]>([]),[catalog,setCatalog]=useState<Catalog|null>(null),[grant,setGrant]=useState<Grant|null>(null),[pluginError,setPluginError]=useState(''),[branchTurn,setBranchTurn]=useState<number|null>(null),[branchName,setBranchName]=useState(''),[budget,setBudget]=useState<BudgetSnapshot|null>(null);
  const [grants,setGrants]=useState<Record<string,Grant>>({}),[modelCanSelect,setModelCanSelect]=useState(false),[modelList,setModelList]=useState<ModelItem[]>([]),[modelLoading,setModelLoading]=useState(false),[modelError,setModelError]=useState('');
@@ -81,7 +83,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  const historyLoad=useRef(0);
  const modelLoad=useRef(0);
  const lock=useRef(false),live=useRef(true),client=useRef(local),composer=useRef<HTMLTextAreaElement>(null);
- const studio=inStudioCard(),god=cardStoragePrefix()!=='earth';
+ const studio=inStudioCard()&&!frontierPreview,god=cardStoragePrefix()!=='earth';
  function persist(next:ClientState){if(initial.error)return false;client.current=next;setLocal(next);try{writeClientState(sessionId,next);setStorageError('');return true;}catch{setStorageError('浏览器未能保存草稿或请求记录。请复制输入内容；恢复存储前暂不发送或切换。');return false;}}
  function accept(v:Session){setS(v);const next=reconcileClientState(client.current,v);if(next!==client.current)persist(next);}
  const summary=useRollingSummary(s,accept),memory=useMemoryPalace(s,accept),busy=working||summary.working||memory.working;
@@ -207,7 +209,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  <SessionSidebar open={sidebar} close={()=>setSidebar(false)}>
   <header><span>{world?.name||'我的故事'}</span><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="关闭会话列表">×</button></header>
   <button className="sidebar-new" disabled={busy||!!storageError} onClick={returnToCard}>＋ 新的故事</button>
-  <p className="sidebar-label">已保存的会话</p><div className="sidebar-sessions">{list.map(item=><div className="sidebar-session-row" key={item.id}><button aria-current={item.id===sessionId?'page':undefined} disabled={busy||!!local.lifecycle||!!storageError} onClick={()=>navigate(()=>{if(item.id!==sessionId)opened(item.id);if(window.innerWidth<=800)setSidebar(false);})}><strong>{item.name}</strong><small>{item.turns} 回合{item.parentId?' · 分支':''}</small></button><button className="session-trash-button" aria-label={'删除会话：'+item.name} title="移入回收站" disabled={busy||!!local.lifecycle||!!storageError||pending&&!trashed} onClick={()=>chooseSessionChange({action:'delete',id:item.id,name:item.name})}>⌫</button></div>)}</div>
+  <p className="sidebar-label">已保存的会话</p><div className="sidebar-sessions">{list.map(item=><div className="sidebar-session-row" key={item.id}><button aria-current={item.id===sessionId?'page':undefined} disabled={busy||!!local.lifecycle||!!storageError} onClick={()=>navigate(()=>{if(item.id!==sessionId)opened(item.id);if(window.innerWidth<=800)setSidebar(false);})}><strong>{item.name}</strong><small>{item.turns} 回合{item.parentId?' · 分支':''}</small></button><button hidden={frontierPreview} className="session-trash-button" aria-label={'删除会话：'+item.name} title="移入回收站" disabled={busy||!!local.lifecycle||!!storageError||pending&&!trashed} onClick={()=>chooseSessionChange({action:'delete',id:item.id,name:item.name})}>⌫</button></div>)}</div>
   <button className="text-button" disabled={busy||!!local.lifecycle} onClick={()=>setPanel('trash')}>回收站</button>
   {listError?<p role="status">{listError}<button onClick={()=>void refreshList()}>重新读取</button></p>:!list.length&&<p className="sidebar-label">还没有其他存档</p>}
   <footer><a href="/rpg" target="_top">← 故事馆</a><a href="/help/play-rpg-cards" target="_top">使用帮助 ↗</a></footer>
@@ -223,6 +225,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  {toolsEnabled&&<div className="message-tools-bar">{s?.mode==='real'&&<button className="secondary" type="button" aria-pressed={display.stream} onClick={display.toggle}>{display.stream?'流式输出':'完整输出'}</button>}{display.warning&&<span role="status">{display.warning}</span>}{display.stream&&display.text&&(local.request||rewriteWatch)&&<section key={display.operationKey} className="message-stream" aria-label="正在生成的回复"><p className="turn-label" role="status">正在生成…</p><ConfigText scope={configScope} role="assistant" source={display.text} render={value=><StreamOutput raw={value} card={cardStoragePrefix()}/>}/></section>}</div>}
  {outputEdit&&<OutputEditor turn={outputEdit.turn} text={outputEdit.text} save={saveOutput} close={()=>setOutputEdit(null)}/>}
  {edit&&<Modal title="编辑输入" className="chat-dialog" close={()=>setEdit(null)}><form className="branch-form" onSubmit={e=>{e.preventDefault();void rewrite(edit.turn,edit.text);}}><label htmlFor="message-edit">第 {edit.turn} 回合</label><textarea id="message-edit" autoFocus rows={8} maxLength={20000} value={edit.text} onChange={e=>setEdit({...edit,text:e.target.value})}/><p>在当前会话重新生成。原回复和后续剧情将保存为可恢复的历史版本。</p><button type="button" className="secondary" onClick={()=>setEdit(null)}>取消</button><button className="chat-primary" disabled={rewriteBlocked||!edit.text.trim()}>保存并重新生成</button></form></Modal>}
+ {s?.frontier&&<AncientFrontier view={s.frontier} disabled={busy||pending||!!local.draft.trim()||!!storageError} draft={input=>{persist({...client.current,draft:input});composer.current?.focus();}}/>}
  {pictures.gallery(null)}{pictures.modal}{speech.modal}{voiceInput.modal}{voiceLibrary.modal}
  </div></div><div className="chat-dock">{s?.generationParameters&&catalog?.plugins.some(p=>p.id==='rpg.model-comparison')&&<ModelComparison sessionId={sessionId} enabled={!requirementsBlocked&&!!grants['rpg.model-comparison']?.enabled} getInput={()=>client.current.draft} setInput={value=>{persist({...client.current,draft:value});}} blocked={(value,ids)=>{setComparisonBlocked(value);setComparisonOperations(old=>JSON.stringify(old)===JSON.stringify(ids)?old:ids);}} changed={async()=>{accept(await api('sessions/'+sessionId));await loadBudget();await summary.refresh();await memory.refresh();}}/>}<div className="chat-tools" aria-label="聊天工具">
  {(world?.id==='genshin'?genshinShortcuts:world?.id==='daomu'?daomuShortcuts:[]).map(({label,text})=><button key={label} type="button"
@@ -231,7 +234,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  {s?.generationParameters&&<button className="text-button" disabled={busy||pending||!grants['rpg.generation-parameters']?.enabled} onClick={()=>setPanel('parameters')}>生成参数</button>}{s?.requirements&&<button className="text-button" disabled={busy||(pending&&!requirementsBlocked)} onClick={()=>setPanel('requirements')}>持续要求{requirementsBlocked?' · 待核对':''}</button>}
  {summary.status?.enabled&&<button className="text-button" disabled={busy} onClick={()=>setPanel('summary')}>自动总结</button>}{memory.status?.enabled&&<button className="text-button" disabled={busy||!memory.status?.compatible} onClick={()=>setPanel('memory')}>记忆宫殿</button>}{grants['rpg.history-window']?.enabled&&<button className="text-button" disabled={busy||historyUnavailable} onClick={()=>setPanel('history')}>历史窗口</button>}
  {voiceInput.toolbar}{speech.toolbar}{voiceLibrary.toolbar}{pictures.toolbar}{s&&grants['rpg.transcript']?.enabled&&<TranscriptTools id={s.id} name={s.name} disabled={busy||pending||!!storageError} opened={opened}/>}{studio&&<ModPanel card={cardStoragePrefix()} session={sessionId} busy={busy||pending}/>} {configScope&&<ConfigTools scope={configScope}/>}
- <button className="text-button" disabled={busy||!!local.lifecycle||trashed} onClick={()=>setPanel('versions')}>历史版本</button><button className="text-button" disabled={busy} onClick={restore}>核对记录</button>
+ <button className="text-button" disabled={busy||!!local.lifecycle||trashed} hidden={frontierPreview} onClick={()=>setPanel('versions')}>历史版本</button><button className="text-button" disabled={busy} onClick={restore}>核对记录</button>
  </div>{voiceInput.feedback}
  {world?.id==='star-rail'&&<div className="star-rail-shortcuts" aria-label="卡片快捷指令">
   {['评价系统','存档','修格式','角色锚定','主线校准','日常模式','第三人称','强制推进','聊天室'].map(label=><button type="button" key={label} disabled={busy||trashed||!!local.lifecycle||incompatible||!!initial.error} onClick={()=>{
