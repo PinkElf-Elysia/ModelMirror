@@ -1,0 +1,4 @@
+# Keep the reviewed bytes used in new save bindings stable across checkouts.
+host.mjs text eol=lf
+worldbook.mjs text eol=lf
+resources/worldbook.json text eol=lf

@@ -1,3 +1,4 @@
+import {assembleWorldbook} from './worldbook.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,mkdtemp} from 'node:fs/promises';
@@ -95,7 +96,7 @@ test('controlled fixture preserves the full prompt and history while toggling a 
   const request={operationId:randomUUID(),expectedSessionRevision:memory.sessionRevision,expectedMemoryRevision:memory.memoryRevision,expectedContextPolicyRevision:memory.effectivePolicy.revision,input};
   const result=await post(path+'/send',i?request:{modIds:[mod.id],request},i?{}:{'X-Rpg-Mod-Panel':'1'});
   assert.equal(result.turns.length,i+1);assert.equal(result.turns.at(-1).raw,'已核对入学材料。');
-  const system=assemble({input}).messages[0].content;
+  const system=assembleWorldbook({input}).system;
   assert.equal(seen[i].base.messages[0].content,system);
   assert.equal(seen[i].messages[0].content,system+(i?'':'\n\n'+mod.text));
   assert.equal(seen[i].messages.at(-1).content,input);
