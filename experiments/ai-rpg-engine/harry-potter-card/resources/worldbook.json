@@ -1,0 +1,4512 @@
+{
+  "sourceSha256": "10859780a0de93d01a2be111d31abf1fc3487778d6df9ae7d20bfe992e861f55",
+  "indexBefore": 658,
+  "slots": [
+    {
+      "id": "L1",
+      "line": 1,
+      "kind": "固定",
+      "name": "",
+      "aliases": [],
+      "end": 657
+    },
+    {
+      "id": "L658",
+      "line": 658,
+      "kind": "人物",
+      "name": "哈利·波特",
+      "aliases": [
+        "哈利",
+        "Harry Potter"
+      ],
+      "end": 671,
+      "rows": [
+        {
+          "line": 660,
+          "scope": "首学年"
+        },
+        {
+          "line": 662,
+          "scope": "首学年"
+        },
+        {
+          "line": 664,
+          "scope": "正篇"
+        },
+        {
+          "line": 666,
+          "scope": 1998
+        },
+        {
+          "line": 668,
+          "scope": 1991
+        }
+      ]
+    },
+    {
+      "id": "L672",
+      "line": 672,
+      "kind": "人物",
+      "name": "阿不思·邓布利多",
+      "aliases": [
+        "邓布利多",
+        "Dumbledore"
+      ],
+      "end": 685,
+      "rows": [
+        {
+          "line": 674,
+          "scope": 1996
+        },
+        {
+          "line": 676,
+          "scope": 1996
+        },
+        {
+          "line": 678,
+          "scope": "正篇"
+        },
+        {
+          "line": 680,
+          "scope": 1998
+        },
+        {
+          "line": 682,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L686",
+      "line": 686,
+      "kind": "人物",
+      "name": "西弗勒斯·斯内普",
+      "aliases": [
+        "斯内普",
+        "Snape"
+      ],
+      "end": 699,
+      "rows": [
+        {
+          "line": 688,
+          "scope": "首学年"
+        },
+        {
+          "line": 690,
+          "scope": "首学年"
+        },
+        {
+          "line": 692,
+          "scope": "正篇"
+        },
+        {
+          "line": 694,
+          "scope": 1997
+        },
+        {
+          "line": 696,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L700",
+      "line": 700,
+      "kind": "人物",
+      "name": "伏地魔",
+      "aliases": [
+        "汤姆·马沃罗·里德尔"
+      ],
+      "end": 713,
+      "rows": [
+        {
+          "line": 702,
+          "scope": 1998
+        },
+        {
+          "line": 704,
+          "scope": 1997
+        },
+        {
+          "line": 706,
+          "scope": 1997
+        },
+        {
+          "line": 708,
+          "scope": 1997
+        },
+        {
+          "line": 710,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L714",
+      "line": 714,
+      "kind": "人物",
+      "name": "鲁伯·海格",
+      "aliases": [
+        "海格",
+        "Hagrid"
+      ],
+      "end": 727,
+      "rows": [
+        {
+          "line": 716,
+          "scope": 1993
+        },
+        {
+          "line": 718,
+          "scope": "首学年"
+        },
+        {
+          "line": 720,
+          "scope": "正篇"
+        },
+        {
+          "line": 722,
+          "scope": 1997
+        },
+        {
+          "line": 724,
+          "scope": 1996
+        }
+      ]
+    },
+    {
+      "id": "L728",
+      "line": 728,
+      "kind": "人物",
+      "name": "米勒娃·麦格",
+      "aliases": [
+        "麦格教授",
+        "麦格"
+      ],
+      "end": 741,
+      "rows": [
+        {
+          "line": 730,
+          "scope": 1998
+        },
+        {
+          "line": 732,
+          "scope": "首学年"
+        },
+        {
+          "line": 734,
+          "scope": "正篇"
+        },
+        {
+          "line": 736,
+          "scope": 1997
+        },
+        {
+          "line": 738,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L742",
+      "line": 742,
+      "kind": "人物",
+      "name": "哭泣的桃金娘",
+      "aliases": [
+        "伊丽莎白·沃伦",
+        "桃金娘"
+      ],
+      "end": 755,
+      "rows": [
+        {
+          "line": 744,
+          "scope": "首学年"
+        },
+        {
+          "line": 746,
+          "scope": "首学年"
+        },
+        {
+          "line": 748,
+          "scope": "正篇"
+        },
+        {
+          "line": 750,
+          "scope": 1992
+        },
+        {
+          "line": 752,
+          "scope": 1995
+        }
+      ]
+    },
+    {
+      "id": "L756",
+      "line": 756,
+      "kind": "人物",
+      "name": "胖夫人",
+      "aliases": [],
+      "end": 769,
+      "rows": [
+        {
+          "line": 758,
+          "scope": 1993
+        },
+        {
+          "line": 760,
+          "scope": "首学年"
+        },
+        {
+          "line": 762,
+          "scope": "正篇"
+        },
+        {
+          "line": 764,
+          "scope": "正篇"
+        },
+        {
+          "line": 766,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L770",
+      "line": 770,
+      "kind": "人物",
+      "name": "菲利乌斯·弗立维",
+      "aliases": [
+        "弗立维"
+      ],
+      "end": 783,
+      "rows": [
+        {
+          "line": 772,
+          "scope": 1998
+        },
+        {
+          "line": 774,
+          "scope": "首学年"
+        },
+        {
+          "line": 776,
+          "scope": "正篇"
+        },
+        {
+          "line": 778,
+          "scope": 1997
+        },
+        {
+          "line": 780,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L784",
+      "line": 784,
+      "kind": "人物",
+      "name": "波莫娜·斯普劳特",
+      "aliases": [
+        "斯普劳特"
+      ],
+      "end": 797,
+      "rows": [
+        {
+          "line": 786,
+          "scope": "首学年"
+        },
+        {
+          "line": 788,
+          "scope": "首学年"
+        },
+        {
+          "line": 790,
+          "scope": "正篇"
+        },
+        {
+          "line": 792,
+          "scope": 1997
+        },
+        {
+          "line": 794,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L798",
+      "line": 798,
+      "kind": "人物",
+      "name": "波皮·庞弗雷",
+      "aliases": [
+        "庞弗雷"
+      ],
+      "end": 811,
+      "rows": [
+        {
+          "line": 800,
+          "scope": "首学年"
+        },
+        {
+          "line": 802,
+          "scope": "首学年"
+        },
+        {
+          "line": 804,
+          "scope": "正篇"
+        },
+        {
+          "line": 806,
+          "scope": "正篇"
+        },
+        {
+          "line": 808,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L812",
+      "line": 812,
+      "kind": "人物",
+      "name": "伊尔玛·平斯",
+      "aliases": [
+        "平斯"
+      ],
+      "end": 825,
+      "rows": [
+        {
+          "line": 814,
+          "scope": "首学年"
+        },
+        {
+          "line": 816,
+          "scope": "首学年"
+        },
+        {
+          "line": 818,
+          "scope": "正篇"
+        },
+        {
+          "line": 820,
+          "scope": "正篇"
+        },
+        {
+          "line": 822,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L826",
+      "line": 826,
+      "kind": "人物",
+      "name": "胖修士",
+      "aliases": [],
+      "end": 839,
+      "rows": [
+        {
+          "line": 828,
+          "scope": "首学年"
+        },
+        {
+          "line": 830,
+          "scope": "首学年"
+        },
+        {
+          "line": 832,
+          "scope": "正篇"
+        },
+        {
+          "line": 834,
+          "scope": "正篇"
+        },
+        {
+          "line": 836,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L840",
+      "line": 840,
+      "kind": "人物",
+      "name": "格雷女士",
+      "aliases": [
+        "海莲娜·拉文克劳"
+      ],
+      "end": 853,
+      "rows": [
+        {
+          "line": 842,
+          "scope": 1998
+        },
+        {
+          "line": 844,
+          "scope": "首学年"
+        },
+        {
+          "line": 846,
+          "scope": "正篇"
+        },
+        {
+          "line": 848,
+          "scope": 1997
+        },
+        {
+          "line": 850,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L854",
+      "line": 854,
+      "kind": "人物",
+      "name": "差点没头的尼克",
+      "aliases": [
+        "尼古拉斯·德·敏西-波平顿爵士",
+        "尼克爵士"
+      ],
+      "end": 867,
+      "rows": [
+        {
+          "line": 856,
+          "scope": "首学年"
+        },
+        {
+          "line": 858,
+          "scope": "首学年"
+        },
+        {
+          "line": 860,
+          "scope": "正篇"
+        },
+        {
+          "line": 862,
+          "scope": 1993
+        },
+        {
+          "line": 864,
+          "scope": 1992
+        }
+      ]
+    },
+    {
+      "id": "L868",
+      "line": 868,
+      "kind": "人物",
+      "name": "血人巴罗",
+      "aliases": [],
+      "end": 881,
+      "rows": [
+        {
+          "line": 870,
+          "scope": "首学年"
+        },
+        {
+          "line": 872,
+          "scope": "首学年"
+        },
+        {
+          "line": 874,
+          "scope": "正篇"
+        },
+        {
+          "line": 876,
+          "scope": 1997
+        },
+        {
+          "line": 878,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L882",
+      "line": 882,
+      "kind": "人物",
+      "name": "皮皮鬼",
+      "aliases": [],
+      "end": 895,
+      "rows": [
+        {
+          "line": 884,
+          "scope": 1996
+        },
+        {
+          "line": 886,
+          "scope": "首学年"
+        },
+        {
+          "line": 888,
+          "scope": "正篇"
+        },
+        {
+          "line": 890,
+          "scope": "正篇"
+        },
+        {
+          "line": 892,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L896",
+      "line": 896,
+      "kind": "人物",
+      "name": "阿格斯·费尔奇",
+      "aliases": [
+        "费尔奇"
+      ],
+      "end": 909,
+      "rows": [
+        {
+          "line": 898,
+          "scope": "首学年"
+        },
+        {
+          "line": 900,
+          "scope": "首学年"
+        },
+        {
+          "line": 902,
+          "scope": "正篇"
+        },
+        {
+          "line": 904,
+          "scope": "正篇"
+        },
+        {
+          "line": 906,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L910",
+      "line": 910,
+      "kind": "人物",
+      "name": "罗兰达·霍琦",
+      "aliases": [
+        "霍琦"
+      ],
+      "end": 923,
+      "rows": [
+        {
+          "line": 912,
+          "scope": "首学年"
+        },
+        {
+          "line": 914,
+          "scope": "首学年"
+        },
+        {
+          "line": 916,
+          "scope": "正篇"
+        },
+        {
+          "line": 918,
+          "scope": "正篇"
+        },
+        {
+          "line": 920,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L924",
+      "line": 924,
+      "kind": "人物",
+      "name": "戈德里克·格兰芬多",
+      "aliases": [],
+      "end": 937,
+      "rows": [
+        {
+          "line": 926,
+          "scope": 1998
+        },
+        {
+          "line": 928,
+          "scope": "通用"
+        },
+        {
+          "line": 930,
+          "scope": "通用"
+        },
+        {
+          "line": 932,
+          "scope": 1998
+        },
+        {
+          "line": 934,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L938",
+      "line": 938,
+      "kind": "人物",
+      "name": "萨拉查·斯莱特林",
+      "aliases": [],
+      "end": 951,
+      "rows": [
+        {
+          "line": 940,
+          "scope": 1998
+        },
+        {
+          "line": 942,
+          "scope": "通用"
+        },
+        {
+          "line": 944,
+          "scope": "通用"
+        },
+        {
+          "line": 946,
+          "scope": 1998
+        },
+        {
+          "line": 948,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L952",
+      "line": 952,
+      "kind": "人物",
+      "name": "罗伊纳·拉文克劳",
+      "aliases": [],
+      "end": 965,
+      "rows": [
+        {
+          "line": 954,
+          "scope": 1998
+        },
+        {
+          "line": 956,
+          "scope": "通用"
+        },
+        {
+          "line": 958,
+          "scope": "通用"
+        },
+        {
+          "line": 960,
+          "scope": 1998
+        },
+        {
+          "line": 962,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L966",
+      "line": 966,
+      "kind": "人物",
+      "name": "赫尔加·赫奇帕奇",
+      "aliases": [],
+      "end": 979,
+      "rows": [
+        {
+          "line": 968,
+          "scope": 1998
+        },
+        {
+          "line": 970,
+          "scope": "通用"
+        },
+        {
+          "line": 972,
+          "scope": "通用"
+        },
+        {
+          "line": 974,
+          "scope": 1998
+        },
+        {
+          "line": 976,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L980",
+      "line": 980,
+      "kind": "人物",
+      "name": "牙牙",
+      "aliases": [],
+      "end": 993,
+      "rows": [
+        {
+          "line": 982,
+          "scope": "首学年"
+        },
+        {
+          "line": 984,
+          "scope": "首学年"
+        },
+        {
+          "line": 986,
+          "scope": "正篇"
+        },
+        {
+          "line": 988,
+          "scope": "正篇"
+        },
+        {
+          "line": 990,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L994",
+      "line": 994,
+      "kind": "人物",
+      "name": "洛丽丝夫人",
+      "aliases": [],
+      "end": 1007,
+      "rows": [
+        {
+          "line": 996,
+          "scope": 1992
+        },
+        {
+          "line": 998,
+          "scope": "首学年"
+        },
+        {
+          "line": 1000,
+          "scope": "正篇"
+        },
+        {
+          "line": 1002,
+          "scope": "正篇"
+        },
+        {
+          "line": 1004,
+          "scope": 1992
+        }
+      ]
+    },
+    {
+      "id": "L1008",
+      "line": 1008,
+      "kind": "设定",
+      "name": "四学院专属饮品",
+      "aliases": [
+        "学院饮品",
+        "厨房特供奶茶",
+        "黑咖啡",
+        "深色葡萄汁"
+      ],
+      "end": 1015,
+      "rows": [
+        {
+          "line": 1010,
+          "scope": "通用"
+        },
+        {
+          "line": 1011,
+          "scope": "通用"
+        },
+        {
+          "line": 1012,
+          "scope": "通用"
+        },
+        {
+          "line": 1013,
+          "scope": "正篇"
+        }
+      ]
+    },
+    {
+      "id": "L1016",
+      "line": 1016,
+      "kind": "固定",
+      "name": "",
+      "aliases": [],
+      "end": 1119
+    },
+    {
+      "id": "L1120",
+      "line": 1120,
+      "kind": "势力",
+      "name": "霍格沃茨魔法学校",
+      "aliases": [
+        "霍格沃茨",
+        "霍格沃兹",
+        "Hogwarts"
+      ],
+      "end": 1163,
+      "rows": [
+        {
+          "line": 1123,
+          "scope": "通用",
+          "header": 1122
+        },
+        {
+          "line": 1124,
+          "scope": "通用",
+          "header": 1122
+        },
+        {
+          "line": 1125,
+          "scope": "通用",
+          "header": 1122
+        },
+        {
+          "line": 1128,
+          "scope": "通用",
+          "header": 1127,
+          "key": "入口大厅"
+        },
+        {
+          "line": 1129,
+          "scope": "通用",
+          "header": 1127,
+          "key": "大礼堂"
+        },
+        {
+          "line": 1130,
+          "scope": "通用",
+          "header": 1127,
+          "key": "四学院公共休息室与宿舍"
+        },
+        {
+          "line": 1131,
+          "scope": "通用",
+          "header": 1127,
+          "key": "教学区"
+        },
+        {
+          "line": 1132,
+          "scope": "正篇",
+          "header": 1127,
+          "key": "图书馆"
+        },
+        {
+          "line": 1133,
+          "scope": "正篇",
+          "header": 1127,
+          "key": "医务室"
+        },
+        {
+          "line": 1134,
+          "scope": "通用",
+          "header": 1127,
+          "key": "有求必应屋"
+        },
+        {
+          "line": 1135,
+          "scope": "正篇",
+          "header": 1127,
+          "key": "海格小屋"
+        },
+        {
+          "line": 1136,
+          "scope": "正篇",
+          "header": 1127,
+          "key": "禁林"
+        },
+        {
+          "line": 1137,
+          "scope": "通用",
+          "header": 1127,
+          "key": "黑湖"
+        },
+        {
+          "line": 1138,
+          "scope": "通用",
+          "header": 1127,
+          "key": "魁地奇球场"
+        },
+        {
+          "line": 1139,
+          "scope": 1993,
+          "header": 1127,
+          "key": "打人柳"
+        },
+        {
+          "line": 1140,
+          "scope": "通用",
+          "header": 1127
+        },
+        {
+          "line": 1141,
+          "scope": "通用",
+          "header": 1127,
+          "key": "校长办公室"
+        },
+        {
+          "line": 1142,
+          "scope": 1992,
+          "header": 1127
+        },
+        {
+          "line": 1145,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1146,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1147,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1148,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1149,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1150,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1151,
+          "scope": 1996,
+          "header": 1144,
+          "commonPrefixBefore": "；D.A."
+        },
+        {
+          "line": 1152,
+          "scope": "正篇",
+          "header": 1144
+        },
+        {
+          "line": 1153,
+          "scope": "通用",
+          "header": 1144
+        },
+        {
+          "line": 1156,
+          "scope": "首学年",
+          "header": 1155
+        },
+        {
+          "line": 1157,
+          "scope": "首学年",
+          "header": 1155
+        },
+        {
+          "line": 1158,
+          "scope": "首学年",
+          "header": 1155
+        },
+        {
+          "line": 1159,
+          "scope": "正篇",
+          "header": 1155
+        },
+        {
+          "line": 1160,
+          "scope": "通用",
+          "header": 1155
+        }
+      ]
+    },
+    {
+      "id": "L1164",
+      "line": 1164,
+      "kind": "势力",
+      "name": "英国魔法部",
+      "aliases": [
+        "魔法部"
+      ],
+      "end": 1197,
+      "rows": [
+        {
+          "line": 1167,
+          "scope": "通用",
+          "header": 1166
+        },
+        {
+          "line": 1168,
+          "scope": 1997,
+          "header": 1166
+        },
+        {
+          "line": 1171,
+          "scope": "通用",
+          "header": 1170,
+          "key": "审判室",
+          "aliases": [
+            "第十层·审判室"
+          ]
+        },
+        {
+          "line": 1172,
+          "scope": "通用",
+          "header": 1170,
+          "key": "神秘事务司",
+          "aliases": [
+            "第九层·神秘事务司"
+          ]
+        },
+        {
+          "line": 1173,
+          "scope": 1997,
+          "header": 1170,
+          "key": "正厅",
+          "aliases": [
+            "第八层·正厅"
+          ]
+        },
+        {
+          "line": 1174,
+          "scope": "通用",
+          "header": 1170,
+          "key": "魔法体育运动司",
+          "aliases": [
+            "第七层·魔法体育运动司"
+          ]
+        },
+        {
+          "line": 1175,
+          "scope": "通用",
+          "header": 1170,
+          "key": "魔法交通司",
+          "aliases": [
+            "第六层·魔法交通司"
+          ]
+        },
+        {
+          "line": 1176,
+          "scope": "通用",
+          "header": 1170,
+          "key": "国际魔法合作司",
+          "aliases": [
+            "第五层·国际魔法合作司"
+          ]
+        },
+        {
+          "line": 1177,
+          "scope": "通用",
+          "header": 1170,
+          "key": "神奇动物管理控制司",
+          "aliases": [
+            "第四层·神奇动物管理控制司"
+          ]
+        },
+        {
+          "line": 1178,
+          "scope": "通用",
+          "header": 1170,
+          "key": "魔法事故和灾害司",
+          "aliases": [
+            "第三层·魔法事故和灾害司"
+          ]
+        },
+        {
+          "line": 1179,
+          "scope": "通用",
+          "header": 1170,
+          "key": "魔法法律执行司",
+          "aliases": [
+            "第二层·魔法法律执行司"
+          ]
+        },
+        {
+          "line": 1180,
+          "scope": "通用",
+          "header": 1170
+        },
+        {
+          "line": 1183,
+          "scope": "通用",
+          "header": 1182
+        },
+        {
+          "line": 1184,
+          "scope": "通用",
+          "header": 1182
+        },
+        {
+          "line": 1185,
+          "scope": "通用",
+          "header": 1182
+        },
+        {
+          "line": 1188,
+          "scope": 1997,
+          "header": 1187
+        },
+        {
+          "line": 1189,
+          "scope": 1995,
+          "header": 1187
+        },
+        {
+          "line": 1190,
+          "scope": 1996,
+          "header": 1187
+        },
+        {
+          "line": 1191,
+          "scope": "正篇",
+          "header": 1187
+        },
+        {
+          "line": 1192,
+          "scope": "正篇",
+          "header": 1187
+        },
+        {
+          "line": 1193,
+          "scope": "正篇",
+          "header": 1187
+        },
+        {
+          "line": 1194,
+          "scope": "正篇",
+          "header": 1187
+        }
+      ]
+    },
+    {
+      "id": "L1198",
+      "line": 1198,
+      "kind": "势力",
+      "name": "凤凰社",
+      "aliases": [],
+      "end": 1219,
+      "rows": [
+        {
+          "line": 1201,
+          "scope": "正篇",
+          "header": 1200
+        },
+        {
+          "line": 1202,
+          "scope": 1998,
+          "header": 1200
+        },
+        {
+          "line": 1203,
+          "scope": 1995,
+          "header": 1200
+        },
+        {
+          "line": 1204,
+          "scope": "正篇",
+          "header": 1200
+        },
+        {
+          "line": 1207,
+          "scope": "正篇",
+          "header": 1206
+        },
+        {
+          "line": 1208,
+          "scope": "正篇",
+          "header": 1206
+        },
+        {
+          "line": 1209,
+          "scope": 1997,
+          "header": 1206
+        },
+        {
+          "line": 1210,
+          "scope": "正篇",
+          "header": 1206
+        },
+        {
+          "line": 1213,
+          "scope": 1995,
+          "header": 1212
+        },
+        {
+          "line": 1214,
+          "scope": 1996,
+          "header": 1212
+        },
+        {
+          "line": 1215,
+          "scope": 1991,
+          "header": 1212
+        },
+        {
+          "line": 1216,
+          "scope": 1995,
+          "header": 1212
+        }
+      ]
+    },
+    {
+      "id": "L1220",
+      "line": 1220,
+      "kind": "势力",
+      "name": "食死徒",
+      "aliases": [],
+      "end": 1238,
+      "rows": [
+        {
+          "line": 1223,
+          "scope": "正篇",
+          "header": 1222
+        },
+        {
+          "line": 1224,
+          "scope": 1998,
+          "header": 1222
+        },
+        {
+          "line": 1227,
+          "scope": "正篇",
+          "header": 1226
+        },
+        {
+          "line": 1228,
+          "scope": 1997,
+          "header": 1226
+        },
+        {
+          "line": 1229,
+          "scope": "正篇",
+          "header": 1226
+        },
+        {
+          "line": 1232,
+          "scope": "正篇",
+          "header": 1231
+        },
+        {
+          "line": 1233,
+          "scope": 1995,
+          "header": 1231
+        },
+        {
+          "line": 1234,
+          "scope": 1996,
+          "header": 1231
+        },
+        {
+          "line": 1235,
+          "scope": 1996,
+          "header": 1231
+        }
+      ]
+    },
+    {
+      "id": "L1239",
+      "line": 1239,
+      "kind": "势力",
+      "name": "圣芒戈魔法伤病医院",
+      "aliases": [],
+      "end": 1264,
+      "rows": [
+        {
+          "line": 1242,
+          "scope": "通用",
+          "header": 1241
+        },
+        {
+          "line": 1243,
+          "scope": "通用",
+          "header": 1241
+        },
+        {
+          "line": 1246,
+          "scope": "通用",
+          "header": 1245,
+          "key": "器物事故科",
+          "aliases": [
+            "一楼·器物事故科"
+          ]
+        },
+        {
+          "line": 1247,
+          "scope": "通用",
+          "header": 1245,
+          "key": "生物伤害科",
+          "aliases": [
+            "二楼·生物伤害科"
+          ]
+        },
+        {
+          "line": 1248,
+          "scope": "通用",
+          "header": 1245,
+          "key": "奇异病菌感染科",
+          "aliases": [
+            "三楼·奇异病菌感染科"
+          ]
+        },
+        {
+          "line": 1249,
+          "scope": "通用",
+          "header": 1245,
+          "key": "魔药及植物中毒科",
+          "aliases": [
+            "四楼·魔药及植物中毒科"
+          ]
+        },
+        {
+          "line": 1250,
+          "scope": "通用",
+          "header": 1245,
+          "key": "魔咒伤害科",
+          "aliases": [
+            "五楼·魔咒伤害科"
+          ]
+        },
+        {
+          "line": 1251,
+          "scope": "通用",
+          "header": 1245
+        },
+        {
+          "line": 1254,
+          "scope": "通用",
+          "header": 1253
+        },
+        {
+          "line": 1255,
+          "scope": "通用",
+          "header": 1253
+        },
+        {
+          "line": 1256,
+          "scope": "通用",
+          "header": 1253
+        },
+        {
+          "line": 1259,
+          "scope": 1995,
+          "header": 1258
+        },
+        {
+          "line": 1260,
+          "scope": "通用",
+          "header": 1258
+        },
+        {
+          "line": 1261,
+          "scope": 1995,
+          "header": 1258
+        }
+      ]
+    },
+    {
+      "id": "L1265",
+      "line": 1265,
+      "kind": "势力",
+      "name": "阿兹卡班",
+      "aliases": [],
+      "end": 1283,
+      "rows": [
+        {
+          "line": 1268,
+          "scope": "通用",
+          "header": 1267
+        },
+        {
+          "line": 1269,
+          "scope": "通用",
+          "header": 1267
+        },
+        {
+          "line": 1270,
+          "scope": "通用",
+          "header": 1267
+        },
+        {
+          "line": 1271,
+          "scope": 1998,
+          "header": 1267
+        },
+        {
+          "line": 1274,
+          "scope": 1970,
+          "header": 1273
+        },
+        {
+          "line": 1275,
+          "scope": "通用",
+          "header": 1273
+        },
+        {
+          "line": 1276,
+          "scope": 1996,
+          "header": 1273
+        },
+        {
+          "line": 1279,
+          "scope": 1998,
+          "header": 1278
+        },
+        {
+          "line": 1280,
+          "scope": 1993,
+          "header": 1278
+        }
+      ]
+    },
+    {
+      "id": "L1284",
+      "line": 1284,
+      "kind": "势力",
+      "name": "古灵阁巫师银行",
+      "aliases": [
+        "古灵阁",
+        "Gringotts"
+      ],
+      "end": 1307,
+      "rows": [
+        {
+          "line": 1287,
+          "scope": "通用",
+          "header": 1286
+        },
+        {
+          "line": 1288,
+          "scope": 1998,
+          "header": 1286
+        },
+        {
+          "line": 1291,
+          "scope": "通用",
+          "header": 1290,
+          "key": "大理石营业大厅"
+        },
+        {
+          "line": 1292,
+          "scope": "通用",
+          "header": 1290,
+          "key": "地下金库群"
+        },
+        {
+          "line": 1293,
+          "scope": "正篇",
+          "header": 1290
+        },
+        {
+          "line": 1294,
+          "scope": "通用",
+          "header": 1290,
+          "key": "最深层金库"
+        },
+        {
+          "line": 1295,
+          "scope": "通用",
+          "header": 1290,
+          "key": "防盗瀑布"
+        },
+        {
+          "line": 1298,
+          "scope": "通用",
+          "header": 1297
+        },
+        {
+          "line": 1299,
+          "scope": "通用",
+          "header": 1297
+        },
+        {
+          "line": 1300,
+          "scope": "通用",
+          "header": 1297
+        },
+        {
+          "line": 1303,
+          "scope": 1998,
+          "header": 1302
+        },
+        {
+          "line": 1304,
+          "scope": "正篇",
+          "header": 1302
+        }
+      ]
+    },
+    {
+      "id": "L1308",
+      "line": 1308,
+      "kind": "势力",
+      "name": "威森加摩",
+      "aliases": [],
+      "end": 1326,
+      "rows": [
+        {
+          "line": 1311,
+          "scope": "通用",
+          "header": 1310
+        },
+        {
+          "line": 1312,
+          "scope": "通用",
+          "header": 1310
+        },
+        {
+          "line": 1315,
+          "scope": "通用",
+          "header": 1314
+        },
+        {
+          "line": 1316,
+          "scope": "通用",
+          "header": 1314
+        },
+        {
+          "line": 1317,
+          "scope": "通用",
+          "header": 1314
+        },
+        {
+          "line": 1318,
+          "scope": "通用",
+          "header": 1314
+        },
+        {
+          "line": 1321,
+          "scope": 1997,
+          "header": 1320
+        },
+        {
+          "line": 1322,
+          "scope": 1995,
+          "header": 1320
+        },
+        {
+          "line": 1323,
+          "scope": 1995,
+          "header": 1320
+        }
+      ]
+    },
+    {
+      "id": "L1327",
+      "line": 1327,
+      "kind": "势力",
+      "name": "国际巫师联合会",
+      "aliases": [],
+      "end": 1344,
+      "rows": [
+        {
+          "line": 1330,
+          "scope": "通用",
+          "header": 1329
+        },
+        {
+          "line": 1331,
+          "scope": "通用",
+          "header": 1329
+        },
+        {
+          "line": 1334,
+          "scope": "通用",
+          "header": 1333
+        },
+        {
+          "line": 1335,
+          "scope": "通用",
+          "header": 1333
+        },
+        {
+          "line": 1336,
+          "scope": "通用",
+          "header": 1333
+        },
+        {
+          "line": 1337,
+          "scope": 1932,
+          "header": 1333,
+          "commonPrefixBefore": "；1932"
+        },
+        {
+          "line": 1340,
+          "scope": 1995,
+          "header": 1339
+        },
+        {
+          "line": 1341,
+          "scope": 1996,
+          "header": 1339
+        }
+      ]
+    },
+    {
+      "id": "L1345",
+      "line": 1345,
+      "kind": "势力",
+      "name": "布斯巴顿魔法学院",
+      "aliases": [],
+      "end": 1365,
+      "rows": [
+        {
+          "line": 1348,
+          "scope": "通用",
+          "header": 1347
+        },
+        {
+          "line": 1349,
+          "scope": "通用",
+          "header": 1347
+        },
+        {
+          "line": 1350,
+          "scope": "通用",
+          "header": 1347
+        },
+        {
+          "line": 1351,
+          "scope": 1994,
+          "header": 1347
+        },
+        {
+          "line": 1354,
+          "scope": "通用",
+          "header": 1353
+        },
+        {
+          "line": 1355,
+          "scope": "通用",
+          "header": 1353,
+          "key": "粉蓝色飞马马车",
+          "type": "物品"
+        },
+        {
+          "line": 1358,
+          "scope": "通用",
+          "header": 1357
+        },
+        {
+          "line": 1361,
+          "scope": 1994,
+          "header": 1360
+        },
+        {
+          "line": 1362,
+          "scope": 1994,
+          "header": 1360
+        }
+      ]
+    },
+    {
+      "id": "L1366",
+      "line": 1366,
+      "kind": "势力",
+      "name": "德姆斯特朗学院",
+      "aliases": [],
+      "end": 1388,
+      "rows": [
+        {
+          "line": 1369,
+          "scope": "通用",
+          "header": 1368
+        },
+        {
+          "line": 1370,
+          "scope": "通用",
+          "header": 1368
+        },
+        {
+          "line": 1371,
+          "scope": "通用",
+          "header": 1368
+        },
+        {
+          "line": 1372,
+          "scope": "通用",
+          "header": 1368
+        },
+        {
+          "line": 1375,
+          "scope": "通用",
+          "header": 1374
+        },
+        {
+          "line": 1376,
+          "scope": "通用",
+          "header": 1374,
+          "key": "魔法大船",
+          "type": "物品"
+        },
+        {
+          "line": 1379,
+          "scope": "通用",
+          "header": 1378
+        },
+        {
+          "line": 1380,
+          "scope": 1945,
+          "header": 1378
+        },
+        {
+          "line": 1383,
+          "scope": 1996,
+          "header": 1382
+        },
+        {
+          "line": 1384,
+          "scope": 1994,
+          "header": 1382
+        },
+        {
+          "line": 1385,
+          "scope": "正篇",
+          "header": 1382
+        }
+      ]
+    },
+    {
+      "id": "L1389",
+      "line": 1389,
+      "kind": "势力",
+      "name": "伊尔弗莫尼魔法学校",
+      "aliases": [],
+      "end": 1410,
+      "rows": [
+        {
+          "line": 1392,
+          "scope": "通用",
+          "header": 1391
+        },
+        {
+          "line": 1393,
+          "scope": "通用",
+          "header": 1391
+        },
+        {
+          "line": 1394,
+          "scope": 1994,
+          "header": 1391
+        },
+        {
+          "line": 1397,
+          "scope": "通用",
+          "header": 1396
+        },
+        {
+          "line": 1400,
+          "scope": "通用",
+          "header": 1399
+        },
+        {
+          "line": 1401,
+          "scope": "通用",
+          "header": 1399
+        },
+        {
+          "line": 1402,
+          "scope": 1965,
+          "header": 1399
+        },
+        {
+          "line": 1405,
+          "scope": "通用",
+          "header": 1404
+        },
+        {
+          "line": 1406,
+          "scope": "通用",
+          "header": 1404
+        },
+        {
+          "line": 1407,
+          "scope": 1927,
+          "header": 1404
+        }
+      ]
+    },
+    {
+      "id": "L1411",
+      "line": 1411,
+      "kind": "势力",
+      "name": "魔法所",
+      "aliases": [],
+      "end": 1429,
+      "rows": [
+        {
+          "line": 1414,
+          "scope": "通用",
+          "header": 1413
+        },
+        {
+          "line": 1415,
+          "scope": "通用",
+          "header": 1413
+        },
+        {
+          "line": 1418,
+          "scope": "通用",
+          "header": 1417
+        },
+        {
+          "line": 1421,
+          "scope": "通用",
+          "header": 1420
+        },
+        {
+          "line": 1422,
+          "scope": "通用",
+          "header": 1420
+        },
+        {
+          "line": 1423,
+          "scope": "通用",
+          "header": 1420
+        },
+        {
+          "line": 1426,
+          "scope": "通用",
+          "header": 1425
+        }
+      ]
+    },
+    {
+      "id": "L1430",
+      "line": 1430,
+      "kind": "势力",
+      "name": "瓦加度魔法学校",
+      "aliases": [],
+      "end": 1448,
+      "rows": [
+        {
+          "line": 1433,
+          "scope": "通用",
+          "header": 1432
+        },
+        {
+          "line": 1434,
+          "scope": "通用",
+          "header": 1432
+        },
+        {
+          "line": 1437,
+          "scope": "通用",
+          "header": 1436
+        },
+        {
+          "line": 1440,
+          "scope": "通用",
+          "header": 1439
+        },
+        {
+          "line": 1441,
+          "scope": "通用",
+          "header": 1439
+        },
+        {
+          "line": 1442,
+          "scope": "通用",
+          "header": 1439
+        },
+        {
+          "line": 1445,
+          "scope": "通用",
+          "header": 1444
+        }
+      ]
+    },
+    {
+      "id": "L1449",
+      "line": 1449,
+      "kind": "势力",
+      "name": "卡斯特罗布舍",
+      "aliases": [],
+      "end": 1468,
+      "rows": [
+        {
+          "line": 1452,
+          "scope": "通用",
+          "header": 1451
+        },
+        {
+          "line": 1453,
+          "scope": "通用",
+          "header": 1451
+        },
+        {
+          "line": 1456,
+          "scope": "通用",
+          "header": 1455
+        },
+        {
+          "line": 1457,
+          "scope": "通用",
+          "header": 1455
+        },
+        {
+          "line": 1460,
+          "scope": "通用",
+          "header": 1459
+        },
+        {
+          "line": 1461,
+          "scope": 1998,
+          "header": 1459
+        },
+        {
+          "line": 1464,
+          "scope": 1940,
+          "header": 1463
+        },
+        {
+          "line": 1465,
+          "scope": 1998,
+          "header": 1463
+        }
+      ]
+    },
+    {
+      "id": "L1469",
+      "line": 1469,
+      "kind": "势力",
+      "name": "科尔多夫斯托列茨",
+      "aliases": [],
+      "end": 1485,
+      "rows": [
+        {
+          "line": 1472,
+          "scope": "通用",
+          "header": 1471
+        },
+        {
+          "line": 1473,
+          "scope": "通用",
+          "header": 1471
+        },
+        {
+          "line": 1476,
+          "scope": "通用",
+          "header": 1475
+        },
+        {
+          "line": 1479,
+          "scope": "通用",
+          "header": 1478
+        },
+        {
+          "line": 1482,
+          "scope": "通用",
+          "header": 1481
+        }
+      ]
+    },
+    {
+      "id": "L1486",
+      "line": 1486,
+      "kind": "势力",
+      "name": "冈特家族",
+      "aliases": [],
+      "end": 1505,
+      "rows": [
+        {
+          "line": 1489,
+          "scope": 1998,
+          "header": 1488
+        },
+        {
+          "line": 1490,
+          "scope": 1991,
+          "header": 1488
+        },
+        {
+          "line": 1493,
+          "scope": 1996,
+          "header": 1492,
+          "key": "冈特老宅"
+        },
+        {
+          "line": 1496,
+          "scope": 1996,
+          "header": 1495
+        },
+        {
+          "line": 1497,
+          "scope": 1997,
+          "header": 1495
+        },
+        {
+          "line": 1500,
+          "scope": 1996,
+          "header": 1499
+        },
+        {
+          "line": 1501,
+          "scope": 1996,
+          "header": 1499
+        },
+        {
+          "line": 1502,
+          "scope": 1927,
+          "header": 1499
+        }
+      ]
+    },
+    {
+      "id": "L1506",
+      "line": 1506,
+      "kind": "地点",
+      "name": "对角巷",
+      "aliases": [
+        "Diagon Alley"
+      ],
+      "end": 1532,
+      "rows": [
+        {
+          "line": 1509,
+          "scope": "通用",
+          "header": 1508
+        },
+        {
+          "line": 1510,
+          "scope": "通用",
+          "header": 1508
+        },
+        {
+          "line": 1511,
+          "scope": "通用",
+          "header": 1508
+        },
+        {
+          "line": 1514,
+          "scope": "通用",
+          "header": 1513,
+          "key": "古灵阁巫师银行"
+        },
+        {
+          "line": 1515,
+          "scope": 1996,
+          "header": 1513,
+          "key": "奥利凡德魔杖店",
+          "commonPrefixBefore": "；1996"
+        },
+        {
+          "line": 1516,
+          "scope": "通用",
+          "header": 1513,
+          "key": "丽痕书店"
+        },
+        {
+          "line": 1517,
+          "scope": "通用",
+          "header": 1513,
+          "key": "摩金夫人长袍专卖店"
+        },
+        {
+          "line": 1518,
+          "scope": 1992,
+          "header": 1513,
+          "key": "咿啦猫头鹰商店"
+        },
+        {
+          "line": 1519,
+          "scope": "通用",
+          "header": 1513
+        },
+        {
+          "line": 1520,
+          "scope": "通用",
+          "header": 1513,
+          "key": "魁地奇精品店"
+        },
+        {
+          "line": 1521,
+          "scope": 1996,
+          "header": 1513,
+          "key": "福洛林·福斯科冰淇淋店"
+        },
+        {
+          "line": 1522,
+          "scope": "通用",
+          "header": 1513,
+          "key": "脱凡成衣店"
+        },
+        {
+          "line": 1523,
+          "scope": "通用",
+          "header": 1513,
+          "key": "恐怖之旅旅行社"
+        },
+        {
+          "line": 1524,
+          "scope": 1996,
+          "header": 1513,
+          "key": "韦斯莱魔法把戏坊"
+        },
+        {
+          "line": 1525,
+          "scope": 2017,
+          "header": 1513,
+          "key": "破釜酒吧",
+          "commonPrefixBefore": "；战后"
+        },
+        {
+          "line": 1528,
+          "scope": "通用",
+          "header": 1527
+        },
+        {
+          "line": 1529,
+          "scope": "通用",
+          "header": 1527
+        }
+      ]
+    },
+    {
+      "id": "L1533",
+      "line": 1533,
+      "kind": "地点",
+      "name": "翻倒巷",
+      "aliases": [
+        "Knockturn Alley"
+      ],
+      "end": 1555,
+      "rows": [
+        {
+          "line": 1536,
+          "scope": "通用",
+          "header": 1535
+        },
+        {
+          "line": 1537,
+          "scope": "通用",
+          "header": 1535
+        },
+        {
+          "line": 1538,
+          "scope": 1992,
+          "header": 1535
+        },
+        {
+          "line": 1541,
+          "scope": "通用",
+          "header": 1540,
+          "key": "博金-博克魔法店"
+        },
+        {
+          "line": 1542,
+          "scope": 1997,
+          "header": 1540,
+          "key": "消失柜",
+          "type": "物品"
+        },
+        {
+          "line": 1543,
+          "scope": 1996,
+          "header": 1540,
+          "key": "蛋白石项链",
+          "type": "物品"
+        },
+        {
+          "line": 1544,
+          "scope": "通用",
+          "header": 1540
+        },
+        {
+          "line": 1547,
+          "scope": 1992,
+          "header": 1546
+        },
+        {
+          "line": 1548,
+          "scope": 1996,
+          "header": 1546
+        },
+        {
+          "line": 1551,
+          "scope": "正篇",
+          "header": 1550
+        },
+        {
+          "line": 1552,
+          "scope": 1927,
+          "header": 1550
+        }
+      ]
+    },
+    {
+      "id": "L1556",
+      "line": 1556,
+      "kind": "地点",
+      "name": "霍格莫德村",
+      "aliases": [
+        "霍格莫德",
+        "Hogsmeade"
+      ],
+      "end": 1579,
+      "rows": [
+        {
+          "line": 1559,
+          "scope": "通用",
+          "header": 1558
+        },
+        {
+          "line": 1560,
+          "scope": "通用",
+          "header": 1558
+        },
+        {
+          "line": 1561,
+          "scope": "正篇",
+          "header": 1558
+        },
+        {
+          "line": 1564,
+          "scope": 1991,
+          "header": 1563,
+          "key": "三把扫帚"
+        },
+        {
+          "line": 1565,
+          "scope": 1995,
+          "header": 1563,
+          "key": "猪头酒吧"
+        },
+        {
+          "line": 1566,
+          "scope": "通用",
+          "header": 1563,
+          "key": "蜂蜜公爵糖果店"
+        },
+        {
+          "line": 1567,
+          "scope": 1997,
+          "header": 1563,
+          "key": "佐科笑话店"
+        },
+        {
+          "line": 1568,
+          "scope": 1993,
+          "header": 1563,
+          "key": "尖叫棚屋"
+        },
+        {
+          "line": 1569,
+          "scope": "通用",
+          "header": 1563
+        },
+        {
+          "line": 1572,
+          "scope": "通用",
+          "header": 1571
+        },
+        {
+          "line": 1573,
+          "scope": 1998,
+          "header": 1571
+        },
+        {
+          "line": 1574,
+          "scope": 1998,
+          "header": 1571
+        },
+        {
+          "line": 1577,
+          "scope": 1998,
+          "header": 1576
+        }
+      ]
+    },
+    {
+      "id": "L1580",
+      "line": 1580,
+      "kind": "作品",
+      "name": "哈利·波特与魔法石",
+      "aliases": [],
+      "end": 1636
+    },
+    {
+      "id": "L1637",
+      "line": 1637,
+      "kind": "作品",
+      "name": "哈利·波特与密室",
+      "aliases": [],
+      "end": 1685
+    },
+    {
+      "id": "L1686",
+      "line": 1686,
+      "kind": "作品",
+      "name": "哈利·波特与阿兹卡班的囚徒",
+      "aliases": [],
+      "end": 1737
+    },
+    {
+      "id": "L1738",
+      "line": 1738,
+      "kind": "作品",
+      "name": "哈利·波特与火焰杯",
+      "aliases": [],
+      "end": 1791
+    },
+    {
+      "id": "L1792",
+      "line": 1792,
+      "kind": "作品",
+      "name": "哈利·波特与凤凰社",
+      "aliases": [],
+      "end": 1846
+    },
+    {
+      "id": "L1847",
+      "line": 1847,
+      "kind": "作品",
+      "name": "哈利·波特与混血王子",
+      "aliases": [],
+      "end": 1891
+    },
+    {
+      "id": "L1892",
+      "line": 1892,
+      "kind": "作品",
+      "name": "哈利·波特与死亡圣器",
+      "aliases": [],
+      "end": 1949
+    },
+    {
+      "id": "L1950",
+      "line": 1950,
+      "kind": "作品",
+      "name": "霍格沃茨之遗",
+      "aliases": [],
+      "end": 1987
+    },
+    {
+      "id": "L1988",
+      "line": 1988,
+      "kind": "作品",
+      "name": "神奇动物在哪里",
+      "aliases": [],
+      "end": 2022
+    },
+    {
+      "id": "L2023",
+      "line": 2023,
+      "kind": "作品",
+      "name": "神奇动物：格林德沃之罪",
+      "aliases": [],
+      "end": 2060
+    },
+    {
+      "id": "L2061",
+      "line": 2061,
+      "kind": "作品",
+      "name": "神奇动物：邓布利多之谜",
+      "aliases": [],
+      "end": 2097
+    },
+    {
+      "id": "L2098",
+      "line": 2098,
+      "kind": "作品",
+      "name": "哈利·波特与被诅咒的孩子",
+      "aliases": [],
+      "end": 2136
+    },
+    {
+      "id": "L2137",
+      "line": 2137,
+      "kind": "机制",
+      "name": "守护神咒",
+      "aliases": [
+        "呼神护卫"
+      ],
+      "end": 2146,
+      "rows": [
+        {
+          "line": 2139,
+          "scope": 1997,
+          "commonPrefixBefore": "；动物形态"
+        },
+        {
+          "line": 2141,
+          "scope": "正篇"
+        },
+        {
+          "line": 2143,
+          "scope": 1995
+        }
+      ]
+    },
+    {
+      "id": "L2147",
+      "line": 2147,
+      "kind": "机制",
+      "name": "幻影移形与幻影显形",
+      "aliases": [
+        "幻影移形",
+        "幻影显形"
+      ],
+      "end": 2154,
+      "rows": [
+        {
+          "line": 2149,
+          "scope": 1997,
+          "commonPrefixBefore": "（双胞胎"
+        },
+        {
+          "line": 2151,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2155",
+      "line": 2155,
+      "kind": "机制",
+      "name": "不可饶恕咒",
+      "aliases": [
+        "夺魂咒",
+        "钻心咒",
+        "索命咒"
+      ],
+      "end": 2166,
+      "rows": [
+        {
+          "line": 2157,
+          "scope": "通用"
+        },
+        {
+          "line": 2159,
+          "scope": 1995
+        },
+        {
+          "line": 2161,
+          "scope": 1995
+        },
+        {
+          "line": 2163,
+          "scope": 1998
+        }
+      ]
+    },
+    {
+      "id": "L2167",
+      "line": 2167,
+      "kind": "机制",
+      "name": "魂器",
+      "aliases": [],
+      "end": 2178,
+      "rows": [
+        {
+          "line": 2169,
+          "scope": 1996
+        },
+        {
+          "line": 2171,
+          "scope": 1996
+        },
+        {
+          "line": 2173,
+          "scope": 1998
+        },
+        {
+          "line": 2175,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2179",
+      "line": 2179,
+      "kind": "机制",
+      "name": "时间转换器",
+      "aliases": [],
+      "end": 2190,
+      "rows": [
+        {
+          "line": 2181,
+          "scope": "通用"
+        },
+        {
+          "line": 2183,
+          "scope": 1993
+        },
+        {
+          "line": 2185,
+          "scope": 1994
+        },
+        {
+          "line": 2187,
+          "scope": 2017
+        }
+      ]
+    },
+    {
+      "id": "L2191",
+      "line": 2191,
+      "kind": "机制",
+      "name": "大脑封闭术与摄神取念",
+      "aliases": [
+        "大脑封闭术",
+        "摄神取念"
+      ],
+      "end": 2202,
+      "rows": [
+        {
+          "line": 2193,
+          "scope": "通用"
+        },
+        {
+          "line": 2195,
+          "scope": 1996
+        },
+        {
+          "line": 2197,
+          "scope": 1996
+        },
+        {
+          "line": 2199,
+          "scope": 1996
+        }
+      ]
+    },
+    {
+      "id": "L2203",
+      "line": 2203,
+      "kind": "机制",
+      "name": "赤胆忠心咒",
+      "aliases": [],
+      "end": 2212,
+      "rows": [
+        {
+          "line": 2205,
+          "scope": 1993,
+          "commonPrefixBefore": "（小天狼星"
+        },
+        {
+          "line": 2207,
+          "scope": 1997
+        },
+        {
+          "line": 2209,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2213",
+      "line": 2213,
+      "kind": "机制",
+      "name": "牢不可破的誓言",
+      "aliases": [],
+      "end": 2224,
+      "rows": [
+        {
+          "line": 2215,
+          "scope": "通用"
+        },
+        {
+          "line": 2217,
+          "scope": "通用"
+        },
+        {
+          "line": 2219,
+          "scope": 1996
+        },
+        {
+          "line": 2221,
+          "scope": 1995
+        }
+      ]
+    },
+    {
+      "id": "L2225",
+      "line": 2225,
+      "kind": "机制",
+      "name": "复方汤剂",
+      "aliases": [],
+      "end": 2234,
+      "rows": [
+        {
+          "line": 2227,
+          "scope": "通用"
+        },
+        {
+          "line": 2229,
+          "scope": 1992
+        },
+        {
+          "line": 2231,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2235",
+      "line": 2235,
+      "kind": "机制",
+      "name": "预言与预言球",
+      "aliases": [
+        "预言球"
+      ],
+      "end": 2244,
+      "rows": [
+        {
+          "line": 2237,
+          "scope": "通用"
+        },
+        {
+          "line": 2239,
+          "scope": 1995
+        },
+        {
+          "line": 2241,
+          "scope": 1995
+        }
+      ]
+    },
+    {
+      "id": "L2245",
+      "line": 2245,
+      "kind": "机制",
+      "name": "冥想盆",
+      "aliases": [],
+      "end": 2254,
+      "rows": [
+        {
+          "line": 2247,
+          "scope": "通用"
+        },
+        {
+          "line": 2249,
+          "scope": 1996
+        },
+        {
+          "line": 2251,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2255",
+      "line": 2255,
+      "kind": "机制",
+      "name": "魔法生物分级",
+      "aliases": [
+        "M.O.M.分级"
+      ],
+      "end": 2272,
+      "rows": [
+        {
+          "line": 2257,
+          "scope": 1927
+        },
+        {
+          "line": 2259,
+          "scope": 1926
+        },
+        {
+          "line": 2260,
+          "scope": 1926
+        },
+        {
+          "line": 2261,
+          "scope": 1926
+        },
+        {
+          "line": 2262,
+          "scope": 1926
+        },
+        {
+          "line": 2263,
+          "scope": 1926
+        },
+        {
+          "line": 2265,
+          "scope": "通用"
+        },
+        {
+          "line": 2267,
+          "scope": 1926
+        },
+        {
+          "line": 2269,
+          "scope": 1996
+        }
+      ]
+    },
+    {
+      "id": "L2273",
+      "line": 2273,
+      "kind": "机制",
+      "name": "福灵剂",
+      "aliases": [
+        "幸运药水"
+      ],
+      "end": 2282,
+      "rows": [
+        {
+          "line": 2275,
+          "scope": "通用"
+        },
+        {
+          "line": 2277,
+          "scope": "通用"
+        },
+        {
+          "line": 2279,
+          "scope": 1997
+        }
+      ]
+    },
+    {
+      "id": "L2283",
+      "line": 2283,
+      "kind": "机制",
+      "name": "门钥匙与飞路网",
+      "aliases": [
+        "门钥匙",
+        "飞路网",
+        "飞路粉"
+      ],
+      "end": 2292,
+      "rows": [
+        {
+          "line": 2285,
+          "scope": "通用"
+        },
+        {
+          "line": 2287,
+          "scope": 1997,
+          "commonPrefixBefore": "——私制属"
+        },
+        {
+          "line": 2289,
+          "scope": 1992,
+          "commonPrefixBefore": "——哈利"
+        }
+      ]
+    },
+    {
+      "id": "L2293",
+      "line": 2293,
+      "kind": "机制",
+      "name": "魁地奇比赛规则",
+      "aliases": [
+        "魁地奇"
+      ],
+      "end": 2307,
+      "rows": [
+        {
+          "line": 2295,
+          "scope": "通用"
+        },
+        {
+          "line": 2297,
+          "scope": "通用"
+        },
+        {
+          "line": 2298,
+          "scope": "通用"
+        },
+        {
+          "line": 2299,
+          "scope": "通用"
+        },
+        {
+          "line": 2300,
+          "scope": 1994,
+          "commonPrefixBefore": "——1994"
+        },
+        {
+          "line": 2301,
+          "scope": "通用"
+        },
+        {
+          "line": 2303,
+          "scope": "正篇"
+        },
+        {
+          "line": 2305,
+          "scope": 1994
+        }
+      ]
+    },
+    {
+      "id": "L2308",
+      "line": 2308,
+      "kind": "势力",
+      "name": "霍格沃茨魔法学校",
+      "aliases": [
+        "霍格沃茨",
+        "霍格沃兹",
+        "Hogwarts"
+      ],
+      "end": 2351,
+      "rows": [
+        {
+          "line": 2311,
+          "scope": "通用",
+          "header": 2310
+        },
+        {
+          "line": 2312,
+          "scope": "通用",
+          "header": 2310
+        },
+        {
+          "line": 2313,
+          "scope": "通用",
+          "header": 2310
+        },
+        {
+          "line": 2316,
+          "scope": "通用",
+          "header": 2315,
+          "key": "入口大厅"
+        },
+        {
+          "line": 2317,
+          "scope": "通用",
+          "header": 2315,
+          "key": "大礼堂"
+        },
+        {
+          "line": 2318,
+          "scope": "通用",
+          "header": 2315,
+          "key": "四学院公共休息室与宿舍"
+        },
+        {
+          "line": 2319,
+          "scope": "通用",
+          "header": 2315,
+          "key": "教学区"
+        },
+        {
+          "line": 2320,
+          "scope": "正篇",
+          "header": 2315,
+          "key": "图书馆"
+        },
+        {
+          "line": 2321,
+          "scope": "正篇",
+          "header": 2315,
+          "key": "医务室"
+        },
+        {
+          "line": 2322,
+          "scope": "通用",
+          "header": 2315,
+          "key": "有求必应屋"
+        },
+        {
+          "line": 2323,
+          "scope": "正篇",
+          "header": 2315,
+          "key": "海格小屋"
+        },
+        {
+          "line": 2324,
+          "scope": "正篇",
+          "header": 2315,
+          "key": "禁林"
+        },
+        {
+          "line": 2325,
+          "scope": "通用",
+          "header": 2315,
+          "key": "黑湖"
+        },
+        {
+          "line": 2326,
+          "scope": "通用",
+          "header": 2315,
+          "key": "魁地奇球场"
+        },
+        {
+          "line": 2327,
+          "scope": 1993,
+          "header": 2315,
+          "key": "打人柳"
+        },
+        {
+          "line": 2328,
+          "scope": "通用",
+          "header": 2315
+        },
+        {
+          "line": 2329,
+          "scope": "通用",
+          "header": 2315,
+          "key": "校长办公室"
+        },
+        {
+          "line": 2330,
+          "scope": 1992,
+          "header": 2315
+        },
+        {
+          "line": 2333,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2334,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2335,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2336,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2337,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2338,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2339,
+          "scope": 1996,
+          "header": 2332,
+          "commonPrefixBefore": "；D.A."
+        },
+        {
+          "line": 2340,
+          "scope": "正篇",
+          "header": 2332
+        },
+        {
+          "line": 2341,
+          "scope": "通用",
+          "header": 2332
+        },
+        {
+          "line": 2344,
+          "scope": "首学年",
+          "header": 2343
+        },
+        {
+          "line": 2345,
+          "scope": "首学年",
+          "header": 2343
+        },
+        {
+          "line": 2346,
+          "scope": "首学年",
+          "header": 2343
+        },
+        {
+          "line": 2347,
+          "scope": "正篇",
+          "header": 2343
+        },
+        {
+          "line": 2348,
+          "scope": "通用",
+          "header": 2343
+        }
+      ]
+    },
+    {
+      "id": "L2352",
+      "line": 2352,
+      "kind": "势力",
+      "name": "英国魔法部",
+      "aliases": [
+        "魔法部"
+      ],
+      "end": 2385,
+      "rows": [
+        {
+          "line": 2355,
+          "scope": "通用",
+          "header": 2354
+        },
+        {
+          "line": 2356,
+          "scope": 1997,
+          "header": 2354
+        },
+        {
+          "line": 2359,
+          "scope": "通用",
+          "header": 2358,
+          "key": "审判室",
+          "aliases": [
+            "第十层·审判室"
+          ]
+        },
+        {
+          "line": 2360,
+          "scope": "通用",
+          "header": 2358,
+          "key": "神秘事务司",
+          "aliases": [
+            "第九层·神秘事务司"
+          ]
+        },
+        {
+          "line": 2361,
+          "scope": 1997,
+          "header": 2358,
+          "key": "正厅",
+          "aliases": [
+            "第八层·正厅"
+          ]
+        },
+        {
+          "line": 2362,
+          "scope": "通用",
+          "header": 2358,
+          "key": "魔法体育运动司",
+          "aliases": [
+            "第七层·魔法体育运动司"
+          ]
+        },
+        {
+          "line": 2363,
+          "scope": "通用",
+          "header": 2358,
+          "key": "魔法交通司",
+          "aliases": [
+            "第六层·魔法交通司"
+          ]
+        },
+        {
+          "line": 2364,
+          "scope": "通用",
+          "header": 2358,
+          "key": "国际魔法合作司",
+          "aliases": [
+            "第五层·国际魔法合作司"
+          ]
+        },
+        {
+          "line": 2365,
+          "scope": "通用",
+          "header": 2358,
+          "key": "神奇动物管理控制司",
+          "aliases": [
+            "第四层·神奇动物管理控制司"
+          ]
+        },
+        {
+          "line": 2366,
+          "scope": "通用",
+          "header": 2358,
+          "key": "魔法事故和灾害司",
+          "aliases": [
+            "第三层·魔法事故和灾害司"
+          ]
+        },
+        {
+          "line": 2367,
+          "scope": "通用",
+          "header": 2358,
+          "key": "魔法法律执行司",
+          "aliases": [
+            "第二层·魔法法律执行司"
+          ]
+        },
+        {
+          "line": 2368,
+          "scope": "通用",
+          "header": 2358
+        },
+        {
+          "line": 2371,
+          "scope": "通用",
+          "header": 2370
+        },
+        {
+          "line": 2372,
+          "scope": "通用",
+          "header": 2370
+        },
+        {
+          "line": 2373,
+          "scope": "通用",
+          "header": 2370
+        },
+        {
+          "line": 2376,
+          "scope": 1997,
+          "header": 2375
+        },
+        {
+          "line": 2377,
+          "scope": 1995,
+          "header": 2375
+        },
+        {
+          "line": 2378,
+          "scope": 1996,
+          "header": 2375
+        },
+        {
+          "line": 2379,
+          "scope": "正篇",
+          "header": 2375
+        },
+        {
+          "line": 2380,
+          "scope": "正篇",
+          "header": 2375
+        },
+        {
+          "line": 2381,
+          "scope": "正篇",
+          "header": 2375
+        },
+        {
+          "line": 2382,
+          "scope": "正篇",
+          "header": 2375
+        }
+      ]
+    },
+    {
+      "id": "L2386",
+      "line": 2386,
+      "kind": "势力",
+      "name": "凤凰社",
+      "aliases": [],
+      "end": 2407,
+      "rows": [
+        {
+          "line": 2389,
+          "scope": "正篇",
+          "header": 2388
+        },
+        {
+          "line": 2390,
+          "scope": 1998,
+          "header": 2388
+        },
+        {
+          "line": 2391,
+          "scope": 1995,
+          "header": 2388
+        },
+        {
+          "line": 2392,
+          "scope": "正篇",
+          "header": 2388
+        },
+        {
+          "line": 2395,
+          "scope": "正篇",
+          "header": 2394
+        },
+        {
+          "line": 2396,
+          "scope": "正篇",
+          "header": 2394
+        },
+        {
+          "line": 2397,
+          "scope": 1997,
+          "header": 2394
+        },
+        {
+          "line": 2398,
+          "scope": "正篇",
+          "header": 2394
+        },
+        {
+          "line": 2401,
+          "scope": 1995,
+          "header": 2400
+        },
+        {
+          "line": 2402,
+          "scope": 1996,
+          "header": 2400
+        },
+        {
+          "line": 2403,
+          "scope": 1991,
+          "header": 2400
+        },
+        {
+          "line": 2404,
+          "scope": 1995,
+          "header": 2400
+        }
+      ]
+    },
+    {
+      "id": "L2408",
+      "line": 2408,
+      "kind": "势力",
+      "name": "食死徒",
+      "aliases": [],
+      "end": 2426,
+      "rows": [
+        {
+          "line": 2411,
+          "scope": "正篇",
+          "header": 2410
+        },
+        {
+          "line": 2412,
+          "scope": 1998,
+          "header": 2410
+        },
+        {
+          "line": 2415,
+          "scope": "正篇",
+          "header": 2414
+        },
+        {
+          "line": 2416,
+          "scope": 1997,
+          "header": 2414
+        },
+        {
+          "line": 2417,
+          "scope": "正篇",
+          "header": 2414
+        },
+        {
+          "line": 2420,
+          "scope": "正篇",
+          "header": 2419
+        },
+        {
+          "line": 2421,
+          "scope": 1995,
+          "header": 2419
+        },
+        {
+          "line": 2422,
+          "scope": 1996,
+          "header": 2419
+        },
+        {
+          "line": 2423,
+          "scope": 1996,
+          "header": 2419
+        }
+      ]
+    },
+    {
+      "id": "L2427",
+      "line": 2427,
+      "kind": "势力",
+      "name": "圣芒戈魔法伤病医院",
+      "aliases": [],
+      "end": 2452,
+      "rows": [
+        {
+          "line": 2430,
+          "scope": "通用",
+          "header": 2429
+        },
+        {
+          "line": 2431,
+          "scope": "通用",
+          "header": 2429
+        },
+        {
+          "line": 2434,
+          "scope": "通用",
+          "header": 2433,
+          "key": "器物事故科",
+          "aliases": [
+            "一楼·器物事故科"
+          ]
+        },
+        {
+          "line": 2435,
+          "scope": "通用",
+          "header": 2433,
+          "key": "生物伤害科",
+          "aliases": [
+            "二楼·生物伤害科"
+          ]
+        },
+        {
+          "line": 2436,
+          "scope": "通用",
+          "header": 2433,
+          "key": "奇异病菌感染科",
+          "aliases": [
+            "三楼·奇异病菌感染科"
+          ]
+        },
+        {
+          "line": 2437,
+          "scope": "通用",
+          "header": 2433,
+          "key": "魔药及植物中毒科",
+          "aliases": [
+            "四楼·魔药及植物中毒科"
+          ]
+        },
+        {
+          "line": 2438,
+          "scope": "通用",
+          "header": 2433,
+          "key": "魔咒伤害科",
+          "aliases": [
+            "五楼·魔咒伤害科"
+          ]
+        },
+        {
+          "line": 2439,
+          "scope": "通用",
+          "header": 2433
+        },
+        {
+          "line": 2442,
+          "scope": "通用",
+          "header": 2441
+        },
+        {
+          "line": 2443,
+          "scope": "通用",
+          "header": 2441
+        },
+        {
+          "line": 2444,
+          "scope": "通用",
+          "header": 2441
+        },
+        {
+          "line": 2447,
+          "scope": 1995,
+          "header": 2446
+        },
+        {
+          "line": 2448,
+          "scope": "通用",
+          "header": 2446
+        },
+        {
+          "line": 2449,
+          "scope": 1995,
+          "header": 2446
+        }
+      ]
+    },
+    {
+      "id": "L2453",
+      "line": 2453,
+      "kind": "势力",
+      "name": "阿兹卡班",
+      "aliases": [],
+      "end": 2471,
+      "rows": [
+        {
+          "line": 2456,
+          "scope": "通用",
+          "header": 2455
+        },
+        {
+          "line": 2457,
+          "scope": "通用",
+          "header": 2455
+        },
+        {
+          "line": 2458,
+          "scope": "通用",
+          "header": 2455
+        },
+        {
+          "line": 2459,
+          "scope": 1998,
+          "header": 2455
+        },
+        {
+          "line": 2462,
+          "scope": 1970,
+          "header": 2461
+        },
+        {
+          "line": 2463,
+          "scope": "通用",
+          "header": 2461
+        },
+        {
+          "line": 2464,
+          "scope": 1996,
+          "header": 2461
+        },
+        {
+          "line": 2467,
+          "scope": 1998,
+          "header": 2466
+        },
+        {
+          "line": 2468,
+          "scope": 1993,
+          "header": 2466
+        }
+      ]
+    },
+    {
+      "id": "L2472",
+      "line": 2472,
+      "kind": "势力",
+      "name": "古灵阁巫师银行",
+      "aliases": [
+        "古灵阁",
+        "Gringotts"
+      ],
+      "end": 2495,
+      "rows": [
+        {
+          "line": 2475,
+          "scope": "通用",
+          "header": 2474
+        },
+        {
+          "line": 2476,
+          "scope": 1998,
+          "header": 2474
+        },
+        {
+          "line": 2479,
+          "scope": "通用",
+          "header": 2478,
+          "key": "大理石营业大厅"
+        },
+        {
+          "line": 2480,
+          "scope": "通用",
+          "header": 2478,
+          "key": "地下金库群"
+        },
+        {
+          "line": 2481,
+          "scope": "正篇",
+          "header": 2478
+        },
+        {
+          "line": 2482,
+          "scope": "通用",
+          "header": 2478,
+          "key": "最深层金库"
+        },
+        {
+          "line": 2483,
+          "scope": "通用",
+          "header": 2478,
+          "key": "防盗瀑布"
+        },
+        {
+          "line": 2486,
+          "scope": "通用",
+          "header": 2485
+        },
+        {
+          "line": 2487,
+          "scope": "通用",
+          "header": 2485
+        },
+        {
+          "line": 2488,
+          "scope": "通用",
+          "header": 2485
+        },
+        {
+          "line": 2491,
+          "scope": 1998,
+          "header": 2490
+        },
+        {
+          "line": 2492,
+          "scope": "正篇",
+          "header": 2490
+        }
+      ]
+    },
+    {
+      "id": "L2496",
+      "line": 2496,
+      "kind": "势力",
+      "name": "国际巫师联合会",
+      "aliases": [],
+      "end": 2513,
+      "rows": [
+        {
+          "line": 2499,
+          "scope": "通用",
+          "header": 2498
+        },
+        {
+          "line": 2500,
+          "scope": "通用",
+          "header": 2498
+        },
+        {
+          "line": 2503,
+          "scope": "通用",
+          "header": 2502
+        },
+        {
+          "line": 2504,
+          "scope": "通用",
+          "header": 2502
+        },
+        {
+          "line": 2505,
+          "scope": "通用",
+          "header": 2502
+        },
+        {
+          "line": 2506,
+          "scope": 1932,
+          "header": 2502
+        },
+        {
+          "line": 2509,
+          "scope": 1995,
+          "header": 2508
+        },
+        {
+          "line": 2510,
+          "scope": 1996,
+          "header": 2508
+        }
+      ]
+    },
+    {
+      "id": "L2514",
+      "line": 2514,
+      "kind": "势力",
+      "name": "布斯巴顿魔法学院",
+      "aliases": [],
+      "end": 2534,
+      "rows": [
+        {
+          "line": 2517,
+          "scope": "通用",
+          "header": 2516
+        },
+        {
+          "line": 2518,
+          "scope": "通用",
+          "header": 2516
+        },
+        {
+          "line": 2519,
+          "scope": "通用",
+          "header": 2516
+        },
+        {
+          "line": 2520,
+          "scope": 1994,
+          "header": 2516
+        },
+        {
+          "line": 2523,
+          "scope": "通用",
+          "header": 2522
+        },
+        {
+          "line": 2524,
+          "scope": "通用",
+          "header": 2522,
+          "key": "粉蓝色飞马马车",
+          "type": "物品"
+        },
+        {
+          "line": 2527,
+          "scope": "通用",
+          "header": 2526
+        },
+        {
+          "line": 2530,
+          "scope": 1994,
+          "header": 2529
+        },
+        {
+          "line": 2531,
+          "scope": 1994,
+          "header": 2529
+        }
+      ]
+    },
+    {
+      "id": "L2535",
+      "line": 2535,
+      "kind": "势力",
+      "name": "德姆斯特朗学院",
+      "aliases": [],
+      "end": 2557,
+      "rows": [
+        {
+          "line": 2538,
+          "scope": "通用",
+          "header": 2537
+        },
+        {
+          "line": 2539,
+          "scope": "通用",
+          "header": 2537
+        },
+        {
+          "line": 2540,
+          "scope": "通用",
+          "header": 2537
+        },
+        {
+          "line": 2541,
+          "scope": "通用",
+          "header": 2537
+        },
+        {
+          "line": 2544,
+          "scope": "通用",
+          "header": 2543
+        },
+        {
+          "line": 2545,
+          "scope": "通用",
+          "header": 2543,
+          "key": "魔法大船",
+          "type": "物品"
+        },
+        {
+          "line": 2548,
+          "scope": "通用",
+          "header": 2547
+        },
+        {
+          "line": 2549,
+          "scope": 1945,
+          "header": 2547
+        },
+        {
+          "line": 2552,
+          "scope": 1996,
+          "header": 2551
+        },
+        {
+          "line": 2553,
+          "scope": 1994,
+          "header": 2551
+        },
+        {
+          "line": 2554,
+          "scope": "正篇",
+          "header": 2551
+        }
+      ]
+    },
+    {
+      "id": "L2558",
+      "line": 2558,
+      "kind": "势力",
+      "name": "伊尔弗莫尼魔法学校",
+      "aliases": [],
+      "end": 2579,
+      "rows": [
+        {
+          "line": 2561,
+          "scope": "通用",
+          "header": 2560
+        },
+        {
+          "line": 2562,
+          "scope": "通用",
+          "header": 2560
+        },
+        {
+          "line": 2563,
+          "scope": 1994,
+          "header": 2560
+        },
+        {
+          "line": 2566,
+          "scope": "通用",
+          "header": 2565
+        },
+        {
+          "line": 2569,
+          "scope": "通用",
+          "header": 2568
+        },
+        {
+          "line": 2570,
+          "scope": "通用",
+          "header": 2568
+        },
+        {
+          "line": 2571,
+          "scope": 1965,
+          "header": 2568
+        },
+        {
+          "line": 2574,
+          "scope": "通用",
+          "header": 2573
+        },
+        {
+          "line": 2575,
+          "scope": "通用",
+          "header": 2573
+        },
+        {
+          "line": 2576,
+          "scope": 1927,
+          "header": 2573
+        }
+      ]
+    },
+    {
+      "id": "L2580",
+      "line": 2580,
+      "kind": "势力",
+      "name": "魔法所",
+      "aliases": [],
+      "end": 2598,
+      "rows": [
+        {
+          "line": 2583,
+          "scope": "通用",
+          "header": 2582
+        },
+        {
+          "line": 2584,
+          "scope": "通用",
+          "header": 2582
+        },
+        {
+          "line": 2587,
+          "scope": "通用",
+          "header": 2586
+        },
+        {
+          "line": 2590,
+          "scope": "通用",
+          "header": 2589
+        },
+        {
+          "line": 2591,
+          "scope": "通用",
+          "header": 2589
+        },
+        {
+          "line": 2592,
+          "scope": "通用",
+          "header": 2589
+        },
+        {
+          "line": 2595,
+          "scope": "通用",
+          "header": 2594
+        }
+      ]
+    },
+    {
+      "id": "L2599",
+      "line": 2599,
+      "kind": "势力",
+      "name": "瓦加度魔法学校",
+      "aliases": [],
+      "end": 2617,
+      "rows": [
+        {
+          "line": 2602,
+          "scope": "通用",
+          "header": 2601
+        },
+        {
+          "line": 2603,
+          "scope": "通用",
+          "header": 2601
+        },
+        {
+          "line": 2606,
+          "scope": "通用",
+          "header": 2605
+        },
+        {
+          "line": 2609,
+          "scope": "通用",
+          "header": 2608
+        },
+        {
+          "line": 2610,
+          "scope": "通用",
+          "header": 2608
+        },
+        {
+          "line": 2611,
+          "scope": "通用",
+          "header": 2608
+        },
+        {
+          "line": 2614,
+          "scope": "通用",
+          "header": 2613
+        }
+      ]
+    },
+    {
+      "id": "L2618",
+      "line": 2618,
+      "kind": "势力",
+      "name": "马尔福家族",
+      "aliases": [],
+      "end": 2640,
+      "rows": [
+        {
+          "line": 2621,
+          "scope": "通用",
+          "header": 2620
+        },
+        {
+          "line": 2622,
+          "scope": 1998,
+          "header": 2620
+        },
+        {
+          "line": 2625,
+          "scope": 1992,
+          "header": 2624,
+          "key": "马尔福庄园"
+        },
+        {
+          "line": 2626,
+          "scope": 1998,
+          "header": 2624,
+          "key": "庄园地牢"
+        },
+        {
+          "line": 2629,
+          "scope": "通用",
+          "header": 2628
+        },
+        {
+          "line": 2630,
+          "scope": 1998,
+          "header": 2628
+        },
+        {
+          "line": 2631,
+          "scope": "正篇",
+          "header": 2628
+        },
+        {
+          "line": 2634,
+          "scope": 1996,
+          "header": 2633
+        },
+        {
+          "line": 2635,
+          "scope": 1998,
+          "header": 2633
+        },
+        {
+          "line": 2636,
+          "scope": 1997,
+          "header": 2633
+        },
+        {
+          "line": 2637,
+          "scope": 2017,
+          "header": 2633
+        }
+      ]
+    },
+    {
+      "id": "L2641",
+      "line": 2641,
+      "kind": "势力",
+      "name": "韦斯莱家族",
+      "aliases": [],
+      "end": 2663,
+      "rows": [
+        {
+          "line": 2644,
+          "scope": "正篇",
+          "header": 2643
+        },
+        {
+          "line": 2645,
+          "scope": "正篇",
+          "header": 2643
+        },
+        {
+          "line": 2646,
+          "scope": "正篇",
+          "header": 2643
+        },
+        {
+          "line": 2649,
+          "scope": "正篇",
+          "header": 2648,
+          "key": "陋居"
+        },
+        {
+          "line": 2650,
+          "scope": 1996,
+          "header": 2648,
+          "key": "韦斯莱魔法把戏坊"
+        },
+        {
+          "line": 2653,
+          "scope": 1995,
+          "header": 2652
+        },
+        {
+          "line": 2654,
+          "scope": "正篇",
+          "header": 2652
+        },
+        {
+          "line": 2655,
+          "scope": 2017,
+          "header": 2652
+        },
+        {
+          "line": 2658,
+          "scope": 1996,
+          "header": 2657
+        },
+        {
+          "line": 2659,
+          "scope": 1998,
+          "header": 2657
+        },
+        {
+          "line": 2660,
+          "scope": 2017,
+          "header": 2657
+        }
+      ]
+    },
+    {
+      "id": "L2664",
+      "line": 2664,
+      "kind": "势力",
+      "name": "冈特家族",
+      "aliases": [],
+      "end": 2683,
+      "rows": [
+        {
+          "line": 2667,
+          "scope": 1998,
+          "header": 2666
+        },
+        {
+          "line": 2668,
+          "scope": 1991,
+          "header": 2666
+        },
+        {
+          "line": 2671,
+          "scope": 1996,
+          "header": 2670,
+          "key": "冈特老宅"
+        },
+        {
+          "line": 2674,
+          "scope": 1996,
+          "header": 2673
+        },
+        {
+          "line": 2675,
+          "scope": 1997,
+          "header": 2673
+        },
+        {
+          "line": 2678,
+          "scope": 1996,
+          "header": 2677
+        },
+        {
+          "line": 2679,
+          "scope": 1996,
+          "header": 2677
+        },
+        {
+          "line": 2680,
+          "scope": 1927,
+          "header": 2677
+        }
+      ]
+    },
+    {
+      "id": "L2684",
+      "line": 2684,
+      "kind": "势力",
+      "name": "莱斯特兰奇家族",
+      "aliases": [],
+      "end": 2705,
+      "rows": [
+        {
+          "line": 2687,
+          "scope": 1927,
+          "header": 2686
+        },
+        {
+          "line": 2688,
+          "scope": 1998,
+          "header": 2686
+        },
+        {
+          "line": 2691,
+          "scope": "通用",
+          "header": 2690,
+          "key": "古灵阁莱斯特兰奇金库"
+        },
+        {
+          "line": 2692,
+          "scope": "通用",
+          "header": 2690,
+          "key": "拉雪兹公墓家族陵墓"
+        },
+        {
+          "line": 2695,
+          "scope": "通用",
+          "header": 2694
+        },
+        {
+          "line": 2696,
+          "scope": 1927,
+          "header": 2694
+        },
+        {
+          "line": 2697,
+          "scope": 1997,
+          "header": 2694
+        },
+        {
+          "line": 2700,
+          "scope": 1998,
+          "header": 2699
+        },
+        {
+          "line": 2701,
+          "scope": 1997,
+          "header": 2699
+        },
+        {
+          "line": 2702,
+          "scope": 1927,
+          "header": 2699
+        }
+      ]
+    },
+    {
+      "id": "L2706",
+      "line": 2706,
+      "kind": "地点",
+      "name": "对角巷",
+      "aliases": [
+        "Diagon Alley"
+      ],
+      "end": 2732,
+      "rows": [
+        {
+          "line": 2709,
+          "scope": "通用",
+          "header": 2708
+        },
+        {
+          "line": 2710,
+          "scope": "通用",
+          "header": 2708
+        },
+        {
+          "line": 2711,
+          "scope": "通用",
+          "header": 2708
+        },
+        {
+          "line": 2714,
+          "scope": "通用",
+          "header": 2713,
+          "key": "古灵阁巫师银行"
+        },
+        {
+          "line": 2715,
+          "scope": 1996,
+          "header": 2713,
+          "key": "奥利凡德魔杖店",
+          "commonPrefixBefore": "；1996"
+        },
+        {
+          "line": 2716,
+          "scope": "通用",
+          "header": 2713,
+          "key": "丽痕书店"
+        },
+        {
+          "line": 2717,
+          "scope": "通用",
+          "header": 2713,
+          "key": "摩金夫人长袍专卖店"
+        },
+        {
+          "line": 2718,
+          "scope": 1992,
+          "header": 2713,
+          "key": "咿啦猫头鹰商店"
+        },
+        {
+          "line": 2719,
+          "scope": "通用",
+          "header": 2713
+        },
+        {
+          "line": 2720,
+          "scope": "通用",
+          "header": 2713,
+          "key": "魁地奇精品店"
+        },
+        {
+          "line": 2721,
+          "scope": 1996,
+          "header": 2713,
+          "key": "福洛林·福斯科冰淇淋店"
+        },
+        {
+          "line": 2722,
+          "scope": "通用",
+          "header": 2713,
+          "key": "脱凡成衣店"
+        },
+        {
+          "line": 2723,
+          "scope": "通用",
+          "header": 2713,
+          "key": "恐怖之旅旅行社"
+        },
+        {
+          "line": 2724,
+          "scope": 1996,
+          "header": 2713,
+          "key": "韦斯莱魔法把戏坊"
+        },
+        {
+          "line": 2725,
+          "scope": 2017,
+          "header": 2713,
+          "key": "破釜酒吧",
+          "commonPrefixBefore": "；战后"
+        },
+        {
+          "line": 2728,
+          "scope": "通用",
+          "header": 2727
+        },
+        {
+          "line": 2729,
+          "scope": "通用",
+          "header": 2727
+        }
+      ]
+    },
+    {
+      "id": "L2733",
+      "line": 2733,
+      "kind": "地点",
+      "name": "翻倒巷",
+      "aliases": [
+        "Knockturn Alley"
+      ],
+      "end": 2755,
+      "rows": [
+        {
+          "line": 2736,
+          "scope": "通用",
+          "header": 2735
+        },
+        {
+          "line": 2737,
+          "scope": "通用",
+          "header": 2735
+        },
+        {
+          "line": 2738,
+          "scope": 1992,
+          "header": 2735
+        },
+        {
+          "line": 2741,
+          "scope": "通用",
+          "header": 2740,
+          "key": "博金-博克魔法店"
+        },
+        {
+          "line": 2742,
+          "scope": 1997,
+          "header": 2740,
+          "key": "消失柜",
+          "type": "物品"
+        },
+        {
+          "line": 2743,
+          "scope": 1996,
+          "header": 2740,
+          "key": "蛋白石项链",
+          "type": "物品"
+        },
+        {
+          "line": 2744,
+          "scope": "通用",
+          "header": 2740
+        },
+        {
+          "line": 2747,
+          "scope": 1992,
+          "header": 2746
+        },
+        {
+          "line": 2748,
+          "scope": 1996,
+          "header": 2746
+        },
+        {
+          "line": 2751,
+          "scope": "正篇",
+          "header": 2750
+        },
+        {
+          "line": 2752,
+          "scope": 1927,
+          "header": 2750
+        }
+      ]
+    },
+    {
+      "id": "L2756",
+      "line": 2756,
+      "kind": "地点",
+      "name": "霍格莫德村",
+      "aliases": [
+        "霍格莫德",
+        "Hogsmeade"
+      ],
+      "end": 2780,
+      "rows": [
+        {
+          "line": 2759,
+          "scope": "通用",
+          "header": 2758
+        },
+        {
+          "line": 2760,
+          "scope": "通用",
+          "header": 2758
+        },
+        {
+          "line": 2761,
+          "scope": "正篇",
+          "header": 2758
+        },
+        {
+          "line": 2764,
+          "scope": 1991,
+          "header": 2763,
+          "key": "三把扫帚"
+        },
+        {
+          "line": 2765,
+          "scope": 1995,
+          "header": 2763,
+          "key": "猪头酒吧"
+        },
+        {
+          "line": 2766,
+          "scope": "通用",
+          "header": 2763,
+          "key": "蜂蜜公爵糖果店"
+        },
+        {
+          "line": 2767,
+          "scope": 1998,
+          "header": 2763,
+          "key": "佐科笑话店"
+        },
+        {
+          "line": 2768,
+          "scope": 1993,
+          "header": 2763,
+          "key": "尖叫棚屋"
+        },
+        {
+          "line": 2769,
+          "scope": "通用",
+          "header": 2763
+        },
+        {
+          "line": 2772,
+          "scope": "通用",
+          "header": 2771
+        },
+        {
+          "line": 2773,
+          "scope": 1998,
+          "header": 2771
+        },
+        {
+          "line": 2774,
+          "scope": 1998,
+          "header": 2771
+        },
+        {
+          "line": 2777,
+          "scope": 1998,
+          "header": 2776
+        }
+      ]
+    },
+    {
+      "id": "L2781",
+      "line": 2781,
+      "kind": "地点",
+      "name": "格里莫广场十二号",
+      "aliases": [
+        "格里莫广场12号"
+      ],
+      "end": 2804,
+      "rows": [
+        {
+          "line": 2784,
+          "scope": 1995,
+          "header": 2783
+        },
+        {
+          "line": 2785,
+          "scope": 1997,
+          "header": 2783
+        },
+        {
+          "line": 2788,
+          "scope": 1995,
+          "header": 2787
+        },
+        {
+          "line": 2789,
+          "scope": 1995,
+          "header": 2787
+        },
+        {
+          "line": 2790,
+          "scope": "通用",
+          "header": 2787
+        },
+        {
+          "line": 2791,
+          "scope": 1995,
+          "header": 2787
+        },
+        {
+          "line": 2792,
+          "scope": 1995,
+          "header": 2787
+        },
+        {
+          "line": 2793,
+          "scope": "正篇",
+          "header": 2787
+        },
+        {
+          "line": 2794,
+          "scope": 1995,
+          "header": 2787
+        },
+        {
+          "line": 2797,
+          "scope": 1997,
+          "header": 2796
+        },
+        {
+          "line": 2798,
+          "scope": "正篇",
+          "header": 2796
+        },
+        {
+          "line": 2801,
+          "scope": "正篇",
+          "header": 2800
+        }
+      ]
+    },
+    {
+      "id": "L2805",
+      "line": 2805,
+      "kind": "地点",
+      "name": "陋居",
+      "aliases": [],
+      "end": 2825,
+      "rows": [
+        {
+          "line": 2808,
+          "scope": "正篇",
+          "header": 2807
+        },
+        {
+          "line": 2809,
+          "scope": "正篇",
+          "header": 2807
+        },
+        {
+          "line": 2812,
+          "scope": 1996,
+          "header": 2811
+        },
+        {
+          "line": 2813,
+          "scope": "正篇",
+          "header": 2811
+        },
+        {
+          "line": 2814,
+          "scope": "正篇",
+          "header": 2811
+        },
+        {
+          "line": 2815,
+          "scope": 1993,
+          "header": 2811
+        },
+        {
+          "line": 2816,
+          "scope": "正篇",
+          "header": 2811,
+          "key": "罗恩·韦斯莱房间"
+        },
+        {
+          "line": 2819,
+          "scope": 1995,
+          "header": 2818
+        },
+        {
+          "line": 2820,
+          "scope": 1998,
+          "header": 2818
+        },
+        {
+          "line": 2823,
+          "scope": "正篇",
+          "header": 2822
+        }
+      ]
+    }
+  ]
+}
