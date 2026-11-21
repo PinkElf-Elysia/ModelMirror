@@ -1,0 +1,4 @@
+# Preserve the reviewed bytes used to bind saved sessions.
+resources/prompts.json -text
+worldbook.mjs -text
+archive-host.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

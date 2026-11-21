@@ -1,6 +1,6 @@
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
-import {assemble} from './assembly.mjs';
+import {assembleWorldbook} from './worldbook.mjs';
 
 const entry = '/rpg/lord-of-mysteries/';
 const assets = new Map([
@@ -25,9 +25,12 @@ const server = createServer(async (req,res) => {
         if(length>256*1024){res.writeHead(413);return res.end();}
         chunks.push(chunk);
       }
-      const {messages}=assemble({input:Buffer.concat(chunks).toString('utf8')});
+      const input=Buffer.concat(chunks).toString('utf8');
+      if(!input.trim())throw Error('MYSTERIES_INPUT_REQUIRED');
+      const {system}=assembleWorldbook({input});
+      if(!system)throw Error('MYSTERIES_ASSEMBLY_EMPTY');
       res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-      return res.end(JSON.stringify({prepared:true,characters:Array.from(messages[1].content).length}));
+      return res.end(JSON.stringify({prepared:true,characters:Array.from(input).length}));
     }
     res.writeHead(404);res.end();
   } catch {res.writeHead(400);res.end();}
