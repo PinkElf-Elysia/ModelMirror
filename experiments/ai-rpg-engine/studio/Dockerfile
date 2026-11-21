@@ -19,6 +19,7 @@ COPY harry-potter-card ./harry-potter-card
 COPY blue-fish-card ./blue-fish-card
 COPY doupo-card ./doupo-card
 COPY daomu-card ./daomu-card
+COPY naruto-card ./naruto-card
 COPY ai-girls-card ./ai-girls-card
 COPY douluo-card ./douluo-card
 COPY god-card/public ./god-card/public
