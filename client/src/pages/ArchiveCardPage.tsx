@@ -7,6 +7,7 @@ const titles={
   slime:'关于我转生成史莱姆这件事',
   'modern-life':'现代超真实人生',
   'type-moon':'型月大世界',
+  'star-rail':'崩坏：星穹铁道',
   doupo:'斗破苍穹！',
   cyberpunk:'赛博朋克大世界',
   daomu:'盗墓笔记大世界',

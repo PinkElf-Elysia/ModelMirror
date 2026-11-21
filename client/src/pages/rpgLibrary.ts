@@ -16,6 +16,7 @@ const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:s
   slime:{description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。'},
   'modern-life':{description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。'},
   'type-moon':{description:'在根源续接档案馆选择作品世界线，登记魔术师或英灵身份，沿自己的切入点展开故事。'},
+  'star-rail':{description:'沿星神曾行之途穿越银河。愿此行，终抵群星。'},
   doupo:{description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。'},
   cyberpunk:{description:'在 2077 年的新巴比伦选择出身、职业与 AI 伴侣，从五层城区中开始自己的故事。'},
   daomu:{description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。'},
