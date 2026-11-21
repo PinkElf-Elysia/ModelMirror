@@ -215,7 +215,7 @@ describe("November 6 refresh", () => {
     expect(models.find((m) => m.id === "speechify/simba-3.5")).toMatchObject({
       primary_operation: "synthesize_speech",
       pricing_basis: "media",
-      media_pricing: { unit: "character_million", usd: 15 },
+      media_pricing: { unit: "character_million", usd: 11.25 },
     });
 
     for (const id of ["google/gemini-decision-1", "perplexity/pplx-decider-v1.3:free", "perplexity/pplx-decider-flash-v1.3:free"]) {
@@ -252,7 +252,7 @@ describe("November 6 refresh", () => {
     ).toMatchObject({
       catalog_id: "deepseek/deepseek-v4.1-flash-1017:batch",
       request_model_id: "deepseek/deepseek-v4.1-flash-1017",
-      pricing: { input: 0.036, output: 0.15 },
+      pricing: { input: 0.035, output: 0.149 },
     });
   });
 
@@ -458,5 +458,122 @@ describe("November 6 refresh", () => {
         pricing: { input: batchIn, output: batchOut },
       });
     }
+  });
+
+  it("adapts November 20 Gemini 2.5 TTS and Pixtral Large 2502 below the first six rows", () => {
+    for (const id of [
+      "google/gemini-2.5-pro-tts",
+      "google/gemini-2.5-flash-tts",
+      "mistralai/pixtral-large-2502",
+    ]) {
+      expect(models.filter((m) => m.id === id)).toHaveLength(1);
+      expect(models.findIndex((m) => m.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    for (const [id, input, output] of [
+      ["google/gemini-2.5-pro-tts", 1, 20],
+      ["google/gemini-2.5-flash-tts", 0.5, 10],
+    ] as const) {
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        context_length: 8_192,
+        input_modalities: ["text"],
+        output_modalities: ["speech"],
+        pricing: { input, output },
+        primary_operation: "synthesize_speech",
+        interaction_status: "planned",
+        catalog_status: "live",
+      });
+    }
+
+    expect(models.find((m) => m.id === "mistralai/pixtral-large-2502")).toMatchObject({
+      context_length: 128_000,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      pricing: { input: 2, output: 6 },
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+  });
+
+  it("adapts November 21 models below the first six rows", () => {
+    for (const id of [
+      "thinkingmachines/inkling-2-mini",
+      "radixark/daisyrose-27b",
+      "perplexity/pplx-embed-v2-context-0.6b",
+      "perplexity/pplx-embed-v2-context-9b",
+      "baseten/groundhog-1",
+      "baseten/bison-1",
+      "qwen/qwen3-tts-1.7b",
+    ]) {
+      expect(models.filter((m) => m.id === id)).toHaveLength(1);
+      expect(models.findIndex((m) => m.id === id)).toBeGreaterThanOrEqual(20);
+    }
+
+    expect(models.find((m) => m.id === "thinkingmachines/inkling-2-mini")).toMatchObject({
+      context_length: 1_048_576,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    expect(models.find((m) => m.id === "radixark/daisyrose-27b")).toMatchObject({
+      model_author: "RadixArk",
+      context_length: 262_144,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+      pricing: { input: 0.15, output: 1.875 },
+      primary_operation: "chat",
+      ui_entrypoint: "chat",
+      interaction_status: "ready",
+      catalog_status: "live",
+    });
+
+    for (const [id, input] of [
+      ["perplexity/pplx-embed-v2-context-0.6b", 0.02],
+      ["perplexity/pplx-embed-v2-context-9b", 0.12],
+    ] as const) {
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        context_length: 32_000,
+        input_modalities: ["text", "image"],
+        output_modalities: ["embeddings"],
+        pricing: { input, output: 0 },
+        primary_operation: "embed",
+        ui_entrypoint: "rag",
+        interaction_status: "ready",
+        catalog_status: "live",
+      });
+    }
+
+    for (const [id, contextLength] of [
+      ["baseten/groundhog-1", 16_384],
+      ["baseten/bison-1", 32_768],
+    ] as const) {
+      expect(models.find((m) => m.id === id)).toMatchObject({
+        context_length: contextLength,
+        input_modalities: ["text", "image"],
+        output_modalities: ["decisions"],
+        primary_operation: "decide",
+        ui_entrypoint: "decisions",
+        interaction_status: "ready",
+        catalog_status: "live",
+      });
+    }
+
+    expect(models.find((m) => m.id === "qwen/qwen3-tts-1.7b")).toMatchObject({
+      context_length: 4_096,
+      input_modalities: ["text"],
+      output_modalities: ["speech"],
+      pricing: { input: 20, output: 0 },
+      pricing_basis: "media",
+      media_pricing: { unit: "character_million", usd: 20 },
+      primary_operation: "synthesize_speech",
+      interaction_status: "planned",
+      catalog_status: "live",
+    });
   });
 });

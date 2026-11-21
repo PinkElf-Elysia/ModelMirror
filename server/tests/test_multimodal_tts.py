@@ -72,11 +72,23 @@ def test_verified_speech_profiles_cover_multiple_providers() -> None:
         "sesame/csm-1b",
         "hexgrad/kokoro-82m",
         "speechify/simba-3.5",
+        "google/gemini-2.5-pro-tts",
+        "google/gemini-2.5-flash-tts",
+        "qwen/qwen3-tts-1.7b",
         GEMINI_PCM_TTS_MODEL_ID,
     } <= ALLOWED_SPEECH_PROFILES.keys()
     assert len(ALLOWED_SPEECH_PROFILES["speechify/simba-3.5"]) == 20
     assert "geffen_32" in ALLOWED_SPEECH_PROFILES["speechify/simba-3.5"]
     assert OPENROUTER_AUDIO_CONTRACTS["speechify/simba-3.5"].manual_verification_required is True
+    assert len(ALLOWED_SPEECH_PROFILES["qwen/qwen3-tts-1.7b"]) == 9
+    assert "vivian" in ALLOWED_SPEECH_PROFILES["qwen/qwen3-tts-1.7b"]
+    assert speech_output_format("qwen/qwen3-tts-1.7b") == "mp3"
+    assert OPENROUTER_AUDIO_CONTRACTS["qwen/qwen3-tts-1.7b"].manual_verification_required is True
+    for gemini_tts_id in ("google/gemini-2.5-pro-tts", "google/gemini-2.5-flash-tts"):
+        assert len(ALLOWED_SPEECH_PROFILES[gemini_tts_id]) == 30
+        assert "Zephyr" in ALLOWED_SPEECH_PROFILES[gemini_tts_id]
+        assert speech_output_format(gemini_tts_id) == "wav"
+        assert OPENROUTER_AUDIO_CONTRACTS[gemini_tts_id].manual_verification_required is True
     assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].operations == ("analyze_audio",)
     assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].chat_modes == ("direct_audio_input",)
     assert OPENROUTER_AUDIO_CONTRACTS["google/gemini-4-hydrogen"].interaction_adapted is True

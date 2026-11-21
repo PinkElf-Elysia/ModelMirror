@@ -26,6 +26,7 @@ const ALLOWED_INPUT_MODALITIES = new Set([
 ]);
 const BATCH_VARIANT_SUFFIX = ":batch";
 const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
+  "qwen/qwen3-tts-1.7b",
   "bytedance-seed/seedream-5-5", "speechify/simba-3.5",
   "minimax/minimax-h3-image", "minimax/minimax-h3-image-highspeed",
   "openai/gpt-image-2.6-flare", "openai/gpt-image-2.6-sunburst",
@@ -60,6 +61,8 @@ const SPECIALIZED_CATALOG_MODEL_IDS = new Set([
   "google/gemini-3.5-transcribe",
   "recraft/recraft-v4.1-flash",
   "inclusionai/ming-image-0.1-design-layer",
+  "google/gemini-2.5-pro-tts",
+  "google/gemini-2.5-flash-tts",
   "google/gemini-3.8-flash-tts",
   "google/gemini-3.8-flash-lite-tts",
   "typesafe/jev-1.13",
@@ -111,6 +114,7 @@ const AUTHOR_NAMES = new Map([
   ["openrouter", "OpenRouter"],
   ["heygen", "HeyGen"],
   ["alibaba", "Alibaba"],
+  ["radixark", "RadixArk"],
 ]);
 
 function readInputPath() {
