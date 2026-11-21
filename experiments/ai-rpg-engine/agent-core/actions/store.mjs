@@ -57,7 +57,19 @@ export class ActionStore extends CoreStore{
    op.receipt=clone(receipt);op.status='completed';r.pending=null;
   })).record;
  }
+ async finishDialogue(key,opId,receipt,clarification){
+  if(clarification){
+   receipt={status:'completed',finishReason:'stop',provider:'host-clarification',
+    text:clarification+'\n<state_delta>{"operations":[]}</state_delta>'};
+  }
+  await this.receive(key,opId,receipt);
+  return this.finish(key,opId);
+ }
  async acceptProposal(key,opId,proposal){
+  const current=await this.read(key), op=current.operations[opId];
+  need(current.pending===opId&&op?.stateRevision===current.stateRevision,'STATE_STALE_RESULT');
+  const clarification=this.modelProposalPolicy?.clarify(op.input,proposal,op.frozenState);
+  if(clarification)return this.finishDialogue(key,opId,null,clarification);
   return (await this.update(key,r=>{
    const op=r.operations[opId];need(r.pending===opId&&op.stateRevision===r.stateRevision,'STATE_STALE_RESULT');
    verifyProposal(r,this.adapter.rule,proposal);r.proposals??={};r.proposals[opId]={proposal:clone(proposal),status:'review'};

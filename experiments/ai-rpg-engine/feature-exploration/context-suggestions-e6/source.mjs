@@ -14,15 +14,10 @@ export function project(v){
  coverage:'只提供本场景登记物资与周禾姓名；登记不代表在场、可联系或同意。公开正文不是状态事实。'};
 }
 export const stamp=f=>hash(f.source);
-export async function openSource(directory){
- const catalog=await exampleCatalog(),runtime=await openPreview(directory,{offlinePreview:true,catalog,delayMs:0});
- try{
- const run=await runtime.create({operationId:'e6-neutral-start',adapterId:'cultivation'});
- const adapter=catalog.worlds.find(x=>x.adapter.id==='cultivation').adapter;
- return {reader:Object.freeze({read:async()=>project(await runtime.view(run.id))}),
- async audit(){const v=await runtime.view(run.id);return {worldHash:hash(v.world),taskCount:v.tasks.length,budget:clone(v.budget)};},
+export function bindChoiceSource(readView,adapter){
+ return {reader:Object.freeze({read:async()=>project(await readView())}),
  async selectedPlan(s,expected){
- const v=await runtime.view(run.id),f=project(v);need(stamp(f)===expected&&f.ready,'E6_STALE');
+ const v=await readView(),f=project(v);need(stamp(f)===expected&&f.ready,'E6_STALE');
  need(s.kind==='gift'&&s.origin==='player-selection','E6_SELECTION');
  const frame={adapterId:'cultivation',reference:f.source,ready:f.ready,resources:f.facts.resources,people:f.facts.people,
  capabilities:[{id:'gift',kind:'intent-only'}],record:{id:v.worldId,stateRevision:v.world.stateRevision,state:clone(v.world.state)}};
@@ -30,6 +25,15 @@ export async function openSource(directory){
  const p=apply(adapter,frame,empty(frame),{ops:[{type:'add',action:'gift',changes,condition:null,quote:s.text}],question:null,limit:null},
  {text:s.text,turnId:s.id,kind:'user-edit'});
  return exportPlan(adapter,frame,save(adapter,frame,p));
- },close:()=>runtime.close()};
+ }};
+}
+export async function openSource(directory){
+ const catalog=await exampleCatalog(),runtime=await openPreview(directory,{offlinePreview:true,catalog,delayMs:0});
+ try{
+ const run=await runtime.create({operationId:'e6-neutral-start',adapterId:'cultivation'});
+ const adapter=catalog.worlds.find(x=>x.adapter.id==='cultivation').adapter;
+ const readView=()=>runtime.view(run.id);
+ return {...bindChoiceSource(readView,adapter),
+ async audit(){const v=await readView();return {worldHash:hash(v.world),taskCount:v.tasks.length,budget:clone(v.budget)};},close:()=>runtime.close()};
  }catch(e){await runtime.close();throw e;}
 }

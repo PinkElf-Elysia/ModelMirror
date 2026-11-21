@@ -14,6 +14,7 @@ def wire(data):
     value=json.loads(result.stdout); native.require(not value.get('error')); return value
 
 class Protocol:
+    validate_wire=staticmethod(wire)
     supports=staticmethod(native.supports)
     async def body(self, request, profile):
         enabled(); data=bytearray()
@@ -29,21 +30,21 @@ class Protocol:
             native.require(value['parameters']==b.parameters_for('google/gemini-3.8-flash',profile))
             native.require(value['tool_choice'] in ('none','auto'))
             native.require(profile!='god-long-v1' or value['tool_choice']=='none')
-            wire({'kind':'request','request':{k:value[k] for k in ('messages','tools','tool_choice')}})
+            self.validate_wire({'kind':'request','request':{k:value[k] for k in ('messages','tools','tool_choice')}})
             return value
         except (ValueError,TypeError,KeyError,subprocess.SubprocessError):
             raise HTTPException(422,'rpg_scene_protocol') from None
     def parse_sse(self,sse,model,evidence=None):
-        result=wire({'kind':'sse','sse':sse,'model':model})
+        result=self.validate_wire({'kind':'sse','sse':sse,'model':model})
         if evidence is not None: evidence.update({k:result[k] for k in ('raw','actual','message','finishReason')})
         return result['raw'],result['actual'],result['usage']
 
-def register(app,stable):
+def register(app,stable,protocol=None):
     async def service(_=Depends(b.require_service)):
         enabled(); return stable
     @app.post('/api/rpg/v1/scene/chat/completions')
     async def completion(request: Request,profile:str,svc=Depends(service)):
-        response=await b._completion(request,svc,profile,protocol=Protocol())
+        response=await b._completion(request,svc,profile,protocol=protocol or Protocol())
         value=json.loads(response.body); receipt=value.get('receipt',{})
         if receipt.get('sessionId') and receipt.get('requestId'):
             path=native.result_path(svc,receipt['sessionId'],receipt['requestId']); path.parent.mkdir(parents=True,exist_ok=True)

@@ -38,8 +38,8 @@ async def preflight(run):
     save(run,"preflight.json",dict(endpoint=endpoint,negativeChecks=negative,hostHeader=target.host_header,sni=target.sni_hostname,providerCalls=0))
     return endpoint
 
-def serve(run,mode,snapshot,port):
-    run=Path(run).resolve();allowed=Path("C:/tmp/mm-r9-live").resolve()
+def serve(run,mode,snapshot,port,*,experiment=None):
+    run=Path(run).resolve();allowed=Path(experiment.root if experiment else "C:/tmp/mm-r9-live").resolve()
     assert run.parent==allowed and run.name.startswith(mode+"-") and mode in ("mock","real")
     run.mkdir(parents=True,exist_ok=True);dest=run/"router"
     assert not dest.exists(),"Previous isolated runtime must not be overwritten"
@@ -59,9 +59,11 @@ def serve(run,mode,snapshot,port):
         initial_runs=[r[0] for r in db.execute("select id from provider_chat_runs")]
         db.execute("pragma user_version=20");db.commit();db.close()
         os.environ["MODEL_MIRROR_CREDENTIAL_MASTER_KEY"]=snapshot.pop("key");snapshot.clear()
-        auth=secrets.token_urlsafe(48);save_auth(run,dict(token=auth))
+        auth=secrets.token_urlsafe(48);(experiment.save_auth if experiment else save_auth)(run,dict(token=auth))
         os.environ.update(RPG_S2S_TOKEN=auth,RPG_S2S_ENABLED="true",RPG_LOCAL_STATE_TOOLS_ENABLED="true",RPG_CORE_REAL_ENABLED="true",RPG_SCENE_REAL_ENABLED="true",MODEL_CONTROL_CHAT_ENABLED="true")
         repo=SQLiteRouterRepository.open(dest,recover_chat_control_on_startup=False)
+        if experiment and hasattr(experiment,'bind_task_credential'):
+            experiment.bind_task_credential(repo)
         service=ModelRouterService(repository=repo,egress_policy=ProviderEgressPolicy(resolver=resolve,internal_allowlist=[]))
         stable=ProviderChatStableService(service)
         assert stable.readiness_scoped_certified(MODEL)==(True,None),"Selected qualification unavailable"
@@ -85,9 +87,11 @@ def serve(run,mode,snapshot,port):
             sse="".join("data: "+json.dumps(f,ensure_ascii=False)+"\n\n" for f in frames)+"data: [DONE]\n\n"
             active-=1
             return httpx.Response(200,content=sse.encode(),headers={"content-type":"text/event-stream"})
-        if mode=="mock":stable.transport.client_kwargs=lambda:{"transport":httpx.MockTransport(upstream),"trust_env":False,"follow_redirects":False}
+        responder=experiment.mock_response if experiment else upstream
+        if mode=="mock":stable.transport.client_kwargs=lambda:{"transport":httpx.MockTransport(responder),"trust_env":False,"follow_redirects":False}
         app=FastAPI();app.include_router(b.router);app.dependency_overrides[b.get_stable]=lambda:stable
-        load_protocol("r9_assembly_protocol",Path(__file__).with_name("protocol.py")).register(app,stable)
+        if experiment: experiment.register(app,stable,run,mode)
+        else: load_protocol("r9_assembly_protocol",Path(__file__).with_name("protocol.py")).register(app,stable)
         import uvicorn
         server=uvicorn.Server(uvicorn.Config(app,host="127.0.0.1",port=port,access_log=False))
         @app.post("/task/stop",dependencies=[Depends(b.require_service)])

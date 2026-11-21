@@ -3,7 +3,7 @@ const make=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefi
 const option=(value,text)=>{const n=make('option',text);n.value=value;return n;};
 const op=()=> 'op-'+crypto.randomUUID();
 const states={completed:'已采用',proposed:'等待行动确认',failed:'明确失败',rejected:'回应未通过校验',unknown:'结果未知',pending:'待处理',running:'处理中','awaiting-adoption':'待采用',stale:'来源已变化，未采用',discarded:'未采用'};
-let current=null,busy=false;
+let current=null,busy=false,choicesPanel=null;
 async function api(path='',data){const res=await fetch('/api/runs'+path,data?{method:'POST',headers:{'Content-Type':'application/json','X-RPG-Scene':'offline-preview'},body:JSON.stringify(data)}:{});const v=await res.json();if(!res.ok)throw Error(v.error);return v;}
 const post=(action,data={})=>api('/'+current.id+'/'+action,data);
 function button(text,fn,cls){const n=make('button',text,cls);n.type='button';n.onclick=()=>work(fn);return n;}
@@ -11,7 +11,7 @@ function evidence(parent,title,value){const d=make('details');d.append(make('sum
 async function list(){const c=await api();$('saved').replaceChildren(option('','选择记录'));for(const r of c.runs)$('saved').append(option(r.id,(r.adapterId==='lighthouse'?'灯塔':'修仙')+' · '+r.id.slice(-8)+(r.source?' · 分支':'')));if(current)$('saved').value=current.id;return c;}
 function controls(){if(!current)return;const waiting=current.tasks.some(t=>['pending','running','unknown','awaiting-adoption'].includes(t.adoption)),blocked=busy||!!current.world.pending||waiting;
  $('send').disabled=blocked;$('checkpoint').disabled=blocked;$('fork').disabled=blocked||!current.checkpoints.length;
- document.querySelectorAll('[data-text]').forEach(b=>b.disabled=blocked);}
+ document.querySelectorAll('[data-text]').forEach(b=>b.disabled=blocked);choicesPanel?.controls(blocked);}
 function scope(){if(!current)return;const p=current.scene.participants.find(p=>'participant-'+p.id===$('owner').value);$('scope').textContent=p?p.scope+'。回应采用后才成为已发生的对话。':'使用世界已登记的状态和工具；行动提案需要单独确认。';}
 async function work(fn){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);$('notice').className='';$('notice').textContent='正在处理本地模拟任务…';
  try{const v=await fn();if(v?.world){current=v;history.replaceState(null,'','?run='+v.id);render();}await list();$('notice').textContent='本地记录已保存。真实调用 0 次。';}
@@ -31,7 +31,7 @@ function render(){
   actions.append(button('采用这段回应',()=>post('adopt',{taskId:t.id}),'primary'),button('不采用',()=>post('dismiss',{taskId:t.id})));box.append(actions);$('review').append(box);}
  $('proposal').replaceChildren();for(const [proposalId,row] of Object.entries(v.world.proposals).filter(([,x])=>x.status==='review')){
   const box=make('div',undefined,'proposal');box.append(make('strong','行动提案 · 尚未执行'),make('p','使用 '+row.proposal.action.quantity+' 份；确认后登记数量 '+row.proposal.expected.map(x=>x.before+' → '+x.after).join('；')+'。'),
-  button('确认执行一次',()=>post('confirm',{operationId:'execute-'+proposalId,revision:v.world.revision,proposalId,proposalHash:row.proposal.hash}),'primary'));$('proposal').append(box);}
+  button('确认执行一次',()=>post('confirm',{operationId:'execute-'+proposalId,revision:v.world.revision,proposalId,proposalHash:row.proposal.hash}),'primary'));if(choicesPanel)box.append(button('放弃提案',()=>post('cancel',{operationId:'cancel-'+proposalId,revision:v.world.revision,proposalId,proposalHash:row.proposal.hash})));$('proposal').append(box);}
  $('pending').replaceChildren();
  if(v.world.pending){const box=make('div',undefined,'pending'),task=v.tasks.find(t=>t.operationId===v.world.pending&&t.purpose==='world-narration');box.append(make('p','行动回合：'+(states[v.world.pendingStatus]??v.world.pendingStatus)));
   if(v.world.pendingStatus==='pending'&&!task)box.append(button('叙述已确认结果',()=>post('narrate',{fault:$('fault').value||null}),'primary'));
@@ -44,7 +44,11 @@ function render(){
  $('budget').textContent='全部任务共用记录：模拟请求 '+v.budget.calls+' / '+v.budget.limitCalls+' 次；真实费用 $0；未知请求 '+v.budget.unresolved+' 次。不启用自动重试或备用切换。';
  $('tasks').replaceChildren();for(const t of v.tasks){const box=make('article',undefined,'task');box.append(make('strong',states[t.adoption]??t.adoption),make('small',' · '+t.purpose+' · '+t.stages.length+' 阶段'));
   for(const s of t.stages)if(s.queryResults.length)evidence(box,'本次查询依据',s.queryResults);evidence(box,'任务、模型策略与来源',t);$('tasks').append(box);}
- scope();controls();
+ if(choicesPanel){
+  const sample=document.querySelector('[data-owner="world-dialogue"]');
+  sample.dataset.text=v.adapterId==='cultivation'?'我决定自己服用 2 份养息丹。':'添油 2';
+ }
+ choicesPanel?.render(v);scope();controls();
 }
 $('create').onclick=()=>work(()=>api('',{operationId:op(),adapterId:$('scene').value}));
 $('saved').onchange=()=>{if($('saved').value)work(()=>api('/'+$('saved').value));};
@@ -54,5 +58,5 @@ $('composer').onsubmit=e=>{e.preventDefault();const input=$('input').value.trim(
 document.querySelectorAll('[data-text]').forEach(b=>b.onclick=()=>{$('owner').value=b.dataset.owner;$('input').value=b.dataset.text;scope();$('input').focus();});
 $('checkpoint').onclick=()=>work(()=>post('checkpoint',{operationId:op()}));
 $('fork').onclick=()=>work(()=>post('fork',{operationId:op(),checkpointId:$('checkpoints').value}));
-try{const c=await list();for(const w of c.worlds)$('scene').append(option(w.id,w.id==='lighthouse'?'灯塔 · 值夜室':'修仙 · 药圃休息廊'));$('scene').value='lighthouse';const saved=new URL(location.href).searchParams.get('run');if(saved)await work(()=>api('/'+saved));else $('notice').textContent='选择一个场景开始，或打开已有记录。';}
+try{const c=await list();if(c.sceneChoices){const {mountChoices}=await import('/choices.mjs');choicesPanel=mountChoices({post,work});document.title='选择与行动 · 离线场景';document.querySelector('h1').textContent='场景中的选择与行动';document.querySelector('footer').textContent='第十轮独立预览 · 确定性离线样例';}for(const w of c.worlds)$('scene').append(option(w.id,w.id==='lighthouse'?'灯塔 · 值夜室':'修仙 · 药圃休息廊'));$('scene').value=c.sceneChoices?'cultivation':'lighthouse';const saved=new URL(location.href).searchParams.get('run');if(saved)await work(()=>api('/'+saved));else $('notice').textContent='选择一个场景开始，或打开已有记录。';}
 catch(e){$('notice').className='error';$('notice').textContent='无法读取本地记录：'+e.message;}
