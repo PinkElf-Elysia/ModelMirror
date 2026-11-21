@@ -1,0 +1,5 @@
+# Preserve the exact reviewed bytes used in source and save fingerprints.
+author-system.txt -text
+worldbook.mjs -text
+worldbook-slots.json -text
+archive-host.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
