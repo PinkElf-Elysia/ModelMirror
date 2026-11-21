@@ -1,6 +1,6 @@
 import http from 'node:http';import {randomBytes} from 'node:crypto';import {readFile} from 'node:fs/promises';
 import {check,branch,at,copy} from '../revisions/contracts.mjs';import {keys,parseJson} from '../../authoring/contracts.mjs';
-export async function startContextServer({store,host,sources,coordinator,port=0,charactersUrl,groupsUrl,executionLabel=null,budgetGuard=null,revisionsUrl=null}){
+export async function startContextServer({store,host,sources,coordinator,port=0,charactersUrl,groupsUrl,executionLabel=null,budgetGuard=null,revisionsUrl=null,memoryUrl=null}){
  for(const url of [charactersUrl,groupsUrl])check(/^http:\/\/127\.0\.0\.1:[0-9]+\/(characters|groups)$/.test(url),'NAVIGATION_INVALID');
  const token=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');let origin;
  const server=http.createServer(async(req,res)=>{
@@ -10,10 +10,12 @@ export async function startContextServer({store,host,sources,coordinator,port=0,
    check(req.headers.host===new URL(origin).host,'HOST_REJECTED');check(!req.headers.origin||req.headers.origin===origin,'ORIGIN_REJECTED');const u=new URL(req.url,origin);check(u.origin===origin,'PATH_INVALID');
    const navigation=req.method==='GET'&&u.pathname==='/revisions'&&req.headers['sec-fetch-mode']==='navigate';check(navigation||!['same-site','cross-site'].includes(req.headers['sec-fetch-site']),'ORIGIN_REJECTED');
    const files={'/revisions':['page.html','text/html; charset=utf-8'],'/revisions.mjs':['browser.mjs','text/javascript; charset=utf-8'],'/revisions.css':['page.css','text/css; charset=utf-8']};
-   if(req.method==='GET'&&files[u.pathname]){if(u.pathname==='/revisions')res.setHeader('Set-Cookie',`mm_context=${token}; HttpOnly; SameSite=Strict; Path=/`);const [f,type]=files[u.pathname];return send(await readFile(new URL(f,import.meta.url)),200,type);}
-   check(req.headers.cookie?.split(';').some(x=>x.trim()==='mm_context='+token),'OWNER_REQUIRED');
+   if(store.panel && req.method==='GET' && u.pathname==='/manual-memory.mjs')return send(await readFile(new URL('../manual-memory/browser.mjs',import.meta.url)),200,'text/javascript; charset=utf-8');
+   if(req.method==='GET'&&files[u.pathname]){if(u.pathname==='/revisions')res.setHeader('Set-Cookie',`${store.panel?'mm_manual_memory':'mm_context'}=${token}; HttpOnly; SameSite=Strict; Path=/`);const [f,type]=files[u.pathname];return send(await readFile(new URL(f,import.meta.url)),200,type);}
+   check(req.headers.cookie?.split(';').some(x=>x.trim()===(store.panel?'mm_manual_memory=':'mm_context=')+token),'OWNER_REQUIRED');
    if(req.method==='GET'){
-    if(u.pathname==='/api/bootstrap')return send({csrf,revisionsUrl,capabilities:await store.capabilities(),sources:await sources.list(),families:await store.list(),charactersUrl,groupsUrl,realExecution:store.mode==='controlled',executionLabel:executionLabel??(store.mode==='controlled'?'受控生成':'离线预览 · 不调用模型'),models:store.catalog?.()??[],taskBudget:budgetGuard?await budgetGuard.status():null});
+    if(u.pathname==='/api/bootstrap')return send({csrf,revisionsUrl,memoryUrl,manualMemory:!!store.panel,capabilities:await store.capabilities(),sources:await sources.list(),families:await store.list(),charactersUrl,groupsUrl,realExecution:store.mode==='controlled',executionLabel:executionLabel??(store.mode==='controlled'?'受控生成':'离线预览 · 不调用模型'),models:store.catalog?.()??[],taskBudget:budgetGuard?await budgetGuard.status():null});
+    if(store.panel && u.pathname==='/api/notes')return send(await store.panel(u.searchParams.get('family'),u.searchParams.get('branch'),u.searchParams.get('actor')));
     if(u.pathname==='/api/context')return send(await store.contextPlan(u.searchParams.get('family'),u.searchParams.get('request')));
     if(u.pathname==='/api/capabilities')return send(await store.capabilities());
     if(u.pathname==='/api/view')return send({...await store.view(u.searchParams.get('family'),u.searchParams.get('branch')||undefined),taskBudget:budgetGuard?await budgetGuard.status():null});
@@ -31,10 +33,10 @@ export async function startContextServer({store,host,sources,coordinator,port=0,
     if(u.pathname==='/api/generate')return host.generate(familyId,write);
     if(u.pathname==='/api/close-prepared'){keys(write.payload,['requestId']);return host.closePrepared(familyId,write.payload.requestId);}
     if(u.pathname==='/api/recover'){keys(write.payload,['requestId']);return host.recover(familyId,write.payload.requestId);}
-    const action=u.pathname.slice('/api/'.length);check(['fork','revise','select','restore','review'].includes(action),'ROUTE_NOT_FOUND');return (await store.mutate(familyId,action,write)).view;
+    const action=u.pathname.slice('/api/'.length);check(['fork','revise','select','restore',...(store.panel?['draft','adopt','disable','tell']:['review'])].includes(action),'ROUTE_NOT_FOUND');return (await store.mutate(familyId,action,write)).view;
    });return send({...result,taskBudget:budgetGuard?await budgetGuard.status():null});
   }catch(e){send({error:e.code??'REVISION_REQUEST_FAILED'},400);}
  });
  await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});origin='http://127.0.0.1:'+server.address().port;
- return {origin,close:()=>new Promise((ok,no)=>server.close(e=>e?no(e):ok()))};
+ return {origin,linkMemory(url){check(/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(url),'NAVIGATION_INVALID');memoryUrl=url;},close:()=>new Promise((ok,no)=>server.close(e=>e?no(e):ok()))};
 }

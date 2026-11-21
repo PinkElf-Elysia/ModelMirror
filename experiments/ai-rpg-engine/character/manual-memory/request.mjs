@@ -1,0 +1,8 @@
+import {copy,check,id,digest,boundary,at,prefixHash,text} from '../revisions/contracts.mjs';import {plan} from './planner.mjs';
+export function prepare(f,operationId,p,model,policy){
+ const b=f.branches[p.branchId];check(b,'BRANCH_NOT_FOUND');let targetId=p.targetId,prefix=copy(b.messages),inputMessage=null,exact=null,originalMessageId=null,slotId=id('slot',f.id,operationId),state=copy(boundary(b));
+ if(p.kind==='regenerate'){const n=at(b,p.messageId),m=b.messages[n];check(m.generation,'REGENERATION_UNAVAILABLE');targetId=m.speakerId;prefix=copy(b.messages.slice(0,n));exact=copy(m.generation.context);originalMessageId=m.id;slotId=m.slotId;state=copy(m.boundary);check(digest(model)===digest(m.generation.model),'EXACT_MODEL_CHANGED');}
+ else {check(p.kind==='send','REQUEST_KIND');if(p.input!==null){text(p.input);inputMessage={id:id('message',f.id,operationId,'input'),revisionId:id('revision',f.id,operationId,'input'),speakerId:state.members[0].id,content:p.input,visibility:{kind:'public'},addressedTo:[targetId],provenance:{kind:'player-input'},generation:null,slotId:null,boundary:copy(state)};prefix.push(inputMessage);}}
+ const result=plan({source:f.source,branch:{...copy(b),current:state,messages:prefix},targetId,model,policy,inputMessage,exact});
+ const body={sourceKind:f.source.kind,sourceId:f.source.id,id:id('request',f.id,operationId),branchId:b.id,targetId,slotId,prefix,prefixHash:prefixHash(prefix),context:result.messages,contextHash:result.requestHash,model:copy(model),reservation:result.reservation,kind:p.kind,originalMessageId,inputMessage,boundary:state};return {request:{...body,hash:digest(body)},plan:result};
+}

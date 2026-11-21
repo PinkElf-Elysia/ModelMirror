@@ -5,3 +5,15 @@
 #context-trace p{padding:8px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}.check{display:flex;align-items:center;gap:10px}.check input{width:auto}#context-summary{line-height:1.8}#parameter-fields label{display:grid;gap:8px}dialog{overscroll-behavior:contain}@media(max-width:760px){#context-dialog,#parameters-dialog{margin:auto 0 0;width:100%;max-width:none;max-height:85dvh;border-radius:12px 12px 0 0}.compose-actions button{min-width:120px;min-height:44px}}
 
 .panel-heading{position:sticky;top:0;display:flex;align-items:center;gap:12px;background:#fff;z-index:1;padding-bottom:12px;border-bottom:1px solid var(--line)}.panel-heading h2{margin:0}.panel-close{margin-left:auto;background:#fff;white-space:nowrap}
+
+#memory-dialog { overflow-wrap:anywhere; overscroll-behavior:contain; }
+#memory-dialog .panel-heading { justify-content:space-between; margin-bottom:1rem; }
+#memory-dialog section { padding:1rem 0; border-top:1px solid var(--line); }
+#memory-dialog section h3 { margin:0; font-size:1rem; }
+#memory-dialog section small { display:block; margin-bottom:.75rem; color:var(--muted); }
+#memory-dialog button { margin:2px 5px 2px 0; }
+#memory-dialog label select, #memory-dialog label input:not([type=checkbox]) { display:block; margin-top:.35rem; }
+#memory-dialog fieldset { border:1px solid var(--line); border-radius:6px; margin:1rem 0; max-height:13rem; overflow:auto; }
+#memory-dialog fieldset label { display:flex; align-items:baseline; gap:.6rem; margin:.6rem 0; }
+#memory-dialog [role=alert]:empty { display:none; }
+@media(max-width:760px){#memory-dialog { margin:auto 0 0; width:100%; max-width:100%; max-height:88dvh; border-radius:12px 12px 0 0; } #memory-dialog button { min-height:44px; }}
