@@ -18,6 +18,7 @@ COPY medieval-card ./medieval-card
 COPY harry-potter-card ./harry-potter-card
 COPY blue-fish-card ./blue-fish-card
 COPY modern-life-card ./modern-life-card
+COPY slime-card ./slime-card
 COPY doupo-card ./doupo-card
 COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card

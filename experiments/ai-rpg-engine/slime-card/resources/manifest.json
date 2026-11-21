@@ -1,0 +1,37 @@
+{
+  "sourceDocument": "史莱姆提示词.docx",
+  "docxSha256": "28b55ab852a20a0c1833b662a60c6ee129741aa5f74ea1bb530df24144da488a",
+  "paragraphCount": 1625,
+  "textSha256": "897aa54362baedb493462a9fb6bd102d8893aebc2639296c3ec62b1626645c77",
+  "systemParagraphs": [
+    [
+      1,
+      18
+    ],
+    [
+      20,
+      707
+    ],
+    [
+      788,
+      791
+    ],
+    [
+      805,
+      823
+    ]
+  ],
+  "sourcePage": "https://afengy.cash/zh/explore/installed/76e8eb90-9cfd-4b5a-8acd-e498c7cc6110",
+  "sourceInterfaceSha256": "610b53dcadac635b6f6f627829d24f305d4ce1e41e86c10b6fbbc99ccbdb1127",
+  "systemTextSha256": "32bceb031425401fd9d2a2005fcda72ea587c61a540828fd18e0f4109213aa0c",
+  "excludedParagraphs": [
+    19
+  ],
+  "excludedParagraphSha256": "35c01ef6f7d2fc8b4d9d5ea90de56cab68c558258eb45e09acb3106629ca75cd",
+  "fixedPromptSource": {
+    "document": "史莱姆固定提示词.docx",
+    "docxSha256": "df268a3de9230e8decf0661e51219c16fbe9cd2f2dd3a7a1bf8923e9ca75d500",
+    "paragraphCount": 729,
+    "textSha256": "32bceb031425401fd9d2a2005fcda72ea587c61a540828fd18e0f4109213aa0c"
+  }
+}
