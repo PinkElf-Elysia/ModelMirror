@@ -23,6 +23,8 @@ COPY doupo-card ./doupo-card
 COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
 COPY naruto-card ./naruto-card
+COPY type-moon-card ./type-moon-card
+COPY character/document.mjs character/card.mjs ./character/
 COPY ai-girls-card ./ai-girls-card
 COPY douluo-card ./douluo-card
 COPY god-card/public ./god-card/public

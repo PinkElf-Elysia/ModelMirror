@@ -11,3 +11,13 @@ experiments/ai-rpg-engine/studio/** whitespace=blank-at-eol,blank-at-eof,space-b
 experiments/ai-rpg-engine/god-card/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 experiments/ai-rpg-engine/xingjian-card/** whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 client/src/pages/RpgPage.tsx whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+
+# These exact source bytes bind Type-Moon saves created on Windows and Linux.
+experiments/ai-rpg-engine/type-moon-card/assembly.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/session-host.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/servant-index.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/transport/*.mjs -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/resources/source-segments.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/resources/servants.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/resources/servant-appearance.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+experiments/ai-rpg-engine/type-moon-card/resources/reviewed-no3.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

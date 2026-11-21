@@ -28,15 +28,15 @@ it('failed reads never automatically retry',async()=>{
  render(<MemoryRouter><RpgPluginsPage/></MemoryRouter>);await screen.findByRole('alert');expect(fetcher).toHaveBeenCalledTimes(1);
  fireEvent.click(screen.getByRole('button',{name:'重新读取'}));await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2));
 });
-it('shows twenty cards even when the status service fails, and does not dispatch a model',async()=>{
+it('shows twenty-one cards even when the status service fails, and does not dispatch a model',async()=>{
  const fetcher=vi.fn().mockRejectedValue(Error('offline'));vi.stubGlobal('fetch',fetcher);render(<MemoryRouter><RpgPage/></MemoryRouter>);
- for(const title of ['关于我转生成史莱姆这件事','赛博朋克大世界','现代超真实人生','火影大世界','盗墓笔记大世界','斗破苍穹！','哈利波特大世界（霍格沃兹）','西幻大世界','中世纪真实人生','完蛋！我被AI娘包围了！','金庸大世界','龙族大世界','蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生模拟器','地球online','上帝模拟器','修仙大世界','无限世界'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
- for(const [card,title] of [['slime','关于我转生成史莱姆这件事'],['cyberpunk','赛博朋克大世界'],['modern-life','现代超真实人生'],['doupo','斗破苍穹！'],['naruto','火影大世界'],['daomu','盗墓笔记大世界'],['harry-potter','哈利波特大世界（霍格沃兹）'],['medieval','中世纪真实人生'],['elderland','西幻大世界'],['ai-girls','完蛋！我被AI娘包围了！'],['jinyong','金庸大世界'],['dragon-raja','龙族大世界'],['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
+ for(const title of ['型月大世界','关于我转生成史莱姆这件事','赛博朋克大世界','现代超真实人生','火影大世界','盗墓笔记大世界','斗破苍穹！','哈利波特大世界（霍格沃兹）','西幻大世界','中世纪真实人生','完蛋！我被AI娘包围了！','金庸大世界','龙族大世界','蓝色大肥鱼','斗罗大陆','诡秘之主','古代人生模拟器','地球online','上帝模拟器','修仙大世界','无限世界'])expect(screen.getByRole('heading',{name:title})).toBeInTheDocument();
+ for(const [card,title] of [['type-moon','型月大世界'],['slime','关于我转生成史莱姆这件事'],['cyberpunk','赛博朋克大世界'],['modern-life','现代超真实人生'],['doupo','斗破苍穹！'],['naruto','火影大世界'],['daomu','盗墓笔记大世界'],['harry-potter','哈利波特大世界（霍格沃兹）'],['medieval','中世纪真实人生'],['elderland','西幻大世界'],['ai-girls','完蛋！我被AI娘包围了！'],['jinyong','金庸大世界'],['dragon-raja','龙族大世界'],['blue-fish','蓝色大肥鱼'],['douluo','斗罗大陆']])expect(screen.getByRole('link',{name:'进入'+title})).toHaveAttribute('href','/rpg/'+card);
  const library=within(screen.getByRole('region',{name:'全部作品'}));
- expect(library.getAllByRole('article')).toHaveLength(20);
+ expect(library.getAllByRole('article')).toHaveLength(21);
  for(const article of library.getAllByRole('article'))expect(article).toHaveClass('rpg-story-card');
  expect(screen.getByRole('link',{name:'插件市场'})).toHaveAttribute('href','/rpg/plugins');
- await screen.findByText(/部分存档暂时读不到/);expect(fetcher).toHaveBeenCalledTimes(40);
+ await screen.findByText(/部分存档暂时读不到/);expect(fetcher).toHaveBeenCalledTimes(42);
  expect(fetcher.mock.calls.every(([,options])=>!options.method)).toBe(true);
  expect(document.body).not.toHaveTextContent(/验收|复刻|本轮剩余|行间暂不兼容/);
 });
