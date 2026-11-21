@@ -1,0 +1,1131 @@
+{
+  "realModelCalls": 0,
+  "sourceSha256": "bbb79d8bb999d065b6a33e231f58e459e5b9bdabc1493ad382c9310131e0f75c",
+  "fixedCharacters": 18001,
+  "mapping": {
+    "entries": 813,
+    "coveredSourceLines": 1969,
+    "formLocations": 81,
+    "regions": 8,
+    "triggerChecks": 1073
+  },
+  "sameSessionForThreeTurns": true,
+  "turns": [
+    {
+      "turn": 1,
+      "input": "==================================================\n  艾尔德兰 · 角色设定卡\n==================================================\n【基础信息】\n姓名：林澈\n性别：男\n年龄：26岁\n种族：人类\n【职业】\n主职业：战士 — 纯战技流\n\n【身份】\n信仰：无信仰\n环位：1环 — 新手冒险者\n认证：已认证\n【出生地】\n北境·永冬荒原 > 南部文明区 > 冬堡城\n【战技】\n无\n【魔法】\n无\n【神术】\n无\n【通用技能】\n无\n【龙吼】\n无\n【自定义能力】\n无\n【传承】（已选择0/3）\n未抽取\n【外貌特征】\n未填写\n【性格】\n未填写\n【信念/目标】\n未填写\n【背景故事】\n清晨抵达冬堡城，先在城门登记，找一间住处。\n==================================================",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "messagesSha256": "ca1d0baa142e36ce9a5f56e1ef06333c31d51632378a9ace4e106502c09e9dba",
+      "requestSha256": "d0368cac6e91b9f61ea58951f3f5779496ac0f9d53b82cd2a56341b07ec28ef5",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "55108086c7180808d30e975c759fb70259a9c0a0dbd1f66de7ee8b2378a49948",
+      "systemCharacters": 19447
+    },
+    {
+      "turn": 2,
+      "input": "我去冒险者公会问任务，看看冬堡分部今天贴出了哪些委托。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messagesSha256": "ade85324d6bae264c25b2ed8013c64ae1e55905c67abd39fdc7f72158f92218e",
+      "requestSha256": "b1788c85a6a9f4521d70ec7771f29e5e5d54c34ea257366beb7fa4b232b39375",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e33",
+          "region": "common",
+          "name": "冒险者公会",
+          "category": "势力",
+          "positions": [
+            {
+              "start": 760,
+              "end": 760
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e45",
+          "region": "north",
+          "name": "冒险者公会·冬堡分部",
+          "category": "势力",
+          "positions": [
+            {
+              "start": 1085,
+              "end": 1085
+            }
+          ]
+        },
+        {
+          "id": "e50",
+          "region": "north",
+          "name": "清剿亡灵",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1105,
+              "end": 1105
+            }
+          ]
+        },
+        {
+          "id": "e51",
+          "region": "north",
+          "name": "护送商队",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1106,
+              "end": 1106
+            }
+          ]
+        },
+        {
+          "id": "e52",
+          "region": "north",
+          "name": "狩猎魔兽",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1107,
+              "end": 1107
+            }
+          ]
+        },
+        {
+          "id": "e53",
+          "region": "north",
+          "name": "探索遗迹",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1108,
+              "end": 1108
+            }
+          ]
+        },
+        {
+          "id": "e54",
+          "region": "north",
+          "name": "领主纷争",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1109,
+              "end": 1109
+            }
+          ]
+        },
+        {
+          "id": "e55",
+          "region": "north",
+          "name": "寻找失踪者",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1110,
+              "end": 1110
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        },
+        {
+          "id": "e439",
+          "region": "north",
+          "name": "冒险者公会",
+          "category": "势力",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "detail",
+            "id": "winterhold",
+            "offset": 41
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "0598ad08bc32090845d2b2275c859a4a04860f5cf6e99267dbaf3fc15326226e",
+      "systemCharacters": 19655
+    },
+    {
+      "turn": 3,
+      "input": "我仍在冬堡城，向公会会长打听风暴群岛的概况。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "messagesSha256": "b2d6f8e2c264bfb26d7a815573f4d65cb18249018ef4a7979a8111b3b38c3c1b",
+      "requestSha256": "40c3bb10ed86739b1b251d93d59a38b273eff72e73f9931349f5a9e549a36b1c",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [
+        "west"
+      ],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "region": "west",
+          "name": "风暴群岛",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 813,
+              "end": 813
+            },
+            {
+              "start": 1125,
+              "end": 1144
+            },
+            {
+              "start": 1181,
+              "end": 1184
+            },
+            {
+              "start": 1191,
+              "end": 1195
+            },
+            {
+              "start": 1202,
+              "end": 1216
+            },
+            {
+              "start": 1225,
+              "end": 1238
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "5259bd64c88803eeb5bc4005fc7e677814ad307bff5ba3cbf86518304fc60922",
+      "systemSha256": "18241e5d77fd961e27328f5e62c8e5331fb92c87e46ad7be9b7330b6a37f09a5",
+      "systemCharacters": 20684
+    }
+  ],
+  "controls": [
+    {
+      "input": "听人提起风暴群岛的名字，我继续在这里休息。",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "55108086c7180808d30e975c759fb70259a9c0a0dbd1f66de7ee8b2378a49948",
+      "systemCharacters": 19447
+    },
+    {
+      "input": "我没有打听西境，只是去公会。",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "55108086c7180808d30e975c759fb70259a9c0a0dbd1f66de7ee8b2378a49948",
+      "systemCharacters": 19447
+    },
+    {
+      "input": "我计划前往风暴群岛。",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "55108086c7180808d30e975c759fb70259a9c0a0dbd1f66de7ee8b2378a49948",
+      "systemCharacters": 19447
+    },
+    {
+      "input": "如何抵达风暴群岛？",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [
+        "west"
+      ],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "region": "west",
+          "name": "风暴群岛",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 813,
+              "end": 813
+            },
+            {
+              "start": 1125,
+              "end": 1144
+            },
+            {
+              "start": 1181,
+              "end": 1184
+            },
+            {
+              "start": 1191,
+              "end": 1195
+            },
+            {
+              "start": 1202,
+              "end": 1216
+            },
+            {
+              "start": 1225,
+              "end": 1238
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "5259bd64c88803eeb5bc4005fc7e677814ad307bff5ba3cbf86518304fc60922",
+      "systemSha256": "18241e5d77fd961e27328f5e62c8e5331fb92c87e46ad7be9b7330b6a37f09a5",
+      "systemCharacters": 20684
+    },
+    {
+      "input": "查阅 Stormreach Isles。",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [
+        "west"
+      ],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "region": "west",
+          "name": "风暴群岛",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 813,
+              "end": 813
+            },
+            {
+              "start": 1125,
+              "end": 1144
+            },
+            {
+              "start": 1181,
+              "end": 1184
+            },
+            {
+              "start": 1191,
+              "end": 1195
+            },
+            {
+              "start": 1202,
+              "end": 1216
+            },
+            {
+              "start": 1225,
+              "end": 1238
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "5259bd64c88803eeb5bc4005fc7e677814ad307bff5ba3cbf86518304fc60922",
+      "systemSha256": "18241e5d77fd961e27328f5e62c8e5331fb92c87e46ad7be9b7330b6a37f09a5",
+      "systemCharacters": 20684
+    },
+    {
+      "input": "那里有哪些委托？",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [
+        "west"
+      ],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e2",
+          "region": "west",
+          "name": "风暴群岛",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 813,
+              "end": 813
+            },
+            {
+              "start": 1125,
+              "end": 1144
+            },
+            {
+              "start": 1181,
+              "end": 1184
+            },
+            {
+              "start": 1191,
+              "end": 1195
+            },
+            {
+              "start": 1202,
+              "end": 1216
+            },
+            {
+              "start": 1225,
+              "end": 1238
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e68",
+          "region": "west",
+          "name": "护送商船",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1217,
+              "end": 1217
+            }
+          ]
+        },
+        {
+          "id": "e69",
+          "region": "west",
+          "name": "海盗劫掠",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1218,
+              "end": 1218
+            }
+          ]
+        },
+        {
+          "id": "e70",
+          "region": "west",
+          "name": "寻找沉船宝藏",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1219,
+              "end": 1219
+            }
+          ]
+        },
+        {
+          "id": "e71",
+          "region": "west",
+          "name": "探索海底遗迹",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1220,
+              "end": 1220
+            }
+          ]
+        },
+        {
+          "id": "e72",
+          "region": "west",
+          "name": "海精灵与特里同交涉",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1221,
+              "end": 1221
+            }
+          ]
+        },
+        {
+          "id": "e73",
+          "region": "west",
+          "name": "平息风暴",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1222,
+              "end": 1222
+            }
+          ]
+        },
+        {
+          "id": "e74",
+          "region": "west",
+          "name": "猎杀海怪",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1223,
+              "end": 1223
+            }
+          ]
+        },
+        {
+          "id": "e75",
+          "region": "west",
+          "name": "走私任务",
+          "category": "任务",
+          "positions": [
+            {
+              "start": 1224,
+              "end": 1224
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "5259bd64c88803eeb5bc4005fc7e677814ad307bff5ba3cbf86518304fc60922",
+      "systemSha256": "36b0a4ab28d78b7000a05ff2842a68a7ed5e041c937797c0e43bbc0e446e7a66",
+      "systemCharacters": 20785
+    },
+    {
+      "input": "回旅店休息。",
+      "location": {
+        "region": "north",
+        "city": "冬堡城"
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e1",
+          "region": "north",
+          "name": "霜寒领",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 812,
+              "end": 812
+            },
+            {
+              "start": 1014,
+              "end": 1038
+            },
+            {
+              "start": 1069,
+              "end": 1072
+            },
+            {
+              "start": 1078,
+              "end": 1082
+            },
+            {
+              "start": 1090,
+              "end": 1104
+            },
+            {
+              "start": 1111,
+              "end": 1124
+            }
+          ]
+        },
+        {
+          "id": "e38",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [
+            {
+              "start": 1073,
+              "end": 1073
+            }
+          ]
+        },
+        {
+          "id": "e437",
+          "region": "north",
+          "name": "冬堡城",
+          "category": "地点",
+          "positions": [],
+          "origin": {
+            "html": 1080,
+            "field": "desc",
+            "id": "winterhold"
+          }
+        }
+      ],
+      "catalogSha256": "e3ad4b3b5d5c2c1689201e4e60da9a479db3bce9eb111cf56e6aa932742d67ab",
+      "systemSha256": "55108086c7180808d30e975c759fb70259a9c0a0dbd1f66de7ee8b2378a49948",
+      "systemCharacters": 19447
+    },
+    {
+      "input": "我已抵达风暴群岛。",
+      "location": {
+        "region": "west",
+        "city": ""
+      },
+      "consulted": [],
+      "hits": [
+        {
+          "id": "e2",
+          "region": "west",
+          "name": "风暴群岛",
+          "category": "区域",
+          "positions": [
+            {
+              "start": 813,
+              "end": 813
+            },
+            {
+              "start": 1125,
+              "end": 1144
+            },
+            {
+              "start": 1181,
+              "end": 1184
+            },
+            {
+              "start": 1191,
+              "end": 1195
+            },
+            {
+              "start": 1202,
+              "end": 1216
+            },
+            {
+              "start": 1225,
+              "end": 1238
+            }
+          ]
+        }
+      ],
+      "catalogSha256": "328ce9d328b93e1b67a7f814d648d4f26941d2848e3886e1fced8bb69512666c",
+      "systemSha256": "41fbd0e57a68b8cad0bb2880964cbc9728abee528cda562ca3a19af230bbe3a9",
+      "systemCharacters": 19378
+    }
+  ],
+  "legacy": {
+    "preSplitFirstSystem": "bbb79d8bb999d065b6a33e231f58e459e5b9bdabc1493ad382c9310131e0f75c",
+    "resumedSystem": "bbb79d8bb999d065b6a33e231f58e459e5b9bdabc1493ad382c9310131e0f75c",
+    "messageHashes": [
+      "7de914384af027c3941ad0372670c795a1206f975d35d4a1dcee8772facec85b",
+      "d427f461bcca0a9902d6b5a31c408f643fa00c3a556a4e56630ddb180f02a13d"
+    ],
+    "turns": 2,
+    "bindingUnchanged": true,
+    "originalTurnUnchanged": true
+  }
+}
