@@ -1,0 +1,187 @@
+[
+  {
+    "localRun": "mm-ningyuan-gemini-01/real-01",
+    "batchPassed": true,
+    "calls": [
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "query_map",
+            "arguments": "{\"node\":\"宁远\"}"
+          }
+        ],
+        "tokens": 527,
+        "costMicros": 1092
+      },
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "propose_map_change",
+            "arguments": "{\"node\":\"宁远\",\"source\":\"b82cd5e6-5f80-44eb-b6d4-5a7c82fce210\",\"kind\":\"handover\"}"
+          }
+        ],
+        "tokens": 993,
+        "costMicros": 1882
+      },
+      {
+        "text": "已核对宁远接防文书。案卷内现有确凿接防凭据（凭据编号：`b82cd5e6-5f80-44eb-b6d4-5a7c82fce210`，记录“本档模拟接防凭据：宁远由明交付后金”）。\n\n据此已拟就宁远防务交割提案：\n- **提案编号**：`9ad1b405-370f-4d2f-b4d8-1b1b729468c1`\n- **变更类型**：凭据交割（handover）\n- **目标节点**：宁远\n- **凭据依据**：`b82cd5e6-5f80-44eb-b6d4-5a7c82fce210`\n\n提案已呈上，等候确认。",
+        "tools": [],
+        "tokens": 1321,
+        "costMicros": 1945
+      }
+    ],
+    "sha256": {
+      "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+      "decision.json": "ad00b72af52a8d00e632f51a6de4ddacc1b8f02624dbca54c45edb029417d9d1",
+      "dispatch-audit.json": "0a533f08904d21c3d937d88c9814142aa13f44c48595c641a2a1c550ebb7aa22",
+      "final-review.json": "9e897c415655a2b009091dc529cc687c9e4bac13bcefe020cf4f3b7f3377cbac",
+      "frozen.json": "d1ef04a02afc079fdee6deba3cd6efc8474418a939217eaa6175bd84cd5b3ef3",
+      "pending.json": "212364ebe6d2825428fdc0a9cad1dd1d01a8bd0ba1f8f6da8b694cc1497a54b9",
+      "raw-1.json": "e89c0e75ac1d2a4efab00925b64c1744ff79a4a4807e7c0e5f7e0457e677e57e",
+      "raw-2.json": "678ccfe94dde6203472a20ce4edc1730b63a0111ed3910a22e5a22824797abbc",
+      "raw-3.json": "74875f46805d0d790e356d5159fdbee2aa7ba4f1fe992c347f34e54880504a74",
+      "reloaded.json": "fdec3540f66c7b1774c92cb0b51ebdaaf49b0b20e141815139c784d33964e8ca",
+      "result.json": "3cc7761f3029a7029cd886e4acc68d81b041e3aa45ee2b8b77099f7382c132d3"
+    }
+  },
+  {
+    "localRun": "mm-ningyuan-boundary-01/real-01",
+    "batchPassed": false,
+    "calls": [
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "query_map",
+            "arguments": "{\"node\":\"宁远\"}"
+          }
+        ],
+        "tokens": 436,
+        "costMicros": 753
+      },
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "propose_map_change",
+            "arguments": "{\"node\":\"宁远\",\"kind\":\"rumor\",\"source\":\"camp-rumor\"}"
+          }
+        ],
+        "tokens": 648,
+        "costMicros": 1101
+      },
+      {
+        "text": "已查验眼下宁远城中情形与手头依据：\n\n城头官旗未变，守军各营尚在位，现存确凿凭据仍属大明防区。同袍口中所言“城已失”，眼下仅凭一己之口传散，未经主将发令或军报文书确证，实属营中**传闻**。\n\n已为您拟定记录提案：\n* **性质**：传闻（rumor）\n* **涉及地点**：宁远\n* **所凭依据**：`camp-rumor`（同袍口信，未经核实）\n* **提案编号**：`b678f3a9-e1ca-463a-b39b-c972262e0aa3`\n* **影响说明**：仅作风闻备忘入卷，不变更宁远现有大明防区归属。\n\n请您核对，是否确认以此案记入？",
+        "tools": [],
+        "tokens": 922,
+        "costMicros": 1559
+      }
+    ],
+    "sha256": {
+      "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+      "decision-soldier.json": "4c6d738a5f78190958a9221bc5de9462c163a18e8ee6e6db26ce0d18805843ca",
+      "dispatch-audit.json": "5d763a4bbe092e778d9844cf6d2c83f70aa17f4b08c5e8def508aef90779d806",
+      "final-soldier.json": "e880fdcebfd9b9908c5be033271df27f47d2276eb3661e34f21e455b6151c433",
+      "raw-1.json": "2de53d5f67040aeee8bc8ab65916ae2d87c85aa6da8a8005d929799177004316",
+      "raw-2.json": "875c919b0acc5e8e664925c6dd48351b705aba4fe6cd5e444aa63401f6c124bc",
+      "raw-3.json": "e8900a0f508a545ac8d0c9a05c0e5e6a7b8fd022ee9f32a571fd5fd980381404",
+      "request-1.json": "d5d381b620583490b5421a57aae09182747e0570531b345f9ea480247a37f846",
+      "request-2.json": "264ebca23771b1e74d34c0d39acff500cee17e19775b455164f1ff4305b2a708",
+      "request-3.json": "acb72e11996a04720c13514c6fc9be701a16dc5b0bca2f7168d3ca7002d47d23",
+      "result.json": "488cf5eadf9bbb67f2887bd8d06c5863c70a79fdca64897b66050593d83a2137",
+      "state-diff.json": "efa663471d6f5fb72dbfa9c7847aae99993dacd946eea85284ca2fc12d4e21d8"
+    }
+  },
+  {
+    "localRun": "mm-map-boundary-final-01/real-01",
+    "batchPassed": false,
+    "calls": [
+      {
+        "text": "核对眼下依据如下：\n\n1. **开局登记**：宁远最后登记的控制方为明。\n2. **亲见**：营中聚集。\n3. **同袍口述**：称“城已失”，为同袍口信，未经核实。\n\n依此依据，已登记传闻，宁远归属未变。",
+        "tools": [],
+        "tokens": 1018,
+        "costMicros": 1700
+      },
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "query_map",
+            "arguments": "{\"node\":\"北京\"}"
+          }
+        ],
+        "tokens": 391,
+        "costMicros": 624
+      }
+    ],
+    "sha256": {
+      "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+      "decision-soldier.json": "e7499495aa8c5aa0ef5f4e5927ba1f7092ebad51ea076c1ce1157e3a3fb9466a",
+      "diff.json": "6efdbb83805513d8b87828a73e531bae320decb927eeea6ef802f47c0e1fc94d",
+      "dispatch-audit.json": "01a16198fbb7ef559959e91661088a5fde729b531b55d63a45bcf81a4d3e58aa",
+      "final-soldier.json": "d6e7cd3f8b34f4376536f959a22f0fb798a260ed2110d402caa259abc5ff5488",
+      "raw-1.json": "02740c8abcb072b55a1b7badf59a343871989287d03fecc2f0278015cb1f42d1",
+      "raw-2.json": "37f4e8366ff5ceb8f574e3700bab8bf6c39166644fab4d9428f05717921a1fb8",
+      "request-1.json": "ad917485701a3a673b93d8a084f145e5428a8a336e1e4f963e41f1d21fb0f464",
+      "request-2.json": "d10387b86e537f078ba707e28c562668cfbb21517cf95b731352619e5f974e55",
+      "result.json": "13bc416bb35cb3b79bdebdf1a46f38b6e92910dee75781b8a0962ba301d5f121",
+      "state-soldier.json": "8844739887eadfc5e96fd5a11debf302e1c33f2e5a35d7cd6c11055018bcaeff"
+    }
+  },
+  {
+    "localRun": "mm-map-court-node-01/real-01",
+    "batchPassed": false,
+    "calls": [
+      {
+        "text": null,
+        "tools": [
+          {
+            "name": "query_map",
+            "arguments": "{\"node\":\"宁远\"}"
+          }
+        ],
+        "tokens": 431,
+        "costMicros": 654
+      },
+      {
+        "text": "回皇上：\n\n内阁与兵部现有文卷勘查如下：\n\n* **宁远城归属**：仍登记在大明官军掌控之下（依据：开局登记 · 明廷防区）。\n* **最新塘报与实情**：目前御前尚未收到宁远前线送递的任何奏折、塘报或实证凭据（凭据记录为空）。\n\n眼下内廷对宁远关外的实际军情、驻军调动及后金动向尚乏确切细报。皇上是否降旨兵部催问辽东塘报，或命锦衣卫、东厂派番役出关探听传闻？请圣裁。",
+        "tools": [],
+        "tokens": 640,
+        "costMicros": 1350
+      }
+    ],
+    "sha256": {
+      "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+      "decision-court.json": "351aff177a701f4a378df59030f6b18f68cc0f7da5ba75e50416804f1ac59e88",
+      "dispatch-audit.json": "1da51b48a85211d6a0ce696bc454617c8c63bb16f88895dfd07e4d37415ea1ab",
+      "final-court.json": "0d3aac962889689e1ac78361e328270acc7de92f0ddb4b49f828bcd0d560c909",
+      "raw-1.json": "9f69964c5bd0d6c2a23b1f260538c3e886ec6705aae8dc9b5968dd7f6cebeeee",
+      "raw-2.json": "d4332f4599ed3f47bf0c2aeb78e7d08f42b48f4cd9bff48e2746cb9b9836256c",
+      "request-1.json": "e557c1fc76b49b3ef2a465e710e22ec8695a7d53d3a5bf8bf109e89b0f56a28e",
+      "request-2.json": "b738fde008bf2f089c218462bf00c8cbc37c2e9442cd2a213746e8d05b3ebfd2",
+      "result.json": "fe64c4b47b48e51ef63c5f8ec850d45600677cdd8b45267ea26bebbd71faa33e"
+    }
+  },
+  {
+    "localRun": "mm-map-court-final-only-01/real-01",
+    "batchPassed": true,
+    "calls": [
+      {
+        "text": "依现有可见记录查询：\n\n关于宁远城，最后登记的控制方为**明**（记录来源：开局登记 · 明廷防区）。\n\n本次可见记录中并无新报，证据列表为空，宁远当下的确切实情仍属未知。",
+        "tools": [],
+        "tokens": 652,
+        "costMicros": 1200
+      }
+    ],
+    "sha256": {
+      "cleanup.json": "fe15e610550f2236210de2e932ef588a1c96b4d54fae8308c0f44c6d9201866f",
+      "dispatch-audit.json": "9266519bcc411ba47efd37c5e0d19b2c4208e9f8f37f5e613f615af9c9c49e3f",
+      "final-court.json": "168b7d8d18a9f5cbe659c9018dadd5b697d604289519e3a78d70f4f27f81eb06",
+      "raw-1.json": "108620a827e3fb6b3f2728a94e07c36c137626a2c5b2cbede2e28296f21eae27",
+      "request-1.json": "8452d90df34cc9e9d92c4be118f1d4aff271655e02472eff5942f503473f9b0d",
+      "result.json": "ae3f419e4a901cd09df8ad7bf505f7c77c401438a774999e314dd57c75134840"
+    }
+  }
+]
