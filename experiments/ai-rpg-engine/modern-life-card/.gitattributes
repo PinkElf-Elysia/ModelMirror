@@ -1,0 +1,3 @@
+resources/system.txt -text
+resources/original.html -text
+public/fonts/*.woff binary

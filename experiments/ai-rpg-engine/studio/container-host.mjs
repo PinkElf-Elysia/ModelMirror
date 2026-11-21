@@ -1,4 +1,5 @@
 import {speechService} from './speech.mjs';
+import {installModernLife,modernLifeOptions} from '../modern-life-card/integration.mjs';
 import {installDoupo,doupoOptions} from '../doupo-card/integration.mjs';
 import {installCyberpunk,cyberpunkOptions} from '../cyberpunk-card/integration.mjs';
 import {installDaomu,daomuOptions} from '../daomu-card/integration.mjs';
@@ -91,6 +92,8 @@ async function run(env){
   if(daomuControl)daomuControl.fetcher=configFetch;
   installDaomu(server,{directory,speech,control:daomuControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installNaruto(server,{directory,speech,control:narutoControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const modernLifeControl=modernLifeOptions(env);if(modernLifeControl)modernLifeControl.fetcher=configFetch;
+  installModernLife(server,{directory,speech,control:modernLifeControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const cyberpunkControl=cyberpunkOptions(env);
   if(cyberpunkControl)cyberpunkControl.fetcher=configFetch;
   installCyberpunk(server,{directory,speech,control:cyberpunkControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});

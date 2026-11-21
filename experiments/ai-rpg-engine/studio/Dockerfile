@@ -17,6 +17,7 @@ COPY jinyong-card ./jinyong-card
 COPY medieval-card ./medieval-card
 COPY harry-potter-card ./harry-potter-card
 COPY blue-fish-card ./blue-fish-card
+COPY modern-life-card ./modern-life-card
 COPY doupo-card ./doupo-card
 COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
