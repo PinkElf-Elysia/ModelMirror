@@ -4,7 +4,7 @@ import {mkdtemp} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {assemble} from './assembly.mjs';
+import {assembleWorldbook} from './worldbook.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
 import {canonical,sha} from '../plugins/catalog.mjs';
 import {start} from '../studio/server.mjs';
@@ -33,7 +33,7 @@ test('controlled fixture preserves the full prompt and history while toggling a 
   const request={operationId:randomUUID(),expectedSessionRevision:memory.sessionRevision,expectedMemoryRevision:memory.memoryRevision,expectedContextPolicyRevision:memory.effectivePolicy.revision,input};
   const result=await post(path+'/send',i?request:{modIds:[mod.id],request},i?{}:{'X-Rpg-Mod-Panel':'1'});
   assert.equal(result.turns.length,i+1);assert.equal(result.turns.at(-1).raw,'已在自由港寻找向导。');
-  const system=assemble({input}).messages[0].content;
+  const system=assembleWorldbook({opening:'在自由港寻找向导。',history:seen[i].messages.slice(1,-1),input}).system;
   assert.equal(seen[i].base.messages[0].content,system);
   assert.equal(seen[i].messages[0].content,system+(i?'':'\n\n'+mod.text));
   assert.equal(seen[i].messages.at(-1).content,input);

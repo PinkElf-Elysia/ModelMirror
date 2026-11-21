@@ -14,6 +14,7 @@ import {createChatDraft} from './start-chat';
 export function Xingjian(){
   const card=cardStoragePrefix();
   const title=({'type-moon':'型月大世界','american-horror':'美恐大世界',slime:'关于我转生成史莱姆这件事','modern-life':'现代超真实人生',naruto:'火影大世界',genshin:'原神·提瓦特大陆',cyberpunk:'赛博朋克大世界',oasis:'OASIS！头号玩家！（游戏人生）',daomu:'盗墓笔记大世界','star-rail':'崩坏：星穹铁道',doupo:'斗破苍穹！','harry-potter':'哈利波特大世界（霍格沃兹）',elderland:'西幻大世界 · 艾尔德兰',medieval:'中世纪真实人生','ai-girls':'完蛋！我被AI娘包围了！',jinyong:'金庸大世界',douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
+  const frontier=card==='ancient'&&document.documentElement.dataset.ancientFrontier==='1';
   const description=card==='oasis'?oasisDescription:card==='genshin'?'严格遵循原神世界观、人物性格、剧情逻辑，内置好感度系统、战力等级体系、迷雾规则与活人感文风。可扮演旅行者、原著角色或自创的异乡人。':card==='cyberpunk'?cyberpunkDescription:card==='daomu'?daomuDescription:card==='elderland'?elderlandDescription:null;
   useEffect(()=>{document.title=title;},[title]);
   const frame=useRef<HTMLIFrameElement>(null),creating=useRef(false);
@@ -38,6 +39,7 @@ export function Xingjian(){
     {showTools&&<Modal title="会话历史" className="platform-dialog" close={()=>setTools(false)}><p className="dialog-hint">打开存档，接着上次的故事。</p>{error&&<p role="alert">{error}</p>}<div className="history-list">{history.map(s=><button className="option" key={s.id} disabled={busy} onClick={()=>open(s.id)}><strong>{s.name}</strong><span>继续 →</span></button>)}</div>{!history.length&&!error&&<p>还没有保存的会话。点击「进入聊天」开始。</p>}{card==='xingjian'&&<a href="/rpg-app/rpg05/">查看早期旅程与草稿 →</a>}</Modal>}
     {showDescription&&<Modal title={card==='elderland'?'西幻大世界':title} className="platform-dialog" close={()=>setDescription(false)}><div style={{whiteSpace:'pre-wrap',lineHeight:1.9}}>{description}</div></Modal>}
     {error&&<p role="alert">{error}</p>}
+    {frontier&&<p className="dialog-hint">京师—辽东离线场景：选择「帝王之路」中的明代崇祯帝朱由检，生成命书并带入对话。也可以从「会话历史」接续。</p>}
     <iframe ref={frame} title={title+'开局面板'} sandbox={card==='blue-fish'?'allow-scripts allow-downloads':'allow-scripts'} allow="clipboard-write" src={card==='xingjian'?'/rpg-app/xingjian/card':'/rpg-app/'+card+'/?chat=1'+(card==='blue-fish'&&new URLSearchParams(location.search).has('editor')?'&editor=1':'')} style={{width:'100%',height:'92dvh',border:0}}/>
   </main>;
 }
