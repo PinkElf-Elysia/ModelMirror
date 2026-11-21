@@ -1,5 +1,6 @@
 import {speechService} from './speech.mjs';
 import {installModernLife,modernLifeOptions} from '../modern-life-card/integration.mjs';
+import {installSlime,slimeOptions} from '../slime-card/integration.mjs';
 import {installDoupo,doupoOptions} from '../doupo-card/integration.mjs';
 import {installDaomu,daomuOptions} from '../daomu-card/integration.mjs';
 import {installNaruto,narutoOptions} from '../naruto-card/integration.mjs';
@@ -84,8 +85,10 @@ async function run(env){
   installBlueFish(server,{directory,speech,control:blueFishControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const aiGirlsControl=aiGirlsOptions(env);if(aiGirlsControl)aiGirlsControl.fetcher=configFetch;
   installAiGirls(server,{directory,speech,control:aiGirlsControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const slimeControl=slimeOptions(env);if(slimeControl)slimeControl.fetcher=configFetch;
   const doupoControl=doupoOptions(env);if(doupoControl)doupoControl.fetcher=configFetch;
   const narutoControl=narutoOptions(env);if(narutoControl)narutoControl.fetcher=configFetch;
+  installSlime(server,{directory,speech,control:slimeControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installDoupo(server,{directory,speech,control:doupoControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const daomuControl=daomuOptions(env);
   if(daomuControl)daomuControl.fetcher=configFetch;

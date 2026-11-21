@@ -1,5 +1,6 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
+  {id:'slime',name:'关于我转生成史莱姆这件事',description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。',genre:'奇幻 · 转生',mark:'史',art:'/rpg-app/slime/background.jpg'},
   {id:'modern-life',name:'现代超真实人生',description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。',genre:'现代 · 开放世界',mark:'生',art:'/rpg-app/modern-life/cover.jpg'},
   {id:'doupo',name:'斗破苍穹！',description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。',genre:'玄幻 · 斗气大陆',mark:'斗',art:'/rpg-app/doupo/cover.avif'},
   {id:'naruto',name:'火影大世界',description:'从忍者学校到忍界大战，选择篇章，写下自己的忍道。',genre:'忍界 · 羁绊',mark:'忍',art:'/rpg-app/naruto/world.jpg'},
@@ -22,7 +23,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','modern-life','doupo','naruto','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','slime','modern-life','doupo','naruto','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

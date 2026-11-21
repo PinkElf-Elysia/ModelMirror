@@ -54,7 +54,7 @@ describe("help center content catalog", () => {
       "review-decisions-sol-batch",
       "review-elevenlabs-batch",
       "play-god-card",
-      "play-jinyong-card", "play-harry-potter-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card",
+      "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card",
       "play-elderland-card",
       "play-rpg-cards",
       "publish-rpg-work",
@@ -99,7 +99,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find(article => article.slug === "control-character-context")?.verifiedCommit).toBe("aebda0a1");
     expect(searchHelpContent("长对话").some(item => item.id === "control-character-context")).toBe(true);
     expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("92849f31");
@@ -306,6 +306,13 @@ describe("help center content catalog", () => {
     expect(guide?.content).toContain("恢复创建结果");
     const topic = helpModules.flatMap((module) => module.topics).find((item) => item.id === "rpg");
     expect(topic?.points.join(" ")).not.toContain("每卡本轮一次");
+  });
+
+  it("finds the slime opening guide from the story library", () => {
+    const guide = helpArticles.find((item) => item.slug === "play-slime-card");
+    expect(guide?.verifiedCommit).toBe("a6bd8538");
+    expect(guide?.relatedRoutes).toContain("/rpg/slime");
+    expect(searchHelpContent("史莱姆").some((item) => item.id === guide?.slug)).toBe(true);
   });
 
   it("finds the modern life guide from its card name", () => {

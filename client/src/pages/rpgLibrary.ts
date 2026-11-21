@@ -13,6 +13,7 @@ const libraryCovers:Record<string,string>={
 // Display copy stays outside the immutable card runtime used by existing saves.
 const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:string}>={
   'harry-potter':{description:'收到霍格沃茨的来信，选择作品、血统与魔杖，在魔法世界展开属于自己的故事。'},
+  slime:{description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。'},
   'modern-life':{description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。'},
   doupo:{description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。'},
   daomu:{description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。'},

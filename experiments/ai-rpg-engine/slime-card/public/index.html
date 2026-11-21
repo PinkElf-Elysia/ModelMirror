@@ -1,0 +1,1912 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>転生したらスライムだった件 · 建卡</title>
+<style>
+@import url('./fonts.css');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+--parchment:#F5F0E8;--parchment-dark:#EBE4D8;--parchment-deeper:#DED5C5;
+--lake-blue:#3D7EC7;--lake-light:#5A9AD8;--lake-deep:#2B5E9E;
+--amber:#C9952B;--amber-light:#DFAD3F;--amber-glow:#F0C94E;
+--gilt:#B8860B;--gilt-light:#D4A537;--gilt-glow:#E8C65A;
+--ink:#2A2A32;--ink-muted:#5A5A6A;--border:#2A3A5C;
+--shadow-sm:2px 2px 6px rgba(42,58,92,0.15);
+--shadow-md:3px 3px 10px rgba(42,58,92,0.2),0 1px 3px rgba(42,58,92,0.1);
+--shadow-lg:5px 5px 18px rgba(42,58,92,0.25),0 2px 6px rgba(42,58,92,0.12);
+--shadow-hover:6px 6px 20px rgba(42,58,92,0.3),0 3px 8px rgba(42,58,92,0.15);
+--mythic:#B8860B;--legendary:#6B3FA0;--epic:#2B5E9E;--rare:#4A8C5C;--common:#7A7A8A;
+}
+body{font-family:'Noto Sans SC',sans-serif;background-image:url('./background.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden;}
+.opening-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;cursor:pointer;overflow:hidden;background:#1a1a24;}
+.opening-container{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a24;}
+.opening-bg{width:100%;height:100%;max-width:1200px;max-height:675px;background-image:url('./opening.gif');background-size:contain;background-position:center;background-repeat:no-repeat;filter:blur(10px);transition:filter 1.5s ease-out;}
+.opening-screen.open .opening-bg{filter:blur(0);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#1a1a24;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);color:var(--amber-light);font-size:13px;z-index:10;animation:blink 1.5s infinite;opacity:0.6;letter-spacing:2px;}
+@keyframes blink{0%,100%{opacity:0.4;}50%{opacity:0.8;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;min-height:100vh;position:relative;}.main-container.active{display:block;}
+.content-wrapper{position:relative;z-index:2;max-width:940px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:32px 22px;background:var(--parchment);border:3px solid var(--border);margin-bottom:20px;position:relative;box-shadow:var(--shadow-lg);}
+.main-title::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--lake-blue),var(--amber),transparent);}
+.main-title::after{content:'';position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,transparent,var(--amber),var(--lake-blue),transparent);}
+.main-title .title-en{font-family:'Cinzel','EB Garamond',serif;font-size:12px;letter-spacing:5px;color:var(--lake-blue);margin-bottom:10px;font-weight:700;}
+.main-title h1{font-family:'Noto Serif SC','EB Garamond',serif;font-size:clamp(22px,5vw,34px);font-weight:900;letter-spacing:5px;color:var(--ink);}
+.main-title p{margin-top:10px;font-size:12px;color:var(--ink-muted);letter-spacing:4px;font-family:'EB Garamond',serif;font-style:italic;}
+.main-title .motto{display:inline-block;margin-top:12px;padding:6px 20px;border-top:1px solid var(--lake-blue);border-bottom:1px solid var(--amber);font-family:'EB Garamond',serif;font-style:italic;font-size:12px;letter-spacing:3px;color:var(--ink);background:linear-gradient(90deg,rgba(61,126,199,0.06),rgba(201,149,43,0.06));}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:var(--parchment);border:3px solid var(--border);box-shadow:var(--shadow-md);-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.tab-nav::-webkit-scrollbar{height:4px;}.tab-nav::-webkit-scrollbar-thumb{background:var(--border);}
+.tab-btn{flex:0 0 auto;min-width:88px;padding:14px 14px;background:transparent;border:none;border-right:1px solid rgba(42,58,92,0.2);font-family:inherit;font-size:clamp(12px,1.8vw,13px);font-weight:700;cursor:pointer;transition:all 0.25s;white-space:nowrap;color:var(--ink);position:relative;letter-spacing:1px;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(61,126,199,0.1);}
+.tab-btn.active{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;box-shadow:inset 0 -3px 0 rgba(0,0,0,0.15);}
+.tab-btn.completed::after{content:'';position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;background:var(--amber);}
+.tab-content{display:none;background:var(--parchment);border:3px solid var(--border);padding:26px;box-shadow:var(--shadow-lg);position:relative;}
+.tab-content::before{content:'';position:absolute;top:8px;right:8px;width:25px;height:25px;border-top:2px solid var(--lake-blue);border-right:2px solid var(--lake-blue);opacity:0.4;}
+.tab-content::after{content:'';position:absolute;bottom:8px;left:8px;width:25px;height:25px;border-bottom:2px solid var(--amber);border-left:2px solid var(--amber);opacity:0.4;}
+.tab-content.active{display:block;animation:slideIn 0.3s ease forwards;}
+@keyframes slideIn{0%{opacity:0;transform:translateY(12px);}100%{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'Noto Serif SC','EB Garamond',serif;font-size:clamp(18px,3.5vw,24px);font-weight:900;margin-bottom:6px;padding-bottom:10px;border-bottom:3px solid var(--border);position:relative;display:inline-block;letter-spacing:2px;}
+.section-title::after{content:'';position:absolute;bottom:-3px;left:0;width:60px;height:3px;background:linear-gradient(90deg,var(--lake-blue),var(--amber));}
+.section-title-en{font-family:'Cinzel',serif;font-size:12px;letter-spacing:4px;color:var(--lake-blue);margin-bottom:20px;font-weight:700;}
+.info-box{background:linear-gradient(135deg,var(--parchment-dark),var(--parchment));border:2px solid var(--border);padding:18px;margin-bottom:16px;box-shadow:var(--shadow-sm);position:relative;}
+.info-box::before{content:'';position:absolute;top:0;left:0;width:4px;height:100%;background:linear-gradient(180deg,var(--lake-blue),var(--amber));}
+.info-box.blue::before{background:var(--lake-blue);}
+.info-box.gold::before{background:var(--amber);}
+.info-box h3{font-size:15px;margin-bottom:6px;color:var(--lake-deep);font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.info-box.gold h3{color:var(--gilt);}
+.info-box .en-sub{font-family:'EB Garamond',serif;font-style:italic;font-size:11px;color:var(--gilt);letter-spacing:3px;margin-bottom:10px;display:block;}
+.info-box p,.info-box li{font-size:13px;line-height:1.85;color:var(--ink);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:6px;}
+.info-box li::before{content:'❖';position:absolute;left:0;color:var(--amber);font-size:9px;top:4px;}
+.info-box.blue li::before{color:var(--lake-blue);}
+.info-box li strong{color:var(--ink);}
+.accent-blue{color:var(--lake-deep);font-weight:700;}
+.accent-gold{color:var(--gilt);font-weight:700;}
+.soul-intro{background:linear-gradient(135deg,#FAF7F2,var(--parchment));border:3px solid var(--border);padding:26px;margin-bottom:22px;box-shadow:var(--shadow-lg);position:relative;}
+.soul-intro::before{content:'"';position:absolute;top:8px;left:14px;font-size:60px;color:var(--lake-blue);opacity:0.2;font-family:'EB Garamond',serif;line-height:1;}
+.soul-intro p{font-size:14px;line-height:2;margin-bottom:10px;text-indent:2em;}
+.soul-intro p:last-child{margin-bottom:0;}
+.soul-intro p.emphasis{font-weight:700;color:var(--ink);text-indent:0;margin-top:16px;padding-top:14px;border-top:1px dashed rgba(42,58,92,0.3);font-family:'Noto Serif SC',serif;font-size:15px;letter-spacing:1px;text-align:center;}
+.intro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px;}
+.intro-grid .info-box{margin-bottom:0;}
+.chapter-jump{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;padding:10px;background:var(--parchment-dark);border:2px solid var(--border);}
+.chapter-jump-btn{flex:0 0 auto;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-family:'EB Garamond',serif;font-weight:700;font-size:13px;color:var(--ink);transition:all 0.2s;}
+.chapter-jump-btn:hover{background:var(--amber-light);color:#fff;}
+.chapter-jump-btn.selected{background:var(--lake-blue);color:#fff;border-color:var(--border);}
+.chapter-card{background:var(--parchment);border:2px solid var(--border);margin-bottom:12px;position:relative;box-shadow:var(--shadow-sm);transition:all 0.25s;overflow:hidden;}
+.chapter-card.selected{border-color:var(--amber);border-width:3px;box-shadow:var(--shadow-lg);background:linear-gradient(135deg,#FBF7EE,var(--parchment));}
+.chapter-card-head{padding:16px 20px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:background 0.2s;user-select:none;}
+.chapter-card-head:hover{background:rgba(61,126,199,0.06);}
+.chapter-card-head .cc-title{font-family:'Noto Serif SC',serif;font-size:17px;font-weight:900;color:var(--ink);letter-spacing:1px;}
+.chapter-card-head .cc-title small{display:block;font-size:11px;font-weight:400;color:var(--lake-deep);margin-top:3px;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.chapter-card-head .cc-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.cc-arrow{font-size:12px;transition:transform 0.2s;color:var(--ink-muted);}
+.chapter-card.open .cc-arrow{transform:rotate(90deg);}
+.select-chapter-btn{padding:7px 14px;background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;border:2px solid var(--border);font-family:inherit;font-weight:700;font-size:11px;cursor:pointer;letter-spacing:1px;box-shadow:var(--shadow-sm);white-space:nowrap;}
+.select-chapter-btn:hover{transform:translateY(-1px);}
+.select-chapter-btn.active{background:linear-gradient(135deg,var(--amber),var(--amber-light));}
+.chapter-card-body{display:none;padding:0 20px 20px;}
+.chapter-card.open .chapter-card-body{display:block;animation:slideIn 0.25s ease;}
+.chapter-desc{font-size:13px;line-height:1.85;color:var(--ink);margin-bottom:12px;padding:12px;background:var(--parchment-dark);border-left:4px solid var(--lake-blue);}
+.chapter-tags-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px;}
+.chapter-tag{font-size:11px;padding:2px 8px;background:rgba(61,126,199,0.08);border:1px solid rgba(61,126,199,0.3);color:var(--lake-deep);}
+.chapter-sub h4{font-size:13px;color:var(--gilt);margin:12px 0 8px;font-family:'Noto Serif SC',serif;letter-spacing:1px;padding-bottom:4px;border-bottom:1px dashed rgba(42,58,92,0.3);}
+.entry-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;}
+.entry-item{padding:10px 12px;background:var(--parchment-dark);border:2px solid transparent;border-left:3px solid var(--amber);font-size:12px;line-height:1.6;cursor:pointer;transition:all 0.2s;}
+.entry-item:hover{background:#FBF7EE;border-color:var(--gilt);}
+.entry-item.selected{background:linear-gradient(135deg,#FBF7EE,var(--parchment));border-color:var(--amber);border-width:2px;border-left-width:4px;box-shadow:var(--shadow-sm);}
+.entry-item .ttl{font-weight:900;color:var(--ink);}
+.entry-item .sel-mark{display:none;font-size:10px;color:var(--gilt);font-weight:700;margin-top:3px;}
+.entry-item.selected .sel-mark{display:block;}
+.custom-entry-row{margin-top:10px;padding:10px;background:var(--parchment-dark);border:1px dashed var(--gilt);}
+.custom-entry-row .lbl{font-size:11px;color:var(--gilt);letter-spacing:2px;margin-bottom:6px;font-weight:700;}
+.custom-entry-row input{width:100%;padding:8px;border:1px solid var(--border);background:#fff;font-family:inherit;font-size:12px;color:var(--ink);}
+.custom-entry-row button{margin-top:6px;padding:5px 12px;background:var(--amber);color:#fff;border:none;cursor:pointer;font-size:11px;font-family:inherit;}
+.form-section{margin-bottom:24px;}
+.form-section h3{font-size:15px;margin-bottom:14px;padding-left:10px;border-left:4px solid var(--lake-blue);font-family:'Noto Serif SC',serif;letter-spacing:1px;color:var(--ink);}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:12px;font-weight:700;margin-bottom:5px;color:var(--ink);letter-spacing:1px;}
+.form-group .field-hint{color:var(--ink-muted);font-size:11px;font-weight:400;margin-left:6px;letter-spacing:0;}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:11px;border:2px solid var(--border);background:var(--parchment);font-family:inherit;font-size:13px;transition:all 0.2s;color:var(--ink);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(61,126,199,0.2);border-color:var(--lake-blue);}
+.form-group textarea{min-height:90px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-size:13px;transition:all 0.2s;}
+.radio-group label:hover{background:var(--parchment-dark);}
+.radio-group input:checked+span{font-weight:bold;color:var(--lake-deep);}
+.radio-group input{accent-color:var(--lake-blue);}
+.checkbox-group{display:flex;gap:8px;flex-wrap:wrap;}
+.checkbox-group label{display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--parchment);border:2px solid var(--border);cursor:pointer;font-size:13px;transition:all 0.2s;}
+.checkbox-group label:hover{background:var(--parchment-dark);}
+.checkbox-group input{accent-color:var(--lake-blue);width:16px;height:16px;}
+.checkbox-group input:checked+span{font-weight:bold;color:var(--lake-deep);}
+.mode-switch{display:flex;gap:0;margin-bottom:22px;border:3px solid var(--border);background:var(--parchment-dark);}
+.mode-btn{flex:1;padding:14px;background:transparent;color:var(--ink);border:none;cursor:pointer;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;letter-spacing:3px;transition:all 0.25s;}
+.mode-btn:hover{background:rgba(61,126,199,0.08);}
+.mode-btn.active[data-mode="original"]{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;}
+.mode-btn.active[data-mode="canon"]{background:linear-gradient(135deg,var(--amber),var(--amber-light));color:#fff;}
+.canon-section{display:none;}.canon-section.visible{display:block;}
+.canon-search-wrap{position:relative;margin-bottom:16px;}
+.canon-search{width:100%;padding:12px 14px;border:2px solid var(--border);background:var(--parchment);font-family:inherit;font-size:13px;color:var(--ink);}
+.canon-search:focus{outline:none;box-shadow:0 0 0 3px rgba(61,126,199,0.2);border-color:var(--lake-blue);}
+.canon-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--parchment);border:2px solid var(--border);border-top:none;max-height:260px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);}
+.canon-dropdown.visible{display:block;}
+.canon-dropdown-item{padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid rgba(42,58,92,0.1);transition:background 0.15s;}
+.canon-dropdown-item:hover{background:rgba(61,126,199,0.1);}
+.canon-dropdown-item .cdi-name{font-weight:700;color:var(--ink);}
+.canon-dropdown-item .cdi-desc{font-size:11px;color:var(--ink-muted);margin-top:2px;}
+.canon-group{margin-bottom:12px;border:2px solid var(--border);background:var(--parchment);overflow:hidden;}
+.canon-group-head{padding:11px 14px;background:var(--parchment-dark);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.canon-group-head:hover{background:var(--parchment-deeper);}
+.canon-group-head .cnt{font-size:11px;color:var(--lake-deep);font-weight:normal;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.canon-group-head .arrow{font-size:11px;transition:transform 0.2s;}
+.canon-group.open .arrow{transform:rotate(90deg);}
+.canon-group-body{display:none;padding:14px;}
+.canon-group.open .canon-group-body{display:block;}
+.canon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
+.canon-item{padding:9px 12px;background:var(--parchment);border:2px solid var(--border);font-size:12px;cursor:pointer;transition:all 0.2s;color:var(--ink);font-weight:600;line-height:1.5;}
+.canon-item:hover{border-color:var(--lake-blue);background:#F8F4ED;transform:translateY(-1px);}
+.canon-item.selected{border-color:var(--amber);border-width:3px;padding:7px 10px;background:linear-gradient(135deg,#FBF7EE,var(--parchment));color:var(--gilt);font-weight:900;}
+.canon-item .ci-desc{font-size:10px;color:var(--ink-muted);font-weight:400;margin-top:3px;line-height:1.4;}
+.canon-item.hidden{display:none;}
+.ability-cat{margin-bottom:10px;border:2px solid var(--border);background:var(--parchment);overflow:hidden;}
+.ability-cat-head{padding:12px 15px;background:linear-gradient(90deg,rgba(61,126,199,0.1),rgba(201,149,43,0.04));cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Serif SC',serif;font-weight:700;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.ability-cat-head:hover{background:linear-gradient(90deg,rgba(61,126,199,0.16),rgba(201,149,43,0.08));}
+.ability-cat-head .cnt{font-size:11px;color:var(--lake-deep);font-weight:normal;font-family:'EB Garamond',serif;font-style:italic;letter-spacing:2px;}
+.ability-cat-head .arrow{font-size:11px;transition:transform 0.2s;color:var(--amber);}
+.ability-cat.open .arrow{transform:rotate(90deg);}
+.ability-cat-body{display:none;padding:14px;}
+.ability-cat.open .ability-cat-body{display:block;}
+.ability-cat-body .hint{font-size:11px;color:var(--ink-muted);margin-bottom:10px;font-style:italic;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;}
+.ability-item{display:flex;align-items:flex-start;padding:12px;background:var(--parchment);border:2px solid var(--border);transition:all 0.2s;cursor:pointer;gap:10px;}
+.ability-item:hover{background:#F8F4ED;border-color:var(--lake-blue);}
+.ability-item input{margin-top:3px;accent-color:var(--lake-blue);width:16px;height:16px;flex-shrink:0;}
+.ability-item .item-body{flex:1;}
+.ability-item .abname{font-size:12.5px;font-weight:700;margin-bottom:4px;color:var(--ink);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.ability-item .abtier{font-family:'EB Garamond',serif;font-size:10px;color:var(--gilt);padding:1px 6px;background:rgba(184,134,11,0.1);letter-spacing:1px;font-weight:700;}
+.ability-item .abdesc{font-size:11.5px;color:var(--ink-muted);line-height:1.55;}
+.ability-item .abuser{font-size:11px;color:var(--lake-deep);margin-top:3px;font-style:italic;}
+.ability-item.selected{background:linear-gradient(135deg,#F0F4FA,var(--parchment));border-color:var(--lake-blue);border-width:3px;padding:10px;box-shadow:var(--shadow-sm);}
+.custom-ab-box{margin-top:20px;padding:20px;background:var(--parchment-dark);border:2px solid var(--border);border-left:4px solid var(--gilt);}
+.custom-ab-box h4{font-size:14px;margin-bottom:14px;color:var(--ink);font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.talent-section{text-align:center;padding:20px;}
+.roll-btn{padding:18px 46px;font-size:16px;font-weight:900;font-family:'Noto Serif SC',serif;background:linear-gradient(135deg,var(--lake-blue),var(--lake-deep));color:#fff;border:3px solid var(--border);cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-lg),0 0 20px rgba(61,126,199,0.25);letter-spacing:5px;}
+.roll-btn:hover{transform:translateY(-3px);box-shadow:var(--shadow-hover),0 0 30px rgba(61,126,199,0.35);}
+.roll-btn:active{transform:translateY(1px);box-shadow:var(--shadow-sm);}
+.roll-btn.rolling{animation:shake 0.5s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-4px) rotate(-1deg);}75%{transform:translateX(4px) rotate(1deg);}}
+.talent-pool{display:none;margin-top:26px;}.talent-pool.visible{display:block;}
+.talent-pool h3{font-size:15px;margin-bottom:10px;font-family:'Noto Serif SC',serif;letter-spacing:1px;}
+.talent-count{font-size:13px;color:var(--ink-muted);margin-bottom:14px;}
+.talent-list{display:grid;gap:10px;max-height:560px;overflow-y:auto;overflow-x:hidden;padding:12px;background:var(--parchment-dark);border:2px solid var(--border);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+.talent-item{display:flex;align-items:flex-start;padding:14px;background:var(--parchment);border:2px solid rgba(42,58,92,0.25);cursor:pointer;transition:all 0.2s;text-align:left;}
+.talent-item:hover{border-color:var(--border);}
+.talent-item.selected{border-width:3px;padding:13px;}
+.talent-item.mythic{border-color:var(--mythic);background:linear-gradient(135deg,#FDF8E8,#FFFBF0,var(--parchment));box-shadow:0 0 14px rgba(184,134,11,0.4),inset 0 0 16px rgba(232,198,90,0.12);animation:mythicGlow 2.5s ease-in-out infinite;position:relative;}
+.talent-item.mythic::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gilt-glow),var(--gilt),var(--gilt-glow),transparent);animation:shimmer 3s linear infinite;}
+@keyframes mythicGlow{0%,100%{box-shadow:0 0 14px rgba(184,134,11,0.4),inset 0 0 16px rgba(232,198,90,0.12);}50%{box-shadow:0 0 24px rgba(212,165,55,0.6),0 0 36px rgba(184,134,11,0.25),inset 0 0 24px rgba(232,198,90,0.2);}}
+@keyframes shimmer{0%{opacity:0.4;transform:translateX(-100%);}50%{opacity:1;}100%{opacity:0.4;transform:translateX(100%);}}
+.talent-item.mythic.selected{box-shadow:3px 3px 12px var(--mythic),0 0 20px rgba(212,165,55,0.5);}
+.talent-item.legendary{border-color:var(--legendary);background:linear-gradient(135deg,#F6F2FA,var(--parchment));box-shadow:0 0 8px rgba(107,63,160,0.15);}
+.talent-item.legendary.selected{box-shadow:3px 3px 8px var(--legendary);}
+.talent-item.epic{border-color:var(--epic);background:linear-gradient(135deg,#F0F4FA,var(--parchment));box-shadow:0 0 6px rgba(43,94,158,0.1);}
+.talent-item.epic.selected{box-shadow:3px 3px 8px var(--epic);}
+.talent-item.rare{border-color:var(--rare);background:linear-gradient(135deg,#F2F8F2,var(--parchment));}
+.talent-item.rare.selected{box-shadow:3px 3px 8px var(--rare);}
+.talent-item.common{border-color:var(--common);}
+.talent-item.common.selected{box-shadow:3px 3px 8px var(--common);}
+.talent-item input{margin-right:12px;margin-top:3px;width:16px;height:16px;accent-color:var(--lake-blue);flex-shrink:0;}
+.talent-info{flex:1;}
+.talent-name{font-weight:bold;font-size:14px;margin-bottom:5px;display:flex;align-items:center;gap:8px;font-family:'Noto Serif SC',serif;flex-wrap:wrap;}
+.talent-badge{font-size:10px;padding:2px 8px;color:#fff;letter-spacing:1.5px;font-weight:700;}
+.talent-badge.mythic{background:linear-gradient(135deg,var(--gilt-glow),var(--gilt),#8B6914);color:#FFF8E0;text-shadow:0 1px 0 rgba(0,0,0,0.2);box-shadow:0 0 6px rgba(184,134,11,0.5);}
+.talent-badge.legendary{background:var(--legendary);}
+.talent-badge.epic{background:var(--epic);}
+.talent-badge.rare{background:var(--rare);}
+.talent-badge.common{background:var(--common);}
+.talent-desc{font-size:12px;color:var(--ink);line-height:1.65;}
+.talent-effect{font-size:11.5px;color:var(--lake-deep);margin-top:4px;line-height:1.6;font-style:italic;}
+.preview-box{background:var(--parchment);border:3px solid var(--border);padding:22px;font-size:13px;line-height:1.85;white-space:pre-wrap;word-break:break-word;max-height:600px;overflow-y:auto;margin-bottom:20px;font-family:'Courier New',monospace;box-shadow:var(--shadow-md);color:var(--ink);}
+.copy-btn{display:block;width:100%;max-width:320px;margin:0 auto;padding:16px 40px;font-size:16px;font-weight:900;font-family:'Noto Serif SC',serif;background:linear-gradient(135deg,var(--lake-blue),var(--lake-deep));color:#fff;border:none;cursor:pointer;transition:all 0.2s;box-shadow:var(--shadow-md);letter-spacing:4px;}
+.copy-btn:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:2px dashed rgba(42,58,92,0.25);}
+.nav-btn{padding:12px 26px;font-size:13px;font-weight:700;font-family:inherit;border:2px solid var(--border);cursor:pointer;transition:all 0.2s;letter-spacing:2px;}
+.nav-btn.prev{background:var(--parchment);color:var(--ink);}
+.nav-btn.next{background:linear-gradient(135deg,var(--lake-blue),var(--lake-light));color:#fff;box-shadow:var(--shadow-sm);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:18px;background:var(--border);color:var(--amber-light);font-size:12px;position:relative;z-index:2;letter-spacing:3px;font-family:'EB Garamond',serif;font-style:italic;}
+@media(max-width:600px){
+.content-wrapper{padding:10px;}
+.tab-content{padding:14px;}
+.form-row{grid-template-columns:1fr;}
+.entry-list{grid-template-columns:1fr;}
+.ability-grid{grid-template-columns:1fr;}
+.intro-grid{grid-template-columns:1fr;}
+.canon-grid{grid-template-columns:1fr;}
+.nav-buttons{flex-direction:column;gap:10px;}
+.nav-btn{width:100%;text-align:center;}
+.main-title{padding:22px 14px;}
+.main-title h1{letter-spacing:3px;}
+.chapter-jump{gap:4px;padding:8px;}
+.chapter-jump-btn{padding:7px 10px;font-size:12px;}
+.chapter-card-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:8px;}
+.talent-list{max-height:400px;}
+.roll-btn{padding:15px 30px;font-size:14px;letter-spacing:3px;}
+.copy-btn{padding:14px 24px;font-size:14px;}
+}
+.jump-group-sep{flex:0 0 auto;padding:0 10px;display:flex;align-items:center;font-family:'Noto Serif SC',serif;font-weight:900;font-size:12px;letter-spacing:3px;color:var(--gilt);border-right:2px solid var(--border);margin-right:2px;}
+.chapter-group-head{display:flex;align-items:baseline;gap:12px;padding:18px 4px 10px;margin-top:8px;border-bottom:3px double var(--border);}
+.chapter-group-head .cgh-cn{font-family:'Noto Serif SC',serif;font-size:20px;font-weight:900;letter-spacing:6px;color:var(--ink);}
+.chapter-group-head .cgh-en{font-family:'Cinzel',serif;font-size:11px;letter-spacing:4px;color:var(--lake-deep);font-style:italic;}
+*,*::before,*::after{box-sizing:border-box;}
+body{overflow-x:hidden;}
+.tab-content,.info-box,.soul-intro,.chapter-card,.canon-group,.ability-cat,.talent-item,.ability-item,.canon-item,.entry-item,.form-group,.preview-box,.custom-ab-box,.mode-switch,.tab-nav{min-width:0;}
+.form-group input,.form-group select,.form-group textarea,.preview-box,.talent-desc,.talent-effect,.abdesc,.abname,.chapter-desc,.info-box p,.info-box li,.soul-intro p{word-break:break-word;overflow-wrap:anywhere;}
+.canon-grid,.intro-grid,.entry-list,.ability-grid,.form-row{min-width:0;}
+.canon-grid>*,.intro-grid>*,.entry-list>*,.ability-grid>*,.form-row>*{min-width:0;}
+.tab-nav{max-width:100%;}
+.chapter-jump{max-width:100%;}
+[hidden]{display:none!important}
+#enter-chat{margin:12px auto 0}
+:focus-visible{outline:3px solid var(--lake-blue);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}.opening-bg{background-image:url('./background.jpg')}}
+</style>
+</head>
+<body>
+<div class="opening-screen" id="opening" role="button" tabindex="0" aria-label="转生开始">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置 · 转生开始</div>
+</div>
+<div class="main-container" id="main">
+<div class="content-wrapper">
+<div class="main-title">
+<div class="title-en">TENSEI SHITARA SLIME DATTA KEN</div>
+<h1>转生史莱姆异世界</h1>
+<p>SKILL · ULTIMATE · MAGIC · EVOLUTION</p>
+<div class="motto">— That Time I Got Reincarnated as a Slime —</div>
+</div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="worldview">世界</button>
+<button class="tab-btn" data-tab="era">时间线篇章</button>
+<button class="tab-btn" data-tab="character">角色</button>
+<button class="tab-btn" data-tab="ability">能力</button>
+<button class="tab-btn" data-tab="fate">命运</button>
+<button class="tab-btn" data-tab="preview">此生</button>
+</div>
+<!-- ============ TAB: 世界观 ============ -->
+<div class="tab-content active" id="tab-worldview">
+<h2 class="section-title">序章 · 这是什么</h2>
+<div class="section-title-en">PROLOGUE · THE WORLD OF TEMPEST</div>
+<div class="soul-intro">
+<p>有人在<span class="accent-blue">朱拉大森林</span>的封魔洞窟中睁开眼，发现自己已经变成了一只蓝色的史莱姆——没有眼睛、没有耳朵、没有四肢，只有一团圆滚滚的凝胶状身体，和一个自称"大贤者"的声音在脑中回响；有人在<span class="accent-gold">帝都纳斯卡</span>的机甲军团中接到总攻命令，率领两百万铁骑向西方进发，却不知对面的魔物之国已经诞生了一位真正的觉醒魔王；有人在<span class="accent-blue">鲁贝里欧斯</span>大圣堂前跪下祈祷，却不知自己虔诚信奉的唯一神鲁米纳丝大人，其实是一位活了两千年的吸血鬼女王。</p>
+<p>这个世界以<span class="accent-gold">魔素（Magicules）</span>为本源——弥漫世界的基础能量粒子，是魔法、技能、魔物进化的总根源。魔素浓度决定魔物的强度；魔素对普通人类有毒性，这是人类排斥魔物的最根本的物理原因。技能刻印灵魂，进化改写肉体。从最卑微的史莱姆到统治世界的龙种与魔王，从朴素的水刃到改写因果的究极能力——所有力量都有代价，所有进化都不可逆。</p>
+<p>你可以做任何事：加入利姆鲁的魔国联邦坦派斯特，在那个种族不问皆能快乐生活的首都经商、冒险、打铁、做料理；成为自由组合的冒险者，深入地下大迷宫百层试炼，一层比一层更危险，每十层有一位觉醒魔王级的守护者在等你；在东方帝国的机甲军团中驾驶魔导坦克，服从皇帝陛下的绝对命令；在鲁贝里欧斯的圣骑士团握住灵子圣剑，以灵子崩坏之术净化一切魔物；作为八星魔王的配下，在魔王盛宴上见证最强者们的对弈；或者——只是作为朱拉大森林中一只被命名的哥布林，在西斯湖畔的村子里种田打猎，偶尔听远处传来的轰鸣声，猜测又是哪位魔王大人在和谁打了起来。</p>
+<p><span class="accent-blue">命名即契约，进化不可逆。</span>你被谁命名、你为谁而战、你的灵魂刻着什么样的技能——这些选择会从根本上改变你的存在本质。一旦被命名，你的灵魂就与命名者建立了联结；一旦进化，你的旧形态就永远消失了。这个世界没有"读档"的机会。</p>
+<p class="emphasis">你将以何种姿态降临这个世界？</p>
+</div>
+<h2 class="section-title">一、本源与力量</h2>
+<div class="section-title-en">POWER SYSTEM</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>魔素（Magicules）为本</h3>
+<span class="en-sub">FOUNDATION OF ALL</span>
+<ul>
+<li><strong>魔素</strong>：弥漫世界的基础能量粒子，是魔法、技能、魔物进化的总根源。魔素浓度决定魔物强度；魔素对普通人类有毒性，是人类排斥魔物的物理根源</li>
+<li>每个生物有魔素容量上限，满则必须进化才能扩容</li>
+<li><strong>命名</strong>：高阶存在给低阶魔物命名会分割力量、刻印灵魂、诱发进化并建立灵魂联结。命名消耗命名者魔素/灵魂能量，大量命名可致死，是极重的契约行为</li>
+<li><strong>进化</strong>：不靠击杀，而由命名、达成目标、幸存创伤触发，世界之声公告，改变肉体、扩容魔素、可能诞生新技能，但繁殖力下降。进化不可逆</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>技能（Skill）体系</h3>
+<span class="en-sub">SKILL HIERARCHY</span>
+<ul>
+<li><strong>通用技（Common）</strong>：念话、水刃、远视、自我再生等，可训练习得</li>
+<li><strong>额外技（Extra）</strong>：魔力感知、超速再生、思考加速、影移动等达人级能力，凭意志与经验可得</li>
+<li><strong>独有技（Unique Skill）</strong>：个体专属、世界唯一，根植灵魂，极为稀有。基于欲望、创伤、强烈意志刻印于灵魂，由"世界之声"赋予</li>
+<li><strong>究极能力（Ultimate Skill）</strong>：法则级，独有技进化而来；铁则——除极少数特殊独有技外，只有究极能对抗究极。分大罪系与美德系</li>
+<li><strong>神智核（Manas）</strong>：究极技能自我意志化的顶点，权能本身产生独立人格（如夏尔）</li>
+<li><strong>固有技（Intrinsic）</strong>：种族天生赋予（如无限再生、魔王霸气、迷宫创造），不占进阶序列，通常不可强夺</li>
+</ul>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>魔法体系</h3>
+<span class="en-sub">SIX MAGIC SYSTEMS</span>
+<ul>
+<li><strong>元素魔法</strong>：操纵魔素扭曲物理法则，多数法师使用，需咏唱，被抗魔结界阻挡</li>
+<li><strong>精灵魔法</strong>：借精灵之力扭曲物理法则，但受物理法则制约（可用物理手段反制），不直接操纵魔素，抗魔区域内仍可用，无需咏唱</li>
+<li><strong>神圣魔法</strong>：与圣灵契约、依赖信仰发动，操纵灵子、净化魔素、对魔物特效，高阶可灵魂抹消（灵子崩坏），圣骑士团专精</li>
+<li><strong>召唤魔法</strong>：开启次元通道召唤恶魔/精灵，需先修得元素与精灵魔法，付代价立契约</li>
+<li><strong>物理魔法</strong>：直接操控自然能量（如聚焦阳光的"神怒"），绕过魔素限制，不受抗魔结界影响</li>
+<li><strong>原始魔法（元始魔法）</strong>全魔法的根源，又称"言灵"。不依赖魔素，以纯粹意志直接作用于灵魂与世界，可绕过究极能力防御，时间停止中亦能行使，现代魔法学无法解明，掌握者极少。</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>力量的代价</h3>
+<span class="en-sub">THE PRICE OF POWER</span>
+<ul>
+<li><strong>魔素耗尽</strong>：施法受限甚至肉体崩溃</li>
+<li><strong>命名消耗</strong>：大量命名可致死，是极重的契约行为</li>
+<li><strong>进化不可逆</strong>：一旦进化无法退回，繁殖力下降</li>
+<li><strong>精神生命体</strong>：恶魔等在物质界长期活动需受肉（寄宿肉体）否则力量大减</li>
+<li><strong>极端情绪</strong>：可致魔力失控、技能暴走</li>
+<li><strong>契约/召唤</strong>：有代价约束，违约遭反噬</li>
+<li><strong>异世界人</strong>：召唤失败的"瑕疵召唤者"魔素失控、儿童通常活不过五年，唯一解法是寄宿上位精灵</li>
+</ul>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>斗气与气斗法</h3>
+<span class="en-sub">BATTLE AURA</span>
+<ul>
+<li>非魔法的肉体技术，将斗气包覆身体强化攻防移动</li>
+<li>无需咏唱、不触发魔力感知</li>
+<li>无魔法天赋者凭强大斗气也能伤害精神生命体</li>
+<li>技艺（剑术、锻造等）需长期修行，不可被技能解析速成</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>魔物顶点·魔王</h3>
+<span class="en-sub">DEMON LORD</span>
+<ul>
+<li><strong>魔王种</strong>：魔物进化至极限可获"魔王种"资质（特A级，EP最低20万）</li>
+<li><strong>魔王</strong>：经魔王盛宴（Walpurgis）上魔王们承认可称魔王（S级）</li>
+<li><strong>真魔王（觉醒魔王）</strong>：收割万人级灵魂可觉醒，战力质变</li>
+<li><strong>八星魔王（Octagram）</strong>：当前最高魔王组织——利姆鲁、蜜莉姆、金、露米娜丝、雷昂、拉米莉丝、达格里尔、迪诺</li>
+</ul>
+</div>
+</div>
+<h2 class="section-title">二、等级体系</h2>
+<div class="section-title-en">TIER SYSTEM</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>自由组合冒险者等级</h3>
+<span class="en-sub">ADVENTURER RANK</span>
+<ul>
+<li><strong>G级</strong>：注册见习，跑腿采药</li>
+<li><strong>F级</strong>：初心者，史莱姆/哥布林讨伐</li>
+<li><strong>E级</strong>：一般冒险者，半兽人、护卫</li>
+<li><strong>D级</strong>：中坚，中型魔兽、遗迹探索</li>
+<li><strong>C级</strong>：熟练，大型魔兽、危险地带调查</li>
+<li><strong>B级</strong>：上位，魔将级/国家委托，相当于百名士兵</li>
+<li><strong>A级</strong>：最上位，魔王配下级/国家紧急任务，全国仅数人</li>
+<li><strong>S级（非公式）</strong>：魔王/英雄级，组合非正式承认</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>魔物/威胁度等级（EP）</h3>
+<span class="en-sub">THREAT LEVEL</span>
+<ul>
+<li><strong>F-E级</strong>：普通人水平（EP千以下）</li>
+<li><strong>D-C级</strong>：士兵至老练士兵（EP约1千-6千）</li>
+<li><strong>B级</strong>：可毁灭村庄（EP约6千-8千）；B+约8千-9千，A-约9千-1万</li>
+<li><strong>A级（灾害级）</strong>：可毁灭城镇（EP约1万-10万）</li>
+<li><strong>特A级（灾厄级）</strong>：威胁小国，魔王种最低20万（EP约10万-40万）</li>
+<li><strong>S级（灾祸级）</strong>：魔王级，大国倾力可应对（EP约40万-80万）</li>
+<li><strong>特S级（天灾级）</strong>：国家无法应对，龙种级（EP约80万以上）</li>
+<li><strong>百万级</strong>：EP破百万称"超级觉醒者"；人类修炼至此称圣人，破200万称神人</li>
+<li>注：EP为客观数值，衡量魔素量、身体能力与装备内含能量，但不等于实战力；技能相性、智力、意志力均可逆转数值差</li>
+</ul>
+</div>
+</div>
+<div class="info-box">
+<h3>综合战力对标（跑团判定用）</h3>
+<span class="en-sub">COMBAT REFERENCE</span>
+<ul>
+<li><strong>C级</strong>：老练士兵、村民、哥布林、低级魔兽</li>
+<li><strong>B级</strong>：近卫骑士、中级魔法使、一般魔兽、教会骑士</li>
+<li><strong>A级</strong>：骑士团长、上级魔法使、A级魔物、魔将、圣骑士团员</li>
+<li><strong>S级</strong>：圣人、仙人、觉醒魔王配下、高阶魔将、龙人族战士</li>
+<li><strong>EX级</strong>：龙种、觉醒魔王、原初恶魔、神人级、究极技能持有者</li>
+<li>EX级有规格差，再完美战术也无法正面击败，只能同层级对抗、封印、谈判或借第三方势力</li>
+<li>提示：天赋差距可被战术、情报、地形、装备、配合弥补，合适的附魔武器可让普通人威胁B级甚至A级</li>
+</ul>
+</div>
+<h2 class="section-title">三、社会规则</h2>
+<div class="section-title-en">SOCIETY & POLITICS</div>
+<div class="info-box">
+<h3>世界格局</h3>
+<span class="en-sub">GEOPOLITICS</span>
+<ul>
+<li>大陆中央朱拉大森林为魔物栖息域，周边人类诸国与魔物领地并存</li>
+<li>西方封建列国由西方评议会协调，北方有矮人工业国，东方有中央集权军事帝国，各地魔王领割据</li>
+<li>各国法律、税制、对魔物态度差异极大。人类与魔物长期对立，但部分国家与魔物国有贸易</li>
+<li>自由组合也接受魔物成员</li>
+</ul>
+</div>
+<div class="info-box">
+<h3>自由组合 · 教会 · 货币</h3>
+<span class="en-sub">GUILDS · CHURCH · CURRENCY</span>
+<ul>
+<li><strong>自由组合</strong>：跨国中立组织，总部英格拉西亚，各国设分部，经营讨伐、采集、调查、护卫委托及魔物评定，最高责任者称Grand Master。是民间最重要的流通情报网络和平民上升通道</li>
+<li><strong>西方圣教会</strong>：崇奉唯一神鲁米纳斯（实为魔王鲁米纳丝·瓦伦丁，仅教会高层知晓真相），教义视魔物为应讨伐之物，在西方影响极深</li>
+<li><strong>货币</strong>：矮人国多瓦贡发行的铸币为大陆通用货币，魔法工艺防伪极难伪造。十进制：1星金币=100金币=10000银币=100万铜币</li>
+<li><strong>购买力</strong>：低阶回复药约银币3枚；旅店银币1-3枚/晚；1金币约普通家庭数月生活费；10金币约一匹好马或一套甲胄</li>
+<li><strong>收入</strong>：城市劳动者月入约银币150枚；自由学园教师月薪约银币10枚+食宿；下级骑士年俸30-50金币</li>
+</ul>
+</div>
+<h2 class="section-title">四、战斗与代价</h2>
+<div class="section-title-en">COMBAT & PRICE</div>
+<div class="intro-grid">
+<div class="info-box blue">
+<h3>解析即生死</h3>
+<span class="en-sub">INFORMATION IS POWER</span>
+<ul>
+<li>战斗核心是情报差。魔力感知可预判施法；独有技被摸清发动条件与限制后，凡人也可利用漏洞反杀</li>
+<li>思考加速+鉴定类能力是最大战术优势，高阶存在绝不轻易暴露底牌</li>
+<li>力量相克：魔法拼属性与魔素量；精灵魔法受物理手段反制；神圣魔法对魔物特效；原始魔法直接作用灵魂是体系外克制</li>
+<li>独有技碰撞时意志力（灵魂力量）更强者胜；领域冲突层级高者胜，同层级先展开者优先</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>装备等级</h3>
+<span class="en-sub">EQUIPMENT TIER</span>
+<ul>
+<li><strong>普通</strong>：铁·钢，量产品</li>
+<li><strong>特上</strong>：精炼钢·轻度附魔，熟练冒险者用</li>
+<li><strong>稀有</strong>：魔钢·秘银，骑士团标准，魔素耐性</li>
+<li><strong>特质</strong>：奥利哈刚，干部级，特殊付与</li>
+<li><strong>传说</strong>：玛格洛利姆，坦派斯特独有合金，自我修复·意志感应·形状变化，铁1/3重量10倍硬度</li>
+<li><strong>神话级</strong>：绯绯色金，不变强度·神器级付与</li>
+<li><strong>创世级</strong>：维鲁多拿巴创造8把+利姆鲁创造1把，共9把。武器自身选择主人，无资格者触碰会肉体崩溃或被精神侵占。单体存在值数千万级</li>
+</ul>
+</div>
+</div>
+<h2 class="section-title">五、世界地理</h2>
+<div class="section-title-en">GEOGRAPHY</div>
+<div class="info-box blue">
+<h3>大陆总览</h3>
+<span class="en-sub">THE CONTINENT</span>
+<p>世界以一块中央大陆为主舞台，大陆中央为朱拉大森林，森林四周诸国林立；隔海极北有冰土大陆（金·克林姆兹领地），另有隔海大陆黄金乡艾尔多拉德（魔王雷昂领地）。中央大陆东部为东方帝国，西部为人类封建列国群，南部为各魔王领，北部为矮人工业国多瓦贡。</p>
+</div>
+<div class="info-box">
+<h3>朱拉大森林 / 魔国联邦坦派斯特</h3>
+<span class="en-sub">JURA TEMPEST FEDERATION</span>
+<p>大陆正中央，北接多瓦贡，西邻布鲁蒙德与法尔姆斯，东向东方帝国，南连南方诸魔王领。世界最大原生林，面积约可容纳整个日本列岛，浓雾常年笼罩，魔素浓度极高。中心有西斯湖，湖畔湿地与钟乳洞遍布。森林深处栖息高阶魔物，外围相对安全；维尔德拉封印三百年间各国视为不可侵犯之地。</p>
+<p>利姆鲁·坦派斯特建立的多种族共存联邦国。治国理念为"种族不问，皆能快乐舒适地生活"。首都铺有石板路、路灯、下水道，后期通有魔导列车，是大陆发展最快的新兴国家。对人类商人与冒险者开放入境，犯罪严惩。特产完全回复药、魔钢武器、酒类与丝织物。主要都市为中央都市利姆鲁（近代化魔物都市，竞技场、交易所、火车站俱全）。重要地区包括西斯湖、维尔德拉封印洞窟、地下大迷宫（百层，每十层设头目）、竞技场。</p>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>武装国家多瓦贡</h3>
+<span class="en-sub">DWARGON</span>
+<p>大陆北部卡纳特大山脉的天然大洞窟群中。穿山大道是绕过森林连接东西方的陆路要道。都市建于地下，利用地热与魔光灯照明，恒温恒湿。矮人英雄王加泽尔统治千年，以中立为国策。尚武且尚工，技艺高超者不论种族均受尊敬。人口约一亿，半数为矮人。大陆锻造、工程、造币中心，多瓦贡金币以魔法工艺刻入防伪编号为大陆基轴货币。首都中央为巨型洞窟阶梯都市。</p>
+</div>
+<div class="info-box">
+<h3>东方帝国</h3>
+<span class="en-sub">EASTERN EMPIRE</span>
+<p>大陆东北一带，领土极为辽阔。正式名称"纳斯卡·纳姆利乌姆·乌尔梅里亚东方连合统一帝国"，通称"东之帝国"。皇帝鲁德拉统治逾两千年的中央集权帝政，臣民逾八亿。完全实力主义——人、魔人、异世界人只要有实力便可跻身要职。军事力量世界顶级，拥有机甲军团、魔导坦克部队、飞空艇舰队，积极导入异世界科技。以统一世界为目标。首都帝都纳斯卡为魔导科技与异世界风格混合的巨型都市。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>鲁贝利欧斯神圣法皇国</h3>
+<span class="en-sub">RUBERIOS</span>
+<p>大陆西端，以唯一神鲁米纳斯为国教的宗教神权国，人口约两千万。表面由法皇统治，实质是魔王鲁米纳丝·瓦伦丁以"神"的身份支配的国家。法皇路易为名义元首，实际政务交由圣骑士团长坂口日向掌管。灵峰地下深处有吸血鬼族居住的"夜想宫廷"，人类在教会管理下安宁生活，吸血鬼以人血为食，形成"保护与献血"的等价交换系统，此为国家最高机密。圣骑士团与法皇厅结界战力极强。首都卢因为以大圣堂为中心的宗教都市。</p>
+</div>
+<div class="info-box">
+<h3>英格拉西亚王国</h3>
+<span class="en-sub">INGRACIA</span>
+<p>西方列国中心地带，西方文化圈的核心。国王埃吉尔统治的立宪君主制王国。西方评议会本部、自由组合本部、西方圣教会实务据点均设于王都。文化设施冠绝西方——剧场、大图书馆、自由学园一应俱全，异世界人儿童就读的自由学园也在此。人口约四千万，为西方第二强国。首都卢拉为西方最大都市。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>魔导王朝萨利昂</h3>
+<span class="en-sub">SARION</span>
+<p>朱拉大森林西南方，不属于西方评议会。天帝艾鲁梅西亚统治逾两千年的精灵王朝，人口约一亿。以十三王家的长耳族为贵族核心，国民大多具备魔法资质。魔法研究与魔导科技冠绝基轴世界，神树之都本身就是古代精灵技术的结晶。长期奉行孤立主义，对魔物态度务实开明。首都艾尔敏·萨利昂建于巨大神树内部。</p>
+</div>
+<div class="info-box">
+<h3>兽王国尤拉萨尼亚</h3>
+<span class="en-sub">EURAZANIA</span>
+<p>朱拉大森林南方，兽王卡利翁统治的兽人族国家，总人口约三亿。奉行实力至上主义，但王族秉持高洁尊严不欺凌弱者。农业极为发达，果物栽培与粮食产量冠绝南方，大河附近还出产黄金。卡利翁自魔王之位退位后国家并入蜜莉姆领土。首都拉乌拉为自然与建筑调和的兽人都城。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>黄金乡艾尔多拉德</h3>
+<span class="en-sub">EL DORADO</span>
+<p>与中央大陆隔海的另一块大陆，面积比澳大利亚还大。魔王雷昂·克罗姆威尔独占。大陆中央有常年喷发的巨大火山，周边丰富金银矿床。城市建筑呈螺旋状排列，其配置本身构成巨大魔法阵兼防御结界。居民多为精灵及过去被雷昂保护的异世界转移者的子孙。首都艾尔多拉德为螺旋状魔法都市。</p>
+</div>
+<div class="info-box">
+<h3>冰土大陆（白冰宫）</h3>
+<span class="en-sub">ICE CONTINENT</span>
+<p>中央大陆极北方向隔海，整块大陆为永久冻土，气温低至零下120度。最古魔王金·克林姆兹的领地，无国家之名、无国民，仅有恶魔眷属约两百体以上。远古时期金与白冰龙维鲁莎多激战将整块大陆化为不毛冻土，此后金以魔力具现化"白冰宫"作为居城。原初之绿米莎莉与原初之青蕾恩以女仆身份管理。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>法尔姆斯→法鲁梅纳斯</h3>
+<span class="en-sub">FALMUTH → FARMENAS</span>
+<p>朱拉大森林西北部，北邻多瓦贡。原为西方军事大国（人口约四千万），凭要冲地位课征高额关税。坦派斯特崛起后关税收入暴跌，遂联合教会出兵两万入侵，遭觉醒为魔王的利姆鲁全军覆没。战后原边境调查团团长尤姆建立新法鲁梅纳斯王国，改走与魔物共存路线。首都马利斯为西方有数的商业大都市。</p>
+</div>
+<div class="info-box">
+<h3>布鲁蒙德王国</h3>
+<span class="en-sub">BLUMUND</span>
+<p>朱拉大森林正西侧，西方列国中国力最薄弱的小国（人口约一百五十万）。军事力低下但拥有优秀情报局。是西方列国中最早与坦派斯特正式建交的人类国家，将国运押在与魔物国的贸易上。首都隆多为全国唯一称得上城市的地方。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>天翼国芙尔布洛西亚</h3>
+<span class="en-sub">FULBROSIA</span>
+<p>大陆东部高山地带。魔王芙蕾以女王身份统治的有翼族国家，人口不满百万但全民皆兵。国家坐落于矿脉丰富的高山，盛产稀有金属与宝石。法律规定没有翅膀者不许入境。芙蕾退位后国家并入蜜莉姆领土。首都吉亚为挖空山脉中腹的层积型空中都市。</p>
+</div>
+<div class="info-box">
+<h3>傀儡国吉斯塔夫</h3>
+<span class="en-sub">JISTAV</span>
+<p>大陆东南部，原为魔王克雷曼统治（人口约一亿，以暗黑精灵为核心）。大半人口为奴隶阶级，以粮食产量支撑广大领土。首都阿姆利塔为远古精灵建造的地下遗迹都市。克雷曼被打倒后归入蜜莉姆领地，奴隶制度逐步废除。</p>
+</div>
+</div>
+<div class="intro-grid">
+<div class="info-box">
+<h3>圣墟达马尔加尼亚</h3>
+<span class="en-sub">DAMARGANEA</span>
+<p>大陆西部偏南荒凉地带。巨人族魔王达格里尔统治。远古奇伊与蜜莉姆决战致魔素污染，大地沙漠化，黄土漫天、资源贫乏。仅以"天通阁"为中心一带勉强维持城市机能。与鲁贝里欧斯长期敌对。</p>
+</div>
+<div class="info-box">
+<h3>忘却的龙之都市</h3>
+<span class="en-sub">FORGOTTEN DRAGON CITY</span>
+<p>大陆南部偏僻之地，魔王蜜莉姆最初领地，人口不满十万，以龙人族末裔为主。不具备国家机能，以神官团为中心的原始共产制共同体，将蜜莉姆当作"龙皇女"崇拜。完全锁国，不与外国通交。首都为以蜜莉姆神殿为中心的山间聚落"龙之里"。</p>
+</div>
+</div>
+<div class="info-box gold">
+<h3>建卡流程</h3>
+<span class="en-sub">FIVE STEPS</span>
+<ul>
+<li>第一步 · 选择时间线篇章与入场时机（前传4篇 + 正篇20篇）</li>
+<li>第二步 · 建立角色身份（原创 / 扮演原著 221 位角色）</li>
+<li>第三步 · 选择能力（技能 / 魔法 / 装备 / 耐性等12大体系，400+项）</li>
+<li>第四步 · 抽取命运（际遇卡），也可自创</li>
+<li>第五步 · 生成完整档案</li>
+</ul>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" disabled>← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">选择时间线篇章 →</button>
+</div>
+</div>
+<!-- ============ TAB: 时间线 ============ -->
+<div class="tab-content" id="tab-era">
+<h2 class="section-title">选择时间线篇章</h2>
+<div class="section-title-en">TIMELINE · CHOOSE YOUR ERA</div>
+<div class="info-box"><p>选择你要投入的篇章。点击卡片展开详情与入场时机，节点直接点选即可。前传序列为正篇开始前的过去事件（可开历史回溯团），正篇主线从三上悟转生起。</p></div>
+<div class="chapter-jump" id="chapter-jump"></div>
+<div id="chapter-cards"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 角色 ============ -->
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">角色创建</h2>
+<div class="section-title-en">CHARACTER · PROFILE BUILDING</div>
+<div class="info-box" id="cur-chapter-box">
+<h3>当前篇章</h3>
+<p id="cur-chapter-text">尚未选择篇章</p>
+</div>
+<div class="mode-switch">
+<button class="mode-btn active" data-mode="original" onclick="switchMode('original')">❖ 原创角色</button>
+<button class="mode-btn" data-mode="canon" onclick="switchMode('canon')">❖ 扮演原著</button>
+</div>
+<div class="canon-section" id="canon-section">
+<div class="info-box gold">
+<h3>原著角色扮演</h3>
+<p>从原著 221 位角色中选择一位。输入关键词搜索，或展开分组浏览。选定后仍可在下方修改具体细节。</p>
+</div>
+<div class="canon-search-wrap">
+<input type="text" class="canon-search" id="canon-search" placeholder="输入角色名搜索（如：利姆鲁、红丸、日向…）" oninput="filterCanon(this.value)">
+<div class="canon-dropdown" id="canon-dropdown"></div>
+</div>
+<div id="canon-list"></div>
+<div class="form-section" style="margin-top:20px;">
+<div class="form-group">
+<label>扮演补充 <span class="field-hint">（额外设定、细节、备注）</span></label>
+<textarea id="canon-supplement" rows="5" placeholder="例：&#10;· 想修改角色的某项设定&#10;· 追加原著未提及的细节&#10;· 特殊关系或隐藏背景&#10;· 其他任何补充……"></textarea>
+</div>
+</div>
+</div>
+<div id="original-section">
+<div class="form-section">
+<h3>基础信息</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="利姆鲁、红丸、日向……"></div>
+<div class="form-group"><label>年龄</label><input type="number" id="char-age" placeholder="转生后1年 / 外貌年龄" min="0" max="99999"></div>
+</div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+<label><input type="radio" name="gender" value="女"><span>女</span></label>
+<label><input type="radio" name="gender" value="无性"><span>无性</span></label>
+<label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>所在地 <span class="field-hint">（国家 / 都市）</span></label>
+<select id="char-origin" onchange="toggleCustom('origin',this.value)"></select>
+<div class="custom-input" id="custom-origin-wrap"><input type="text" id="custom-origin" placeholder="填写你想设定的城市或地区"></div>
+</div>
+<div class="form-group"><label>职业 / 身份定位</label><input type="text" id="char-occupation" placeholder="B级冒险者 · 锻造师 · 魔王配下……"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>种族与出身</h3>
+<div class="form-row">
+<div class="form-group"><label>种族</label>
+<select id="race" onchange="toggleCustom('race',this.value)"></select>
+<div class="custom-input" id="custom-race-wrap"><input type="text" id="custom-race" placeholder="输入自定义种族"></div>
+</div>
+<div class="form-group"><label>出身国家/势力</label>
+<select id="nation" onchange="toggleCustom('nation',this.value)"></select>
+<div class="custom-input" id="custom-nation-wrap"><input type="text" id="custom-nation" placeholder="输入自定义国家"></div>
+</div>
+</div>
+<div class="form-group"><label>出身阶层</label>
+<select id="social-class" onchange="toggleCustom('class',this.value)"></select>
+<div class="custom-input" id="custom-class-wrap"><input type="text" id="custom-class" placeholder="输入自定义阶层"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>身份与阵营</h3>
+<div class="form-row">
+<div class="form-group"><label>身份类型</label>
+<select id="identity" onchange="toggleCustom('identity',this.value)"></select>
+<div class="custom-input" id="custom-identity-wrap"><input type="text" id="custom-identity" placeholder="输入自定义身份"></div>
+</div>
+<div class="form-group"><label>所属阵营</label>
+<select id="faction" onchange="toggleCustom('faction',this.value)"></select>
+<div class="custom-input" id="custom-faction-wrap"><input type="text" id="custom-faction" placeholder="输入自定义阵营"></div>
+</div>
+</div>
+<div class="form-group"><label>力量本源 <span class="field-hint">（可多选）</span></label>
+<div class="checkbox-group">
+<label><input type="checkbox" name="src" value="技能"><span>技能</span></label>
+<label><input type="checkbox" name="src" value="魔法"><span>魔法</span></label>
+<label><input type="checkbox" name="src" value="气斗法"><span>气斗法</span></label>
+<label><input type="checkbox" name="src" value="精灵魔法"><span>精灵魔法</span></label>
+<label><input type="checkbox" name="src" value="神圣魔法"><span>神圣魔法</span></label>
+<label><input type="checkbox" name="src" value="固有能力"><span>固有能力</span></label>
+<label><input type="checkbox" name="src" value="无"><span>无（普通人）</span></label>
+</div>
+</div>
+</div>
+<div class="form-section">
+<h3>实力等级</h3>
+<div class="form-row">
+<div class="form-group"><label>综合战力</label>
+<select id="power-level">
+<option value="">未定</option>
+<option value="C级">C级 · 普通级</option>
+<option value="B级">B级 · 骨干级</option>
+<option value="A级">A级 · 灾害级</option>
+<option value="特A级">特A级 · 灾厄级</option>
+<option value="S级">S级 · 灾祸级</option>
+<option value="特S级">特S级 · 天灾级</option>
+<option value="EX级">EX级 · 规格外</option>
+</select>
+</div>
+<div class="form-group"><label>存在值EP（可选）</label><input type="text" id="ep-value" placeholder="如：约50万 / 不明"></div>
+</div>
+<div class="form-group"><label>战力备注</label><input type="text" id="power-note" placeholder="原初之黑 · 究极能力持有 · 觉醒魔王……"></div>
+</div>
+<div class="form-section">
+<h3>入圈原因</h3>
+<div class="form-group">
+<select id="entry-reason" onchange="toggleCustom('reason',this.value)"></select>
+<div class="custom-input" id="custom-reason-wrap"><input type="text" id="custom-reason" placeholder="输入自定义原因"></div>
+</div>
+</div>
+<div class="form-section">
+<h3>外貌与性情</h3>
+<div class="form-group"><label>外貌</label><textarea id="char-appearance" placeholder="蓝色半透明的史莱姆体 / 银发金瞳的鬼人族 / 黑甲红眸的恶魔……"></textarea></div>
+<div class="form-group"><label>性格</label><textarea id="char-personality" placeholder="温柔、腹黑、好战、忠诚、懒散……"></textarea></div>
+<div class="form-group"><label>兴趣爱好</label><input type="text" id="char-hobby" placeholder="锻造 · 看漫画 · 吃蜂蜜 · 研究魔法……"></div>
+<div class="form-group"><label>随身携带 <span class="field-hint">（武器 / 道具 / 契约精灵等）</span></label><textarea id="char-belongings" placeholder="神话级太刀 · 完全回复药 · 契约的火精灵……"></textarea></div>
+<div class="form-group"><label>背景故事</label><textarea id="char-background" placeholder="身世、进化经历、命名者、觉醒过程……"></textarea></div>
+<div class="form-group"><label>当前处境 / 开局场景</label><textarea id="char-scene" placeholder="刚从封魔洞窟走出 · 在地下迷宫第50层 · 帝国军正在集结……"></textarea></div>
+</div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 能力 ============ -->
+<div class="tab-content" id="tab-ability">
+<h2 class="section-title">能力</h2>
+<div class="section-title-en">SKILL · MAGIC · EQUIPMENT · RESISTANCE</div>
+<div class="info-box"><p>直接勾选你掌握的能力即可。技能体系分12大类：共通能力 / 特殊能力 / 独有技能 / 究极能力（天使系·美德系·大罪系·恶魔系·其他） / 源流能力 / 固有能力 / 魔法（元素·精灵·神圣·召唤·幻影·核击·原初·死灵·物理·暗黑·暴风系·星粒子·其他） / 技法 / 武装装备 / 加护祝福 / 耐性抗性。</p></div>
+<div id="ability-sections"></div>
+<div class="custom-ab-box">
+<h4>❖ 自创能力 / 独门权柄</h4>
+<div class="form-group"><label>名称</label><input type="text" id="custom-ab-name" placeholder="如：时空切断 · 魔素吸收炉 · ……"></div>
+<div class="form-group"><label>说明</label><textarea id="custom-ab-desc" rows="2" placeholder="能力效果、触发条件、代价……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomAbility()">+ 添加自创能力</button>
+<div id="custom-ab-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 命运 ============ -->
+<div class="tab-content" id="tab-fate">
+<h2 class="section-title">命运</h2>
+<div class="section-title-en">FATE · ROLL OF THE STARS</div>
+<div class="info-box">
+<h3>命运抽取规则</h3>
+<ul>
+<li>每次抽取获得 <strong>8 条</strong> 命运卡，从中选择 <strong>3 条</strong> 作为核心际遇</li>
+<li>神话档概率约 <strong>15-20%</strong>，首个保底神话</li>
+<li>命运不锁能力、不锁阵营，仅决定你的身世、羁绊与际遇走向</li>
+<li>可反复重抽，直到满意为止；亦可自创独门命运</li>
+</ul>
+</div>
+<div class="talent-section">
+<button class="roll-btn" id="roll-btn" onclick="rollTalents()">投 · 出 · 命 · 运</button>
+</div>
+<div class="talent-pool" id="talent-pool">
+<h3>命运池 · Fate Pool</h3>
+<p class="talent-count">请从以下 8 条中选择 3 条（已选：<span id="talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="talent-list"></div>
+</div>
+<div class="custom-ab-box">
+<h4>❖ 自创命运 / 私人际遇</h4>
+<div class="form-group"><label>命运名称</label><input type="text" id="custom-tl-name" placeholder="如：利姆鲁的命名 · 封魔洞窟的残响……"></div>
+<div class="form-group"><label>说明 / 效果</label><textarea id="custom-tl-desc" rows="2" placeholder="内容与效果……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomTalent()">+ 添加自创命运</button>
+<div id="custom-tl-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+<!-- ============ TAB: 此生 ============ -->
+<div class="tab-content" id="tab-preview">
+<h2 class="section-title">此生 · 角色档案</h2>
+<div class="section-title-en">ARCHIVE · FINAL PROFILE</div>
+<div class="preview-box" id="preview-box"></div>
+<button class="copy-btn" onclick="copyPreview()">复 · 制 · 此 · 生</button>
+<button class="copy-btn" id="enter-chat" hidden>带入聊天</button>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button></div>
+</div>
+</div><!-- end content-wrapper -->
+</div><!-- end main-container -->
+<footer>TENSEI SLIME · 転 生 史 莱 姆</footer>
+<script>
+// ==================== STATE ====================
+const state={
+currentTab:'worldview',
+selectedChapter:null,
+selectedEntry:null,
+mode:'original',
+canonChar:null,
+selectedAbilities:new Set(),
+customAbilities:[],
+customTalents:[],
+rolledTalents:[],
+selectedTalents:[]
+};
+const TABS=['worldview','era','character','ability','fate','preview'];
+// ==================== CHAPTER DATA ====================
+const chapterData={
+prequel:[
+{id:'star-king',name:'星王龙篇',year:'创世纪',subtitle:'世界的起源与创世神',
+desc:'世界始于"全なる一"——唯一的存在放弃全能后残留为星王龙维鲁多拿巴，他创造了多重世界、光暗大圣灵、七柱炽天使与七柱原初恶魔，又分衍出白冰龙维鲁莎多、灼热龙维鲁格林德、暴风龙维尔德拉三柱龙种，制定七项美德系究极权能。维鲁多拿巴以人的姿态在地上行走，与纳斯卡王女露西娅结合，女儿蜜莉姆诞生——龙种生子的法则使他失去绝大部分力量。超魔导帝国索玛的大魔导士贾希尔趁机暗杀了维鲁多拿巴、露西娅和幼龙盖亚。蜜莉姆在悲愤中觉醒愤怒之王暴走，摧毁索玛，与调停者金·克林姆兹大战七日七夜，精灵女王拉米莉丝仲裁后失去大部分力量堕落为妖精女王。三天魔王协定成立。炽天使迪诺因主被杀而愤怒毁灭敌国，与皮可、伽拉夏一同堕天。费尔德维在异界监守灭界龙伊瓦拉杰期间变质为妖天，立下复活主的执念。鲁德拉回到东方建立帝国，定为王历元年。',
+tags:['维鲁多拿巴','蜜莉姆','贾希尔','三天魔王','创世'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'fallen-angel',name:'堕天与神代篇',year:'王历前约700年~王历约500年',subtitle:'妖天降世、神祖假死与夜魔女王觉醒',
+desc:'星王龙死后，冥界监守的费尔德维彻底变质为妖天，与正义之王内诞生的神智核米迦勒联手制定天使军势定期清洗文明的Har-Magedon计划，虫魔王泽拉努斯拒绝同盟。堕天的迪诺以监视者身份在慵懒中守护平衡。神祖托瓦伊莱特人格扭曲后假死脱身，与维鲁莎多联手进化为神智核潜伏；其最高杰作露米娜丝以为自己弑杀了神祖，统一吸血鬼族觉醒为第二世代魔王，将凶暴的瓦伦丁一分为二（路易与罗伊），击败君特，建立人魔共生的夜蔷薇宫。巨人王达格里尔以第二世代魔王第一人身份守护圣虚。天使军势周期性降下，天魔大战开始，人类文明反复兴亡。鲁德拉统一东方建帝国（王历元年），与金的游戏以国家为棋子展开，建近卫骑士团，派弟子格兰贝尔前往西方。约两千年前，佩戴抗魔面具的神秘少女克罗诺亚预警露米娜丝暴风龙即将来袭；七曜长老暗中设局，维尔德拉摧毁夜蔷薇宫，露米娜丝迁都地下建鲁贝里欧斯，形成"神与魔王互为表里"的统治结构。克罗诺亚的真实来历此时无人知晓。',
+tags:['费尔德维','露米娜丝','达格里尔','帝国建国','夜蔷薇宫毁灭'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'two-thousand',name:'道化与魔王篇',year:'王历约500年~1230年',subtitle:'咒术王悲剧、暴风龙封印与白金剑王崛起',
+desc:'格兰贝尔在西方与露米娜丝数度交战后结盟，协助建立七曜长老制度与西方评议会，却在妻子玛莉亚被敌对人类派系杀害后精神扭曲，以禁术保存遗体，通过五大老暗中支配西方，最终与恩师鲁德拉断交。露米娜丝约一千五百年前从魔王之位引退，让罗伊以"鲜血霸王"身份担任影武者魔王，自己在幕后以神的身份君临。索玛高等精灵王女卡嘉莉被附身父王的贾希尔剥夺力量、实验致死，复活为妖死族后被诅咒强行变为男性卡扎利姆，以禁术"Birthday"将三名战死亲卫复活为妖死族（克雷曼、福特曼、缇娅），又将濒死勇者萨利昂重生为失去记忆的拉普拉斯，创立中庸道化连，成为魔王评议会第七席。约三百年前，假面勇者克罗诺亚（日向控制身体）以无限牢狱封印维尔德拉于封魔洞窟，世界格局因此大变。约两百年前，放弃勇者之座的雷昂击败卡扎利姆摧毁其肉体，夺取评议会席位成为白金魔王，继续寻找库洛艾。帝国方面，鲁德拉反复转生导致灵魂摩耗，米迦勒逐渐失控，达姆拉德受密命周游世界寻找弑帝者；约七十年前，异世界海军飞行员近藤达也转移至基轴世界，被鲁德拉救下，接连击败ancient成员登上近卫001团长之位。',
+tags:['格兰贝尔','卡扎利姆','中庸道化连','维尔德拉封印','雷昂','近藤达也'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'masked-hero',name:'假面与风暴前夜篇',year:'王历1230年~1300年',subtitle:'两千年循环真相与风暴前夜',
+desc:'约七十年前，莱昂召唤东京大空袭中濒死的静江并植入伊弗利特，假面勇者（日向控制身体）将抗魔面具交给静——面具在时间循环中形成闭环：克罗诺亚→静→利姆鲁→库洛艾→克罗诺亚，本质是时间悖论造物。时间循环真相：在失败历史中利姆鲁遭日向伏击延误归国、战死，维尔德拉暴走、世界崩坏，日向为保护库洛艾被格兰贝尔杀死，库洛艾的"时间旅行"强制发动将两人灵魂送回两千年前，以克罗诺亚之名活动——日向负责战斗，库洛艾负责记忆，"克罗诺亚"逐渐发展为承载负面情感的独立第三人格。当时间推进到"现在"，成年库洛艾与日向的灵魂先后因"同一灵魂不可共存"法则脱落，积蓄庞大能量的肉体被露米娜丝封入圣柜。约三十年前优树转移，卡扎利姆精神体与他共享身体；日向转移后拜静为师、加入圣教会成为圣骑士团长。近藤创立帝国情报局，以"支配的弹丸"洗脑克雷曼致其性格异变，后自力获得断罪之王；达姆拉德追随优树创立Cerberus。帝国做好全面侵攻准备，米迦勒成为实际掌控者，大军向朱拉大森林集结。王历1300年2月20日，三上悟在东京遇刺，转生为封魔洞窟中的史莱姆——无数次循环中第一个真正的变量。',
+tags:['库洛艾','日向','克罗诺亚','时间循环','抗魔面具','帝国侵攻'],
+entries:['篇章开始','篇章中期','篇章后期']}
+],
+main:[
+{id:'cave',name:'封魔洞窟篇',year:'王历1300年2月',subtitle:'转生为史莱姆',
+desc:'王历1300年2月20日，37岁日本上班族三上悟在东京遇刺身亡，转生为朱拉大森林封魔洞窟中的蓝色史莱姆。在洞窟深处，他结识了被封印三百年的暴风龙维尔德拉，两人结为挚友，维尔德拉赐予他"利姆鲁·特恩佩斯特"之名，利姆鲁则承诺找到解除封印的方法。利姆鲁利用独特技能"捕食者"和"大贤者"将维尔德拉吞入体内以解析无限牢狱封印，随后走出洞窟，遇见哥布林村落。面对牙狼族的威胁，利姆鲁为哥布林们命名，率领他们击退牙狼族并收为部下，奠定了魔物国家的最初基石。',
+tags:['三上悟','维尔德拉','捕食者','大贤者','命名'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'goblin-dwarf',name:'哥布林村与矮人王国篇',year:'王历1300年春',subtitle:'建设的起点',
+desc:'利姆鲁带领哥布林和牙狼族前往武装国家多瓦贡寻求技术支持，结识了矮人铁匠凯金及其弟子们，经历了酒馆风波和矿山事件后，将凯金一行带回村子。途中还与英雄王盖泽尔·多瓦贡建立了友谊，多瓦贡成为首个与特恩佩斯特建交的国家。哥布林村落在利姆鲁的规划下开始建设，逐步发展为初具规模的城镇，各族魔物慕名而来，"利姆鲁大人"的名声开始在森林中传播。',
+tags:['凯金','盖泽尔','多瓦贡','建国','锻造'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'ifrit',name:'爆炎的支配者篇',year:'王历1300年春',subtitle:'静江与大鬼族',
+desc:'利姆鲁遇见了濒死的日本召唤者井泽静江——她体内寄宿着炎之上位精灵伊弗利特，一生都在压制它的力量。静江向利姆鲁讲述了自己被莱昂召唤、被假面勇者救出的经历。伊弗利特暴走后，利姆鲁将其捕食分离，静江在临终前将遗愿（拯救五名不完全召唤儿童）和抗魔面具托付给利姆鲁，利姆鲁拟态为静江的面容。随后大鬼族幸存者红丸、朱菜、紫苑、苍影、白老等人因猪头族袭击村庄而逃至利姆鲁处，双方不打不相识，利姆鲁为他们命名，鬼人族加入阵营。',
+tags:['静江','伊弗利特','红丸','紫苑','鬼人族'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'orc-lord',name:'猪头帝篇',year:'王历1300年夏',subtitle:'二十万大军与建国',
+desc:'猪头族在神秘魔人克雷曼的操纵下组成二十万大军，由猪头帝盖鲁德率领，所过之处吞噬一切，朱拉大森林陷入危机。利姆鲁联合大鬼族、蜥蜴人族（加维鲁）、树妖精托蕾妮等势力组成联军，在湿地与猪头军决战。利姆鲁击败被饥饿者技能侵蚀的猪头帝，将其吞噬并承担了猪头族的罪孽，收降十五万猪头族。战后利姆鲁被推举为朱拉大森林盟主，魔物国家"特恩佩斯特"正式成立，盖鲁德（猪人族王）率族人投身建设。',
+tags:['猪头帝','克雷曼','加维鲁','建国','饥饿者'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'milim',name:'破坏的暴君篇',year:'王历1300年夏末',subtitle:'蜜莉姆降临',
+desc:'最古魔王蜜莉姆·纳瓦突然降临特恩佩斯特，与利姆鲁不打不相识后成为朋友，在特恩佩斯特住下。与此同时，中庸道化连的福特曼和缇娅受克雷曼指使，利用被蜜莉姆羞辱的兽人族战士菲比奥作为宿主，复活了远古被封印的灾厄级魔性生物卡律布狄斯——它能召唤十二只飞行巨鲨梅加洛多恩，真正目标是蜜莉姆。利姆鲁联合多瓦贡天马骑士团等势力迎战，最终由蜜莉姆一拳击破卡律布狄斯并保住菲比奥性命。战后兽魔王卡利翁与特恩佩斯特缔结互不侵犯条约，利姆鲁察觉近期一系列事件背后有克雷曼的影子。',
+tags:['蜜莉姆','卡律布狄斯','卡利翁','中庸道化连','友谊'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'spirit',name:'精灵之乡篇',year:'王历1300年秋',subtitle:'静江的遗愿',
+desc:'利姆鲁为完成静江的遗愿，前往英格拉西亚王国自由学园担任S班教师，班上是五名不完全召唤的日本孩子——三崎剑也、关口良太、盖鲁·吉普森、爱丽丝·伦德和库洛艾·欧贝鲁。孩子们因体内魔素过剩而命不久矣，利姆鲁带他们前往精灵之乡，让上位精灵寄宿以稳定魔素。轮到库洛艾时，出现的不是普通精灵而是从未来逆行而来的精神体（克罗诺亚），与库洛艾同化。离别时库洛艾哭着挽留利姆鲁，利姆鲁将抗魔面具交给了她——这个举动延误了归期，使他避开了日向的伏击，改变了命运。',
+tags:['库洛艾','自由学园','精灵','克罗诺亚','抗魔面具'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'colius',name:'柯利乌斯之梦篇',year:'王历1300年秋',subtitle:'沙漠王国阴谋',
+desc:'利姆鲁归国前受优树委托，化名"大怪盗悟"调查沙漠小国柯利乌斯的王位继承纠纷。第一王子萨乌泽尔与第二王子阿斯兰对立，背后是侍医长古斯塔夫——上位魔将，"原初之紫"维奥蕾的部下——企图以失明公主婕诺比雅为依代召唤维奥蕾受肉。利姆鲁在红丸、苍影和冒险者保罗协助下揭穿阴谋，古斯塔夫与卡尔现出魔将真身。露米娜丝尾随利姆鲁现身，与维奥蕾短暂交战后维奥蕾放弃计划离去。国王特德罗恩才是幕后黑手——他与恶魔订约企图灵魂寄生夺取儿子身体续命，最终在恶魔之乱中死去。两位王子和解，维奥蕾对利姆鲁产生兴趣。',
+tags:['柯利乌斯','维奥蕾','阿斯兰','恶魔','露米娜丝'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'demon-lord',name:'魔王觉醒篇',year:'王历1300年秋末',subtitle:'觉醒为真魔王',
+desc:'利姆鲁归国途中遭西方圣教会圣骑士团长日向·坂口伏击，苦战脱身。回到特恩佩斯特后，法尔姆斯王国两万大军联合西方圣教会和中庸道化连发动入侵，施展"反魔结界"，紫苑等百余名魔物被杀。利姆鲁在悲愤中达成觉醒为真魔王的条件——以神之怒（Megiddo）和无情者技能歼灭两万敌军，收割超过一万灵魂，进化为觉醒魔王。进化过程中召唤出原初之黑迪亚波罗，智慧之王（拉斐尔）诞生。利姆鲁在拉斐尔协助下以反魂之秘术成功复活紫苑等死者，维尔德拉也在拉斐尔解析无限牢狱后复活。迪亚波罗被派往处理法尔姆斯王国的战后事宜。',
+tags:['日向','法尔姆斯','觉醒魔王','迪亚波罗','拉斐尔'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'walpurgis',name:'魔王盛宴篇',year:'王历1300年冬初',subtitle:'八星魔王诞生',
+desc:'克雷曼声称蜜莉姆被自己操控，召集魔王盛宴（Walpurgis）企图制裁利姆鲁。利姆鲁率红丸、紫苑等干部出席，与十大魔王齐聚。宴会上克雷曼的阴谋被逐层揭穿：他操控兽王国傀儡、制造猪头帝事件、操纵蜜莉姆——然而蜜莉姆早已挣脱控制，一直在演戏。利姆鲁在魔王盛宴上正面击溃克雷曼并将其吞噬，克雷曼到死都没有供出幕后优树。金宣布废除十大魔王体制，利姆鲁、蜜莉姆、雷昂、露米娜丝、金、达格里尔、拉米莉丝、迪诺八人组成"八星魔王"（Octagram）。',
+tags:['魔王盛宴','克雷曼','八星魔王','金','蜜莉姆演技'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'crimson',name:'红莲之绊篇',year:'王历1300年冬',subtitle:'大鬼族的过去',
+desc:'大鬼族幸存者绯色——红丸等人幼年时的大哥——来到特恩佩斯特求援。他侍奉的拉贾小亚国因矿山毒湖陷入危机，女王托娃以祖传皇冠魔力庇护国民却遭诅咒侵蚀。利姆鲁率干部前往，发现毒湖是"原初之紫"维奥蕾数百年前与拉贾先王所订赌局的产物——先王求力，维奥蕾赐予皇冠，条件是每代女王使用魔力时被诅咒侵蚀。维奥蕾的部下恶魔拉裘亚擅自行动，诱使绯色吞下诅咒之珠暴走，又伪造金矿情报诱使邻国入侵。绯色自刺取珠石化，托娃耗尽魔力救绯色而消散。迪亚波罗此前已独自拜访维奥蕾，维奥蕾因部下越权而废弃契约，亲自复活托娃。红丸与绯色以大鬼族方式碰拳了断过去，两国建交，维奥蕾对利姆鲁产生兴趣。',
+tags:['绯色','红丸','维奥蕾','拉贾','迪亚波罗'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'holy-war',name:'圣魔激战篇',year:'王历1301年初',subtitle:'与日向和解',
+desc:'利姆鲁与日向再度交锋，战斗中七曜长老——格兰贝尔安插在教会中的棋子——同时对两人发动袭击，企图将他们一并铲除。利姆鲁和日向这才意识到双方都被利用了：日向当初伏击利姆鲁是受达姆拉德和七曜长老的虚假情报操纵。两人联手击破七曜长老，露米娜丝也亲自现身清理门户。战后日向与利姆鲁和解，特恩佩斯特与鲁贝里欧斯建立正式国交，西方圣教会承认魔物国家的存在。利姆鲁得知了罗佐一族在西方的暗中支配网，为即将到来的西方评议会加盟埋下伏笔。',
+tags:['日向','七曜长老','露米娜丝','和解','建交'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'festival',name:'开国祭篇',year:'王历1301年春',subtitle:'登上国际舞台',
+desc:'特恩佩斯特举办盛大的开国祭，邀请各国来宾参加。利姆鲁在准备期间处理了大量外交和内政事务：与多瓦贡、兽王国、布鲁蒙特等国建立外交关系，与拉米莉丝合作建设地下迷宫作为观光和训练设施，筹备餐饮、商店和娱乐项目。祭典当天，蜜莉姆、露米娜丝、盖泽尔王、艾鲁梅西亚天帝等各国要人齐聚，特恩佩斯特的管弦乐队演奏了利姆鲁传授的交响曲，令露米娜丝深受感动。祭典期间还举办了武斗大会等活动。开国祭圆满成功，特恩佩斯特正式登上国际舞台，但利姆鲁清楚，真正的敌人藏在帷幕之后。',
+tags:['开国祭','迷宫','外交','武斗大会','各国来宾'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'ocean',name:'苍海之泪篇',year:'王历1301年春末',subtitle:'海底王国',
+desc:'开国祭后，利姆鲁一行应萨利昂天帝艾鲁梅西亚之邀前往度假岛休养。海底王国卡延国的巫女尤拉携水龙笛"龙牙"逃到岛上求援——宰相吉斯企图操控水龙入侵地上。哥布塔在蜜莉姆特训后已能控制魔狼合一，与尤拉并肩作战。利姆鲁一行潜入海底王国，发现吉斯研究地上文明、企图让卡延国开放，但大臣佐顿背叛，直接以尤拉为媒介唤醒水龙向地上进军。利姆鲁击穿水龙体内的佐顿，哥布塔救出尤拉。然而水龙失去控制，尤拉揭示巫女一族是"水龙之心"，必须回归水龙体内才能平息它。尤拉与水龙融合沉入深海。战后卡延国与特恩佩斯特建交，海滩漂来一枚蛋孵化出幼龙，或许承载着尤拉的记忆碎片。',
+tags:['尤拉','水龙','哥布塔','卡延国','海底'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'holiday',name:'某个休假的度过方式篇',year:'王历1301年夏',subtitle:'魔塔与兽魔术',
+desc:'开国祭后，维尔德拉受漫画《3×3 EYES》启发提出开发"兽魔术"，露米娜丝发来邀请函告知西方小国马尔克休亚境内有"魔法圣地"魔塔。利姆鲁申请有给休假，与维尔德拉、日向三人以研究者身份前往。马尔克休亚国王为摆脱魔塔主阿什利的傀儡支配，企图捕获维尔德拉作为筹码但失败。阿什利展开报复，过量榨取魔力并绑架王子赛拉斯。利姆鲁三人攻入魔塔，维尔德拉被关入异空间，日向对战不死身的普雷利克斯发现其弱点是阳光，利姆鲁控制住觉醒魔王的暴走，合力瓦解阿什利抵抗。战后阿什利等人被利姆鲁说服改心，同意共享魔塔知识并前往特恩佩斯特造船所工作。拉斐尔初步构建兽魔术理论框架，三人进行了一场纯粹的学术讨论。',
+tags:['魔塔','阿什利','维尔德拉','日向','兽魔术'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'council',name:'西议会与玛莉安篇',year:'王历1301年夏末',subtitle:'加盟与阴谋',
+desc:'利姆鲁正式申请加盟西方诸国评议会，带红丸、朱菜出席，在议场上逐条驳斥反对意见，盖泽尔王和艾鲁梅西亚天帝表态支持，朱菜和日向联手羞辱刁难议员，特恩佩斯特成功加盟。然而五大老之首——外表十岁的罗佐一族后裔玛莉安贝尔——视特恩佩斯特经济崛起为威胁。她持有独特技能"强欲者"，能操控他人欲望，计划支配优树、利用古代地下都市阿姆利塔解开封印的混沌龙抹杀利姆鲁。苍影击败受诅咒束缚的异世界人佣兵格伦达，利姆鲁解除其诅咒后格伦达倒戈。利姆鲁将计就计前往阿姆利塔，蜜莉姆赶到，混沌龙盖亚被净化重生为小龙回到蜜莉姆身边。玛莉安贝尔对利姆鲁发动强欲者无效，反被优树从背后杀死并夺走技能——优树从未被支配，他将计就计测试利姆鲁实力后从容离去。罗佐一族经济网络在数月内土崩瓦解。',
+tags:['评议会','玛莉安贝尔','优树','盖亚','罗佐一族'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'concert',name:'音乐会篇',year:'王历1301年秋',subtitle:'勇者觉醒',
+desc:'露米娜丝邀请特恩佩斯特管弦乐队在鲁贝里欧斯大圣堂举办音乐交流会，利姆鲁率紫苑、岚牙和五名孩子前往。迪亚波罗招募的三名原初恶魔——泰斯塔罗莎、卡蕾拉、乌尔蒂玛——正式加入特恩佩斯特。音乐会当夜，两千岁的前代黎明之勇者格兰贝尔·罗佐现身，为让"勇者正确觉醒"而袭击库洛艾。日向以身护住库洛艾，被正面击中，灵魂开始崩散。克罗诺亚觉醒，拉斐尔协助其进化为神智核，日向的篡夺者、数学者与无限牢狱统合为究极能力"希望之王"。露米娜丝在悲痛中觉醒究极能力"色欲之王"，抓住日向消散的灵魂强行接回肉体。格兰贝尔目睹勇者以他未曾预料的方式觉醒，执念消解，力竭而亡。日向复活进化为神人，成为真之勇者。嘉加里等人搜寻勇者遗体时撞上露米娜丝仓皇撤退，达姆拉德在远处观察后将情报送往东方。',
+tags:['格兰贝尔','日向觉醒','希望之王','原初三恶魔','露米娜丝'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'empire-invasion',name:'帝国侵攻篇',year:'王历1301年秋末',subtitle:'百万大军入侵',
+desc:'东方帝国派出机甲军团（两百万以上）、魔兽军团、混成军团共数十万大军侵攻特恩佩斯特。利姆鲁采取"阶段消耗作战"，将帝国军引入地下迷宫——迷宫内环境不断变化、守关者强度指数级增长，帝国军的兵力优势完全丧失。五十万以上侵入迷宫的帝国军被迷宫十杰（泽奇恩、九魔罗、阿皮托、亚达鲁曼等觉醒魔王级守护者）逐层歼灭，Double O Numbers的精锐们也在各层被击破或收服。卡里古略等战败将领被复活后归顺。迷宫之外，各军团长和特恩佩斯特干部也在多线交战。然而最糟糕的消息在战后传来：米迦勒趁维尔德拉在迷宫第百层时，以正义之王的王权发动强行支配了他，维尔德拉的意识被封锁。利姆鲁感受到魂之回廊被撕裂的剧痛，将指挥权交给红丸，自己直奔帝都。',
+tags:['帝国军','迷宫战','米迦勒','维尔德拉支配','百万大军'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'burning-dragon',name:'灼热的龙帝篇',year:'王历1301年冬',subtitle:'十二守护王觉醒',
+desc:'利姆鲁将收集的约一百万份灵魂分配给十二名核心干部，圣魔十二守护王全员觉醒为觉醒魔王级。东征军攻入帝国，泰斯塔罗莎在帝都展开"深红肃清"，卡蕾拉和乌尔蒂玛扫荡残余。近卫001近藤达也与卡蕾拉决战，认可她后托付力量与灵魂死去；近卫002达姆拉德被乌尔蒂玛击败，将拳术传承给她（"拳魔"称号）后平静死去。利姆鲁在帝都外围同时面对被米迦勒支配的维尔德拉和维鲁格林德，苦战中为陪伴自己至今的能力正式命名——"夏尔"，智慧之王进化为拥有完全自我意识的神智核。夏尔提出将双龙吞入暴食之王虚数空间内部解除支配，利姆鲁成功解放双龙。在帝都玉座之间，米迦勒主动放弃鲁德拉肉体，鲁德拉灵魂碎裂飞散（其中一块转生为正幸），米迦勒与费尔德维转移往天星宫，宣布天使军势即将降临。红丸战后迎娶红叶与阿尔比丝。',
+tags:['十二守护王','夏尔诞生','近藤','帝都决战','龙种解放'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'tenma-war',name:'天魔大战篇',year:'王历1302年',subtitle:'世界大战',
+desc:'米迦勒与费尔德维以天星宫为据点发动天使军势，同时入侵莱昂领、蜜莉姆领、达格里尔领、英格拉西亚等多目标。莱昂被天使长之支配控制后获救；优树一行在莱昂领被太古魔法帝国皇帝贾希尔（以福特曼身体为凭依复活）重创，生死不明。虫魔族三百万大军从冥界门涌入蜜莉姆领，卡蕾拉以神灭弹击杀虫将泽斯和虫妃皮莉欧朵，虫魔王泽拉努斯吞食泽斯残骸后撤退。维鲁莎多降临冰封蜜莉姆以外的所有人，蜜莉姆暴怒失控被费尔德维以王权发动支配。巨人王达格里尔背叛进军鲁贝里欧斯，紫苑觉醒暴虐之王仍无法撼动认真模式的达格里尔，维尔德拉赶到将其击败封印。扎拉里奥对费尔德维绝望离反。费尔德维趁隙将利姆鲁放逐至时空尽头。迪诺、皮可、伽拉夏率军侵入迷宫后阵前倒戈，金与迪亚波罗在迷宫内联手击败维加。泽奇恩在迷宫第八十层与父亲泽拉努斯决战，借助迪诺的崩羽觉醒为最上位圣魔灵·幻灵虫，获得幻想之王，击败泽拉努斯。阿皮托在母亲死后进化为新虫魔族女王。露米娜丝召集各国勇士对抗幻兽族。',
+tags:['天使军势','费尔德维','虫魔族','多线作战','暴虐之王'],
+entries:['篇章开始','篇章中期','篇章后期']},
+{id:'final',name:'终焉之神篇',year:'王历1302年',subtitle:'最终决战',
+desc:'灭界龙伊瓦拉杰完成进化，率幻兽族三王大军入侵基轴世界。泰斯塔罗莎在兽王国战线击破神祖托瓦伊莱特的分身，卡蕾拉以审判沉默了附身维鲁莎多的神祖本体。萨利昂战线，费尔德维支配蜜莉姆暴走，克罗诺亚、盖亚、维尔德拉合力压制，艾鲁梅西亚等人围攻费尔德维。优树和拉普拉斯从时空尽头归还，击退贾希尔。迪亚波罗以虚无崩坏力战费尔德维将其击破，费尔德维时空转移逃走。利姆鲁从时空尽头归还，一口吞掉蜜莉姆的龙星爆炎霸，救下濒临崩溃的迪亚波罗，与盖亚一起呼唤蜜莉姆使其恢复理智。天星宫最深处，维鲁多拿巴自力复活但人格变貌，认定世界为失败作企图再构筑，将神剑Memory刺入伊瓦拉杰试图重构露西娅——计划失控，伊瓦拉杰吞食露西娅灵魂并吸收维鲁多拿巴，化为终极邪神鲁维尔杰，魔素量达兆级。四体龙种同时化成龙种核集中于利姆鲁一身，夏尔以99%以上一致率复原露西娅灵魂，维鲁多拿巴的意识得到救赎。利姆鲁释放最终必杀技"虚崩朧·千变万华"将鲁维尔杰吞入虚数空间完全消灭。费尔德维在力量与信念两方面败北，从数千年咒缚中解放。利姆鲁正式即"大魔王"之位，存在值达数亿规模，成为世界守护者。战后金与维鲁莎多结为夫妇，拉米莉丝恢复成人姿态。利姆鲁借助多重并列存在能力回到王历1300年的东京，治愈了濒死的三上悟，改写了刺杀事件——三上悟在现代日本继续生活，而他的祖母正是战后被送回现代度过幸福人生的井泽静江。两个世界、两份人生，各自圆满。从封魔洞窟中最弱的史莱姆到站在世界顶点的大魔王，三上悟/利姆鲁·特恩佩斯特的冒险在此画上句号。',
+tags:['鲁维尔杰','虚空之神','大魔王','夏尔','最终决战'],
+entries:['篇章开始','篇章中期','篇章后期']}
+]};
+// ==================== CANON CHARACTERS (with descriptions) ====================
+const canonCharacters={
+'特恩佩斯特（魔国联邦）':[
+['利姆鲁·特恩佩斯特','主角，觉醒魔王/大魔王，前世三上悟'],
+['夏尔','神智核，由智慧之王进化，利姆鲁的灵魂搭档'],
+['维尔德拉·特恩佩斯特','暴风龙，利姆鲁挚友，迷宫100层BOSS'],
+['红丸','赫怒王，十二守护王，军事最高总指挥'],
+['紫苑','斗神王，十二守护王，首席秘书兼护卫'],
+['迪亚波罗','魔神王，原初之黑，十二守护王，最忠诚的恶魔'],
+['泰斯塔罗莎','虐杀王，原初之白，十二守护王，外交武官'],
+['乌尔蒂玛','残虐王/拳魔，原初之紫，十二守护王，检察总长'],
+['卡蕾拉','威力王，原初之黄，十二守护王，最高法院长官'],
+['岚牙','星狼王，十二守护王，利姆鲁坐骑兼护卫'],
+['盖鲁德','守征王，十二守护王，猪人族王，建设/防御总指挥'],
+['加维鲁','天龙王，十二守护王，龙人族，飞龙众统领'],
+['泽奇恩','幽幻王/虫皇帝，十二守护王，迷宫最强守护者'],
+['九魔罗','幻兽王，十二守护王，九尾幻兽，迷宫81-90层统领'],
+['亚达鲁曼','冥灵王，十二守护王，不死军团统领'],
+['朱菜','鬼姬，后勤/外交/结界总负责人'],
+['苍影','暗忍，谍报与暗杀统帅'],
+['白老','剑鬼，剑术师范，朧流达人'],
+['哥布塔','成人哥布林，四天王之一，狼鬼兵队长'],
+['利格鲁德','哥布林王，内政/治安支柱'],
+['黑兵卫','锻造师，神话级装备打造者'],
+['苍华','苍影直属谍报队员，加维鲁之妹'],
+['阿皮托','虫嬢王，蜂型虫魔族女王，迷宫70层守护者'],
+['贝雷塔','魔将人形，拉米莉丝的守护者'],
+['红叶','天妖族，红丸之妻'],
+['阿尔比丝','黄蛇角，三兽士之首，红丸之妻'],
+['托蕾妮','树妖精，迷宫管理者'],
+['加德拉','原帝国大魔导师，转生金属生命体，迷宫60层BOSS'],
+['卡里古略','原帝国机甲军团长，战败归顺'],
+['阿什利','原魔塔主，火精人，改心后在造船所工作'],
+['葛伦多·摩迈尔','大商人，联邦财政/商业体系中枢'],
+['吉田薰','异世界料理人，咖啡厅店主']
+],
+'八星魔王':[
+['金·克林姆兹','原初之赤，暗黑皇帝，调停者，最古魔王'],
+['蜜莉姆·纳瓦','龙魔人，破坏的暴君，龙皇女'],
+['拉米莉丝','妖精女王，迷宫创造者，最古魔王'],
+['达格里尔','巨人族王，大地之怒，第二世代魔王第一人'],
+['露米娜丝·瓦伦丁','夜魔女王，吸血鬼真祖，鲁贝里欧斯主神'],
+['迪诺','堕天魔王，眠之支配者，始原七天使之一'],
+['雷昂·克罗姆威尔','白金恶魔/白金剑王，前勇者，黄金乡之主'],
+['卡扎利姆/嘉加里','咒术王，中庸道化连会长，原索玛精灵公主'],
+['克雷曼','人偶傀儡师，被利姆鲁击败吞噬'],
+['芙蕾','天空女王，天翼国女王，后归入蜜莉姆麾下'],
+['卡利翁','狮子王，兽王国国王，后归入蜜莉姆麾下']
+],
+'龙种':[
+['维鲁多拿巴','星王龙，创世神，四大龙种长兄'],
+['维鲁莎多','白冰龙，长女，金的搭档/妻子'],
+['维鲁格林德','灼热龙，次女，鲁德拉之妻，帝国元帅'],
+['盖亚/维尔盖亚','第四龙种，蜜莉姆的伙伴精灵龙']
+],
+'原初恶魔':[
+['米莎莉','原初之绿，金的部下'],
+['蕾恩','原初之青，金的部下']
+],
+'天星宫/始原天使':[
+['费尔德维','始原七天使笔头，妖魔王，最终反派之一'],
+['米迦勒','正义之王内诞生的神智核，天使军势操控者'],
+['扎拉里奥','天使三将之一，后离反加入共斗'],
+['皮可','始原七天使之一，随迪诺倒戈'],
+['伽拉夏','始原七天使之一，随迪诺倒戈'],
+['贾希尔','超魔导帝国皇帝，暗杀维鲁多拿巴主谋'],
+['托瓦伊莱特','神祖，吸血鬼创造者，假死后成为神智核'],
+['维加','独特技能恶食者持有者，被金与迪亚波罗击败'],
+['阿里欧斯','天界暗杀者，持刑罚系权能']
+],
+'虫魔族':[
+['泽拉努斯','虫魔王，虫魔族绝对王者'],
+['皮莉欧朵','虫妃，泽拉努斯之妻'],
+['泽斯','十二虫将主席，被卡蕾拉击杀']
+],
+'鲁贝里欧斯/圣教会':[
+['日向·坂口','圣骑士团长，真之勇者，神人'],
+['路易·瓦伦丁','法皇，瓦伦丁分裂出的半身之一'],
+['罗伊·瓦伦丁','鲜血霸王，代理魔王'],
+['萨雷','三武仙/十大圣人之一'],
+['格伦达·阿特里','三武仙之一，异世界佣兵，后倒戈'],
+['达姆拉德','拳圣，帝国近卫002，Cerberus三干部之一']
+],
+'东方帝国':[
+['鲁德拉·纳姆·乌尔·纳斯卡','始元勇者，帝国开国皇帝'],
+['近藤达也','情报局局长，近卫001团长，原日本海军飞行员'],
+['正幸/本条正幸','闪光勇者，鲁德拉灵魂碎片转生体，后就任新皇帝'],
+['格拉迪姆','魔兽军团长，卡利翁异母兄'],
+['荒木幻成','朧心命流剑术宗师，近藤的师父']
+],
+'中庸道化连':[
+['拉普拉斯','享乐的道化，原名萨利昂·格林沃德，重生勇者'],
+['福特曼','愤怒的道化，原索玛精灵士兵，后被贾希尔附身'],
+['缇娅','泪目的道化，原索玛精灵士兵'],
+['优树·神乐坂','自由组合总帅，实际操控者，后夺取强欲者']
+],
+'自由学园/孩子们':[
+['井泽静江','爆炎的支配者，A+级冒险者，利姆鲁的恩师'],
+['库洛艾·欧贝鲁/克罗诺亚','不完全召唤儿童，假面勇者，时间循环者'],
+['三崎剑也','不完全召唤儿童，光之精灵寄宿'],
+['关口良太','不完全召唤儿童'],
+['爱丽丝·伦德','不完全召唤儿童']
+],
+'兽王国/蜜莉姆领/天翼国':[
+['苏菲亚','白虎爪，三兽士之一，战斗狂热者'],
+['法比欧','黑豹牙，三兽士之一，理性派'],
+['米德雷','龙人族，蜜莉姆麾下强者']
+],
+'魔导王朝萨利昂':[
+['艾鲁梅西亚·艾·鲁·萨利昂','天帝，高等精灵'],
+['希尔维娅','艾鲁梅西亚之母，传说级女战士']
+],
+'多瓦贡/布鲁蒙德':[
+['盖泽尔·多瓦贡','国王，利姆鲁的盟友'],
+['凯金','矮人锻造名匠，生产部门总负责人']
+],
+'西方评议会/罗佐一族':[
+['格兰贝尔·罗佐','前代黎明之勇者，五大老首领，两千岁'],
+['玛莉安贝尔·罗佐','强欲者，格兰贝尔的后代/亡妻转生者']
+],
+'法尔姆斯/法鲁梅纳斯':[
+['尤姆·法鲁梅纳斯','原冒险者，后成为法鲁梅纳斯国王'],
+['缪兰·法鲁梅纳斯','原克雷曼五指，尤姆之妻']
+],
+'黄金乡艾尔多拉德':[
+['阿尔罗斯','银骑士，雷昂心腹']
+],
+'巨人族':[
+['芬','达格里尔之弟，狂拳巨神'],
+['跋折罗','四臂巨人，五大斗将之首']
+],
+'神话/创世':[
+['露西娅','纳斯卡王女，鲁德拉之妹，维鲁多拿巴之妻，蜜莉姆之母']
+],
+'剧场版/番外':[
+['绯色/希伊洛','大鬼族幸存者，红丸幼年兄长'],
+['托娃','拉贾小亚国女王，被皇冠诅咒侵蚀'],
+['尤拉','卡延国巫女，水龙之心'],
+['阿斯兰','柯利乌斯第二王子，A级冒险者'],
+['婕诺比雅','柯利乌斯公主，独特技能愿者持有者']
+],
+'其他':[
+    ['三上悟','利姆鲁前世，37岁日本上班族，终章被救回']
+],
+'OVERLORD（纳萨力克地下大坟墓）':[
+    ['安兹·乌尔·恭','纳萨力克统治者，百级死者大魔法师，原日本人铃木悟，谨慎多疑，持718种魔法与多个世界级道具'],
+    ['雅儿贝德','守护者总管，百级，最强防御，对安兹极度痴情忠诚，持世界级道具"真无"'],
+    ['夏提雅','1-3层守护者，吸血鬼真祖，百级综合值732守护者最高，持滴管长枪，对安兹痴情'],
+    ['科塞特斯','5层冰河守护者，百级昆虫武人，四臂持21种武器，武器战斗最强，正义值+50武士'],
+    ['亚乌菈','6层丛林守护者，百级黑暗精灵驯兽师，率百只魔兽群，持世界级道具"山河社稷图"'],
+    ['马雷','6层丛林守护者，百级黑暗精灵伪娘德鲁伊，广范围歼灭最强，持神器杖"世界树之影"'],
+    ['迪米乌哥斯','7层熔岩守护者，百级恶魔，纳萨力克最强大脑，正义值-500，防卫指挥官'],
+    ['威克提姆','8层守护者，Lv35天使胎儿，以死亡发动范围阻害技能，第八层最终防线的钥匙'],
+    ['高康大','4层地底湖守护者，30m+战略级攻城哥雷姆，无自我意识，纯数值全守护者最高'],
+    ['塞巴斯·蒂安','纳萨力克管家，百级龙人武僧，正义值+300极善，近战最强档，与邪恶氛围格格不入'],
+    ['潘多拉·亚克特','宝物殿守护者，百级二重幻影，可变化41位无上至尊发挥80%能力，安兹亲造'],
+    ['由莉·阿尔法','昴宿星团队长，Lv51无头骑士系，战斗女仆中最有常识者'],
+    ['露普斯蕾琪娜·贝塔','昴宿星团，Lv59狼人，回复魔法专家但性格残念嗜血'],
+    ['娜贝拉尔·伽玛','昴宿星团，Lv63二重幻影，魔法战力最高，"美女与野兽"'],
+    ['希姿·德尔塔','昴宿星团，Lv46自动人偶，枪手，喜欢可爱的东西'],
+    ['艾多玛·巴西丽莎·泽塔','昴宿星团，Lv51虫人，虫使，以虫为食'],
+    ['索留香·艾普西隆','昴宿星团，Lv57史莱姆，捕食者，体内可吞噬活人'],
+    ['欧蕾儿·欧米伽','昴宿星团末席兼8层领域守护者，Lv100，日本巫女风神秘少女']
+],
+'想要成为影之实力者（暗影庭园）':[
+    ['希德·卡盖诺(暗影大人)','盟主希德·卡盖诺，转生者原日本人，中二病，奥义"I Am Atomic"核爆级歼灭，潜伏卢拉'],
+    ['阿尔法','七影首席，精灵，暗影庭园实质管理者，剑术最强'],
+    ['贝塔','七影，精灵，情报担当与《暗影大人战记》作者'],
+    ['伽玛','七影，精灵，三越商会会长，经济与资金担当'],
+    ['德尔塔','七影，兽人，七影中战力最强但头脑简单'],
+    ['艾普西龙','七影，精灵，幻术与伪装专家'],
+    ['泽塔','七影，兽人，谍报担当'],
+    ['伊塔','七影，精灵，技术研发担当']
+],
+'异世界不好玩天团':[
+    ['菜月昴','Re:Zero，日本高中生，"死亡回归"持有者，战斗力近普通人但精神韧性极强'],
+    ['爱蜜莉雅','Re:Zero，半精灵冰魔法使，银发紫瞳，与大精灵帕克契约'],
+    ['雷姆','Re:Zero，鬼族女仆，水魔法+晨星铁球，鬼化时战力倍增'],
+    ['拉姆','Re:Zero，鬼族千年天才，断角后依赖魔力供给，风魔法与智囊'],
+    ['佐藤和真','素晴，日本家里蹲，最弱冒险者，智力幸运突出，偷窃+土创造等杂学技能'],
+    ['阿库娅','素晴，水之女神，净化复活对不死者恶魔特效，但智商堪忧'],
+    ['惠惠','素晴，红魔族大魔法师，爆裂魔法一天一发，放完即倒'],
+    ['达克妮斯','素晴，十字骑士，防御作中随一但攻击零命中，深度受虐狂'],
+    ['岛㟢阳介','异世界舅舅，34岁精灵术师，"万能话手"与精灵对话行使魔法，世嘉脑残粉'],
+    ['爱尔卡/翠','异世界舅舅，傲娇精灵王族，全名极长，可变式古代魔道具剑，喜欢舅舅但本人毫无察觉'],
+    ['梅贝露','异世界舅舅，冰之一族末裔，冻神剑守护者，颓废系家里蹲美少女']
+],
+'特殊收录':[
+    ['伊卡洛斯','天降之物，战略用人造天使Type α空之女王，可变双翼+Artemis追尾导弹+Aegis绝对防御+Apollon灭国弓，潘多拉进化Version II，西瓜爱好者'],
+['神大蛇/宇宙意思','MUGEN角色（608氏制作），KOF大蛇改変，准神五柱之一；大蛇完全觉醒为宇宙级意志代行者，执行"无中归还"，光之雨全屏即死+三重黑洞+赛莱斯蒂亚尔星锁定即死，精神体不老不死'],
+['阿尔谢耶/ALSIEL（黑太阳）','MUGEN角色（ALSIEL氏制作），蛟改変，象征"黑太阳"；青黑大魔法（黑天蚀/深渊新星）+死之宣告当身即死+暗壁反弹一切远程，3rd形态亚斯塔禄战后全回复可无限再战'],
+    ['鹿目圆香（圆神）','魔法少女小圆，圆环之理概念存在，宇宙法则本身，一击消灭灭宇宙级魔女，无处不在无人感知，因果律操作'],
+    ['孙悟空（真悟空）','黑神话悟空，齐天大圣/斗战胜佛，灵明石猴，如意金箍棒一万三千五百斤，七十二变+筋斗云+火眼金睛+法天象地+身外身法，九大不死金刚不坏'],
+    ['吉尔伽美什·涅基德','Fate，冠位弓兵TRPG原创设定英雄王完全本气模式，开场拔EA+王之财宝常时展开+全知全能之星，慢心零，对界宝具Enuma Elish'],
+    ['不知火舞','KOF，不知火流女忍者，安迪未婚妻，大扇子+火焰忍术，花蝶扇/龙炎舞/必杀忍蜂，红白衣装高马尾，妖艳自信'],
+    ['莉娜·因巴斯','Slayers，自称美少女天才魔道士，橘发红瞳，龙破斩毁灭城市+重破斩灭世级禁忌魔法+神灭斩斩断万物，暴力贪财贫乳'],
+    ['约尔·福杰','间谍过家家，代号荆棘公主暗杀者，黑长直红瞳，金色针状短剑Stiletto两把，身体能力为黄昏的100比60，天然呆怪力'],
+    ['蒂法·洛克哈特','FF7，雪崩成员/第七天堂老板娘，海豚尾马尾红瞳，赞甘流格斗术，海豚爆裂拳+最终天堂奥义，怪力连续技'],
+    ['爱莉希雅','崩坏3，逐火十三英桀第二位/始源之律者，粉发蓝瞳粉瞳仁精灵耳，真我人之律者双形态弓箭远程加权杖近战，星海领域'],
+    ['八重神子','原神，鸣神大社宫司，五百岁仙狐，粉发狐耳紫瞳，杀生樱自动落雷+夜权现瞬移+天狐霆雷大范围爆发，腹黑狡黠'],
+    ['雷电将军（雷电影）','原神，稻妻雷神/尘世七执政，紫麻花辫右眼下痣，无想一刀斩落魔神劈开八酝岛，梦想真说凝聚众生梦想7秒太刀连击'],
+    ['斯卡哈','Fate，影之国女王，库丘林师父，半神灵化不死身，双枪Gae Bolg Alternative逆转因果必中+原初卢恩18种全开，弑神者'],
+    ['摩根·勒·菲','Fate，异闻带不列颠冬之女王，乐园妖精，水之伦权能+黑色圣枪伦戈米尼亚德，对国宝具无路可走的阿瓦隆']
+]
+};
+// ==================== FORM OPTIONS ====================
+const originOptions={
+'魔国联邦坦派斯特':['中央都市利姆鲁（首都）','西斯湖','维尔德拉封印洞窟','地下大迷宫','竞技场'],
+'武装国家多瓦贡':['中央（首都）','中央关口','深层矿坑'],
+'布鲁蒙德王国':['隆多（首都）','东部边境地带'],
+'法尔姆斯/法鲁梅纳斯':['马利斯（首都）','尼多尔·迈加姆边境伯领地'],
+'英格拉西亚王国':['卢拉（首都）','自由学园','西方评议会议事堂'],
+'鲁贝利欧斯神圣法皇国':['卢因（首都）','灵峰奥之院','夜想宫廷'],
+'希尔托罗佐王国':['席亚（首都）'],
+'乌鲁格雷西亚共和国':['哥路德（首都）'],
+'魔导王朝萨利昂':['艾尔敏·萨利昂（神树之都）','哥夏山脉'],
+'天翼国芙尔布洛西亚':['吉亚（空中都市）','山脉矿脉群'],
+'东方帝国':['帝都纳斯卡','帝国边境山脉','机甲军团基地'],
+'傀儡国吉斯塔夫':['阿姆利塔（地下遗迹都市）','克雷曼城'],
+'兽王国尤拉萨尼亚':['拉乌拉（首都）','白亚城'],
+'忘却的龙之都市':['龙之里','蜜莉姆神殿'],
+'圣墟达马尔加尼亚':['天通阁'],
+'冰土大陆':['白冰宫'],
+'黄金乡艾尔多拉德':['艾尔多拉德（首都）','中央火山'],
+'其他':['朱拉大森林深处','异世界（地球）','其他']
+};
+const raceOptions=['人类','史莱姆','哥布林/霍布哥布林','牙狼族/星狼族','大鬼族/鬼人族','蜥蜴人/龙人族','猪头族/猪人族','精灵族（艾尔夫/高等精灵）','暗黑精灵','矮人','半精灵','兽人·狼族','兽人·猫族','兽人·虎/狮族','兽人·兔族','兽人·其他','翼人/有翼族','巨人族','吸血鬼','恶魔/上位恶魔/原初恶魔','天使/始原天使','堕天族','虫魔族','妖精','树妖精','树人族','骸骨族/不死族','人工精灵','精灵生命体（上位精灵/精灵王）','龙种','龙魔人','龙族（飞龙/地龙/水龙等）','魔人形','金属生命体','人魔人','魔人','妖死族','幻兽族','天狗族（长鼻族）','水栖族/鱼人族','异世界人（转生/召唤）','其他'];
+const nationOptions=['魔国联邦坦派斯特','武装国家多瓦贡','布鲁蒙德王国','法鲁梅纳斯王国','英格拉西亚王国','鲁贝利欧斯神圣法皇国','希尔托罗佐王国','乌鲁格雷西亚共和国','魔导王朝萨利昂','天翼国芙尔布洛西亚','东方帝国','傀儡国吉斯塔夫','兽王国尤拉萨尼亚','忘却的龙之都市','圣墟达马尔加尼亚','冰土大陆（金领地）','黄金乡艾尔多拉德','朱拉大森林（无所属）','异世界（地球）','纳萨力克地下大坟墓','暗影庭园','异世界不好玩天团','无国籍/流浪者'];
+const classOptions={
+'王族/贵族':['皇帝/国王','王族','大贵族/公爵','中小贵族','边境伯/领主'],
+'军人/骑士':['圣骑士团','近卫骑士团','帝国军将校','帝国军士兵','骑士团员','准骑士'],
+'魔王/配下':['魔王','十二守护王级','魔王直属干部','一般配下'],
+'市民/中产':['宫廷官员/文官','大商人','魔法研究者','教会圣职者','富裕市民','自由组合职员'],
+'平民':['普通市民','工匠/农民','冒险者','女仆/管家','艺人/歌手'],
+'底层':['贫民/流浪者','孤儿','奴隶（旧吉斯塔夫）','被遗弃的召唤者'],
+'特殊':['龙种','原初恶魔/天使','精灵贵族','亚人部落长','无国籍']
+};
+const identityOptions={
+'魔王相关':['八星魔王','魔王配下·干部级','魔王配下·一般','前代魔王残余'],
+'骑士/战士':['圣骑士','神殿骑士','帝国近卫骑士','王国骑士','私人骑士','佣兵','剑士/浪人'],
+'魔法/研究':['大魔法使','魔法研究者','精灵使','召唤术师','治愈术师','锻造师'],
+'冒险者/民间':['S级冒险者','A级冒险者','B级冒险者','C级以下冒险者','大商人','工匠','教师'],
+'教会/圣职':['圣骑士团长','圣骑士团员','三武仙','十大圣人','法皇直属近卫师团','教会神官'],
+'帝国/军事':['帝国近卫Double O','帝国军团长','帝国情报局','帝国一般军人'],
+'特殊身份':['异世界转生者','异世界召唤者','不完全召唤儿童','勇者','龙种','普通人']
+};
+const factionOptions={
+'魔国联邦':['特恩佩斯特政府','十二守护王','迷宫管理','自由公会坦派斯特分部','商人公会'],
+'八星魔王势力':['金·克林姆兹（白冰宫）','蜜莉姆领','拉米莉丝（迷宫）','达格里尔（巨人族）','露米娜丝（教会）','迪诺','雷昂（黄金乡）','卡扎利姆/嘉加里'],
+'人类诸国':['英格拉西亚王国','法鲁梅纳斯王国','布鲁蒙德王国','希尔托罗佐王国','乌鲁格雷西亚共和国'],
+'教会/骑士':['西方圣教会','圣骑士团','法皇直属近卫师团','神殿骑士团','十大圣人'],
+'帝国':['东方帝国（皇帝派）','帝国近卫骑士团','帝国情报局'],
+'其他势力':['魔导王朝萨利昂','武装国家多瓦贡','西方评议会','自由组合本部','中庸道化连','罗佐一族'],
+'特殊类势力':['纳萨力克地下大坟墓','暗影庭园','异世界不好玩天团'],
+'独立/中立':['朱拉大森林散居','冒险者无门派','无所属']
+};
+const reasonOptions=['异世界转生','异世界召唤','不完全召唤（魔素过剩）','被高阶存在命名后进化','自行修炼觉醒独有技','魔王盛宴觉醒','收割灵魂觉醒为真魔王','被龙种赐予加护','与精灵/恶魔签订契约','家族血脉传承','纯粹被卷入事件','自由组合委托中遭遇','帝国军事任务'];
+// ==================== END OF PART 2 DATA SECTION 1 (chapters + characters + form options) ====================
+// PART 2 continues with ability data and talent pool in next message
+// ==================== ABILITY DATA ====================
+const abilityData=[
+{cat:'共通能力',items:[
+{n:'水刃',d:'将体内水分化为刀刃射出'},
+{n:'水压推进',d:'喷射高压水流获得推进力'},
+{n:'水流移动',d:'利用水流移动'},
+{n:'毒雾吐息',d:'吐出剧毒气息'},
+{n:'身体装甲',d:'外骨骼般硬质装甲覆盖身体'},
+{n:'麻痹吐息',d:'吐出麻痹毒素'}
+]},
+{cat:'特殊能力',items:[
+{n:'魔力感知',d:'感知附近魔力流动与强弱'},
+{n:'水操作',d:'自由操控水（水刃+水压推进+水流移动统合）'},
+{n:'贤者',d:'解析鉴定等辅助思考'},
+{n:'万能变化',d:'变身为已解析过的对象'},
+{n:'超速再生',d:'瞬间再生损伤'},
+{n:'音波感知',d:'超声波回声定位'},
+{n:'魔力操作',d:'操控自身魔力'},
+{n:'魔力妨害',d:'干扰魔力流动，减轻魔法伤害'},
+{n:'重力操作',d:'操控重力'},
+{n:'魔法斗气',d:'魔法与斗气融合缠绕武器'},
+{n:'空间移动',d:'计算坐标后瞬间转移'},
+{n:'圣魔反转',d:'圣与魔属性互换'},
+{n:'恐怖霸气',d:'释放恐惧霸气使对手无法动弹'},
+{n:'天球眼',d:'把握范围内所有坐标，无死角'},
+{n:'生命夺取',d:'吸收死者能量'},
+{n:'炎热操作',d:'操控火焰热量'},
+{n:'黑炎',d:'黑色高温火焰'},
+{n:'黑雷',d:'高威力黑色雷电'},
+{n:'分身体',d:'制造拥有部分能力的分身'},
+{n:'影移动',d:'潜入影子移动'},
+{n:'粘钢糸',d:'兼具粘着与锐利的丝线'},
+{n:'刚力',d:'增强肌肉力量'},
+{n:'身体强化',d:'全面强化身体能力'},
+{n:'观察眼',d:'捕捉魔素波动，看穿能力'},
+{n:'风操作',d:'操控风'},
+{n:'多重结界',d:'多层叠加防御结界'},
+{n:'超嗅觉',d:'极敏锐嗅觉追踪'},
+{n:'热源感知',d:'以热源定位物体'},
+{n:'外装同一化',d:'与装备一体化'},
+{n:'空间支配',d:'支配空间，转移及阻断转移'}
+]},
+{cat:'独有技能',items:[
+{n:'大贤者',d:'思考加速、并列演算、咏唱破弃、森罗万象、解析鉴定——转生时获得，以独立人格形式在脑内回答问题，自动解析吞噬对象',u:'利姆鲁'},
+{n:'捕食者',d:'捕食、解析鉴定、胃袋、隔离、拟态——吞噬万物并解析复制',u:'利姆鲁'},
+{n:'暴食者',d:'胃袋、拟态、隔离、腐蚀、受容、供给——吞噬越多越强，可向同伴分配力量',u:'利姆鲁'},
+{n:'饥饿者',d:'腐蚀、受容、供给——使全军化为饥饿怪物集体进化',u:'猪头帝→利姆鲁'},
+{n:'变质者',d:'统合、分离——对技能进行统合与分离',u:'静江→利姆鲁'},
+{n:'无心者',d:'收割丧失战意者的灵魂',u:'利姆鲁'},
+{n:'操演者',d:'以丝线操控他人精神肉体为傀儡',u:'克雷曼→利姆鲁'},
+{n:'数学者',d:'思考加速、预测演算、空间认识、并列演算——千倍速计算战况，完美预判全部攻击',u:'日向'},
+{n:'强欲者',d:'生杀予夺、能力收夺、精神支配——刺激并支配欲望，夺取能力和生命',u:'暮光→玛莉安贝尔→优树'},
+{n:'怠惰者',d:'怠惰、昏睡、能力减退、死灭——停止周围一切生命活动',u:'迪诺'},
+{n:'天邪鬼',d:'属性反转、圣魔融合、状态支配——恶魔身却获神圣之力',u:'贝雷塔'},
+{n:'暗杀者',d:'无音移动、存在隐蔽',u:'阿里欧斯'},
+{n:'色欲者',d:'司掌生与死，可吸收生命力和苏生',u:'露米娜丝'},
+{n:'傲慢者',d:'模仿并使用见过的对手技能',u:'金'},
+{n:'料理人',d:'确定结果、最适行动——概念级因果干涉，保证攻击命中、防御成功',u:'紫苑'},
+{n:'恶喰者',d:'吞噬敌人化为自身力量和肉体变异',u:'维加'},
+{n:'乐天家',d:'接受命令时全身体能力数倍上升，自主行动时能力较低',u:'缇娅'},
+{n:'不屈者',d:'绝境中持续战斗，后进化为希望之王',u:'格兰贝尔'},
+{n:'创造者',d:'可凭意愿创造全新技能',u:'优树'},
+{n:'见识者',d:'观察并看穿他人能力的本质和强弱',u:'艾斯普莉'},
+{n:'解读者',d:'读取对手思考和记忆',u:'近藤达也'},
+{n:'英雄霸道',d:'英雄霸气、英雄补正、英雄魅了、英雄行动——任何行动都被视为英雄行为，概念级运气和魅力',u:'正幸'},
+{n:'融合者',d:'与其他存在合体融合，获得对方能力',u:'路奇斯'},
+{n:'格斗家',d:'特化近身格斗，全面提升格斗能力',u:'雷蒙'},
+{n:'压制者',d:'以威压压制对手，使其无法发挥全力',u:'米娜扎'},
+{n:'掠夺者',d:'掠夺对手武器、装备甚至能力',u:'堪萨斯'},
+{n:'大元帅',d:'思念加速、思念支配、预测演算、军团鼓舞——特化军团指挥，可精确指挥数万大军',u:'红丸'},
+{n:'美食者',d:'捕食、腐蚀、胃袋、受容、供给——胃袋储存物资并与同伴共享',u:'盖鲁德'},
+{n:'守护者',d:'守护付与、铁壁、代役——代替同伴承受伤害',u:'盖鲁德'},
+{n:'绝对切断',d:'将空间连同对象两断，绝对无法防御，究极能力级威力',u:'库洛艾'},
+{n:'斗神化',d:'斗鬼化进化版，全能力大幅提升',u:'紫苑'},
+{n:'独裁者',d:'思考读破——一对一战斗中读取对手思考',u:'加泽尔'},
+{n:'记录者',d:'完美记录一切所见所闻',u:'希恩'},
+{n:'采集者',d:'特化采集收集素材',u:'摩斯'},
+{n:'投掷者',d:'可举起任何东西投掷',u:'马克'},
+{n:'观察者',d:'直觉回避、危险察知、陷阱察知、魔物感知、气息察知',u:'申龙星'},
+{n:'医疗师',d:'特化医疗回复',u:'谷村真治'},
+{n:'篡夺者',d:'篡夺他人地位或能力',u:'日向'},
+{n:'调子者',d:'命运变更、不测效果——强度随状态浮动，可一次扭转命运',u:'加维鲁'},
+{n:'创作者',d:'创造原创魔法',u:'朱菜'},
+{n:'隐密者',d:'思考加速、超加速、一击必杀、隐密——认识阻碍，可暗杀精神体',u:'苍影'},
+{n:'武艺者',d:'天空眼、思考加速、超加速、未来预测、秘传',u:'白老'},
+{n:'诱惑者',d:'支配他人生命和灵魂',u:'迪亚波罗'},
+{n:'大贤人',d:'思考加速、咏唱破弃、森罗万象、法则操作——迪亚波罗凭借自身才智发挥到极致',u:'迪亚波罗'},
+{n:'万能者',d:'万能型，攻防辅助皆可',u:'萨雷'},
+{n:'狙击者',d:'空间连结——子弹穿过空间命中远处目标',u:'格伦达'},
+{n:'钢铁体',d:'硬化身体至钢铁级',u:'格里高利'},
+{n:'压制者（空间型）',d:'思考加速、空间制御、空间移动——封锁敌人行动',u:'阿尔比丝'},
+{n:'魔狼召唤',d:'召唤岚牙并一体化',u:'哥布塔'},
+{n:'伪贤者',d:'天才直觉的具现，无意识中做出最优判断，模仿天赋极高',u:'哥布塔'},
+{n:'究明者',d:'特化求知解析，后进化为究明之王',u:'维尔德拉'},
+{n:'物真似师',d:'完全模仿他人外表声音动作',u:'维龙'},
+{n:'女王崇拜',d:'魔虫诞生、魔虫支配',u:'阿皮托'},
+{n:'双克者',d:'将受到的攻击原样反弹',u:'芙蕾'},
+{n:'百兽化',d:'兽王形态变身，全能力提升',u:'卡利翁'},
+{n:'旅行者',d:'特化移动旅行，后进化为地形之王',u:'迈·福尔基'},
+{n:'贪食再诞',d:'吞噬产出物无限再生',u:'米娜扎'},
+{n:'企划者',d:'策划组织特化，制定复杂计划',u:'卡扎利姆'},
+{n:'增幅者',d:'增幅自身或他人能力数倍',u:'福特曼'},
+{n:'时间旅行',d:'特定条件下强制返回特定时间点',u:'库洛艾/克罗诺亚'},
+{n:'统率者',d:'统率军队，可夺取眼前死亡同伴的技能',u:'佛尔根'},
+{n:'解析者',d:'思考加速、解析鉴定、咏唱破弃、森罗万象',u:'朱菜'},
+{n:'研究者',d:'万物解析、空间收纳、物质变换——锻造研究特化',u:'黑兵卫'},
+{n:'龙眼',d:'解析鉴定、魔力测定——看穿真实力量，不受幻术迷惑',u:'蜜莉姆'},
+{n:'龙耳',d:'地狱耳，可屏蔽不利内容',u:'蜜莉姆'},
+{n:'切断者',d:'空间属性斩击，切断空间',u:'橘恭弥'},
+{n:'狂言师',d:'以言语幻觉欺骗混乱对手',u:'水谷希星'},
+{n:'乱暴者',d:'武器破坏、金刚身体——杀人越多力量越强',u:'田口省吾'},
+{n:'生存者',d:'超速再生、各种属性无效、痛觉无效',u:'田口省吾'},
+{n:'欺诈师',d:'小刀变炸弹、假死等认知欺骗',u:'拉普拉斯'},
+{n:'未来视',d:'看见数秒后未来',u:'拉普拉斯'},
+{n:'螺旋体',d:'所有攻击附加螺旋刺突属性',u:'加维鲁'}
+]},
+{cat:'究极能力·天使系',items:[
+{n:'审判之王',d:'司掌审判，对"罪"者降下制裁，后被夏尔改造为审罚之王',u:'扎拉里奥'},
+{n:'救济之王',d:'司掌救济，拯救净化灵魂，对精神生命体有特效',u:'欧贝菈'},
+{n:'至天之王',d:'创造进化——促进万物创造与进化，后与怠惰之王统合为堕天之王',u:'迪诺'},
+{n:'严格之王',d:'神胜心罚——神圣制裁，后进化为严正之王',u:'皮可'},
+{n:'荣光之王',d:'司掌荣光，赋予荣耀与力量加成，后进化为荣煌之王',u:'伽拉夏'},
+{n:'支配之王',d:'正义之王支配能力的一部分，可支配对象精神行动',u:'卡扎利姆→嘉加里'},
+{n:'断罪之王',d:'消灭弹、咒坏弹、神灭弹、破界弹、解咒弹——帝国最强军人的制裁能力',u:'近藤达也'},
+{n:'刑罚之王',d:'断罪之王的暗杀特化版+存在隐蔽',u:'阿里欧斯'}
+]},
+{cat:'究极能力·美德系',items:[
+{n:'正义之王',d:'天使之军势（召唤数万天使大军）、王宫城塞（绝对防御）、天使长之支配（精神支配）、王权发动、究极付与——天使系最高位',u:'维鲁多拿巴→鲁德拉→费尔德维'},
+{n:'誓约之王',d:'无限牢狱、法则操作、万能结界、绝对防御、空间支配——被称为最强防御力，后进化为丰穣之王',u:'鲁德拉→利姆鲁'},
+{n:'希望之王',d:'空间支配、防御结界、思考加速、解析鉴定、并列演算、咏唱破弃、森罗万象、魂夺——管理生命根源与轮回之轮',u:'格兰贝尔→库洛艾'},
+{n:'智慧之王',d:'思考加速、解析鉴定、并列演算、咏唱破弃、森罗万象、统合、分离、能力改变、未来攻击预测——大贤者+变质者统合进化，后进化为神智核夏尔',u:'利姆鲁'},
+{n:'纯洁之王',d:'分选混合法则干涉防止，选别纯粹能量，特化速度与灵子操控，后进化为光辉之王',u:'雷昂'},
+{n:'忍耐之王',d:'固定、时间停止——状态固定防御特化，后与嫉妒之王统合为冰神之王',u:'维鲁莎多'},
+{n:'救恤之王',d:'并列存在——对他人支援增幅，后与誓约之王一部分统合为炎神之王',u:'维鲁格林德'}
+]},
+{cat:'究极能力·大罪系',items:[
+{n:'愤怒之王',d:'魔素增殖炉——愤怒无限转化为魔素，一旦暴走不可收拾',u:'蜜莉姆'},
+{n:'暴食之王',d:'捕食、胃袋、拟态、隔离、腐蚀、魂喰、食物链——吞噬魔法技能甚至灵魂，后统合进虚空之神',u:'利姆鲁'},
+{n:'傲慢之王',d:'模仿并使用任何见过的技能，后进化为深渊之神',u:'金'},
+{n:'怠惰之王',d:'永久睡眠——连精神生命体也无法抵抗，后与至天之王统合为堕天之王',u:'迪诺'},
+{n:'色欲之王',d:'生气吸收——特化生与死，可苏生，后进化为善光之王',u:'露米娜丝'},
+{n:'强欲之王',d:'权能夺取、吸命、操心、夺命——支配并夺取一切',u:'优树'},
+{n:'嫉妒之王',d:'降格吸收——弱化对手并吸收，后与忍耐之王统合为冰神之王',u:'维鲁莎多'}
+]},
+{cat:'究极能力·恶魔系',items:[
+{n:'死界之王',d:'思考加速、万能感知、魔王霸气、时空间操作、多次元结界、森罗万象、生命支配、死后世界——构筑并支配死后世界，封印敌人灵魂',u:'泰斯塔罗莎'},
+{n:'死毒之王',d:'思考加速、万能感知、魔王霸气、时空间操作、多次元结界、弱点看破、死毒生成、死灭世界——生成无法解毒的即死之毒',u:'乌尔蒂玛'},
+{n:'死灭之王',d:'思考加速、万能感知、魔王霸气、时空间操作、多次元结界、限界突破、次元破断——纯粹攻击力特化，斩断次元',u:'卡蕾拉'},
+{n:'诱惑之王',d:'思考加速、万能感知、魔王霸气、时空间支配、多次元结界、森罗万象、惩罚支配、魅了支配、诱惑世界——诱惑灵魂堕落',u:'迪亚波罗'},
+{n:'幻想之王',d:'思考加速、万能感知、魔王霸气、水雷支配、时空间操作、多次元结界、森罗万象、精神支配、幻想世界、生命支配——构筑幻想世界，在其中近乎无敌',u:'泽奇恩'},
+{n:'美食之王【究极赠与】',d:'思考加速、魔力感知、魔王霸气、空间操作、多重结界、超速再生、捕食、胃袋、隔离、腐蚀、铁壁、守护付与、代役、全身铠化——攻防补给一体',u:'盖鲁德'}
+]},
+{cat:'究极能力·其他',items:[
+{n:'数奇之王',d:'思考加速、万能感知、神圣霸气、时空间操作、多次元结界、森罗万象、演算领域、假想世界——预测演算超越智慧之王',u:'日向'},
+{n:'暴虐之王',d:'思考加速、万能感知、魔王霸气、确定结果、无限再生、行动改变、虚无相杀、幻想破坏、时空间操作、多次元结界',u:'紫苑'},
+{n:'阳炎之王',d:'思考加速、万能感知、魔王霸气、意思统率、光热支配、空间支配、多重结界',u:'红丸'},
+{n:'月影之王【究极赠与】',d:'思考加速、万能感知、月之瞳、一击必杀、超速行动、精神操作、并列存在、空间操作、多重结界',u:'苍影'},
+{n:'导之巫女',d:'创作者+解析者统合进化——解析鉴定',u:'朱菜'},
+{n:'星风之王',d:'思考加速、魔王霸气、音风支配、空间支配、天候支配、万能感知、多重结界',u:'岚牙'},
+{n:'混沌之王',d:'思考加速、解析鉴定、森罗万象、多次元结界、时空间操作、并列存在、真理之究明、确率操作',u:'维尔德拉'},
+{n:'虚空之神',d:'魂暴喰、虚无崩坏、虚数空间、多次元结界、时空间支配、龙种解放[暴风·灼热·白冰]、龙种核化[暴风·灼热·白冰·地帝]——暴食之王+灼热之王+智慧之王+暴风之王统合，灭世级',u:'利姆鲁'},
+{n:'丰穣之王',d:'能力创造、能力赠与、能力保存、能力复制——誓约之王进化版，培养部下的核心',u:'利姆鲁'},
+{n:'时空之神',d:'时间跳跃——时空之王+希望之王+正义之王统合',u:'库洛艾'},
+{n:'炎神之王',d:'思考加速、灼热励起、并列存在、时空间操作、次元跳跃、多次元结界',u:'维鲁格林德'},
+{n:'冰神之王',d:'时间停止、完全固定',u:'维鲁莎多'},
+{n:'深渊之神',d:'思考加速、万能感知、魔王霸气、魂暴喰、虚数空间、能力创造、能力复制、能力保存、时空间支配、多次元结界——傲慢之王进化版',u:'金'},
+{n:'堕天之王',d:'至天之王+怠惰之王统合——天使堕落为恶魔',u:'迪诺'},
+{n:'善光之王',d:'色欲之王进化版，圣魔生死极致操控',u:'露米娜丝'},
+{n:'光辉之王',d:'纯洁之王进化版，灵子干涉强化',u:'雷昂'},
+{n:'英雄之王',d:'英雄霸气、英雄补正、英雄魅了、英雄行动、英雄道导（引导他人成为英雄）',u:'正幸'},
+{n:'暴风之王',d:'龙种召唤（暴风龙）、龙种复原、龙种核化（暴风龙）、暴风系魔法',u:'利姆鲁'},
+{n:'灼热之王',d:'龙种召唤（灼热龙）、龙种复原、龙种核化（灼热龙）、灼热系魔法',u:'利姆鲁'},
+{n:'恶德之王',d:'思考加速、万能感知、解析鉴定、万物创造、能力复制、能力同期、时空间操作、多次元结界、永劫回归——由贪欲之王进化',u:'暮光·瓦伦丁'},
+{n:'邪龙之王',d:'超速思考、并列思考、解析鉴定、有机支配、复制量产、能力吸收、多重结界——操控有机物变异和量产',u:'维加'},
+{n:'机神之王',d:'思考加速、万能感知、魔王霸气、矿物支配、地属性操作、反转融合、空间操作、多重结界',u:'贝雷塔'},
+{n:'幻兽之王【究极赠与】',d:'思考加速、万能感知、多重结界、魔王霸气、空间支配、重力操作——操控九头幻兽',u:'九魔罗'},
+{n:'心理之王【究极赠与】',d:'命运改变、思考加速、不测操作、空间操作、多重结界',u:'加维鲁'},
+{n:'魔道之书·死灵魔导书【究极赠与】',d:'思考加速、万能感知、魔王霸气、咏唱破弃、解析鉴定、森罗万象、精神破坏、圣魔反转、死者支配',u:'亚达鲁曼'},
+{n:'魔道之书·大魔道书【究极赠与】',d:'思考加速、万能感知、魔王霸气、咏唱破弃、解析鉴定、森罗万象、精神破坏、知识阅览、概念共有',u:'加德拉'},
+{n:'女王崇拜【究极赠与】',d:'思考加速、魔力感知、超感觉、魔虫支配、军队指挥、超速行动、致死攻击、空间操作、多重结界',u:'阿皮托'},
+{n:'不老不死【究极赠与】',d:'思考加速、完全再生、隶属不灭',u:'阿尔伯特'},
+{n:'不朽不灭【究极赠与】',d:'思考加速、完全再生、隶属不灭',u:'温蒂'},
+{n:'雷霆之王',d:'电光石火——雷电般极速',u:'希尔维娅'},
+{n:'风天之王',d:'大气操作',u:'艾鲁梅西亚'},
+{n:'星界之王',d:'时空间跳跃——可跳跃过去未来',u:'迈·福尔基'}
+]},
+{cat:'源流能力',items:[
+{n:'情报之王',d:'全情报支配——把握并操作世界一切事象与技能情报，可模仿使用既有究极能力。阿卡西记录级全知全能，位于能力体系顶点',u:'优树→利姆鲁（推测）'}
+]},
+{cat:'固有能力',items:[
+{n:'无限再生',d:'再生速度超过虚无崩坏的崩溃速度（觉醒魔王获得）'},
+{n:'迷宫创造',d:'创造巨大地下迷宫（小世界），内部规则由其制定',u:'拉米莉丝'},
+{n:'斗鬼化',d:'鬼人族战斗变身',u:'紫苑'},
+{n:'兽魔支配',d:'支配九头兽魔',u:'九魔罗'},
+{n:'兽魔合一',d:'与兽魔一体化',u:'九魔罗'},
+{n:'吸收（史莱姆固有）',d:'体表吸收物质'},
+{n:'溶解（史莱姆固有）',d:'分泌溶解液'},
+{n:'自己再生（史莱姆固有）',d:'缓慢自我恢复'},
+{n:'黑稻妻（牙狼族固有）',d:'黑色雷电'},
+{n:'影移动（牙狼族固有）',d:'影间移动'},
+{n:'威压（牙狼族固有）',d:'威慑弱者'},
+{n:'超嗅觉（牙狼族固有）',d:'极敏锐嗅觉'},
+{n:'万能变化（龙种固有）',d:'自由变化形态'},
+{n:'龙灵霸气（龙种固有）',d:'魔王霸气上位互换'}
+]},
+{cat:'元素魔法',items:[
+{n:'水冰大魔枪',d:'发射巨大冰枪'},{n:'水冰大魔散弹',d:'散射多支冰枪'},{n:'水冰极细针',d:'极细冰针'},{n:'水冰魔枪雨',d:'冰枪雨'},{n:'冰结地狱',d:'大范围冰冻'},{n:'火炎球',d:'基础火球'},{n:'火炎大魔球',d:'大火球'},{n:'火炎大魔壁',d:'火焰墙壁'},{n:'火炎大魔枪',d:'火焰长枪'},{n:'火炎大魔岚',d:'火焰风暴'},{n:'热流炎霸',d:'超高等爆炎'},{n:'水流牢狱',d:'水球困住敌人'},{n:'侵蚀魔酸弹',d:'强酸弹'},{n:'泥手',d:'泥之手束缚'},{n:'地面固定',d:'固定地面'},{n:'土石大魔弹',d:'巨大石弹'},{n:'风切大魔斩',d:'风刃斩击'},{n:'龙卷大魔刃',d:'龙卷风刃'},{n:'风之防护幕',d:'风之屏障'},{n:'空魔大魔炮',d:'压缩空气炮'},{n:'一发雷',d:'基础雷击'},{n:'雷击大魔雨',d:'雷雨'},{n:'据点移动',d:'据点间传送'},{n:'广范围照明',d:'大范围照明'}
+]},
+{cat:'精灵魔法',items:[
+{n:'炎化爆狱阵',d:'炎之爆狱阵'},{n:'极炎狱灵霸',d:'极炎灵霸'},{n:'大气压缩断裂',d:'真空刃'},{n:'蔓棘束缚',d:'藤蔓束缚'}
+]},
+{cat:'神圣魔法',items:[
+{n:'灵子崩坏',d:'分解灵子的最强攻击'},{n:'三重灵子崩坏',d:'三重版'},{n:'圣净化结界',d:'对魔物特攻结界'},{n:'四方印封魔结界',d:'封锁魔法技能'},{n:'体力回复',d:'基础回复'},{n:'上位回复',d:'上位回复'},{n:'伤病治愈',d:'治愈伤病'},{n:'部位再生',d:'部位再生'},{n:'死者苏生',d:'复活死者'},{n:'灵子圣炮',d:'圣光炮击'},{n:'灵子闪光波',d:'大范围圣光'},{n:'圣三位灵崩阵',d:'三位一体灵崩阵'},{n:'圣之福音',d:'圣钟之音使亡者成佛'},{n:'圣域型极大灵子崩坏',d:'超大规模灵子崩坏'},{n:'圣域型极大死者苏生',d:'大规模苏生'},{n:'广范围化上位回复',d:'大范围回复'},{n:'广范围化部位再生',d:'大范围再生'}
+]},
+{cat:'召唤·幻影·核击·其他魔法',items:[
+{n:'恶魔召唤',d:'召唤恶魔'},{n:'上位恶魔召唤',d:'召唤上位恶魔'},{n:'精灵召唤',d:'召唤精灵'},{n:'上位精灵召唤',d:'召唤上位精灵'},{n:'幻影镜像',d:'幻影分身'},{n:'精神破坏',d:'精神攻击'},{n:'幻炎之防壁',d:'幻炎壁'},{n:'深渊之诱',d:'催眠'},{n:'昏睡之香',d:'昏睡'},{n:'不可视化',d:'隐身'},{n:'解析魔法',d:'解析'},{n:'地图作成',d:'自动绘图'},{n:'想象念写',d:'想象投射影像'},{n:'想象共有',d:'共享视觉'},{n:'热收束炮',d:'超高热射线（核击魔法）'},{n:'重力崩坏',d:'压缩黑炎核引发黑洞（核击魔法）'},{n:'破灭之炎',d:'黑炎核膨胀范围毁灭（核击魔法）'},{n:'死之祝福',d:'握碎黑炎核使魔素侵蚀（核击魔法）'},{n:'终末崩缩消灭波',d:'终末级消灭波（核击魔法）'},{n:'燃烧吧原初之炎',d:'停止世界中也可发动（原初魔法）'},{n:'咒怨束缚',d:'诅咒束缚（死灵魔法）'},{n:'死灵苏生',d:'操纵死尸（死灵魔法）'},{n:'神之怒',d:'聚焦阳光大范围狙击（物理魔法）'},{n:'神之瞳',d:'广范围监视（物理魔法）'},{n:'虚无消失狱',d:'虚无消灭（暗黑魔法）'},{n:'虚喰无限狱',d:'无限吞噬（暗黑魔法）'},{n:'绝牙虚无饱喰',d:'虚无饱食（暗黑魔法）'},{n:'魂灭之死呼风',d:'触者即死的风（暴风系）'},{n:'黑之稻妻',d:'黑色雷电（暴风系）'},{n:'黑之破灭岚',d:'黑色破灭风暴（暴风系）'},{n:'收束暴风攻击',d:'收束暴风炮击（暴风系）'},{n:'龙星爆炎霸',d:'龙星爆炎最大输出（星粒子·仅蜜莉姆）',u:'蜜莉姆'},{n:'龙星扩散霸',d:'龙星扩散范围版（星粒子·仅蜜莉姆）',u:'蜜莉姆'},{n:'脱离魔法',d:'紧急脱离'},{n:'净化魔法',d:'净化'},{n:'创造魔法',d:'创造物品'},{n:'反魂之秘术',d:'反魂——利姆鲁复活紫苑等人的关键术式'},{n:'授魂之秘术',d:'授魂'},{n:'大规模苏生术式',d:'大苏生'},{n:'大秘术凭依转生',d:'夺取死者肉体'},{n:'神秘奥义轮回转生',d:'灵魂转生'},{n:'白闪灭炎霸',d:'神圣火焰'},{n:'白之清净世界',d:'净化世界'},{n:'灼热吐息',d:'灼热吐息'},{n:'灼热红熔岩',d:'灼热熔岩'}
+]},
+{cat:'技法（气斗法·必杀技）',items:[
+{n:'气斗法',d:'魔素炼为斗气强化身体武器'},{n:'气操法',d:'操控斗气强化攻击'},{n:'金刚法',d:'肉体硬化'},{n:'瞬动法',d:'瞬移级高速移动'},{n:'隐形法',d:'消除气息遮蔽认识'},{n:'飞空法',d:'飞行'},{n:'飞翔走',d:'高速空中移动'},{n:'鬼神法',d:'气斗法高阶'},{n:'鬼王妖炎',d:'高温黑炎烧尽一切',u:'红丸'},{n:'龙魔刚爆霸',d:'龙魔斗气爆裂',u:'米德雷'},{n:'疾风魔狼演舞',d:'哥布塔&岚牙连携乱舞',u:'哥布塔'},{n:'对死者的镇魂歌',d:'使亡者安息',u:'露米娜丝'},{n:'破军激震烈冲',d:'破军冲击',u:'格拉尼特'},{n:'胧黑炎百花缭乱',d:'胧黑炎连斩',u:'红丸'},{n:'火焰虚喰拳',d:'火焰吞噬拳',u:'贾希尔'},{n:'终末世界镇魂歌',d:'迪亚波罗终极技',u:'迪亚波罗'},{n:'鬼刀炮',d:'过剩斗气缠剑击出',u:'紫苑'},{n:'断头鬼刃',d:'妖气固定为巨大刃',u:'紫苑'},{n:'操糸妖缚阵',d:'粘钢糸束缚',u:'苍影'},{n:'红蛇死毒手',d:'必杀毒爪',u:'乌尔蒂玛'},{n:'圣霸崩拳',d:'神圣斗气崩拳',u:'达姆拉德'},{n:'真气斗法',d:'纯粹剑术极致',u:'阿盖拉'}
+]},
+{cat:'武装/装备',items:[
+{n:'创世级·世界',d:'攻防一体，可隔绝遮断一切影响（包括嫉妒之王的精神灵魂干涉），存在值约4000万以上',u:'金'},
+{n:'创世级·天魔',d:'极高耐久性和能量传导率，是少数能承受蜜莉姆魔素增殖炉无限输出的武器，破坏力足以碎星',u:'蜜莉姆'},
+{n:'创世级·繁栄',d:'支援系，原为杖，到红丸手中变为太刀，经利姆鲁供给虚无之力后总能量推定接近1亿',u:'拉米莉丝→红丸'},
+{n:'创世级·虚空',d:'空间切割、将对象归于虚无，存在值轻松超过1000万',u:'费尔德维'},
+{n:'创世级·法則',d:'干涉一切法则，补强魔法和技能效果，武器单体存在值2000万以上',u:'暮光→露米娜丝'},
+{n:'创世级·地神',d:'防御贯通、绝对切断，物理破坏力特化，可震碎大地',u:'鲁德拉→正幸'},
+{n:'创世级·記憶',d:'记录三千世界一切情报，包括露西娅的记忆和灵魂碎片，存在值仅武器就达数千万',u:'维鲁多拿巴'},
+{n:'创世级·慈愛',d:'白银细剑，推测为回复/防御系',u:'露西娅'},
+{n:'创世级·希望',d:'巨大宽刃大剑，刀身可嵌入龙种核心，利姆鲁同时嵌入4体龙种核心，奥义可消灭数个宇宙',u:'利姆鲁'},
+{n:'神话级·魔（利姆鲁之剑）',d:'可与虚无崩坏组合'},
+{n:'传说级·朱红丸',d:'红丸太刀'},
+{n:'传说级·大太刀',d:'紫苑大太刀'},
+{n:'崩牙',d:'迪诺让渡给泽奇恩的武器，后成为泽奇恩身体一部分',u:'泽奇恩'},
+{n:'黄金剑/闇银剑',d:'迪诺双剑，以星之核锻造，材质匹敌创世级',u:'迪诺'},
+{n:'魔宝装身具',d:'可完全再现装备的分身生成饰品'}
+]},
+{cat:'加护/祝福',items:[
+{n:'暴风龙维尔德拉的加护',d:'魔素强化、岚属性付与、对龙种抗性、身体能力提升、苏生补正'},
+{n:'魔王利姆鲁的加护',d:'全状态大幅强化、状态异常完全耐性、魔王种能力提升、苏生·转送特权、与智慧之王链接'},
+{n:'夜魔女王露米娜丝的加护',d:'夜间能力大幅上升、吸血鬼系强化、圣属性耐性、魔素回复速度上升、不死性强化'},
+{n:'白冰龙维鲁莎多的加护',d:'冰雪属性强化、冷气耐性'},
+{n:'灼热龙维鲁格林德的加护',d:'火焰属性强化、身体能力上升'},
+{n:'星王龙维鲁多拿巴的加护',d:'万能补正、限定命运操作'},
+{n:'原初之加护',d:'恶魔系统强化、召唤权限'},
+{n:'勇者的加护',d:'魔王特攻、圣属性强化、苏生'},
+{n:'东之帝国·神圣纹章',d:'身份强化、装备补正'},
+{n:'暴风之纹章',d:'利姆鲁与维尔德拉互命名时获得'},
+{n:'友爱的恩宠',d:'利姆鲁最终形态的庇护称号'}
+]},
+{cat:'耐性/抗性',items:[
+{n:'痛觉无效',d:'完全感觉不到疼痛'},{n:'物理攻击无效',d:'物理攻击全部无效'},{n:'自然影响无效',d:'寒暑风雨无效'},{n:'状态异常无效',d:'毒麻痹等全部无效'},{n:'精神攻击耐性',d:'减轻精神攻击'},{n:'圣魔攻击耐性',d:'减轻圣/魔属性'},{n:'热变动耐性',d:'耐热+耐寒'},{n:'刺突耐性',d:'减轻刺突'},{n:'电流耐性',d:'减轻电击'},{n:'麻痹耐性',d:'减轻麻痹'},{n:'圣魔无效',d:'圣/魔双属性全部无效'},{n:'魔素封锁',d:'停止魔素流动封印技能'},{n:'各种属性无效',d:'火水风土雷等无效'},{n:'消灭耐性',d:'对消灭级攻击的耐性'},{n:'精神·魂攻击耐性',d:'对精神灵魂攻击的抗性'}
+]}
+];
+// ==================== TALENT POOL ====================
+const talentPool={
+mythic:[
+{name:'替身「世界（The World）」',desc:'DIO所持有的近距离力量型人型替身，射程10米，战吼「無駄無駄無駄無駄！！！」，发动咏唱「砸瓦鲁多！！！」',effect:'核心能力为全域时间停止，静止时空中仅DIO可自由行动；初觉醒仅停一瞬，随颈部伤口愈合逐步延长，最终战达5秒，吸收乔瑟夫血液后延长至9秒；发动时触发专属JOJO画风突变——面部棱角锋利、嘴唇厚立体、睫毛浓密、肌肉血管夸张强化、发型突破物理呈锐角立体，周身漂浮ゴゴゴ/ドドド拟声字符，女性躯体亦转为刚硬肌肉几何形态；能力解除后画风维持3分钟，期间肉体获究极强化'},
+{name:'暗影君王',desc:'出自《我独自升级》，是九大君王中执掌死亡与暗影的顶级权能，觉醒后瞳孔转为暗紫色，周身常绕黑色暗影雾气，是作品设定里的天花板级能力之一',effect:'核心能力为暗影提取，可从被自身击杀的目标尸体上提取暗影，转化为绝对忠诚的暗影士兵，士兵保留生前全部能力且不会背叛，被打散后可在影子中重新凝聚；可将所有暗影储存在自身影子里随时召唤，展开君王领域时领域内所有暗影士兵全属性提升50%；衍生能力包括影步（在任意影子间瞬移）、暗影互换（和己方暗影士兵交换位置）、暗影潜行（融入他人影子完全隐蔽）；存在使用限制：无法提取实力远超自身的目标暗影，目标死亡超过1小时提取失败，同时维持的暗影士兵数量受自身魔力上限约束，君王领域最多维持10分钟，暗影互换冷却3小时，强光环境下暗影能力整体削弱30%'},
+{name:'万花筒写轮眼',desc:'宇智波一族顶级血继限界，需经历至亲羁绊断裂的强烈负面情绪刺激开眼，瞳孔呈独特万花筒状花纹，不同开眼者花纹与专属能力存在差异，基础能力远凌驾于三勾玉写轮眼之上',effect:'共通能力包含极致动态洞察、可复制非血继限界的忍术体术、操控五感的顶级视觉幻术；双眼齐开可召唤实体化查克拉战神须佐能乎，根据开眼者不同附带专属瞳术（不灭火焰天照、精神空间月读、时空间神威等）；每次使用都会不可逆损伤视力，频繁催动会逐步失明直至彻底失去光芒，仅移植直系血亲万花筒进化为永恒万花筒可消除失明诅咒，非宇智波血脉使用者查克拉消耗翻倍'},
+{name:'王之财宝',desc:'英雄王吉尔伽美什的标志性宝具，连通黄金之都的钥匙之剑，金色门扉后收纳着世间一切珍宝的原典，是人类智慧与财富的终极象征，彰显着最古之王"收集天下所有宝物"的绝对王权',effect:'等级E~A++，本质是"人类智慧的原典"本身，连通空间可自由取出宝库中收藏的所有宝具原型与人类发明雏形；能将无数宝具如子弹般高速射出，魔力效率极高且可针对任何从者弱点攻击，射出的宝具会自动回收；内藏天之锁、维摩那、众神之盾等数不清的神造兵装与奇珍异宝，除了全新概念造物与外星文明产物外几乎无所不包，收藏的财宝越多威力便越强'},
+{name:'处女座黄金圣衣',desc:'拥有处女座黄金圣衣与沙加之力，佛陀转世、最接近神的男人的黄金圣斗士传承，身披处女座黄金圣衣，天生能与神佛对话，七岁参悟生死，圣域唯一不靠女神之血、纯以自力觉醒第八感阿赖耶识的圣斗士',effect:'小宇宙修炼：燃烧体内宇宙大爆炸之力，第七感达光速境界拳速每秒一亿拳，第八感阿赖耶识超越生死、自由穿梭任意空间与冥界；天魔降伏：掌心燃烧小宇宙轰然爆发金色光柱，可远程轰击，威力足以轰塌半座宫殿；六道轮回：将对手灵魂强行放逐至地狱、饿鬼、畜生、修罗、人间、天道六界之一，亲受无尽折磨直至精神崩溃；天舞宝轮：睁眼解放的最大奥义，展开无数曼荼罗构成攻防一体战阵，入阵者不能攻击也无法逃离，被依次剥夺视觉、听觉、嗅觉、味觉、触觉直至第六感；天空霸邪·魑魅魍魉：召唤魑魅魍魉恶灵群扑噬敌人；不动明王：合拢的穹顶防御壁，连一丝小宇宙都不泄露，绝对防御；唵：以梵音真言释放小宇宙冲击波；闭目蓄能：平时闭眼封闭视觉以积蓄小宇宙，睁眼之时全力解放，力量暴涨'},
+{name:'最终兵器·阿波罗',desc:'战略型万能天使伊卡洛斯的最终兵器，以太阳神之名命名的黑色大弓，从虚空中召唤显现，弓身漆黑，箭身上萦绕着紫黑色的火焰，拉弓时能量汇聚成毁灭之光',effect:'阿波罗：拉开漆黑大弓，凝聚紫黑色火焰的超高能光箭射出，命中后引发范围极其巨大的爆炸，一击足以毁灭一个国家，远古时代曾一箭击毁巴比伦塔'},
+{name:'无限剑制',desc:'卫宫所持有的固有结界，咏唱咒文后将现实改写为插满无数无主宝剑的红色荒野，地平线跃动火焰、天空中巨大齿轮回转，犹如炼铁厂般的心象世界，结界内储存上千把宝具，可自由取出并如箭矢般同时射出轰击。咏唱："I am the bone of my sword.（此身为剑所成）Steel is my body, and fire is my blood.（钢铁为身，火焰为血）I have created over a thousand blades.（手制之剑已达千余）Unknown to Death, nor known to Life.（不为死所知，亦不为生所知）Have withstood pain to create many weapons.（曾承受痛苦创造诸多武器）Yet, those hands will never hold anything.（然而，手中已空无一物）So as I pray, Unlimited Blade Works.（故如我祈求，无限剑制）"'},
+{name:'投影魔术',desc:'卫宫的专属魔术，只要目视过一次的武器即可解析构造并完美复制，复制品比原版下降一个等级，连宝具持有者的武技与记忆也一并读取，防具亦可投影但消耗数倍魔力，复制过的武器会登录于无限剑制中随时取用',effect:'干将·莫邪：阴阳一对的黑白夫妻双剑，近身战爱用武具，可强化延伸为超长剑Overedge，双剑齐装提升对物理与魔术防御；鹤翼三连：投影三对雌雄剑从前后方同时夹击的三段连击；伪·螺旋剑CaladbolgⅡ：改造凯尔特魔剑为箭矢射出，幻想崩坏引爆后威力足以轰平三座山丘；赤原猎犬Hrunting：只要射手存活便永不停止追击的追尾魔箭，被击落也会反复袭击；炽天覆七重圆环Rho Aias：七片花瓣状结界盾，每片匹敌古代城墙，对投掷兵器拥有绝对防御力；幻想崩坏Broken Phantasm：将投影宝具当箭射出并引爆其全部魔力，用完即弃的高威力轰炸'},
+{name:'两面宿傩之力',desc:'拥有千年前诅咒之王两面宿傩的全部术式，四手两面的鬼神，天生双胞胎融合的异形身体，天上天下唯我独尊，拥有全作最顶尖的咒力量与战斗天赋，看一眼就能学会对手招式',effect:'御厨子·解：看不见的连打斩击，对生物与非生物均有极大杀伤；御厨子·捌：自动解析目标咒力与强度，调节至一刀必杀的斩击；捌·蜘蛛之网：接触地面将捌扩散，一击粉碎整片大地；世界斩断之斩击：将"解"的对象扩展至空间与存在本身，连空间一起斩断，无视一切防御，咏唱"龙鳞""反发""成双之流星"后以掌指定方向发动；竈·開（万死之炎）：以解与捌为前置工序，双手凝炎化为火弓射出，一击秒杀漏瑚与魔虚罗，亦可令领域内粉尘附爆形成温压轰炸；伏魔御厨子：不封闭结界的开放式领域，半径200米必中，对无咒力者施解、有咒力者施捌，无止境斩击至粉碎，效果可延伸至他人领域外侧；领域展延：体表薄膜中和敌方必中与术式；弥虚葛笼：简易领域原型，抵消领域必中；反转术式：正向咒力治愈肉体，亦可治人；十种影法术：夺舍伏黑后可召唤魔虚罗等式神并利用其适应能力习得新招；黑闪：咒力打击伴空间扭曲，威力成倍暴涨'},
+{name:'至尊法师之力',desc:'拥有古一法师的全部能力，卡玛泰姬至尊法师的秘术传承，从宇宙环境能量、异维度存在与自身精神中汲取魔力，精通白魔法与黑暗维度之力，自带阿戈摩托之眼（时间宝石）',effect:'维度能量操控：汲取异维度魔神与宇宙秘能，投射、转化、塑形魔法能量；镜像维度：将空间折叠重组为镜面迷宫，城市翻转扭曲，可在其中战斗而不波及现实，亦能囚禁敌人；塞拉芬之盾/陶形曼陀罗：展开多层魔法法阵护盾，可挡物理与能量攻击；次元传送：以悬戒开启传送门，跨空间甚至跨维度瞬移；星体投射：灵魂出窍化为无形灵体，不可触碰、无需呼吸进食，可攻击他人灵魂；幻象与催眠：制造逼真幻术、催眠控心，范围覆盖全球；浮空飞行与念动力：凌空悬浮、隔空驭物；能量鞭刃：将秘能塑成鞭、刃等武器近战；黑暗维度汲取：抽取多玛姆黑暗维度之力延寿并获得近乎无限的魔力；时间宝石·阿戈摩托之眼：操控时间流向，可令目标倒流或快进、制造无限时间循环、窥见未来的无数种可能'},
+{name:'天元突破·红莲螺岩',desc:'拥有西蒙的螺旋力与红莲螺岩，螺旋力是由意志与进化产生的无限能量，信念越强力量越大，可无中生有创造物质；以金色核心钻头启动颜面螺岩，能钻透并同化夺取任何机体，随螺旋力燃烧不断进化变大',effect:'螺旋力：意志产生的无限能量，可无中生有、自我修复、展开力场、吸收伤害并指数级适应进化；核心钻头：金色钥匙，启动螺岩并增幅螺旋力；螺岩同化：钻头钻入任何机体即可夺取控制权并强制合体，从敌机到战舰乃至月球皆可夺取；Giga Drill Break：凝聚螺旋力化为巨型钻头贯穿一切的必杀技，随信念无限变大；红莲螺岩→方舟红莲螺岩→超银河红莲螺岩→天元突破红莲螺岩→超天元突破红莲螺岩：从十米机器人一路进化到超越宇宙的终极机体，最终形态以无限螺旋力凝聚，钻头比可观测宇宙还大，可攻击过去现在未来、篡改概率、粉碎多维现实'},
+{name:'无限手套',desc:'召唤集齐六颗无限宝石的无限手套，金色金属手套上镶嵌着空间、心灵、现实、力量、时间、灵魂六颗宝石，握拳响指即可将六宝石之力合一，拥有改写整个宇宙现实的全能之力',effect:'空间宝石（蓝）：操控空间，任意传送自身与物体、开启虫洞、扭曲空间距离，辅以力量宝石可近乎全在；心灵宝石（黄）：操控心智、读心洗脑、精神幻术，大幅提升智力与精神力，甚至赋予生命；现实宝石（红）：凭意志改写现实法则，将想象化为真实、物质随意转化，可将武器变为泡泡或分解一切；力量宝石（紫）：操控并释放毁天灭地的宇宙能量，徒手碎星、力量倍增，并增幅其余五颗宝石的威力；时间宝石（绿）：操控时间流向，倒流、快进、静止或循环时间，自由穿越过去未来，窥见一切可能；灵魂宝石（橙）：操控灵魂与生死，可抽取、封印灵魂，内含灵魂世界口袋维度；六石合一·响指：握拳打响指将六宝石之力同时释放，可凭一个念头抹除或复活宇宙中半数生命，乃至随心所欲重塑整个宇宙的现实'},
+{name:'八岐血裔·神纹解放',desc:'身具八岐大蛇本源血统，常态下双臂环刻深色蛇形咒纹臂环、胸口镌有深蓝八岐放射纹印，肌肤隐伏淡蛇鳞暗纹，发色与瞳孔与常人无异；全力释放血脉之力时发色尽数转为银白，赤红蛇形竖瞳彻底显现，周身咒纹灼亮浮起，恒常萦绕淡紫虚无粒子浮空，外泄神气场令凡俗物质近身自崩',effect:'血脉解放后解锁湮灭黑粒子、空间折跃、掏魂夺魄、地脉灵柱、虚无屏障、意念操控、天灾引动全套核心权能，三大终结奥义可发动覆面光能打击、展开虚无领域、引动灭世级生态重置冲击；单日仅可稳定维持解放状态30分钟'},
+{name:'电击使·超电磁炮',desc:'Lv5等级电击使能力，可自由操纵十亿伏特高压电流与电磁波，核心杀招为以金属硬币为弹丸借电磁力加速至3倍音速发射的超电磁炮，命中附带高温熔化与冲击波，衍生可操控铁砂成剑、释放雷击、干涉电子设备、展开电磁屏障、踏空高速移动',effect:'常规硬币炮射速每分钟8发，单发可击穿2米厚钢板，全力输出可召唤落雷级范围雷击、释放10米范围电磁脉冲瘫痪电子设备'},
+{name:'五条悟咒术体系',desc:'现代最强咒术师五条悟的完整能力集合，以天生六眼为核心，覆盖防御、攻击、治疗、领域全维度',effect:'①无下限咒术（被动防御）：将「阿基里斯与乌龟」悖论具象化，接近本体之物速度无限衰减永不可触，配合反转术式可自动全时防护；②术式顺转「苍」制造吸引力（小型黑洞）兼具空间压缩瞬移，反转「赫」释放两倍威力的排斥力，虚式「茈」以假想质量切割空间为顶级破坏技；③领域展开「无量空处」向目标大脑灌注无限无效信息使其过载失能，仅触碰本体者免疫；④天赋「六眼」360度感知咒力、使自身咒力消耗趋近于零；⑤反转术式生成正能量治疗，濒死激发后自动运转为无下限永久供能'},
+{name:'镜花水月斩魄刀',desc:'蓝染惣右介的佩刀，幻觉系最强斩魄刀，拥有实体，始解语「碎裂吧，镜花水月」',effect:'核心能力为「完全催眠」：目标只要亲眼目睹过一次始解瞬间，即永久成为催眠对象，此后无论距离多远，蓝染再次解放即可远程激活；可完全支配目标视听嗅味触五感，并欺骗灵压与精神探测，既能无中生有制造幻象，也能将任意物体/人员伪装成他物；被催眠者对幻象绝对信任，即使现实与认知严重矛盾也会自动合理化，无法凭理性挣脱'},
+{name:'圆环之理·鹿目圆',desc:'召唤成神后的鹿目圆，粉色双马尾化为无限长发、纯白羽翼展开、裙下是无尽星空，她以"在所有魔女诞生之前将她们消灭"的愿望重组了宇宙法则，自身升格为横跨一切时空的概念存在——圆环之理',effect:'圆环之理：宇宙级法则，在过去、现在、未来所有时间线中，于魔法少女魔女化前夕现身净化其灵魂宝石并引导安息，亲手抹杀一切魔女；时空穿梭：存在于一切宇宙、一切时间轴中，可任意现身于任何时空；概念化存在：无所不在、无形无体，普通人无法感知或记忆其存在；雕花长弓：自由创造能量箭矢，可散射连射，成神后一箭可贯穿宇宙、抹除魔女存在的因果；宇宙重构：以愿望改写宇宙法则，消灭旧世界、诞生新世界；全知视角：能看见所有时间轴与可能性的因果；救赎之光：怀抱希望的粉色光芒，净化一切绝望与诅咒'},
+{name:'不知火舞',desc:'召唤不知火流女忍者不知火舞，栗色长发配红色忍者服，手持折扇、烈焰缠身，性感奔放的不知火流忍术传人，将火焰、扇子与体术融为一体的快攻型格斗家',effect:'花蝶扇：投掷折扇的飞行道具，可连续投出三把；龙炎舞：旋身以火焰之手挥出烈焰旋风，近身攻防一体；必杀忍蜂：侧身旋转突进，以肘部裹火焰撞击敌人；超必杀忍蜂：必杀忍蜂的强化版，全身缠炎高速突进肘击；飞鼯之舞：空中滑翔飞扑；白鹭之舞：升龙拳式的火焰上击；小夜千鸟：突进掌击；不知火流体术：忍者体术配合火焰攻击，三角跳、空中投技梦樱、红鹤之舞等招式变化多端'},
+{name:'天才魔导士·莉娜·因巴斯',desc:'召唤秀逗魔导士莉娜·因巴斯，红发娇小、贪财毒舌的天才魔导士，盗贼杀手，精通黑魔法与精灵魔法，能借用赤眼魔王甚至金色魔王之力，龙破斩一响敌人闻风丧胆',effect:'龙破斩（Drag Slave）：A级黑魔法，借赤眼魔王沙布拉尼古德之力，吟唱后释放毁灭一切的暗黑奔流，可轰平一座城市；重破斩（Giga Slave）：S级最强魔法，借金色魔王（Lord of Nightmares）之力，完全版可毁灭整个世界，威力凌驾于魔王之上；神灭斩（Ragna Blade）：凝聚恶梦之王碎片化为黑色虚无光刃，可斩断几乎一切物质与空间，甚至跨维度；魔王剑：浓缩魔力化为红色魔力之剑，威力匹敌光之剑；精灵魔法：火炎球、雷击、炎之矢、翔空术等各属性魔法自由操控'},
+{name:'真我·人之律者·爱莉希雅',desc:'召唤逐火十三英桀第二位、真我之律者爱莉希雅，粉色长发如飞花、尖耳如精灵，自称粉色妖精小姐，天生的律者、始源之律者，因深爱人类而主动牺牲，如飞花般绚丽无瑕的少女',effect:'往世的飞花：水晶长弓，射出附带水晶花瓣的箭矢，魔法射击华丽优雅；无瑕花种/花簇：以水晶花种标记敌人，层层绽放为无瑕花簇；真我开绽：武器技命中花簇敌人触发绽放，造成大范围冰冻伤害，始源之律者形态下威力倍增；真我·人之律者：切换为律者形态，操控冰雪与水晶，冻结时空，期间技能与倒计时停止；始源之律者：解放真我的始源形态，冰伤输出达到巅峰，水晶百花齐放；因你而在的故事：以人之律者权能改写现实，为人类献上祝福'},
+{name:'狐之宫司·八重神子',desc:'召唤鸣神大社宫司八重神子，稻妻雷神眷属、狐斋宫继承者，粉发狐耳、艳媚狡黠的九尾狐，表面是轻浮的小说编辑，实则是活了五百年的大妖，以雷霆与狐灵戏弄敌人',effect:'狐灵食罪式：驱役狐灵进行三段雷元素攻击，重击咏唱后造成范围落雷；野干役咒·杀生樱：迅速瞬移并留下一株杀生樱，间歇对周围敌人降下落雷，最多三株同时存在，彼此靠近提升位阶至肆阶，伤害递增；大密法·天狐显真：凭依杀生樱化作天狐霆雷降下，每株杀生樱降下一道雷柱，造成大范围雷元素爆发；天狐之凭：稻妻民话中的狐凭，以雷霆形式降临于敌人身上'},
+{name:'雷电将军·雷电影',desc:'召唤稻妻雷神巴尔泽布，紫发武者装束、胸口拔刀，追求永恒的武神，与双生姐姐真共同胜出魔神战争，影武者出身、武艺登峰造极，将意识封存于梦想一心内的一心净土中无休止冥想，打磨无想之一刀',effect:'无想一刀：雷元素拔刀斩，汇聚诸愿百眼之轮的愿力，一刀斩出粉碎一切诅咒的范围雷伤；奥义·梦想真说：竭尽万千愿力斩出梦想一刀后进入梦想一心状态，以太刀持续战斗，普攻重击皆转为无法被覆盖的雷元素伤害；诸愿百眼之轮：积蓄队伍释放元素爆发的愿力，愿力层数越高梦想一刀威力越大；雷罚恶曜之眼：协同攻击降下雷罚并提升爆发伤害；一心净土：独立意识空间，内中时间隔绝外界，可冥想修行或困敌于其中'},
+{name:'Decade驱动器',desc:'拥有假面骑士Decade的Decade驱动器与骑士卡片，变身者门矢士（小明哥），被称为"破坏所有骑士的存在"，品红色骑士，核心力量次元壁与生俱来、不依赖腰带，可自由穿梭平行世界',effect:'骑士卡片：假面驾驭可变身为历代骑士，攻击驾驭使用其武器技能，最终攻击驾驭发动对应必杀；次元壁：与生俱来的能力，自由穿梭平行世界，可攻可防可传送；驾驭卡盒剑：可变形为剑与枪，藏有无尽卡片；次元踢：穿过十面卡片光墙，破坏力30吨；激情态（战鬼）：接受破坏者身份后鬼化，无需变身即可使用其他骑士能力，次元踢超光速；完全形态（神主牌）：通过K-Touch召唤历代骑士最终形态之力'},
+{name:'欧布圆环',desc:'拥有欧布奥特曼的欧布圆环（Orb Ring），传说中的变身装置，读取两张奥特融合卡即可融合两位奥特曼的力量变身，浪客红凯使用，史上首位靠历代奥特曼力量融合变身的奥特英雄',effect:'重光形态（斯佩修姆哉佩利敖）：初代+迪迦，丰富光线技能与超能力；燃烧炸弹（Burnmite）：泰罗+梦比优斯，火焰力量与肉搏；疾风形态（Hurricane Slash）：杰克+赛罗，高速格斗与头镖；暗耀形态（Thunder Breastar）：佐菲+贝利亚，光与暗融合的狂暴力量；欧布起源：红凯原本的力量，手持欧布至高圣剑，可发动土水风火四元素之力，必杀欧布至高圣剑；三位一体（Orb Trinity）：银河+维克特利+艾克斯三奥融合的究极形态'},
+{name:'梦比优斯气息',desc:'拥有梦比优斯奥特曼的梦比优斯气息（Mebium Brace），奥特之父授予的赤色万能气息手镯，装备左腕，中央红色水晶球转动即可释放能源变身或施展技能',effect:'梦比姆射线：双手组成∞字形发射的必杀光线；梦比姆光剑：气息延伸出的光之剑；勇者形态（Mebius Brave）：与希卡利的骑士气息一体化，胸口金色线条，梦比姆光剑强化为梦比姆骑士光剑；炎之勇者形态（Mebius Burning Brave）：全身缠绕火焰，必杀梦比姆爆裂为火焰炸弹；凤凰勇者形态（Mebius Phoenix Brave）：与希卡利及GUYS全员友情羁绊融合的最强形态，金红蓝三色，不死鸟般的力量'},
+{name:'奥特赛罗眼镜',desc:'拥有赛罗奥特曼的奥特赛罗眼镜（Ultra Zero Eye），取下眼镜按下扳机即可变身，赛文之子、雷欧亲传弟子，光之国最年轻的最强战士，可借助戴拿与高斯之力切换形态',effect:'赛罗头镖：头顶双头刃，可投掷可合体为等离子火花斩；艾梅利姆切割与集束射线：额头光束与L字型必杀光线；强壮日冕赛罗：赤红力量形态，融合戴拿强壮型与高斯日冕型，近战爆发与火焰攻击；月神奇迹赛罗：深蓝速度形态，融合戴拿奇迹型与高斯月神型，超高速移动与超能力；光辉赛罗：金色形态，可操控时间倒流与时间停止；终极赛罗：装备帕拉吉之盾，可穿越时空，最终究极赛罗一击毁灭行星；超限赛罗：使用新世代胶囊变身的强化形态'},
+{name:'奥特眼镜X',desc:'拥有赛文X的奥特眼镜X（Ultra Eye X），红色眼镜型变身器，戴上即可变身为赛文在平行世界的姿态，肌肉强化、外形凶悍，战斗风格凌厉，绝大多数敌人变身即秒杀',effect:'头镖：头顶飞刃，以奥特念力操控白热化飞出切割敌人，亦可取下当刀劈砍；艾梅利姆光线：额头光束灯发射的高热光线；集束射线：双臂组合发射的L字型强力光线；奥特念力：以念力操控物体、束缚敌人；体格强化：相比原版赛文肌肉与力量大幅增强，格斗碾压'},
+{name:'进化信赖者',desc:'拥有奈克瑟斯奥特曼的进化信赖者（Evoltruster），外形为收纳于暗纹鞘中的短剑，只有被选中的适能者才能拔出，拔出高举时释放极光同化变身，可展开美塔领域将战斗转移至亚空间',effect:'幼年形态（Anphans）：银灰色基础形态，双臂武装可吸收敌人攻击转化为光弹反弹；红色青年形态（Junis）：红色完全体，必杀层叠光线·风暴，可展开美塔领域；蓝色青年形态（Junis Blue）：蓝色速度型，必杀弓箭光束，可发射板形光线之羽；诺亚奥特曼：究极最终形态，背后诺亚之翼可穿越时空，拥有Noa The Final等究极技能，被称为宇宙第一缕光'},
+{name:'神光棒',desc:'拥有迪迦奥特曼的神光棒（Sparklence），超古代光之巨人的变身器，将棒身展开举过头顶即可化身为光，变身后可自由切换三种基础形态，活动时间约三分钟',effect:'复合型：红紫金银四色基础形态，力量速度均衡，必杀哉佩利敖光线为L字型蓝白色光线；强力型：红色形态，力量与防御强化，擅长肉搏，必杀迪拉修姆光流为红色高热光球；空中型：蓝紫色形态，速度与空战最强，必杀兰帕尔特光弹为蓝色光箭；闪耀迪迦：全身金色光芒的能量全开形态，光线威力大幅强化；黑暗迪迦：超古代原本的黑暗形态，可吸收黑暗力量'},
+{name:'圣剑剑刃驱动器',desc:'拥有假面骑士Saber的圣剑剑刃驱动器与火炎剑烈火，变身者神山飞羽真，炎之剑士，将奇幻驾驭书插入驱动器拔刀变身，右半身寄宿神兽"勇气飞龙"之力，以火炎剑烈火斩裂邪恶，可搭配不同奇幻书切换形态',effect:'勇气飞龙形态：基础形态，拳9.8吨、踢19.2吨，圣焰可治愈正者、烧尽邪物，剑技必杀火焰十字斩、踢技必杀火龙蹴击破；奇幻驾驭书连组：可同时装填神兽、生物、故事三类奇幻书变身联组形态；十圣刃（Xross Saber）：最终形态，使用刃王剑十圣刃变身，拳64.7吨、踢110.8吨、百米0.6秒，全身银河色，联结火炎剑烈火、水势剑流水、雷鸣剑黄雷等十把圣剑之力自在解放，必杀刃王创星斩可修复世界或挥出星云级斩击，踢技必杀银河大爆发'},
+{name:'双子座黄金圣衣',desc:'拥有双子座黄金圣衣与撒加之力，第三宫双子宫守护者，黄金圣斗士中被誉为"神之化身"的最强者之一，拥有善恶双重人格，兼具压倒性物理攻击与精神支配能力，第七感光速战斗',effect:'银河星爆（Galaxian Explosion）：双子座最大奥义，瞬间爆发极限小宇宙，能量集中倾泻于对手，威力足以粉碎银河群星，可跨界远程攻击、范围巨大不可闪避；异次元空间（Another Dimension）：以小宇宙压缩扭曲时空，打开通往异界的裂缝，将对手放逐至不属于这个宇宙的未知次元，若无法找到出口将漂流至数万亿光年外万劫不复；幻胧魔皇拳：传说中的精神系禁拳，直接作用于对手脑神经，可支配其意志、制造幻觉、削弱战斗力，除非眼前有人死去否则无法解除；光速拳：第七感境界的光速连击；双重人格：善与恶两面交替，黑化时战力更加凶暴冷酷'},
+{name:'时空驱动器',desc:'拥有假面骑士时王的时空驱动器与驾驭表头，变身者常磐庄吾，立志成为至仁至善的魔王，装填历代骑士表头即可借用其力；搭配逢魔时王驱动器可变身究极形态逢魔时王',effect:'驾驭表头：装填历代骑士表头使用其能力与必杀；时间操控：停止、回溯、加速时间，穿梭过去未来，强制传送任意目标；崇皇时王：金色浮雕形态，拥有全平成骑士之力，可从历史召唤前辈助阵并定格回溯其时间；逢魔时王：究极形态，拳108.3吨、踢324.9吨、百米0.1秒，持有全骑士之力，念动力、冲击波、尘埃化，一念释放任意骑士必杀，不死不灭、超脱时间'},
+{name:'Zeztz驱动器',desc:'拥有假面骑士ZZZ的Zeztz驱动器与梦胶囊，佩戴于胸前挎带，变身者万津莫，拥有与生俱来的明晰梦之力，入睡后在梦境世界成为无敌特工，装填不同梦胶囊可变身各种形态，对抗侵入现实的噩梦怪人"梦魇"',effect:'明晰梦：自由操控梦境，在梦中全知全能；肌体冲击形态：基础形态，拳6.8吨、踢13.6吨，必杀Impact Vanish为三段踢击形成ZZZ能量体；灾厄崩灭形态：装填双魇梦胶囊，以纯粹崩坏之力摧毁对象，Triple Zeztzer机枪每分钟千发；超梦形态：最强形态，数据计测不能，自由穿梭梦境与现实，可将梦境事物具象化、将敌人攻击化为梦境，必杀Rise Great Vanish'},
+{name:'影之国女王·斯卡哈',desc:'召唤影之国女王斯卡哈，库·丘林的师父，凯尔特最伟大的枪兵导师，紫发高挑、气质凛然，经年累月半神灵化而不老不死，枪之一击若至化境，弑神亦只在翻掌之间',effect:'魔境的智慧A+：超越人类、置身世界外侧所得的深渊智慧，能以B~A级熟练度使用几乎所有技能，并以千里眼预知战况与未来；原初之卢恩：北欧大神奥丁发现的原始符文，可施展各属性魔术与强化；弑神B（强化后EX）：对神性与死灵特攻；宝具·贯穿死翔之枪（Gae Bolg Alternative）：B+对人宝具，比库·丘林的红枪更古老的同型魔枪，实为两把，刺穿突穿后附带眩晕与即死效果；授艺：可将技能授予她认可的真正英雄'},
+{name:'空之女王·伊卡洛斯',desc:'召唤战略型万能天使型号α伊卡洛斯，粉发绿瞳、背后可变式羽翼，自称娱乐用万能天使实为史上最强战略天使"空之女王"，进入战斗模式时赤眼红环、头顶光环，可24马赫飞行，能在宇宙真空与深海中自由活动',effect:'最终兵器·阿波罗：黑色大弓射出紫黑色火焰缠绕的超高能光箭，一击毁灭一个国家；永久追尾导弹·阿尔忒弥斯：从羽翼发射多方向永久追踪型能量弹幕，不命中不罢休；绝对防御圈·宙斯之盾：展开近乎无敌的能量护盾，可抵御已知一切攻击；超高热体压缩对舰炮·赫菲斯托斯：压缩超高热能的对舰级光束炮；乌拉诺斯系统：召唤大范围自主歼灭兵器系统，广域轰炸覆盖战场；可变式羽翼：超音速飞行、全领域作战的核心驱动装置'},
+{name:'矢量操作',desc:'所有指向我的伤害，都会原封不动返还给你',effect:'操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球'},
+{name:'琦玉修炼法',desc:'原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成',effect:'突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真'},
+{name:'氪星血脉觉醒',desc:'你是流落异世界的氪星人后裔',effect:'黄太阳辐射下解锁钢铁躯体、热视线、飞行、超速自愈'},
+{name:'禁书目录·茵蒂克丝',desc:'拥有魔法禁书目录茵蒂克丝的能力，银发绿瞳的英国清教修女，以完全记忆能力在脑中封印十万三千本魔道书，身穿"移动教会"修道服，体内搭载防卫系统"自动书记（John\'s Pen）"',effect:'十万三千本魔道书：任何魔法看一眼即可解析构造、看穿弱点并找出对策；自动书记（John\'s Pen）：生命受威胁时强制启动，意识消失、眼中浮现魔法阵，任意运用魔道书知识即兴组合对抗魔术，连未知力量都能瞬间解析反击；移动教会：杜林圣骸布织成的修道服，教宗级结界，核弹级防御，物理与魔法攻击全部吸收；强制咏唱：干涉敌方咏唱令其魔法失误甚至夺取控制权；魔灭之声：指出十字教教义矛盾，听见的教徒人格瓦解；龙王的叹息：空间龟裂中射出白色光束，可击毁太空中的卫星，连幻想杀手都无法完全消除；丰饶神之剑：光粒子浮空西洋剑，自动战斗、从未失败'},
+{name:'星之圣剑',desc:'为击败毁灭星辰之外敌而铸造的黄金圣剑，阶级EX。剑身设十三拘束，由骑士王本人与十二位圆桌骑士各立一道封印，每道对应一个解放条件。真名解放时须满足半数以上即七条拘束方可完全发挥，否则按已解封印数量部分解放',effect:'平时即无坚不摧的黄金圣剑。解放时喊出"十三拘束解放，圆桌决议开始"，满足条件的封印逐条崩解，每解一道威力倍增。完全解放（七条以上）放出创世级黄金光柱，可轰碎星辰级外敌，威力覆盖千人；部分解放（三至六条）已可平推要塞'},
+{name:'葬送的芙莉莲',desc:'召唤千年精灵大魔法使芙莉莲，银发尖耳，穿法袍挎法杖，活了超过千年的勇者队伍幸存者，史上葬送魔族最多的魔法使，性格散漫但关键时刻可靠，会把你当新的冒险伙伴',effect:'魔力深不可测，最擅长隐藏魔力扮猪吃老虎骗魔族松懈后一击秒杀，会杀人魔法、防御魔法、破界、飞行、搜魔，千年间收集了无数奇奇怪怪的魔法，对魔族特攻，会一本正经地用很厉害的魔法干很无聊的事'},
+{name:'乖离剑·EA',desc:'吉尔伽美什所持EX级对界神造兵装，剑身无传统剑刃，为三段对应天、地、冥界的圆柱结构逆向回转构成，是开天辟地时代遗存的创世之剑，无法被任何投影、复制类能力复刻，可从王之财宝中随意念瞬间召出',effect:'真名解放「天地乖离开辟之星」时，超高速回转压缩风压形成时空断层，释放撕裂世界的创世级冲击，并非普通斩击而是直接粉碎空间结构，可直接击溃固有结界，最大出力可达地壳变动级威力，最大覆盖捕捉千人；真名解放需消耗巨量魔力，全力解放后10分钟内无法再次催动，攻击无法被常规物理/魔力防御格挡，可杀伤神性、不死性单位'},
+{name:'地爆天星',desc:'轮回眼专属EX级封印瞳术，六道仙人封印十尾时所用创世之术，以此术抽出十尾躯壳封入岩球形成月球；需双手将查克拉浓缩为黑色引力核心，非轮回眼持有者强行使用会遭极大反噬',effect:'黑球升空产生超引力，强行吸引范围内一切物质形成巨大岩球，将目标封入核心以引力碾碎封印，可同时释放多个捕捉尾兽，亦可作陨石砸击；六道版需阴阳之力共施，可封印大筒木级存在并形成月球；核心被足够强力攻击命中即破解，单次需巨量查克拉，无法连续发动'},
+{name:'直死之魔眼',desc:'型月世界因果律级魔眼，需经历真正死亡且有净眼资质者才可觉醒，原型为凯尔特魔神巴罗尔之眼，真祖死徒中都不曾出现的神话级能力，两仪式与远野志贵持有',effect:'眼中万物浮现有死线死点，沿线划过即造成不可防御、不可再生、不可治愈的致命伤，刺中死点则存在直接终结；不是物理切断而是直接引发「死亡」结果，无视硬度、防御、不死性，连未来、概念都能斩；必须亲手触及，无法理解其死的存在无效，过度使用会烧坏大脑'},
+{name:'始原精灵·崇宫澪',desc:'召唤约会大作战的始原精灵崇宫澪，又称Deus，神威灵装·零番为纯白女神礼服，拥有三位凌驾于一切精灵之上的天使',effect:'万象圣堂（Ain Soph Aur）：花之天使，巨大花冠散布花粉，触碰的生命体即刻死亡、无生物即刻崩毁湮灭，被称为具象化的"死亡"；轮回乐园（Ain Soph）：树之天使，树根延伸将现界改写为邻界，在其中自由制定世界规则；无（Ain）：种子型天使，无视一切条理，将对象存在本身归于虚无；灵结晶创造：分割自身力量制造灵结晶创造精灵，亦可吸收遗体重组孕育新生命；不死不灭：始原精灵的绝对不死性'},
+{name:'歪曲之魔眼',desc:'《空之境界》浅上藤乃所持最上级异能魔眼，被评为魔眼中的稀有品，本质是空间干涉系超能力，以视线为媒介在物体上开启回转轴，发动咒文「凶まがれ」',effect:'左眼左回转、右眼右回转，单眼可将注视物体任意扭曲弯折，双眼同开两轴交于一点即可从交界处直接捻断，无视硬度、防御与距离，纯物理破坏力在直死之上；后期觉醒透视能力可扭曲视野外、障碍物后的目标；只能扭曲物质存在，无法影响概念'},
+{name:'幻想杀手',desc:'《魔法禁书目录》上条当麻右手所宿神秘之力，既非超能力也非魔法，不散发AIM力场还会抹消周围异能，被视为世界的校正基准，学园都市登录为Level 0无能力者',effect:'右手触碰即可抹消一切异能——超能力、魔法、神之奇迹、结界、诅咒、祝福甚至运气，是所有异能者的绝对天敌；抹消有速度上限，对量级过大的异能需时间抵消，范围仅限右手接触处，对纯物理攻击、自然现象和普通人无效，连自身好运也一并抹消'},
+{name:'天空坠落',desc:'《OVERLORD》超位魔法之一，凌驾第十位阶之上，不耗MP但有团队共享冷却，吟唱长可用氪金道具取消前摇，NPC无法使用，安兹对夏提雅战起手大招',effect:'从天空召唤巨大超高温光柱落下，温度高到将森林碳化、大地结晶、万物化灰，对不死族也造成大伤害，纯火力在超位魔法中名列前茅，缺点是前摇长、不能连放、百级玩家一天也只能用数次'},
+{name:'黑山羊母神的幼崽',desc:'《OVERLORD》超位魔法，来源克苏鲁神话森之黑山羊，安兹在王国军前发动的践踏级法术，范围覆盖数万大军，最具视觉冲击力的超位魔法之一',effect:'召唤数只近百级巨大黑山羊幼崽，其践踏本身就是地形级灾害，自动追击敌人并造成恐慌debuff，召唤物数量随范围内死者数增加，被践踏区域化为血肉泥潭，王国一战召唤五只，数万大军瞬间溃败'},
+{name:'世界道具·二十',desc:'《OVERLORD》YGGDRASIL全服仅200件世界级道具中最强的20件，威力足以破坏游戏平衡，因此设定为用一次即消失，随机出现在九世界某处，只有世界级道具能抵抗世界级道具',effect:'每件「二十」都是规则级能力，「朗基努斯」可将目标从存在中彻底抹除，代价是自身也消失，连复活道具都无效，「世界意志」平时只是根棍棒，却随敌人强度无限成长，设定上一件就能攻下纳萨力克大坟墓'},
+{name:'誓约胜利之剑',desc:'阿尔托莉雅所持最大宝具，等级A++，对城宝具，范围1~99，最大捕捉1000人。星造神造兵装，立于圣剑顶点，与魔剑Gram并称。乃人类"愿其如此"之想念于星球内精炼而成的"最强幻想"',effect:'真名解放Excalibur，将魔力化为光，经收束·加速增大运动量，放出金色光柱。正面命中可夷平城堡，余波烧蚀地面，最大杀伤千人，曾一击蒸发河面。蓄力三息，放完魔力大耗。有龙心者可连发但间隔数刻，凡人一日约一发'},
+{name:'十二符咒',desc:'十二生肖符咒，捏紧激活，每枚各赋一种神力',effect:'鼠符咒：赋予无生命之物生命与意识；牛符咒：力大无穷，物理破坏力暴增；虎符咒：平衡调和所有符咒之力，可将人阴阳分离为善恶分身；兔符咒：超音速移动，超越光速可穿越时空；龙符咒：喷射炎爆冲击波，怒气越高威力越强；蛇符咒：光学隐身，可令多人或巨物一同隐形；马符咒：治愈一切伤病，修复任何损坏物体；羊符咒：灵魂出窍，可入梦托梦、附身空躯；猴符咒：将自己或他人任意变形为动物；鸡符咒：念力浮空与隔空移物，配兔符咒可飞行；狗符咒：不老不死，免疫一切致死伤害；猪符咒：双眼发射高温镭射光束'},
+{name:'超级赛亚人血脉',desc:'战斗民族赛亚人的血统，天生好战、食量惊人、衰老缓慢，每次从濒死边缘复活战斗力都会大幅提升，有尾巴者注视满月（吸收1700万布鲁兹波）可变身巨猿、力量翻十倍',effect:'巨猿化：有尾赛亚人看满月变身巨型猿猴，力量×10；超级赛亚人：金发倒竖、碧眼，战力×50，极度愤怒时觉醒；超级赛亚人2：发丝更锐、气焰喷射、周身缠绕闪电，战力×100；超级赛亚人3：长发及腰、眉毛消失，战力×400；超级赛亚人之神：红发瘦身，踏入神之领域，具备自愈能力；超级赛亚人蓝：超神基础上再变超赛，蓝发蓝瞳，掌控神之气；传说中的超级赛亚人：绿发、肌肉膨胀，狂暴状态下力量随战斗持续暴涨'},
+{name:'红龙之血',desc:'阿尔托莉雅·潘德拉贡生来持有龙之因子，心脏即龙的魔术炉心。Pendragon之名本就是红龙之意',effect:'被动。你不需要魔术回路，只要血液循环、吸一口气，就能自动生成魔力，是与一般魔术师完全不同次元的"魔术炉心"，魔力量远超常人。附带对魔力A：当代最高位魔术师也难用魔术伤你。可使用魔力放出A：将魔力灌入武器或四肢瞬间爆发。弱点是龙属性——遇到有杀龙传说的武器，受到的伤害加倍'}
+],
+legendary:[
+{name:'魔王的命名',desc:'你被一位觉醒魔王亲自命名，灵魂刻印了强大的魔素联结',effect:'获得该魔王的加护，进化为上位种族，魔素容量暴增；但灵魂联结使你无法背叛命名者，命名者死亡时你会遭到严重反噬'},
+{name:'究极技能觉醒者',desc:'你的独有技在极端情绪或创伤中突然进化为究极能力',effect:'获得一项究极能力，跻身世界最强梯队；但进化过程中短暂失控造成了无法挽回的代价——可能是友人之死、故乡毁灭或身体不可逆的变异'},
+{name:'原初恶魔的受肉体',desc:'一位原初恶魔选中你的肉体作为在物质界的容器',effect:'肉体能力大幅强化至A级以上，获得恶魔系固有能力（召唤、黑炎等），精神生命体的智慧与经验涌入；但恶魔的意志不断侵蚀你的人格，极端情绪时恶魔意识可能夺取控制权'},
+{name:'龙种的契约者',desc:'你与某一龙种建立了灵魂层面的契约',effect:'获得龙种加护和部分龙种权能（万能变化、龙灵霸气的弱化版），魔素容量跃升至特A级以上；代价是寿命与龙种绑定，龙种陷入沉睡或死亡时你也会衰弱'},
+{name:'创世级武器的被选者',desc:'某把创世级武器在无人之地主动向你共鸣，你触碰它时非但没有肉体崩溃，武器反而认可了你的灵魂',effect:'武器存在值数千万级，与你灵魂融合后可改变形态适应你的战斗风格，赋予你远超当前等级的破坏力；但其他创世级持有者和各方势力都会视你为威胁或猎物'},
+{name:'十二守护王级配下',desc:'你是利姆鲁麾下十二守护王级的存在，获得了究极赠与',effect:'拥有觉醒魔王级战力和专属究极赠与技能，受食物链系统束缚可与利姆鲁共享技能情报；代价是绝对忠诚的灵魂联结，无法违背利姆鲁的意志'},
+{name:'真之勇者继承者',desc:'你继承了勇者的因子，圣属性力量在体内苏醒',effect:'对魔王特攻，圣属性全面强化，获得勇者的加护（苏生一次）；但教会和帝国都在寻找你作为兵器，魔物势力则视你为天敌'}
+],
+epic:[
+{name:'颜色称号魔法使',desc:'你是某一属性顶点的大魔法使，被各国正式授予颜色称号',effect:'该属性所有魔法可无咏唱释放，魔力效率翻倍，被视为国宝级战力'},
+{name:'帝国近卫Double O',desc:'你是东方帝国近卫骑士团Double O Numbers的成员，帝国最精锐的战斗集团',effect:'A级综合战力，装备帝国最先进魔导武装，拥有代行权利（究极付与）；代价是绝对服从皇帝命令，否则代行权利反噬'},
+{name:'八星魔王直属干部',desc:'你是某位八星魔王的直属干部，参与魔王盛宴的核心决策层',effect:'S级资源与情报权限，可调动魔王领的全部力量；卷入魔王间的权力博弈，成为其他势力的优先打击目标'},
+{name:'圣骑士团精锐',desc:'你是鲁贝里欧斯圣骑士团的正式成员，精通神圣魔法与灵子操控',effect:'可使用灵子崩坏等顶级神圣魔法，对魔物特效明显；知晓教会部分秘密（鲁米纳丝的真实身份）'},
+{name:'独有技能觉醒',desc:'你在强烈的情感或意志驱动下觉醒了独有技能——世界唯一、根植灵魂的力量',effect:'获得世界唯一的个人专属能力，不可被复制；觉醒条件极为苛刻，通常伴随创伤性事件'},
+{name:'地下迷宫通关者',desc:'你是少数通过坦派斯特地下大迷宫百层试炼的存在——每十层有一位觉醒魔王级守护者',effect:'战力经验极其丰富，被各方势力重视；获得利姆鲁颁发的通关者称号和特殊待遇'},
+{name:'异世界召唤·完全适格',desc:'你被完整召唤到这个世界，且与魔素完全适格，无排斥反应',effect:'获得独有技+额外魔素容量远超本土人类；但被召唤组织视你为兵器，可能被赋予无法违抗的命令'}
+],
+rare:[
+{name:'B级冒险者',desc:'你是自由组合B级冒险者，战力相当于百名普通士兵',effect:'有稳定的高额委托收入和跨国人脉，可接触国家级情报'},
+{name:'精灵契约者',desc:'你与一位精灵签订了契约，可借用它的力量',effect:'可使用精灵魔法，在抗魔结界内仍可施法；但需维护与精灵的关系，精灵不满时力量会削弱'},
+{name:'命名进化者',desc:'你被某位强者命名后成功进化为上位种族',effect:'魔素容量扩大数倍，获得新的固有能力；灵魂与命名者建立联结'},
+{name:'大商人之子',desc:'你出身特恩佩斯特或多瓦贡的大商会家族',effect:'资金、人脉、情报网充裕，可获得稀有级以上装备'},
+{name:'矮人锻造学徒',desc:'你师从多瓦贡的锻造名匠，修行已逾十年',effect:'可打造稀有级以上装备，掌握魔钢加工技术；但修行之路漫长'},
+{name:'自由学园毕业生',desc:'你从英格拉西亚自由学园毕业，是正规训练出的冒险者',effect:'掌握基础元素魔法和战斗技能，拥有西方列国的广泛人脉'}
+],
+common:[
+{name:'普通冒险者',desc:'你是C级以下的普通冒险者，靠接小委托糊口',effect:'有基本战斗能力和公会资源，但面对B级以上威胁只能逃跑'},
+{name:'哥布林村出身',desc:'你是朱拉大森林某个哥布林村落的居民',effect:'了解森林地形和魔物习性，有基础生存技能'},
+{name:'城市平民',desc:'你是某个人类城市的普通市民，经营着一家小店或在工坊做工',effect:'无特殊能力，但有城市生活经验和邻里人脉'},
+{name:'流浪者',desc:'你是大陆上的流浪者，居无定所，见过很多地方',effect:'见多识广，适应力强，但无后盾无积蓄'},
+{name:'意外卷入者',desc:'你因一场意外接触到了超出常识的世界——也许是目睹了魔王的战斗，也许是捡到了某件遗物',effect:'一无所知但充满可能性，命运的齿轮开始转动'},
+{name:'被遗弃的召唤者',desc:'你被召唤到这个世界后因"不完全"而被抛弃，体内魔素不断失控',effect:'拥有异世界知识但无依无靠，魔素过剩会在数年内致死——除非找到上位精灵寄宿或获得命名'},
+{name:'森林采集者',desc:'你以在朱拉大森林边缘采集药草和矿石素材为生',effect:'了解森林生态和低阶魔物习性，有基础的求生和逃跑技能'}
+]
+};
+// ==================== END OF PART 2 (all data complete) ====================
+// ==================== INTERACTIONS ====================
+// --- Opening ---
+document.getElementById('opening').addEventListener('click',function(){
+this.classList.add('open');
+setTimeout(()=>{
+this.classList.add('fade-out');
+setTimeout(()=>{this.style.display='none';document.getElementById('main').classList.add('active');},1000);
+},3000);
+});
+// --- Tab Navigation ---
+document.querySelectorAll('.tab-btn').forEach(b=>{
+b.addEventListener('click',function(){switchTab(this.dataset.tab);});
+});
+function switchTab(t){
+document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+document.querySelector('[data-tab="'+t+'"]').classList.add('active');
+document.getElementById('tab-'+t).classList.add('active');
+state.currentTab=t;
+if(t==='preview')generatePreview();
+if(t==='character')updateChapterDisplay();
+window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){const i=TABS.indexOf(state.currentTab);if(i<TABS.length-1)switchTab(TABS[i+1]);}
+function prevTab(){const i=TABS.indexOf(state.currentTab);if(i>0)switchTab(TABS[i-1]);}
+// --- Chapters ---
+function renderChapters(){
+const jump=document.getElementById('chapter-jump');
+const cards=document.getElementById('chapter-cards');
+jump.innerHTML='';cards.innerHTML='';
+const groups=[
+{key:'prequel',label:'前 传',en:'PREQUEL',list:chapterData.prequel},
+{key:'main',label:'正 篇',en:'MAIN STORY',list:chapterData.main}
+];
+groups.forEach(g=>{
+if(!g.list||!g.list.length)return;
+const sep=document.createElement('div');sep.className='jump-group-sep';sep.textContent=g.label;jump.appendChild(sep);
+g.list.forEach(ch=>{
+const btn=document.createElement('button');
+btn.className='chapter-jump-btn'+(state.selectedChapter===ch.id?' selected':'');
+btn.textContent=ch.name;
+btn.onclick=()=>{toggleChapter(ch.id);const el=document.getElementById('ch-'+ch.id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});};
+jump.appendChild(btn);
+});
+const head=document.createElement('div');
+head.className='chapter-group-head';
+head.innerHTML='<span class="cgh-cn">'+g.label+'</span><span class="cgh-en">'+g.en+'</span>';
+cards.appendChild(head);
+g.list.forEach(ch=>{
+const isSel=state.selectedChapter===ch.id;
+const card=document.createElement('div');
+card.className='chapter-card'+(isSel?' selected open':'');card.id='ch-'+ch.id;
+const entriesHTML=ch.entries.map(ev=>{
+const isE=isSel&&state.selectedEntry===ev;
+return '<div class="entry-item'+(isE?' selected':'')+'" onclick="selectEntry(\''+ch.id+'\',\''+ev+'\')"><div class="ttl">'+ev+'</div><div class="sel-mark">✓ 已选为入场时机</div></div>';
+}).join('');
+card.innerHTML='<div class="chapter-card-head" onclick="toggleChapter(\''+ch.id+'\')"><div class="cc-title">'+ch.name+'<small>'+ch.year+' · '+ch.subtitle+'</small></div><div class="cc-right"><button class="select-chapter-btn'+(isSel?' active':'')+'" onclick="event.stopPropagation();selectChapter(\''+ch.id+'\')">'+(isSel?'✓ 已选':'选此篇章')+'</button><span class="cc-arrow">▶</span></div></div><div class="chapter-card-body"><div class="chapter-desc">'+ch.desc+'</div><div class="chapter-tags-row">'+ch.tags.map(t=>'<span class="chapter-tag">'+t+'</span>').join('')+'</div><div class="chapter-sub"><h4>入场时机</h4><div class="entry-list">'+entriesHTML+'</div></div><div class="custom-entry-row"><div class="lbl">❖ 自定义入场时机</div><input type="text" id="ce-'+ch.id+'" placeholder="描述你切入的具体时间点或场景……"><button onclick="setCustomEntry(\''+ch.id+'\',document.getElementById(\'ce-'+ch.id+'\').value)">设为入场时机</button></div></div>';
+cards.appendChild(card);
+});
+});
+}
+function toggleChapter(id){
+document.querySelectorAll('.chapter-card').forEach(c=>{if(c.id!=='ch-'+id)c.classList.remove('open');});
+document.getElementById('ch-'+id).classList.toggle('open');
+}
+function selectChapter(id){
+if(state.selectedChapter===id){state.selectedChapter=null;state.selectedEntry=null;}
+else{state.selectedChapter=id;state.selectedEntry=null;}
+document.querySelector('[data-tab="era"]').classList.toggle('completed',!!state.selectedChapter);
+renderChapters();
+}
+function selectEntry(chId,ev){
+state.selectedChapter=chId;state.selectedEntry=ev;
+document.querySelector('[data-tab="era"]').classList.add('completed');
+renderChapters();
+}
+function setCustomEntry(chId,val){
+val=val.trim();if(!val)return;
+state.selectedChapter=chId;state.selectedEntry=val;
+document.querySelector('[data-tab="era"]').classList.add('completed');
+renderChapters();
+}
+function updateChapterDisplay(){
+const el=document.getElementById('cur-chapter-text');
+if(state.selectedChapter){
+const all=[...chapterData.prequel,...chapterData.main];
+const ch=all.find(x=>x.id===state.selectedChapter);
+let s=ch.name+'（'+ch.year+'）';
+if(state.selectedEntry)s+=' · 节点：'+state.selectedEntry;
+el.textContent=s;
+}else el.textContent='尚未选择篇章';
+}
+// --- Mode Switch ---
+function switchMode(m){
+state.mode=m;
+document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+document.querySelector('.mode-btn[data-mode="'+m+'"]').classList.add('active');
+document.getElementById('original-section').style.display=m==='original'?'block':'none';
+document.getElementById('canon-section').classList.toggle('visible',m==='canon');
+}
+// --- Canon Characters with Search Dropdown ---
+let allCanonFlat=[];
+function buildCanonFlat(){
+allCanonFlat=[];
+Object.keys(canonCharacters).forEach(group=>{
+canonCharacters[group].forEach(item=>{
+const name=Array.isArray(item)?item[0]:item;
+const desc=Array.isArray(item)?item[1]:'';
+allCanonFlat.push({name,desc,group});
+});
+});
+}
+function renderCanonList(){
+const container=document.getElementById('canon-list');container.innerHTML='';
+Object.keys(canonCharacters).forEach((group,idx)=>{
+const items=canonCharacters[group];
+const div=document.createElement('div');div.className='canon-group'+(idx===0?' open':'');
+const gridHTML=items.map(item=>{
+const name=Array.isArray(item)?item[0]:item;
+const desc=Array.isArray(item)?item[1]:'';
+return '<div class="canon-item" data-canon="'+name+'"><span>'+name+'</span>'+(desc?'<div class="ci-desc">'+desc+'</div>':'')+'</div>';
+}).join('');
+div.innerHTML='<div class="canon-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+group+' <span class="cnt">'+items.length+'</span></span><span class="arrow">▶</span></div><div class="canon-group-body"><div class="canon-grid">'+gridHTML+'</div></div>';
+container.appendChild(div);
+});
+container.querySelectorAll('.canon-item').forEach(it=>{
+it.addEventListener('click',()=>{
+container.querySelectorAll('.canon-item').forEach(x=>x.classList.remove('selected'));
+it.classList.add('selected');
+state.canonChar=it.dataset.canon;
+document.querySelector('[data-tab="character"]').classList.add('completed');
+document.getElementById('canon-search').value=state.canonChar;
+document.getElementById('canon-dropdown').classList.remove('visible');
+});
+});
+}
+function filterCanon(query){
+const dropdown=document.getElementById('canon-dropdown');
+if(!query.trim()){dropdown.classList.remove('visible');return;}
+const q=query.toLowerCase();
+const matches=allCanonFlat.filter(c=>c.name.toLowerCase().includes(q)||c.desc.toLowerCase().includes(q));
+if(matches.length===0){dropdown.innerHTML='<div class="canon-dropdown-item"><span class="cdi-name">无匹配结果</span></div>';dropdown.classList.add('visible');return;}
+dropdown.innerHTML=matches.slice(0,15).map(c=>'<div class="canon-dropdown-item" data-name="'+c.name+'"><span class="cdi-name">'+c.name+'</span><span class="cdi-desc">'+c.desc+' — '+c.group+'</span></div>').join('');
+dropdown.classList.add('visible');
+dropdown.querySelectorAll('.canon-dropdown-item').forEach(item=>{
+item.addEventListener('click',()=>{
+const name=item.dataset.name;
+if(!name)return;
+state.canonChar=name;
+document.getElementById('canon-search').value=name;
+dropdown.classList.remove('visible');
+document.querySelector('[data-tab="character"]').classList.add('completed');
+// highlight in list
+document.querySelectorAll('.canon-item').forEach(x=>{
+x.classList.toggle('selected',x.dataset.canon===name);
+});
+});
+});
+}
+// Close dropdown on outside click
+document.addEventListener('click',function(e){
+const wrap=document.querySelector('.canon-search-wrap');
+if(wrap&&!wrap.contains(e.target)){
+document.getElementById('canon-dropdown').classList.remove('visible');
+}
+});
+// --- Select Fill ---
+function fillSelect(id,data,groupMode){
+const sel=document.getElementById(id);sel.innerHTML='<option value="">(请选择)</option>';
+if(groupMode){
+Object.keys(data).forEach(g=>{
+const og=document.createElement('optgroup');og.label=g;
+const arr=Array.isArray(data[g])?data[g]:[data[g]];
+arr.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;og.appendChild(o);});
+sel.appendChild(og);
+});
+}else{
+data.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o);});
+}
+const cus=document.createElement('option');cus.value='custom';cus.textContent='❖ 自定义…';sel.appendChild(cus);
+}
+function toggleCustom(type,val){
+const el=document.getElementById('custom-'+type+'-wrap');
+if(el)el.classList.toggle('visible',val==='custom');
+}
+// --- Abilities ---
+function renderAbilities(){
+const c=document.getElementById('ability-sections');c.innerHTML='';
+abilityData.forEach(sec=>{
+const selCount=sec.items.filter(it=>state.selectedAbilities.has(sec.cat+'|'+it.n)).length;
+const div=document.createElement('div');div.className='ability-cat';
+div.innerHTML='<div class="ability-cat-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+sec.cat+' <span class="cnt">'+selCount+'/'+sec.items.length+'</span></span><span class="arrow">▶</span></div><div class="ability-cat-body"><p class="hint">点击卡片直接勾选/取消</p><div class="ability-grid"></div></div>';
+const grid=div.querySelector('.ability-grid');
+sec.items.forEach(it=>{
+const key=sec.cat+'|'+it.n;const isSel=state.selectedAbilities.has(key);
+const item=document.createElement('label');item.className='ability-item'+(isSel?' selected':'');
+let userLine=it.u?'<div class="abuser">— '+it.u+'</div>':'';
+item.innerHTML='<input type="checkbox" '+(isSel?'checked':'')+'><div class="item-body"><div class="abname">'+it.n+'</div><div class="abdesc">'+(it.d||'')+'</div>'+userLine+'</div>';
+const cb=item.querySelector('input');
+item.addEventListener('click',e=>{
+if(e.target!==cb){e.preventDefault();cb.checked=!cb.checked;}
+if(cb.checked)state.selectedAbilities.add(key);else state.selectedAbilities.delete(key);
+item.classList.toggle('selected',cb.checked);
+const head=div.querySelector('.cnt');
+const newCount=sec.items.filter(it2=>state.selectedAbilities.has(sec.cat+'|'+it2.n)).length;
+head.textContent=newCount+'/'+sec.items.length;
+});
+grid.appendChild(item);
+});
+c.appendChild(div);
+});
+}
+function addCustomAbility(){
+const n=document.getElementById('custom-ab-name').value.trim();
+const d=document.getElementById('custom-ab-desc').value.trim();
+if(!n)return;
+state.customAbilities.push({id:Date.now(),name:n,desc:d});
+document.getElementById('custom-ab-name').value='';
+document.getElementById('custom-ab-desc').value='';
+renderCustomAb();
+}
+function escapeField(value){
+ const span=document.createElement('span');
+ span.textContent=value;
+ return span.innerHTML;
+}
+function renderCustomAb(){
+const c=document.getElementById('custom-ab-list');
+if(!state.customAbilities.length){c.innerHTML='';return;}
+c.innerHTML=state.customAbilities.map(a=>'<div class="info-box blue" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+escapeField(a.name)+'</strong>'+(a.desc?'<p style="font-size:12px;color:var(--ink-muted);margin-top:6px;line-height:1.6;">'+escapeField(a.desc)+'</p>':'')+'<button onclick="state.customAbilities=state.customAbilities.filter(x=>x.id!=='+a.id+');renderCustomAb();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--lake-blue);color:#fff;border:none;cursor:pointer;">删除</button></div>').join('');
+}
+function addCustomTalent(){
+const n=document.getElementById('custom-tl-name').value.trim();
+const d=document.getElementById('custom-tl-desc').value.trim();
+if(!n)return;
+state.customTalents.push({id:Date.now(),name:n,desc:d});
+document.getElementById('custom-tl-name').value='';
+document.getElementById('custom-tl-desc').value='';
+renderCustomTl();
+}
+function renderCustomTl(){
+const c=document.getElementById('custom-tl-list');
+if(!state.customTalents.length){c.innerHTML='';return;}
+c.innerHTML=state.customTalents.map(a=>'<div class="info-box gold" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+escapeField(a.name)+'</strong>'+(a.desc?'<p style="font-size:12px;color:var(--ink-muted);margin-top:6px;line-height:1.6;">'+escapeField(a.desc)+'</p>':'')+'<button onclick="state.customTalents=state.customTalents.filter(x=>x.id!=='+a.id+');renderCustomTl();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--amber);color:#fff;border:none;cursor:pointer;">删除</button></div>').join('');
+}
+// --- Talents ---
+function rollTalents(){
+const btn=document.getElementById('roll-btn');btn.classList.add('rolling');btn.disabled=true;
+setTimeout(()=>{
+state.rolledTalents=[];state.selectedTalents=[];
+for(let i=0;i<8;i++){
+let pool,rarity;
+if(i===0){pool=talentPool.mythic;rarity='mythic';}
+else{
+const r=Math.random()*100;
+if(r<15){pool=talentPool.mythic;rarity='mythic';}
+else if(r<32){pool=talentPool.legendary;rarity='legendary';}
+else if(r<55){pool=talentPool.epic;rarity='epic';}
+else if(r<80){pool=talentPool.rare;rarity='rare';}
+else{pool=talentPool.common;rarity='common';}
+}
+let t,a=0;
+do{t=pool[Math.floor(Math.random()*pool.length)];a++;}
+while(state.rolledTalents.some(x=>x.name===t.name)&&a<30);
+state.rolledTalents.push({...t,rarity});
+}
+const ro={mythic:0,legendary:1,epic:2,rare:3,common:4};
+state.rolledTalents.sort((a,b)=>ro[a.rarity]-ro[b.rarity]);
+renderTalents();
+btn.classList.remove('rolling');btn.disabled=false;
+document.getElementById('talent-pool').classList.add('visible');
+},1200);
+}
+function renderTalents(){
+const list=document.getElementById('talent-list');list.innerHTML='';
+state.selectedTalents=[];
+document.getElementById('talent-selected-count').textContent='0';
+const rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'寻常'};
+state.rolledTalents.forEach((t,idx)=>{
+const item=document.createElement('div');
+item.className='talent-item '+t.rarity;
+item.innerHTML='<input type="checkbox" id="t-'+idx+'"><div class="talent-info"><div class="talent-name">'+t.name+'<span class="talent-badge '+t.rarity+'">'+rn[t.rarity]+'</span></div><div class="talent-desc">'+t.desc+'</div>'+(t.effect?'<div class="talent-effect">效果：'+t.effect+'</div>':'')+'</div>';
+const cb=item.querySelector('input');
+item.addEventListener('click',e=>{if(e.target===cb)return;cb.click();});
+cb.addEventListener('change',()=>{
+if(cb.checked){
+if(state.selectedTalents.length>=3){cb.checked=false;return;}
+state.selectedTalents.push(t);item.classList.add('selected');
+}else{
+state.selectedTalents=state.selectedTalents.filter(s=>s.name!==t.name);
+item.classList.remove('selected');
+}
+document.getElementById('talent-selected-count').textContent=state.selectedTalents.length;
+if(state.selectedTalents.length===3)document.querySelector('[data-tab="fate"]').classList.add('completed');
+});
+list.appendChild(item);
+});
+}
+// --- Preview ---
+function generatePreview(){
+const gv=id=>{const el=document.getElementById(id);return el?el.value.trim():'';};
+const gr=n=>{const el=document.querySelector('input[name="'+n+'"]:checked');return el?el.value:'';};
+const gCb=n=>Array.from(document.querySelectorAll('input[name="'+n+'"]:checked')).map(x=>x.value);
+let chapter='—',entry='—';
+if(state.selectedChapter){
+const all=[...chapterData.prequel,...chapterData.main];
+const ch=all.find(x=>x.id===state.selectedChapter);
+chapter=ch.name+'（'+ch.year+'）· '+ch.subtitle;
+entry=state.selectedEntry||'未定';
+}
+let origin=gv('char-origin');if(origin==='custom')origin=gv('custom-origin')||'自定义';origin=origin||'—';
+let race=gv('race');if(race==='custom')race=gv('custom-race')||'自定义';race=race||'—';
+let nation=gv('nation');if(nation==='custom')nation=gv('custom-nation')||'自定义';nation=nation||'—';
+let sclass=gv('social-class');if(sclass==='custom')sclass=gv('custom-class')||'自定义';sclass=sclass||'—';
+let identity=gv('identity');if(identity==='custom')identity=gv('custom-identity')||'自定义';identity=identity||'—';
+let faction=gv('faction');if(faction==='custom')faction=gv('custom-faction')||'自定义';faction=faction||'—';
+let reason=gv('entry-reason');if(reason==='custom')reason=gv('custom-reason')||'自定义';reason=reason||'—';
+const srcs=gCb('src').join(' · ')||'—';
+let canon='';
+if(state.mode==='canon'&&state.canonChar)canon='\n【原著扮演】'+state.canonChar;
+// Abilities by category
+let abLines=[];
+abilityData.forEach(sec=>{
+const sel=sec.items.filter(it=>state.selectedAbilities.has(sec.cat+'|'+it.n));
+if(sel.length){
+abLines.push('【'+sec.cat+'】');
+sel.forEach((n,i)=>abLines.push('  '+(i+1)+'. '+n.n));
+}
+});
+state.customAbilities.forEach((a,i)=>{
+if(i===0)abLines.push('【自创能力】');
+abLines.push('  '+(i+1)+'. '+a.name+(a.desc?' — '+a.desc:''));
+});
+const ri={mythic:'【神话】',legendary:'【传说】',epic:'【史诗】',rare:'【稀有】',common:'【寻常】'};
+let talentText='—';
+if(state.selectedTalents.length){
+talentText=state.selectedTalents.map((t,i)=>(i+1)+'. '+ri[t.rarity]+t.name+'\n   '+t.desc+(t.effect?'\n   效果：'+t.effect:'')).join('\n\n');
+}
+let cusTl='';
+if(state.customTalents.length){
+cusTl='\n\n【自创命运】\n'+state.customTalents.map((t,i)=>(i+1)+'. '+t.name+(t.desc?'\n   '+t.desc:'')).join('\n');
+}
+const sep='═'.repeat(52);
+const p=sep+'\n     转生史莱姆·角色创建（保持思维链折叠标签正常运行）\n'+sep+'\n【时间线】'+chapter+'\n【入场时机】'+entry+canon+'\n—— 基础信息 ——\n姓名：'+(gv('char-name')||(state.canonChar||'—'))+'\n性别：'+(state.mode==='canon'?'—':gr('gender')||'—')+' · 年龄：'+(state.mode==='canon'?'—':gv('char-age')||'—')+'\n所在地：'+origin+'\n职业：'+(gv('char-occupation')||'—')+'\n—— 种族与出身 ——\n种族：'+race+'\n出身国家/势力：'+nation+'\n出身阶层：'+sclass+'\n—— 身份与阵营 ——\n身份类型：'+identity+'\n所属阵营：'+faction+'\n力量本源：'+srcs+'\n—— 实力等级 ——\n综合战力：'+(gv('power-level')||'—')+'\n存在值EP：'+(gv('ep-value')||'—')+'\n备注：'+(gv('power-note')||'—')+'\n—— 入圈原因 ——\n'+reason+'\n—— 外貌与性情 ——\n外貌：'+(gv('char-appearance')||'—')+'\n性格：'+(gv('char-personality')||'—')+'\n爱好：'+(gv('char-hobby')||'—')+'\n—— 随身携带 ——\n'+(gv('char-belongings')||'—')+'\n—— 背景故事 ——\n'+(gv('char-background')||'—')+'\n—— 当前处境 ——\n'+(gv('char-scene')||'—')+'\n—— 掌握能力 ——\n'+(abLines.length?abLines.join('\n'):'—')+'\n—— 命运三重底色 ——\n'+talentText+cusTl+(gv('canon-supplement')?'\n—— 扮演补充 ——\n'+gv('canon-supplement'):'')+'\n'+sep+'\n      TENSEI SLIME · 転生史莱姆\n'+sep;
+document.getElementById('preview-box').textContent=p;
+}
+// --- Copy ---
+function copyPreview(){
+const text=document.getElementById('preview-box').textContent;
+const btn=document.querySelector('.copy-btn');
+const done=()=>{const o=btn.textContent;btn.textContent='已 · 复 · 制';setTimeout(()=>btn.textContent=o,2000);};
+if(navigator.clipboard){navigator.clipboard.writeText(text).then(done).catch(()=>fallbackCopy(text,done));}
+else fallbackCopy(text,done);
+}
+function fallbackCopy(text,cb){
+const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();
+try{document.execCommand('copy');cb();}catch(e){}
+document.body.removeChild(ta);
+}
+// ==================== INIT ====================
+window.addEventListener('DOMContentLoaded',()=>{
+buildCanonFlat();
+renderChapters();
+renderCanonList();
+fillSelect('char-origin',originOptions,true);
+fillSelect('race',raceOptions,false);
+fillSelect('nation',nationOptions,false);
+fillSelect('social-class',classOptions,true);
+fillSelect('identity',identityOptions,true);
+fillSelect('faction',factionOptions,true);
+fillSelect('entry-reason',reasonOptions,false);
+renderAbilities();
+});
+</script>
+<script>
+const splash=document.getElementById('opening');
+splash.addEventListener('keydown',event=>{
+ if(event.key==='Enter'||event.key===' '){event.preventDefault();splash.click();}
+});
+if(parent!==window && new URLSearchParams(location.search).get('chat')==='1'){
+ const enter=document.getElementById('enter-chat');
+ enter.hidden=false;
+ enter.addEventListener('click',()=>{
+  generatePreview();
+  const text=document.getElementById('preview-box').textContent;
+  if(text.length>20000){alert('档案超过 20000 字，请精简后带入聊天。');return;}
+  parent.postMessage({type:'slime-opening',text},new URL(location.href).origin);
+ });
+}
+</script>
+</body>
+</html>
