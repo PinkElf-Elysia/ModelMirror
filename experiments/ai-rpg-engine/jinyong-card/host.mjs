@@ -1,3 +1,4 @@
+import {assembleWorldbook,versionHash,source as authorSystem} from './worldbook.mjs';
 import {beforeSpeechDescriptor} from '../studio/speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -28,17 +29,31 @@ export async function createJinyongHost(directory,control,{cardId,name,system,au
   const selected=transport?(await transport.catalog()).find(m=>m.available):models[0];
   if(!selected)throw fail('CARD_MODEL_UNAVAILABLE');
   const initial=modelPolicy.controlledChoice(selected),state=createCardState(modelPolicy);
-  const context=createJinyongContext({system,state});
-  const descriptor={format:5,cardId,mode,model:initial,systemHash,transportArtifacts,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const useWorldbook=system===authorSystem;
+  const context=createJinyongContext({system,state,selectSystem(session,input){
+    if(!session.runtime?.descriptor?.worldbookHash)return system;
+    const turns=[...(session.importedTurns||[]),...session.turns];
+    return assembleWorldbook({opening:session.characterText||turns[0]?.input||'',history:session.history,progress:turns.map(t=>t.input),input}).system;
+  }});
+  const descriptor={...(useWorldbook?{worldbookHash:versionHash()}:{}),format:5,cardId,mode,model:initial,systemHash,transportArtifacts,adapterHash:sha(await readFile(new URL(import.meta.url)))};
   const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){
+    if(useWorldbook&&versionHash()!==descriptor.worldbookHash)throw fail('RUNTIME_CHANGED');
     if(canonical(await artifacts())!==canonical(transportArtifacts))throw fail('RUNTIME_CHANGED');
   }};
+  // Old saves retain their original assembly. Match the entire descriptor,
+  // including every transport artifact, when admitting these exact predecessors.
+  const {worldbookHash:_binding,...base}=descriptor;
+  const candidates=[descriptor];
+  for(const [adapterHash,continuityHash] of [["73fa1c2d0842164ab806f0343b1d8ba09e9d40809b3b152d7309ecbb9ad2f8c7","de4353dbc31160b64a90141cacc30b30a0a8ed20fec7208438e616d277326b33"],["ce550aa2abbe2d42fef7713fb1ab29f5d30d7ffbd9124dbf38dceeb0fe4c0389","5f6fa9d0a13a3236c5556036cc808c33f0a1b2c40144234a075d4f3b31405a40"]]){
+    const previous={...base,adapterHash,transportArtifacts:{...transportArtifacts,'host.mjs':adapterHash,'continuity.mjs':continuityHash}};
+    candidates.push(previous,previousJinyongDescriptor(previous),beforeSpeechDescriptor(previous,'jinyong-card/host.mjs'));
+  }
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     // A catalog refresh may change only its revision. Sending still requires the
     // current exact selection; reading a reviewed save does not grant dispatch.
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return [descriptor,previousJinyongDescriptor(descriptor),beforeSpeechDescriptor(descriptor,'jinyong-card/host.mjs')].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
+    return candidates.some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){

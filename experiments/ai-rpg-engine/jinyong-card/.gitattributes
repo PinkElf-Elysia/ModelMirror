@@ -1,3 +1,7 @@
 *.html text eol=lf
 *.txt text eol=lf
 *.json text eol=lf
+
+# New archive bindings hash these adapter files by byte.
+host.mjs text eol=lf
+continuity.mjs text eol=lf
