@@ -1,0 +1,118 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {ContextStore} from './store.mjs';
+import {Parameters} from '../long-context/parameters.mjs';
+import {RevisionFixture,RevisionHost} from '../revisions/host.mjs';
+import {copy,digest} from '../revisions/contracts.mjs';
+import {source} from '../revisions/test-support.mjs';
+import {defaults} from './planner.mjs';
+const root=process.env.CHARACTER_R4B_TEST_ROOT??tmpdir();
+async function setup(t){
+  const s=source(), peer={...copy(s.current.members[1]),id:'peer',intervals:[{from:1,until:2},{from:4,until:null}]};
+  s.kind='group';s.initial.members.push(copy(peer));s.current.members.push(peer);
+  for(const m of s.messages)m.boundary=copy(s.current);
+  s.messages[4].visibility={kind:'limited',memberIds:['actor']};s.messages[1].content='约定地点为西堤';s.cards.peer=copy(s.cards.actor);
+  delete s.sourceHash;s.sourceHash=digest(s);
+  await mkdir(root,{recursive:true});const dir=await mkdtemp(join(root,'notes-'));
+  const opts={directory:join(dir,'store'),sources:{read:async()=>copy(s),verify:async()=>copy(s)},parameters:new Parameters({})};
+  let store=await ContextStore.open(opts);const provider=await RevisionFixture.open(join(dir,'fixture'));
+  t.after(async()=>{await store.close();await provider.close();});
+  const view=await store.importSource({operationId:'import',expectedRevision:null,reference:{kind:'context',familyId:'original',branchId:'branch'}});
+  const {id,branchId}=view;let seq=0;
+  const input=async p=>({operationId:'cmd-'+(++seq),expectedRevision:(await store.read(id)).revision,payload:{branchId,...p}});
+  const command=async(a,p)=>store.mutate(id,a,await input(p));
+  const panel=(actor='actor',bid=branchId)=>store.panel(id,bid,actor);
+  const draft=async(overrides={})=>{await command('draft',{actor:'actor',noteId:null,owner:null,kind:'summary',origin:'experience',refs:[{id:'m1',revisionId:'r1'}],content:'约定地点为西堤',mode:'fixed',words:[],...overrides});return (await panel(overrides.actor??'actor',overrides.branchId??branchId)).records.findLast(n=>n.status==='draft');};
+  const preview=async(actor='actor',extra={})=>store.preview(id,await input({kind:'send',targetId:actor,input:null,settings:null,...extra}));
+  return {id,branchId,opts,command,draft,panel,preview,input,provider,get store(){return store;},restart:async()=>{await store.close();store=await ContextStore.open(opts);}};
+}
+test('absence, explicit tell, branch correction, frozen request and restart',async t=>{
+ const h=await setup(t),n=await h.draft();
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});
+ assert.match(JSON.stringify((await h.preview()).plan.messages),/西堤/);
+ assert.doesNotMatch(JSON.stringify(await h.preview('peer')),/西堤|derived-secret/);
+ assert.doesNotMatch(JSON.stringify(await h.panel('peer')),/西堤|derived-secret/);
+ const tell=await h.input({actor:'actor',noteId:n.noteId,content:'集合地点是西堤'});
+ await h.store.mutate(h.id,'tell',tell);await h.store.mutate(h.id,'tell',tell);
+ assert.equal(h.provider.dispatchCount,0);
+ const peer=await h.panel('peer'),announcement=peer.messages.filter(m=>m.content==='集合地点是西堤');
+ assert.equal(announcement.length,1);assert.equal(peer.records.some(r=>r.noteId===n.noteId),false);
+ const opts=await h.input({kind:'send',input:null,targetId:'peer',settings:null});
+ const before=await h.store.preview(h.id,opts);assert.match(JSON.stringify(before.plan.messages),/集合地点是西堤/);
+ const host=new RevisionHost(h.store,h.provider);await host.generate(h.id,{...opts,previewHash:before.previewHash});
+ const old=Object.values((await h.store.read(h.id)).requests)[0];
+ await h.command('fork',{messageId:announcement[0].id,title:'更正集合地点'});
+ const child=Object.values((await h.store.read(h.id)).branches).at(-1);
+ const edit=await h.draft({branchId:child.id,noteId:n.noteId,content:'改在东桥集合',origin:'author',refs:[]});
+ await h.command('adopt',{actor:'actor',branchId:child.id,noteId:edit.noteId});
+ assert.match(JSON.stringify((await h.preview('actor',{branchId:child.id})).plan.messages),/东桥/);
+ assert.doesNotMatch(JSON.stringify((await h.preview()).plan.messages),/东桥/);
+ await h.restart();assert.deepEqual((await h.store.contextPlan(h.id,old.id)).plan,before.plan);
+ assert.equal(h.provider.dispatchCount,1);
+});
+test('keywords use NFKC, exclude old window, preserve settings, reject stale preview and revisions',async t=>{
+ const h=await setup(t),n=await h.draft({kind:'memory',origin:'author',refs:[],mode:'keyword',words:['ＦＯＯ','西堤'],content:'关键词资料标识'});
+ const stale=await h.input({kind:'send',targetId:'actor',input:'Foo',settings:null});const old=await h.store.preview(h.id,stale);
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});
+ await assert.rejects(h.store.mutate(h.id,'prepare',{...stale,previewHash:old.previewHash}),/REVISION_CONFLICT/);
+ const settings={policy:{...defaults(),historyLimit:0},parameters:{modelId:'fixture',values:{}}};
+ assert.doesNotMatch(JSON.stringify((await h.preview('actor',{settings})).plan.messages),/关键词资料标识/);
+ const result=await h.preview('actor',{settings,input:'FOO'});assert.match(JSON.stringify(result.plan.messages),/关键词资料标识/);
+ assert.deepEqual(result.plan.trace.find(x=>x.id===n.noteId).hits,['foo']);
+ await h.command('disable',{actor:'actor',noteId:n.noteId});assert.doesNotMatch(JSON.stringify((await h.preview('actor',{input:'foo'})).plan.messages),/关键词资料标识/);
+});
+test('draft collision, invisible source, public author background and anchored fork',async t=>{
+ const h=await setup(t);
+ await assert.rejects(h.draft({actor:'peer'}),/MEMORY_SOURCE_CHANGED/);
+ const n=await h.draft({origin:'author',refs:[],content:'共享背景'});
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});
+ assert.match(JSON.stringify(await h.preview('peer')),/共享背景/);
+ const privateNote=await h.draft({owner:'actor',origin:'author',refs:[],content:'私有船票'});
+ await h.command('adopt',{actor:'actor',noteId:privateNote.noteId});
+ assert.doesNotMatch(JSON.stringify(await h.panel('peer')),/私有船票/);
+ await h.command('fork',{messageId:'m1',title:'更早的位置'});
+ const child=Object.values((await h.store.read(h.id)).branches).at(-1);
+ assert.doesNotMatch(JSON.stringify(await h.panel('actor',child.id)),/共享背景|私有船票/);
+});
+
+test('restricted evidence cannot become public, concurrent writers and duplicate operations',async t=>{
+ const h=await setup(t);
+ await assert.rejects(h.draft({refs:[{id:'m4',revisionId:'r4'}]}),/MEMORY_PRIVATE_SOURCE/);
+ const n=await h.draft({owner:'actor',refs:[{id:'m4',revisionId:'r4'}]});
+ const op=await h.input({actor:'actor',noteId:n.noteId});
+ const first=await h.store.mutate(h.id,'adopt',op);
+ const twice=await h.store.mutate(h.id,'adopt',op);assert.equal(twice.duplicate,true);
+ await assert.rejects(h.store.mutate(h.id,'disable',op),/OPERATION_COLLISION/);
+ await assert.rejects(h.store.mutate(h.id,'disable',{...op,operationId:'other'}),/REVISION_CONFLICT/);
+ assert.equal((await h.store.read(h.id)).revision,first.view.revision);
+});
+
+test('unresolved request holds reservation and blocks changes across restart; recover adopts once',async t=>{
+ const h=await setup(t);
+ const n=await h.draft({origin:'author',refs:[],mode:'fixed',content:'冻结资料'});
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});
+ const w=await h.input({kind:'send',targetId:'actor',input:'继续',settings:null});
+ const preview=await h.store.preview(h.id,w);
+ h.provider.fault=async phase=>{if(phase==='afterReceipt')throw Error('simulated interruption');};
+ await new RevisionHost(h.store,h.provider).generate(h.id,{...w,previewHash:preview.previewHash});
+ const r=Object.values((await h.store.read(h.id)).requests)[0];assert.equal(r.status,'unknown');
+ await h.restart();await assert.rejects(h.command('disable',{actor:'actor',noteId:n.noteId}),/REVISION_CONFLICT/);
+ const host=new RevisionHost(h.store,h.provider);await host.recover(h.id,r.id);await host.recover(h.id,r.id);
+ const f=await h.store.read(h.id);assert.equal(f.usedCalls,1);assert.equal(h.provider.dispatchCount,1);
+ assert.deepEqual(f.requests[r.id].context,preview.plan.messages);assert.equal(Object.keys(f.candidates).length,1);
+});
+test('capacity drops whole optional note, fixed notes refuse before dispatch, exact regeneration stays frozen',async t=>{
+ const h=await setup(t);
+ let n=await h.draft({origin:'author',refs:[],mode:'keyword',words:['继续'],content:'水'.repeat(16000)});
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});
+ const preview=await h.preview('actor',{input:'继续'});
+ assert.equal(preview.plan.trace.find(x=>x.id===n.noteId).reason,'容量不足');
+ assert.equal(preview.plan.messages.some(m=>m.content.includes('水'.repeat(16))),false);
+ n=await h.draft({origin:'author',refs:[],mode:'fixed',content:'水'.repeat(16000),noteId:n.noteId});
+ await h.command('adopt',{actor:'actor',noteId:n.noteId});await assert.rejects(h.preview(),/EXCEEDS_CAPACITY/);
+ const w=await h.input({kind:'regenerate',messageId:'m2',settings:null}),exact=await h.store.preview(h.id,w);
+ assert.deepEqual(exact.plan.messages,[{role:'user',content:'想听故事'}]);assert.equal(h.provider.dispatchCount,0);
+});

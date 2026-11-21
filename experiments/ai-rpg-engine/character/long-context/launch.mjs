@@ -14,7 +14,13 @@ if(refs.length>=2){
  const player={id:null,name:'续写体验员（中性夹具）'},s=await workspace.single.create({operationId:'r3b-tutorial-single',reference:refs[0],openingIndex:0,player});
  if(!s.turns){await workspace.single.send(s.id,{operationId:'tutorial-turn',expectedRevision:s.revision,input:'我提议先坐在茶亭里聊一聊。'});await workspace.single.wait(s.id);}
  const created=await store.create({operationId:'r3b-tutorial-group',expectedRevision:null,payload:{player,scene:'河边茶亭，大家还在商量下一步。',members:refs.slice(0,2).map(reference=>({reference,modelId:'fixture'})),opening:{memberIndex:0,kind:'ordinary',index:0},budget:{calls:12,microUsd:100000}}});const g=await store.read(created.id);
- if(g.messages.length===1)await groupHost.send(g.id,{operationId:'tutorial-turn',expectedRevision:g.revision,payload:{targetId:g.members[1].id,input:'我提议去河边看看，还没有出发。'}});
+ if(process.argv.includes('--manual-memory') && g.messages.length===1){
+   const away=g.members[2].id;
+   const change=async action=>store.change(g.id,action,{operationId:'demo-'+action,expectedRevision:(await store.read(g.id)).revision,payload:{memberId:away}});
+   await change('leave');
+   await groupHost.send(g.id,{operationId:'demo-location',expectedRevision:(await store.read(g.id)).revision,payload:{targetId:g.members[1].id,input:'我们约好在西堤集合。'}});
+   await change('rejoin');
+ }else if(g.messages.length===1)await groupHost.send(g.id,{operationId:'tutorial-turn',expectedRevision:g.revision,payload:{targetId:g.members[1].id,input:'我提议去河边看看，还没有出发。'}});
 }
 const sources=new LegacySources({workspace,singleDirectory:join(dir,'studio','character','sessions'),groupDirectory:join(dir,'groups')}),revisions=await RevisionStore.open({directory:join(dir,'revisions'),sources,recoverDeadOwner}),fixture=await RevisionFixture.open(join(dir,'revision-fixture'),{recoverDeadOwner}),host=new RevisionHost(revisions,fixture),coordinator=new RevisionCoordinator(revisions,sources);
 // The trusted composition gate serializes old sends and revision operations.
@@ -24,6 +30,21 @@ const page=await startRevisionServer({store:revisions,host,sources,coordinator,p
 const contextSources=new Sources(sources,revisions),contextStore=await ContextStore.open({directory:join(dir,'long-context'),sources:contextSources,parameters:new Parameters({}),recoverDeadOwner}),contextHost=new RevisionHost(contextStore,fixture);
 workspace.single.send=(id,input)=>coordinator.run(async()=>{await contextStore.guardLegacy('single',id);await revisions.guardLegacy('single',id);return originalSingle(id,input);});groupHost.send=(id,input)=>coordinator.run(async()=>{await contextStore.guardLegacy('group',id);await revisions.guardLegacy('group',id);return originalGroup(id,input);});
 const oldGenerate=host.generate.bind(host);host.generate=async(fid,input)=>{const f=await revisions.read(fid);await contextStore.guardLegacy(f.source.kind,f.source.id);return oldGenerate(fid,input);};
-const longPage=await startContextServer({store:contextStore,host:contextHost,sources:contextSources,coordinator,port:port+3,charactersUrl:studio.origin+'/characters',groupsUrl:groups.origin+'/groups',revisionsUrl:page.origin+'/revisions'});
-console.log(JSON.stringify({context:longPage.origin+'/revisions',characters:studio.origin+'/characters?revisions='+encodeURIComponent(longPage.origin+'/revisions'),groups:groups.origin+'/groups?revisions='+encodeURIComponent(longPage.origin+'/revisions'),revisions:page.origin+'/revisions',realCalls:0,mode:'fixture'}));
-for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await longPage.close();await contextStore.close();await page.close();await revisions.close();await fixture.close();await groups.close();await store.close();await provider.close();await studio.close();await workspace.close();process.exit(0);});
+const enableMemory=process.argv.includes('--manual-memory');
+const memoryUrl=enableMemory?'http://127.0.0.1:'+(port+4)+'/revisions':null;
+const longPage=await startContextServer({store:contextStore,host:contextHost,sources:contextSources,coordinator,memoryUrl,port:port+3,charactersUrl:studio.origin+'/characters',groupsUrl:groups.origin+'/groups',revisionsUrl:page.origin+'/revisions'});
+let manual=null;
+if(enableMemory){
+ const {attachMemory}=await import('../manual-memory/attach.mjs');
+ for(const s of (await contextSources.list()).filter(s=>s.kind==='group'||s.kind==='single')){
+   await contextStore.importSource({operationId:'memory-tutorial-'+s.id,expectedRevision:null,reference:s.reference});
+ }
+ manual=await attachMemory({directory:join(dir,'manual-memory'),previous:{store:contextStore,host:contextHost},
+   parameters:new Parameters({}),provider:fixture,coordinator,lower:contextSources,recoverDeadOwner,
+   legacyHosts:[{obj:workspace.single,method:'send',source:id=>({kind:'single',id})},
+     {obj:groupHost,method:'send',source:id=>({kind:'group',id})},
+     {obj:host,method:'generate',source:async id=>(await revisions.read(id)).source}],
+   charactersUrl:studio.origin+'/characters',groupsUrl:groups.origin+'/groups',revisionsUrl:longPage.origin+'/revisions',port:port+4});
+}
+console.log(JSON.stringify({memoryUrl,context:longPage.origin+'/revisions',characters:studio.origin+'/characters?revisions='+encodeURIComponent(longPage.origin+'/revisions'),groups:groups.origin+'/groups?revisions='+encodeURIComponent(longPage.origin+'/revisions'),revisions:page.origin+'/revisions',realCalls:0,mode:'fixture'}));
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,async()=>{await manual?.close();await longPage.close();await contextStore.close();await page.close();await revisions.close();await fixture.close();await groups.close();await store.close();await provider.close();await studio.close();await workspace.close();process.exit(0);});
