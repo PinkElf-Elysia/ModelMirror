@@ -64,9 +64,36 @@ test('only adopted candidate advances the native variable panel and unlocks its 
 });
 
 test('formal HTTP runs no more than two providers and early adoption waits for the remaining candidates',async t=>{
- const f=await fixture(t);await f.fault({delay:1});const intent=await f.intent();intent.candidates.push({id:'c',choice:await f.selection('story',.6)},{id:'d',choice:await f.selection('story',.7)});const b=await f.comparison.create(intent);let seen;
- for(let n=0;n<600;n++){seen=await f.comparison.read(f.id,b.plan.id);if(seen.tasks[0].state==='completed')break;await new Promise(r=>setTimeout(r,25));}assert.equal(seen.tasks[0].state,'completed');assert.ok(seen.tasks.some(t=>!['completed','released'].includes(t.state)));
- const picked=await f.comparison.adopt(f.id,b.plan.id,{operationId:'early',expectedContextRevision:seen.context.contextRevision,candidateId:'a'});assert.equal((await f.host.read(f.id)).session.turns.length,1);assert.notEqual(picked.status,'settled');await assert.rejects(f.host.comparisonInspect(f.id));await f.comparison.wait(f.id,b.plan.id);const final=await f.comparison.read(f.id,b.plan.id);assert.equal(final.status,'settled');const evidence=await f.evidence();assert.equal(evidence.calls.length,4);assert.equal(evidence.maximum,2);assert.equal((await f.host.read(f.id)).session.turns.length,1);
+ const f=await fixture(t);
+ const intent=await f.intent();
+ intent.candidates.push({id:'c',choice:await f.selection('story',.6)},{id:'d',choice:await f.selection('story',.7)});
+ await f.fault({heldTemperatures:[.9,.6,.7]});
+ const b=await f.comparison.create(intent);
+ try {
+  let seen,active;
+  for(let n=0;n<600;n++){
+   seen=await f.comparison.read(f.id,b.plan.id);
+   active=(await f.evidence()).active;
+   if(seen.tasks[0].state==='completed' && active===2)break;
+   await new Promise(r=>setTimeout(r,25));
+  }
+  assert.equal(seen.tasks[0].state,'completed');
+  assert.equal(active,2);
+  assert.ok(seen.tasks.some(task=>!['completed','released'].includes(task.state)));
+  const picked=await f.comparison.adopt(f.id,b.plan.id,{operationId:'early',expectedContextRevision:seen.context.contextRevision,candidateId:'a'});
+  assert.equal((await f.host.read(f.id)).session.turns.length,1);
+  assert.notEqual(picked.status,'settled');
+  await assert.rejects(f.host.comparisonInspect(f.id));
+ } finally {
+  await f.fault({heldTemperatures:[]});
+ }
+ await f.comparison.wait(f.id,b.plan.id);
+ const final=await f.comparison.read(f.id,b.plan.id);
+ assert.equal(final.status,'settled');
+ const evidence=await f.evidence();
+ assert.equal(evidence.calls.length,4);
+ assert.equal(evidence.maximum,2);
+ assert.equal((await f.host.read(f.id)).session.turns.length,1);
 });
 
 

@@ -25,11 +25,11 @@
 
 新建“雾港来信”，简介写“沿着一封来信，在港口寻找失散的朋友。”，没有封面也能发布并显示入口。
 
-![内置作品与本地发布作品使用相同尺寸的卡片，没有封面的作品显示自动配色的文字封面](/help-center/45ee30b5/rpg-library-desktop-20261113.jpg)
+![内置作品与本地发布作品使用相同尺寸的卡片，没有封面的作品显示自动配色的文字封面](/help-center/45ee30b5/rpg-library-desktop-20261113.png)
 
 ![发布作品直接进入完整开局页，顶部提供返回故事馆、角色开局、模型和对话入口](/help-center/0cb019df/rpg-published-player.png)
 
-![390px 手机布局，整张横向卡片都可以点击](/help-center/45ee30b5/rpg-library-mobile-20261113.jpg)
+![390px 手机布局，整张横向卡片都可以点击](/help-center/45ee30b5/rpg-library-mobile-20261113.png)
 
 ## 常见问题
 

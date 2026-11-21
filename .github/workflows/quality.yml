@@ -32,9 +32,12 @@ jobs:
           cache: npm
           cache-dependency-path: |
             client/package-lock.json
+            experiments/ai-rpg-engine/package-lock.json
             experiments/ai-rpg-engine/card-replica/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Install shared RPG renderer dependencies
+        run: npm ci --prefix ../experiments/ai-rpg-engine
       - name: Install embedded RPG frontend dependencies
         run: npm ci --prefix ../experiments/ai-rpg-engine/card-replica
       - name: Type-check frontend

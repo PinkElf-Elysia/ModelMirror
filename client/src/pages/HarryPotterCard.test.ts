@@ -22,7 +22,7 @@ it('reduced-motion users reach the six-tab card without a blocking overlay',()=>
   expect(doc.getElementById('opening')!.style.display).toBe('none');
   expect(doc.getElementById('main')!.classList.contains('active')).toBe(true);
   expect([...doc.querySelectorAll('.tab-btn')].map(el=>el.textContent)).toEqual(['世界','作品','角色','能力','命运','此生']);
-  expect(doc.getElementById('open-chat')!.hidden).toBe(true,'standalone card cannot send a message to an unrelated window');
+  expect(doc.getElementById('open-chat')!.hidden,'standalone card cannot send a message to an unrelated window').toBe(true);
 });
 
 it('custom magic and fate names remain literal text in both lists and preview',()=>{
