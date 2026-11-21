@@ -3416,6 +3416,8 @@ class ChatRequest(BaseModel):
 
 class OpenRouterDecisionRequest(BaseModel):
     model: Literal[
+        "baseten/groundhog-1",
+        "baseten/bison-1",
         "microsoft/microsoft-decision-1.1",
         "liquid/d1.2-ultra",
         "liquid/d1.2",

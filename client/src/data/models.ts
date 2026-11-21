@@ -1,4 +1,4 @@
-// Merged with OpenRouter model catalog on 2026-11-19T03:15:34.534Z.
+// Merged with OpenRouter model catalog on 2026-11-21T16:45:42.107Z.
 // Targeted OpenRouter refresh verified on 2026-09-01 against the live all-modalities catalog.
 // Gemini 3.8 Flash, its Batch tier and Muse Spark 1.3 variants added on 2026-09-03.
 // Microsoft MAI-Transcribe 2 contract added on 2026-09-03.
@@ -225,6 +225,293 @@ interface RawCatalogModel {
 }
 
 const rawCatalogModels: RawCatalogModel[] = [
+  {
+    "id": "thinkingmachines/inkling-2-mini",
+    "canonical_slug": "thinkingmachines/inkling-2-mini-20261120",
+    "name": "Thinking Machines: Inkling 2 Mini",
+    "raw_description": "Inkling 2 Mini is an open-weight multimodal looped transformer from Thinking Machines Lab, with 3.4B active parameters out of 26.4B total (MoE). Its middle layers run three times with shared...",
+    "context_length": 1048576,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0.39999999999999997
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logprobs",
+      "max_completion_tokens",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
+    ],
+    "created": 1795227585,
+    "expiration_date": null,
+    "model_author": "Thinkingmachines",
+    "reasoning_declared": true
+  },
+  {
+    "id": "radixark/daisyrose-27b",
+    "canonical_slug": "radixark/daisyrose-27b-20261120",
+    "name": "RadixArk: DaisyRose 27B",
+    "raw_description": "DaisyRose 27B is an open-weight multimodal reasoning model from RadixArk, trained from [Qwen3.8 27B](https://openrouter.ai/qwen/qwen3.8-27b) using reinforcement learning only on long-horizon agent tasks, with no supervised fine-tuning or distillation. It is...",
+    "context_length": 262144,
+    "pricing": {
+      "input": 0.15,
+      "output": 1.875
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Qwen",
+    "supported_parameters": [
+      "frequency_penalty",
+      "include_reasoning",
+      "logit_bias",
+      "max_tokens",
+      "min_p",
+      "presence_penalty",
+      "reasoning",
+      "reasoning_effort",
+      "repetition_penalty",
+      "response_format",
+      "seed",
+      "stop",
+      "structured_outputs",
+      "temperature",
+      "tool_choice",
+      "tools",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1795222188,
+    "expiration_date": null,
+    "model_author": "RadixArk",
+    "reasoning_declared": true
+  },
+  {
+    "id": "perplexity/pplx-embed-v2-context-0.6b",
+    "canonical_slug": "perplexity/pplx-embed-v2-context-0.6b-20261120",
+    "name": "Perplexity: Embed V2 Context 0.6B",
+    "raw_description": "pplx-embed-v2-context-0.6b is a compact multimodal contextual embedding model from Perplexity for retrieval over text, images, and visual documents. It is the cost-efficient sibling of [pplx-embed-v2-context-9b](https://openrouter.ai/perplexity/pplx-embed-v2-context-9b) and is suited for high-volume...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.02,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1795210496,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "多模态上下文向量模型，默认 1024 维；当前复用知识库文字向量检索入口，图片与上下文分块检索尚未适配。上游文本输入 $0.02/M Token、图片输入 $0.40/M Token；未执行真实调用。"
+  },
+  {
+    "id": "perplexity/pplx-embed-v2-context-9b",
+    "canonical_slug": "perplexity/pplx-embed-v2-context-9b-20261120",
+    "name": "Perplexity: Embed V2 Context 9B",
+    "raw_description": "pplx-embed-v2-context-9b is a multimodal contextual embedding model from Perplexity for retrieval over text, images, and visual documents. It is the larger of the two v2 context models and is suited...",
+    "context_length": 32000,
+    "pricing": {
+      "input": 0.12,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "embeddings"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1795210495,
+    "expiration_date": null,
+    "model_author": "Perplexity",
+    "note": "多模态上下文向量模型，默认 2048 维（支持 1024 维前缀与 0.6B 共享空间）；当前复用知识库文字向量检索入口，图片与上下文分块检索尚未适配。上游文本输入 $0.12/M Token、图片输入 $0.42/M Token；未执行真实调用。"
+  },
+  {
+    "id": "baseten/groundhog-1",
+    "canonical_slug": "baseten/groundhog-1-20261120",
+    "name": "Baseten: Groundhog 1",
+    "raw_description": "Groundhog 1 is a decision model from Base Labs, Baseten's research team, built on Gemma 4 26B A4B, a mixture-of-experts model with 4B active parameters. Given a state (text, JSON,...",
+    "context_length": 16384,
+    "pricing": {
+      "input": 0.035,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1795210420,
+    "expiration_date": null,
+    "model_author": "Baseten",
+    "note": "结构化决策专用入口，兼容 TypeSafe System One，当前仅开放文字状态；图片状态尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "baseten/bison-1",
+    "canonical_slug": "baseten/bison-1-20261120",
+    "name": "Baseten: Bison 1",
+    "raw_description": "Bison 1 is a 31B decision model from Base Labs, Baseten's research team, built on Gemma 4 31B. Given a state (text, JSON, or images) and typed questions (yes/no, multiple...",
+    "context_length": 32768,
+    "pricing": {
+      "input": 0.09999999999999999,
+      "output": 0
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "decisions"
+    ],
+    "tokenizer": "Other",
+    "supported_parameters": [],
+    "created": 1795210416,
+    "expiration_date": null,
+    "model_author": "Baseten",
+    "note": "结构化决策专用入口，兼容 TypeSafe System One，当前仅开放文字状态；图片状态尚未适配。未执行真实调用。"
+  },
+  {
+    "id": "qwen/qwen3-tts-1.7b",
+    "canonical_slug": "qwen/qwen3-tts-1.7b",
+    "name": "Qwen: Qwen3 TTS 1.7B",
+    "raw_description": "Qwen3 TTS is a multilingual text-to-speech model from Alibaba's Qwen team. It converts text to speech across 10 languages — English, Chinese, Japanese, Korean, German, French, Russian, Spanish, Italian, and...",
+    "context_length": 4096,
+    "pricing": {
+      "input": 20,
+      "output": 0
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Qwen3",
+    "supported_parameters": [],
+    "created": 1795146153,
+    "expiration_date": null,
+    "model_author": "Qwen",
+    "note": "专用文字转语音，开放目录公布的 9 个预设声线，$20/百万字符，支持中英日韩等 10 种语言与 MP3 输出；未执行真实调用，等待人工验证。",
+    "pricing_basis_override": "media",
+    "media_pricing": {
+      "unit": "character_million",
+      "usd": 20
+    }
+  },
+  {
+    "id": "google/gemini-2.5-pro-tts",
+    "canonical_slug": "google/gemini-2.5-pro-tts",
+    "name": "Google: Gemini 2.5 Pro TTS",
+    "raw_description": "Gemini 2.5 Pro TTS is a text-to-speech model from Google. It turns text into single-speaker or multi-speaker audio, with style, pace, and tone steered by natural-language instructions in the prompt,...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 1,
+      "output": 20
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1795135870,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "OpenRouter 专用 /audio/speech 契约：支持目录公开的 30 个 Gemini 声线，当前以 PCM 请求并封装为 WAV 下载；输入 $1/M 文本 Token、输出 $20/M 音频 Token。契约已接入，真实短音频仍待本地人工验收。"
+  },
+  {
+    "id": "google/gemini-2.5-flash-tts",
+    "canonical_slug": "google/gemini-2.5-flash-tts",
+    "name": "Google: Gemini 2.5 Flash TTS",
+    "raw_description": "Gemini 2.5 Flash TTS is a text-to-speech model from Google. It turns text into single-speaker or multi-speaker audio, with style, pace, and tone steered by natural-language instructions in the prompt,...",
+    "context_length": 8192,
+    "pricing": {
+      "input": 0.5,
+      "output": 10
+    },
+    "input_modalities": [
+      "text"
+    ],
+    "output_modalities": [
+      "speech"
+    ],
+    "tokenizer": "Gemini",
+    "supported_parameters": [],
+    "created": 1795135869,
+    "expiration_date": null,
+    "model_author": "Google",
+    "note": "OpenRouter 专用 /audio/speech 契约：支持目录公开的 30 个 Gemini 声线，当前以 PCM 请求并封装为 WAV 下载；输入 $0.50/M 文本 Token、输出 $10/M 音频 Token。契约已接入，真实短音频仍待本地人工验收。"
+  },
+  {
+    "id": "mistralai/pixtral-large-2502",
+    "canonical_slug": "mistralai/pixtral-large-2502",
+    "name": "Mistral: Pixtral Large 2502",
+    "raw_description": "Pixtral Large 2502 is the February 2025 version of Mistral AI's large multimodal model, following [Pixtral Large 2411](https://openrouter.ai/mistralai/pixtral-large-2411). It accepts text and image input, including documents, charts, and natural images,...",
+    "context_length": 128000,
+    "pricing": {
+      "input": 2,
+      "output": 6
+    },
+    "input_modalities": [
+      "text",
+      "image"
+    ],
+    "output_modalities": [
+      "text"
+    ],
+    "tokenizer": "Mistral",
+    "supported_parameters": [
+      "max_tokens",
+      "stop",
+      "temperature",
+      "top_k",
+      "top_p"
+    ],
+    "created": 1795135865,
+    "expiration_date": null,
+    "model_author": "Mistral AI"
+  },
   {
     "id": "google/gemini-4-neon",
     "canonical_slug": "google/gemini-4-neon-20261118",
@@ -841,13 +1128,14 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "HeyGen Decision 1 Turbo is a lower-cost variant of [HeyGen Decision 1](/heygen/heygen-decision-1) from HeyGen, with the same question types (`noul`, `choice`, and `score`) over text, images, and video. It suits...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.09,
+      "input": 0.042000000003,
       "output": 0
     },
     "input_modalities": [
       "text",
       "image",
-      "video"
+      "video",
+      "audio"
     ],
     "output_modalities": [
       "decisions"
@@ -863,15 +1151,16 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "heygen/heygen-decision-1-20261112",
     "name": "HeyGen: HeyGen Decision",
     "raw_description": "HeyGen Decision 1 is a decision model from HeyGen. It reads text, images, and video and answers a set of named questions in one request, returning typed answers with probabilities:...",
-    "context_length": 131072,
+    "context_length": 262144,
     "pricing": {
-      "input": 0.14,
+      "input": 0.07,
       "output": 0
     },
     "input_modalities": [
       "text",
       "image",
-      "video"
+      "video",
+      "audio"
     ],
     "output_modalities": [
       "decisions"
@@ -1007,7 +1296,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Speechify's recommended streaming text-to-speech model, covering 48 languages including English under one model, with the language chosen per request.",
     "context_length": 0,
     "pricing": {
-      "input": 15,
+      "input": 11.25,
       "output": 0
     },
     "input_modalities": [
@@ -1021,11 +1310,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "created": 1794421740,
     "expiration_date": null,
     "model_author": "Speechify",
-    "note": "专用文字转语音，开放目录公布的 20 个预设声线，$15/百万字符；多语种按请求自动识别或选择，未执行真实调用，等待人工验证。",
+    "note": "专用文字转语音，开放目录公布的 20 个预设声线，$11.25/百万字符；多语种按请求自动识别或选择，未执行真实调用，等待人工验证。",
     "pricing_basis_override": "media",
     "media_pricing": {
       "unit": "character_million",
-      "usd": 15
+      "usd": 11.25
     }
   },
   {
@@ -1190,8 +1479,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-stt-2.0",
     "canonical_slug": "x-ai/grok-stt-2.0-20260918",
-    "name": "SpaceXAI: Grok STT 2.0",
-    "raw_description": "Grok STT 2.0 is a speech-to-text model from SpaceXAI and the successor to Grok STT 1.0. It is suited for transcription workloads that need word-level timestamps, optional speaker diarization, and...",
+    "name": "SpaceXSI: Grok STT 2.0",
+    "raw_description": "Grok STT 2.0 is a speech-to-text model from SpaceXSI and the successor to Grok STT 1.0. It is suited for transcription workloads that need word-level timestamps, optional speaker diarization, and...",
     "context_length": 0,
     "pricing": {
       "input": 27.777777777799997,
@@ -1943,17 +2232,26 @@ const rawCatalogModels: RawCatalogModel[] = [
     ],
     "tokenizer": "Other",
     "supported_parameters": [
+      "frequency_penalty",
       "include_reasoning",
+      "logit_bias",
+      "logprobs",
       "max_completion_tokens",
       "max_tokens",
+      "min_p",
+      "presence_penalty",
       "reasoning",
       "reasoning_effort",
+      "repetition_penalty",
       "response_format",
       "stop",
       "structured_outputs",
       "temperature",
       "tool_choice",
-      "tools"
+      "tools",
+      "top_k",
+      "top_logprobs",
+      "top_p"
     ],
     "created": 1793766031,
     "expiration_date": null,
@@ -2387,7 +2685,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Particle-1 is a token-efficient agentic coding model from Particle AI, post-trained on DeepSeek V4.1 Flash. It is suited for software engineering work such as terminal workflows, codebase changes, and data...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.06,
+      "input": 0.07,
       "output": 0.5
     },
     "input_modalities": [
@@ -3083,8 +3381,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M3.1-Flash is a multimodal model from MiniMax. Compared with M3, it delivers significant improvements across multiple benchmarks, particularly in complex agentic tasks, coding, and cybersecurity. It is built for complex,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6,
+      "input": 0.075,
+      "output": 0.3,
       "time_overrides": [
         {
           "utc_start": 1500,
@@ -3178,8 +3476,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2,
+      "input": 0.15,
+      "output": 0.6,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -3866,7 +4164,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1048576,
     "pricing": {
       "input": 0.15,
-      "output": 0.5
+      "output": 0.47
     },
     "input_modalities": [
       "text",
@@ -5131,8 +5429,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Ling 3.1 Flash is a hybrid reasoning mixture-of-experts model from inclusionAI, with 25B active parameters out of 560B total.",
     "context_length": 1000000,
     "pricing": {
-      "input": 0.045,
-      "output": 0.135
+      "input": 0.06,
+      "output": 0.18
     },
     "input_modalities": [
       "text"
@@ -6786,7 +7084,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "xiaomi/mimo-v2.6-flash-20260921",
     "name": "Xiaomi: MiMo-V2.6-Flash",
     "raw_description": "MiMo-V2.6-Flash is an open-source foundation model developed by Xiaomi. Built on a Mixture-of-Experts architecture with 309B total parameters and 15B activated per token, it employs a hybrid attention mechanism for...",
-    "context_length": 1050000,
+    "context_length": 1048576,
     "pricing": {
       "input": 0.14,
       "output": 0.28
@@ -6833,7 +7131,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "canonical_slug": "xiaomi/mimo-v2.6-pro-20260921",
     "name": "Xiaomi: MiMo-V2.6-Pro",
     "raw_description": "MiMo-V2.6-Pro is the flagship foundation model developed by Xiaomi. Built at a scale of over 1T parameters, it is designed to push the ceiling of capability for the most demanding...",
-    "context_length": 1050000,
+    "context_length": 1048576,
     "pricing": {
       "input": 0.435,
       "output": 0.87
@@ -6877,8 +7175,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.7",
     "canonical_slug": "x-ai/grok-4.7-20260916",
-    "name": "SpaceXAI: Grok 4.7",
-    "raw_description": "Grok 4.7 is SpaceXAI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
+    "name": "SpaceXSI: Grok 4.7",
+    "raw_description": "Grok 4.7 is SpaceXSI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
     "context_length": 500000,
     "pricing": {
       "input": 2,
@@ -7203,8 +7501,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.035,
-      "output": 0.15
+      "input": 0.036,
+      "output": 0.5
     },
     "input_modalities": [
       "text",
@@ -7716,8 +8014,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.3,
-      "output": 1.2
+      "input": 0.049800000000000004,
+      "output": 0.19920000000000002
     },
     "input_modalities": [
       "text",
@@ -8565,8 +8863,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Tencent: Hy4 preview is a mixture-of-experts model from Tencent, with 49B active parameters out of 770B total. It is designed for coding agents, complex tool-use workflows, and productivity tasks that...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.834,
-      "output": 2.501,
+      "input": 0.7505999999999999,
+      "output": 2.2509,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -8593,7 +8891,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_completion_tokens",
       "max_tokens",
       "min_p",
@@ -8609,7 +8906,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1787897375,
@@ -8846,8 +9142,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.15,
-      "output": 0.5
+      "input": 0.0399,
+      "output": 0.0784
     },
     "input_modalities": [
       "text",
@@ -9130,8 +9426,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash Vision Exp is an experimental vision-enabled version of [DeepSeek V4 Flash 0731](https://openrouter.ai/deepseek/deepseek-v4-flash-0731) from DeepSeek, adding image understanding while matching the base model on text capabilities including agents,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.44,
-      "output": 1.32
+      "input": 0.21559999999999999,
+      "output": 0.6468
     },
     "input_modalities": [
       "text",
@@ -9145,7 +9441,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "frequency_penalty",
       "include_reasoning",
       "logit_bias",
-      "logprobs",
       "max_tokens",
       "min_p",
       "presence_penalty",
@@ -9160,7 +9455,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1787311563,
@@ -9440,7 +9734,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 1024000,
     "pricing": {
       "input": 0.06,
-      "output": 2.2
+      "output": 1.96
     },
     "input_modalities": [
       "text",
@@ -10053,8 +10347,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Pro 0813 is a large-scale mixture-of-experts model from DeepSeek. This is the GA release of DeepSeek V4 Pro.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.111,
-      "output": 4.4399999999999995
+      "input": 1.32,
+      "output": 3.9600000000000004
     },
     "input_modalities": [
       "text"
@@ -10093,8 +10387,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.6",
     "canonical_slug": "x-ai/grok-4.6-20260810",
-    "name": "SpaceXAI: Grok 4.6",
-    "raw_description": "Grok 4.6 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
+    "name": "SpaceXSI: Grok 4.6",
+    "raw_description": "Grok 4.6 is a model from SpaceXSI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
     "context_length": 500000,
     "pricing": {
       "input": 2,
@@ -10748,8 +11042,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the DeepSeek V4 Flash family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.047,
-      "output": 0.3
+      "input": 0.044,
+      "output": 0.13199999999999998
     },
     "input_modalities": [
       "text"
@@ -10794,7 +11088,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4 Flash 0731 is a sparse mixture-of-experts model from DeepSeek, with 13B active parameters out of 284B total. This re-post-trained revision is suited for coding, reasoning, and agent workflows....",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.047,
+      "input": 0.0443,
       "output": 0.3
     },
     "input_modalities": [
@@ -11981,8 +12275,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-imagine-video-1.5",
     "canonical_slug": "x-ai/grok-imagine-video-1.5-20260719",
-    "name": "SpaceXAI: Grok Imagine Video 1.5",
-    "raw_description": "Grok Imagine Video 1.5 is a video generation model from SpaceXAI. It creates videos from text prompts, with an optional starting image to guide the scene. It can direct subject...",
+    "name": "SpaceXSI: Grok Imagine Video 1.5",
+    "raw_description": "Grok Imagine Video 1.5 is a video generation model from SpaceXSI. It creates videos from text prompts, with an optional starting image to guide the scene. It can direct subject...",
     "context_length": 0,
     "pricing": {
       "input": 0,
@@ -12673,8 +12967,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.5",
     "canonical_slug": "x-ai/grok-4.5-20260708",
-    "name": "SpaceXAI: Grok 4.5",
-    "raw_description": "Grok 4.5 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM.",
+    "name": "SpaceXSI: Grok 4.5",
+    "raw_description": "Grok 4.5 is a model from SpaceXSI with frontier performance on coding, knowledge work, and STEM.",
     "context_length": 500000,
     "pricing": {
       "input": 2,
@@ -12835,8 +13129,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Hy3 is a 295B-parameter Mixture-of-Experts model from Tencent (21B active, 192 experts with top-8 routing) built for reasoning, agentic workflows, and real-world production use. It supports a configurable reasoning effort:...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.13199999999999998,
-      "output": 0.5279999999999999,
+      "input": 0.0825,
+      "output": 0.33,
       "time_overrides": [
         {
           "utc_start": 0,
@@ -13387,8 +13681,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "GLM 5.2 is a large-scale reasoning model from Z.ai. It supports text input and output with a 1M-token context window, and is suited for long-horizon agent workflows, project-level software engineering,...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.007,
-      "output": 6.8
+      "input": 0.62,
+      "output": 2.42
     },
     "input_modalities": [
       "text"
@@ -13491,7 +13785,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 262144,
     "pricing": {
       "input": 0.6,
-      "output": 3.5
+      "output": 3
     },
     "input_modalities": [
       "text",
@@ -13507,7 +13801,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "parallel_tool_calls",
       "presence_penalty",
       "reasoning",
@@ -14407,8 +14700,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-imagine-video",
     "canonical_slug": "x-ai/grok-imagine-video-20260512",
-    "name": "SpaceXAI: Grok Imagine Video",
-    "raw_description": "Grok Imagine Video is SpaceXAI's fast, text-, image-, and reference-conditioned video generation model. It produces short videos (1–15 seconds, 24 fps) at 480p or 720p across seven aspect ratios -...",
+    "name": "SpaceXSI: Grok Imagine Video",
+    "raw_description": "Grok Imagine Video is SpaceXSI's fast, text-, image-, and reference-conditioned video generation model. It produces short videos (1–15 seconds, 24 fps) at 480p or 720p across seven aspect ratios -...",
     "context_length": 0,
     "pricing": {
       "input": 0,
@@ -14491,8 +14784,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-voice-tts-1.0",
     "canonical_slug": "x-ai/grok-voice-tts-1.0",
-    "name": "SpaceXAI: Grok Voice TTS 1.0",
-    "raw_description": "Grok Voice TTS 1.0 is a text-to-speech model from SpaceXAI. It converts text into spoken audio across 20+ languages with automatic language detection, and offers five built-in voices (Eve, Ara,...",
+    "name": "SpaceXSI: Grok Voice TTS 1.0",
+    "raw_description": "Grok Voice TTS 1.0 is a text-to-speech model from SpaceXSI. It converts text into spoken audio across 20+ languages with automatic language detection, and offers five built-in voices (Eve, Ara,...",
     "context_length": 15000,
     "pricing": {
       "input": 15,
@@ -15057,8 +15350,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.3",
     "canonical_slug": "x-ai/grok-4.3-20260430",
-    "name": "SpaceXAI: Grok 4.3",
-    "raw_description": "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
+    "name": "SpaceXSI: Grok 4.3",
+    "raw_description": "Grok 4.3 is a reasoning model from SpaceXSI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
     "context_length": 1000000,
     "pricing": {
       "input": 1.25,
@@ -15562,7 +15855,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "This model always redirects to the latest model in the Kimi family.",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.18239999999999998,
+      "input": 0.18050000000000002,
       "output": 11.0055
     },
     "input_modalities": [
@@ -17001,10 +17294,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -17097,8 +17388,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.0765,
-      "output": 0.255
+      "input": 0.0675,
+      "output": 0.22499999999999998
     },
     "input_modalities": [
       "image",
@@ -17371,8 +17662,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.20-multi-agent",
     "canonical_slug": "x-ai/grok-4.20-multi-agent-20260309",
-    "name": "SpaceXAI: Grok 4.20 Multi-Agent",
-    "raw_description": "Grok 4.20 Multi-Agent is a variant of SpaceXAI’s Grok 4.20 designed for collaborative, agent-based workflows. Multiple agents operate in parallel to conduct deep research, coordinate tool use, and synthesize information...",
+    "name": "SpaceXSI: Grok 4.20 Multi-Agent",
+    "raw_description": "Grok 4.20 Multi-Agent is a variant of SpaceXSI’s Grok 4.20 designed for collaborative, agent-based workflows. Multiple agents operate in parallel to conduct deep research, coordinate tool use, and synthesize information...",
     "context_length": 2000000,
     "pricing": {
       "input": 1.25,
@@ -17415,8 +17706,8 @@ const rawCatalogModels: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.20",
     "canonical_slug": "x-ai/grok-4.20-20260309",
-    "name": "SpaceXAI: Grok 4.20",
-    "raw_description": "Grok 4.20 is a reasoning model from SpaceXAI with industry-leading speed and agentic tool calling capabilities. It combines the lowest hallucination rate on the market with strict prompt adherance, delivering...",
+    "name": "SpaceXSI: Grok 4.20",
+    "raw_description": "Grok 4.20 is a reasoning model from SpaceXSI with industry-leading speed and agentic tool calling capabilities. It combines the lowest hallucination rate on the market with strict prompt adherance, delivering...",
     "context_length": 2000000,
     "pricing": {
       "input": 1.25,
@@ -17705,8 +17996,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.7 is a next-generation large language model designed for autonomous, real-world productivity and continuous improvement. Built to actively participate in its own evolution, M2.7 integrates advanced agentic capabilities through multi-agent...",
     "context_length": 196608,
     "pricing": {
-      "input": 0.21,
-      "output": 0.84
+      "input": 0.6,
+      "output": 1.7999999999999998
     },
     "input_modalities": [
       "text"
@@ -17719,7 +18010,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "include_reasoning",
       "max_tokens",
       "reasoning",
-      "response_format",
       "seed",
       "stop",
       "temperature",
@@ -18510,10 +18800,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -18932,8 +19220,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "MiniMax-M2.5 is a SOTA large language model designed for real-world productivity. Trained in a diverse range of complex real-world digital working environments, M2.5 builds upon the coding expertise of M2.1...",
     "context_length": 198000,
     "pricing": {
-      "input": 0.295,
-      "output": 1.2
+      "input": 0.27,
+      "output": 0.95
     },
     "input_modalities": [
       "text"
@@ -18945,15 +19233,11 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
-      "repetition_penalty",
       "response_format",
-      "seed",
       "stop",
       "structured_outputs",
       "temperature",
@@ -19284,10 +19568,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "supported_parameters": [
       "frequency_penalty",
       "include_reasoning",
-      "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "reasoning",
       "repetition_penalty",
@@ -21627,6 +21909,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "temperature",
       "tool_choice",
       "tools",
+      "top_k",
       "top_p"
     ],
     "created": 1761752836,
@@ -23554,8 +23837,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.09,
+      "output": 0.36
     },
     "input_modalities": [
       "text"
@@ -23630,8 +23913,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.018,
-      "output": 0.09
+      "input": 0.017,
+      "output": 0.08499999999999999
     },
     "input_modalities": [
       "text"
@@ -23787,8 +24070,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Qwen3-Coder-30B-A3B-Instruct is a 30.5B parameter Mixture-of-Experts (MoE) model with 128 experts (8 active per forward pass), designed for advanced code generation, repository-scale understanding, and agentic tool use. Built on the...",
     "context_length": 262144,
     "pricing": {
-      "input": 0.15,
-      "output": 0.6
+      "input": 0.07,
+      "output": 0.28
     },
     "input_modalities": [
       "text"
@@ -25563,8 +25846,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "DeepSeek V3, a 685B-parameter, mixture-of-experts model, is the latest iteration of the flagship chat model family from the DeepSeek team. It succeeds the [DeepSeek V3](/deepseek/deepseek-chat-v3) model and performs really well...",
     "context_length": 163840,
     "pricing": {
-      "input": 0.29,
-      "output": 1.1400000000000001
+      "input": 0.25,
+      "output": 1
     },
     "input_modalities": [
       "text"
@@ -25575,16 +25858,13 @@ const rawCatalogModels: RawCatalogModel[] = [
     "tokenizer": "DeepSeek",
     "supported_parameters": [
       "frequency_penalty",
-      "logprobs",
       "max_tokens",
       "response_format",
-      "seed",
       "structured_outputs",
       "temperature",
       "tool_choice",
       "tools",
       "top_k",
-      "top_logprobs",
       "top_p"
     ],
     "created": 1742824755,
@@ -25875,7 +26155,7 @@ const rawCatalogModels: RawCatalogModel[] = [
     "context_length": 131072,
     "pricing": {
       "input": 0.08,
-      "output": 0.16
+      "output": 0.44999999999999996
     },
     "input_modalities": [
       "text",
@@ -27374,8 +27654,8 @@ const rawCatalogModels: RawCatalogModel[] = [
     "raw_description": "Llama 3.2 3B is a 3-billion-parameter multilingual large language model, optimized for advanced natural language processing tasks like dialogue generation, reasoning, and summarization. Designed with the latest transformer architecture, it...",
     "context_length": 131072,
     "pricing": {
-      "input": 0.0509,
-      "output": 0.335
+      "input": 0.049999999999999996,
+      "output": 0.33
     },
     "input_modalities": [
       "text"
@@ -27389,7 +27669,6 @@ const rawCatalogModels: RawCatalogModel[] = [
       "logit_bias",
       "logprobs",
       "max_tokens",
-      "min_p",
       "presence_penalty",
       "repetition_penalty",
       "seed",
@@ -27401,7 +27680,7 @@ const rawCatalogModels: RawCatalogModel[] = [
       "top_p"
     ],
     "created": 1727222400,
-    "expiration_date": 1795132800,
+    "expiration_date": null,
     "model_author": "Meta"
   },
   {
@@ -29085,9 +29364,13 @@ const rawBatchServingVariants: RawCatalogModel[] = [
       "reasoning",
       "reasoning_effort",
       "repetition_penalty",
+      "response_format",
       "seed",
       "stop",
+      "structured_outputs",
       "temperature",
+      "tool_choice",
+      "tools",
       "top_k",
       "top_p"
     ],
@@ -29103,8 +29386,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash 1017 is the October 17, 2026 snapshot of DeepSeek V4.1 Flash, served by DeepSeek under the `deepseek-flash` API model name. V4.1 Flash is a sparse mixture-of-experts model...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.036,
-      "output": 0.15
+      "input": 0.035,
+      "output": 0.149
     },
     "input_modalities": [
       "text",
@@ -29557,8 +29840,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.7:batch",
     "canonical_slug": "x-ai/grok-4.7-20260916",
-    "name": "SpaceXAI: Grok 4.7 (batch)",
-    "raw_description": "Grok 4.7 is SpaceXAI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
+    "name": "SpaceXSI: Grok 4.7 (batch)",
+    "raw_description": "Grok 4.7 is SpaceXSI's flagship model for coding, agentic tasks, and knowledge work, succeeding Grok 4.6. It is particularly strong at long-running software engineering tasks, verifying its own work, and...",
     "context_length": 500000,
     "pricing": {
       "input": 1.5999999999999999,
@@ -29607,8 +29890,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.112,
-      "output": 0.33599999999999997
+      "input": 0.049999999999999996,
+      "output": 0.15
     },
     "input_modalities": [
       "text",
@@ -29855,8 +30138,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3-Flash is a native multimodal model from Z.ai. It is suited for efficient coding and long-horizon agent tasks. Its hybrid sparse and linear attention architecture maintains accurate long-context behavior while...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.024,
-      "output": 0.06899999999999999
+      "input": 0.023,
+      "output": 0.068
     },
     "input_modalities": [
       "text",
@@ -29901,8 +30184,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
     "raw_description": "GLM-5.3 is a large-scale reasoning model from Z.ai, built for complex software engineering and long-horizon agent tasks. It supports text input and output with a 1M-token context window, and improves...",
     "context_length": 1048576,
     "pricing": {
-      "input": 0.28099999999999997,
-      "output": 1.25
+      "input": 0.28,
+      "output": 1.249
     },
     "input_modalities": [
       "text"
@@ -30023,8 +30306,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.6:batch",
     "canonical_slug": "x-ai/grok-4.6-20260810",
-    "name": "SpaceXAI: Grok 4.6 (batch)",
-    "raw_description": "Grok 4.6 is a model from SpaceXAI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
+    "name": "SpaceXSI: Grok 4.6 (batch)",
+    "raw_description": "Grok 4.6 is a model from SpaceXSI with frontier performance on coding, knowledge work, and STEM. It is succeeded by [Grok 4.7](/x-ai/grok-4.7).",
     "context_length": 500000,
     "pricing": {
       "input": 1.5999999999999999,
@@ -30951,8 +31234,8 @@ const rawBatchServingVariants: RawCatalogModel[] = [
   {
     "id": "x-ai/grok-4.3:batch",
     "canonical_slug": "x-ai/grok-4.3-20260430",
-    "name": "SpaceXAI: Grok 4.3 (batch)",
-    "raw_description": "Grok 4.3 is a reasoning model from SpaceXAI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
+    "name": "SpaceXSI: Grok 4.3 (batch)",
+    "raw_description": "Grok 4.3 is a reasoning model from SpaceXSI. It accepts text and image inputs with text output, and is suited for agentic workflows, instruction-following tasks, and applications requiring high factual...",
     "context_length": 1000000,
     "pricing": {
       "input": 1,
@@ -32439,6 +32722,8 @@ const uncertainCatalogModelIds = new Set<string>([
   "ai21/jamba-large-1.7",
   "aion-labs/aion-1.0",
   "aion-labs/aion-1.0-mini",
+  "alibaba/wan-2.6",
+  "alibaba/wan-2.7",
   "allenai/olmo-3-32b-think",
   "anthropic/claude-3-haiku",
   "anthropic/claude-3.5-haiku",
@@ -32455,11 +32740,13 @@ const uncertainCatalogModelIds = new Set<string>([
   "baseten/elephant-1:free",
   "baseten/mammoth-1:free",
   "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+  "cohere/north-mini-code:free",
   "deepcogito/cogito-v2.1-671b",
   "deepgram/flux-tts:free",
   "deepseek/deepseek-r1",
   "deepseek/deepseek-r1-distill-qwen-32b",
   "deepseek/deepseek-v4-flash-0731:free",
+  "dots-studio/dots-3-note-preview:free",
   "essentialai/rnj-1-instruct",
   "google/gemini-2.5-flash-lite-preview-09-2025",
   "google/gemini-2.5-pro-preview-05-06",
@@ -32485,9 +32772,14 @@ const uncertainCatalogModelIds = new Set<string>([
   "kwaipilot/kat-coder-air-v2.5",
   "kwaipilot/kat-coder-pro-v2",
   "kwaipilot/kat-coder-pro-v2.5",
+  "kwaivgi/kling-v3.0-pro",
+  "kwaivgi/kling-v3.0-std",
+  "kwaivgi/kling-video-o1",
+  "liquid/d1",
   "liquid/lfm-2-24b-a2b",
   "liquid/lfm-2.5-1.2b-instruct:free",
   "liquid/lfm-2.5-1.2b-thinking:free",
+  "meituan/longcat-2.0",
   "meta-llama/llama-3-70b-instruct",
   "meta-llama/llama-3-8b-instruct",
   "meta-llama/llama-3.2-11b-vision-instruct",
@@ -32555,6 +32847,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "stealth/crouton-alpha",
   "stealth/union-alpha",
   "switchpoint/router",
+  "tencent/hy3-preview",
   "thedrummer/rocinante-12b",
   "unbiased/pareto",
   "voyageai/rerank-2.5",
@@ -32566,6 +32859,7 @@ const uncertainCatalogModelIds = new Set<string>([
   "voyageai/voyage-4-lite",
   "voyageai/voyage-code-4",
   "voyageai/voyage-multimodal-3.5",
+  "x-ai/grok-build-0.1",
   "x-ai/grok-imagine-image-quality",
   "xiaomi/mimo-v2-flash",
   "xingchen-agi/xing4.0-29b-a4b:free",

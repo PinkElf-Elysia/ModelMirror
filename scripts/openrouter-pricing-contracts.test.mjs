@@ -22,6 +22,7 @@ test("Voxtral 3 audio seconds cannot drift into token pricing", () => {
 
 test("HeyGen characters and Drama UTF-8 bytes cannot become token prices", () => {
   for (const [id, unit, prompt, usd] of [
+    ["qwen/qwen3-tts-1.7b", "character_million", "0.00002", 20],
     ["speechify/simba-3.5", "character_million", "0.000015", 15],
     ["heygen/heygen-voice-1", "character_million", "0.000015", 15],
     ["heygen/heygen-voice-1-turbo", "character_million", "0.0000075", 7.5],

@@ -59,6 +59,20 @@ ELEVENLABS_VOICES = (
 SEED_AUDIO_MODEL_ID = "bytedance-seed/seed-audio-1-0"
 SEED_AUDIO_PROMPT_VOICE = "__prompt__"
 GEMINI_PCM_TTS_MODEL_ID = "google/gemini-3.1-flash-tts-preview"
+GEMINI_25_PRO_TTS_MODEL_ID = "google/gemini-2.5-pro-tts"
+GEMINI_25_FLASH_TTS_MODEL_ID = "google/gemini-2.5-flash-tts"
+QWEN3_TTS_17B_MODEL_ID = "qwen/qwen3-tts-1.7b"
+QWEN3_TTS_17B_VOICES = (
+    "vivian",
+    "serena",
+    "uncle_fu",
+    "dylan",
+    "eric",
+    "ryan",
+    "aiden",
+    "ono_anna",
+    "sohee",
+)
 GEMINI_38_FLASH_TTS_MODEL_ID = "google/gemini-3.8-flash-tts"
 GEMINI_38_FLASH_LITE_TTS_MODEL_ID = (
     "google/gemini-3.8-flash-lite-tts"
@@ -259,6 +273,7 @@ MICROSOFT_MAI_VOICE_21_FLASH_VOICES = tuple(
 )
 MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
+        QWEN3_TTS_17B_MODEL_ID,
         "speechify/simba-3.5",
         "assemblyai/assemblyai-tts-1",
         "mistralai/voxtral-mini-tts-3-0",
@@ -266,6 +281,8 @@ MANUAL_SPEECH_PROFILE_IDS = frozenset(
         DRAMA_3_MODEL_ID,
         *ELEVENLABS_SPEECH_MODEL_IDS,
         SEED_AUDIO_MODEL_ID,
+        GEMINI_25_PRO_TTS_MODEL_ID,
+        GEMINI_25_FLASH_TTS_MODEL_ID,
         GEMINI_38_FLASH_TTS_MODEL_ID,
         GEMINI_38_FLASH_LITE_TTS_MODEL_ID,
         MICROSOFT_MAI_VOICE_21_MODEL_ID,
@@ -276,10 +293,13 @@ MANUAL_SPEECH_PROFILE_IDS = frozenset(
 SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     **{model_id: "wav" for model_id in HEYGEN_SPEECH_MODEL_IDS},
     GEMINI_PCM_TTS_MODEL_ID: "wav",
+    GEMINI_25_PRO_TTS_MODEL_ID: "wav",
+    GEMINI_25_FLASH_TTS_MODEL_ID: "wav",
     GEMINI_38_FLASH_TTS_MODEL_ID: "wav",
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    QWEN3_TTS_17B_MODEL_ID: QWEN3_TTS_17B_VOICES,
     "speechify/simba-3.5": (
         "geffen_32",
         "alec",
@@ -310,6 +330,8 @@ ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
     DRAMA_3_MODEL_ID: DRAMA_3_VOICES,
     **{model_id: ELEVENLABS_VOICES for model_id in ELEVENLABS_SPEECH_MODEL_IDS},
     SEED_AUDIO_MODEL_ID: (SEED_AUDIO_PROMPT_VOICE,),
+    GEMINI_25_PRO_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
+    GEMINI_25_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     GEMINI_38_FLASH_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: GEMINI_38_TTS_VOICES,
     DEEPGRAM_FLUX_TTS_MODEL_ID: DEEPGRAM_FLUX_TTS_VOICES,

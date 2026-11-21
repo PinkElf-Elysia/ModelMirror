@@ -95,6 +95,8 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "nace-ai/drex-v2.0",
         "~perplexity/pplx-decider-27b-latest",
         "microsoft/microsoft-decision-1",
+        "baseten/groundhog-1",
+        "baseten/bison-1",
         "microsoft/microsoft-decision-1.1",
         "cloudflare/clef-omni",
         "nace-ai/drex-v1.5",
