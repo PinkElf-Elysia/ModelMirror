@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {assemble} from './assembly.mjs';
+import {assembleCenturyTurn,fixedPrompt,indexedPrompt,originalBooks,originalIndex,triggerLibrary,worldbook} from './worldbook.mjs';
 import {start,archiveChatOptions} from '../studio/server.mjs';
 import {sha,canonical} from '../plugins/catalog.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
@@ -91,7 +92,8 @@ test('Medieval route preserves system, two turns, idempotence, common Mod and ca
   session=await api(path+'/send',body,headers);assert.equal(session.turns.at(-1).input,input);
   assert.equal(seen.length,i+1);await api(path+'/send',body,headers);assert.equal(seen.length,i+1);
  }
- const original=assemble({input:'样例'}).messages[0].content;
+ // The free-form profile opens in the fourteenth century.
+ const original=indexedPrompt+worldbook.find(e=>e.century===14).body;
  assert.equal(seen[0].messages[0].content,original);assert.equal(seen[1].base.messages[0].content,original);
  const [mod]=await resolveMods('medieval',['common.rationality.v1']);assert.equal(seen[1].messages[0].content,original+'\n\n'+mod.text);
  assert.deepEqual(seen[1].messages.slice(1).map(m=>m.role),['user','assistant','user']);
@@ -135,4 +137,27 @@ test('Medieval illustration rewrite uses its own card budget with a simulated pr
  assert.equal((await writer.status('medieval')).enabled,true);
  assert.match(await writer.rewrite('medieval',{sessionId:randomUUID(),requestId:randomUUID(),source:'茶摊问路',focus:'回合剧情',beforeDispatch:start=>({response:start()})}),/中世纪铁匠铺/);
  assert.equal(calls,1);assert.equal((await writer.status('medieval')).remaining,0);assert.equal((await writer.status('ancient')).remaining,1);
+});
+
+test('century source slots reconstruct the frozen prompt and only one full book enters each story', async()=>{
+ const source=(await read('resources/system.txt')).toString();
+ assert.equal(fixedPrompt+originalBooks.map(e=>e.body).join(''),source);
+ assert.equal(triggerLibrary,'第四世纪\n第五世纪\n第六世纪\n第七世纪\n第八世纪\n第九世纪\n第十世纪\n第十一世纪\n第十二世纪\n第十三世纪\n第十四世纪\n第十五世纪');
+ const turn=(opening,history,input)=>assembleCenturyTurn({characterText:opening,history},input).messages[0].content;
+ for(const e of worldbook){
+  assert.equal(sha(e.body),e.sha256);
+  for(const name of [e.name,...e.aliases,'公元'+e.yearFrom+'年','公元'+e.yearTo+'年']){
+   assert.equal(turn('【时代】'+name,[],'去集市'),indexedPrompt+e.body);
+  }
+ }
+ const five=worldbook.find(e=>e.century===5).body;
+ const history=[{role:'user',content:'【时代】5世纪 · 罗马陨落（401-500）'},{role:'assistant',content:'旅人提起第十五世纪。'}];
+ assert.equal(turn('',history,'去集市'),indexedPrompt+five);
+ assert.equal(turn('',history,'了解第六世纪的传说'),indexedPrompt+five);
+ assert.equal(turn('',history,'切换到第六世纪'),indexedPrompt+worldbook.find(e=>e.century===6).body);
+ assert.equal(turn('',history,'切换到第十四世纪'),indexedPrompt+worldbook.find(e=>e.century===14).body);
+ assert.equal(assembleCenturyTurn({characterText:'',history},'切换到第十四世纪',1).messages[0].content,originalIndex);
+ assert.equal(turn('',history,'切换到第十六世纪'),indexedPrompt);
+ assert.equal(turn('【时代】第五世纪或第十五世纪',[],'看看集市'),indexedPrompt);
+ assert.equal(turn('',[],'在路上遇到一个人'),indexedPrompt);
 });
