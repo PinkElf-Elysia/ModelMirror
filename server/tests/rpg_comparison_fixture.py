@@ -45,11 +45,14 @@ if __name__ == '__main__':
     asyncio.run(ProviderCatalogService(stable.router_service).refresh_connection(config['connectionId']))
     config['limit']=200;configure(state)
     calls=[];counts={'active':0,'maximum':0};lock=threading.Lock()
+    release_candidates = asyncio.Event()
     async def respond(request):
         payload=json.loads(request.content)
         with lock:
             calls.append(payload);counts['active']+=1;counts['maximum']=max(counts['maximum'],counts['active'])
         try:
+            if payload.get('temperature') in faults.get('heldTemperatures', []):
+                await asyncio.wait_for(release_candidates.wait(), timeout=60)
             await asyncio.sleep(faults.get('delay', .08))
             system=payload['messages'][0]['content'];user=payload['messages'][-1]['content']
             text='{"operations":[]}' if '"entries"' in user else '已发生的港口会面。' if '你负责' in system and '摘要' in system else '候选原文 '+str(payload.get('temperature','default'))+'。'
@@ -65,7 +68,14 @@ if __name__ == '__main__':
     faults={'dropTasks':0,'blockLookup':False}
     @app.post('/__fault')
     async def fault(request: Request):
-        value=await request.json();faults.update(value);return {'ok':True}
+        value=await request.json()
+        if 'heldTemperatures' in value:
+            if value['heldTemperatures']:
+                release_candidates.clear()
+            else:
+                release_candidates.set()
+        faults.update(value)
+        return {'ok':True}
     @app.middleware('http')
     async def lose_response(request,call_next):
         is_task=request.url.path.startswith('/api/rpg/v1/authoring/tasks')
