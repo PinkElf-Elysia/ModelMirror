@@ -9,6 +9,7 @@ const titles={
   'type-moon':'型月大世界',
   'star-rail':'崩坏：星穹铁道',
   doupo:'斗破苍穹！',
+  oasis:'OASIS！头号玩家！（游戏人生）',
   cyberpunk:'赛博朋克大世界',
   daomu:'盗墓笔记大世界',
   naruto:'火影大世界',

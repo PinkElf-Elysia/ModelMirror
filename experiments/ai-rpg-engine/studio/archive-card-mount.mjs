@@ -11,7 +11,7 @@ export function installArchiveCard(server,{cardId,name,serveAsset,createArchiveH
  const speechHandler=createSpeech(join(directory,'speech'),speech),voiceHandler=createVoiceLibrary(join(directory,'voice-library'),speech?.voices);
  const getHost=()=>pending??=(async()=>{
   const dir=join(directory,'archive-chat',cardId,control?'real':'offline'),lease=await ownDirectory?.(join(dir,'plugins'));let host;
-  try{host=await createArchiveHost(dir,control,{cardId,name,system:systemPrompt(),autoSummaryV2,pluginFeatures:features});await lease?.remember();return {...host,close:async()=>{try{await host.plugins.close();}finally{await lease?.fd.close();}}};}
+  try{host=await createArchiveHost(dir,control,{cardId,name,system:systemPrompt(),autoSummaryV2,pluginFeatures:features});await lease?.remember();return {...host,close:async()=>{try{await lease?.prepareClose?.();await host.plugins.close();}finally{await lease?.fd.close();}}};}
   catch(e){try{await host?.plugins.close();}finally{await lease?.fd.close();}pending=null;throw e;}
  })();
  server.once('close',()=>{void pending?.then(h=>h.close()).catch(()=>{});});
