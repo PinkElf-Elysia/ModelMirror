@@ -1,0 +1,3 @@
+resources/original.html -text -whitespace
+*.json text eol=lf
+*.mjs text eol=lf

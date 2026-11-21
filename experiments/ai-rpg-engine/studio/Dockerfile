@@ -20,6 +20,7 @@ COPY blue-fish-card ./blue-fish-card
 COPY modern-life-card ./modern-life-card
 COPY slime-card ./slime-card
 COPY doupo-card ./doupo-card
+COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
 COPY naruto-card ./naruto-card
 COPY ai-girls-card ./ai-girls-card

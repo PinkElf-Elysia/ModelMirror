@@ -1,3 +1,4 @@
+import {summary as cyberpunkDescription} from '../../cyberpunk-card/resources/source.json';
 import {summary as daomuDescription} from '../../daomu-card/resources/summary.json';
 import {summary as elderlandDescription} from '../../elderland-card/resources/summary.json';
 import {blueFishStorage} from './blue-fish-storage';
@@ -11,8 +12,8 @@ import {createChatDraft} from './start-chat';
 
 export function Xingjian(){
   const card=cardStoragePrefix();
-  const title=({slime:'关于我转生成史莱姆这件事','modern-life':'现代超真实人生',naruto:'火影大世界',daomu:'盗墓笔记大世界',doupo:'斗破苍穹！','harry-potter':'哈利波特大世界（霍格沃兹）',elderland:'西幻大世界 · 艾尔德兰',medieval:'中世纪真实人生','ai-girls':'完蛋！我被AI娘包围了！',jinyong:'金庸大世界',douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
-  const description=card==='daomu'?daomuDescription:card==='elderland'?elderlandDescription:null;
+  const title=({slime:'关于我转生成史莱姆这件事','modern-life':'现代超真实人生',naruto:'火影大世界',cyberpunk:'赛博朋克大世界',daomu:'盗墓笔记大世界',doupo:'斗破苍穹！','harry-potter':'哈利波特大世界（霍格沃兹）',elderland:'西幻大世界 · 艾尔德兰',medieval:'中世纪真实人生','ai-girls':'完蛋！我被AI娘包围了！',jinyong:'金庸大世界',douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
+  const description=card==='cyberpunk'?cyberpunkDescription:card==='daomu'?daomuDescription:card==='elderland'?elderlandDescription:null;
   useEffect(()=>{document.title=title;},[title]);
   const frame=useRef<HTMLIFrameElement>(null),creating=useRef(false);
   const [session,setSession]=useState(()=>new URLSearchParams(location.search).get('session')||'');
@@ -34,7 +35,7 @@ export function Xingjian(){
   return <main className="xingjian-shell">
     <nav className="rpg-entrybar" aria-label="会话导航"><strong>{title}</strong><button className="rpg-enter-chat" disabled={busy} onClick={()=>void enter()}>进入聊天</button><div className="rpg-entry-actions">{description&&<button onClick={()=>setDescription(true)}>作品详情</button>}{card==='blue-fish'&&<a href="/rpg/blue-fish/editor" target="_top">独立编辑器</a>}<button disabled={busy} onClick={()=>void action(tools)}>会话历史</button><a href={'/rpg/plugins?card='+worldId(card)} target="_top">插件市场</a><a href="/help/play-rpg-cards" target="_top">帮助</a></div></nav>
     {showTools&&<Modal title="会话历史" className="platform-dialog" close={()=>setTools(false)}><p className="dialog-hint">打开存档，接着上次的故事。</p>{error&&<p role="alert">{error}</p>}<div className="history-list">{history.map(s=><button className="option" key={s.id} disabled={busy} onClick={()=>open(s.id)}><strong>{s.name}</strong><span>继续 →</span></button>)}</div>{!history.length&&!error&&<p>还没有保存的会话。点击「进入聊天」开始。</p>}{card==='xingjian'&&<a href="/rpg-app/rpg05/">查看早期旅程与草稿 →</a>}</Modal>}
-    {showDescription&&<Modal title={card==='daomu'?title:'西幻大世界'} className="platform-dialog" close={()=>setDescription(false)}><div style={{whiteSpace:'pre-wrap',lineHeight:1.9}}>{description}</div></Modal>}
+    {showDescription&&<Modal title={card==='elderland'?'西幻大世界':title} className="platform-dialog" close={()=>setDescription(false)}><div style={{whiteSpace:'pre-wrap',lineHeight:1.9}}>{description}</div></Modal>}
     {error&&<p role="alert">{error}</p>}
     <iframe ref={frame} title={title+'开局面板'} sandbox={card==='blue-fish'?'allow-scripts allow-downloads':'allow-scripts'} allow="clipboard-write" src={card==='xingjian'?'/rpg-app/xingjian/card':'/rpg-app/'+card+'/?chat=1'+(card==='blue-fish'&&new URLSearchParams(location.search).has('editor')?'&editor=1':'')} style={{width:'100%',height:'92dvh',border:0}}/>
   </main>;
