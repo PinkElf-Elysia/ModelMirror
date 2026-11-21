@@ -1,0 +1,5 @@
+resources/system.txt -text
+resources/worldbook-index.txt text eol=lf
+resources/worldbook.json text eol=lf
+*.mjs text eol=lf
+transport/*.mjs text eol=lf

@@ -1,6 +1,7 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
   {id:'doupo',name:'斗破苍穹！',description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。',genre:'玄幻 · 斗气大陆',mark:'斗',art:'/rpg-app/doupo/cover.avif'},
+  {id:'naruto',name:'火影大世界',description:'从忍者学校到忍界大战，选择篇章，写下自己的忍道。',genre:'忍界 · 羁绊',mark:'忍',art:'/rpg-app/naruto/world.jpg'},
   {id:'elderland',name:'西幻大世界',description:'艾尔德兰——剑与魔法的命运织机。它不关心你是谁，只关心你能成为谁。',genre:'西幻 · 剑与魔法',mark:'幻',art:'/rpg-app/elderland/background.jpg'},
   {id:'medieval',name:'中世纪真实人生',description:'公元四至十五世纪，选择时代、出身与技艺，开启属于自己的此生。',genre:'历史 · 中世纪',mark:'纪',art:'/rpg-app/medieval/background.jpg'},
   {id:'harry-potter',name:'哈利波特大世界（霍格沃兹）',description:'一封迟来的入学信，一段属于你的魔法人生。从选定年代到挥动魔杖，开启霍格沃茨的故事。',genre:'魔法 · 校园',mark:'魔',art:'/rpg-app/harry-potter/background.jpg'},
@@ -19,7 +20,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','doupo','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','doupo','naruto','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

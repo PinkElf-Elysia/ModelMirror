@@ -5,6 +5,7 @@ import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-rep
 
 const titles={
   doupo:'斗破苍穹！',
+  naruto:'火影大世界',
   elderland:'西幻大世界 · 艾尔德兰',
   medieval:'中世纪真实人生',
   'ai-girls':'完蛋！我被AI娘包围了！',

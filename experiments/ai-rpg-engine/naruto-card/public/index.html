@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>火影大世界 · 建卡</title>
+<style>
+
+@font-face{font-family:'Noto Sans SC';src:url('body.woff') format('woff');font-weight:100 900;font-display:swap;}
+@font-face{font-family:'ZCOOL QingKe HuangYou';src:url('display.woff') format('woff');font-display:swap;}
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+--paper:rgba(248,243,233,.92);
+--paper-t:rgba(248,243,233,.90);
+--paper-t2:rgba(240,232,216,.86);
+--ink:#2B2318;
+--ink-85:rgba(43,35,24,0.86);
+--orange:#D9542B;--orange-d:#B23E1C;--orange-t:rgba(217,84,43,0.13);
+--red:#C0392B;--red-d:#96281D;--red-t:rgba(192,57,43,0.11);
+--blue:#2E4372;--blue-d:#1F3055;--blue-t:rgba(46,67,114,0.13);
+--gold:#B8860B;--gold-t:rgba(184,134,11,0.18);
+--sand:#EDE3CE;--sand-t:rgba(217,84,43,0.10);
+--green:#4E6E58;
+--hard:4px 4px 0 var(--ink-85);
+--hard-sm:2.5px 2.5px 0 var(--ink-85);
+}
+body{font-family:'Noto Sans SC',sans-serif;background-image:url('world.jpg');background-size:cover;background-position:center;background-attachment:fixed;color:var(--ink);min-height:100vh;overflow-x:hidden;}
+.opening-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;cursor:pointer;overflow:hidden;background:#1a140d;}
+.opening-container{position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a140d;}
+.opening-bg{width:100%;height:100%;max-width:1200px;max-height:675px;background-image:url('opening.jpg');background-size:contain;background-position:center;background-repeat:no-repeat;filter:blur(14px) brightness(.55);transition:filter 1.6s ease-out,opacity 1.6s ease-out;}
+.opening-screen.open .opening-bg{filter:blur(0) brightness(1);}
+.eyelid{position:absolute;left:0;width:100%;height:50%;background:#1a140d;transition:transform 1.8s cubic-bezier(0.4,0,0.2,1);z-index:2;}
+.eyelid-top{top:0;transform-origin:top;}.eyelid-bottom{bottom:0;transform-origin:bottom;}
+.opening-screen.open .eyelid-top{transform:translateY(-100%);}.opening-screen.open .eyelid-bottom{transform:translateY(100%);}
+.skip-hint{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);color:var(--sand);font-family:'Noto Sans SC',sans-serif;font-size:13px;z-index:10;animation:blink 1.5s infinite;letter-spacing:3px;text-align:center;}
+@keyframes blink{0%,100%{opacity:.45;}50%{opacity:1;}}
+.opening-screen.fade-out{animation:fadeOut 1s ease-out forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{display:none;min-height:100vh;position:relative;}
+.main-container.active{display:block;}
+.content-wrapper{position:relative;z-index:2;max-width:940px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:40px 22px 32px;background:var(--paper-t);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:3px solid var(--ink);border-radius:10px;margin:6px 4px 22px;position:relative;box-shadow:var(--hard);overflow:hidden;}
+.main-title .title-cn-sub{font-family:'Noto Sans SC',sans-serif;font-size:14px;letter-spacing:6px;color:var(--ink);margin-bottom:14px;display:block;}
+.main-title h1{font-family:'ZCOOL QingKe HuangYou','Noto Sans SC',sans-serif;font-size:clamp(32px,7vw,48px);font-weight:900;letter-spacing:4px;color:var(--ink);line-height:1.1;display:inline-block;padding:0 12px;text-shadow:3px 3px 0 var(--orange),6px 6px 0 rgba(43,35,24,0.4);transform:rotate(-1.5deg);}
+.main-title .motto{display:inline-block;margin-top:18px;padding:7px 20px;font-family:'Noto Sans SC',sans-serif;font-size:13px;letter-spacing:2px;color:var(--ink);background:var(--sand);border:2px solid var(--ink);border-radius:7px;box-shadow:var(--hard-sm);transform:rotate(1deg);}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:var(--paper-t);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:3px solid var(--ink);border-radius:10px;box-shadow:var(--hard-sm);-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.tab-nav::-webkit-scrollbar{height:5px;}.tab-nav::-webkit-scrollbar-thumb{background:var(--ink);}
+.tab-btn{flex:0 0 auto;min-width:84px;padding:14px 14px;background:transparent;border:none;border-right:2px solid var(--ink-85);font-family:'Noto Sans SC',sans-serif;font-size:clamp(12px,1.8vw,13px);cursor:pointer;transition:all .15s;white-space:nowrap;color:var(--ink);letter-spacing:1px;position:relative;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:var(--sand-t);}
+.tab-btn.active{background:var(--orange);color:#fff;}
+.tab-btn.completed::after{content:'✓';position:absolute;top:2px;right:5px;border-radius:0;line-height:1;font-family:'Noto Sans SC',sans-serif;font-size:13px;font-weight:900;color:var(--red);transform:rotate(-14deg);}
+.tab-btn.active.completed::after{color:#fff;}
+.tab-content{display:none;background:var(--paper-t);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:3px solid var(--ink);border-radius:10px;padding:26px;box-shadow:var(--hard);position:relative;}
+.tab-content.active{display:block;animation:popIn .28s ease;}
+@keyframes popIn{0%{opacity:0;transform:translateY(10px) scale(.99);}100%{opacity:1;transform:translateY(0) scale(1);}}
+.section-title{font-family:'Noto Sans SC',sans-serif;font-size:clamp(20px,4vw,26px);font-weight:900;letter-spacing:2px;color:#fff;display:inline-block;background:var(--orange);border:2px solid var(--ink);border-radius:8px;padding:6px 18px 4px;margin-bottom:18px;box-shadow:var(--hard-sm);transform:rotate(-1deg);position:relative;}
+.soul-intro{background:var(--paper-t2);border:2px solid var(--ink);border-radius:9px;padding:24px;margin-bottom:22px;box-shadow:var(--hard-sm);position:relative;}
+.soul-intro::before{content:'\201C';position:absolute;top:2px;left:14px;font-size:56px;color:var(--orange);opacity:.35;font-family:serif;line-height:1;}
+.soul-intro p{font-size:14px;line-height:2;margin-bottom:10px;text-indent:2em;}
+.soul-intro p:last-child{margin-bottom:0;}
+.soul-intro p.emphasis{font-family:'Noto Sans SC',sans-serif;font-weight:900;font-size:16px;color:var(--red-d);text-indent:0;text-align:center;margin-top:18px;letter-spacing:2px;}
+.intro-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:16px;}
+.intro-grid .info-box{margin-bottom:0;}
+.info-box{background:var(--paper-t2);border:2px solid var(--ink);border-radius:8px;padding:17px;margin-bottom:16px;box-shadow:var(--hard-sm);position:relative;}
+.info-box h3{font-family:'Noto Sans SC',sans-serif;font-size:16px;letter-spacing:1px;margin-bottom:9px;color:var(--blue-d);}
+.info-box.red h3{color:var(--red-d);}
+.info-box.gold h3{color:var(--gold);}
+.info-box p,.info-box li{font-size:13px;line-height:1.85;color:var(--ink);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:7px;}
+.info-box li::before{content:'\25B8';position:absolute;left:2px;color:var(--orange);font-size:12px;top:1px;font-weight:900;}
+.info-box.red li::before{color:var(--blue);}
+.info-box li strong{color:var(--ink);}
+.accent-orange{color:var(--orange-d);font-weight:700;}
+.accent-gold{color:var(--gold);font-weight:700;}
+.chapter-jump{display:flex;gap:7px;margin-bottom:18px;overflow-x:auto;padding:11px;background:var(--paper-t2);border:2px solid var(--ink);border-radius:8px;}
+.jump-group-sep{flex:0 0 auto;padding:0 10px;display:flex;align-items:center;font-family:'Noto Sans SC',sans-serif;font-size:12px;letter-spacing:2px;color:var(--ink);border-right:2.5px solid var(--ink);}
+.chapter-jump-btn{flex:0 0 auto;padding:8px 15px;background:var(--paper);border:2px solid var(--ink);border-radius:7px;cursor:pointer;font-family:'Noto Sans SC',sans-serif;font-size:13px;color:var(--ink);box-shadow:var(--hard-sm);transition:all .12s;}
+.chapter-jump-btn:hover{transform:translate(-1px,-1px);}
+.chapter-jump-btn.selected{background:var(--orange);color:#fff;}
+.chapter-group-head{display:flex;align-items:center;gap:12px;padding:18px 4px 12px;margin-top:10px;border-bottom:3px solid var(--ink);}
+.chapter-group-head .cgh-cn{font-family:'Noto Sans SC',sans-serif;font-size:20px;letter-spacing:3px;color:var(--ink);}
+.cgh-seal{display:inline-block;background:var(--red);color:#fff;font-family:'Noto Sans SC',sans-serif;font-size:12px;padding:3px 10px;border:2px solid var(--ink);border-radius:6px;box-shadow:var(--hard-sm);transform:rotate(-3deg);}
+.chapter-card{background:var(--paper-t2);border:2px solid var(--ink);border-radius:8px;margin-bottom:12px;position:relative;box-shadow:var(--hard-sm);transition:all .15s;overflow:hidden;}
+.chapter-card.selected{border-color:var(--ink);box-shadow:var(--hard);background:var(--paper-t);}
+.chapter-card-head{padding:15px 18px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;transition:background .15s;user-select:none;}
+.chapter-card-head:hover{background:var(--sand-t);}
+.chapter-card-head .cc-title{font-family:'Noto Sans SC',sans-serif;font-size:17px;font-weight:900;color:var(--ink);letter-spacing:1px;}
+.chapter-card-head .cc-title small{display:block;font-size:11.5px;font-weight:400;color:var(--ink-85);margin-top:4px;font-family:'Noto Sans SC',sans-serif;letter-spacing:.5px;}
+.cc-work{display:inline-block;margin-right:7px;padding:1px 8px;font-family:'Noto Sans SC',sans-serif;font-size:11px;color:#fff;background:var(--blue);border:1.5px solid var(--ink);border-radius:5px;vertical-align:1px;}
+.chapter-card-head .cc-right{display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.cc-arrow{font-size:12px;transition:transform .2s;color:var(--ink);}
+.chapter-card.open .cc-arrow{transform:rotate(90deg);}
+.select-chapter-btn{padding:8px 15px;background:var(--orange);color:#fff;border:2px solid var(--ink);border-radius:7px;font-family:'Noto Sans SC',sans-serif;font-size:13px;cursor:pointer;letter-spacing:1px;box-shadow:var(--hard-sm);white-space:nowrap;transition:all .12s;}
+.select-chapter-btn:hover{transform:translate(-1px,-1px);}
+.select-chapter-btn:active{transform:translate(2px,2px);box-shadow:0 0 0;}
+.select-chapter-btn.active{background:var(--red);}
+.chapter-card-body{display:none;padding:0 18px 18px;}
+.chapter-card.open .chapter-card-body{display:block;animation:popIn .22s ease;}
+.chapter-desc{font-size:13px;line-height:1.85;color:var(--ink);margin-bottom:12px;padding:12px;background:var(--paper);border-left:5px solid var(--orange);border-radius:0 6px 6px 0;}
+.chapter-tags-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.chapter-tag{font-size:11px;padding:2px 9px;background:var(--orange-t);border:1.5px solid var(--orange);border-radius:5px;color:var(--orange-d);font-weight:700;}
+.chapter-sub h4{font-family:'Noto Sans SC',sans-serif;font-size:13px;color:var(--red-d);margin:12px 0 8px;letter-spacing:1px;padding-bottom:4px;border-bottom:2px dashed var(--ink-85);}
+.entry-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:9px;}
+.entry-item{padding:11px 13px;background:var(--paper);border:2px solid var(--ink);border-radius:7px;font-size:13px;line-height:1.5;cursor:pointer;transition:all .13s;box-shadow:var(--hard-sm);}
+.entry-item:hover{transform:translate(-1px,-1px);}
+.entry-item.selected{background:var(--sand);box-shadow:var(--hard-sm);}
+.entry-item .ttl{font-weight:900;color:var(--ink);}
+.entry-item .sel-mark{display:none;font-size:11px;color:var(--red-d);font-weight:700;margin-top:4px;}
+.entry-item.selected .sel-mark{display:block;}
+.custom-entry-row{margin-top:11px;padding:11px;background:var(--paper);border:2px dashed var(--ink-85);border-radius:7px;}
+.custom-entry-row .lbl{font-size:12px;color:var(--ink);letter-spacing:1px;margin-bottom:7px;font-weight:900;}
+.custom-entry-row input{width:100%;padding:8px;border:2px solid var(--ink-85);background:#fff;font-family:inherit;font-size:12.5px;color:var(--ink);border-radius:5px;}
+.custom-entry-row button{margin-top:7px;padding:6px 14px;background:var(--orange);color:#fff;border:2px solid var(--ink);border-radius:6px;cursor:pointer;font-family:inherit;font-size:12px;}
+.mode-switch{display:flex;gap:0;margin-bottom:22px;border:3px solid var(--ink);border-radius:9px;overflow:hidden;background:var(--paper-t2);}
+.mode-btn{flex:1;padding:14px;background:transparent;color:var(--ink);border:none;cursor:pointer;font-family:'Noto Sans SC',sans-serif;font-weight:700;font-size:14px;letter-spacing:2px;transition:all .15s;}
+.mode-btn:hover{background:var(--sand-t);}
+.mode-btn.active[data-mode="original"]{background:var(--orange);color:#fff;}
+.mode-btn.active[data-mode="canon"]{background:var(--blue);color:#fff;}
+.canon-section{display:none;}.canon-section.visible{display:block;}
+.canon-search-wrap{position:relative;margin-bottom:16px;}
+.canon-search{width:100%;padding:12px 15px;border:2px solid var(--ink);border-radius:8px;background:var(--paper);font-family:inherit;font-size:13.5px;color:var(--ink);box-shadow:var(--hard-sm);}
+.canon-search:focus{outline:none;border-color:var(--orange);}
+.canon-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--paper);border:2px solid var(--ink);border-radius:8px;max-height:280px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--hard);}
+.canon-dropdown.visible{display:block;}
+.canon-dropdown-item{padding:11px 15px;font-size:13px;cursor:pointer;border-bottom:1.5px solid var(--ink-85);transition:background .12s;}
+.canon-dropdown-item:last-child{border-bottom:none;}
+.canon-dropdown-item:hover{background:var(--sand-t);}
+.canon-dropdown-item .cdi-name{font-weight:900;color:var(--ink);}
+.canon-dropdown-item .cdi-desc{font-size:11px;color:#6b5d47;margin-top:3px;line-height:1.5;}
+.canon-group{margin-bottom:12px;border:2px solid var(--ink);border-radius:8px;background:var(--paper-t2);overflow:hidden;}
+.canon-group-head{padding:12px 15px;background:var(--paper);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Sans SC',sans-serif;font-weight:900;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.canon-group-head:hover{background:var(--sand-t);}
+.canon-group-head .cnt{font-size:12px;color:var(--orange-d);font-family:'Noto Sans SC',sans-serif;letter-spacing:0;}
+.canon-group-head .arrow{font-size:11px;transition:transform .2s;}
+.canon-group.open .arrow{transform:rotate(90deg);}
+.canon-group-body{display:none;padding:14px;}
+.canon-group.open .canon-group-body{display:block;}
+.canon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:9px;}
+.canon-item{padding:10px 13px;background:var(--paper);border:2px solid var(--ink);border-radius:7px;font-size:13px;cursor:pointer;transition:all .13s;color:var(--ink);font-weight:700;line-height:1.5;box-shadow:var(--hard-sm);}
+.canon-item:hover{transform:translate(-1px,-1px);}
+.canon-item.selected{border-color:var(--ink);background:var(--sand);box-shadow:var(--hard-sm);}
+.canon-item .ci-desc{font-size:10.5px;color:#6b5d47;font-weight:400;margin-top:4px;line-height:1.5;}
+.canon-subgroup-title{font-size:12px;font-weight:900;color:var(--orange-d);margin:10px 0 6px;padding-left:4px;border-left:3px solid var(--orange);letter-spacing:1px;}
+.ability-cat{margin-bottom:11px;border:2px solid var(--ink);border-radius:8px;background:var(--paper-t2);overflow:hidden;}
+.ability-cat-head{padding:12px 16px;background:var(--paper);cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-family:'Noto Sans SC',sans-serif;font-weight:900;font-size:14px;color:var(--ink);letter-spacing:1px;user-select:none;}
+.ability-cat-head:hover{background:var(--sand-t);}
+.ability-cat-head .cnt{font-size:12px;color:var(--orange-d);font-family:'Noto Sans SC',sans-serif;}
+.ability-cat-head .arrow{font-size:11px;transition:transform .2s;}
+.ability-cat.open .arrow{transform:rotate(90deg);}
+.ability-cat-body{display:none;padding:14px;}
+.ability-cat.open .ability-cat-body{display:block;}
+.ability-cat-body .hint{font-size:11.5px;color:#6b5d47;margin-bottom:11px;font-weight:700;}
+.ability-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:11px;}
+.ability-item{display:flex;align-items:flex-start;padding:12px;background:var(--paper);border:2px solid var(--ink);border-radius:8px;transition:all .13s;cursor:pointer;gap:10px;box-shadow:var(--hard-sm);}
+.ability-item:hover{transform:translate(-1px,-1px);}
+.ability-item input{margin-top:2px;accent-color:var(--orange);width:17px;height:17px;flex-shrink:0;}
+.ability-item .item-body{flex:1;min-width:0;}
+.ability-item .abname{font-size:12.5px;font-weight:900;margin-bottom:4px;color:var(--ink);}
+.ability-item .abdesc{font-size:11.5px;color:#4a3f2d;line-height:1.6;}
+.ability-item .abuser{font-size:11px;color:var(--blue-d);margin-top:4px;font-weight:700;}
+.ability-item.selected{background:var(--sand-t);border-color:var(--ink);box-shadow:var(--hard-sm);}
+.ability-item.ab-flash{border-color:var(--red)!important;box-shadow:0 0 0 3px var(--red-t),var(--hard-sm);}
+.custom-ab-box{margin-top:20px;padding:19px;background:var(--paper-t2);border:2px solid var(--ink);border-left:6px solid var(--blue);border-radius:8px;}
+.custom-ab-box h4{font-family:'Noto Sans SC',sans-serif;font-size:15px;margin-bottom:14px;color:var(--ink);letter-spacing:1px;}
+.form-section{margin-bottom:24px;}
+.form-section h3{font-family:'Noto Sans SC',sans-serif;font-size:16px;margin-bottom:14px;padding-left:12px;border-left:6px solid var(--orange);letter-spacing:1px;color:var(--ink);}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px;}
+.form-group{margin-bottom:14px;}
+.form-group label{display:block;font-size:13px;font-weight:900;margin-bottom:6px;color:var(--ink);letter-spacing:.5px;}
+.form-group .field-hint{color:#8a7a5e;font-size:11px;font-weight:400;margin-left:5px;letter-spacing:0;}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:11px;border:2.5px solid var(--ink-85);border-radius:6px;background:var(--paper);font-family:inherit;font-size:13px;transition:all .13s;color:var(--ink);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--orange);box-shadow:var(--hard-sm);}
+.form-group textarea{min-height:90px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:9px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:9px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:6px;padding:9px 15px;background:var(--paper);border:2px solid var(--ink);border-radius:7px;cursor:pointer;font-size:13px;transition:all .13s;box-shadow:var(--hard-sm);}
+.radio-group label:hover{transform:translate(-1px,-1px);}
+.radio-group input{accent-color:var(--orange);}
+.radio-group input:checked+span{font-weight:900;color:var(--orange-d);}
+.talent-section{text-align:center;padding:22px;}
+.roll-btn{padding:18px 50px;font-family:'Noto Sans SC',sans-serif;font-size:18px;font-weight:900;background:var(--orange);color:#fff;border:3px solid var(--ink);border-radius:10px;cursor:pointer;transition:all .13s;box-shadow:var(--hard);letter-spacing:6px;}
+.roll-btn:hover{transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink-85);}
+.roll-btn:active{transform:translate(4px,4px);box-shadow:0 0 0;}
+.roll-btn.rolling{animation:shake .4s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0) rotate(0);}25%{transform:translateX(-4px) rotate(-1.5deg);}75%{transform:translateX(4px) rotate(1.5deg);}}
+.talent-pool{display:none;margin-top:26px;}.talent-pool.visible{display:block;}
+.talent-pool h3{font-family:'Noto Sans SC',sans-serif;font-size:16px;letter-spacing:1px;}
+.talent-count{font-size:13px;color:#8a7a5e;margin-bottom:14px;}
+.talent-list{display:grid;gap:11px;max-height:560px;overflow-y:auto;overflow-x:hidden;padding:13px;background:var(--paper-t2);border:2px solid var(--ink);border-radius:8px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+.talent-item{display:flex;align-items:flex-start;padding:14px;background:var(--paper);border:2px solid var(--ink);border-radius:8px;cursor:pointer;transition:all .13s;text-align:left;box-shadow:var(--hard-sm);}
+.talent-item:hover{transform:translate(-1px,-1px);}
+.talent-item.selected{border-width:3px;padding:13px;}
+.talent-item.mythic{background:linear-gradient(135deg,#FFE9A6,#FFFDF4);border-color:#B8860B;box-shadow:0 0 0 1.5px #C9962B,0 0 13px rgba(184,134,11,.55),var(--hard-sm);}
+.talent-item.legendary{background:linear-gradient(135deg,#FFC7B8,#FFFDF4);border-color:#C0392B;box-shadow:0 0 0 1.5px #D05040,0 0 13px rgba(192,57,43,.5),var(--hard-sm);}
+.talent-item.epic{background:linear-gradient(135deg,#D8CCFF,#FFFDF4);border-color:#5B5AA0;box-shadow:0 0 0 1.5px #6E6CC0,0 0 13px rgba(109,108,200,.5),var(--hard-sm);}
+.talent-item.rare{background:linear-gradient(135deg,#C3D5FF,#FFFDF4);border-color:#2E4372;box-shadow:0 0 0 1.5px #45609A,0 0 11px rgba(69,96,154,.45),var(--hard-sm);}
+.talent-item.common{background:linear-gradient(135deg,#EDE3CE,#FFFDF4);border-color:#8a7a5e;box-shadow:var(--hard-sm);}
+.talent-item input{margin-right:12px;margin-top:2px;width:17px;height:17px;accent-color:var(--red);flex-shrink:0;}
+.talent-info{flex:1;min-width:0;}
+.talent-name{font-weight:900;font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:8px;font-family:'Noto Sans SC',sans-serif;flex-wrap:wrap;}
+.talent-badge{font-family:'Noto Sans SC',sans-serif;font-size:10px;padding:2px 9px;border:2px solid var(--ink);border-radius:6px;letter-spacing:1px;}
+.talent-badge.mythic{background:#C9962B;color:#4A3708;}
+.talent-badge.legendary{background:#D05040;color:#fff;}
+.talent-badge.epic{background:#6E6CC0;color:#fff;}
+.talent-badge.rare{background:#45609A;color:#fff;}
+.talent-badge.common{background:#9a8a6e;color:#fff;}
+.talent-desc{font-size:12px;color:var(--ink);line-height:1.65;}
+.talent-effect{font-size:11.5px;color:var(--blue-d);margin-top:5px;line-height:1.6;font-weight:700;}
+.preview-box{background:var(--paper-t);border:3px solid var(--ink);border-radius:9px;padding:22px;font-size:13.5px;line-height:1.95;white-space:pre-wrap;word-break:break-word;max-height:620px;overflow-y:auto;margin-bottom:20px;font-family:'Noto Sans SC','Courier New',monospace;box-shadow:var(--hard);color:var(--ink);}
+.copy-btn{display:block;width:100%;max-width:330px;margin:0 auto;padding:16px 40px;font-family:'Noto Sans SC',sans-serif;font-size:16px;font-weight:900;background:var(--orange);color:#fff;border:3px solid var(--ink);border-radius:10px;cursor:pointer;transition:all .13s;box-shadow:var(--hard);letter-spacing:4px;}
+.copy-btn:hover{transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink-85);}
+.copy-btn:active{transform:translate(4px,4px);box-shadow:0 0 0;}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:2.5px dashed var(--ink-85);}
+.nav-btn{padding:12px 26px;font-family:'Noto Sans SC',sans-serif;font-size:13px;font-weight:700;border:2px solid var(--ink);border-radius:8px;cursor:pointer;transition:all .13s;letter-spacing:1px;box-shadow:var(--hard-sm);}
+.nav-btn.prev{background:var(--paper);color:var(--ink);}
+.nav-btn.next{background:var(--orange);color:#fff;}
+.nav-btn:hover{transform:translate(-1px,-1px);}
+.nav-btn:active{transform:translate(2.5px,2.5px);box-shadow:0 0 0;}
+.nav-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none;}
+footer{text-align:center;padding:18px;background:var(--paper-t2);border-top:2.5px solid var(--ink);color:var(--ink);font-family:'Noto Sans SC',sans-serif;font-size:14px;letter-spacing:4px;position:relative;z-index:2;}
+::-webkit-scrollbar{width:10px;height:10px;}
+::-webkit-scrollbar-track{background:rgba(43,35,24,0.08);}
+::-webkit-scrollbar-thumb{background:var(--ink);border-radius:6px;border:2px solid transparent;background-clip:padding-box;}
+.tab-content,.info-box,.soul-intro,.chapter-card,.canon-group,.ability-cat,.talent-item,.ability-item,.canon-item,.entry-item,.form-group,.preview-box,.custom-ab-box,.mode-switch,.tab-nav,.custom-entry-row{min-width:0;}
+.form-group input,.form-group select,.form-group textarea,.preview-box,.talent-desc,.talent-effect,.abdesc,.abname,.chapter-desc,.info-box p,.info-box li,.soul-intro p,.canon-dropdown-item{word-break:break-word;overflow-wrap:anywhere;}
+.canon-grid,.intro-grid,.entry-list,.ability-grid,.form-row{min-width:0;}
+.canon-grid>*,.intro-grid>*,.entry-list>*,.ability-grid>*,.form-row>*{min-width:0;}
+.tab-nav,.chapter-jump{max-width:100%;}
+@media(max-width:600px){.content-wrapper{padding:10px;}.tab-content{padding:15px;}.form-row{grid-template-columns:1fr;}.entry-list,.ability-grid,.intro-grid,.canon-grid{grid-template-columns:1fr;}.nav-buttons{flex-direction:column;gap:11px;}.nav-btn{width:100%;text-align:center;}.main-title{padding:28px 14px 24px;}.main-title h1{letter-spacing:2px;}.chapter-jump{gap:5px;padding:9px;}.chapter-jump-btn{padding:7px 11px;font-size:12px;}.chapter-card-head{padding:13px 14px;flex-direction:column;align-items:flex-start;gap:9px;}.talent-list{max-height:420px;}.roll-btn{padding:15px 32px;font-size:15px;letter-spacing:3px;}.copy-btn{padding:14px 24px;font-size:14px;}.radio-group label{padding:8px 12px;font-size:12px;}}
+
+[hidden]{display:none!important}</style>
+</head>
+<body>
+
+<div class="opening-screen" id="opening">
+<div class="opening-container"><div class="opening-bg"></div></div>
+<div class="eyelid eyelid-top"></div>
+<div class="eyelid eyelid-bottom"></div>
+<div class="skip-hint">点击任意位置 · 睁开写轮眼</div>
+</div>
+<div class="main-container" id="main">
+<div class="content-wrapper">
+<div class="main-title">
+<div class="title-cn-sub">火 影 世 界 · 角 色 建 卡</div>
+<h1>火影大世界</h1>
+<div class="motto">— 结下第一个印·守护想守之人·你的忍道自己定义 —</div>
+</div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="world">世界</button>
+<button class="tab-btn" data-tab="era">篇章</button>
+<button class="tab-btn" data-tab="character">角色</button>
+<button class="tab-btn" data-tab="ability">能力</button>
+<button class="tab-btn" data-tab="talent">天赋</button>
+<button class="tab-btn" data-tab="preview">预览</button>
+</div>
+
+<!-- TAB: world -->
+<div class="tab-content active" id="tab-world">
+<h2 class="section-title">序章 · 这是怎样的世界</h2>
+<div class="soul-intro">
+<p>很久很久以前，大地之上耸立着一棵<span class="accent-gold">神树</span>。来自天外的<span class="accent-gold">大筒木辉夜</span>吃下神树果实，成为查克拉之祖，以一己之力平息了世间战火、被万民奉为女神。然而她的两个儿子——<span class="accent-gold">大筒木羽衣（六道仙人）</span>与大筒木羽村——最终封印了母亲，羽衣将神树化为十尾、把十尾的查克拉分成九只尾兽，并把查克拉的真谛传授给世人，开创了<span class="accent-orange">忍宗</span>。从此，查克拉不再是神的特权，而成了人与人之间连接的力量。</p>
+<p>查克拉由<span class="accent-orange">身体能量（细胞生命能）</span>与<span class="accent-orange">精神能量（修炼精神力）</span>混合提炼而成，是一切忍术、体术、幻术、瞳术的唯一能量来源。人们通过提炼查克拉、结下印，便能呼风唤火、移山瞬身。在各国战火之中，忍者从战场上的暗杀工具，逐渐集结成村——<span class="accent-orange">一国一村</span>制度由此诞生：火之国木叶、风之国砂隐、水之国雾隐、雷之国云隐、土之国岩隐，五大忍村并立，影为一村之最。忍者接取任务、评级晋升、以护额为身份象征，也因理念不同而成为叛忍、被全球通缉。</p>
+<p>你可以做任何事：作为刚从忍者学校毕业的下忍，在卡卡西（或别的上忍）带领下接下第一个波之国任务；作为砂隐的傀儡师，在风沙里守护自己的风影；作为雨隐的孤儿，在弥彦、长门、小南身边看着"晓"最初的模样；甚至回到战国烽烟，站在千手或宇智波的阵营里，亲眼见证木叶诞生的那一刻。你可以当守护村子的影，可以当随心所欲的叛忍，可以当走遍世界的浪人，也可以是人柱力、血继限界持有者、仙术继承者。</p>
+<p><span class="accent-orange">忍术刻于血脉与修炼、情报即生死、代价从不赊账。</span>你结下的第一个印、立起的第一次影分身、挡在同伴身前的那一手——这些选择会从查克拉经络层面改写你的存在。能否走得更远，全看你的机缘、你的忍道，与你愿意为谁赌上性命。</p>
+<p class="emphasis">你的故事，从结下第一个印开始。</p>
+</div>
+
+<h2 class="section-title">一、本源与力量</h2>
+<div class="intro-grid">
+<div class="info-box red">
+<h3>查克拉 · 七属性 · 仙术</h3>
+<ul>
+<li><strong>查克拉</strong>：忍界唯一能量基础，由身体能量+精神能量混合提炼。忍术需结印引导释放；查克拉量与控制力决定忍者能驾驭多强的术。耗尽仍强行战斗会虚脱、经络断裂乃至死亡</li>
+<li><strong>七属性变化</strong>：火、风、雷、土、水五种基础性质，外加阴（幻精神能量）、阳（身体生命力）。单性质变化对应普通忍术；性质变化需"性质变化"修炼掌握</li>
+<li><strong>属性相克环</strong>：同等级忍术正面对撞严格遵循 火→风→雷→土→水→火 的克制环（火克风、风克雷、雷克土、土克水、水克火），被克制一方忍术被直接击穿；无属性忍术（螺旋丸、影分身等）不参与克制</li>
+<li><strong>仙术</strong>：在身体+精神之外再吸收<span class="accent-gold">自然能量</span>，三者完美平衡即可进入仙人模式，使用仙术；自然能量失衡会石化或变成蛤蟆/蛇。三大仙地：妙木山（蛤蟆）、龙地洞（蛇）、湿骨林（蛞蝓）</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>血继限界 · 淘汰 · 网罗</h3>
+<ul>
+<li><strong>血继限界</strong>：两种查克拉性质融合产生的新遁术，随血脉遗传，非血脉持有者无法靠普通修炼习得，也无法被普通写轮眼复制。如木遁（土+水）、冰遁（风+水）、熔遁、沸遁、岚遁、磁遁、爆遁、灼遁等</li>
+<li><strong>血继淘汰</strong>：三种性质融合，凌驾于血继限界之上，已知者极少（如尘遁：火+风+土）</li>
+<li><strong>血继网罗</strong>：七种性质合一、超越血继淘汰的至高境界，是神树/大筒木级的力量</li>
+<li><strong>三大瞳术</strong>：写轮眼（宇智波，洞察/复制/幻术→万花筒专属瞳术→永恒万花筒→轮回眼）、白眼（日向，近360°透视查克拉经络，配柔拳）、转生眼（大筒木血统，白眼进化）</li>
+<li><strong>特殊体质</strong>：仙人体（千手/漩涡的强大生命力与查克拉量）、漩涡封印天赋、尸骨脉（辉夜一族）等</li>
+</ul>
+</div>
+</div>
+
+<h2 class="section-title">二、等级体系</h2>
+<div class="info-box" style="border-left:4px solid var(--red);margin-bottom:16px;">
+<p style="color:var(--red);font-weight:700;">⚠ 以下为世界观规则介绍，仅供参考，无需在此填写；等级评定请前往「角色」标签页的「实力评定」区块。</p>
+</div>
+<div class="intro-grid">
+<div class="info-box red">
+<h3>① 忍者评级（忍村职称）</h3>
+<ul>
+<li>由低到高：<strong>忍者学校学生 → 下忍 → 中忍 → 特别上忍 → 上忍 → 影</strong></li>
+<li>核心依据为查克拉控制力、任务完成率与实战能力，非纯看血统</li>
+<li>下忍=忍者学校毕业的正式忍者；中忍=可任小队队长、执行B级任务；特别上忍=单领域能力达上忍级；上忍=查克拉量达标、可独立执行S级任务；影=一村最强、统筹全局</li>
+<li>评级是村子发的职称，可能因资历、保密、隐藏实力与真实战力脱节</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>② 威胁等级（灾害通用判定）</h3>
+<ul>
+<li>大筒木/十尾人柱力：神级·灭世级</li>
+<li>完全体尾兽/轮回眼持有者：超影级·灭国级</li>
+<li>影/S级叛忍/完美人柱力：影级·灾镇级</li>
+<li>上忍/特别上忍：精英级·破城级</li>
+<li>中忍/下忍：普通级·战术级</li>
+<li>失控尾兽化、错误仙人化状态比常态高1-2档，但敌我不分，可被对应封印术压制</li>
+</ul>
+</div>
+</div>
+<div class="info-box">
+<h3>③ 综合战力（E~EX，按破坏规模+战斗表现客观标定）</h3>
+<ul>
+<li><strong>E·凡人级</strong>：普通人、忍者学校未毕业者，无查克拉战力</li>
+<li><strong>D·下忍级</strong>：刚毕业正式忍者，会基础忍术，能对付数名持械普通人</li>
+<li><strong>C·中忍级</strong>：可任小队队长、掌握中阶忍术，能击溃下忍小队、摧毁普通建筑</li>
+<li><strong>B·上忍级</strong>：村子精英，掌握A级忍术，一人可敌数百普通军队、攻破城防</li>
+<li><strong>A·影级·灾镇级</strong>：可毁灭、镇压一座城镇，忍者大军难挡，须同档强者或尾兽、大型封印阻挡</li>
+<li><strong>S·超影级·灭国级</strong>：一人可灭一国、毁一整座忍村，数千军队无法正面抵挡，须数名影级联手或特殊封印</li>
+<li><strong>EX·六道级·灭世级</strong>：力量波及整个世界，可毁灭地表、重塑天地，只能同档对抗或以封印、规则限制</li>
+<li><strong>特殊规格（不入档）</strong>：八门遁甲死门爆发（短暂EX级后必死）、秽土转生、失控尾兽化等临时状态，按当场表现看待，不固定归档</li>
+</ul>
+</div>
+
+<h2 class="section-title">三、社会规则</h2>
+<div class="intro-grid">
+<div class="info-box red">
+<h3>一国一村 · 任务分级</h3>
+<ul>
+<li><strong>一国一村制</strong>：五大国实行一国一村，忍村为国家唯一合法军事机构，拥有忍者评级、任务调度、执法处决最高权</li>
+<li><strong>任务分级</strong>：D级（杂务）、C级（护援/采集）、B级（小队级战斗）、A级（村子级机密任务）、S级（关系国家命运的极秘任务）</li>
+<li><strong>忍者四权分立</strong>：影（最高领袖）、暗部（暗杀/谍报直属）、医疗部（战场救治）、警务部（治安/追逃）</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>守则 · 火之意志 · 叛忍</h3>
+<ul>
+<li><strong>任务优先</strong>：忍者以完成任务为第一准则，禁止因个人情感擅自放弃任务</li>
+<li><strong>火之意志特例</strong>：木叶独有——同伴生命优先级高于任务，"我绝对不会让我的同伴被杀"</li>
+<li><strong>保密与被俘</strong>：禁止泄露村机，被俘禁止出卖同伴与村子，必要时可自杀保密</li>
+<li><strong>叛忍通缉</strong>：叛逃者必须划花护额公示脱离，所有忍村可对其无理由追杀、全球通缉</li>
+<li><strong>根</strong>：团藏创立的暗部培训部，自诩"木叶的黑暗面"，为守护村子不择手段</li>
+</ul>
+</div>
+</div>
+
+<h2 class="section-title">四、战斗裁决</h2>
+<div class="intro-grid">
+<div class="info-box red">
+<h3>结印优先 · 情报即生死</h3>
+<ul>
+<li><strong>结印优先</strong>：常规忍术需结印引导，同级先完成结印者先生效，后发者无法抵消先发术（除非属性克制或绝对查克拉压制）；战斗中打断对方结印可直接阻止施术；无需结印的瞳术、体术释放优先级最高</li>
+<li><strong>情报即生死</strong>：忍术弱点一旦被掌握（如长冷却、透视盲区、需提前标记），威胁性骤降；高阶忍者绝不轻易暴露底牌，首次释放的未知术杀伤力最大，情报差可跨两档反杀</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>无碾压 · 失控判定 · 忍具</h3>
+<ul>
+<li><strong>无绝对碾压</strong>：等级差距可被战术、忍具、地形、配合弥补；普通苦无击中要害可杀上忍、基础幻术可控住影级，剧毒麻醉针也能致命；战斗由能力、查克拉、经验、装备、状态、地形共同决定</li>
+<li><strong>失控判定</strong>：强行超查克拉上限施术、人柱力情绪激动、仙术自然能量过量、万花筒过用、开八门突破极限——失败则虚脱、石化、永久失明、尾兽暴走、开死门后死亡；同伴可注入查克拉稳定</li>
+<li><strong>忍具通用</strong>：苦无、手里剑、起爆符、毒针对所有忍者有效、命中要害致命；特殊忍具（十拳剑、鲛肌、草薙剑等）有专属效果，是S级任务标配</li>
+</ul>
+</div>
+</div>
+
+<h2 class="section-title">五、地理与势力总览</h2>
+<div class="intro-grid">
+<div class="info-box red">
+<h3>忍界格局 · 方位</h3>
+<ul>
+<li>世界以一块<strong>主大陆</strong>为主体，东方外海散布最大岛群（水之国所在）。官方方位：土之国居西北、雷之国居东北、水之国居东方群岛、风之国居西南、火之国居中央</li>
+<li>大陆数十国中以<strong>火、风、水、雷、土五大国</strong>最强，国名取自境内最盛行的查克拉性质，五国制衡、先后爆发四次忍界大战</li>
+<li><strong>火之国·木叶</strong>：居中央、气候温和沃野，人口实力最盛，主角舞台</li>
+<li><strong>风之国·砂隐</strong>：居西南沙漠，昼夜温差大、物资匮乏，傀儡术之乡</li>
+<li><strong>水之国·雾隐</strong>：居东方群岛、四面环海，曾为「血雾之里」，忍刀七人众之乡</li>
+<li><strong>雷之国·云隐</strong>：居东北山岳，民风尚武，富产雷遁、封印尾兽最多</li>
+<li><strong>土之国·岩隐</strong>：居西北高原岩地，群山环绕、易守难攻，尘遁所在</li>
+</ul>
+</div>
+<div class="info-box gold">
+<h3>小国 · 中立 · 组织</h3>
+<ul>
+<li><strong>雨之国·雨隐</strong>：夹于火风土之间、终年降雨，晓的发源地</li>
+<li><strong>泷隐</strong>：小国中唯一分得尾兽（七尾）；<strong>汤隐</strong>：经营温泉、飞段出身；<strong>音隐</strong>：大蛇丸所建；<strong>涡潮</strong>：封印术闻名、后遭灭国；<strong>波之国</strong>：鸣人大桥所在</li>
+<li><strong>铁之国</strong>：居北方雪山，由武士统治、三船主政，严守中立，为五影会谈举办地</li>
+<li><strong>晓</strong>：着红云黑风衣、戴代号戒指的S级叛忍集团；另有<strong>暗部与根</strong>、<strong>壳</strong>、<strong>忍刀七人众</strong>、四战<strong>忍者联军</strong>（总大将四代雷影·艾）</li>
+<li><strong>大筒木</strong>：来自天外的查克拉始祖，辉夜、桃式、一式等，凌驾于忍村之上</li>
+<li><strong>交通通讯</strong>：平时步行、爬树踩水、瞬身，长途借通灵代步；通讯靠联络鹰与卷轴，无近代交通网</li>
+</ul>
+</div>
+</div>
+
+<h2 class="section-title">建卡流程</h2>
+<div class="info-box red">
+<ul>
+<li>第一步 · 「篇章」页：选择时间线篇章与入场时机（前传/正篇/博人传/剧场版）</li>
+<li>第二步 · 「角色」页：选择原创或扮演原著，填写基础信息、出身、阵营、实力等级（忍者评级+综合战力）、外貌性格与背景</li>
+<li>第三步 · 「能力」页：分三部分——勾选官方已有能力、创作忍界原创忍术、添加跨作品自定义能力/装备</li>
+<li>第四步 · 「天赋」页：抽取天赋卡选3，或自创独门天赋</li>
+<li>第五步 · 「预览」页：实时生成完整角色档案并复制</li>
+</ul>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" disabled>← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">选择时间线篇章 →</button>
+</div>
+</div>
+
+<!-- TAB: era -->
+<div class="tab-content" id="tab-era">
+<h2 class="section-title">选择时间线篇章</h2>
+<div class="info-box"><p>选择你要投入的篇章。点击卡片展开详情与入场时机，节点直接点选。前传为忍界历史原点（可开历史回溯团），正篇从忍者学校篇起，博人传与剧场版另列。</p></div>
+<div class="chapter-jump" id="chapter-jump"></div>
+<div id="chapter-cards"></div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+
+<!-- TAB: character -->
+<div class="tab-content" id="tab-character">
+<h2 class="section-title">角色创建</h2>
+<div class="info-box" id="cur-chapter-box">
+<h3>当前篇章</h3>
+<p id="cur-chapter-text">尚未选择篇章</p>
+</div>
+<div class="mode-switch">
+<button class="mode-btn active" data-mode="original" onclick="switchMode('original')">❖ 原创角色</button>
+<button class="mode-btn" data-mode="canon" onclick="switchMode('canon')">❖ 扮演原著</button>
+</div>
+<div class="canon-section" id="canon-section">
+<div class="info-box gold">
+<h3>原著角色扮演</h3>
+<p>从原著角色中选择一位。输入关键词搜索（名字/身份），或展开分组浏览。选定后仍可在下方补充修改细节。</p>
+</div>
+<div class="canon-search-wrap">
+<input type="text" class="canon-search" id="canon-search" placeholder="输入角色名/身份搜索（如：鸣人、卡卡西、晓、风影…）" oninput="filterCanon(this.value)">
+<div class="canon-dropdown" id="canon-dropdown"></div>
+</div>
+<div id="canon-list"></div>
+<div class="form-section" style="margin-top:20px;">
+<div class="form-group">
+<label>扮演补充 <span class="field-hint">（额外设定、细节、备注）</span></label>
+<textarea id="canon-supplement" rows="5" placeholder="例：&#10;· 想修改角色的某项设定&#10;· 追加原著未提及的细节&#10;· 特殊关系或隐藏背景&#10;· 其他任何补充……"></textarea>
+</div>
+</div>
+</div>
+<div id="original-section">
+<div class="form-section">
+<h3>基础信息</h3>
+<div class="form-row">
+<div class="form-group"><label>姓名</label><input type="text" id="char-name" placeholder="漩涡鸣人、旗木卡卡西……" oninput="refreshOriginalDone()"></div>
+<div class="form-group"><label>年龄</label><input type="number" id="char-age" placeholder="外貌/实际年龄" min="0" max="9999"></div>
+</div>
+<div class="form-group"><label>性别</label>
+<div class="radio-group">
+<label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+<label><input type="radio" name="gender" value="女"><span>女</span></label>
+<label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+</div>
+</div>
+</div>
+
+<div class="form-section">
+<h3>【固定出身】出生即确定</h3>
+<p style="font-size:12px;line-height:1.7;margin-bottom:14px;color:#8a7a5e;">这里填写你与生俱来的背景：出生地、家族血统、出身阶层，即"你是什么出身"。</p>
+<div class="form-row">
+<div class="form-group"><label>出生地 <span class="field-hint">（出生地/所在国）</span></label>
+<select id="char-birthplace">
+<option value="">(请选择)</option>
+<option>火之国·木叶</option><option>风之国·砂隐</option><option>水之国·雾隐</option>
+<option>雷之国·云隐</option><option>土之国·岩隐</option><option>雨之国·雨隐</option>
+<option>草之国·草隐</option><option>泷之国·泷隐</option><option>田之国·音隐</option>
+<option>涡之国</option><option>汤之国</option><option>铁之国</option><option>波之国</option><option>其他小国</option><option value="custom">❖ 自定义…</option>
+</select>
+<div class="custom-input" id="custom-birthplace-wrap"><input type="text" id="custom-birthplace" placeholder="填写你设定的出生地"></div>
+</div>
+<div class="form-group"><label>家族血统 <span class="field-hint">（血继/秘术家族）</span></label>
+<select id="clan" onchange="toggleCustom('clan',this.value)"></select>
+<div class="custom-input" id="custom-clan-wrap"><input type="text" id="custom-clan" placeholder="输入自定义家族"></div>
+</div>
+</div>
+<div class="form-group"><label>出身阶层</label>
+<select id="social-class" onchange="toggleCustom('class',this.value)">
+<option value="">(请选择)</option>
+<option>忍族名门嫡系</option><option>忍族旁支</option><option>普通忍者家庭</option>
+<option>医疗/感知/忍具世家</option><option>平民出身</option><option>孤儿</option>
+<option>涡之国遗民</option><option>其他（自定义）</option>
+</select>
+<div class="custom-input" id="custom-class-wrap"><input type="text" id="custom-class" placeholder="输入自定义阶层"></div>
+</div>
+<div class="form-group"><label>天生查克拉性质（亲和） <span class="field-hint">（可多选，跑团自由）</span></label>
+<div style="font-size:12px;font-weight:900;color:var(--orange-d);margin:4px 0 8px;letter-spacing:1px;">◈ 原作设定 · 七属性</div>
+<div class="radio-group">
+<label><input type="checkbox" name="chakra-nature" value="火"><span>火</span></label>
+<label><input type="checkbox" name="chakra-nature" value="风"><span>风</span></label>
+<label><input type="checkbox" name="chakra-nature" value="雷"><span>雷</span></label>
+<label><input type="checkbox" name="chakra-nature" value="土"><span>土</span></label>
+<label><input type="checkbox" name="chakra-nature" value="水"><span>水</span></label>
+<label><input type="checkbox" name="chakra-nature" value="阴"><span>阴</span></label>
+<label><input type="checkbox" name="chakra-nature" value="阳"><span>阳</span></label>
+</div>
+<div style="font-size:12px;font-weight:900;color:var(--gold);margin:14px 0 8px;letter-spacing:1px;">◇ 原创拓展 · 原作无此性质（跑团扩展 · 变异灵根向）</div>
+<div class="radio-group">
+<label><input type="checkbox" name="chakra-nature" value="光"><span>光</span></label>
+<label><input type="checkbox" name="chakra-nature" value="暗"><span>暗</span></label>
+<label><input type="checkbox" name="chakra-nature" value="空间"><span>空间</span></label>
+<label><input type="checkbox" name="chakra-nature" value="时间"><span>时间</span></label>
+<label><input type="checkbox" name="chakra-nature" value="反物质"><span>反物质</span></label>
+</div>
+<p style="font-size:12px;line-height:1.7;margin-top:10px;color:#8a7a5e;"><strong style="color:var(--orange-d);">【原作·七属性】</strong>火、风、雷、土、水为五大基础性质，可用查克拉试纸测定（火→燃烧、风→裂开、雷→起皱、土→碎粉、水→变湿）；阴属精神能量（幻术、影子束缚、心转身类），阳属身体生命力（倍化、医疗忍术、仙人体），阴、阳不经试纸、随天赋与家族显现。原作常人天生只亲和一种，血继忍者天生两种（白·风+水、柱间·土+水），照美冥天生火+水+土三种，其余性质靠后天修炼掌握，理论上可集齐（三代火影、长门、斑等全属性忍者）。<br><strong style="color:var(--gold);">【原创拓展】</strong>光、暗、空间、时间、反物质为跑团原创扩展性质，原作并无此类查克拉性质变化，仅供自由扮演（类似修仙小说的变异灵根，越稀有越逆天）；其强度必须与综合战力评级匹配、不得无条件越阶，逆天效果需在背景中给出代价或来历。原著 NPC 一律不持有原创拓展属性。</p>
+</div>
+</div>
+
+<div class="form-section">
+<h3>【当前所属】身份阵营（随剧情可变）</h3>
+<div class="form-row">
+<div class="form-group"><label>所属忍村</label>
+<select id="village" onchange="toggleCustom('village',this.value)"></select>
+<div class="custom-input" id="custom-village-wrap"><input type="text" id="custom-village" placeholder="填写自定义忍村"></div>
+</div>
+<div class="form-group"><label>身份类型</label>
+<select id="identity" onchange="toggleCustom('identity',this.value)"></select>
+<div class="custom-input" id="custom-identity-wrap"><input type="text" id="custom-identity" placeholder="输入自定义身份"></div>
+</div>
+</div>
+<div class="form-row">
+<div class="form-group"><label>特殊身份</label>
+<select id="special-iden"></select>
+</div>
+<div class="form-group"><label>人柱力/尾兽</label>
+<select id="jinchuriki"></select>
+</div>
+</div>
+<div class="form-group"><label>血继限界 <span class="field-hint">（无则选"无"）</span></label>
+<select id="kekkei" onchange="toggleCustom('kekkei',this.value)"></select>
+<div class="custom-input" id="custom-kekkei-wrap"><input type="text" id="custom-kekkei" placeholder="输入自定义血继"></div>
+</div>
+</div>
+
+<div class="form-section">
+<h3>实力评定（所有角色必填）</h3>
+<div class="form-row">
+<div class="form-group"><label>忍者评级 <span class="field-hint">（官方职称）</span></label>
+<select id="ninja-rank"></select>
+</div>
+<div class="form-group"><label>综合战力评级 <span class="field-hint">（客观破坏规模）</span></label>
+<select id="combat-level">
+<option value="">未定</option>
+<option value="E·凡人级">E·凡人级</option>
+<option value="D·下忍级">D·下忍级</option>
+<option value="C·中忍级">C·中忍级</option>
+<option value="B·上忍级">B·上忍级</option>
+<option value="A·影级·灾镇级">A·影级·灾镇级</option>
+<option value="S·超影级·灭国级">S·超影级·灭国级</option>
+<option value="EX·六道级·灭世级">EX·六道级·灭世级</option>
+<option value="特殊规格（不入档）">特殊规格（不入档）</option>
+</select>
+</div>
+</div>
+<div class="form-group"><label>特殊能力说明 <span class="field-hint">（无需重复填等级）</span></label><input type="text" id="power-note" placeholder="例：已掌握仙人模式、完美人柱力、须佐能乎、秽土转生……"></div>
+</div>
+
+<div class="form-section">
+<h3>外貌与性情</h3>
+<div class="form-group"><label>外貌</label><textarea id="char-appearance" placeholder="护额戴在哪？发型瞳色？忍者服还是便装……"></textarea></div>
+<div class="form-group"><label>性格</label><textarea id="char-personality" placeholder="热血、冷静、腹黑、护短、怕麻烦……"></textarea></div>
+<div class="form-group"><label>忍道宣言</label><input type="text" id="char-nindou" placeholder="例：我说道话是不会改变的……"></div>
+<div class="form-group"><label>兴趣爱好</label><input type="text" id="char-hobby" placeholder="忍术修炼·拉面·散步·研究傀儡……"></div>
+<div class="form-group"><label>随身携带 <span class="field-hint">（忍具/卷轴/信物）</span></label><textarea id="char-belongings" placeholder="苦无·手里剑·起爆符·卷轴·护身符……"></textarea></div>
+<div class="form-group"><label>背景故事</label><textarea id="char-background" placeholder="身世、师承、羁绊、为何走上忍者之路……"></textarea></div>
+<div class="form-group"><label>当前处境 / 开局场景</label><textarea id="char-scene" placeholder="刚从忍者学校毕业·站在中忍考试考场·第四次忍界大战战场……"></textarea></div>
+</div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+
+<!-- TAB: ability -->
+<div class="tab-content" id="tab-ability">
+<h2 class="section-title">能力</h2>
+<div class="info-box"><p>本页分三个独立模块，用途互不重复：<strong>① 勾选官方已有能力 → ② 创作忍界原创忍术 → ③ 添加跨作品自定义能力/装备</strong>。</p></div>
+<h3 style="margin:16px 0 10px;font-family:'Noto Sans SC',sans-serif;">① 官方已有能力勾选</h3>
+<p style="font-size:12px;line-height:1.7;margin-bottom:10px;color:#8a7a5e;">勾选火影原作已有的忍术、瞳术、仙术、血继、通灵、尾兽、封印、禁术等，<strong>勾选即会</strong>，有多少勾多少，不设掌握程度。</p>
+<div class="canon-search-wrap" style="margin-bottom:16px;">
+<input type="text" class="canon-search" id="ab-search" placeholder="输入关键词搜索能力（术名/瞳术/血继/尾兽…），在下拉结果里点击即可定位" oninput="filterAbilities(this.value)">
+<div class="canon-dropdown" id="ab-dropdown"></div>
+</div>
+<div id="ability-sections"></div>
+<div class="custom-ab-box" style="margin-top:24px;border-left:4px solid var(--orange);">
+<h3 style="margin-bottom:8px;font-family:'Noto Sans SC',sans-serif;">② 忍界原创忍术</h3>
+<p style="font-size:12px;line-height:1.7;margin-bottom:14px;color:#8a7a5e;">创作火影体系内的原创能力（原作没有的新忍术、新幻术、新秘传、新通灵等），可添加多个；跑团中凭血脉变异、修炼顿悟、封印改造即可成立，后天可逐步开发。</p>
+<div class="form-row">
+<div class="form-group"><label>能力类别</label><select id="ct-type">
+<option value="忍术">忍术</option>
+<option value="体术">体术</option>
+<option value="幻术">幻术</option>
+<option value="瞳术">瞳术</option>
+<option value="血继限界">血继限界</option>
+<option value="仙术">仙术</option>
+<option value="封印术">封印术</option>
+<option value="医疗忍术">医疗忍术</option>
+<option value="忍具">忍具</option>
+<option value="时空间忍术">时空间忍术</option>
+<option value="通灵术">通灵术</option>
+</select></div>
+<div class="form-group"><label>名称</label><input type="text" id="ct-name" placeholder="如：某某忍法"></div>
+</div>
+<div class="form-group"><label>效果 / 规则</label><textarea id="ct-desc" rows="2" placeholder="效果、结印、属性、触发条件、代价……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomTechnique()">+ 添加原创忍术</button>
+<div id="custom-ct-list" style="margin-top:16px;"></div>
+</div>
+<div class="custom-ab-box" style="margin-top:24px;border-left:4px solid var(--gold);">
+<h3 style="margin-bottom:8px;font-family:'Noto Sans SC',sans-serif;">③ 跨作品自定义能力/装备</h3>
+<p style="font-size:12px;line-height:1.7;margin-bottom:14px;color:#8a7a5e;">添加非火影体系的外来能力/装备，例如跨世界武魂、外来特殊武器、神话级天赋装备等，可添加多个。</p>
+<div class="form-group"><label>名称</label><input type="text" id="custom-ab-name" placeholder="例：矢量操作、神级武器、特殊血脉……"></div>
+<div class="form-group"><label>说明</label><textarea id="custom-ab-desc" rows="2" placeholder="能力效果、触发条件、代价、武器属性……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomAbility()">+ 添加自定义能力/装备</button>
+<div id="custom-ab-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+
+<!-- TAB: talent -->
+<div class="tab-content" id="tab-talent">
+<h2 class="section-title">天赋</h2>
+<div class="info-box">
+<h3>天赋抽取规则</h3>
+<ul>
+<li>每次抽取获得 <strong>8 条</strong> 天赋，从中选择 <strong>3 条</strong> 作为核心际遇</li>
+<li>神话档概率约 <strong>15-20%</strong>，首个保底神话</li>
+<li>稀有度对应：金·神话／红·传说／紫·史诗／蓝·稀有／白·普通</li>
+<li>天赋不锁能力、不锁阵营，仅决定你的身世、体质、羁绊与际遇走向</li>
+<li>可反复重抽直到满意；亦可自创独门天赋</li>
+</ul>
+</div>
+<div class="talent-section">
+<button class="roll-btn" id="roll-btn" onclick="rollTalents()">揭 · 晓 · 天 · 赋</button>
+</div>
+<div class="talent-pool" id="talent-pool">
+<h3>天赋池</h3>
+<p class="talent-count">请从以下 8 条中选择 3 条（已选：<span id="talent-selected-count">0</span>/3）</p>
+<div class="talent-list" id="talent-list"></div>
+</div>
+<div class="custom-ab-box">
+<h4>❖ 自创天赋 / 私人际遇</h4>
+<div class="form-group"><label>天赋名称</label><input type="text" id="custom-tl-name" placeholder="如：妙木山的自来也旧识·九尾的特殊认可……"></div>
+<div class="form-group"><label>说明 / 效果</label><textarea id="custom-tl-desc" rows="2" placeholder="内容与效果……"></textarea></div>
+<button class="nav-btn next" style="padding:11px 24px;" onclick="addCustomTalent()">+ 添加自创天赋</button>
+<div id="custom-tl-list" style="margin-top:16px;"></div>
+</div>
+<div class="nav-buttons">
+<button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+<button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+</div>
+</div>
+
+<!-- TAB: preview -->
+<div class="tab-content" id="tab-preview">
+<h2 class="section-title">此生 · 角色档案</h2>
+<div class="preview-box" id="preview-box"></div>
+<button class="copy-btn" onclick="copyPreview()">复 · 制 · 此 · 生</button>
+<button type="button" class="copy-btn" id="enter-chat" style="margin-top:12px" hidden>带入聊天</button>
+<div class="nav-buttons"><button class="nav-btn prev" onclick="prevTab()">← 上一步</button></div>
+</div>
+</div>
+</div>
+<footer>火 影 世 界 · 角 色 建 卡</footer>
+<script>
+const abilityData={"瞳术·写轮眼系": [{"name": "万花筒瞳术·八千矛", "desc": "宇智波光双眼万花筒固有的瞳术（ヤチホコ），可对预先留下痣状标记的对象进行精神与查克拉操控，近距离亦能直接交换查克拉；夺取的查克拉可还原于自身用于恢复与增幅，近乎无限供给查克拉，因此无视万花筒使用的失明风险。", "user": "宇智波光"}, {"name": "万花筒瞳术·印刻月读", "desc": "宇智波光的应用瞳术（いんきざみのつくよみ），将万花筒写轮眼投影至月面，月光所照之人皆被赋予痣状标记，范围覆盖月光可达的世界全域；仅能以须佐能乎遮挡，或将精神意识飞往其他空间，佐助称其为“无限月读的仿品”。", "user": "宇智波光"}, {"name": "伊邪那岐", "desc": "对自己使用的究极幻术，将现实伤害化为梦境，改写命运；代价是一只写轮眼永久失明。", "user": "志村团藏、宇智波带土、宇智波斑"}, {"name": "伊邪那美", "desc": "无需对视即发动的禁术，将对手困在重复时间循环中，强制其接受真实命运以纠正认知。", "user": "宇智波鼬"}, {"name": "八坂之勾玉", "desc": "须佐能乎双手投掷的巨大远程勾玉，如流星雨般大范围轰击，斑、鼬、佐助均使用。", "user": "宇智波斑、宇智波鼬、宇智波佐助、宇智波止水"}, {"name": "别天神", "desc": "止水万花筒的最强幻术，在对手毫无察觉下篡改其思想，冷却时间极长，柱间细胞可缩短。", "user": "志村团藏、宇智波止水、宇智波鼬"}, {"name": "加具土命", "desc": "佐助右眼控制天照黑炎的形态变化，可将黑炎塑形为盾、剑或熄灭；宇智波光移植的天照具备同等黑炎形态操控效果，能以黑炎包裹对象而不伤其身，用作防御。", "user": "宇智波佐助、宇智波光（同等效果）"}, {"name": "天照", "desc": "万花筒右眼发动的黑炎，焦点处起燃直至燃烧殆尽，七日七夜不灭，可烧尽火焰本身。", "user": "宇智波鼬、宇智波佐助、宇智波光（移植）"}, {"name": "威装·须佐能乎", "desc": "将须佐能乎查克拉化为铠甲覆盖在九尾身上，使九尾持有须佐之剑，攻防一体。", "user": "宇智波斑、宇智波佐助+漩涡鸣人（合体）"}, {"name": "完全体须佐能乎", "desc": "万花筒开眼后觉醒的战神附体，斑的完全体高达百米、背生双翼、持长剑，可一剑劈开大山与九尾。", "user": "宇智波斑、宇智波佐助、宇智波因陀罗"}, {"name": "月读", "desc": "鼬万花筒左眼将对手拉入其支配的精神世界，时间/重力皆由鼬操控，短时间内造成精神崩溃。", "user": "宇智波鼬、宇智波光（移植）"}, {"name": "神威", "desc": "带土万花筒专属时空瞳术，可将自身或接触物转入异空间：自身虚化穿透攻击，亦可远程传送。", "user": "宇智波带土、旗木卡卡西"}, {"name": "须佐能乎", "desc": "万花筒双眼神通后觉醒的第三力量，召唤半透明查克拉巨人，持十拳剑与八咫镜。", "user": "宇智波鼬、宇智波佐助、旗木卡卡西、宇智波斑、宇智波止水（游戏）"}], "瞳术·白眼/转生眼": [{"name": "白眼（神之眼）", "desc": "羽村所持纯度极高的白眼，拥有近360°视角（第一胸椎处有极窄死角）、透视与望远能力，可看透查克拉经络与万物本质。", "user": "大筒木羽村、日向一族、大筒木舍人"}, {"name": "转生眼", "desc": "白眼结合尾兽查克拉进化而成的瞳术，呈金色九勾玉状，可操纵引力并召唤石瞬间制造月球大小的球体；由羽村后裔舍人觉醒。", "user": "大筒木舍人（羽村后裔）"}], "瞳术·轮回眼": [{"name": "轮回写轮眼", "desc": "辉夜额间开启的第三只眼，为九勾玉轮回写轮眼；可投影至月面发动无限月读，是发动天之御中等权能的基础。", "user": "大筒木辉夜"}, {"name": "人间道", "desc": "将手按于目标头顶抽取其灵魂，可读取记忆，抽完即杀死目标。", "user": "佩恩（人间道）"}, {"name": "修罗道", "desc": "将身体改造为武器，肩部与手臂可变形为导弹、激光炮、机械刃等远程/近战兵器。", "user": "佩恩（修罗道）"}, {"name": "地爆天星", "desc": "轮回眼封印术，以核心引力将周围岩石聚拢成球体封印目标；斑曾以此封尾兽，长门以此封鸣人，佐助以此封九只尾兽。", "user": "宇智波斑、佩恩/长门、宇智波佐助"}, {"name": "地狱道·阎罗判决", "desc": "召唤阎罗口吞噬被审讯者舌头抽取灵魂作判决，并可将受损佩恩放入其口中修复复活。", "user": "佩恩（地狱道）"}, {"name": "外道·轮回天生之术", "desc": "轮回眼究极复活术，以施术者生命为代价召唤阎罗，将大范围死者灵魂唤回肉体复活；代价是施术者死亡。", "user": "宇智波带土、宇智波斑、长门"}, {"name": "天碍震星", "desc": "轮回忍术，召唤巨大陨石从天而降砸落战场，需双神威手结印，曾召唤双陨石压制五影。", "user": "宇智波斑"}, {"name": "天道·万象天引", "desc": "轮回眼天道能力，以引力将视线内的目标或武器强行吸向自己操控。", "user": "佩恩（天道）"}, {"name": "天道·地爆天星", "desc": "释放引力核心升空，将周围大地岩石吸引聚拢包裹目标形成巨大球体封印敌人。", "user": "佩恩（天道）、宇智波斑"}, {"name": "天道·神罗天征", "desc": "以斥力弹开周围一切物理攻击与人员，冷却约5秒；超大版本以消耗寿命为代价可毁灭木叶。", "user": "佩恩（天道）"}, {"name": "封术吸印（吸收忍术）", "desc": "轮回眼饿鬼道能力，手掌前伸形成引力将对手忍术查克拉吸收入体内并无效化，可吸收物理攻击外的能量。", "user": "宇智波斑、佩恩饿鬼道、长门"}, {"name": "畜生道·通灵", "desc": "无需契约即可通灵变色龙、蜈蚣、犀牛、大鸟等巨大通灵兽，且畜生道本体可与其它佩恩互相通灵。", "user": "佩恩（畜生道）"}, {"name": "轮回眼（天生）", "desc": "羽衣天生开启的轮回眼，无需移植或融合；掌控生死与六道之力，可召唤外道魔像，是轮回眼系一切能力的源头。", "user": "大筒木羽衣、宇智波斑（晚年开启）、长门、宇智波佐助"}, {"name": "轮墓·边狱", "desc": "轮回眼专属能力，召唤出处于轮墓世界的看不见影子，影子在现实世界可攻击且常人无法感知，只有六道之力与感知型忍者可见。", "user": "宇智波斑"}, {"name": "饿鬼道·吸术", "desc": "手掌接触即可吸收敌人查克拉忍术并无效化，也可吞噬对手体内查克拉，近身克星。", "user": "佩恩（饿鬼道）"}, {"name": "天手力", "desc": "佐助六勾玉轮回眼的时空术，可瞬间将自身与视线内任意物体位置互换，射程约70米。", "user": "宇智波佐助"}], "忍术·火遁": [{"name": "火遁·凤仙火之术", "desc": "从口中喷出多个小火球如凤仙花般散开追踪敌人，可配合手里剑隐藏。", "user": "御手洗红豆、宇智波佐助、宇智波鼬、宇智波光"}, {"name": "火遁·凤仙花爪红", "desc": "宇智波鼬以凤仙火之术配合爪状查克拉撕裂敌人的忍术，火焰附着后持续燃烧，《者之书》收录。", "user": "宇智波鼬"}, {"name": "火遁·头刻苦", "desc": "由背后面具之一喷出大面积高温火焰，沿地面蔓延烧毁战场，是角都五属性之一。", "user": "角都"}, {"name": "火遁·灰积烧", "desc": "阿斯玛传授的火遁，吐出漂浮烟灰后点燃，烟灰可粘附敌人并爆燃灼伤范围目标。", "user": "猿飞阿斯玛、猿飞木叶丸"}, {"name": "火遁·炎弹", "desc": "自来也先将蛤蟆油喷向敌人再点火，油粘身燃烧形成巨大火球，威力范围广。", "user": "自来也"}, {"name": "火遁·豪火灭却", "desc": "宇智波斑的超大范围火遁，喷出一面火墙覆盖数十米，需数十名水忍者联合水阵壁才能抵挡。", "user": "宇智波斑"}, {"name": "火遁·豪火灭失", "desc": "宇智波斑的火遁，威力与覆盖范围不逊于豪火灭却，从口中吐出能毁灭一切的大片火流；第四次忍界大战中被照美冥以水遁·水阵柱正面压制。", "user": "宇智波斑"}, {"name": "火遁·豪火球之术", "desc": "宇智波一族基础招牌，吐出口中凝聚的巨大火球覆盖前方，需熟练查克拉控制。", "user": "宇智波佐助、宇智波富岳、宇智波带土、宇智波斑、宇智波鼬"}, {"name": "火遁·龙火之术", "desc": "以线引导火焰化为直线火龙射出，精准追踪束缚目标，射速快。", "user": "御手洗红豆、宇智波佐助"}, {"name": "火遁·龙炎放歌之术", "desc": "从口中连续喷出多条火龙分别扑向不同目标，多角度同时灼烧。", "user": "宇智波斑"}], "忍术·风遁": [{"name": "六道·超大玉螺旋手里剑", "desc": "获得六道阳之力后螺旋手里剑的最终形态，超大玉体积配合六道仙术，一击重创宇智波斑。", "user": "漩涡鸣人"}, {"name": "风遁·压害", "desc": "由风属性面具喷出压缩风压形成龙卷风，切割并吹飞大范围敌人。", "user": "角都"}, {"name": "风遁·大突破", "desc": "从口中喷吐大范围高压风压，吹飞敌人与轻物，多用于阵型破坏与拉开距离。", "user": "大蛇丸"}, {"name": "风遁·大镰鼬", "desc": "镰鼬的强化版，扇出的旋风范围更大、风压与切割力更强，可同时击倒多名敌人。", "user": "手鞠"}, {"name": "风遁·斩斩舞", "desc": "召唤巨大龙卷风并在风壁内暗藏无数风刃，将卷入的敌人连续切割粉碎。", "user": "手鞠"}, {"name": "风遁·真空波/真空大玉/真空连波", "desc": "团藏从口中吐出高压风刃：真空波横扫、真空大玉为球形弹、真空连波为连续切割。", "user": "志村团藏"}, {"name": "风遁·螺旋手里剑", "desc": "将风性质变化融入螺旋丸，手里剑状无数微型风刃切割经络，完成初期投掷版近距使用会反噬自身手骨。", "user": "漩涡鸣人"}, {"name": "风遁·镰鼬", "desc": "以巨型三星扇扇出高速真空旋风，藉风刃切割近身敌人，是手鞠招牌中程范围攻击。", "user": "手鞠"}, {"name": "风遁·风之刃", "desc": "将风属性查克拉凝聚成肉眼不可见的锋利刃波射出，威力足以切割岩石。", "user": "马基"}], "忍术·雷遁": [{"name": "千鸟/雷切", "desc": "卡卡西自创A级雷遁，将雷查克拉聚于手掌高速突刺，声音如千鸟鸣叫，曾切雷故名雷切。", "user": "旗木卡卡西、宇智波佐助"}, {"name": "千鸟流", "desc": "佐助将千鸟雷查克拉遍布全身形成铠甲，近身接触者被电击，可攻防一体。", "user": "宇智波佐助"}, {"name": "紫电", "desc": "卡卡西失去写轮眼后自创的雷遁，从手中放出紫黑色雷电攻击，可远距离释放。", "user": "旗木卡卡西"}, {"name": "雷切系列（锐枪/双雷震/尖牙）", "desc": "卡卡西将雷切延伸为长枪状、双手同时释放、以及配合分身的多种变体。", "user": "旗木卡卡西"}, {"name": "雷遁·伪暗", "desc": "由雷属性面具射出贯穿性雷枪，直线高速贯穿目标，破坏力极强。", "user": "角都"}, {"name": "雷遁·超音震雷遁刀", "desc": "将雷遁查克拉注入刀刃，以高频震动增强切割力，可切开普通刀无法斩断的物体。", "user": "奇拉比"}, {"name": "雷遁·黑斑差", "desc": "继承自三代雷影的黑色雷遁，放出黑豹形雷电冲击波高速扑击敌人。", "user": "达鲁伊"}, {"name": "雷遁查克拉模式", "desc": "将雷遁查克拉覆盖全身形成雷电铠甲，瞬间提升速度与肉体防御力，可徒手劈开忍术，四代雷影标志能力。", "user": "四代雷影·艾"}, {"name": "麒麟", "desc": "佐助引导天地间自然雷电成形为麒麟形状劈下，威力达雷遁最强级，需先以豪火球加热大气。", "user": "宇智波佐助"}], "忍术·土遁": [{"name": "土遁·加重岩之术", "desc": "增加目标或自身接触物体的重量，压制敌人行动；超加重岩可将重量加到压碎须佐能乎的程度。", "user": "大野木"}, {"name": "土遁·土流壁", "desc": "从地面升起土墙防御，卡卡西召唤的墙上有狗头浮雕，用于挡下水龙弹等攻击。", "user": "旗木卡卡西"}, {"name": "土遁·土矛", "desc": "将全身或手臂土硬化，防御力与攻击力大增，可徒手接下忍术。", "user": "角都"}, {"name": "土遁·山土之术", "desc": "从地面升起两座巨大土墙/山壁向中间夹击敌人，将目标挤压在两山间。", "user": "大野木"}, {"name": "土遁·刚隶式之术（岩石魔像）", "desc": "大野木的土遁，召唤巨大岩石魔像（戈伦）独立作战，或以岩石包裹全身强化防御。", "user": "大野木"}, {"name": "土遁·开土升掘", "desc": "操控地面升起土台或制造地陷，改变地形以掩护己方或困住敌人。", "user": "黑土"}, {"name": "土遁·心中斩首之术", "desc": "从地下突然伸手抓住敌人脚踝将其拉入地底，仅露头以束缚对手行动。", "user": "旗木卡卡西"}, {"name": "土遁·轻重岩之术", "desc": "大幅减轻自身或接触物体的重量，使施术者与同伴得以飞行或极速加速，年老的大野木靠此空战。", "user": "大野木"}, {"name": "土遁·黄泉沼", "desc": "将地面化为粘稠沼泽吞噬敌人，对手越挣扎下沉越快，自来也对佩恩时使用。", "user": "自来也"}, {"name": "守鹤之盾/假寐之术", "desc": "守鹤之盾用最高密度沙凝成最强防御；假寐之术使自身沉睡召唤守鹤完全体。", "user": "我爱罗"}, {"name": "砂遁（砂盾/砂瀑送葬/砂瀑大葬/沙之手/沙时雨）", "desc": "我爱罗以葫芦中沙自动防御并攻击：沙盾自动护主，送葬捏碎敌人，大葬深埋碾压。", "user": "我爱罗"}], "忍术·水遁": [{"name": "水牢之术/水分身", "desc": "以水球包裹敌人使其窒息被困；或以水分身作出替身迷惑对手，是鬼鲛常用配合技。", "user": "干柿鬼鲛、桃地再不斩、宇智波鼬"}, {"name": "水遁·五食鲛/千食鲛", "desc": "召唤五条乃至上千条水鲨连续撕咬目标，千食鲛需借助大刀鲛肌补充查克拉施展。", "user": "干柿鬼鲛"}, {"name": "水遁·千杀水翔", "desc": "将周围水流化为大量千本针状水箭，以单手结印发动，广范围高速射击敌人。", "user": "白"}, {"name": "水遁·大瀑布之术", "desc": "瞬间在平地召唤出巨型瀑布般水量压迫敌人，查克拉消耗极大，鬼鲛凭巨量查克拉可轻易施展。", "user": "干柿鬼鲛、旗木卡卡西、桃地再不斩、鬼灯水月"}, {"name": "水遁·天泣", "desc": "扉间从口中吐出细如针的水千本，空中射向敌人，无声无息难以躲避。", "user": "千手扉间"}, {"name": "水遁·水幕帐", "desc": "升起一道水墙抵挡敌方火遁与物理攻击，是角都防御用忍术。", "user": "角都"}, {"name": "水遁·水断波", "desc": "从口中喷出高压直线水刀，锋利度堪比剑，可远距离切割岩石。", "user": "千手扉间"}, {"name": "水遁·水阵壁", "desc": "升起弧形水墙防御前方攻击，扉间常用的基础防御水遁。", "user": "千手扉间"}, {"name": "水遁·水阵柱", "desc": "升起巨型水柱从防御或攻击方向压向敌人，是雾影常用中规模水遁。", "user": "照美冥"}, {"name": "水遁·水鲛弹之术", "desc": "凝聚水形成鲨鱼状水弹追踪敌人咬合爆炸；可连发成群鲨鱼。", "user": "干柿鬼鲛"}, {"name": "水遁·水龙弹之术", "desc": "将水流化为龙形冲击敌人，常人需44个印，扉间仅需3个；卡卡西复制自桃地再不斩。", "user": "千手扉间、干柿鬼鲛、旗木卡卡西、桃地再不斩、照美冥、鬼灯水月"}, {"name": "水遁·硬涡水刃", "desc": "扉间将水形成螺旋标枪状投掷，高压旋转贯穿力极强。", "user": "千手扉间"}, {"name": "水遁·雾隐之术", "desc": "散布浓雾遮蔽视野，配合感知消除己方气息隐藏身形，是雾隐村招牌战术忍术。", "user": "照美冥、桃地再不斩等雾隐忍者"}], "忍术·无性质奥义": [{"name": "白绝分裂", "desc": "白绝可从自身分裂出大量个体组成大军，第四次忍界大战中出动十万白绝，每个个体均有基础战力。", "user": "白绝"}, {"name": "地怨虞·最终射击", "desc": "将五颗心脏的五属性查克拉合而为一，从口中或面具释放巨型混合查克拉炮击。", "user": "角都"}, {"name": "兔毛针", "desc": "辉夜将白发化为无数白色细针高速射出，配合白眼精准打击敌人要害。", "user": "大筒木辉夜"}, {"name": "神·树界降诞", "desc": "在无限月读基础上以神树藤蔓将中术者包裹成蚕茧，持续吸收查克拉将人类化为白绝，是辉夜的最终收网术。", "user": "大筒木辉夜"}, {"name": "膨胀求道玉", "desc": "辉夜身后浮现的黑色求道玉可膨胀为巨大空间，内封阴阳遁一切忍术，可化为尾兽玉级破坏弹，也可扩张为自己的移动领域。", "user": "大筒木辉夜、十尾人柱力"}, {"name": "透遁", "desc": "月光疾风的隐身遁术，可让自身近乎透明地潜行，配合无声暗杀使用。", "user": "月光疾风"}, {"name": "雾瞬身", "desc": "以浓雾为掩护高速瞬移转移位置，配合无声暗杀术使用，使敌人失去目标。", "user": "白、桃地再不斩"}, {"name": "乱狮子发之术", "desc": "自来也将白发化为无数辫绳束缚敌人，毛发可任意延伸缠住对手。", "user": "自来也"}, {"name": "潜影蛇手/万蛇罗之阵/八岐之术", "desc": "大蛇丸从袖/口放蛇攻击束缚；万蛇罗召唤蛇群吞噬；八岐化身为八头大蛇。", "user": "大蛇丸"}, {"name": "色诱术/后宫之术", "desc": "鸣人自创E级恶搞变身术，变身成美艳女性；后宫之术为影分身+色诱组合，对老色鬼威力巨大。", "user": "漩涡鸣人、猿飞木叶丸"}, {"name": "潜影多蛇手", "desc": "潜影蛇手强化版，一次性放出数十条蛇形成蛇海攻击，覆盖范围更广。", "user": "药师兜、御手洗红豆、大蛇丸"}, {"name": "潜影蛇手", "desc": "从袖口或口中召唤出多条蛇突袭、缠绕或撕咬敌人，蛇身可伸长至数米，用于束缚与牵制。", "user": "药师兜、御手洗红豆、大蛇丸"}, {"name": "蛇脱之术", "desc": "如蛇蜕皮般脱去一层外皮或外壳，借此解除束缚、替身并躲避致命一击，蜕皮后本体在别处出现。", "user": "药师兜、大蛇丸"}, {"name": "起爆黏土·C0·自爆", "desc": "将胸口的嘴中压缩的全部黏土引爆，自身化为中心释放十公里级巨大爆炸，属同归于尽术。", "user": "迪达拉"}, {"name": "起爆黏土·C1", "desc": "迪达拉以双手嘴咀嚼黏土捏成蜘蛛、小鸟、蜈蚣等小型炸弹投掷，规模小但数量多。", "user": "迪达拉"}, {"name": "起爆黏土·C2", "desc": "捏成巨龙形黏土，骑乘飞行并从口中落雷与布雷，在空中组成陷阱阵切割敌人退路。", "user": "迪达拉"}, {"name": "起爆黏土·C3", "desc": "捏成人偶状大型炸弹从高空投下，爆炸半径可达村落级，是迪达拉主力破坏兵器。", "user": "迪达拉"}, {"name": "起爆黏土·C4·迦楼罗", "desc": "捏成巨大人偶后爆开，散出肉眼不可见的纳米级黏土蜘蛛，被吸入体内后从细胞级引爆。", "user": "迪达拉"}, {"name": "黏土飞鸟/分身/替身", "desc": "捏成大鸟骑乘飞行并投弹，或捏成分身替身迷惑敌人，被击爆时仅为黏土爆开不伤及本体。", "user": "迪达拉"}, {"name": "多重影分身之术", "desc": "扉间列为禁术，将查克拉平均分配成上千实体分身，鸣人用于人海战术与修炼加速。", "user": "漩涡鸣人、千手扉间"}, {"name": "大玉螺旋丸", "desc": "螺旋丸强化版，鸣人在自来也指导下注入更多查克拉，将体积与威力数倍放大，破坏范围显著提升，由自来也命名。", "user": "漩涡鸣人、自来也、猿飞木叶丸"}, {"name": "影分身之术", "desc": "B级分身忍术，将查克拉均分到实体分身中，可战斗、可传递记忆，解除后经验回传本体；木叶忍者学校毕业级以上常用。", "user": "千手扉间、宇智波佐助、宇智波鼬、惠比斯、旗木卡卡西、森乃伊比喜、漩涡鸣人、猿飞木叶丸"}, {"name": "螺旋丸", "desc": "四代目火影开发的无印忍术，将查克拉高密度旋转压缩于手心，形成可控球形查克拉团，击中目标后造成旋转贯穿伤害。", "user": "波风水门、漩涡鸣人、猿飞木叶丸、自来也"}], "时空间忍术": [{"name": "天之御中", "desc": "辉夜以轮回写轮眼为基础的终极空间忍术，可在瞬间将自身与周围目标强制置换到熔岩、冰、砂、超重力、灼热、酸等七个始球空间之一，无需结印。", "user": "大筒木辉夜"}, {"name": "黄泉比良坂", "desc": "在空中开启黑色空间裂缝，自由穿梭于不同空间与现实之间，裂缝可被同为大筒木者感知与追踪。", "user": "大筒木辉夜、大筒木浦式、大筒木金式"}, {"name": "时空间·忍具卷轴", "desc": "天天将海量忍具封印在卷轴中，战斗时解卷轴即时召唤，是其核心战术。", "user": "天天"}, {"name": "求道玉", "desc": "十尾人柱力背后浮现的黑色球体，共九枚，可随意变形为杖、盾、武器，包含阴阳遁一切性质，可使普通忍术无效化。", "user": "大筒木羽村、大筒木羽衣、宇智波带土、宇智波斑、漩涡鸣人"}, {"name": "飞雷神之术", "desc": "二代扉间开发、四代水门发扬光大的时空间忍术，可瞬间移动到术式标记处，人称黄色闪光。", "user": "千手扉间、波风水门"}, {"name": "飞雷神二段/互瞬回旋", "desc": "战斗中投出带术式苦无瞬间移动至其身后攻击；互瞬回旋为两人互换位置的联携技。", "user": "波风水门、千手扉间（互瞬回旋联手）"}], "体术": [{"name": "八卦空掌/破山击", "desc": "隔空释放柔拳查克拉冲击波击敌，破山击将查克拉凝于一点贯穿目标。", "user": "日向宁次"}, {"name": "八门遁甲", "desc": "解开体内查克拉限制的体术禁术，开门→死门共八门，每开一门力量倍增，死门燃烧生命。", "user": "迈特凯、李洛克、迈特戴"}, {"name": "回天", "desc": "日向一族绝对防御，全身释放查克拉并旋转身体，形成球形查克拉壁反弹一切物理攻击。", "user": "日向宁次、日向日足"}, {"name": "夜凯", "desc": "死门开后燃烧生命的最终踢击，踢出瞬间空间扭曲，威力足以重伤六道斑，代价是死亡。", "user": "迈特凯"}, {"name": "守护八卦六十四掌", "desc": "雏田在自身前方以查克拉手掌高速旋转释放查克拉网，形成全方位防御，击碎飞来物。", "user": "日向雏田"}, {"name": "怪力", "desc": "将查克拉精确控制在脚底或拳头瞬间爆发，一拳碎裂地面、一脚裂山岩，纲手与樱的招牌。", "user": "纲手、春野樱"}, {"name": "活塞拳/爆碎击", "desc": "重吾咒印化后以异化手臂施展的活塞式连拳与爆碎击，拳力可击碎地面与岩石，配合身体异化使用。", "user": "重吾"}, {"name": "昼虎", "desc": "惊门开后，将超高压空气压缩为虎形冲击波射出，远距离大范围杀伤，曾击败鬼鲛。", "user": "迈特凯"}, {"name": "朝孔雀", "desc": "景门开后，以超高速正拳连击空气摩擦产生大量火球如孔雀开屏般轰击范围敌人。", "user": "迈特凯"}, {"name": "木叶旋风/木叶大旋风", "desc": "凯李流基础踢技，低位扫堂腿接高位回旋踢；木叶大旋风为大范围旋转踢击。", "user": "迈特凯、李洛克"}, {"name": "柔拳法", "desc": "日向一族体术，以掌心点穴攻击对手经络系统，阻断查克拉流动，造成内出血。", "user": "日向雏田、日向宁次"}, {"name": "柔拳法·八卦六十四掌/一百二十八掌", "desc": "白眼看破经络后以六十四（宁次进阶为一百二十八）连击点穴，完全封死对手查克拉穴。", "user": "日向雏田、日向宁次"}, {"name": "柔步双狮拳", "desc": "雏田双手包裹柔拳查克拉形成狮子头状，击中后查克拉侵入敌体破坏经络，威力大增。", "user": "日向雏田"}, {"name": "樱花冲", "desc": "春野樱将怪力凝于一拳的招式，一拳击碎地面造成范围破坏。", "user": "春野樱"}, {"name": "痛天脚", "desc": "纲手以怪力自上而下踢出的腿技，威力足以击碎地面与岩壁。", "user": "纲手"}, {"name": "表莲华/里莲华", "desc": "表莲华用绷带缠住对手高速旋转砸地；里莲华五门开后超高速连击，肉眼无法捕捉。", "user": "李洛克、迈特凯"}, {"name": "醉拳", "desc": "小李醉酒后本能发挥的不规则体术，动作飘忽不可预测，曾在五门状态下对君麻吕使用。", "user": "李洛克"}, {"name": "三日月之舞", "desc": "月光疾风剑术奥义：分出两个分身与本体呈三角形同时斩击敌人，敌人难以判断真实斩击方向。", "user": "月光疾风"}, {"name": "八十神空击", "desc": "辉夜以白眼配合释放的超高速空压拳击，拳压肉眼不可见，可精准贯穿敌人并击碎须佐能乎，范围与威力极大。", "user": "大筒木辉夜"}, {"name": "四脚之术", "desc": "犬冢一族秘术，四肢着地拟兽化，获得野兽般的奔跑速度与嗅觉灵敏度，配合忍犬作战。", "user": "犬冢牙、犬冢爪、犬冢花"}, {"name": "牙狼牙（双头狼）", "desc": "牙与赤丸人兽混合变身成巨大双头狼，以超高速旋转形成龙卷风状大范围切割攻击，范围极大。", "user": "犬冢牙、赤丸"}, {"name": "牙通牙", "desc": "牙（或与赤丸配合）高速旋转成尖钻状突进攻击，如钻头般贯穿敌人，是犬冢一族招牌体术。", "user": "犬冢牙、赤丸"}, {"name": "四本/一本贯手", "desc": "三代雷影将雷遁查克拉集中于指尖贯穿敌人；四本贯手用四指，一本贯手以单指极限强化、号称最强之矛，威力最大但自身负荷也最高。", "user": "三代雷影"}, {"name": "绝牛雷犁热刀", "desc": "四代雷影与奇拉比的合击奥义，两人分别从左右两侧以雷犁热刀同时贯穿夹击目标。", "user": "四代雷影·艾、奇拉比"}, {"name": "义雷沉怒雷斧", "desc": "四代雷影在雷遁查克拉模式下从高空跃起，将全身雷电聚于手臂如战斧般猛劈而下，是其最强攻伐技。", "user": "四代雷影·艾"}, {"name": "重流暴", "desc": "以缠绕雷遁的肘部重击敌人躯体，雷遁冲击波在体内扩散造成内伤。", "user": "四代雷影·艾"}, {"name": "雷我爆弹", "desc": "以雷遁附体的双手抓住敌人高高举过头顶后猛砸地面，落点产生冲击波，一击可毙敌。", "user": "四代雷影·艾"}, {"name": "雷虐水平千代舞", "desc": "将雷遁集中于手掌作水平手刀劈砍，威力之大曾劈开宇智波须佐能乎；另有强化改型破坏力更强。", "user": "四代雷影·艾"}], "幻术": [{"name": "无限月读", "desc": "将轮回写轮眼投影至月面，向全世界人类投射光膜幻术，使所有人陷入永恒梦境并被神树吸收查克拉；需先成为十尾人柱力并月面反光。", "user": "大筒木辉夜、宇智波斑（发动）"}, {"name": "四紫炎阵", "desc": "四人合力张开紫色火焰结界，困住内部敌人，外人无法突破，曾困三代与大蛇丸。", "user": "音隐四人众"}, {"name": "望远镜之术", "desc": "三代目用水晶球远距离窥视监视村内任意地点，是火影远程监视术。", "user": "猿飞日斩"}], "仙术": [{"name": "六道仙人模式", "desc": "获得六道仙人馈赠后的鸣人状态，全身浮金纹、脚下浮印，感知与速度极致提升，可使用求道玉与阴阳遁。", "user": "漩涡鸣人、大筒木羽衣"}, {"name": "龙地洞仙人模式", "desc": "兜移植大蛇丸细胞后于龙地洞修行习得的仙人模式，全身覆盖白色蛇鳞、额生双角、眼成蛇瞳，平衡自然能量至完美。", "user": "药师兜、大蛇丸、巳月"}, {"name": "仙人模式", "desc": "吸收自然能量融合自身查克拉，瞳术/力量/感知全面强化，蛙组手可弹开物理攻击，需静止聚气。", "user": "自来也、漩涡鸣人、千手柱间、波风水门"}, {"name": "仙法·五右卫门", "desc": "自来也仙人模式下与两大蛤蟆仙人合体，油+风+火的复合仙术，火海范围焚烧敌人。", "user": "自来也"}, {"name": "仙法·传异远影", "desc": "将对手此前使用过的忍术预先记录并储存，在战斗中原样甚至强化释放出来反击敌人。", "user": "药师兜"}, {"name": "仙法·无机转生", "desc": "赋予岩石、水流等无机物生命与意志，使其自行活动并攻击敌人，可操控周围环境化为武器。", "user": "药师兜"}, {"name": "仙法·白激之术", "desc": "龙地洞仙术，释放强光与高频音波，同时麻痹对手视觉与听觉，使其失去平衡与方向感。", "user": "药师兜"}, {"name": "仙法·超大玉螺旋丸", "desc": "仙人模式下的超大玉螺旋丸，融入自然能量，威力远超普通大玉螺旋丸。", "user": "自来也"}, {"name": "六道仙术/六道阳之力", "desc": "鸣人获六道仙人馈赠阳之力，掌心印记可治愈凯、赋予求道玉，配合九喇嘛模式使用六道仙术。", "user": "漩涡鸣人、宇智波带土"}], "血继限界/淘汰": [{"name": "尘遁", "desc": "土+火+风三种性质变化融合而成的血继淘汰，凌驾于血继限界之上，由二代土影无传授给大野木。", "user": "大野木、无"}, {"name": "尘遁·原界剥离之术", "desc": "双手张成三角形成透明立方结界，将结界内一切物质分解为原子状态，触之即毁灭，几乎无防御可能。", "user": "大野木"}, {"name": "尘遁·限界剥离之术", "desc": "原界剥离的大范围强化版，将立方结界扩展为带状推进，可一扫整片战场。", "user": "大野木"}, {"name": "血继网罗（全属性掌握）", "desc": "超越血继限界与血继淘汰的最高血统境界，同时掌握阴阳与五行全部性质变化，是大筒木本家血脉的标志。", "user": "大筒木辉夜、大筒木羽衣、大筒木羽村"}, {"name": "共杀灰骨", "desc": "辉夜从手掌抽出化为灰色骨枪射出，被击中者细胞会从接触点开始崩解消亡，无论防御与否皆无法愈合，是辉夜的终焉之枪。", "user": "大筒木辉夜"}, {"name": "万花筒写轮眼", "desc": "经历至亲之死后开眼，纹样各异，觉醒专属瞳术（天照/月读/神威），过度使用会失明。", "user": "宇智波佐助、宇智波鼬、宇智波带土、旗木卡卡西、志村团藏"}, {"name": "写轮眼", "desc": "宇智波血继，勾玉状瞳术，可看破动作、复制忍术、施加幻术，随情绪开眼并进化勾玉。", "user": "宇智波佐助、宇智波鼬、宇智波带土、旗木卡卡西、志村团藏"}, {"name": "尸骨脉", "desc": "辉夜（竹取）一族血继限界，可自由操控自身骨骼：生长、硬化、取出、再生，全身骨骼皆可化为武器；过度使用消耗查克拉与寿命。", "user": "君麻吕"}, {"name": "岚遁", "desc": "雷+水性质变化融合的血继限界，达鲁伊继承，以激光状雷光电击敌人。", "user": "达鲁伊"}, {"name": "岚遁·励挫锁苛素", "desc": "从双手放出多道激光状雷射光束，可追踪并切割敌人，是达鲁伊招牌忍术。", "user": "达鲁伊"}, {"name": "无印治愈", "desc": "千手柱间无需结印即可自动治愈伤势的体质，查克拉量与生命力远超常人；纲手的百豪之术与创造再生被斑评价为模仿柱间的能力。", "user": "千手柱间"}, {"name": "木遁", "desc": "土+水性质融合的血继限界，唯有柱间天生；后通过柱间细胞移植给带土、大和、团藏。", "user": "千手柱间、宇智波带土、志村团藏"}, {"name": "木遁·木人之术", "desc": "召唤巨型木人，可手持须佐能乎之剑对抗完全体须佐。", "user": "千手柱间"}, {"name": "木遁·木龙之术", "desc": "召唤出一条巨型木龙缠绕目标，可吸收对手查克拉并束缚其行动，斑曾以此压制九尾。", "user": "千手柱间、宇智波带土、宇智波斑（移植细胞后）"}, {"name": "木遁·树界降诞", "desc": "初代火影千手柱间的木遁秘术，以查克拉催生广阔森林包裹大地，可束缚敌人并提供战斗地形；斑移植柱间细胞后亦能使用。", "user": "千手柱间、大和、宇智波带土、宇智波斑（移植细胞后）"}, {"name": "木遁·皆布袋/榜排", "desc": "皆布袋召唤多只木手束缚敌人；榜排为木质盾牌防御，可挡尾兽玉。", "user": "千手柱间"}, {"name": "木遁·真数千手", "desc": "柱界终极木遁，召唤千手巨佛大佛，拳头大小如山岳，一击打碎完全体须佐。", "user": "千手柱间"}, {"name": "木遁·花树界降诞", "desc": "树界降诞基础上巨树开花，散播有毒花粉使敌人麻痹窒息。", "user": "千手柱间"}, {"name": "永恒万花筒写轮眼", "desc": "斑移植弟弟泉奈双眼后获得的永恒万花筒，视力不再退化，瞳力足以驯服九尾并召唤完全体须佐能乎。", "user": "宇智波佐助、宇智波斑"}, {"name": "沸遁", "desc": "水+火性质变化融合的血继限界，照美冥独有，以高温酸性雾气腐蚀目标。", "user": "照美冥"}, {"name": "沸遁·巧雾之术", "desc": "吐出可调节酸度的高温酸雾，吸入或接触者躯体与须佐防御均被腐蚀溶解。", "user": "照美冥"}, {"name": "溶遁", "desc": "水+土性质变化融合的血继限界，照美冥独有，可吐出强酸性粘性液体，能融化须佐能乎。", "user": "照美冥"}, {"name": "溶遁·溶怪之术", "desc": "从口中吐出强酸性粘液，落处剧烈熔化，曾融化宇智波佐助的须佐能乎骨架。", "user": "照美冥"}, {"name": "熔遁", "desc": "火+土性质变化融合的血继限界，黑土继承，可喷出高温岩浆/石灰状物质。", "user": "黑土"}, {"name": "熔遁·灰石封之术", "desc": "从口中喷出高温石灰浆，落到目标身上后瞬间凝固为硬质石灰，将敌人身体禁锢。", "user": "黑土"}, {"name": "熔遁·石灰凝之术", "desc": "制造坚固石灰岩壁用于防御，或将石灰凝固成钝器砸向敌人。", "user": "黑土"}, {"name": "白眼", "desc": "日向一族血继，近乎360°视角（唯一死角在第一胸椎），可透视并看穿查克拉经络与穴位。", "user": "日向雏田、日向宁次"}, {"name": "磁遁·砂金", "desc": "四代风影罗砂（我爱罗之父）的磁遁血继，控制含金矿的砂金，密度比普通砂更高，曾多次压制、降服暴走守鹤。", "user": "罗砂（四代风影）"}, {"name": "笼中鸟咒印", "desc": "日向分家额头上的菱型咒印，宗家可强行令分家痛苦甚至死亡，压制白眼并保护宗家血继。", "user": "日向宁次"}, {"name": "轮回眼", "desc": "六道仙人传承的最高瞳术，紫色波纹状瞳孔，赋予全属性查克拉与佩恩六道能力，长门为宇智波斑移植后开启。", "user": "宇智波佐助、宇智波带土、宇智波斑、长门、长门（佩恩）"}, {"name": "软体改造", "desc": "大蛇丸系身体改造术，使身体如蛇般自由伸缩、扭曲、脱臼，可穿过狭小缝隙并物理变形。", "user": "大蛇丸、药师兜"}, {"name": "冰遁·冰岩堂无", "desc": "火影忍者游戏（手游）原创技能，瞬间制造一面巨大冰墙阻挡敌人忍术与物理攻击，冰墙厚度极大。", "user": "白"}, {"name": "冰遁·魔镜冰晶", "desc": "白的血继限界奥义，在敌人周围竖起一圈冰镜，本体在镜间以超高速穿梭斩击，镜内可完全看穿对手动作，被困者几无逃脱可能。", "user": "白"}, {"name": "十指穿弹", "desc": "从十指指尖射出骨弹，射速极快威力可贯穿岩石，是尸骨脉基础远程技。", "user": "君麻吕"}, {"name": "唐松之舞", "desc": "全身皮下刺穿出大量骨刺，形成近战反伤与防御壁垒，触碰者被刺穿。", "user": "君麻吕"}, {"name": "早蕨之舞", "desc": "尸骨脉终极奥义，从整片地面刺出无数巨型骨刺形成骨林，范围毁灭级，将战场化为骨刃地狱。", "user": "君麻吕"}, {"name": "椿之舞", "desc": "从前臂抽出一根硬化骨刀作为近战武器，骨刀硬度超越钢铁，配合高速剑术斩击。", "user": "君麻吕"}, {"name": "铁线花之舞·花", "desc": "将单骨臂硬化膨胀为最大号骨枪，穿透力极强，可贯穿沙之盾级防御。", "user": "君麻吕"}, {"name": "铁线花之舞·蔓", "desc": "抽出整条脊椎骨作为带刺长鞭，柔软却坚硬，可远距离缠绕、束缚敌人。", "user": "君麻吕"}, {"name": "水化之术", "desc": "鬼灯一族秘术，将身体任意部位液化成水，物理攻击与忍具直接穿过无效；可自由流动变形，弱点是雷遁会使身体麻痹凝固。", "user": "鬼灯水月、鬼灯满月"}], "通灵术": [{"name": "外道魔像召唤", "desc": "以轮回眼为代价契约召唤十尾躯壳外道魔像，作为活祭品与查克拉吸收装置，是回收十尾的关键。", "user": "大筒木羽衣、宇智波斑、宇智波带土、长门"}, {"name": "通灵·九尾（九喇嘛）", "desc": "以永恒万花筒写轮眼瞳力压制并控制九尾妖狐，使其按施术者意志战斗；斑曾以此袭击木叶。", "user": "宇智波斑、宇智波带土、漩涡水户、漩涡玖辛奈、漩涡鸣人"}, {"name": "通灵·拷问屋", "desc": "伊比喜召唤出一座刑具建筑困住敌人，建筑内布满刑具并配合精神拷问，使敌人在精神层面承受痛苦。", "user": "森乃伊比喜"}, {"name": "蛤蟆口束缚术", "desc": "召唤蛤蟆的胃壁将敌人困入其中，胃壁可消化一切，自来也曾困住鼬与鬼鲛。", "user": "自来也"}, {"name": "通灵·八忍犬", "desc": "卡卡西契约的八只忍犬，主要用于追踪、搜索和束缚敌人，可配合雪崩齿咬对手。", "user": "旗木卡卡西"}, {"name": "通灵·猿猴王·猿魔", "desc": "三代目契约的金刚猿猴，可化为金刚如意棒自由伸缩，硬度堪比金刚不坏。", "user": "猿飞日斩"}, {"name": "通灵·蛞蝓", "desc": "与湿骨林蛞蝓契约，可分裂成无数小蛞蝓贴在伤者身上治疗，并共享视觉情报。", "user": "纲手、春野樱"}, {"name": "通灵之术·蛤蟆", "desc": "与妙木山蛤蟆契约，可召唤文太、蛤蟆吉、蛤蟆健、蛤蟆广等作战，配合水铁炮、口束缚术。", "user": "波风水门、漩涡鸣人、猿飞木叶丸、自来也"}], "尾兽之力": [{"name": "一尾守鹤之力", "desc": "幼年即被封入守鹤，情绪激动或假寐时尾兽化，沙之盾自动防御；被抽离后由千代以命换回，再无尾兽。", "user": "我爱罗"}, {"name": "九喇嘛模式/完美人柱力", "desc": "与九尾完全和解后化身为九尾查克拉模式，可自由尾兽化、借用九尾之力，六道仙人赠予阳之力后具求道玉。", "user": "漩涡鸣人"}, {"name": "九尾查克拉模式", "desc": "人柱力与九喇嘛查克拉同步后全身金色九尾查克拉外衣，感知恶意、速度力量倍增，尾兽玉为终极攻击。", "user": "漩涡鸣人"}, {"name": "十尾人柱力", "desc": "成为十尾（神树）人柱力后获得无限查克拉、求道玉、阴阳遁与飞行能力，接近六道仙人级；斑在四战时被黑绝背叛而成为此态。", "user": "大筒木羽衣、大筒木辉夜、宇智波带土、宇智波斑"}, {"name": "完美尾兽化（八尾牛鬼）", "desc": "作为完美人柱力可完全化为八尾牛鬼，保持自我意识并自由操控八条章鱼状触手，尾兽与心意相通。", "user": "奇拉比"}, {"name": "尾兽玉", "desc": "尾兽或人柱力以极高密度阴阳查克拉按比例凝聚成黑色查克拉球后抛出，爆炸范围巨大。", "user": "奇拉比、各类尾兽人柱力"}, {"name": "牛鬼·尾兽八卷", "desc": "八尾形态下高速旋转身体，以触手卷出巨大龙卷风扫荡周围敌人。", "user": "奇拉比"}], "医疗忍术": [{"name": "创造再生·百豪之术", "desc": "解开封印额头积累的阴封印查克拉，瞬间再生一切伤势并免疫致死伤，代价是缩短寿命。", "user": "纲手、春野樱"}, {"name": "咬痕治愈（查克拉啮伤）", "desc": "让伤者咬啮香磷身体，通过唾液注入自身查克拉快速加速愈合，可将濒死伤者拉回战斗；代价是香磷自身承受剧痛并消耗生命力。", "user": "漩涡香磷"}, {"name": "掌仙术", "desc": "医疗忍者基础忍术，将查克拉集中于手掌输入伤者体内，加速细胞再生以治疗外伤与内伤，需精准查克拉控制。", "user": "山中井野、春野樱、纲手、药师兜"}, {"name": "查克拉手术刀", "desc": "将查克拉形态化为刀刃状缠绕手部，可无痛切断肌肉、经络与脏器，近战亦能切割敌人。", "user": "春野樱、药师兜、静音"}, {"name": "细患抽出之术", "desc": "用医疗查克拉精确抽出体内毒素或异物，是解毒与战场急救的核心忍术。", "user": "纲手、春野樱"}, {"name": "解毒术", "desc": "砂隐医疗体系下对各类毒术的解析与解药调配，千代是傀儡毒与军毒解毒的权威。", "user": "千代婆婆"}, {"name": "阴愈伤灭", "desc": "药师兜的A级医疗忍术，事先掌握敌人攻击部位并在受击前完成治愈，将伤害降至最低；需精准预判攻击与高度恢复力。", "user": "药师兜"}, {"name": "阴封印·解", "desc": "额间菱形印记长期储存查克拉，解开瞬间释放海量查克拉作为百豪之术的发动条件。", "user": "纲手、春野樱"}], "忍具": [{"name": "三星扇·解放", "desc": "手鞠背负的比人还高的巨型三星扇，扇面三颗星对应三档攻击模式；解放即扇面全开，释放最大风压。", "user": "手鞠"}, {"name": "千本（针）", "desc": "白使用的细长针状暗器，杀伤力极低，主要用于刺击经络穴道制造假死或麻痹，配合单手结印速射。", "user": "白、雾忍暗部"}, {"name": "大刀·鲛肌", "desc": "忍刀七人众之一的生物刀，可咬合并吸收敌人查克拉，再将查克拉反馈给鬼鲛，被其喜好者（如八尾查克拉）会主动亲近。", "user": "干柿鬼鲛、奇拉比（短期持有）"}, {"name": "大刀·鲛肌/斩首大刀", "desc": "水月所持忍刀七人众之一的斩首大刀，刀身可通过吸收敌人血液中的铁质自行修复与愈合，重量极大适合劈砍。", "user": "鬼灯水月、桃地再不斩"}, {"name": "宇智波团扇", "desc": "宇智波家族祖传的团扇，可反弹忍术，带土在四战中用以反弹尾兽玉。", "user": "宇智波带土、宇智波斑"}, {"name": "宇智波团扇（宇智波反弹）", "desc": "宇智波一族传家团扇，可将对手忍术查克拉吸收后按比例反弹回去，斑曾以此反弹鸣人的螺旋丸。", "user": "宇智波斑、宇智波一族"}, {"name": "忍刀·平目鲽", "desc": "忍刀七人众之一的双面对刀，可吸收使用者查克拉后释放，解放后刀身巨大化。", "user": "长十郎"}, {"name": "手里剑影分身之术", "desc": "将一枚手里剑分身为无数实体手里剑覆盖攻击范围，三代与鼬均使用。", "user": "猿飞日斩、宇智波鼬"}, {"name": "操具·千本雨/苦无雨", "desc": "天天从卷轴中召唤无数千本或苦无如雨点般散射覆盖敌阵。", "user": "天天"}, {"name": "操具·双升龙", "desc": "双手各持卷轴同时召唤大量忍具，在空中组成双龙形态倾泻攻击。", "user": "天天"}, {"name": "操具·爆龙星", "desc": "天天召唤巨型锁链与铁球从卷轴飞出，重击并束缚敌人。", "user": "天天"}, {"name": "瓦片手里剑", "desc": "三代目以查克拉操控瓦片如手里剑飞射，远程压制敌人。", "user": "猿飞日斩"}, {"name": "草薙剑", "desc": "大蛇丸从口中取出的通灵剑，可自由延伸切割，硬度极高，是其随身武器。", "user": "大蛇丸、宇智波佐助"}, {"name": "血腥三月镰", "desc": "飞段所持三段长柄镰刀，刀刃可伸缩变形，以锁链挥舞大范围横扫，用于收割对手血液以便施展咒术。", "user": "飞段"}, {"name": "金刚如意棒", "desc": "猿魔变化而成的棍棒，可自由伸缩，硬度堪比金刚不坏，三代目随身武器。", "user": "猿飞日斩"}, {"name": "平目鲽·夹击", "desc": "以分身或本体持巨大化平目鲽前后夹击敌人，使目标无处闪避。", "user": "长十郎"}, {"name": "平目鲽·解放", "desc": "将查克拉灌入平目鲽使其巨大化，挥出时释放远程冲击波斩击目标。", "user": "长十郎"}, {"name": "荒缲鹭伐刀", "desc": "奇拉比独创七刀流，同时操控背上七把刀从多角度连绵斩击，将尾兽化触手与剑术结合。", "user": "奇拉比"}], "秘传忍术": [{"name": "咒印化（重吾体质）", "desc": "重吾天生可被动吸收自然能量，全身浮现黑纹即咒印状态一，完全咒印化为状态二，力速与恢复力暴增，但会失控嗜杀。", "user": "重吾"}, {"name": "查克拉感知（恶意感知）", "desc": "漩涡一族天赋感知能力，可远距离捕捉查克拉并分辨恶意、敌意与个体善恶；玖辛奈曾借此察觉带土伪装下的九尾袭击。", "user": "漩涡玖辛奈、漩涡香磷"}, {"name": "神乐心眼", "desc": "香磷的高阶感知术，闭目后可半径数十公里感知查克拉，分辨个体位置、善恶与数量，配合查克拉追踪锁定目标。", "user": "漩涡香磷"}, {"name": "超强嗅觉", "desc": "犬冢一族与忍犬共同强化的嗅觉，可追踪数天前残留气味，分辨敌人数量、状态与情绪。", "user": "犬冢牙、赤丸、犬冢一族"}, {"name": "远距离感知", "desc": "感知一定范围内查克拉的种类与数量，用于索敌、情报收集与战局监控，第四次忍界大战中任感知部队核心。", "user": "山中井野、海老藏"}, {"name": "单手结印", "desc": "白展现的罕见才能，仅凭单手即可完成结印，大幅缩短忍术发动时间，连卡卡西都为之震惊。", "user": "白"}, {"name": "倍化之术（部分/全身倍化）", "desc": "秋道一族秘传，将脂肪转化为查克拉使身体部位或全身巨大化，力量随之暴增。", "user": "秋道丁次、秋道丁座"}, {"name": "影子模仿术系（绞首/聚集/缝/影压）", "desc": "奈良一族秘传，将影子延伸束缚敌人使其同步动作；可勒颈、多头控制、针状定身或压压。", "user": "奈良鹿丸、奈良鹿久"}, {"name": "秋道一族三色药丸", "desc": "黄丸增查克拉；红辣椒丸禁药力量暴增但极可能致死；绿咖喱丸解毒。", "user": "秋道丁次"}, {"name": "肉弹战车/肉弹针战车", "desc": "全身倍化后缩成球状高速滚动撞击；针战车披带刺护甲强化撞击。", "user": "秋道丁次"}, {"name": "蝶化模式", "desc": "燃烧全部脂肪化为查克拉蝶翼，速度与战斗力暴增，战后极度消瘦。", "user": "秋道丁次"}, {"name": "超推手", "desc": "巨大化双掌向前推出压缩空气冲击波，远距离压碎敌人。", "user": "秋道丁次"}, {"name": "地怨虞", "desc": "泷隐秘术，以黑色触须缝合身体并夺取他人心脏据为己有，最多可同时持有五颗心脏，每颗对应一条命与一种属性。", "user": "角都"}, {"name": "地怨虞·黑色触手", "desc": "身体可伸出大量黑色触须，用于攻击、束缚对手、缝合自身伤口，亦可刺入敌人胸腔夺取心脏。", "user": "角都"}, {"name": "孢子之术", "desc": "白绝释放孢子附着寄生在敌人身上，缓慢吸收对方查克拉，并可由孢子处长出白绝个体束缚敌人。", "user": "白绝"}, {"name": "寄坏虫·虫壁", "desc": "驱使大量虫子在身前汇聚成厚实虫墙，可抵挡忍具与物理攻击，虫子密度极高难以穿透。", "user": "油女志乃"}, {"name": "寄坏虫·蚁地狱（毁灭）", "desc": "释放大量寄坏虫扑向敌人，啃食其查克拉与肉体，形成虫团包围目标直至查克拉被吸干。", "user": "油女志乃"}, {"name": "寄坏虫操控", "desc": "油女一族秘传，以自身查克拉喂养寄宿于体内的数万寄坏虫，可随时释放用于攻击、防御、侦察，虫子以查克拉为食。", "user": "油女志乃、油女取根、油女志黑"}, {"name": "秘术·虫玉", "desc": "寄坏虫凝聚成巨大黑色球体包裹目标，球体持续向内啃食查克拉，被包裹者难以挣脱。", "user": "油女志乃"}, {"name": "秘术·虫龙卷", "desc": "寄坏虫旋转汇聚成龙卷风状卷向敌人，兼具切割与啃食效果，范围攻击。", "user": "油女志乃"}, {"name": "虫侦察", "desc": "释放少量小型寄坏虫飞向目标区域，将视野与查克拉感受传回本体，用于追踪与敌情侦察。", "user": "油女志乃"}, {"name": "虫分身", "desc": "以寄坏虫聚合而成的分身，外观与本体一致，被击破后虫子四散，用于迷惑与侦察。", "user": "油女志乃"}, {"name": "心乱身之术", "desc": "山中一族精神系忍术，扰乱对手精神使其四肢动作与意志相反、行动混乱失控，不直接夺取身体。", "user": "山中井野"}, {"name": "心传身之术", "desc": "将自身精神与远距离目标连接，用于跨距离通话与情报传递，不控制对方，属通讯类秘术。", "user": "山中井野"}, {"name": "心转身·解", "desc": "心转身之术的解除术式，可强行中断附身使精神返回自身肉体，多用于战术需要立即脱身时。", "user": "山中井野"}, {"name": "心转身之术", "desc": "山中一族秘术，释放自身精神进入对手身体并加以控制；距离越远未命中率与反噬风险越大，发动期间自身肉体无防御。", "user": "山中井野、山中亥一"}, {"name": "纸分身/纸蝴蝶", "desc": "用纸张制造分身迷惑敌人，或将纸折成蝴蝶飘散用于侦察与传讯。", "user": "小南"}, {"name": "纸手里剑/纸剑", "desc": "将纸张硬化并塑成手里剑或剑形投掷劈砍，锋利度堪比真刃。", "user": "小南"}, {"name": "纸牢术·纸雨", "desc": "以纸拼合成牢笼困住敌人，或让无数纸片如暴雨般倾泻切割覆盖目标。", "user": "小南"}, {"name": "纸遁·式纸之舞", "desc": "将全身化为无数纸张自由飞行与分裂，纸张状态下免疫多数物理斩击，是小南战斗基础形态。", "user": "小南"}, {"name": "蜉蝣之术", "desc": "绝可自由融入大地、树木与墙壁之中，完全消除气息移动，常用于侦察与偷袭。", "user": "绝（黑绝/白绝）"}, {"name": "鲛肌融合", "desc": "鬼鲛与鲛肌合体，全身覆盖鲨鱼鳞甲，手足变为鱼鳍状，力量与水遁威力暴增。", "user": "干柿鬼鲛"}, {"name": "不死之身", "desc": "飞段受邪神教祝福后的诅咒之躯，无论断头、穿胸、炸碎都不会死亡，身体断离部分仍可感知活动，但仍需进食饮水。", "user": "飞段"}, {"name": "咒术·死司凭血", "desc": "舔取对手血液后在地面画出邪神教三角圆符号，站入圈内后自身受到的一切伤害同步转移给血液主人；飞段自残即可杀死对方。", "user": "飞段"}, {"name": "六道之力（阴阳遁）", "desc": "阴遁从无形创形、阳遁为形注入生命，二者结合可创造万物、赋予求道玉形态与生命；羽衣将六道阳之力与阴之力分别赠予鸣人与佐助。", "user": "大筒木羽衣、大筒木羽村、漩涡鸣人、宇智波佐助、十尾人柱力"}, {"name": "黑绝·精神附身", "desc": "黑绝作为辉夜意志可附身于他人身体（如宇智波带土、六道斑），从内部操控其行动并发动轮回天生复活辉夜。", "user": "黑绝"}, {"name": "白绝附身操控", "desc": "白绝可依附在尸体或秽土转生者体表进行操控，借此伪装成他人行动。", "user": "白绝"}], "傀儡术": [{"name": "乌鸦傀儡", "desc": "攻击型傀儡，体内藏毒针、苦无、手臂刀刃等多种机关，用于近距离刺杀与暗器突袭。", "user": "勘九郎、赤砂之蝎"}, {"name": "人傀儡·再生核", "desc": "蝎将自身除圆形再生核外全部改造为傀儡，再生核藏于胸口，可脱离旧躯壳更换新傀儡身体，近乎不死。", "user": "赤砂之蝎"}, {"name": "傀儡·操袭刃", "desc": "由近松十人众发射千本、苦无等暗器进行连绵射击，掩护主力傀儡逼近。", "user": "千代婆婆"}, {"name": "傀儡修复术", "desc": "以查克拉线为导引现场拼接受损傀儡的关节与零件，使破损傀儡迅速恢复战斗力。", "user": "勘九郎、千代婆婆"}, {"name": "傀儡操控（查克拉线十指操控）", "desc": "通过十指释放查克拉线连接傀儡关节，同时操控多具傀儡作战；操控数量与精细度取决于查克拉量。", "user": "勘九郎、千代婆婆、赤砂之蝎"}, {"name": "傀儡毒药炼制", "desc": "在傀儡武器尖端与机关上涂抹特制剧毒，被刺中者逐渐麻痹，数日内毒性发作致死，解药仅千代可配。", "user": "勘九郎、赤砂之蝎、千代婆婆"}, {"name": "傀儡自爆", "desc": "危急时刻令傀儡体内机关引爆，与靠近的敌人同归于尽，是傀儡师的最后手段。", "user": "勘九郎"}, {"name": "山椒鱼傀儡", "desc": "防御型傀儡，可展开化为巨大盾牌抵挡敌方忍术与体术攻击，保护操控者。", "user": "勘九郎、赤砂之蝎"}, {"name": "机关·腕炮", "desc": "傀儡手臂内藏炮管，可近距离发射毒针或炮弹突袭敌人。", "user": "赤砂之蝎"}, {"name": "白秘技·近松十人众", "desc": "千代婆婆的究极傀儡术，同时操控十具特制傀儡，每具均有专属机关武器；配合可施展三宝吸溃等封印技。", "user": "千代婆婆"}, {"name": "砂铁时雨", "desc": "由三代目风影傀儡释放，将磁控砂铁化为密集细针雨散射刺杀敌人，受傀儡师磁场操控。", "user": "赤砂之蝎、勘九郎"}, {"name": "砂铁界法", "desc": "将砂铁向四周扩散成多根巨型砂铁棒组成刺猬状结界，封锁大范围区域。", "user": "赤砂之蝎、勘九郎"}, {"name": "砂铁结袭", "desc": "将大量砂铁凝聚成巨大锥体或方块砸向敌人，重量与冲击力足以压扁建筑。", "user": "赤砂之蝎、勘九郎"}, {"name": "蝎·三代目风影傀儡", "desc": "赤砂之蝎将历代最强风影三代目制成的人傀儡，勘九郎在风影夺还战后继承；可使用生前血继限界砂铁系列。", "user": "赤砂之蝎、勘九郎"}, {"name": "蝎·父与母傀儡", "desc": "蝎幼年凭回忆父母模样制作的一对傀儡，手臂可伸出刀刃拥抱敌人，最终成为刺穿蝎再生核的傀儡。", "user": "赤砂之蝎"}, {"name": "赤秘技·百机操演", "desc": "同时释放查克拉线操控上百具傀儡组成军团冲锋，需极高查克拉与操控力，传说曾凭此毁灭一国军队。", "user": "赤砂之蝎、勘九郎"}, {"name": "黑蚁傀儡", "desc": "捕获型傀儡，张开后形成空腔将敌人吞入困住，再配合乌鸦或其他攻击傀儡加以刺杀。", "user": "勘九郎、赤砂之蝎"}, {"name": "傀儡·三宝吸溃", "desc": "近松十人众中三具傀儡配合释放的强力封印忍术，形成吸力将目标压扁吸毁，属傀儡系封印。", "user": "千代婆婆"}], "封印术": [{"name": "八卦封印", "desc": "四象封印双重叠加而成，在鸣人腹上形成八卦封印式，将九尾阴查克拉封入死神、阳查克拉封入鸣人体内，并设计为亲子量子式查克拉联结。", "user": "波风水门、漩涡玖辛奈"}, {"name": "六道·地爆天星", "desc": "羽衣与羽村联手发动的最高级封印术，以六道之力将目标核心抽出并引力聚拢成岩石球体封印，曾两次封印辉夜。", "user": "大筒木羽衣、大筒木羽村、宇智波佐助、漩涡鸣人（联手）"}, {"name": "四象封印", "desc": "漩涡一族基础封印术，可将尾兽查克拉或敌人查克拉以四象式八卦封印入受体，是八卦封印的前置基础，需配合人柱力共同施术。", "user": "漩涡玖辛奈、波风水门"}, {"name": "封火法印", "desc": "自来也的封印术，可将对手释放的火遁封入卷轴内吸收，曾封回天照。", "user": "自来也"}, {"name": "尸鬼封尽", "desc": "召唤死神将对手灵魂连同自己灵魂一起撕裂封印，以施术者死亡为代价，四代为封九尾使用。", "user": "波风水门、猿飞日斩"}, {"name": "明神门", "desc": "柱间召唤鸟居状封印压制十尾，可暂时压制十尾人柱力行动。", "user": "千手柱间"}, {"name": "自业咒印之印", "desc": "团藏在根成员心脏刻下咒印，一旦泄露秘密咒印自动发动致死，用于控制部下。", "user": "志村团藏"}, {"name": "金刚封锁", "desc": "从体内涌出多条查克拉锁链，可束缚、攻击并封印尾兽；锁链硬度极高，是漩涡一族封印尾兽的专用秘术，施术者需具备庞大查克拉与生命力。", "user": "漩涡玖辛奈、漩涡香磷（后期）、漩涡水户"}, {"name": "神之纸者之手", "desc": "小南终极陷阱，将六千亿张起爆符伪装成大海缠裹目标，持续爆炸十分钟，本用于斩杀带土。", "user": "小南"}], "禁术": [{"name": "不尸转生", "desc": "大蛇丸的永生术，将精神转移到他人容器身体，每三年需换一次身体，意识寄宿于容器。", "user": "大蛇丸"}, {"name": "互乘起爆符", "desc": "扉间开发的禁术，单张起爆符引发无限连锁爆炸，持续爆发难以防御。", "user": "千手扉间"}, {"name": "双蛇相杀", "desc": "红豆使用的同归于尽禁术，与敌人双手交锁结印，双方被蛇同时吞噬，若不是替身则必死。", "user": "御手洗红豆"}, {"name": "咒印术（天之/地之咒印）", "desc": "大蛇丸以重吾的体液为源制成的术式，刻印于他人身上；状态一浮黑纹强化力速，状态二异化外形大幅增强，但会侵蚀心智。", "user": "大蛇丸、宇智波佐助、御手洗红豆、药师兜、音忍四人众"}, {"name": "己生转生", "desc": "千代开发的禁术，以施术者全部生命与查克拉为代价，将查克拉转移给刚死不久的死者使其完整复活，施术者必死。", "user": "千代婆婆"}, {"name": "死魂之术", "desc": "药师兜使用的忍术，将短暂灵魂注入尸体使其如活人般行动、说话并执行任务，尸体外观与活人无异，死后才显露。", "user": "药师兜"}, {"name": "灵化之术", "desc": "加藤断的灵魂出窍秘术，灵魂可离体自由飞行、附身他人操控其身体、直接攻击对手精神；灵魂态物理攻击无效，但肉体在离体时无防备。", "user": "加藤断"}, {"name": "秽土转生", "desc": "扉间开发、大蛇丸完善的禁术，以活人献祭召唤死者灵魂以泥土躯体复活，施术者可解控。", "user": "千手扉间、大蛇丸、药师兜"}, {"name": "黑暗行之术", "desc": "剥夺对手视野、令其陷入完全黑暗的幻术；漫画原作中由被秽土转生的千手柱间使用，动画改编改为千手扉间。", "user": "千手柱间（漫画原作）、千手扉间（动画改编）"}]};
+const chapterData={"prequel": [{"id": "ch70", "name": "大筒木辉夜与忍宗篇", "year": "上古·木叶前约940年", "subtitle": "", "desc": "上古正史线，为鸣人出生前约1000年（木叶建立前约940年），无精确月日记录（该时代为忍界神话时代，仅存忍宗口传正史与南贺神社石碑记载）；本篇覆盖大筒木辉夜降临地球、神树结果，到六道仙人封印辉夜、创立忍宗、因陀罗阿修罗兄弟分家的完整起源事件，是整个火影世界所有查克拉、忍术、血继限界的源头。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch71", "name": "战国·终末之谷篇", "year": "木叶元年前后", "subtitle": "", "desc": "战国时代末期，木叶元年前后（距鸣人出生约47年），无精确月日记录；本篇覆盖千手柱间与宇智波斑少年相识、战国家族混战、木叶隐村建立、第一次五影会谈、终末之谷决战的完整历史，是忍界\"一国一村\"忍者制度的开端。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch72", "name": "第二次忍界大战·三忍成名篇", "year": "木叶32年", "subtitle": "", "desc": "第二次忍界大战时期（木叶32年-木叶37年，距鸣人出生约10-15年）；本篇覆盖雨隐主战场的战斗、木叶三忍称号由来、自来也收养长门三人、晓组织雏形诞生的完整历史，是\"预言之子\"线与晓组织线的正式开端。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch73", "name": "漩涡中的旋风篇", "year": "木叶44-45年", "subtitle": "", "desc": "木叶44-45年（第三次忍界大战前期，距鸣人出生约2-3年），为岸本齐史2023年绘制的《周刊少年Jump》55周年官方正史短篇，也是NARUTOP99全球人气投票第一名波风水门的纪念故事，补充了螺旋丸诞生的完整秘辛、水门与玖辛奈的羁绊，是神无毗桥事件、水门成为四代火影的直接铺垫。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch74", "name": "第三次忍界大战·神无毗桥篇", "year": "木叶46年", "subtitle": "", "desc": "木叶46年（距鸣人出生约1年），第三次忍界大战后期；本篇覆盖神无毗桥任务、带土\"牺牲\"、写轮眼移植、野原琳之死、带土黑化的完整事件，是卡卡西与带土悲剧线的开端，直接为后续九尾之乱、第四次忍界大战埋下伏笔。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch75", "name": "九尾之乱篇", "year": "木叶47年", "subtitle": "", "desc": "木叶47年10月10日（漩涡鸣人出生当日），第三次忍界大战结束后木叶遭遇的最大灾难；本篇覆盖面具男带土入侵、九尾暴走、波风水门夫妇牺牲、鸣人成为九尾人柱力的完整事件，是正篇故事的开端。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch76", "name": "宇智波灭族篇", "year": "木叶55年", "subtitle": "", "desc": "木叶55年（鸣人7岁，忍者学校毕业前5年），九尾之乱后木叶最大的内部惨案；本篇覆盖宇智波政变阴谋、止水牺牲、鼬灭族、佐助幸存的完整事件，是佐助复仇线的开端，也是鼬一生悲剧的核心。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}], "main": [{"id": "ch77", "name": "忍者学校篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年3月前后（鸣人12岁，波之国任务前约1-2个月），对应漫画第1-8话，正篇故事的绝对起点。鸣人从被全村冷眼的\"妖狐小鬼\"到获得伊鲁卡认可、戴上护额，与佐助、小樱组成第七班并通过卡卡西的铃铛测试。官方未给出精确月日，按编年史推算毕业约在3月，波之国任务约在同年5月。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch78", "name": "波之国篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年（鸣人12岁，忍者学校毕业当年，中忍考试前2-3个月），正篇故事的第一个主线篇章，第七班成立后的首个正式任务，是鸣人三人作为忍者的初阵；官方未给出该篇章精确月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch79", "name": "中忍考试篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年7月1日-7月7日，为木叶联合砂隐、音隐等村举办的中忍选拔考试阶段；官方明确考试正式开始日期为7月1日，预选赛结束后进入一个月的正式赛备战期，木叶崩溃计划在正式赛当天发动。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch80", "name": "木叶崩溃篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年8月（中忍考试正式赛当日，预选赛结束一个月后），大蛇丸联合砂隐发动的木叶入侵事件，是三代火影牺牲、火之意志正式传承给鸣人这一代的关键节点；官方未给出该篇章具体日期。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch81", "name": "三忍决战篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年8月底-9月初（三代火影葬礼后约两周），传说三忍时隔多年的再会与决战，是纲手就任五代火影、鸣人学会螺旋丸、晓组织正式登场的关键篇章；官方未给出该篇章具体日期。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch82", "name": "佐助夺还篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年10月（纲手就任五代火影后约1个月），《火影忍者》第一部的最终篇章，是鸣人佐助第一次宿命对决、两人分道扬镳的节点；官方未给出该篇章具体日期。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch83", "name": "风影夺还篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年春（鸣人15岁，随自来也修行两年半归乡，疾风传开篇），晓组织正式开始尾兽收集计划的第一个篇章；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch84", "name": "天地桥·佐助再会篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（风影夺还任务结束后10天），鸣人修行归来后第一次和佐助再会的篇章，新第七班首次执行任务；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch85", "name": "飞段·角都篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（天地桥任务结束后不久），晓组织不死二人组入侵火之国、猿飞阿斯玛牺牲的篇章，是鹿丸继承火之意志、鸣人完成风遁·螺旋手里剑的关键节点；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch86", "name": "鼬佐兄弟战前篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（飞段·角都战死后不久），对应漫画343-367话官方内容，是兄弟战的前篇，覆盖佐助反杀大蛇丸、组建蛇小队、迪达拉自爆的完整剧情；本篇结尾佐助重伤养伤期间，时间线转入《雨隐潜入篇》，兄弟战后篇在雨隐篇之后展开；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch87", "name": "雨隐潜入篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（鼬佐兄弟战前篇结束后，迪达拉自爆、佐助被阿飞带走养伤期间），对应漫画368-383话官方内容，是自来也豪杰物语的终章，也是佩恩入侵篇的直接铺垫；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch88", "name": "鼬佐兄弟战后篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（雨隐潜入篇结束、自来也牺牲后不久），对应漫画384-412话官方内容，覆盖兄弟宿命决战、鼬牺牲、灭族真相揭露、鹰小队成立、抓捕八尾的完整剧情，是佐助命运的转折点；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch89", "name": "佩恩入侵篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年末（鸣人16岁，鼬佐兄弟战后篇结束、鹰小队捕捉八尾后不久），对应漫画413-450话官方内容，是晓组织对木叶的总攻击，也是鸣人从人柱力成长为木叶英雄的关键篇章；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch90", "name": "五影会谈篇", "year": "木叶64年初", "subtitle": "", "desc": "木叶63年（佩恩入侵后不久），对应漫画451-488话官方内容，纲手因百豪查克拉耗尽昏迷，团藏就任代理火影，五大忍村放下世仇组建忍者联军，是第四次忍界大战的序章；官方未给出该篇章具体月日。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch91", "name": "第四次忍界大战篇", "year": "木叶64年10月", "subtitle": "", "desc": "木叶64年10月（五影会谈宣战后数日开战，正面战场全程约三天，于10月10日漩涡鸣人17岁生日当天正式结束）；对应漫画489-699话，是忍界史上规模最大的战争，五大忍村与铁之国武士第一次放下世仇组成忍者联军，也是《火影忍者》主线的最终决战。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch92", "name": "THE LAST篇", "year": "木叶66年冬", "subtitle": "", "desc": "木叶66年冬（第四次忍界大战结束2年后，漩涡鸣人19岁），对应2014年岸本齐史亲自监修的系列15周年纪念剧场版，属于主线正史内容；此时纲手卸任五代目火影，旗木卡卡西就任六代目火影，忍界迎来和平年代，是鸣人与雏田感情线的完结篇，也是博人传时代的直接铺垫。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch93", "name": "七代目火影就任篇", "year": "木叶75年前后", "subtitle": "", "desc": "木叶75年前后（第四次忍界大战结束约10年后，漩涡鸣人27-28岁，博人约6-7岁），对应岸本齐史监修的官方正史短篇《鸣人当上火影的日子》，是《火影忍者》本篇的最终结局，也是博人传新时代的正式开端。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch94", "name": "七代目火影与绯色花月篇", "year": "木叶80年", "subtitle": "", "desc": "木叶80年（第四次忍界大战结束约16年后，七代目火影就任数年后，宇智波佐良娜11岁），对应岸本齐史2015年亲笔绘制的全7话正史外传，是宇智波佐良娜的个人篇章，衔接本篇结局与博人传时代，交代了佐良娜的身世谜团与“成为火影”目标的起源。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch95", "name": "满月照亮的道路篇", "year": "木叶80年", "subtitle": "", "desc": "木叶80年前后（《第七代火影与绯色花月》事件前后，巳月进入木叶忍者学校之前），对应岸本齐史2016年绘制的官方短篇，是《博人传》漫画第0话，属于主线正史，是巳月的个人起源篇，交代了巳月的身世与来到木叶的原因。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}], "boruto": [{"id": "ch96", "name": "博人传·忍者学校篇", "year": "木叶80-81年", "subtitle": "", "desc": "木叶80-81年（漩涡博人11-12岁，忍者学校在读到毕业），是博人传时代的开篇；本篇章无长篇漫画正篇剧情，动画中所有学院日常、幽灵事件、笕堇与鵺相关剧情、雷门电气/结乃岩部等原创角色均为动画原创，不纳入正史，仅保留漫画明确提及的核心设定。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch97", "name": "博人传篇", "year": "木叶81年", "subtitle": "", "desc": "木叶81年（漩涡博人12岁，新一届中忍考试期间，四战结束约15年后），对应2015年岸本齐史亲自监修的第11部剧场版，是博人传主线的正式开端，也是“楔”设定的首次登场。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch97b", "name": "貉强盗团篇", "year": "木叶81年", "subtitle": "", "desc": "木叶81年（大筒木桃式事件后不久，漩涡博人12-13岁），对应博人传漫画第11-15话官方内容（动画141-151集改编），是博人传漫画正史中承上启下的短篇章：大名之子天斗绑架案引出“壳组织”与“楔”的伏笔，是器·川木篇的直接前奏。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch98", "name": "器·川木篇", "year": "木叶82年", "subtitle": "", "desc": "木叶82年（中忍考试结束约1年后，漩涡博人13岁），对应博人传漫画主线核心篇章，川木正式登场、神秘组织“壳”浮出水面、楔的真相被揭露，是大筒木一式来袭的直接铺垫。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch99", "name": "大筒木一式篇", "year": "木叶82-83年", "subtitle": "", "desc": "木叶82-83年（川木来到木叶数月后，博人13岁），大筒木一式入侵木叶的决战篇，对应博人传漫画核心剧情，是旧时代双壁落幕、新时代正式接棒的关键节点。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch100", "name": "全能·博人逃亡篇", "year": "木叶83-84年", "subtitle": "", "desc": "木叶83-84年（大筒木一式战死后，漩涡博人14岁），是博人传第一部的最终篇章，神术「全能」发动，博人与川木身份互换，博人成为木叶公敌，为第二部三年后的青年篇埋下伏笔。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch101", "name": "TWO BLUE VORTEX篇", "year": "木叶86-87年", "subtitle": "", "desc": "木叶86-87年（博人逃亡3年后，漩涡博人17岁），博人传第二部青年篇，目前漫画正在连载中，以下为截至2026年10月已更新的正史内容（连载至第37话，第38话于2026年10月20日发售），后续剧情将随连载更新补充。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}], "movie": [{"id": "ch102", "name": "雪姬忍法帖篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年（波之国任务结束后、中忍考试前的独立任务），《火影忍者》第一部动画剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch103", "name": "幻之地底遗迹篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年（中忍考试结束后、佐助夺还任务前的独立任务），《火影忍者》第二部动画剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch104", "name": "三日月岛篇", "year": "木叶60年", "subtitle": "", "desc": "木叶60年夏（佐助夺还任务失败后、鸣人跟随自来也离村修行前的独立任务），《火影忍者》第三部动画剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。此时佐助已经离开木叶，因此由李洛克临时加入卡卡西班执行任务。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch105", "name": "鸣人之死篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（风影夺还篇结束后、天地桥任务前的独立任务），《火影忍者疾风传》第一部剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch106", "name": "羁绊篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（佐助夺还三年后、鼬佐兄弟战前的独立任务），《火影忍者疾风传》第二部剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。核心看点是鸣佐时隔三年的首次重逢与并肩作战。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch107", "name": "火之意志继承者篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年（佩恩入侵前的独立任务），《火影忍者》动画十周年纪念剧场版，属于非正史原创剧情，不影响漫画主线，可作为独立模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch108", "name": "失落之塔篇", "year": "木叶63年", "subtitle": "", "desc": "木叶63年执行任务时穿越至木叶43年（第三次忍界大战时期），属于非正史原创剧情，不影响漫画主线，可作为独立穿越模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch109", "name": "血狱篇", "year": "木叶63年", "subtitle": "", "desc": "木叶64年（第四次忍界大战前的独立秘密任务），属于非正史原创剧情，不影响漫画主线，可作为独立监狱悬疑类模组开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}, {"id": "ch110", "name": "忍者之路篇", "year": "木叶63年", "subtitle": "", "desc": "木叶64年（第四次忍界大战前的独立事件），非正史平行世界模组，由原作岸本齐史亲自参与人设、剧情与脚本创作，是带土用七只尾兽力量发动的「限定月读」创造的平行世界，完全不影响主线正史，可单独开团。", "tags": [], "entries": ["篇章开始", "篇章中期", "篇章后期"]}]};
+const canonGroups=[{"group": "木叶·第七班", "items": [{"name": "漩涡鸣人", "desc": "火之国·木叶隐村"}, {"name": "春野樱", "desc": "火之国·木叶隐村"}, {"name": "宇智波佐助", "desc": "火之国·木叶隐村"}, {"name": "猿飞木叶丸", "desc": "木叶隐村·第十班延伸"}]}, {"group": "木叶·三忍与师长", "items": [{"name": "旗木卡卡西", "desc": "火之国·木叶隐村"}, {"name": "自来也", "desc": "火之国·木叶隐村"}, {"name": "纲手", "desc": "火之国·木叶隐村"}, {"name": "大蛇丸", "desc": "音隐村"}, {"name": "海野伊鲁卡", "desc": "木叶隐村·忍者学校"}, {"name": "猿飞阿斯玛", "desc": "火之国·木叶隐村"}]}, {"group": "木叶·同期新人", "items": [{"name": "日向雏田", "desc": "火之国·木叶隐村"}, {"name": "奈良鹿丸", "desc": "火之国·木叶隐村"}, {"name": "李洛克", "desc": "火之国·木叶隐村"}, {"name": "日向宁次", "desc": "火之国·木叶隐村"}, {"name": "天天", "desc": "火之国·木叶隐村"}, {"name": "秋道丁次", "desc": "火之国·木叶隐村"}, {"name": "山中井野", "desc": "火之国·木叶隐村"}, {"name": "油女志乃", "desc": "火之国·木叶隐村"}, {"name": "犬冢牙", "desc": "木叶隐村·第八班"}]}, {"group": "木叶·火影与千手高层", "items": [{"name": "波风水门", "desc": "火之国·木叶隐村"}, {"name": "千手柱间", "desc": "火之国·木叶隐村"}, {"name": "千手扉间", "desc": "火之国·木叶隐村"}, {"name": "猿飞日斩", "desc": "火之国·木叶隐村"}, {"name": "志村团藏", "desc": "火之国·木叶隐村"}, {"name": "千手佛间", "desc": "千手一族"}, {"name": "水户门炎", "desc": "火之国·木叶隐村"}, {"name": "转寝小春", "desc": "火之国·木叶隐村"}]}, {"group": "木叶·宇智波", "items": [{"name": "宇智波鼬", "desc": "晓组织"}, {"name": "宇智波带土", "desc": "晓组织"}, {"name": "宇智波斑", "desc": "宇智波一族"}, {"name": "宇智波光", "desc": "宇智波一族"}, {"name": "宇智波田岛", "desc": "宇智波一族"}, {"name": "宇智波泉奈", "desc": "宇智波一族"}, {"name": "宇智波富岳", "desc": "火之国·木叶隐村·宇智波一族"}, {"name": "宇智波美琴", "desc": "火之国·木叶隐村·宇智波一族"}, {"name": "宇智波止水", "desc": "火之国·木叶隐村·宇智波一族"}, {"name": "宇智波信", "desc": "无所属"}]}, {"group": "木叶·上忍与各部门", "items": [{"name": "迈特凯", "desc": "火之国·木叶隐村"}, {"name": "漩涡玖辛奈", "desc": "涡之国·涡潮隐村→火之国·木叶隐村"}, {"name": "惠比斯", "desc": "木叶隐村·教育部门"}, {"name": "御手洗红豆", "desc": "木叶隐村"}, {"name": "森乃伊比喜", "desc": "木叶隐村·拷问"}, {"name": "月光疾风", "desc": "木叶隐村"}, {"name": "加藤断", "desc": "木叶隐村"}, {"name": "漩涡水户", "desc": "涡之国漩涡一族→火之国·木叶隐村"}, {"name": "旗木朔茂", "desc": "火之国·木叶隐村"}, {"name": "绳树", "desc": "火之国·木叶隐村"}, {"name": "野原琳", "desc": "火之国·木叶隐村"}, {"name": "水木", "desc": "火之国·木叶隐村"}, {"name": "夕日红", "desc": "火之国·木叶隐村"}, {"name": "静音", "desc": "火之国·木叶隐村"}, {"name": "大和", "desc": "火之国·木叶隐村"}, {"name": "佐井", "desc": "火之国·木叶隐村"}, {"name": "神月出云", "desc": "火之国·木叶隐村"}, {"name": "钢子铁", "desc": "火之国·木叶隐村"}, {"name": "奈良鹿久", "desc": "火之国·木叶隐村"}, {"name": "山中亥一", "desc": "火之国·木叶隐村"}, {"name": "秋道丁座", "desc": "火之国·木叶隐村"}, {"name": "山中风", "desc": "火之国·木叶隐村"}, {"name": "油女取根", "desc": "火之国·木叶隐村"}, {"name": "日向花火", "desc": "火之国·木叶隐村"}, {"name": "油女志弥", "desc": "火之国·木叶隐村"}]}, {"group": "风之国·砂隐村", "items": [{"name": "我爱罗", "desc": "风之国·砂隐村"}, {"name": "手鞠", "desc": "风之国·砂隐村"}, {"name": "勘九郎", "desc": "风之国·砂隐村"}, {"name": "千代婆婆", "desc": "风之国·砂隐村"}, {"name": "马基", "desc": "风之国·砂隐村"}, {"name": "海老藏", "desc": "风之国·砂隐村"}, {"name": "烈斗", "desc": "风之国·砂隐村"}, {"name": "新希", "desc": "风之国·砂隐村"}, {"name": "荒谷", "desc": "风之国·砂隐村"}, {"name": "夜土", "desc": "风之国·砂隐村"}]}, {"group": "雷之国·云隐村", "items": [{"name": "四代目雷影·艾", "desc": "雷之国·云隐村"}, {"name": "奇拉比", "desc": "雷之国·云隐村"}, {"name": "达鲁伊", "desc": "雷之国·云隐村"}, {"name": "初代雷影·艾", "desc": "雷之国·云隐村"}, {"name": "二位由木人", "desc": "雷之国·云隐村"}, {"name": "希", "desc": "雷之国·云隐村"}, {"name": "麻吕伊", "desc": "雷之国·云隐村"}]}, {"group": "土之国·岩隐村", "items": [{"name": "大野木", "desc": "土之国·岩隐村"}, {"name": "黑土", "desc": "土之国·岩隐村"}, {"name": "石河", "desc": "土之国·岩隐村"}, {"name": "魔蛭", "desc": "土之国·岩隐村"}, {"name": "火光", "desc": "土之国·岩隐村"}, {"name": "大石", "desc": "土之国·岩隐村"}, {"name": "老紫", "desc": "土之国·岩隐村"}, {"name": "汉", "desc": "土之国·岩隐村"}, {"name": "赤土", "desc": "土之国·岩隐村"}]}, {"group": "水之国·雾隐·泷隐", "items": [{"name": "照美冥", "desc": "水之国·雾隐村"}, {"name": "长十郎", "desc": "水之国·雾隐村"}, {"name": "干柿鬼鲛", "desc": "雾隐村"}, {"name": "白", "desc": "雾隐村"}, {"name": "桃地再不斩", "desc": "水之国·雾隐村"}, {"name": "冥头", "desc": "水之国·雾隐村"}, {"name": "业头", "desc": "水之国·雾隐村"}, {"name": "枸橘矢仓", "desc": "水之国·雾隐村（四代水影，三尾人柱力）"}, {"name": "羽高", "desc": "水之国·雾隐村叛忍（六尾人柱力）"}, {"name": "芙", "desc": "泷之国·泷隐村（七尾人柱力）"}]}, {"group": "雨隐与晓之创始", "items": [{"name": "佩恩", "desc": "晓组织"}, {"name": "小南", "desc": "晓组织"}, {"name": "山椒鱼半藏", "desc": "雨隐村"}, {"name": "弥彦", "desc": "雨隐村→晓组织"}]}, {"group": "晓组织", "items": [{"name": "迪达拉", "desc": "岩隐村"}, {"name": "赤砂之蝎", "desc": "砂隐村"}, {"name": "角都", "desc": "泷隐村"}, {"name": "飞段", "desc": "汤隐村"}, {"name": "黑绝", "desc": "无"}]}, {"group": "音隐与鹰小队", "items": [{"name": "药师兜", "desc": "木叶隐村"}, {"name": "君麻吕", "desc": "音隐村"}, {"name": "香磷", "desc": "音隐村南方据点"}, {"name": "鬼灯水月", "desc": "雾隐村"}, {"name": "重吾", "desc": "音隐村"}, {"name": "萨克·镫", "desc": "田之国·音隐村"}, {"name": "托斯·砧", "desc": "田之国·音隐村"}, {"name": "金·土", "desc": "田之国·音隐村"}, {"name": "赤铜铠", "desc": "田之国·音隐村"}, {"name": "剑美澄", "desc": "田之国·音隐村"}, {"name": "次郎坊", "desc": "田之国·音隐村"}, {"name": "鬼童丸", "desc": "田之国·音隐村"}, {"name": "左近/右近", "desc": "田之国·音隐村"}, {"name": "多由也", "desc": "田之国·音隐村"}, {"name": "巳月", "desc": "田之国·音隐村出身→火之国·木叶隐村"}, {"name": "Log（巳杯）", "desc": "田之国·大蛇丸研究所"}]}, {"group": "铁之国武士", "items": [{"name": "三船", "desc": "中立国·铁之国"}]}, {"group": "大筒木与忍宗始祖", "items": [{"name": "大筒木辉夜", "desc": "大筒木一族"}, {"name": "大筒木羽衣", "desc": "大筒木一族"}, {"name": "大筒木羽村", "desc": "大筒木一族"}, {"name": "大筒木一式", "desc": "大筒木一族→壳组织"}, {"name": "因陀罗", "desc": "忍宗"}, {"name": "阿修罗", "desc": "忍宗"}, {"name": "大筒木舍人", "desc": "月球·大筒木分家"}, {"name": "大筒木桃式", "desc": "大筒木一族"}, {"name": "大筒木金式", "desc": "大筒木一族"}]}, {"group": "壳组织", "items": [{"name": "青", "desc": "水之国·雾隐村"}, {"name": "川木", "desc": "原壳组织→火之国·木叶隐村"}, {"name": "慈弦", "desc": "壳组织"}, {"name": "阿玛多", "desc": "原壳组织→火之国·木叶隐村"}, {"name": "迪鲁达", "desc": "原壳组织"}, {"name": "果心居士", "desc": "原壳组织"}, {"name": "我娄", "desc": "壳组织"}, {"name": "考德", "desc": "壳组织残余"}, {"name": "艾达", "desc": "原壳组织→木叶"}, {"name": "迪蒙", "desc": "原壳组织→木叶"}]}, {"group": "人神树（神树分身）", "items": [{"name": "十罗", "desc": "十尾化身·人神树首领"}, {"name": "左", "desc": "佐助分身"}, {"name": "虫", "desc": "巴古分身"}, {"name": "祭", "desc": "萌黄分身"}, {"name": "粒", "desc": "新希分身"}]}, {"group": "博人传·新生代", "items": [{"name": "漩涡博人", "desc": "火之国·木叶隐村"}, {"name": "宇智波佐良娜", "desc": "火之国·木叶隐村"}, {"name": "漩涡向日葵", "desc": "火之国·木叶隐村"}, {"name": "奈良鹿戴", "desc": "火之国·木叶隐村"}, {"name": "山中井阵", "desc": "火之国·木叶隐村"}, {"name": "秋道蝶蝶", "desc": "火之国·木叶隐村"}, {"name": "笕堇", "desc": "火之国·木叶隐村"}, {"name": "远野方助", "desc": "火之国·木叶隐村"}, {"name": "风祭萌黄", "desc": "火之国·木叶隐村"}]}, {"group": "波之国", "items": [{"name": "达兹纳", "desc": "波之国"}, {"name": "伊那利", "desc": "波之国"}, {"name": "津奈美", "desc": "波之国"}, {"name": "卡多", "desc": "波之国卡多公司"}]}, {"group": "剧场版·雪之国", "items": [{"name": "风花小雪", "desc": "雪之国"}, {"name": "风花早雪", "desc": "雪之国"}, {"name": "风花怒涛", "desc": "雪之国"}, {"name": "狼牙雪崩", "desc": "雪之国"}, {"name": "鹤翼吹雪", "desc": "雪之国·风花怒涛军"}, {"name": "冬熊冻雨", "desc": "雪之国·风花怒涛军"}]}, {"group": "剧场版·月之国", "items": [{"name": "特姆迅", "desc": "海德军团→倒戈协助木叶第七班"}, {"name": "海德", "desc": "海德军团"}, {"name": "卡米拉", "desc": "海德军团"}, {"name": "兰克", "desc": "海德军团"}, {"name": "月满王子", "desc": "月之国王室"}, {"name": "小光", "desc": "月之国王室"}, {"name": "月之国老国王", "desc": "月之国王室"}, {"name": "夏巴达巴", "desc": "月之国·篡位派"}]}, {"group": "剧场版·其他篇章", "items": [{"name": "地陆", "desc": "火之国·火之寺"}, {"name": "紫苑", "desc": "鬼之国·巫女一脉"}, {"name": "足穗", "desc": "鬼之国·巫女护卫"}, {"name": "黄泉", "desc": "魍魉残党"}, {"name": "神农", "desc": "空之国"}, {"name": "阿玛鲁", "desc": "火之国边境村→空之国要塞"}, {"name": "卑留呼", "desc": "木叶叛忍"}, {"name": "萨拉", "desc": "楼兰古国"}, {"name": "百足", "desc": "砂隐叛忍→楼兰大臣"}, {"name": "无为", "desc": "草隐村"}, {"name": "龙舌", "desc": "草隐村"}, {"name": "无垢", "desc": "草隐村"}, {"name": "漩涡面麻", "desc": "限定月读世界·木叶"}]}, {"group": "尾兽（可扮演）", "items": [{"name": "九喇嘛（完全体）", "desc": "九尾，封印于鸣人体内，最强尾兽"}, {"name": "守鹤", "desc": "一尾守鹤，砂隐，风遁与砂封印"}, {"name": "又旅", "desc": "二尾又旅，云隐由木人，火遁蓝焰"}, {"name": "矶抚", "desc": "三尾矶抚，雾隐，水遁"}, {"name": "孙悟空", "desc": "四尾孙悟空，岩隐老紫，熔遁"}, {"name": "穆王", "desc": "五尾穆王，岩隐汉，沸遁"}, {"name": "犀犬", "desc": "六尾犀犬，雾隐羽高，溶遁泡沫"}, {"name": "重明", "desc": "七尾重明，泷隐芙，飞行磷粉"}, {"name": "牛鬼", "desc": "八尾牛鬼，云隐奇拉比"}, {"name": "十尾", "desc": "十尾，神树本体，查克拉之源"}]},{group:"特殊同人扮演角色", special:true, subgroups:[{sub:"星穹铁道", items:[{name:"雷电忘川守芽衣", desc:"《星穹铁道》虚无令使巅峰，斩太一"},{name:"支配骑士·卡芙卡", desc:"《星穹铁道》星核猎手，言灵雷"},{name:"白厄", desc:"《星穹铁道》救世主，硬撼毁灭星神"},{name:"昔涟", desc:"《星穹铁道》记忆使，执掌记忆因果"},{name:"知更鸟", desc:"《星穹铁道》极脆辅助，全队再动加攻"},{name:"海瑟音", desc:"《星穹铁道》黄金裔半神剑旗爵"},{name:"飞霄", desc:"《星穹铁道》巡猎令使天击将军，爆行星"},{name:"爻光", desc:"《星穹铁道》文职巡猎令使，军团增幅"}]},{sub:"崩坏3", items:[{name:"爱莉希雅·真我人之律者", desc:"《崩坏3》真我律者，无瑕之矢水晶结界"},{name:"终焉之律者琪亚娜", desc:"《崩坏3》终焉律者，掌终结轮回"},{name:"生死之骑士希儿", desc:"《崩坏3》量子双生，掌生死判定"},{name:"凯文·卡斯兰娜", desc:"《崩坏3》前文明最强融合战士"}]},{sub:"原神", items:[{name:"八重神子", desc:"《原神》鸣神大社宫司，雷狐神通"},{name:"雷电影", desc:"《原神》雷神魔神，无想一刀"},{name:"若娜瓦", desc:"《原神》死之执政，执掌概念死亡"},{name:"哥伦比娅", desc:"《原神》愚人众第三席，霜月月神"}]},{sub:"圣经", items:[{name:"耶和华", desc:"《圣经》独一真神，造物主元层级"},{name:"宁录", desc:"《圣经》凡人英雄王，巴别之王统御"},{name:"米迦勒", desc:"《圣经》大天使长，天军统帅"},{name:"梅塔特隆", desc:"《圣经》天使之王，法则代理言灵"}]},{sub:"斩魔大圣", items:[{name:"阿尔·阿吉芙", desc:"《斩魔大圣》最强魔导书精灵"},{name:"鬼械神", desc:"《斩魔大圣》鬼械神，撕裂宇宙"}]},{sub:"魔法少女小圆", items:[{name:"鹿目圆", desc:"《小圆》圆环之理，概念神重写宇宙"}]},{sub:"神秘复苏", items:[{name:"神杨戬", desc:"《神秘复苏》唯一真神，言出法随"}]},{sub:"IQ博士", items:[{name:"则卷阿拉蕾", desc:"《IQ博士》搞笑机器人，星球级怪力"}]},{sub:"龙珠", items:[{name:"卡卡罗特", desc:"《龙珠》自在极意功，破坏神级"}]},{sub:"野生最终BOSS", items:[{name:"阿萝维纳斯", desc:"《野生BOSS》创世女神，造物主"}]},{sub:"凡人修仙传", items:[{name:"紫灵", desc:"《凡人修仙传》大罗金仙，宇宙结构"}]},{sub:"假如…？", items:[{name:"无限奥创", desc:"《假如》六无限宝石，多元宇宙级"}]},{sub:"蛊真人", items:[{name:"古月方源", desc:"《蛊真人》九转炼道尊者，创世级"}]},{sub:"异常处理局（自设）", items:[{name:"李妮妮", desc:"自设异常局总长，宇宙之力乐子人"}]},{sub:"天元突破", items:[{name:"西蒙", desc:"《天元突破》螺旋力多元宇宙顶级"}]},{sub:"妄想序列", items:[{name:"洛晨曦", desc:"《妄想序列》论外级，全知全能元存在"}]},{sub:"脑叶公司", items:[{name:"亡蝶葬仪", desc:"《脑叶公司》HE异想体，精神伤害"},{name:"魔弹射手", desc:"《脑叶公司》HE异想体，七发魔弹贯穿"}]},{sub:"通灵王", items:[{name:"麻仓叶王", desc:"《通灵王》通灵王，精灵之火吞魂"},{name:"阿弥陀丸", desc:"《通灵王》战国鬼人剑士，剑精"}]},{sub:"滑头鬼之孙", items:[{name:"羽衣狐", desc:"《滑头鬼》京都妖怪之主，千年大妖"},{name:"安倍晴明", desc:"《滑头鬼》大阴阳师，魔王小槌"}]},{sub:"龙族", items:[{name:"楚子航", desc:"《龙族》混血种巅峰，三度爆血"},{name:"路明非", desc:"《龙族》废柴S级，四命交易黑王"}]},{sub:"鬼泣", items:[{name:"但丁", desc:"《鬼泣》斯巴达之子，魔人化"},{name:"维吉尔", desc:"《鬼泣》但丁之兄，真魔人次元斩"}]},{sub:"超辉夜姬", items:[{name:"酒寄彩叶", desc:"《超辉夜姬》普通女高，作曲游戏"},{name:"辉夜", desc:"《超辉夜姬》月之公主，月之力"}]},{sub:"边狱巴士", items:[{name:"桑丘", desc:"《边狱巴士》二代血魔，挥巨枪"},{name:"堂吉诃德", desc:"《边狱巴士》初代血魔长老，乐园主"}]},{sub:"Fate", items:[{name:"英灵卫宫", desc:"《Fate》Archer，无限剑制投影"},{name:"所罗门", desc:"《FGO》Grand Caster，烧却人类史"}]},{sub:"漫威", items:[{name:"洛基", desc:"《漫威》诡计之神，仙宫最强巫师"},{name:"钢铁侠", desc:"《漫威》纳米装甲，城市级火力力场"}]},{sub:"双星之阴阳师", items:[{name:"鸬宫天马", desc:"《双星阴阳师》十二天将最强咒力"},{name:"胜神柯蒂莉雅", desc:"《双星阴阳师》十二天将天空，咒装"}]},{sub:"异度神剑2", items:[{name:"光", desc:"《异度神剑2》天之圣杯本我，塞壬炮击"},{name:"焰", desc:"《异度神剑2》天之圣杯封印人格"}]},{sub:"碧蓝航线", items:[{name:"奥古斯特·冯·帕塞瓦尔", desc:"《碧蓝航线》铁血航母，超视距空袭"},{name:"兴登堡", desc:"《碧蓝航线》铁血DR重巡，无视护盾主炮"}]},{sub:"街头霸王", items:[{name:"桑吉尔夫", desc:"《街霸》凡人格斗巅峰，投技怪力"},{name:"杰米·肖", desc:"《街霸》醉拳拳师，药酒越战越勇"}]},{sub:"斗罗大陆", items:[{name:"唐三", desc:"《斗罗大陆》双神祇，双生武魂全十万年"},{name:"小舞", desc:"《斗罗大陆》柔骨超级斗罗，近身柔技"}]},{sub:"拳皇", items:[{name:"不知火舞", desc:"《拳皇》烈焰忍术花蝶扇，近身格斗家"}]},{sub:"天降之物", items:[{name:"伊卡洛斯", desc:"《天降之物》空之女王，战略兵器"}]},{sub:"鬼灭之刃", items:[{name:"继国缘一", desc:"《鬼灭》日之呼吸始祖，最强剑士"}]},{sub:"回魂夜", items:[{name:"里昂", desc:"《回魂夜》捉鬼专家，通灵道士"}]},{sub:"史酷比", items:[{name:"史酷比", desc:"拟人化大丹犬，嗅觉敏锐逃跑极快"}]},{sub:"僵尸先生", items:[{name:"九叔", desc:"《僵尸先生》茅山道长，僵尸克星"}]},{sub:"一拳超人", items:[{name:"战栗的龙卷", desc:"《一拳超人》最强念动力，城市级"}]},{sub:"魔法老师", items:[{name:"依文洁琳", desc:"《魔法老师》真祖吸血鬼，暗冰魔法"}]},{sub:"地狱客栈", items:[{name:"阿拉斯托", desc:"《地狱客栈》广播恶魔领主"}]},{sub:"星球大战", items:[{name:"卢克·天行者", desc:"《星球大战》绝地大师，原力"}]},{sub:"东方Project", items:[{name:"饥荒之骑士依神紫苑", desc:"《东方》贫穷神饥荒骑士，万物枯竭"}]},{sub:"异环", items:[{name:"月退浔", desc:"《异环》古董店老板娘，时停因果"}]},{sub:"诡境主宰", items:[{name:"猫咪巧克力", desc:"《诡境主宰》高位封印物幼猫"}]},{sub:"崩坏学园2", items:[{name:"战争骑士·佐菲亚", desc:"《崩学2》战争骑士团长，天命最强"}]},{sub:"电锯人", items:[{name:"支配骑士·玛奇玛", desc:"《电锯人》支配恶魔，言灵束缚"}]},{sub:"黑岩射手", items:[{name:"黑岩射手", desc:"《黑岩》异世界存在，巨炮黑刃"}]},{sub:"变形金刚：起源", items:[{name:"威震天", desc:"《变形金刚》塞伯坦领袖，金属生命"}]},{sub:"物语系列", items:[{name:"斧乃木余接", desc:"《物语》尸体付丧神，怪力规则"}]},{sub:"尼古喵喵", items:[{name:"尼古喵喵", desc:"猫兽人，强健底子摆烂废柴"}]},{sub:"凉宫春日", items:[{name:"凉宫春日", desc:"《凉宫》无意识现实因果改写者"}]},{sub:"魔法禁书目录", items:[{name:"一方通行", desc:"《魔禁》学园都市第一，矢量操作"}]},{sub:"转生成蜘蛛", items:[{name:"白织", desc:"《转生成蜘蛛》神级军团长，邪眼神格"}]},{sub:"日月同错", items:[{name:"姜明子", desc:"《日月同错》求法者顶点，三千年因果"}]},{sub:"夏目友人帐", items:[{name:"夏目贵志", desc:"《夏目友人帐》持友人帐高中生"}]},{sub:"迪迦奥特曼", items:[{name:"井田小十郎井龙", desc:"《迪迦》人类剑术顶点，封印鬼神"}]},{sub:"赛马娘", items:[{name:"爱丽速子", desc:"《赛马娘》运动拔群疯狂科学药剂"}]},{sub:"Black Souls", items:[{name:"格林", desc:"《Black Souls》万千灵魂聚合之躯"}]},{sub:"名侦探柯南", items:[{name:"灰原哀", desc:"《柯南》凡人小学生，顶尖智力战术"}]},{sub:"一胜千金", items:[{name:"李柚巴", desc:"《一胜千金》凡人格斗巅峰，硬气功"}]},{sub:"明日方舟", items:[{name:"特蕾西娅", desc:"《明日方舟》萨卡兹魔王，文明存续"}]},{sub:"恶魔战士", items:[{name:"莫莉卡·安斯兰特", desc:"《恶魔战士》魔界顶级梦魔"}]},{sub:"咒术转盘", items:[{name:"血区", desc:"《咒术转盘》欧洲伯爵，赤血操术反转"}]},{sub:"咒术回战", items:[{name:"五条悟", desc:"《咒术回战》现代最强，无下限无量空处"}]},{sub:"人狼村之谜", items:[{name:"房石阳明", desc:"《人狼村》凡人，死亡回溯心理战"}]},{sub:"英雄联盟", items:[{name:"提莫", desc:"《LOL》迅捷斥候，毒蘑菇阵封锁"}]},{sub:"德鲁比", items:[{name:"德鲁比", desc:"《德鲁比》卡通逻辑剧本必胜怪力"}]},{sub:"一人之下", items:[{name:"唐家仁", desc:"《一人之下》凡人巅峰刺客，丹噬"}]},{sub:"斗罗大陆漫画", items:[{name:"刚子", desc:"《斗罗漫画》理论宗师玉小刚"}]},{sub:"猫和老鼠", items:[{name:"杰瑞", desc:"《猫和老鼠》卡通不灭剧本必胜"}]},{sub:"惊悚乐园", items:[{name:"封不觉", desc:"《惊悚乐园》游戏内伪神，规则解构"}]},{sub:"斗罗大陆2性转", items:[{name:"小霍娘", desc:"女体化霍雨浩，三生武魂情绪之神"}]},{sub:"西游记", items:[{name:"齐天大圣·孙悟空", desc:"《西游/黑神话》神魔，法天象地金刚"}]},{sub:"游戏王", items:[{name:"闪刀姬·零衣", desc:"《游戏王》科技单兵，多属性换装机甲"}]},{sub:"假面骑士BLACK", items:[{name:"世纪王·影月", desc:"《假面BLACK》世纪王最强改造战士"}]},{sub:"最终幻想14", items:[{name:"光之战士", desc:"《FF14》星球传奇冒险者全职业全能"}]},{sub:"数码宝贝", items:[{name:"八神太一", desc:"《数码宝贝》凡人孩童，靠搭档数码兽"}]},{sub:"轮回乐园", items:[{name:"苏晓", desc:"《轮回乐园》绝强猎杀者，青影王清场"}]},{sub:"波西·杰克逊", items:[{name:"波西·杰克逊", desc:"《波西》希腊半神，控水借水越阶"}]},{sub:"胜利女神妮姬", items:[{name:"灰姑娘", desc:"《妮姬》二代童话顶点异端者，浮游盾"}]},{sub:"假面骑士Decade", items:[{name:"假面骑士帝骑", desc:"《假面Decade》世界破坏者，基础全能"}]},{sub:"斗罗同人", items:[{name:"龙宸", desc:"斗罗同人龙神嫡子，双脉七元素"}]},{sub:"无职转生", items:[{name:"奥尔斯蒂德", desc:"《无职转生》第百代龙神，全情报"}]},{sub:"无畏契约", items:[{name:"韩善宇", desc:"《无畏契约》风系辐能高机动刺客"}]},{sub:"万妖图录传", items:[{name:"姜月初", desc:"《万妖图录》神王段斩妖者，越级斩仙"}]},{sub:"绝区零", items:[{name:"佩洛伊斯", desc:"《绝区零》主角以太铠甲，城市清场"}]}]}];
+const talentPool={"mythic": [{"name":"六道之体","desc":"天生拥有仙人体质，查克拉量为常人十倍，可感知自然能量"},{"name":"镜花水月斩魄刀","desc":"蓝染惣右介的佩刀，幻觉系最强斩魄刀，拥有实体，始解语「碎裂吧，镜花水月」","effect":"核心能力为「完全催眠」：目标只要亲眼目睹过一次始解瞬间，即永久成为催眠对象，此后无论距离多远，蓝染再次解放即可远程激活；可完全支配目标视听嗅味触五感，并欺骗灵压与精神探测，既能无中生有制造幻象，也能将任意物体/人员伪装成他物；被催眠者对幻象绝对信任，即使现实与认知严重矛盾也会自动合理化，无法凭理性挣脱"},{"name":"五条悟咒术体系","desc":"现代最强咒术师五条悟的完整能力集合，以天生六眼为核心，覆盖防御、攻击、治疗、领域全维度","effect":"①无下限咒术（被动防御）：将「阿基里斯与乌龟」悖论具象化，接近本体之物速度无限衰减永不可触，配合反转术式可自动全时防护；②术式顺转「苍」制造吸引力（小型黑洞）兼具空间压缩瞬移，反转「赫」释放两倍威力的排斥力，虚式「茈」以假想质量切割空间为顶级破坏技；③领域展开「无量空处」向目标大脑灌注无限无效信息使其过载失能，仅触碰本体者免疫；④天赋「六眼」360度感知咒力、使自身咒力消耗趋近于零；⑤反转术式生成正能量治疗，濒死激发后自动运转为无下限永久供能"},{"name":"八岐血裔·神纹解放","desc":"身具八岐大蛇本源血统，常态下双臂环刻深色蛇形咒纹臂环、胸口镌有深蓝八岐放射纹印，肌肤隐伏淡蛇鳞暗纹，发色与瞳孔与常人无异；全力释放血脉之力时发色尽数转为银白，赤红蛇形竖瞳彻底显现，周身咒纹灼亮浮起，恒常萦绕淡紫虚无粒子浮空，外泄神气场令凡俗物质近身自崩","effect":"血脉解放后解锁湮灭黑粒子、空间折跃、掏魂夺魄、地脉灵柱、虚无屏障、意念操控、天灾引动全套核心权能，三大终结奥义可发动覆面光能打击、展开虚无领域、引动灭世级生态重置冲击；单日仅可稳定维持解放状态30分钟"},{"name":"王之财宝","desc":"英雄王吉尔伽美什的标志性宝具，连通黄金之都的钥匙之剑，金色门扉后收纳着世间一切珍宝的原典，是人类智慧与财富的终极象征，彰显着最古之王\"收集天下所有宝物\"的绝对王权","effect":"等级E~A++，本质是\"人类智慧的原典\"本身，连通空间可自由取出宝库中收藏的所有宝具原型与人类发明雏形；能将无数宝具如子弹般高速射出，魔力效率极高且可针对任何从者弱点攻击，射出的宝具会自动回收；内藏天之锁、维摩那、众神之盾等数不清的神造兵装与奇珍异宝，除了全新概念造物与外星文明产物外几乎无所不包，收藏的财宝越多威力便越强"},{"name":"Neo品红帝骑驱动器","desc":"出自《假面骑士Decade》门矢士的专属变身腰带，骚粉色腰带本体，插入对应骑士卡牌即可解放力量，持有者被称为\"世界的破坏者\"，是跨作品玩梗最常用的骑士腰带","effect":"插入对应骑士卡牌可直接变身成该骑士并使用其全部技能与必杀，可自由打开次元壁在任意世界/空间穿梭，刷卡可释放对应骑士的招牌骑士踢；限制：无对应骑士卡时仅基础格斗水平，次元壁穿越冷却10分钟，同时叠加超过3种骑士力量会导致腰带不稳定，有概率把自己随机传送到未知世界"},{"name":"逢魔时王驱动器","desc":"出自《假面骑士Zi-O》常磐庄吾的最终形态腰带，黑金配色的王者驱动器，是掌控时间、持有全骑士力量的逢魔时王专属变身器，变身音效为\"祝福之刻！至仁至善至强之王！\"","effect":"变身后可使用历代所有假面骑士的全部能力，自由操控时间暂停、时间回溯、时间加速，能召唤历代骑士协同作战，拳脚出力达百吨级，可释放覆盖千米的骑士冲击波；限制：单次时间回溯超过10分钟会大量消耗体力，时间暂停最多维持5秒，全力释放必杀骑士踢后有1分钟硬直，被同级别时间能力命中时腰带会短暂失灵"},{"name":"暗影君王","desc":"出自《我独自升级》，是九大君王中执掌死亡与暗影的顶级权能，程肖宇的专属隐藏转职职业，觉醒后瞳孔转为暗紫色，周身常绕黑色暗影雾气，是作品设定里的天花板级能力之一","effect":"核心能力为暗影提取，可从被自身击杀的目标尸体上提取暗影，转化为绝对忠诚的暗影士兵，士兵保留生前全部能力且不会背叛，被打散后可在影子中重新凝聚；可将所有暗影储存在自身影子里随时召唤，展开君王领域时领域内所有暗影士兵全属性提升50%；衍生能力包括影步（在任意影子间瞬移）、暗影互换（和己方暗影士兵交换位置）、暗影潜行（融入他人影子完全隐蔽）；存在使用限制：无法提取实力远超自身的目标暗影，目标死亡超过1小时提取失败，同时维持的暗影士兵数量受自身魔力上限约束，君王领域最多维持10分钟，暗影互换冷却3小时，强光环境下暗影能力整体削弱30%"},{"name":"替身「世界（The World）」","desc":"DIO所持有的近距离力量型人型替身，射程10米，战吼「無駄無駄無駄無駄！！！」，发动咏唱「砸瓦鲁多！！！」","effect":"核心能力为全域时间停止，静止时空中仅DIO可自由行动；初觉醒仅停一瞬，随颈部伤口愈合逐步延长，最终战达5秒，吸收乔瑟夫血液后延长至9秒；发动时触发专属JOJO画风突变——面部棱角锋利、嘴唇厚立体、睫毛浓密、肌肉血管夸张强化、发型突破物理呈锐角立体，周身漂浮ゴゴゴ/ドドド拟声字符，女性躯体亦转为刚硬肌肉几何形态；能力解除后画风维持3分钟，期间肉体获究极强化"},{"name":"两面宿傩之力","desc":"拥有千年前诅咒之王两面宿傩的全部术式，四手两面的鬼神，天生双胞胎融合的异形身体，天上天下唯我独尊，拥有全作最顶尖的咒力量与战斗天赋，看一眼就能学会对手招式","effect":"御厨子·解：看不见的连打斩击，对生物与非生物均有极大杀伤；御厨子·捌：自动解析目标咒力与强度，调节至一刀必杀的斩击；捌·蜘蛛之网：接触地面将捌扩散，一击粉碎整片大地；世界斩断之斩击：将\"解\"的对象扩展至空间与存在本身，连空间一起斩断，无视一切防御，咏唱\"龙鳞\"\"反发\"\"成双之流星\"后以掌指定方向发动；竈·開（万死之炎）：以解与捌为前置工序，双手凝炎化为火弓射出，一击秒杀漏瑚与魔虚罗，亦可令领域内粉尘附爆形成温压轰炸；伏魔御厨子：不封闭结界的开放式领域，半径200米必中，对无咒力者施解、有咒力者施捌，无止境斩击至粉碎，效果可延伸至他人领域外侧；领域展延：体表薄膜中和敌方必中与术式；弥虚葛笼：简易领域原型，抵消领域必中；反转术式：正向咒力治愈肉体，亦可治人；十种影法术：夺舍伏黑后可召唤魔虚罗等式神并利用其适应能力习得新招；黑闪：咒力打击伴空间扭曲，威力成倍暴涨"},{"name":"星之圣剑","desc":"为击败毁灭星辰之外敌而铸造的黄金圣剑，阶级EX。剑身设十三拘束，由骑士王本人与十二位圆桌骑士各立一道封印，每道对应一个解放条件。真名解放时须满足半数以上即七条拘束方可完全发挥，否则按已解封印数量部分解放","effect":"平时即无坚不摧的黄金圣剑。解放时喊出\"十三拘束解放，圆桌决议开始\"，满足条件的封印逐条崩解，每解一道威力倍增。已知条件包括：此为拯救世界之战、对手比自己强、对手为邪恶、不违人道、非为私欲、对象非精灵等。完全解放（七条以上）放出创世级黄金光柱，可轰碎星辰级外敌，威力覆盖千人；部分解放（三至六条）已可平推要塞。解放后全身脱力，一天最多一次"},{"name":"吾主在此","desc":"圣女贞德的圣旗，阶级A-结界宝具。将EX级对魔力转化为含物理攻击在内的绝对防御力，战场上挥舞圣旗近乎无伤战斗至最后的具现","effect":"高举圣旗，以你为中心半径十丈展开金色结界，物理攻击、魔法、诅咒、宝具级攻击一切皆可格挡，近乎绝对防御。但举旗期间你不能移动、不能反击，只能站着扛。旗被打落则防御崩溃。一天可举三次，每次最多撑一炷香"},{"name":"红莲之圣女","desc":"以\"主啊，此身将交由您的处置\"发动的概念结晶武装，阶级C→EX。固有结界亚种，将贞德火刑之心象风景结晶为炎剑","effect":"手中现出燃烧的圣剑，一挥之下红莲之炎席卷数十丈，一切邪恶、不死、诅咒、魔性之物在火中灰飞烟灭，威力随信仰之坚定度暴涨至EX级。但这是燃尽自身的一击——用后你重伤濒死，若无人当场救治则必死。一生只能用一次"},{"name":"矢量操作","desc":"所有指向我的伤害，都会原封不动返还给你","effect":"操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球"},{"name":"琦玉修炼法","desc":"原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成","effect":"突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真"},{"name":"氪星血脉觉醒","desc":"你是流落地球的氪星人后裔","effect":"黄太阳辐射下解锁钢铁躯体、热视线、飞行、超速自愈。"},{"name":"仙术亲和","desc":"天生适合仙术修炼，进入仙人模式所需时间大幅缩短"},{"name":"尾兽共鸣","desc":"即使不是人柱力，也能与尾兽产生精神共鸣，更易获得认可"},{"name":"血脉觉醒","desc":"无论出身如何，体内都沉睡着远古血脉的力量，可在极限状态下觉醒"},{"name":"万花筒写轮眼","desc":"宇智波一族顶级血继限界，需经历至亲羁绊断裂的强烈负面情绪刺激开眼，瞳孔呈独特万花筒状花纹，不同开眼者花纹与专属能力存在差异，基础能力远凌驾于三勾玉写轮眼之上","effect":"共通能力包含极致动态洞察、可复制非血继限界的忍术体术、操控五感的顶级视觉幻术；双眼齐开可召唤实体化查克拉巨人须佐能乎，根据开眼者不同附带专属瞳术（不灭火焰天照、精神空间月读、时空间神威等）；每次使用都会不可逆损伤视力，频繁催动会逐步失明直至彻底失去光芒，仅移植直系血亲万花筒进化为永恒万花筒可消除失明诅咒，非宇智波血脉使用者查克拉消耗翻倍"},{"name":"不知火舞","desc":"召唤不知火流女忍者不知火舞，栗色长发配红色忍者服，手持折扇、赤炎缠身，性感奔放的不知火流忍术传人，将火焰、扇子与体术融为一体的快攻型格斗家","effect":"花蝶扇：投掷折扇的飞行道具，可连续投出三把；龙炎舞：旋身以火焰之手挥出烈焰旋风；必杀忍蜂：侧身旋转突进，以肘部裹火焰撞击敌人；超必杀忍蜂：全身缠炎高速突进肘击；飞鼯之舞：空中滑翔飞扑；不知火流体术：三角跳、空中投技梦樱、红鹤之舞等招式变化多端"},{"name":"真我·人之律者·爱莉希雅","desc":"召唤逐火十三英桀第二位、真我之律者爱莉希雅，粉色长发如飞花、尖耳如精灵，自称粉色妖精小姐，天生的律者、始源之律者，因深爱人类而主动牺牲","effect":"往世的飞花：水晶长弓，射出附带水晶花瓣的箭矢；无瑕花种：以水晶花种标记敌人，层层绽放为无瑕花簇；真我·人之律者：切换律者形态操控冰雪与水晶、冻结时空；始源之律者：解放真我的始源形态，冰伤输出巅峰；因你而在的故事：以人之律者权能改写现实、为人类献上祝福"},{"name":"狐之宫司·八重神子","desc":"召唤鸣神大社宫司八重神子，稻妻雷神眷属、狐斋宫继承者，粉发狐耳、艳媚狡黠的九尾狐，活了五进阶的大妖，以雷霆与狐灵戏弄敌人","effect":"狐灵食罪式：驱役狐灵进行三段雷元素攻击；野干役咒·杀生樱：瞬移并留下杀生樱、间歇降下落雷，最多三株同时存在；大密法·天狐显真：凭依杀生樱化作天狐霆雷降下、大范围雷元素爆发；天狐之凭：以雷霆形式降临于敌人身上"},{"name":"雷电将军·雷电影","desc":"召唤稻妻雷神巴尔泽布，紫发武者装束、胸口拔刀，追求永恒的武神，将意识封存于梦想一心内的一心净土中无休止冥想，打磨无想之一刀","effect":"无想一刀：雷元素拔刀斩，粉碎一切诅咒的范围雷伤；奥义·梦想真说：斩出梦想一刀后进入梦想一心状态，普攻重击皆转为无法被覆盖的雷元素伤害；诸愿百眼之轮：积蓄愿力提升梦想一刀威力；一心净土：独立意识空间，内中时间隔绝外界"},{"name":"圆环之理·鹿目圆","desc":"召唤成神后的鹿目圆，粉色双马尾化为无限长发、纯白羽翼展开、裙下是无尽星空，她以\"在所有魔女诞生之前将她们消灭\"的愿望重组了宇宙法则，自身升格为横跨一切时空的概念存在——圆环之理","effect":"圆环之理：宇宙级法则，在过去、现在、未来所有时间线中，于魔法少女魔女化前夕现身净化其灵魂宝石并引导安息，亲手抹杀一切魔女；时空穿梭：存在于一切宇宙、一切时间轴中，可任意现身于任何时空；概念化存在：无所不在、无形无体，普通人无法感知或记忆其存在；雕花长弓：自由创造能量箭矢，可散射连射，成神后一箭可贯穿宇宙、抹除魔女存在的因果；宇宙重构：以愿望改写宇宙法则，消灭旧世界、诞生新世界；全知视角：能看见所有时间轴与可能性的因果；救赎之光：怀抱希望的粉色光芒，净化一切绝望与诅咒"},{"name":"空之女王·伊卡洛斯","desc":"召唤战略型万能天使型号α伊卡洛斯，粉发绿瞳、背后可变式羽翼，自称娱乐用万能天使实为史上最强战略天使\"空之女王\"，进入战斗模式时赤眼红环、头顶光环，可24马赫飞行，能在宇宙真空与深海中自由活动","effect":"最终兵器·阿波罗：黑色大弓射出紫黑色火焰缠绕的超高能光箭，一击毁灭一个国家；永久追尾导弹·阿尔忒弥斯：从羽翼发射多方向永久追踪型能量弹幕，不命中不罢休；绝对防御圈·宙斯之盾：展开近乎无敌的能量护盾，可抵御已知一切攻击；超高热体压缩对舰炮·赫菲斯托斯：压缩超高热能的对舰级光束炮；乌拉诺斯系统：召唤大范围自主歼灭兵器系统，广域轰炸覆盖战场；可变式羽翼：超音速飞行、全领域作战的核心驱动装置"},{"name":"地爆天星","desc":"轮回眼专属EX级封印瞳术，六道仙人封印十尾时所用创世之术，以此术抽出十尾躯壳封入岩球形成月球；需双手将查克拉浓缩为黑色引力核心，非轮回眼持有者强行使用会遭极大反噬","effect":"黑球升空产生超引力，强行吸引范围内一切物质形成巨大岩球，将目标封入核心以引力碾碎封印，可同时释放多个捕捉尾兽，亦可作陨石砸击；六道版需阴阳之力共施，可封印大筒木级存在并形成月球；核心被足够强力攻击命中即破解，单次需巨量查克拉，无法连续发动"},{"name":"维尔特鲁姆血脉（Viltrumite，维特鲁姆/威尔特姆血统）","desc":"好战星际种族维尔特鲁姆人的基因血统，力量源自「智能原子（smart atoms）」，纯血者经基因优选与一级征战培养、遭行星联盟投放的Scourge基因病毒灭杀99.9%后纯血现存不足五十人，纯血巅峰为帝国大摄政斯雷格（Thragg，被定向培育的最强战士、强过全能侠诺兰）；代表者为全能侠诺兰与其人类混血之子无敌少侠马克——纯血当下最强，但人类混血因情绪与肾上腺素可不断突破上限、成长天花板反而更高，是越打越强的潜力型灭星级血统","effect":"继承后随年龄觉醒（青春期才开始显能）：徒手掀城碎陆、三名全力维族人足以撕碎一颗行星，超级速度与星际级飞行（大气内高超音速、跨星际可超光速）、核爆级物理免疫的钢铁之躯、极强自愈、成熟后衰老近乎停滞可活数一级且越老越强、可在真空长期活动并屏息约两周；成长无封顶，战斗中越受创越强、愤怒与守护欲逼出更高出力，纯血靠岁数与训练堆高、混血靠情绪与意志突破"},{"name":"梦比优斯气息","desc":"拥有梦比优斯奥特曼的梦比优斯气息（Mebium Brace），奥特之父授予的赤色万能气息手镯，装备左腕，中央红色水晶球转动即可释放能源变身或施展技能","effect":"梦比姆射线：双手组成∞字形发射的必杀光线；梦比姆光剑：气息延伸出的光之剑；勇者形态（Mebius Brave）：与希卡利的骑士气息一体化，胸口金色线条，梦比姆光剑强化为梦比姆骑士光剑；炎之勇者形态（Mebius Burning Brave）：全身缠绕火焰，必杀梦比姆爆裂为火焰炸弹；凤凰勇者形态（Mebius Phoenix Brave）：与希卡利及GUYS全员友情羁绊融合的最强形态，金红蓝三色，不死鸟般的力量"},{"name":"奥特赛罗眼镜","desc":"拥有赛罗奥特曼的奥特赛罗眼镜（Ultra Zero Eye），取下眼镜按下扳机即可变身，赛文之子、雷欧亲传弟子，光之国最年轻的最强战士，可借助戴拿与高斯之力切换形态","effect":"赛罗头镖：头顶双头刃，可投掷可合体为等离子火花斩；艾梅利姆切割与集束射线：额头光束与L字型必杀光线；强壮日冕赛罗：赤红力量形态，融合戴拿强壮型与高斯日冕型，近战爆发与火焰攻击；月神奇迹赛罗：深蓝速度形态，融合戴拿奇迹型与高斯月神型，超高速移动与超能力；光辉赛罗：金色形态，可操控时间倒流与时间停止；终极赛罗：装备帕拉吉之盾，可穿越时空，最终究极赛罗一击毁灭行星；超限赛罗：使用新世代胶囊变身的强化形态"},{"name":"奥特眼镜X","desc":"拥有赛文X的奥特眼镜X（Ultra Eye X），红色眼镜型变身器，戴上即可变身为赛文在平行世界的姿态，肌肉强化、外形凶悍，战斗风格凌厉，绝大多数敌人变身即秒杀","effect":"头镖：头顶飞刃，以奥特念力操控白热化飞出切割敌人，亦可取下当刀劈砍；艾梅利姆光线：额头光束灯发射的高热光线；集束射线：双臂组合发射的L字型强力光线；奥特念力：以念力操控物体、束缚敌人；体格强化：相比原版赛文肌肉与力量大幅增强，格斗碾压"},{"name":"进化信赖者","desc":"拥有奈克瑟斯奥特曼的进化信赖者（Evoltruster），外形为收纳于暗纹鞘中的短剑，只有被选中的适能者才能拔出，拔出高举时释放极光同化变身，可展开美塔领域将战斗转移至亚空间","effect":"幼年形态（Anphans）：银灰色基础形态，双臂武装可吸收敌人攻击转化为光弹反弹；红色青年形态（Junis）：红色完全体，必杀层叠光线·风暴，可展开美塔领域；蓝色青年形态（Junis Blue）：蓝色速度型，必杀弓箭光束，可发射板形光线之羽；诺亚奥特曼：究极最终形态，背后诺亚之翼可穿越时空，拥有Noa The Final等究极技能，被称为宇宙第一缕光"},{"name":"神光棒","desc":"拥有迪迦奥特曼的神光棒（Sparklence），超古代光之巨人的变身器，将棒身展开举过头顶即可化身为光，变身后可自由切换三种基础形态，活动时间约三分钟","effect":"复合型：红紫金银四色基础形态，力量速度均衡，必杀哉佩利敖光线为L字型蓝白色光线；强力型：红色形态，力量与防御强化，擅长肉搏，必杀迪拉修姆光流为红色高热光球；空中型：蓝紫色形态，速度与空战最强，必杀兰帕尔特光弹为蓝色光箭；闪耀迪迦：全身金色光芒的能量全开形态，光线威力大幅强化；黑暗迪迦：超古代原本的黑暗形态，可吸收黑暗力量"},{"name":"洪荒证道仙法","desc":"洪荒流玄门正宗共法，非一家一派私传，乃三清讲道、诸天仙真共循的登圣之路，自凡境炼精化气起步逐级叩开仙门，最终证得混元大罗金仙、与天地同休，是一条能从凡人一路修到圣人的完整大道","effect":"凡境炼精化气、炼气化神、炼神返虚、炼虚合道；仙境依次地仙、天仙、真仙、玄仙、金仙、太乙金仙、大罗金仙；圣境为准圣（混元金仙）、混元大罗金仙（圣人）。天仙便能呼风唤雨、移山填谷、灭城反掌；金仙元神不朽、肉身不灭、不堕轮回，抬手碎大陆架、凡间无解；太乙金仙跳出时间长河、自成小千世界；大罗金仙万劫不磨、不染因果，一念可崩碎整颗星辰；准圣斩善恶自我三尸，每斩一尸多一具准圣化身，可撕裂位面、屠神如屠狗；混元大罗金仙即圣人，言出法随、能开辟与毁灭世界、历万劫不灭，一手可捏碎整个大世界、重开天地再造一界。成圣有三途：以力证道最强亦最难、斩三尸证道次之、功德证道最稳而战力最末"},{"name":"大六合剑法","desc":"《牧神记》延康国师江白圭自创的剑道绝学，以\"六合\"统御万千子剑、聚散由心，被誉为\"神下第一人\"的当代最强剑法，剑出如银河落九天","effect":"一念召出成百上千口子剑，可散作千万道金色剑气绞杀全场，亦可瞬间聚合成一柄通天巨剑当头劈下；巨剑劈出后子剑不散、在头顶反复重聚，一柄接一柄追斩直至目标湮灭。聚剑一击可劈开城池、斩裂山岳、把天穹云层一分为二，散剑则覆盖整片战场无死角收割，剑气所过之处高阶强者成片陨落，单人即可镇压一军；子剑皆含武道法则，可随心化为绕剑、游剑变招，以柔克刚、以众凌寡，越阶杀敌如斩草芥"},{"name":"诛仙剑阵","desc":"《封神演义》与洪荒公认的第一杀阵，本为道祖鸿钧之宝、分宝岩传于截教通天教主，由诛仙、戮仙、陷仙、绝仙四口先天至宝级仙剑与混沌胎膜所化的诛仙阵图组成，天道第一凶器，专为圣人级厮杀而生的战争兵器","effect":"四剑分镇四门、各司一途——诛仙主破灭、草木成灰，戮仙主杀戮、专攻元神令灵魂寂灭，陷仙主困锁、放红光幻境缚仙神封地域，绝仙主断绝、撕裂万物可破因果；阵图一展剑气如潮覆盖一方天地，杀气能撕裂混沌、斩圣人肉身并磨灭其灵魂，纵是元始天尊入阵亦被削落一朵莲花。完整大阵非四位圣人联手不可破，一人可强催、四人分守四门方为圆满；阵起便是无人生还的绝杀域场，大罗金仙乃至准圣入内如坠绞磨，阵门一合可将一城一国连地带人碾为飞灰"},{"name":"万魂幡","desc":"洪荒修真流魔道至凶的聚魂至宝，一面以生魂阴煞日夜温养的招魂魔幡，专收战死、枉死者残魂入幡炼化，幡中魂众越多阴煞越盛，是越战越强、可无限养成的鬼道杀器（与通天那面一次性诅咒圣人的六魂幡并非一物）","effect":"摇动时放出滔天阴煞鬼潮，万千冤魂厉鬼扑噬生魂、直撕神识，可隔空摄人生魂入幡、永世充作役使之鬼；所收魂众能凝为魂将、鬼王乃至远古凶魂为己而战，亦可布成万魂绝阴大阵困敌灭国；以杀戮养幡，屠城灭宗后幡面魂数暴涨、品阶跃升，可从后天邪器一路养到先天魔宝。修士的法力在万魂鬼潮面前薄如纸片，一幡可收一城生魂、召魂海淹没影级强者，杀得越多幡越强，是滚雪球式的魔道群攻与召唤至宝"},{"name":"青元剑诀","desc":"《凡人修仙传》人界剑道大能青元子所创、玄剑门镇派绝学，后为韩立的主修功法，木属性兼修金系，攻防幻三位一体的人界顶尖剑诀；配套辅助功法《三转重元功》与七十二柄成套本命飞剑\"青竹蜂云剑\"，是一条从筑基一路斩上化神的正统剑修之路","effect":"共十三层，对应炼气、筑基、结丹、元婴直至化神初期，再上衔接炼虚、合体、大乘、渡劫飞升；修出锋锐无匹的青元剑芒，可御剑百步取人、七十二口青竹蜂云剑结阵绞杀。筑基以一敌百、轰塌楼宇；结丹一剑削平山头、截断江流，剑芒扫过一城尽成齑粉、万军溃散，需数名影级强者围杀；元婴剑气化丝可绞杀影级强者、一念灭一国；化神调动天地灵力、剑出裂地断脉如陆地神仙行走人间；渡劫引天劫破空飞升"},{"name":"处女座黄金圣衣","desc":"拥有处女座黄金圣衣与沙加之力，佛陀转世、最接近神的男人的黄金圣斗士传承，身披处女座黄金圣衣，天生能与神佛对话，七岁参悟生死，历代唯一不靠女神之血、纯以自力觉醒第八感阿赖耶识的圣斗士","effect":"小宇宙修炼：燃烧体内宇宙大爆炸之力，第七感达光速境界拳速每秒一亿拳，第八感阿赖耶识超越生死、自由穿梭任意空间与冥界；天魔降伏：掌心燃烧小宇宙轰然爆发金色光柱，可远程轰击，威力足以轰塌半座宫殿；六道轮回：将对手灵魂强行放逐至地狱、饿鬼、畜生、修罗、人间、天道六界之一，亲受无尽折磨直至精神崩溃；天舞宝轮：睁眼解放的最大奥义，展开无数曼荼罗构成攻防一体战阵，入阵者不能攻击也无法逃离，被依次剥夺视觉、听觉、嗅觉、味觉、触觉直至第六感；不动明王：合拢的穹顶防御壁，连一丝小宇宙都不泄露，绝对防御"},{"name":"最终兵器·阿波罗","desc":"战略型万能天使伊卡洛斯的最终兵器，以太阳神之名命名的黑色大弓，从虚空中召唤显现，弓身漆黑，箭身上萦绕着紫黑色的火焰，拉弓时能量汇聚成毁灭之光","effect":"阿波罗：拉开漆黑大弓，凝聚紫黑色火焰的超高能光箭射出，命中后引发范围极其巨大的爆炸，一击足以毁灭一个国家，远古时代曾一箭击毁巴比伦塔"},{"name":"无限剑制","desc":"卫宫所持有的固有结界，咏唱咒文后将现实改写为插满无数无主宝剑的红色荒野，地平线跃动火焰、天空中巨大齿轮回转，犹如炼铁厂般的心象世界，结界内储存上千把宝具，可自由取出并如箭矢般同时射出轰击","effect":"咏唱\"I am the bone of my sword（此身为剑所成）\"展开固有结界，将目视复制过的武器登录其中，可无限量产投影、如弹幕般同时射出；结界内投影消耗大减、可瞬间取用干将莫邪等复制宝具；配合幻想崩坏可将投影宝具当箭射出并引爆"},{"name":"投影魔术","desc":"卫宫的专属魔术，只要目视过一次的武器即可解析构造并完美复制，复制品比原版下降一个等级，连宝具持有者的武技与记忆也一并读取","effect":"干将·莫邪：阴阳一对的黑白夫妻双剑，可强化延伸为超长剑Overedge；鹤翼三连：投影三对雌雄剑前后夹击的三段连击；伪·螺旋剑CaladbolgⅡ：改造魔剑为箭矢射出，幻想崩坏引爆威力轰平山丘；炽天覆七重圆环Rho Aias：七片花瓣状结界盾，对投掷兵器绝对防御"},{"name":"至尊法师之力","desc":"拥有古一法师的全部能力，卡玛泰姬至尊法师的秘术传承，从宇宙环境能量、异维度存在与自身精神中汲取魔力，精通白魔法与黑暗维度之力，自带阿戈摩托之眼（时间宝石）","effect":"镜像维度：将空间折叠重组为镜面迷宫，可在其中战斗而不波及现实；塞拉芬之盾：展开多层魔法法阵护盾；次元传送：以悬戒开启传送门跨维度瞬移；星体投射：灵魂出窍化为无形灵体攻击他人灵魂；黑暗维度汲取：抽取多玛姆黑暗维度之力延寿并获近乎无限魔力；时间宝石·阿戈摩托之眼：操控时间流向、制造无限时间循环、窥见未来无数种可能"},{"name":"十二符咒","desc":"十二生肖符咒，捏紧激活，每枚各赋一种神力","effect":"鼠符咒：赋予无生命之物生命与意识；牛符咒：力大无穷，物理破坏力暴增；虎符咒：平衡调和所有符咒之力，可将人阴阳分离为善恶分身；兔符咒：超音速移动，超越光速可穿越时空；龙符咒：喷射炎爆冲击波，怒气越高威力越强；蛇符咒：光学隐身，可令多人或巨物一同隐形；马符咒：治愈一切伤病，修复任何损坏物体；羊符咒：灵魂出窍，可入梦托梦、附身空躯；猴符咒：将自己或他人任意变形为动物；鸡符咒：念力浮空与隔空移物，配兔符咒可飞行；狗符咒：不老不死，免疫一切致死伤害；猪符咒：双眼发射高温镭射光束"},{"name":"超级赛亚人血脉","desc":"战斗民族赛亚人的血统，天生好战、食量惊人、衰老缓慢，每次从濒死边缘复活战斗力都会大幅提升，有尾巴者注视满月（吸收1700万布鲁兹波）可变身巨猿、力量翻十倍","effect":"巨猿化：有尾赛亚人看满月变身巨型猿猴，力量×10；超级赛亚人：金发倒竖、碧眼，战力×50，极度愤怒时觉醒；超级赛亚人2：发丝更锐、气焰喷射、周身缠绕闪电，战力×100；超级赛亚人3：长发及腰、眉毛消失，战力×400；超级赛亚人之神：红发瘦身，踏入神之领域，具备自愈能力；超级赛亚人蓝：超神基础上再变超赛，蓝发蓝瞳，掌控神之气；传说中的超级赛亚人：绿发、肌肉膨胀，狂暴状态下力量随战斗持续暴涨"},{"name":"无限手套","desc":"召唤集齐六颗无限宝石的无限手套，金色金属手套上镶嵌着空间、心灵、现实、力量、时间、灵魂六颗宝石，握拳响指即可将六宝石之力合一，拥有改写整个宇宙现实的全能之力","effect":"空间宝石：任意传送、开启虫洞、扭曲空间；心灵宝石：读心洗脑、精神幻术、赋予生命；现实宝石：凭意志改写现实法则、物质随意转化；力量宝石：徒手碎星、力量倍增；时间宝石：倒流快进静止循环时间、穿越过去未来；灵魂宝石：操控灵魂与生死、内含灵魂世界口袋维度；六石合一·响指：一个念头抹除或复活宇宙中半数生命、随心重塑整个宇宙"},{"name":"欧布圆环","desc":"拥有欧布奥特曼的欧布圆环，传说中的变身装置，读取两张奥特融合卡即可融合两位奥特曼的力量变身，史上首位靠历代奥特曼力量融合变身的奥特英雄","effect":"重光形态：初代+迪迦，丰富光线技能；燃烧炸弹：泰罗+梦比优斯，火焰力量与肉搏；疾风形态：杰克+赛罗，高速格斗；暗耀形态：佐菲+贝利亚，光与暗融合的狂暴力量；欧布起源：手持欧布至高圣剑发动土水风火四元素之力；三位一体：银河+维克特利+艾克斯三奥融合的究极形态"},{"name":"禁书目录·茵蒂克丝","desc":"拥有魔法禁书目录茵蒂克丝的能力，银发绿瞳的英国清教修女，以完全记忆能力在脑中封印十万三千本魔道书","effect":"十万三千本魔道书：任何魔法看一眼即可解析构造、看穿弱点并找出对策；自动书记：生命受威胁时强制启动、即兴组合魔道书知识对抗魔术，连未知力量都能瞬间解析反击；移动教会：杜林圣骸布修道服，核弹级防御，物理与魔法攻击全部吸收；魔灭之声：指出教义矛盾令教徒人格瓦解"},{"name":"乖离剑·EA","desc":"吉尔伽美什所持EX级对界神造兵装，剑身无传统剑刃，为三段对应天、地、冥界的圆柱结构逆向回转构成，是开天辟地时代遗存的创世之剑，无法被任何投影复制类能力复刻","effect":"真名解放「天地乖离开辟之星」时，超高速回转压缩风压形成时空断层，释放撕裂世界的创世级冲击，并非普通斩击而是直接粉碎空间结构，可直接击溃固有结界，最大出力可达地壳变动级威力"},{"name":"直死之魔眼","desc":"型月世界因果律级魔眼，需经历真正死亡且有净眼资质者才可觉醒，原型为凯尔特魔神巴罗尔之眼，真祖死徒中都不曾出现的神话级能力","effect":"眼中万物浮现有死线死点，沿线划过即造成不可防御、不可再生、不可治愈的致命伤，刺中死点则存在直接终结；不是物理切断而是直接引发\"死亡\"结果，无视硬度、防御、不死性，连未来、概念都能斩；必须亲手触及，过度使用会烧坏大脑"},{"name":"幻想杀手","desc":"《魔法禁书目录》上条当麻右手所宿神秘之力，既非超能力也非魔法，还会抹消周围异能，被视为世界的校正基准","effect":"右手触碰即可抹消一切异能——超能力、魔法、神之奇迹、结界、诅咒、祝福甚至运气，是所有异能者的绝对天敌；抹消有速度上限，对量级过大的异能需时间抵消，范围仅限右手接触处，对纯物理攻击、自然现象和普通人无效，连自身好运也一并抹消"},{"name":"暗暗果实","desc":"自然系·暗暗果实，黑胡子马歇尔·D·蒂奇梦寐以求的异类自然系，能力者化身无止境的黑暗与引力，是唯一无法元素化、且会承受双倍伤害的自然系","effect":"暗水：释放黑暗引力，如黑洞般吞噬并粉碎一切，被吸入者无法逃脱；能力无效化：以黑暗之手接触其他能力者，可令其能力暂时失效，是世上唯一能直接克制所有果实的力量；解放：将吞噬的攻击与物体再释放；代价是无法躲避攻击、所受疼痛加倍"},{"name":"震震果实","desc":"超人系·震震果实，“世界最强男人”白胡子爱德华·纽盖特所持，号称拥有毁灭世界之力的最强超人系，能力者可制造震动的“震点”","effect":"地震：握拳震碎大气，在任意方向制造毁灭性震动，令大地崩裂、岛屿倾覆；海震：震裂海面掀起滔天海啸，足以淹没一国；隔空震动：将震点投于空中或目标体内，远距离摧毁内脏与建筑；理论上全力发动可摧毁整个世界"},{"name":"鸟鸟果实·幻兽种·不死鸟","desc":"鸟鸟果实·幻兽种·不死鸟形态，白胡子海贼团一番队队长马尔科所持，能力者化身为被青色再生之炎包裹的不死鸟，是幻兽种中的续航天花板","effect":"不死鸟变身：化作青炎凤凰，高速飞行、爪击凌厉；再生之炎：无论多重的斩击、元素或霸气创伤，青炎都能令肉身瞬间再生，断体重生；治愈他人：以青炎为同伴疗伤；青炎不具灼烧性，再生有上限，持续受创仍会力竭"},{"name":"响雷果实","desc":"自然系·响雷果实，空岛之“神”艾尼路所持，能力者化身为雷电，速度近乎光速，是速度与攻击兼备的顶级自然系","effect":"雷电化：身体化为电流，物理攻击无效，可沿导体与空气瞬移；雷击：释放最高两亿伏特的雷电轰击；电热：以雷电高温熔炼万物；心网：结合见闻色聆听大范围心电、预知行动；雷迎、万雷：召雷云降下毁灭性雷暴，一击可灭一岛"},{"name":"闪闪果实","desc":"自然系·闪闪果实，海军大将黄猿波鲁萨利诺所持，能力者化身为光，是速度最快的自然系之一","effect":"光之化：身体化为光束，物理攻击无效，以光速移动瞬移；八尺琼勾玉：发射无数光粒子如暴雨扫射；天丛云剑：以光凝聚实体光剑近战；光速踢：以光速踢击，可贯穿巨大目标、引发大爆炸；激光：手指发射光束，命中即爆裂"},{"name":"手术果实","desc":"超人系·手术果实，特拉法尔加·罗所持，被称为“究极恶魔果实”，能力者创造名为ROOM的球形空间，在其中如外科手术般自由操作万物","effect":"ROOM：展开球形空间，空间内一切由能力者支配；斩击：以鬼哭将空间内目标任意切割而不致死、肢体可重新拼接；替换：将空间内任意物体或人格瞬间换位；扫描、注射：透视并操控内部；不老手术：以施术者生命为代价赋予一人永生，一生仅一次"},{"name":"糯糯果实","desc":"特殊超人系·糯糯果实，大妈海贼团将星卡塔库栗所持，能力者身体化为糯团，是被归为“特殊超人系”的顶级果实","effect":"糯团化：身体化为年糕，物理打击使其变形随即复原，缠绕武装色后攻防一体；糯团束缚：分泌粘性糯团困住、闷杀敌人；年糕刃弹、斩切年糕：以糯团凝成刃、拳与巨拳攻敌；觉醒：将周围物体同化为糯；配合顶级见闻色可短暂预见未来"},{"name":"冰冻果实","desc":"自然系·冰冻果实，海军大将青雉库赞所持，能力者化身为冰，是控制范围极广的顶级自然系","effect":"冰之化：身体化为冰，物理攻击使其碎裂随即复原；冰封万物：挥手将人、武器乃至空气瞬间冻结，被冻者触碰即碎；冰河时代：释放极寒，瞬间冰封大片海域与巨浪，冰层可持续数周；冰刃、冰棘：以冰凝成武器与荆棘；干燥高温环境下能力受限"},{"name":"流刃若火","desc":"护廷十三队总队长山本元柳斋重国的斩魄刀，炎系中最强最古老的一把，始解语“万象一切，皆为灰烬”，号称尸魂界最强攻击力","effect":"始解：刀身缠绕烈焰，所过之处尽数化为灰烬；卍解·残火太刀：将两千年来全部烈焰封于刀身，温度如太阳核心，东“旭日刃”一击抹消、西“残日狱衣”裹身、南“火火十万亿死大葬阵”召亡灵、北“天地灰烬”斩裂；力量过强会殃及同伴与天地"},{"name":"斩月","desc":"代理死神黑崎一护的斩魄刀，始解为巨大无护手黑刃，由其体内虚与灭却师之力共同孕育，是兼具死神、虚、灭却师多重力量的特殊斩魄刀","effect":"月牙天冲：从刀尖释放月牙状灵压斩击；卍解·天锁斩月：刀身缩为漆黑细刃、身着黑红长袍，获得极高机动力与黑月牙；虚化：戴假面以虚之力强化；最后的月牙天冲·无月：化身为月牙本身，一击超越一切，代价是丧失死神之力"},{"name":"冰轮丸","desc":"十番队队长日番谷冬狮郎的斩魄刀，冰雪系最强、招式最多的斩魄刀，始解语“端坐于霜天”，刀尾铁链可冻结所缠之物","effect":"始解：刀尾生出带弯月刃的铁链，自空气中凝聚冰龙、使天地变色，所触皆冻；卍解·大红莲冰轮丸：化作冰霜巨龙、生冰之翼，身后十二片冰莲花，花瓣散尽为完成形，可冻结一切并令其机能停止，完成形时短暂化为成年姿态"},{"name":"千本樱","desc":"六番队队长朽木白哉的斩魄刀，始解语“散落吧”，刀身碎裂为无数比刀刃更锋利的粉色樱瓣，由持有者以意念操控","effect":"始解：刀身化作千万片樱刃，从四面八方切割敌人、可作防御；卍解·千本樱景严：召两排巨刀化为亿万樱刃，分“歼景”以无数利刃布阵困敌、“吭景”聚为球形绞杀、“白帝剑”将全部樱刃凝于一身作终极一刺，华丽而致命"},{"name":"花天狂骨","desc":"京乐的成对斩魄刀，始解语“花风乱、花神啼，天风乱、天魔笑”，是把敌人拖入孩童游戏规则的规则系斩魄刀","effect":"始解：双刀现身，以灵压制造“游戏场”，强制范围内所有人遵守规则——崭鬼（踩影者受伤）、岩鬼（高处者胜）、影鬼（被踩影者败）、艳鬼（喊出的颜色受伤，喊自身之色最险）；卍解·花天狂骨黑松心中：上演悲剧殉情，范围内敌人随剧情同享绝望、无从逃脱"},{"name":"神杀枪","desc":"三番队队长市丸银的斩魄刀，看似普通短刀，始解语“射杀他”，以惊人的伸长速度与贯穿力著称，实则暗藏溶解细胞的剧毒","effect":"始解：刀身在瞬间以远超音速的速度伸长、贯穿千里内目标，速度与长度皆可欺敌；卍解·神杀枪：伸长速度与威力倍增，刀身内藏一小片可溶解细胞的剧毒，可在敌人受创时于体内留下毒片、从内部将其崩解；神出鬼没，极难防备"},{"name":"袖白雪","desc":"十三番队朽木露琪亚的斩魄刀，被誉为尸魂界最美的斩魄刀，通体雪白、袖间垂白缎，始解语“起舞吧”，以降至零下的灵温冻结一切","effect":"初舞·月白：自地面展开圆形冰阵，将阵内之物自下而上冻结；次舞·白涟：刀尖喷出寒气与冰雪，将前方一切冻结；参舞·白刀：以寒气贯穿刺中之物；卍解·白霞罚：身周温度降至冻结自身与天地的极限，所触之物尽数结霜崩毁，用之不当亦危自身"},{"name":"杀手皇后","desc":"JOJO第四部吉良吉影的近距离人型替身，粉白猫面外形，能将触碰之物化为炸弹，是隐蔽性极强的暗杀型替身","effect":"第一炸弹：将触碰的物体或人变为炸弹，以触碰或按钮引爆，接触者炸死、不留痕迹；第二炸弹·枯萎穿心攻击：从手背分离自动追踪热源的炸弹战车，极难摧毁；第三炸弹·败者食尘：附身于不知情者，有人打听吉良情报即触发时间回溯并将其炸死，循环无解"},{"name":"全反击","desc":"七大罪团长、魔神族梅利奥达斯的魔力，看似不擅攻击，实则专克一切法术，是越被围攻越强的反制之力","effect":"全反击：以刀刃或魔力将敌人释放的魔力攻击（术法、魔法、能量）以数倍乃至更高威力反弹，对方攻击越强反击越恐怖；物理攻击无法反弹；魔神化：解放魔神之力，额显纹章、黑气化刃，力量与再生大增；需精准预判时机，对纯物理近战无效"},{"name":"自在极意功","desc":"龙珠中凌驾于破坏神的极境，身体各部位无需经过大脑、自行对危险作出反应，分“兆”与“完美”两阶，由天使维斯指点修成","effect":"自在极意·兆：银发银瞳，身体自动闪避与反击，无需思考即可应对任何角度的攻击；完美自在极意：周身银焰、气息如辉，攻防皆达神之领域，可随手压制破坏神级对手；极耗神之气、维持时间有限，情绪波动会令功体溃散"},{"name":"神速力","desc":"DC闪电侠所连接的“神速力”，一片包裹多元宇宙的能量维度，连接者可借其获得超越光速的速度与一系列衍生能力","effect":"超级速度：以数倍乃至数十倍光速奔跑、思考与攻击；神速力特效：在水面、建筑与空中奔跑，制造旋风、穿透物体、极速愈合；时间穿越：超越光速可撕裂时间屏障、穿梭过去未来；速度窃取与赋予：抽取或给予他物速度；逆闪电等同样连接者可与之抗衡"},{"name":"大贤者·暴食者","desc":"关于我转生变成史莱姆的利姆露两大独特技能——“大贤者”（后升格智慧之王）主演算、“暴食者”（后升格暴食之王）主夺取","effect":"大贤者：世界级思考演算与分析，可解析万物、自动推导对策、高速学习、与世界之声对话，后能演算预知、支配法则；暴食者：将目标捕食、分解，吸收其能力与拟态，可吞噬灵魂、无视防御；二者合一，凡被解析吞噬者的技能皆可纳为己用，无限成长"},{"name":"反魔法","desc":"黑色五叶草阿斯塔所持，生于魔法世界却毫无魔力，其五叶草魔导书与寄宿的恶魔之力可斩断、无效一切魔法，是唯一的反魔法之力","effect":"反魔武器：拔出黑色断剑（断魔、宿魔、灭魔），剑刃所触的魔法皆被斩断、吸收与无效化；黑色分裂：以反魔力缠绕身体强化速度力量，放出黑色斩击抹消法术与诅咒；恶魔同化：半身恶魔化威力倍增；对纯物理、无魔力之物无效，反魔力受体力与契约限制"}], "legendary": [{"name": "天生结印", "desc": "结印速度是常人两倍，可省略部分手印"}, {"name": "查克拉亲和", "desc": "同时亲和两种属性变化"}, {"name": "写轮眼适性", "desc": "若获得写轮眼，排斥反应极低（非宇智波限定）"}, {"name": "不死身", "desc": "生命力极强，致命伤存活率大增"}, {"name": "战斗直觉", "desc": "战斗中直觉敏锐，能预判危险"}, {"name": "封印天才", "desc": "对封印术有超凡理解力"}], "epic": [{"name": "坚韧意志", "desc": "精神攻击抗性提升，幻术更难奏效"}, {"name": "查克拉控制", "desc": "查克拉控制精度极高，适合医疗忍术"}, {"name": "铁壁", "desc": "身体防御力强，抗击打能力出众"}, {"name": "疾风", "desc": "天生速度快，体术敏捷加成"}, {"name": "大胃王", "desc": "查克拉恢复速度快，体力充沛"}, {"name": "通灵亲和", "desc": "更容易与通灵兽建立契约"}, {"name": "夜视", "desc": "黑暗中视力不减"}, {"name": "毒抗体", "desc": "对毒素有天然抗性"}, {"name": "影分身适性", "desc": "使用影分身时记忆整合更快更稳定"}, {"name": "瞬身达人", "desc": "瞬身术消耗极低，可连续使用"}], "rare": [{"name": "冷静", "desc": "高压下保持理智"}, {"name": "魅力", "desc": "第一印象好感度提升"}, {"name": "博学", "desc": "对忍术理论理解快"}, {"name": "潜行", "desc": "气息收敛能力强"}, {"name": "模仿", "desc": "观察学习能力强"}, {"name": "威压感知", "desc": "能感知强者的威压"}, {"name": "方向感", "desc": "绝不迷路"}, {"name": "睡眠效率", "desc": "睡得少精神好"}, {"name": "野外生存", "desc": "野外求生能力强"}, {"name": "读心术抗性", "desc": "心灵类忍术难以读取你的想法"}, {"name": "快速愈合", "desc": "小伤恢复速度加快"}, {"name": "忍具精通", "desc": "使用忍具更加得心应手"}], "common": [{"name": "早起", "desc": "每天都能准时醒来"}, {"name": "好运", "desc": "小概率获得意外收获"}, {"name": "整理癖", "desc": "物品管理井井有条"}, {"name": "食量大", "desc": "能吃是福"}, {"name": "酒量好", "desc": "千杯不醉"}, {"name": "社交达人", "desc": "与人交流顺畅"}, {"name": "记忆力好", "desc": "过目不忘"}, {"name": "方言天赋", "desc": "能快速学会各地方言"}, {"name": "厨艺不错", "desc": "做饭好吃"}, {"name": "动物亲和", "desc": "小动物喜欢你"}, {"name": "游泳健将", "desc": "水性极好"}, {"name": "攀爬高手", "desc": "爬树爬墙不在话下"}, {"name": "抗寒", "desc": "不怕冷"}, {"name": "抗热", "desc": "不怕热"}, {"name": "好奇心", "desc": "对未知事物充满探索欲"}]};
+const villageOpts=[{"value": "木叶隐村", "text": "🍃 木叶隐村（火之国）"}, {"value": "砂隐村", "text": "🏜️ 砂隐村（风之国）"}, {"value": "雾隐村", "text": "🌊 雾隐村（水之国）"}, {"value": "云隐村", "text": "⚡ 云隐村（雷之国）"}, {"value": "岩隐村", "text": "🪨 岩隐村（土之国）"}, {"value": "雨隐村", "text": "🌧️ 雨隐村（雨之国）"}, {"value": "草隐村", "text": "🌿 草隐村（草之国）"}, {"value": "泷隐村", "text": "💧 泷隐村（泷之国）"}, {"value": "音隐村", "text": "🎵 音隐村（田之国）"}, {"value": "汤隐村", "text": "♨️ 汤隐村（汤之国）"}, {"value": "涡潮隐村", "text": "🌀 涡潮隐村（涡之国）"}, {"value": "铁之国", "text": "⚔️ 铁之国（武士·中立）"}, {"value": "小国忍村", "text": "其他小国忍村"}, {"value": "无（浪人/叛忍）", "text": "无（浪人/叛忍）"}];
+const clanOpts=[{"value": "普通家族", "text": "普通家族"}, {"value": "名门·宇智波", "text": "宇智波一族（写轮眼）"}, {"value": "名门·日向", "text": "日向一族（白眼）"}, {"value": "名门·千手", "text": "千手一族（仙人体）"}, {"value": "名门·漩涡", "text": "漩涡一族（封印术/生命力）"}, {"value": "名门·猿飞", "text": "猿飞一族（火遁/通灵兽猿魔）"}, {"value": "名门·旗木", "text": "旗木一族（天才世家）"}, {"value": "名门·奈良", "text": "奈良一族（影子术）"}, {"value": "名门·山中", "text": "山中一族（心转身）"}, {"value": "名门·秋道", "text": "秋道一族（倍化术）"}, {"value": "名门·犬冢", "text": "犬冢一族（兽人忍法）"}, {"value": "名门·油女", "text": "油女一族（寄坏虫）"}, {"value": "名门·志村", "text": "志村一族"}, {"value": "名门·鞍马", "text": "鞍马一族（幻术）"}, {"value": "名门·鬼灯", "text": "鬼灯一族（水化之术）"}, {"value": "名门·辉夜", "text": "辉夜/竹取一族（尸骨脉）"}, {"value": "名门·夜月", "text": "夜月一族（云隐名门）"}, {"value": "孤儿/无家族", "text": "孤儿/无家族"}, {"value": "自定义", "text": "自定义家族"}];
+const startOpts=[{"value": "学院生", "text": "学院生（未毕业）"}, {"value": "下忍", "text": "下忍（刚毕业）"}, {"value": "中忍", "text": "中忍（有经验）"}, {"value": "特别上忍", "text": "特别上忍（专精型）"}, {"value": "上忍", "text": "上忍（村子精英）"}, {"value": "影级", "text": "影级（一村最强/五影级）"}, {"value": "三忍级", "text": "三忍级（传说三忍/仙人级）"}, {"value": "传说级", "text": "传说级（柱间/斑/六道仙人级）"}, {"value": "六道级", "text": "六道级（获得六道之力/接近神）"}, {"value": "自定义", "text": "自定义等级"}];
+const specialOpts=[{"value": "无", "text": "无"}, {"value": "暗部", "text": "暗部成员"}, {"value": "根", "text": "根·成员"}, {"value": "医疗忍者", "text": "医疗忍者"}, {"value": "感知型忍者", "text": "感知型忍者"}, {"value": "人柱力", "text": "人柱力（尾兽祭品）"}, {"value": "三忍弟子", "text": "三忍弟子"}, {"value": "火影直传", "text": "火影直传弟子"}, {"value": "叛忍", "text": "叛忍（晓组织等）"}, {"value": "自定义", "text": "自定义身份"}];
+const jinchurikiOpts=[{"value": "无", "text": "无"}, {"value": "一尾·守鹤", "text": "一尾·守鹤（砂隐）"}, {"value": "二尾·又旅", "text": "二尾·又旅（云隐）"}, {"value": "三尾·矶抚", "text": "三尾·矶抚（雾隐）"}, {"value": "四尾·孙悟空", "text": "四尾·孙悟空（岩隐）"}, {"value": "五尾·穆王", "text": "五尾·穆王（岩隐）"}, {"value": "六尾·犀犬", "text": "六尾·犀犬（雾隐）"}, {"value": "七尾·重明", "text": "七尾·重明（泷隐）"}, {"value": "八尾·牛鬼", "text": "八尾·牛鬼（云隐）"}, {"value": "九尾·九喇嘛", "text": "九尾·九喇嘛（木叶）"}, {"value": "十尾", "text": "十尾（神树·外道魔像）"}];
+const kekkeiOpts=[{"value": "无", "text": "无"}, {"value": "写轮眼", "text": "写轮眼（宇智波）"}, {"value": "万花筒写轮眼", "text": "万花筒写轮眼"}, {"value": "白眼", "text": "白眼（日向）"}, {"value": "轮回眼", "text": "轮回眼"}, {"value": "木遁", "text": "木遁（土+水，千手柱间）"}, {"value": "熔遁", "text": "熔遁（火+土，老紫/黑土）"}, {"value": "溶遁", "text": "溶遁（水+土，照美冥，强酸粘液）"}, {"value": "沸遁", "text": "沸遁（火+水，照美冥）"}, {"value": "冰遁", "text": "冰遁（风+水，白）"}, {"value": "爆遁", "text": "爆遁（土+雷，迪达拉/狩）"}, {"value": "灼遁", "text": "灼遁（火+风，叶仓）"}, {"value": "岚遁", "text": "岚遁（雷+水，达鲁伊）"}, {"value": "磁遁", "text": "磁遁（风+土·推测，三代风影/罗砂/守鹤）"}, {"value": "尸骨脉", "text": "尸骨脉（辉夜一族，君麻吕）"}, {"value": "尘遁", "text": "尘遁（火+风+土，血继淘汰，大野木）"}, {"value": "自定义", "text": "自定义血继限界"}];
+const identityInlineOpts=["下忍（小队成员）", "中忍（小队队长）", "特别上忍（专精型）", "上忍（指导上忍）", "暗部成员", "根·成员", "医疗忍者", "感知型忍者", "傀儡师", "追杀/谍报", "叛忍", "浪人/无所属", "武士（铁之国）"];
+
+const state={currentTab:'world',selectedChapter:null,selectedEntry:null,mode:'original',canonChar:null,selectedAbilities:new Set(),customAbilities:[],customTalents:[],rolledTalents:[],selectedTalents:[],customTechniques:[]};
+const TABS=['world','era','character','ability','talent','preview'];
+const __opening=document.getElementById('opening');
+let __opStarted=false,__opDone=false;
+function __finishOpening(){
+if(__opDone)return;__opDone=true;
+__opening.classList.add('fade-out');
+setTimeout(function(){__opening.style.display='none';document.getElementById('main').classList.add('active');},1000);
+}
+__opening.addEventListener('click',function(){
+if(!__opStarted){
+__opStarted=true;this.classList.add('open');
+const __h=this.querySelector('.skip-hint');if(__h)__h.textContent='再点一次 · 进入忍界';
+setTimeout(__finishOpening,5000);
+}else{__finishOpening();}
+});
+document.querySelectorAll('.tab-btn').forEach(function(b){b.addEventListener('click',function(){switchTab(this.dataset.tab);});});
+function switchTab(t){
+document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+document.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});
+document.querySelector('[data-tab="'+t+'"]').classList.add('active');
+document.getElementById('tab-'+t).classList.add('active');
+state.currentTab=t;generatePreview();
+if(t==='character')updateChapterDisplay();
+window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){var i=TABS.indexOf(state.currentTab);if(i<TABS.length-1)switchTab(TABS[i+1]);}
+function prevTab(){var i=TABS.indexOf(state.currentTab);if(i>0)switchTab(TABS[i-1]);}
+// --- Chapters ---
+var CHAP_GROUPS=[{key:'prequel',label:'前传'},{key:'main',label:'正篇'},{key:'boruto',label:'博人传'},{key:'movie',label:'剧场版'}];
+function workOf(key){if(key==='movie')return'剧场版';return labelOf(key);}
+function labelOf(key){for(var i=0;i<CHAP_GROUPS.length;i++)if(CHAP_GROUPS[i].key===key)return CHAP_GROUPS[i].label;return'';}
+function allChapters(){var arr=[];CHAP_GROUPS.forEach(function(g){chapterData[g.key].forEach(function(c){c._group=g.key;arr.push(c);});});return arr;}
+function renderChapters(){
+var jump=document.getElementById('chapter-jump'),cards=document.getElementById('chapter-cards');
+jump.innerHTML='';cards.innerHTML='';
+CHAP_GROUPS.forEach(function(g){
+var list=chapterData[g.key];if(!list||!list.length)return;
+var sep=document.createElement('div');sep.className='jump-group-sep';sep.textContent=g.label;jump.appendChild(sep);
+list.forEach(function(ch){
+var btn=document.createElement('button');
+btn.className='chapter-jump-btn'+(state.selectedChapter===ch.id?' selected':'');
+btn.textContent=ch.name;
+btn.onclick=function(){toggleChapter(ch.id);var el=document.getElementById('ch-'+ch.id);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});};
+jump.appendChild(btn);
+});
+var head=document.createElement('div');head.className='chapter-group-head';
+head.innerHTML='<span class="cgh-cn">'+g.label+'</span><span class="cgh-seal">卷</span>';
+cards.appendChild(head);
+list.forEach(function(ch){
+var isSel=state.selectedChapter===ch.id;
+var card=document.createElement('div');
+card.className='chapter-card'+(isSel?' selected open':'');card.id='ch-'+ch.id;
+var entriesHTML=ch.entries.map(function(ev){
+var isE=isSel&&state.selectedEntry===ev;
+return '<div class="entry-item'+(isE?' selected':'')+'" onclick="selectEntry(\''+ch.id+'\',\''+ev+'\')"><div class="ttl">'+ev+'</div><div class="sel-mark">✓ 已选为入场时机</div></div>';
+}).join('');
+card.innerHTML='<div class="chapter-card-head" onclick="toggleChapter(\''+ch.id+'\')"><div class="cc-title">'+ch.name+'<small><span class="cc-work">'+workOf(g.key)+'</span>'+ch.year+(ch.subtitle?' · '+ch.subtitle:'')+'</small></div><div class="cc-right"><button class="select-chapter-btn'+(isSel?' active':'')+'" onclick="event.stopPropagation();selectChapter(\''+ch.id+'\')">'+(isSel?'✓ 已选':'选此篇章')+'</button><span class="cc-arrow">▶</span></div></div><div class="chapter-card-body"><div class="chapter-desc">'+ch.desc+'</div>'+(ch.tags&&ch.tags.length?'<div class="chapter-tags-row">'+ch.tags.map(function(t){return'<span class="chapter-tag">'+t+'</span>';}).join('')+'</div>':'')+'<div class="chapter-sub"><h4>入场时机</h4><div class="entry-list">'+entriesHTML+'</div></div><div class="custom-entry-row"><div class="lbl">❖ 自定义入场时机</div><input type="text" id="ce-'+ch.id+'" placeholder="描述你切入的具体时间点或场景……"><button onclick="setCustomEntry(\''+ch.id+'\',document.getElementById(\'ce-'+ch.id+'\').value)">设为入场时机</button></div></div>';
+cards.appendChild(card);
+});
+});
+}
+function toggleChapter(id){
+document.querySelectorAll('.chapter-card').forEach(function(c){if(c.id!=='ch-'+id)c.classList.remove('open');});
+document.getElementById('ch-'+id).classList.toggle('open');
+}
+function selectChapter(id){
+if(state.selectedChapter===id){state.selectedChapter=null;state.selectedEntry=null;}
+else{state.selectedChapter=id;state.selectedEntry=null;}
+document.querySelector('[data-tab="era"]').classList.toggle('completed',!!state.selectedChapter);
+renderChapters();
+var __k=state.selectedChapter?document.getElementById('ch-'+state.selectedChapter):null;if(__k)__k.scrollIntoView({block:'nearest'});
+}
+function selectEntry(chId,ev){state.selectedChapter=chId;state.selectedEntry=ev;
+document.querySelector('[data-tab="era"]').classList.add('completed');renderChapters();
+var __k=document.getElementById('ch-'+chId);if(__k)__k.scrollIntoView({block:'nearest'});}
+function setCustomEntry(chId,val){val=(val||'').trim();if(!val)return;
+state.selectedChapter=chId;state.selectedEntry=val;
+document.querySelector('[data-tab="era"]').classList.add('completed');renderChapters();
+var __k=document.getElementById('ch-'+chId);if(__k)__k.scrollIntoView({block:'nearest'});}
+function findChapter(id){var all=allChapters();for(var i=0;i<all.length;i++)if(all[i].id===id)return all[i];return null;}
+function updateChapterDisplay(){
+var el=document.getElementById('cur-chapter-text');
+if(state.selectedChapter){
+var ch=findChapter(state.selectedChapter);if(!ch){el.textContent='尚未选择篇章';return;}
+var s='【'+workOf(ch._group)+'】'+ch.name+'（'+ch.year+'）';
+if(state.selectedEntry)s+=' · 节点：'+state.selectedEntry;
+el.textContent=s;
+}else el.textContent='尚未选择篇章';
+}
+// --- Mode ---
+function switchMode(m){
+state.mode=m;
+document.querySelectorAll('.mode-btn').forEach(function(b){b.classList.remove('active');});
+document.querySelector('.mode-btn[data-mode="'+m+'"]').classList.add('active');
+document.getElementById('original-section').style.display=m==='original'?'block':'none';
+document.getElementById('canon-section').classList.toggle('visible',m==='canon');
+if(m==='original')refreshOriginalDone();
+else document.querySelector('[data-tab="character"]').classList.toggle('completed',!!state.canonChar);
+generatePreview();
+}
+// --- Canon ---
+function renderCanonList(){
+var container=document.getElementById('canon-list');container.innerHTML='';
+var firstOpen=true;
+canonGroups.forEach(function(g){
+var div=document.createElement('div');div.className='canon-group'+(firstOpen?' open':'');firstOpen=false;
+if(g.special===true){
+var total=0;g.subgroups.forEach(function(sg){total+=sg.items.length;});
+var bodyHTML=g.subgroups.map(function(sg){
+var grid=sg.items.map(function(c){return'<div class="canon-item" data-canon="'+c.name+'"><span>'+c.name+'</span>'+(c.desc?'<div class="ci-desc">'+c.desc+'</div>':'')+'</div>';}).join('');
+return'<div class="canon-subgroup-title">'+sg.sub+'</div><div class="canon-grid">'+grid+'</div>';
+}).join('');
+div.innerHTML='<div class="canon-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+g.group+' <span class="cnt">'+total+'</span></span><span class="arrow">▶</span></div><div class="canon-group-body">'+bodyHTML+'</div>';
+}else{
+var gridHTML=g.items.map(function(c){return'<div class="canon-item" data-canon="'+c.name+'"><span>'+c.name+'</span>'+(c.desc?'<div class="ci-desc">'+c.desc+'</div>':'')+'</div>';}).join('');
+div.innerHTML='<div class="canon-group-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+g.group+' <span class="cnt">'+g.items.length+'</span></span><span class="arrow">▶</span></div><div class="canon-group-body"><div class="canon-grid">'+gridHTML+'</div></div>';
+}
+container.appendChild(div);
+});
+container.querySelectorAll('.canon-item').forEach(function(it){
+it.addEventListener('click',function(){
+container.querySelectorAll('.canon-item').forEach(function(x){x.classList.remove('selected');});
+it.classList.add('selected');state.canonChar=it.dataset.canon;
+document.querySelector('[data-tab="character"]').classList.add('completed');
+document.getElementById('canon-search').value=state.canonChar;
+document.getElementById('canon-dropdown').classList.remove('visible');
+generatePreview();
+});
+});
+}
+function filterCanon(query){
+var dropdown=document.getElementById('canon-dropdown');
+if(!query.trim()){dropdown.classList.remove('visible');return;}
+var q=query.toLowerCase(),matches=[];
+canonGroups.forEach(function(g){var list=(g.special===true)?[].concat.apply([],g.subgroups.map(function(sg){return sg.items;})):g.items;list.forEach(function(c){if(c.name.toLowerCase().indexOf(q)>=0||(c.desc||'').toLowerCase().indexOf(q)>=0)matches.push(c);});});
+if(matches.length===0){dropdown.innerHTML='<div class="canon-dropdown-item"><span class="cdi-name">无匹配结果</span></div>';dropdown.classList.add('visible');return;}
+dropdown.innerHTML=matches.slice(0,15).map(function(c){return'<div class="canon-dropdown-item" data-name="'+c.name+'"><span class="cdi-name">'+c.name+'</span><span class="cdi-desc">'+c.desc+'</span></div>';}).join('');
+dropdown.classList.add('visible');
+dropdown.querySelectorAll('.canon-dropdown-item').forEach(function(item){
+item.addEventListener('click',function(){
+var name=item.dataset.name;if(!name)return;state.canonChar=name;
+document.getElementById('canon-search').value=name;dropdown.classList.remove('visible');
+document.querySelector('[data-tab="character"]').classList.add('completed');
+document.querySelectorAll('.canon-item').forEach(function(x){x.classList.toggle('selected',x.dataset.canon===name);});
+generatePreview();
+});
+});
+}
+document.addEventListener('click',function(e){
+document.querySelectorAll('.canon-search-wrap').forEach(function(w){if(!w.contains(e.target)){var dd2=w.querySelector('.canon-dropdown');if(dd2)dd2.classList.remove('visible');}});
+});
+// --- Select fill ---
+function fillSelect(id,opts,withCustom){
+var sel=document.getElementById(id);if(!sel)return;
+var base=(sel.innerHTML||'').replace(/<option value="custom">[\s\S]*$/,'');
+sel.innerHTML=base;
+opts.forEach(function(o){
+var v=typeof o==='string'?o:o.value,t=typeof o==='string'?o:o.text;
+if(v==='custom')return;
+var op=document.createElement('option');op.value=v;op.textContent=t;sel.appendChild(op);
+});
+if(withCustom!==false){var cus=document.createElement('option');cus.value='custom';cus.textContent='❖ 自定义…';sel.appendChild(cus);}
+}
+function toggleCustom(type,val){var el=document.getElementById('custom-'+type+'-wrap');if(el)el.classList.toggle('visible',val==='custom');}
+// --- Abilities ---
+function refreshOriginalDone(){if(state.mode!=='original')return;var n=document.getElementById('char-name').value.trim();document.querySelector('[data-tab="character"]').classList.toggle('completed',!!n);}
+function renderAbilities(){
+var c=document.getElementById('ability-sections');c.innerHTML='';
+Object.keys(abilityData).forEach(function(cat){
+var items=abilityData[cat];
+var selCount=items.filter(function(it){return state.selectedAbilities.has(cat+'|'+it.name);}).length;
+var div=document.createElement('div');div.className='ability-cat';div.dataset.cat=cat;
+div.innerHTML='<div class="ability-cat-head" onclick="this.parentNode.classList.toggle(\'open\')"><span>'+cat+' <span class="cnt">'+selCount+'/'+items.length+'</span></span><span class="arrow">▶</span></div><div class="ability-cat-body"><p class="hint">点击卡片直接勾选/取消</p><div class="ability-grid"></div></div>';
+var grid=div.querySelector('.ability-grid');
+items.forEach(function(it){
+var key=cat+'|'+it.name;var isSel=state.selectedAbilities.has(key);
+var item=document.createElement('label');item.className='ability-item'+(isSel?' selected':'');item.dataset.abkey=key;
+var userLine=it.user?'<div class="abuser">主要使用者：'+it.user+'</div>':'';
+item.innerHTML='<input type="checkbox" '+(isSel?'checked':'')+'><div class="item-body"><div class="abname">'+it.name+'</div><div class="abdesc">'+(it.desc||'')+'</div>'+userLine+'</div>';
+var cb=item.querySelector('input');
+item.addEventListener('click',function(e){
+if(e.target!==cb){e.preventDefault();cb.checked=!cb.checked;}
+if(cb.checked)state.selectedAbilities.add(key);else state.selectedAbilities.delete(key);
+item.classList.toggle('selected',cb.checked);
+var head=div.querySelector('.cnt');
+var newCount=items.filter(function(it2){return state.selectedAbilities.has(cat+'|'+it2.name);}).length;
+head.textContent=newCount+'/'+items.length;
+refreshAbilityDone();generatePreview();
+});
+grid.appendChild(item);
+});
+c.appendChild(div);
+});
+}
+function filterAbilities(query){
+var dropdown=document.getElementById('ab-dropdown');
+if(!query.trim()){dropdown.classList.remove('visible');return;}
+var q=query.trim().toLowerCase(),matches=[];
+Object.keys(abilityData).forEach(function(cat){abilityData[cat].forEach(function(it){
+var hay=(cat+' '+it.name+' '+(it.desc||'')+' '+(it.user||'')).toLowerCase();
+if(hay.indexOf(q)>=0)matches.push({cat:cat,name:it.name});
+});});
+if(matches.length===0){dropdown.innerHTML='<div class="canon-dropdown-item"><span class="cdi-name">无匹配结果</span></div>';dropdown.classList.add('visible');return;}
+dropdown.innerHTML=matches.slice(0,30).map(function(m,i){return'<div class="canon-dropdown-item" data-i="'+i+'"><span class="cdi-name">'+m.name+'</span><span class="cdi-desc">'+m.cat+'</span></div>';}).join('');
+dropdown.classList.add('visible');
+dropdown.querySelectorAll('.canon-dropdown-item').forEach(function(el){
+el.addEventListener('click',function(){var m=matches[parseInt(el.dataset.i)];if(!m)return;locateAbility(m.cat,m.name);});
+});
+}
+function locateAbility(cat,name){
+var key=cat+'|'+name;var target=null;
+document.querySelectorAll('#ability-sections .ability-cat').forEach(function(c){
+if(c.dataset.cat===cat){c.classList.add('open');
+c.querySelectorAll('.ability-item').forEach(function(it){if(it.dataset.abkey===key)target=it;});}
+});
+var dd2=document.getElementById('ab-dropdown');if(dd2)dd2.classList.remove('visible');
+var inp=document.getElementById('ab-search');if(inp)inp.value=name;
+if(target){target.scrollIntoView({block:'center',behavior:'smooth'});target.classList.add('ab-flash');setTimeout(function(){target.classList.remove('ab-flash');},1800);}
+}
+function refreshAbilityDone(){document.querySelector('[data-tab="ability"]').classList.toggle('completed',state.selectedAbilities.size>0||state.customAbilities.length>0||state.customTechniques.length>0);}
+function refreshTalentDone(){document.querySelector('[data-tab="talent"]').classList.toggle('completed',state.selectedTalents.length>0||state.customTalents.length>0);}
+function addCustomAbility(){
+var n=document.getElementById('custom-ab-name').value.trim(),d=document.getElementById('custom-ab-desc').value.trim();
+if(!n)return;state.customAbilities.push({id:Date.now(),name:n,desc:d});
+document.getElementById('custom-ab-name').value='';document.getElementById('custom-ab-desc').value='';renderCustomAb();
+}
+function addCustomTechnique(){
+var n=document.getElementById('ct-name').value.trim();if(!n)return;
+var t=document.getElementById('ct-type').value,ds=document.getElementById('ct-desc').value.trim();
+state.customTechniques.push({id:Date.now(),type:t,name:n,desc:ds});
+document.getElementById('ct-name').value='';document.getElementById('ct-desc').value='';renderCustomTechniques();
+}
+function escapeField(value) {
+  return String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function renderCustomTechniques(){generatePreview();var c=document.getElementById('custom-ct-list');if(!state.customTechniques.length){c.innerHTML='';return;}
+c.innerHTML=state.customTechniques.map(function(a){return'<div class="info-box red" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+escapeField(a.name)+'</strong><span style="font-size:12px;color:#8a7a5e;">（'+escapeField(a.type)+'）</span>'+(a.desc?'<p style="font-size:12px;color:#4a3f2d;margin-top:6px;line-height:1.6;">'+escapeField(a.desc)+'</p>':'')+'<button onclick="state.customTechniques=state.customTechniques.filter(function(x){return x.id!=='+a.id+';});renderCustomTechniques();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--red);color:#fff;border:none;cursor:pointer;">删除</button></div>';}).join('');}
+function renderCustomAb(){refreshAbilityDone();generatePreview();var c=document.getElementById('custom-ab-list');if(!state.customAbilities.length){c.innerHTML='';return;}
+c.innerHTML=state.customAbilities.map(function(a){return'<div class="info-box gold" style="position:relative;padding-right:70px;margin-bottom:10px;"><strong>'+escapeField(a.name)+'</strong>'+(a.desc?'<p style="font-size:12px;color:#4a3f2d;margin-top:6px;line-height:1.6;">'+escapeField(a.desc)+'</p>':'')+'<button onclick="state.customAbilities=state.customAbilities.filter(function(x){return x.id!=='+a.id+';});renderCustomAb();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--gold);color:#fff;border:none;cursor:pointer;">删除</button></div>';}).join('');}
+function addCustomTalent(){var n=document.getElementById('custom-tl-name').value.trim(),d=document.getElementById('custom-tl-desc').value.trim();if(!n)return;state.customTalents.push({id:Date.now(),name:n,desc:d});document.getElementById('custom-tl-name').value='';document.getElementById('custom-tl-desc').value='';renderCustomTl();}
+function renderCustomTl(){refreshTalentDone();generatePreview();var c=document.getElementById('custom-tl-list');if(!state.customTalents.length){c.innerHTML='';return;}
+c.innerHTML=state.customTalents.map(function(a){return'<div class="info-box" style="position:relative;padding-right:70px;margin-bottom:10px;border-left:4px solid var(--gold);"><strong>'+escapeField(a.name)+'</strong>'+(a.desc?'<p style="font-size:12px;color:#4a3f2d;margin-top:6px;line-height:1.6;">'+escapeField(a.desc)+'</p>':'')+'<button onclick="state.customTalents=state.customTalents.filter(function(x){return x.id!=='+a.id+';});renderCustomTl();" style="position:absolute;top:14px;right:14px;padding:5px 12px;font-size:11px;background:var(--gold);color:#fff;border:none;cursor:pointer;">删除</button></div>';}).join('');}
+// --- Talents ---
+function rollTalents(){
+var btn=document.getElementById('roll-btn');btn.classList.add('rolling');btn.disabled=true;
+setTimeout(function(){
+state.rolledTalents=[];state.selectedTalents=[];
+for(var i=0;i<8;i++){
+var pool,rarity;
+if(i===0){pool=talentPool.mythic;rarity='mythic';}
+else{var r=Math.random()*100;
+if(r<16){pool=talentPool.mythic;rarity='mythic';}
+else if(r<34){pool=talentPool.legendary;rarity='legendary';}
+else if(r<56){pool=talentPool.epic;rarity='epic';}
+else if(r<80){pool=talentPool.rare;rarity='rare';}
+else{pool=talentPool.common;rarity='common';}}
+var t,a=0;
+do{t=pool[Math.floor(Math.random()*pool.length)];a++;}
+while(state.rolledTalents.some(function(x){return x.name===t.name;})&&a<30);
+state.rolledTalents.push(Object.assign({},t,{rarity:rarity}));
+}
+var ro={mythic:0,legendary:1,epic:2,rare:3,common:4};
+state.rolledTalents.sort(function(a,b){return ro[a.rarity]-ro[b.rarity];});
+renderTalents();
+btn.classList.remove('rolling');btn.disabled=false;
+document.getElementById('talent-pool').classList.add('visible');
+},1200);
+}
+function renderTalents(){
+var list=document.getElementById('talent-list');list.innerHTML='';
+state.selectedTalents=[];
+document.getElementById('talent-selected-count').textContent='0';
+refreshTalentDone();
+var rn={mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'};
+state.rolledTalents.forEach(function(t,idx){
+var item=document.createElement('div');
+item.className='talent-item '+t.rarity;
+item.innerHTML='<input type="checkbox" id="t-'+idx+'"><div class="talent-info"><div class="talent-name">'+t.name+'<span class="talent-badge '+t.rarity+'">'+rn[t.rarity]+'</span></div><div class="talent-desc">'+t.desc+'</div>'+(t.effect?'<div class="talent-effect">效果：'+t.effect+'</div>':'')+'</div>';
+var cb=item.querySelector('input');
+item.addEventListener('click',function(e){if(e.target===cb)return;cb.click();});
+cb.addEventListener('change',function(){
+if(cb.checked){if(state.selectedTalents.length>=3){cb.checked=false;return;}state.selectedTalents.push(t);item.classList.add('selected');}
+else{state.selectedTalents=state.selectedTalents.filter(function(s){return s.name!==t.name;});item.classList.remove('selected');}
+document.getElementById('talent-selected-count').textContent=state.selectedTalents.length;
+refreshTalentDone();generatePreview();
+});
+list.appendChild(item);
+});
+}
+// --- Preview ---
+function gv(id){var el=document.getElementById(id);return el?el.value.trim():'';}
+function gr(n){var el=document.querySelector('input[name="'+n+'"]:checked');return el?el.value:'';}
+function gcs(n){var els=document.querySelectorAll('input[name="'+n+'"]:checked');return Array.prototype.map.call(els,function(e){return e.value;});}
+function gcv(key,baseId){var v=gv(baseId);if(v==='custom')v=gv('custom-'+key)||'自定义';return v||'—';}
+function generatePreview(){
+var chapter='—',entry='—';
+if(state.selectedChapter){
+var ch=findChapter(state.selectedChapter);
+if(ch){chapter='【'+workOf(ch._group)+'】'+ch.name+'（'+ch.year+'）';entry=state.selectedEntry||'未定';}
+}
+var clan=gcv('clan','clan');
+var village=gcv('village','village');
+var identity=gcv('identity','identity');
+var sclass=gcv('class','social-class');
+var birth=gcv('birthplace','char-birthplace');
+var kekkei=gcv('kekkei','kekkei');
+var canon='';
+if(state.mode==='canon'&&state.canonChar)canon='\n【原著扮演】'+state.canonChar;
+var abLines=[];
+if(state.customTechniques.length){abLines.push('【原创忍术】');state.customTechniques.forEach(function(a,i){abLines.push('  '+(i+1)+'. ['+a.type+'] '+a.name+(a.desc?' — '+a.desc:''));});}
+Object.keys(abilityData).forEach(function(cat){
+var sel=abilityData[cat].filter(function(it){return state.selectedAbilities.has(cat+'|'+it.name);});
+if(sel.length){abLines.push('【'+cat+'】');sel.forEach(function(n,i){abLines.push('  '+(i+1)+'. '+n.name);});}
+});
+state.customAbilities.forEach(function(a,i){if(i===0)abLines.push('【跨作品能力/装备】');abLines.push('  '+(i+1)+'. '+a.name+(a.desc?' — '+a.desc:''));});
+var ri={mythic:'【神话】',legendary:'【传说】',epic:'【史诗】',rare:'【稀有】',common:'【普通】'};
+var talentText='—';
+if(state.selectedTalents.length){talentText=state.selectedTalents.map(function(t,i){return(i+1)+'. '+ri[t.rarity]+t.name+'\n   '+t.desc+(t.effect?'\n   效果：'+t.effect:'');}).join('\n\n');}
+var cusTl='';
+if(state.customTalents.length){cusTl='\n\n【自创天赋】\n'+state.customTalents.map(function(t,i){return(i+1)+'. '+t.name+(t.desc?'\n   '+t.desc:'');}).join('\n');}
+var sep='═'.repeat(50);
+var p=sep+'\n     火影大世界 · 角色建卡\n'+sep
++'\n【时间线】'+chapter+'\n【入场时机】'+entry+canon
++'\n—— 基础信息 ——\n姓名：'+(gv('char-name')||(state.mode==='canon'?(state.canonChar||'—'):'—'))
++'\n性别：'+(state.mode==='canon'?'—':(gr('gender')||'—'))+' · 年龄：'+(state.mode==='canon'?'—':(gv('char-age')||'—'))
++'\n—— 出身 ——\n出生地：'+birth+'\n家族血统：'+clan+'\n出身阶层：'+sclass+'\n查克拉性质：'+(gcs('chakra-nature').join('、')||'—')
++'\n—— 身份阵营 ——\n所属忍村：'+village+'\n身份类型：'+identity
++'\n特殊身份：'+gv('special-iden')+'\n人柱力/尾兽：'+gv('jinchuriki')+'\n血继限界：'+kekkei
++'\n—— 实力等级 ——\n忍者评级：'+gv('ninja-rank')
++'\n综合战力：'+gv('combat-level')+'\n备注：'+(gv('power-note')||'—')
++'\n—— 外貌与性情 ——\n外貌：'+(gv('char-appearance')||'—')
++'\n性格：'+(gv('char-personality')||'—')
++'\n忍道：'+(gv('char-nindou')||'—')
++'\n爱好：'+(gv('char-hobby')||'—')
++'\n—— 随身携带 ——\n'+(gv('char-belongings')||'—')
++'\n—— 背景与处境 ——\n'+(gv('char-background')||'—')
++'\n开局处境：'+(gv('char-scene')||'—')
++'\n—— 掌握能力 ——\n'+(abLines.length?abLines.join('\n'):'—')
++'\n—— 天赋三重底色 ——\n'+talentText+cusTl
++(gv('canon-supplement')?'\n—— 扮演补充 ——\n'+gv('canon-supplement'):'')
++'\n'+sep+'\n      火影大世界 · 角色建卡\n'+sep;
+document.getElementById('preview-box').textContent=p;
+}
+const enterButton=document.getElementById('enter-chat');
+if(new URLSearchParams(location.search).has('chat') && parent!==window){
+  enterButton.hidden=false;
+  enterButton.addEventListener('click',()=>{
+    generatePreview();
+    const text=document.getElementById('preview-box').textContent;
+    if(text.length>20000){alert('档案超过 20000 字，请精简后带入聊天。');return;}
+    parent.postMessage({type:'naruto-opening',text},new URL(location.href).origin);
+  });
+}
+function copyPreview(){
+var text=document.getElementById('preview-box').textContent;
+var btn=document.querySelector('.copy-btn');
+var done=function(){var o=btn.textContent;btn.textContent='已 · 复 · 制';setTimeout(function(){btn.textContent=o;},2000);};
+if(navigator.clipboard){navigator.clipboard.writeText(text).then(done).catch(function(){fallbackCopy(text,done);});}
+else fallbackCopy(text,done);
+}
+function fallbackCopy(text,cb){
+var ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+document.body.appendChild(ta);ta.select();
+try{document.execCommand('copy');cb();}catch(e){}
+document.body.removeChild(ta);
+}
+// ==================== INIT ====================
+window.addEventListener('DOMContentLoaded',function(){
+renderChapters();renderCanonList();
+fillSelect('clan',clanOpts,true);
+fillSelect('village',villageOpts,true);
+fillSelect('identity',identityInlineOpts,true);
+fillSelect('special-iden',specialOpts,false);
+fillSelect('jinchuriki',jinchurikiOpts,false);
+fillSelect('kekkei',kekkeiOpts,true);
+fillSelect('ninja-rank',startOpts,false);
+renderAbilities();generatePreview();
+document.addEventListener('input',generatePreview);
+document.addEventListener('change',generatePreview);
+});
+</script>
+</body>
+</html>
