@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>现代真实人生 | LIFE &amp; WORLD SIMULATOR</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{--primary:#2563eb;--primary-dark:#1d4ed8;--black:#1a1a1a;--dark-gray:#333;--gray:#666;--light-gray:#999;--border:#e0e0e0;--bg:#ffffff;--bg-cream:#f8f9fc;--shadow:0 2px 20px rgba(0,0,0,0.08);}
+body{font-family:'Noto Sans SC','Noto Serif SC',serif;background:var(--bg);color:var(--black);line-height:1.8;min-height:100vh;}
+::selection{background:var(--primary);color:#fff;}
+::-webkit-scrollbar{width:8px;}
+::-webkit-scrollbar-track{background:#f1f1f1;}
+::-webkit-scrollbar-thumb{background:var(--primary);border-radius:4px;}
+::-webkit-scrollbar-thumb:hover{background:var(--primary-dark);}
+.loading-screen{position:fixed;top:0;left:0;width:100%;height:100%;background:var(--black);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;perspective:1000px;}
+.loading-screen::before{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#1a1a1a 0%,#2d2d2d 50%,#1a1a1a 100%);animation:bgShift 3s ease infinite;}
+@keyframes bgShift{0%,100%{background-position:0% 50%;}50%{background-position:100% 50%;}}
+.magazine-cover{position:relative;width:320px;height:450px;background:var(--bg);box-shadow:0 25px 80px rgba(0,0,0,0.5),-5px 5px 20px rgba(0,0,0,0.3);transform:rotateY(-5deg);animation:coverFloat 3s ease-in-out infinite,coverOpen 0.8s ease forwards 2s;transform-origin:left center;z-index:10;}
+@keyframes coverFloat{0%,100%{transform:rotateY(-5deg) translateY(0);}50%{transform:rotateY(-3deg) translateY(-10px);}}
+@keyframes coverOpen{0%{transform:rotateY(-5deg);}100%{transform:rotateY(-25deg);}}
+.magazine-spine{position:absolute;left:-15px;top:0;width:15px;height:100%;background:linear-gradient(90deg,#ccc,#fff,#ccc);transform:rotateY(-90deg);transform-origin:right;}
+.magazine-header{padding:25px 20px 15px;border-bottom:4px solid var(--black);text-align:center;}
+.magazine-date{font-size:10px;letter-spacing:3px;color:var(--gray);text-transform:uppercase;}
+.magazine-title{font-family:'Playfair Display',serif;font-size:42px;font-weight:900;letter-spacing:-2px;margin:10px 0;background:linear-gradient(180deg,var(--black) 0%,var(--dark-gray) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.magazine-subtitle{font-size:11px;letter-spacing:5px;color:var(--primary);text-transform:uppercase;font-weight:700;}
+.magazine-content{padding:20px;position:relative;}
+.magazine-quote{position:relative;padding:15px 0;margin:10px 0;}
+.magazine-quote::before{content:'"';font-family:'Playfair Display',serif;font-size:60px;color:var(--primary);opacity:0.3;position:absolute;top:-10px;left:-5px;line-height:1;}
+.magazine-quote p{font-family:'Noto Serif SC',serif;font-size:13px;line-height:1.9;color:var(--dark-gray);padding-left:25px;font-style:italic;}
+.magazine-tagline{position:absolute;bottom:20px;left:20px;right:20px;text-align:center;padding-top:15px;border-top:1px solid var(--border);}
+.magazine-tagline span{font-size:10px;letter-spacing:2px;color:var(--light-gray);text-transform:uppercase;}
+.loading-text{margin-top:40px;color:#fff;font-size:14px;letter-spacing:3px;opacity:0.7;animation:pulse 1.5s ease infinite;}
+@keyframes pulse{0%,100%{opacity:0.7;}50%{opacity:0.3;}}
+.loading-hint{position:absolute;bottom:40px;color:#fff;font-size:12px;letter-spacing:2px;opacity:0.5;}
+.loading-progress{width:200px;height:2px;background:rgba(255,255,255,0.2);margin-top:30px;border-radius:1px;overflow:hidden;}
+.loading-progress-bar{height:100%;background:var(--primary);animation:progress 2.5s ease forwards;}
+@keyframes progress{0%{width:0;}100%{width:100%;}}
+.loading-screen.fade-out{animation:fadeOut 0.8s ease forwards;}
+@keyframes fadeOut{0%{opacity:1;}100%{opacity:0;visibility:hidden;}}
+.main-container{max-width:1200px;margin:0 auto;padding:20px;opacity:0;transform:translateY(30px);transition:all 0.8s ease;}
+.main-container.visible{opacity:1;transform:translateY(0);}
+.header{text-align:center;padding:60px 20px 40px;border-bottom:1px solid var(--border);margin-bottom:40px;position:relative;}
+.header::before{content:'ISSUE NO.001';position:absolute;top:20px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:4px;color:var(--light-gray);}
+.header-date{font-size:12px;letter-spacing:3px;color:var(--gray);margin-bottom:15px;text-transform:uppercase;}
+.header h1{font-family:'Playfair Display',serif;font-size:clamp(36px,8vw,72px);font-weight:900;letter-spacing:-3px;margin-bottom:10px;position:relative;display:inline-block;}
+.header h1::after{content:'';position:absolute;bottom:-5px;left:50%;transform:translateX(-50%);width:60px;height:4px;background:var(--primary);}
+.header-en{font-family:'Playfair Display',serif;font-size:clamp(14px,2vw,18px);letter-spacing:8px;color:var(--light-gray);margin-top:20px;font-style:italic;}
+.intro-section{max-width:800px;margin:0 auto 50px;padding:40px;background:var(--bg-cream);border-left:4px solid var(--primary);position:relative;}
+.intro-section::before{content:'"';font-family:'Playfair Display',serif;font-size:120px;color:var(--primary);opacity:0.1;position:absolute;top:-20px;left:20px;line-height:1;}
+.intro-section p{font-family:'Noto Serif SC',serif;font-size:16px;line-height:2.2;color:var(--dark-gray);position:relative;z-index:1;margin-bottom:15px;}
+.intro-section p:last-of-type{margin-bottom:0;}
+.intro-section p strong{color:var(--primary);font-weight:600;}
+.intro-features{list-style:none;margin-top:20px;padding-top:20px;border-top:1px solid var(--border);position:relative;z-index:1;}
+.intro-features li{padding:6px 0 6px 24px;position:relative;font-family:'Noto Serif SC',serif;font-size:15px;color:var(--dark-gray);line-height:1.8;}
+.intro-features li::before{content:'/';position:absolute;left:6px;color:var(--primary);font-weight:700;}
+.tab-navigation{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:40px;padding:0 20px;border-bottom:2px solid var(--border);padding-bottom:20px;}
+.tab-btn{padding:12px 28px;font-size:13px;font-weight:600;letter-spacing:2px;text-transform:uppercase;background:transparent;border:none;color:var(--gray);cursor:pointer;position:relative;transition:all 0.3s ease;font-family:'Noto Sans SC',sans-serif;}
+.tab-btn::after{content:'';position:absolute;bottom:-22px;left:0;width:100%;height:3px;background:var(--primary);transform:scaleX(0);transition:transform 0.3s ease;}
+.tab-btn:hover{color:var(--black);}
+.tab-btn.active{color:var(--primary);}
+.tab-btn.active::after{transform:scaleX(1);}
+.tab-content{display:none;animation:contentFade 0.5s ease;}
+.tab-content.active{display:block;}
+@keyframes contentFade{0%{opacity:0;transform:translateY(20px);}100%{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;margin-bottom:30px;padding-bottom:15px;border-bottom:2px solid var(--black);position:relative;display:inline-block;}
+.section-title::before{content:'§';margin-right:15px;color:var(--primary);}
+.content-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:30px;margin-bottom:40px;}
+.content-card{background:var(--bg);border:1px solid var(--border);padding:30px;position:relative;transition:all 0.3s ease;}
+.content-card:hover{box-shadow:var(--shadow);border-color:var(--primary);}
+.content-card::before{content:attr(data-number);position:absolute;top:15px;right:20px;font-family:'Playfair Display',serif;font-size:48px;font-weight:900;color:var(--border);line-height:1;}
+.content-card h3{font-size:18px;font-weight:700;margin-bottom:15px;color:var(--black);padding-right:50px;}
+.content-card p{font-size:14px;color:var(--gray);line-height:1.9;margin-bottom:12px;}
+.content-card p:last-child{margin-bottom:0;}
+.content-card ul{list-style:none;margin-top:12px;}
+.content-card ul li{padding:5px 0 5px 18px;position:relative;font-size:14px;color:var(--dark-gray);line-height:1.7;}
+.content-card ul li::before{content:'·';position:absolute;left:4px;color:var(--primary);font-weight:700;font-size:18px;}
+.highlight-box{background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark) 100%);color:#fff;padding:40px;margin:40px 0;text-align:center;}
+.highlight-box h3{font-family:'Playfair Display',serif;font-size:28px;margin-bottom:15px;}
+.highlight-box p{font-size:15px;opacity:0.9;max-width:600px;margin:0 auto;}
+.divider{display:flex;align-items:center;justify-content:center;margin:50px 0;gap:20px;}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border);}
+.divider span{font-size:14px;color:var(--primary);letter-spacing:3px;}
+.feature-list{list-style:none;columns:2;column-gap:40px;}
+.feature-list li{padding:12px 0;padding-left:30px;position:relative;font-size:15px;color:var(--dark-gray);break-inside:avoid;}
+.feature-list li::before{content:'/';position:absolute;left:8px;color:var(--primary);font-weight:700;}
+.form-section{max-width:700px;margin:0 auto;padding:40px;background:var(--bg);border:2px solid var(--black);position:relative;}
+.form-section::before{content:'CONFIGURATION';position:absolute;top:-12px;left:30px;background:var(--bg);padding:0 15px;font-size:11px;letter-spacing:3px;color:var(--primary);font-weight:700;}
+.form-group{margin-bottom:28px;}
+.form-label{display:block;font-size:15px;font-weight:600;color:var(--black);margin-bottom:8px;}
+.form-label .required{color:var(--primary);margin-left:3px;}
+.form-label-hint{display:block;font-size:12px;color:var(--light-gray);font-weight:400;margin-top:2px;line-height:1.6;}
+.form-input,.form-textarea{width:100%;padding:15px;font-size:15px;font-family:'Noto Sans SC',sans-serif;border:2px solid var(--border);background:var(--bg-cream);transition:all 0.3s ease;color:var(--black);}
+.form-input:focus,.form-textarea:focus{outline:none;border-color:var(--primary);background:var(--bg);}
+.form-textarea{min-height:90px;resize:vertical;line-height:1.8;}
+.form-textarea.tall{min-height:120px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:20px;}
+.form-row-3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+.radio-group{display:flex;gap:25px;padding:10px 0;}
+.radio-label{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:15px;color:var(--dark-gray);transition:color 0.3s ease;}
+.radio-label:hover{color:var(--primary);}
+.radio-label input{display:none;}
+.radio-custom{width:20px;height:20px;border:2px solid var(--border);border-radius:50%;position:relative;transition:all 0.3s ease;}
+.radio-label input:checked+.radio-custom{border-color:var(--primary);}
+.radio-label input:checked+.radio-custom::after{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:10px;height:10px;background:var(--primary);border-radius:50%;}
+.form-divider{border:none;border-top:1px dashed var(--border);margin:35px 0 25px;position:relative;}
+.form-divider-label{position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:var(--bg);padding:0 15px;font-size:11px;letter-spacing:2px;color:var(--light-gray);text-transform:uppercase;white-space:nowrap;}
+.tag-toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--primary);cursor:pointer;margin-top:8px;padding:4px 0;border:none;background:none;font-family:'Noto Sans SC',sans-serif;transition:opacity 0.2s;}
+.tag-toggle:hover{opacity:0.7;}
+.tag-toggle .arrow{transition:transform 0.3s;display:inline-block;}
+.tag-toggle.open .arrow{transform:rotate(180deg);}
+.tag-panel{max-height:0;overflow:hidden;transition:max-height 0.4s ease,padding 0.3s ease;padding:0;}
+.tag-panel.open{max-height:600px;padding:12px 0;}
+.tag-category{margin-bottom:10px;}
+.tag-category-name{font-size:11px;color:var(--light-gray);letter-spacing:1px;margin-bottom:6px;}
+.tag-list{display:flex;flex-wrap:wrap;gap:8px;}
+.tag-item{padding:5px 14px;font-size:13px;color:var(--gray);border:1px solid var(--border);cursor:pointer;transition:all 0.2s;user-select:none;background:var(--bg-cream);}
+.tag-item:hover{border-color:var(--primary);color:var(--primary);background:#fff;}
+.tag-item:active{transform:scale(0.95);}
+.checkbox-group{display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;}
+.checkbox-label{display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--gray);padding:6px 14px;border:1px solid var(--border);transition:all 0.2s;user-select:none;background:var(--bg-cream);}
+.checkbox-label:hover{border-color:var(--primary);color:var(--primary);}
+.checkbox-label input{display:none;}
+.checkbox-label.checked{border-color:var(--primary);color:var(--primary);background:rgba(37,99,235,0.05);font-weight:600;}
+.cb-check{opacity:0;font-size:11px;transition:opacity 0.2s;}
+.checkbox-label.checked .cb-check{opacity:1;}
+.preview-container{margin-top:40px;padding:30px;background:var(--bg-cream);border-left:4px solid var(--primary);}
+.preview-title{font-size:12px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--primary);margin-bottom:20px;}
+.preview-box{font-family:'Noto Serif SC',serif;font-size:15px;line-height:2;color:var(--dark-gray);white-space:pre-wrap;min-height:100px;user-select:text;-webkit-user-select:text;-moz-user-select:text;-ms-user-select:text;cursor:text;padding:15px;background:#fff;border:1px solid var(--border);border-radius:4px;}
+.preview-box:focus{outline:2px solid var(--primary);outline-offset:2px;}
+.btn-container{display:flex;justify-content:center;margin-top:30px;}
+.copy-btn{padding:18px 50px;font-size:13px;font-weight:700;letter-spacing:3px;text-transform:uppercase;background:var(--black);color:#fff;border:none;cursor:pointer;position:relative;overflow:hidden;transition:all 0.3s ease;font-family:'Noto Sans SC',sans-serif;min-width:200px;}
+.copy-btn:disabled{cursor:not-allowed;opacity:0.7;}
+.copy-btn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:var(--primary);transition:left 0.3s ease;z-index:0;}
+.copy-btn:hover:not(:disabled)::before{left:0;}
+.copy-btn span{position:relative;z-index:1;}
+.copy-btn:active:not(:disabled){transform:scale(0.98);}
+footer{text-align:center;padding:40px 20px;margin-top:60px;border-top:1px solid var(--border);font-size:13px;color:var(--light-gray);}
+@media(max-width:768px){
+  .header{padding:40px 15px 30px;}.header h1{font-size:36px;letter-spacing:-1px;}
+  .intro-section{padding:25px;margin:0 15px 40px;}.intro-section::before{font-size:80px;top:-10px;left:10px;}
+  .tab-navigation{gap:5px;padding:0 10px 15px;}.tab-btn{padding:10px 15px;font-size:11px;letter-spacing:1px;}
+  .form-section{padding:25px 20px;margin:0 15px;}.form-row,.form-row-3{grid-template-columns:1fr;}
+  .feature-list{columns:1;}.content-grid{grid-template-columns:1fr;padding:0 15px;}
+  .section-title{font-size:24px;}.copy-btn{padding:15px 35px;width:100%;}
+}
+@media(max-width:480px){
+  .magazine-cover{width:260px;height:370px;}.magazine-title{font-size:32px;}.magazine-quote p{font-size:12px;}
+  .loading-text{font-size:12px;}.header-en{letter-spacing:4px;font-size:12px;}.tab-btn{padding:8px 12px;font-size:10px;}
+  .radio-group{flex-direction:column;gap:15px;}.checkbox-group{gap:6px;}.checkbox-label{padding:5px 10px;font-size:12px;}
+  .tag-list{gap:6px;}.tag-item{padding:4px 10px;font-size:12px;}
+}
+</style>
+<link href="data:," rel="icon"/>
+<style>
+:root{--light-gray:#767676;--gray:#595959;}
+body{min-height:100dvh;}
+.magazine-quote p{font-style:normal;}
+.header{padding:48px 20px 34px;margin-bottom:0;border-bottom:none;}
+.header-note{margin-top:18px;font-size:12px;letter-spacing:1px;color:var(--gray);}
+.tab-navigation{position:sticky;top:0;z-index:40;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;margin:0 -20px 40px;padding:0 20px;background:rgba(255,255,255,.97);border-top:1px solid var(--border);border-bottom:2px solid var(--border);backdrop-filter:blur(12px);}
+.tab-btn{min-height:60px;padding:14px 12px;letter-spacing:1px;border-bottom:1px solid transparent;}
+.tab-btn::after{bottom:-2px;height:3px;}
+.tab-btn.active{background:var(--bg-cream);}
+.tab-btn:focus-visible,.step-btn:focus-visible,.step-link:focus-visible,.copy-btn:focus-visible,.tag-toggle:focus-visible,.tag-item:focus-visible,.small-btn:focus-visible{outline:3px solid var(--primary);outline-offset:4px;}
+.tab-content{animation:contentFade .25s ease-out;}
+@keyframes contentFade{0%{opacity:0;transform:translateY(8px);}100%{opacity:1;transform:translateY(0);}}
+.intro-section{margin-top:0;}
+.intro-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:28px;padding-top:24px;border-top:1px solid var(--border);position:relative;z-index:1;}
+.step-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:12px 24px;border:2px solid var(--black);background:var(--bg);color:var(--black);font:700 13px 'Noto Sans SC',sans-serif;letter-spacing:1px;cursor:pointer;transition:background .2s,color .2s,transform .2s;}
+.step-btn.primary{background:var(--black);color:#fff;}
+.step-btn:hover{background:var(--primary);border-color:var(--primary);color:#fff;}
+.step-btn:active{transform:scale(.98);}
+.step-link{padding:6px 0;border:0;border-bottom:1px solid currentColor;background:transparent;color:var(--primary);font:600 13px 'Noto Sans SC',sans-serif;cursor:pointer;transition:color .2s;}
+.step-link:hover{color:var(--primary-dark);}
+.radio-label,.checkbox-label{position:relative;}
+.radio-label input,.checkbox-label input{display:block;position:absolute;inset:0;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:1;}
+.radio-label input:focus-visible+.radio-custom{outline:3px solid var(--primary);outline-offset:4px;}
+.checkbox-label:focus-within{outline:3px solid var(--primary);outline-offset:3px;}
+.system-note{max-width:800px;margin:-16px 0 24px;color:var(--gray);font-size:14px;line-height:1.8;}
+.section-lead{max-width:760px;margin:-12px auto 32px;color:var(--gray);font-size:16px;line-height:1.8;}
+.world-choice{max-width:800px;margin:0 auto 32px;display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.world-option{display:flex;align-items:flex-start;gap:14px;padding:24px;border:1px solid var(--border);background:var(--bg);cursor:pointer;transition:border-color .2s,background .2s;}
+.world-option:hover{border-color:var(--primary);}
+.world-option.selected{border-color:var(--primary);box-shadow:inset 0 0 0 1px var(--primary);background:var(--bg-cream);}
+.world-option input{flex:0 0 auto;width:18px;height:18px;margin-top:4px;accent-color:var(--primary);cursor:pointer;}
+.world-option-copy{display:flex;flex-direction:column;gap:6px;}
+.world-option-copy strong{font-size:17px;color:var(--black);}
+.world-option-copy small{font-size:13px;line-height:1.6;color:var(--gray);}
+.world-modern-panel,.world-custom-panel,.world-preview-wrap{max-width:800px;margin:0 auto 32px;}
+.world-summary{padding:32px 0;border-top:2px solid var(--black);border-bottom:1px solid var(--border);}
+.world-summary-label{font-size:11px;letter-spacing:3px;color:var(--primary);font-weight:700;}
+.world-summary h3{font-family:'Playfair Display','Noto Serif SC',serif;font-size:32px;margin:8px 0 12px;}
+.world-summary p{font-size:16px;line-height:1.9;color:var(--dark-gray);}
+.world-custom-form{margin-top:32px;}
+.world-custom-form::before{content:'WORLD CONFIGURATION';}
+.mod-notice{max-width:800px;margin:0 auto;padding:20px 22px;background:#eff6ff;border:1px solid #bfdbfe;color:var(--dark-gray);}
+.mod-notice strong{color:var(--primary-dark);font-size:16px;}
+.mod-notice p{margin-top:8px;font-size:14px;line-height:1.8;}
+.world-next{max-width:800px;margin:0 auto 48px;text-align:right;}
+.current-world-banner{max-width:760px;margin:0 auto 30px;padding:12px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:16px;font-size:13px;color:var(--gray);}
+.current-world-banner strong{color:var(--black);}
+.banner-separator{margin:0 12px;color:var(--border);}
+.form-section{max-width:760px;}
+.preview-hint{max-width:700px;margin:0 auto 12px;color:var(--gray);font-size:13px;}
+.form-message{min-height:24px;margin:10px 0;color:#b91c1c;font-size:14px;line-height:1.6;}
+.form-message.success{color:#047857;}
+.npc-form-section::before{content:'NPC CONFIGURATION';}
+.npc-form-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;}
+.npc-list-section,.npc-preview-wrap{max-width:760px;margin:44px auto 0;}
+.npc-list-title{font-size:16px;letter-spacing:1px;border-bottom:2px solid var(--black);padding-bottom:12px;}
+.npc-list-title span{color:var(--primary);margin-left:8px;}
+.empty-state{padding:28px 0;color:var(--gray);font-size:14px;border-bottom:1px dashed var(--border);}
+.npc-item{padding:24px 0;border-bottom:1px solid var(--border);}
+.npc-item-head{display:grid;grid-template-columns:72px 1fr auto;gap:16px;align-items:start;}
+.npc-index{font-family:'Playfair Display',serif;font-size:14px;letter-spacing:1px;color:var(--primary);padding-top:4px;}
+.npc-item h4{font-size:18px;color:var(--black);}
+.npc-item .npc-relation{font-size:14px;color:var(--gray);margin-top:4px;}
+.npc-item .npc-detail{font-size:14px;line-height:1.8;color:var(--dark-gray);margin-top:12px;white-space:pre-wrap;}
+.npc-actions{display:flex;gap:14px;}
+.small-btn{border:0;border-bottom:1px solid currentColor;background:transparent;color:var(--primary);padding:4px 0;font:600 12px 'Noto Sans SC',sans-serif;cursor:pointer;}
+.small-btn.danger{color:#b91c1c;}
+.small-btn:hover{color:var(--primary-dark);}
+[hidden]{display:none !important;}
+@media(max-width:600px){
+  .main-container{padding:12px 16px;}
+  .header{padding:44px 8px 28px;}
+  .header-note{font-size:11px;line-height:1.8;}
+  .tab-navigation{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 -16px 30px;padding:0 8px;}
+  .tab-btn{min-height:52px;padding:10px 8px;font-size:12px;border-bottom:1px solid var(--border);}
+  .tab-btn::after{bottom:-1px;}
+  .intro-section{padding:30px 24px;margin-bottom:36px;}
+  .intro-actions{align-items:flex-start;flex-direction:column;gap:14px;}
+  .world-choice{grid-template-columns:1fr;}
+  .world-option{padding:20px;}
+  .current-world-banner{align-items:flex-start;flex-direction:column;gap:6px;}
+  .form-section{padding:28px 20px;margin:0;}
+  .npc-item-head{grid-template-columns:52px 1fr;}
+  .npc-actions{grid-column:2;}
+  .world-next{text-align:left;}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important;scroll-behavior:auto !important;}
+  .main-container{opacity:1;transform:none;}
+}
+</style>
+<style>
+.tab-navigation{grid-template-columns:repeat(5,minmax(0,1fr));margin-left:0;margin-right:0;}
+.tab-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:66px;padding:10px 8px;}
+.tab-order{font-family:'Playfair Display',serif;font-size:10px;line-height:1.2;letter-spacing:2px;color:var(--light-gray);}
+.tab-btn.active .tab-order{color:var(--primary);}
+.step-navigation{max-width:800px;margin:48px auto 8px;padding:24px 0 8px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:24px;}
+.step-navigation-end{justify-content:flex-end;}
+.step-caption{font-size:13px;line-height:1.7;color:var(--gray);}
+.final-preview-wrap{max-width:760px;margin:0 auto;}
+.final-preview-wrap .preview-hint{margin:0 0 12px;}
+.npc-save-note{margin:20px 0 10px;padding:18px 20px;background:var(--bg-cream);border:1px solid var(--border);}
+.npc-save-note strong{font-size:14px;color:var(--black);}
+.npc-save-note p{margin-top:6px;font-size:14px;line-height:1.8;color:var(--dark-gray);}
+@media(max-width:600px){
+  .tab-navigation{grid-template-columns:repeat(5,minmax(0,1fr));padding:0 4px;}
+  .tab-btn{min-height:58px;padding:8px 2px;font-size:11px;letter-spacing:0;white-space:nowrap;}
+  .tab-order{font-size:8px;letter-spacing:1px;}
+  .step-navigation{align-items:stretch;flex-direction:column;gap:16px;margin-top:36px;}
+  .step-navigation .step-btn{width:100%;}
+  .step-navigation .step-link{align-self:flex-start;}
+  .step-navigation-end{flex-direction:column;align-items:stretch;}
+  .step-navigation-end .step-caption{align-self:flex-start;}
+  .step-caption{font-size:12px;}
+}
+</style>
+<style>
+.intro-example-lead{margin-bottom:30px;}
+.story-response{max-width:960px;margin:64px auto 0;border-top:2px solid var(--black);}
+.story-response-head{padding:30px 0 24px;display:grid;grid-template-columns:180px 1fr;column-gap:28px;align-items:end;}
+.story-label{grid-row:1 / 3;font-family:'Playfair Display',serif;font-size:11px;letter-spacing:3px;color:var(--primary);align-self:start;padding-top:8px;}
+.story-response-head h2{font-family:'Playfair Display','Noto Serif SC',serif;font-size:30px;line-height:1.35;color:var(--black);}
+.story-response-head p{font-size:14px;color:var(--gray);margin-top:8px;}
+.story-example{display:grid;grid-template-columns:72px 1fr;gap:24px;padding:24px 0;border-top:1px solid var(--border);}
+.story-index{font-family:'Playfair Display',serif;font-size:28px;line-height:1.2;color:var(--primary);}
+.story-example h3{font-size:17px;line-height:1.6;color:var(--black);margin-bottom:8px;}
+.story-example p{font-size:15px;line-height:1.9;color:var(--dark-gray);max-width:70ch;}
+.default-systems{max-width:960px;margin:36px auto 0;padding:28px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
+.default-systems h2{font-size:16px;letter-spacing:1px;color:var(--black);margin-bottom:12px;}
+.default-systems p{font-size:15px;line-height:1.9;color:var(--dark-gray);}
+.default-systems .default-systems-note{margin-top:8px;color:var(--gray);font-size:13px;}
+.intro-next{max-width:960px;margin:40px auto 8px;padding:28px 0;border-top:2px solid var(--black);border-bottom:2px solid var(--black);display:flex;align-items:center;justify-content:space-between;gap:32px;}
+.intro-next-copy{display:flex;flex-direction:column;gap:5px;}
+.intro-next-copy>span{font-family:'Playfair Display',serif;font-size:11px;letter-spacing:3px;color:var(--primary);}
+.intro-next-copy strong{font-family:'Noto Serif SC',serif;font-size:20px;line-height:1.6;color:var(--black);}
+.intro-next-copy small{font-size:13px;color:var(--gray);}
+.npc-choice{max-width:800px;margin:0 auto 28px;display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.npc-skip-panel{max-width:800px;margin:0 auto;padding:26px 0;border-top:2px solid var(--black);border-bottom:1px solid var(--border);}
+.npc-skip-panel p{font-size:15px;line-height:1.9;color:var(--dark-gray);}
+@media(max-width:600px){
+  .story-response-head{grid-template-columns:1fr;gap:6px;}
+  .story-label{grid-row:auto;padding-top:0;}
+  .story-response-head h2{font-size:26px;}
+  .story-example{grid-template-columns:44px 1fr;gap:14px;padding:22px 0;}
+  .story-index{font-size:22px;}
+  .intro-next{align-items:stretch;flex-direction:column;gap:20px;}
+  .intro-next .step-btn{width:100%;}
+  .intro-next-copy strong{font-size:18px;}
+  .npc-choice{grid-template-columns:1fr;}
+}
+</style>
+<style>
+.book-scene{position:relative;width:320px;height:450px;perspective:1400px;z-index:10;}
+.book-scene .magazine-cover{width:100%;height:100%;z-index:2;backface-visibility:hidden;transform-style:preserve-3d;}
+.magazine-pages{position:absolute;inset:0;z-index:1;padding:30px 28px;background:#f8f9fc;border:1px solid #e0e0e0;box-shadow:0 25px 80px rgba(0,0,0,.45);color:#1a1a1a;}
+.page-rule{height:4px;background:#1a1a1a;margin-bottom:34px;}
+.page-kicker{font-family:'Playfair Display',serif;font-size:10px;letter-spacing:3px;color:#2563eb;}
+.magazine-pages p{margin-top:28px;font-family:'Noto Serif SC',serif;font-size:25px;font-weight:600;line-height:1.8;letter-spacing:2px;}
+.page-lines{margin-top:42px;display:flex;flex-direction:column;gap:15px;}
+.page-lines i{display:block;height:1px;background:#d6d9e0;}
+.page-lines i:nth-child(2){width:86%;}.page-lines i:nth-child(3){width:92%;}.page-lines i:nth-child(4){width:64%;}
+.page-number{position:absolute;right:26px;bottom:22px;font-family:'Playfair Display',serif;font-size:11px;letter-spacing:2px;color:#767676;}
+.loading-screen.opening .magazine-cover{animation:bookOpening .72s cubic-bezier(.55,.06,.68,.19) forwards !important;transform-origin:left center;}
+.loading-screen.opening .loading-progress,.loading-screen.opening .loading-text,.loading-screen.opening .loading-hint{opacity:0;transition:opacity .2s ease;}
+.loading-screen.fade-out{animation:fadeOut .42s ease forwards;}
+@keyframes bookOpening{0%{transform:rotateY(-5deg) translateY(0);}35%{transform:rotateY(-22deg) translateY(-5px);}100%{transform:rotateY(-112deg) translateX(-10px);}}
+@media(max-width:480px){.book-scene{width:260px;height:370px;}.magazine-pages{padding:24px 22px;}.magazine-pages p{font-size:21px;margin-top:20px;}.page-lines{margin-top:28px;}}
+@media(prefers-reduced-motion:reduce){.loading-screen.opening .magazine-cover{animation:none !important;}}
+</style>
+<style>
+.preview-box,.npc-item h4,.npc-item .npc-relation,.npc-item .npc-detail{overflow-wrap:anywhere;word-break:break-word;}
+.npc-item-head{grid-template-columns:72px minmax(0,1fr) auto;}
+.npc-item-head>div{min-width:0;}
+@media(max-width:600px){.npc-item-head{grid-template-columns:52px minmax(0,1fr);}}
+</style><style>.form-message{overflow-wrap:anywhere;word-break:break-word;}</style></head>
+<body>
+<div class="loading-screen" id="loadingScreen">
+<div class="book-scene">
+<div aria-hidden="true" class="magazine-pages">
+<div class="page-rule"></div>
+<span class="page-kicker">THE FIRST PAGE</span>
+<p>你的故事<br/>从这里开始</p>
+<div class="page-lines"><i></i><i></i><i></i><i></i></div>
+<span class="page-number">001</span>
+</div>
+<div class="magazine-cover">
+<div class="magazine-spine"></div>
+<div class="magazine-header">
+<div class="magazine-date">Infinite Possibilities Edition</div>
+<div class="magazine-title">LIFE</div>
+<div class="magazine-subtitle">Real World Simulator</div>
+</div>
+<div class="magazine-content">
+<div class="magazine-quote">
+<p>每个选择都有真实后果，每个人都是独立的个体。世界不会围绕你转，但会真实地回应你的一切行为。</p>
+</div>
+</div>
+<div class="magazine-tagline"><span>Your Story Begins Here</span></div>
+</div></div>
+<div class="loading-progress"><div class="loading-progress-bar"></div></div>
+<div class="loading-text">LOADING YOUR REALITY...</div>
+<div class="loading-hint">点击任意位置跳过</div>
+</div>
+<div class="main-container" id="mainContainer">
+<header class="header">
+<div class="header-date">Infinite Possibilities · One Living World</div>
+<h1>现代真实人生</h1>
+<div class="header-en">LIFE &amp; WORLD SIMULATOR</div><div class="header-note">默认现代现实 · 支持自定义世界观 · 自建主角与 NPC</div>
+</header><nav aria-label="建卡流程" class="tab-navigation" role="tablist"><button aria-controls="intro" aria-label="第1步：作品介绍" aria-selected="true" class="tab-btn active" data-tab="intro" id="tabbtn-intro" role="tab" type="button"><span class="tab-order">01</span><span>作品介绍</span></button><button aria-controls="world-setting" aria-label="第2步：选择世界" aria-selected="false" class="tab-btn" data-tab="world-setting" id="tabbtn-world-setting" role="tab" tabindex="-1" type="button"><span class="tab-order">02</span><span>选择世界</span></button><button aria-controls="config" aria-label="第3步：创建角色" aria-selected="false" class="tab-btn" data-tab="config" id="tabbtn-config" role="tab" tabindex="-1" type="button"><span class="tab-order">03</span><span>创建角色</span></button><button aria-controls="npc" aria-label="第4步：创建 NPC" aria-selected="false" class="tab-btn" data-tab="npc" id="tabbtn-npc" role="tab" tabindex="-1" type="button"><span class="tab-order">04</span><span>创建 NPC</span></button><button aria-controls="final-preview" aria-label="第5步：最终预览" aria-selected="false" class="tab-btn" data-tab="final-preview" id="tabbtn-final-preview" role="tab" tabindex="-1" type="button"><span class="tab-order">05</span><span>最终预览</span></button></nav>
+<div aria-labelledby="tabbtn-intro" class="tab-content active" id="intro" role="tabpanel">
+<section class="intro-section">
+<p>这里的主体是<strong>真实的现代世界</strong>：现实法律、职业、金钱、关系与时间都会正常运转。你决定自己是谁、与谁相遇、想要什么，剩下的交给世界回应。</p>
+<p><strong>写满细节可以，只留一个名字或一句设定也可以。</strong>这里没有必填答案，未写明的部分由 AI 在故事中补全。</p>
+</section>
+<h2 class="section-title">你可以怎样开始</h2><p class="section-lead intro-example-lead">从日常小事到人生转向，以下都只是现代现实中可以发生的片段。</p>
+<div class="content-grid">
+<div class="content-card" data-number="I">
+<h3>事业与成就</h3>
+<p>从零开始，走向你想要的人生巅峰</p>
+<ul>
+<li>从0粉丝做到百万网红，当主播、博主、UP主</li>
+<li>进娱乐圈当明星，拍电影走红毯，体验聚光灯下的生活</li>
+<li>创业开公司，从小作坊做到上市企业</li>
+<li>考公上岸，在体制内稳定发展</li>
+<li>当黑客、地下拳手，在灰色地带游走</li>
+<li>做自由职业者，按自己的节奏生活</li>
+</ul>
+</div>
+<div class="content-card" data-number="II">
+<h3>情感与关系</h3>
+<p>经历真实的情感，从陌生到深爱</p>
+<ul>
+<li>在咖啡馆、健身房、书店偶遇你喜欢的明星或偶像</li>
+<li>校园暗恋、职场暧昧、异地恋、禁忌之恋</li>
+<li>复杂的三角关系，在情感中挣扎和选择</li>
+<li>从陌生人到挚友，经营一段长期的深厚友谊</li>
+<li>修复破裂的家庭关系，或者彻底决裂</li>
+<li>建立自己的圈子，成为某个群体的核心</li>
+</ul>
+</div>
+<div class="content-card" data-number="III">
+<h3>生活与冒险</h3>
+<p>打破常规，体验不一样的人生</p>
+<ul>
+<li>辞职旅行，环游世界，在路上寻找自己</li>
+<li>攒钱买房买车，经营自己的小日子</li>
+<li>卷入一场意外事件，人生轨迹彻底改变</li>
+<li>发现一个秘密，决定追查到底</li>
+<li>搬到另一个城市重新开始</li>
+<li>在平凡的日常中发现意想不到的转折</li>
+</ul>
+</div>
+<div class="content-card" data-number="IV">
+<h3>社会与权力</h3>
+<p>在真实的社会规则中生存和攀升</p>
+<ul>
+<li>从底层爬到顶层，实现阶级跨越</li>
+<li>在职场勾心斗角中生存，学会权谋和妥协</li>
+<li>建立自己的人脉网络和影响力</li>
+<li>和权贵打交道，或者对抗不公</li>
+<li>利用信息差和资源差获取利益</li>
+<li>在灰色地带游走，承担相应的风险</li>
+</ul>
+</div>
+</div>
+<section class="story-response">
+<div class="story-response-head">
+<span class="story-label">A LIVING STORY</span>
+<h2>世界不是背景板</h2>
+<p>开放自由不再只是一句说明，而是会落到每一段后续里。</p>
+</div>
+<div class="story-example">
+<span class="story-index">01</span>
+<div><h3>你没有行动，时间也继续向前</h3><p>你没有联系的人，可能按自己的目标离开原城；你搁置的机会，不会永远停在原地等你。再次见面时，彼此都已经走过了新的经历。</p></div>
+</div>
+<div class="story-example">
+<span class="story-index">02</span>
+<div><h3>一个决定，会带来下一串决定</h3><p>辞职不只是换掉职业标签：收入、日程、住处和人际关系都可能随之变化。旧同事或许疏远，也或许递来一条全新的路。</p></div>
+</div>
+<div class="story-example">
+<span class="story-index">03</span>
+<div><h3>关系不是等待领取的奖励</h3><p>善意可能被记住，冒犯可能留下隔阂；对方也会衡量自己的利益与感受。亲近、错过、和解或决裂，都来自持续发生的互动。</p></div>
+</div>
+</section>
+<section class="default-systems">
+<h2>现代现实 · 默认载入</h2>
+<p>收支与资产负债、手机与社交媒体、法律与执法、时间与关系变化、名声与印象、地图方位、五感描写及行为连锁反应。</p>
+</section>
+<div class="intro-next">
+<div class="intro-next-copy"><span>NEXT · 02</span><strong>先决定故事发生在哪个世界</strong><small>现代现实，或一个由你定义的世界</small></div>
+<button class="step-btn primary" data-go="world-setting" type="button">下一步 · 选择世界 <span aria-hidden="true">→</span></button>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="tabbtn-world-setting" class="tab-content" id="world-setting" role="tabpanel">
+<h2 class="section-title">选择世界</h2>
+<p class="section-lead">现代现实是默认世界，不是唯一边界。先确定故事发生在哪里，再创建主角与 NPC。</p>
+<div aria-label="选择世界类型" class="world-choice" role="radiogroup">
+<label class="world-option selected" id="worldModernOption">
+<input checked="" name="worldMode" type="radio" value="modern"/>
+<span class="world-option-copy"><strong>现代现实</strong><small>默认 · 现实社会与真实人生</small></span>
+</label>
+<label class="world-option" id="worldCustomOption">
+<input name="worldMode" type="radio" value="custom"/>
+<span class="world-option-copy"><strong>自定义世界观</strong><small>附加项 · 原创或其他世界，由你设定法则</small></span>
+</label>
+</div>
+<div class="world-modern-panel" id="worldModernPanel">
+<div class="world-summary">
+<span class="world-summary-label">DEFAULT WORLD</span>
+<h3>现代现实</h3>
+<p>沿用原作品的现代人生体验：现实法律、经济、职业、社交与科技规则正常运转。你的身份与目标可以自由设定，但行为会产生符合现实逻辑的后果。</p>
+</div>
+</div>
+<div class="world-custom-panel" hidden="" id="worldCustomPanel">
+<div class="mod-notice">
+<strong>原创世界观请务必搭配「专用区 · 世界观锁定 MOD」使用，或者将世界观配置放入自定义配置的提示词里。</strong>
+<p>它会在状态栏显示你当前所在的世界观，帮助持续锁定当前世界，减少设定跑偏与不同世界串线。若使用已有作品的世界，建议同时搭配对应世界书。</p>
+</div>
+<div class="form-section world-custom-form">
+<div class="form-group">
+<label class="form-label" for="worldName">世界观名称</label>
+<input class="form-input" id="worldName" placeholder="如：雾海列岛 / 银穹帝国 / 山海异闻录……" type="text"/>
+</div>
+<div class="form-group">
+<label class="form-label" for="worldEra">时代与主要舞台</label>
+<span class="form-label-hint">故事所处的时代、地域与技术水平</span>
+<input class="form-input" id="worldEra" placeholder="如：架空蒸汽时代，故事从列岛自由港开始……" type="text"/>
+</div>
+<div class="form-group">
+<label class="form-label" for="worldOverview">世界概述</label>
+<span class="form-label-hint">这是一个怎样的世界？玩家最先需要知道什么？</span>
+<textarea class="form-textarea tall" id="worldOverview" placeholder="概括世界背景、社会面貌、日常生活的显著特征……"></textarea>
+</div>
+<div class="form-group">
+<label class="form-label" for="worldRules">核心法则与边界</label>
+<span class="form-label-hint">力量体系、科技限制、禁忌、代价，以及绝不能发生的事</span>
+<textarea class="form-textarea tall" id="worldRules" placeholder="如：超凡能力必须付出寿命；没有复活；法术不能凭空创造生命……"></textarea>
+</div>
+<div class="form-group">
+<label class="form-label" for="worldFactions">势力与社会结构</label>
+<textarea class="form-textarea" id="worldFactions" placeholder="主要国家、组织、种族、阶层，以及彼此关系……"></textarea>
+</div>
+<div class="form-group">
+<label class="form-label" for="worldExtra">其他设定补充</label>
+<textarea class="form-textarea" id="worldExtra" placeholder="地理、历史、文化、叙事基调或其他需要长期遵守的设定……"></textarea>
+</div>
+</div>
+</div>
+<div class="world-preview-wrap" hidden="" id="worldPreviewWrap">
+<div class="preview-title">-- 当前世界预览</div>
+<div class="preview-box" id="worldPreviewBox"></div>
+</div>
+<div aria-live="polite" class="form-message" id="worldMessage" role="status"></div>
+<div class="step-navigation">
+<button class="step-link" data-go="intro" type="button"><span aria-hidden="true">←</span> 上一步 · 作品介绍</button>
+<button class="step-btn primary" data-go="config" type="button">下一步 · 创建角色 <span aria-hidden="true">→</span></button>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="tabbtn-config" class="tab-content" id="config" role="tabpanel">
+<h2 class="section-title">创建角色</h2>
+<div class="current-world-banner">
+<span>当前世界：<strong id="currentWorldForCharacter">现代现实</strong><span class="banner-separator">/</span>已建 NPC：<strong id="npcCountForCharacter">0</strong> 名</span>
+<button class="step-link" data-go="world-setting" type="button">更改世界设定</button>
+</div>
+<div class="form-section">
+<!-- 1. 你是谁 -->
+<hr class="form-divider"/><div class="form-divider-label">故事的时间与地点</div><div class="form-group">
+<label class="form-label">起始时间</label>
+<input class="form-input" id="startTime" placeholder="如：2024年9月1日 早晨" type="text"/>
+</div><div class="form-group">
+<label class="form-label">你在哪个国家或地区？</label>
+<input class="form-input" id="userCountry" placeholder="如：中国 / 日本 / 某架空王国……" type="text"/>
+</div><div class="form-group">
+<label class="form-label">你在哪里生活？</label>
+<span class="form-label-hint">城市级别会影响消费水平、机遇和生活节奏</span>
+<textarea class="form-textarea" id="userCity" placeholder="如：北京 / 成都 / 某个小县城 / 王都下城区……"></textarea>
+</div><hr class="form-divider"/><div class="form-divider-label">你是谁</div>
+<div class="form-row-3">
+<div class="form-group">
+<label class="form-label">你的名字是？</label>
+<input class="form-input" id="userName" placeholder="输入你的名字" type="text"/>
+</div>
+<div class="form-group">
+<label class="form-label">你多大了？</label>
+<input class="form-input" id="userAge" max="120" min="1" placeholder="如：22" type="number"/>
+</div>
+<div class="form-group">
+<label class="form-label">你的性别？</label>
+<div class="radio-group">
+<label class="radio-label"><input name="gender" type="radio" value="男"/><span class="radio-custom"></span>男</label>
+<label class="radio-label"><input name="gender" type="radio" value="女"/><span class="radio-custom"></span>女</label>
+<label class="radio-label"><input name="gender" type="radio" value="其他"/><span class="radio-custom"></span>其他</label>
+</div>
+</div>
+</div>
+<!-- 2. 你在哪里生活 -->
+<!-- 3. 你的职业 -->
+<hr class="form-divider"/><div class="form-divider-label">你的职业</div>
+<div class="form-group">
+<label class="form-label">你的身份 / 职业是？</label>
+<span class="form-label-hint">你是做什么的？在哪里上学/上班？可以写得具体一些</span>
+<button class="tag-toggle" data-target="occupationTags">不知道填什么？看看参考 <span class="arrow">▼</span></button>
+<div class="tag-panel" id="occupationTags">
+<div class="tag-category">
+<div class="tag-category-name">学生</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">小学生</span>
+<span class="tag-item" data-field="userOccupation">初中生</span>
+<span class="tag-item" data-field="userOccupation">高中生</span>
+<span class="tag-item" data-field="userOccupation">大学生</span>
+<span class="tag-item" data-field="userOccupation">研究生</span>
+<span class="tag-item" data-field="userOccupation">留学生</span>
+<span class="tag-item" data-field="userOccupation">艺校生</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">打工人</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">公司职员</span>
+<span class="tag-item" data-field="userOccupation">程序员</span>
+<span class="tag-item" data-field="userOccupation">设计师</span>
+<span class="tag-item" data-field="userOccupation">教师</span>
+<span class="tag-item" data-field="userOccupation">医生</span>
+<span class="tag-item" data-field="userOccupation">护士</span>
+<span class="tag-item" data-field="userOccupation">律师</span>
+<span class="tag-item" data-field="userOccupation">会计</span>
+<span class="tag-item" data-field="userOccupation">销售</span>
+<span class="tag-item" data-field="userOccupation">服务员</span>
+<span class="tag-item" data-field="userOccupation">外卖骑手</span>
+<span class="tag-item" data-field="userOccupation">快递员</span>
+<span class="tag-item" data-field="userOccupation">工人</span>
+<span class="tag-item" data-field="userOccupation">司机</span>
+<span class="tag-item" data-field="userOccupation">厨师</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">体制内</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">公务员</span>
+<span class="tag-item" data-field="userOccupation">事业编</span>
+<span class="tag-item" data-field="userOccupation">军人</span>
+<span class="tag-item" data-field="userOccupation">警察</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">自由 / 创业</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">自媒体博主</span>
+<span class="tag-item" data-field="userOccupation">网红</span>
+<span class="tag-item" data-field="userOccupation">主播</span>
+<span class="tag-item" data-field="userOccupation">摄影师</span>
+<span class="tag-item" data-field="userOccupation">自由撰稿人</span>
+<span class="tag-item" data-field="userOccupation">独立音乐人</span>
+<span class="tag-item" data-field="userOccupation">创业者</span>
+<span class="tag-item" data-field="userOccupation">网店店主</span>
+<span class="tag-item" data-field="userOccupation">自由画师</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">娱乐行业</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">演员</span>
+<span class="tag-item" data-field="userOccupation">歌手</span>
+<span class="tag-item" data-field="userOccupation">模特</span>
+<span class="tag-item" data-field="userOccupation">经纪人</span>
+<span class="tag-item" data-field="userOccupation">编剧</span>
+<span class="tag-item" data-field="userOccupation">导演</span>
+<span class="tag-item" data-field="userOccupation">练习生</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">其他</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userOccupation">家庭主妇/主夫</span>
+<span class="tag-item" data-field="userOccupation">退休</span>
+<span class="tag-item" data-field="userOccupation">无业</span>
+<span class="tag-item" data-field="userOccupation">富二代</span>
+</div>
+</div>
+</div>
+<textarea class="form-textarea" id="userOccupation" placeholder="如：大三学生 / 程序员 / 自由冒险者 / 商会书记官……可写明所属组织与具体职责"></textarea>
+</div>
+<!-- 4. 你长什么样 -->
+<hr class="form-divider"/><div class="form-divider-label">你长什么样</div>
+<div class="form-group">
+<label class="form-label">描述一下你的外貌</label>
+<span class="form-label-hint">身高、体型、发型、五官特征、日常穿着风格等，写多写少都行</span>
+<textarea class="form-textarea" id="userAppearance" placeholder="如：175cm，偏瘦，黑色短发，戴眼镜，喜欢穿卫衣和牛仔裤..."></textarea>
+</div>
+<!-- 5. 你是什么性格 -->
+<hr class="form-divider"/><div class="form-divider-label">你是什么性格</div>
+<div class="form-group">
+<label class="form-label">你的性格是怎样的？</label>
+<span class="form-label-hint">可以参考下面的标签，也可以自己描述</span>
+<button class="tag-toggle" data-target="personalityTags">不知道怎么描述？看看参考 <span class="arrow">▼</span></button>
+<div class="tag-panel" id="personalityTags">
+<div class="tag-category">
+<div class="tag-category-name">社交倾向</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userPersonality">社牛</span>
+<span class="tag-item" data-field="userPersonality">外向开朗</span>
+<span class="tag-item" data-field="userPersonality">普通社交</span>
+<span class="tag-item" data-field="userPersonality">偏内向</span>
+<span class="tag-item" data-field="userPersonality">社恐</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">情绪特征</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userPersonality">乐观</span>
+<span class="tag-item" data-field="userPersonality">悲观</span>
+<span class="tag-item" data-field="userPersonality">情绪化</span>
+<span class="tag-item" data-field="userPersonality">冷静理性</span>
+<span class="tag-item" data-field="userPersonality">暴躁易怒</span>
+<span class="tag-item" data-field="userPersonality">温柔</span>
+<span class="tag-item" data-field="userPersonality">敏感</span>
+</div>
+</div>
+<div class="tag-category">
+<div class="tag-category-name">行为风格</div>
+<div class="tag-list">
+<span class="tag-item" data-field="userPersonality">冲动</span>
+<span class="tag-item" data-field="userPersonality">谨慎</span>
+<span class="tag-item" data-field="userPersonality">懒散</span>
+<span class="tag-item" data-field="userPersonality">勤奋</span>
+<span class="tag-item" data-field="userPersonality">叛逆</span>
+<span class="tag-item" data-field="userPersonality">老实</span>
+<span class="tag-item" data-field="userPersonality">腹黑</span>
+<span class="tag-item" data-field="userPersonality">心机重</span>
+<span class="tag-item" data-field="userPersonality">单纯善良</span>
+</div>
+</div>
+</div>
+<textarea class="form-textarea" id="userPersonality" placeholder="如：表面社牛但内心敏感，对朋友很好但容易冲动，有点小叛逆..."></textarea>
+</div>
+<!-- 6. 你的起点 -->
+<hr class="form-divider"/><div class="form-divider-label">你的起点</div>
+<div class="form-group">
+<label class="form-label">你的资源、经济状况和社会地位怎么样？</label>
+<span class="form-label-hint">大概的收入水平、有没有存款房车、社会地位如何。这决定了你的起点</span>
+<textarea class="form-textarea" id="userEconomy" placeholder="如：月薪8000，存款3万，租房住，普通上班族 / 靠父母生活费每月2000，经常月底吃土 / 家里有几套房，不愁钱..."></textarea>
+</div>
+<!-- 7. 你身边的人 -->
+<hr class="form-divider"/><div class="form-divider-label">你身边的人</div>
+<div class="form-group">
+<label class="form-label">你的家庭是什么情况？</label>
+<span class="form-label-hint">父母、兄弟姐妹、家庭关系好不好</span>
+<textarea class="form-textarea" id="userFamily" placeholder="如：父母在老家，关系一般，有个妹妹在读高中 / 单亲家庭，跟妈妈一起生活，感情很好..."></textarea>
+</div>
+<div class="form-group">
+<label class="form-label">你有恋人或者喜欢的人吗？</label>
+<textarea class="form-textarea" id="userLove" placeholder="如：单身 / 暗恋同班一个女生 / 和男朋友交往半年了 / 刚分手..."></textarea>
+</div>
+<div class="form-group">
+<label class="form-label">你的朋友和社交圈怎么样？</label>
+<textarea class="form-textarea" id="userSocial" placeholder="如：有两三个铁哥们，社交圈不大 / 认识很多人但没有特别亲近的..."></textarea>
+</div>
+<!-- 8. 你喜欢什么 / 擅长什么 -->
+<hr class="form-divider"/><div class="form-divider-label">你喜欢什么 / 擅长什么</div>
+<div class="form-group">
+<label class="form-label">你的兴趣爱好</label>
+<span class="form-label-hint">点击标签快速选择，也可以自己补充</span>
+<div class="checkbox-group" id="hobbyGroup">
+<label class="checkbox-label"><input type="checkbox" value="游戏"/><span class="cb-check">+</span><span class="cb-text">游戏</span></label>
+<label class="checkbox-label"><input type="checkbox" value="音乐"/><span class="cb-check">+</span><span class="cb-text">音乐</span></label>
+<label class="checkbox-label"><input type="checkbox" value="运动健身"/><span class="cb-check">+</span><span class="cb-text">运动健身</span></label>
+<label class="checkbox-label"><input type="checkbox" value="阅读"/><span class="cb-check">+</span><span class="cb-text">阅读</span></label>
+<label class="checkbox-label"><input type="checkbox" value="旅行"/><span class="cb-check">+</span><span class="cb-text">旅行</span></label>
+<label class="checkbox-label"><input type="checkbox" value="摄影"/><span class="cb-check">+</span><span class="cb-text">摄影</span></label>
+<label class="checkbox-label"><input type="checkbox" value="美食烹饪"/><span class="cb-check">+</span><span class="cb-text">美食烹饪</span></label>
+<label class="checkbox-label"><input type="checkbox" value="追星追剧"/><span class="cb-check">+</span><span class="cb-text">追星追剧</span></label>
+<label class="checkbox-label"><input type="checkbox" value="绘画艺术"/><span class="cb-check">+</span><span class="cb-text">绘画艺术</span></label>
+<label class="checkbox-label"><input type="checkbox" value="编程技术"/><span class="cb-check">+</span><span class="cb-text">编程技术</span></label>
+<label class="checkbox-label"><input type="checkbox" value="时尚穿搭"/><span class="cb-check">+</span><span class="cb-text">时尚穿搭</span></label>
+<label class="checkbox-label"><input type="checkbox" value="社交派对"/><span class="cb-check">+</span><span class="cb-text">社交派对</span></label>
+<label class="checkbox-label"><input type="checkbox" value="动漫二次元"/><span class="cb-check">+</span><span class="cb-text">动漫二次元</span></label>
+<label class="checkbox-label"><input type="checkbox" value="宠物"/><span class="cb-check">+</span><span class="cb-text">宠物</span></label>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">你有什么特殊技能或天赋吗？</label>
+<span class="form-label-hint">选填，没有也没关系</span>
+<input class="form-input" id="userSkills" placeholder="如：钢琴十级 / 擅长格斗 / 超强记忆力 / 会说四国语言 / 没有特别的..." type="text"/>
+</div>
+<!-- 9. 你想要什么 -->
+<hr class="form-divider"/><div class="form-divider-label">你想要什么</div>
+<div class="form-group">
+<label class="form-label">你的人生追求是什么？</label>
+<span class="form-label-hint">点击选择你最看重的东西</span>
+<div class="checkbox-group" id="goalGroup">
+<label class="checkbox-label"><input type="checkbox" value="爱情"/><span class="cb-check">+</span><span class="cb-text">爱情</span></label>
+<label class="checkbox-label"><input type="checkbox" value="事业"/><span class="cb-check">+</span><span class="cb-text">事业</span></label>
+<label class="checkbox-label"><input type="checkbox" value="财富"/><span class="cb-check">+</span><span class="cb-text">财富</span></label>
+<label class="checkbox-label"><input type="checkbox" value="权力"/><span class="cb-check">+</span><span class="cb-text">权力</span></label>
+<label class="checkbox-label"><input type="checkbox" value="自由"/><span class="cb-check">+</span><span class="cb-text">自由</span></label>
+<label class="checkbox-label"><input type="checkbox" value="名气"/><span class="cb-check">+</span><span class="cb-text">名气</span></label>
+<label class="checkbox-label"><input type="checkbox" value="知识"/><span class="cb-check">+</span><span class="cb-text">知识</span></label>
+<label class="checkbox-label"><input type="checkbox" value="平凡生活"/><span class="cb-check">+</span><span class="cb-text">平凡生活</span></label>
+<label class="checkbox-label"><input type="checkbox" value="冒险刺激"/><span class="cb-check">+</span><span class="cb-text">冒险刺激</span></label>
+<label class="checkbox-label"><input type="checkbox" value="复仇"/><span class="cb-check">+</span><span class="cb-text">复仇</span></label>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">你最近最想做的事是什么？</label>
+<span class="form-label-hint">一个短期目标，故事会围绕这个展开</span>
+<input class="form-input" id="userShortGoal" placeholder="如：向暗恋的人表白 / 找到一份好工作 / 攒够钱去旅行 / 搞清楚一个秘密..." type="text"/>
+</div>
+<!-- 10. 故事从哪里开始 -->
+<hr class="form-divider"/><div class="form-divider-label">开场信息</div>
+<div class="form-group">
+<label class="form-label">开场场景</label>
+<span class="form-label-hint">描述故事开始时你在哪里、在做什么，写得越具体开场越生动</span>
+<textarea class="form-textarea" id="startScene" placeholder="如：在家里醒来，阳光透过窗帘照进来 / 走在上班路上，耳机里放着歌 / 刚下飞机，拖着行李箱走出机场..."></textarea>
+</div>
+<!-- 11. 还有什么要补充的 -->
+<hr class="form-divider"/><div class="form-divider-label">重要补充</div>
+<div class="form-group">
+<label class="form-label">身份背景补充</label>
+<span class="form-label-hint">过往重要经历、特殊身世、隐藏秘密等，让角色更立体</span>
+<textarea class="form-textarea tall" id="userBackground" placeholder="如：小时候父母离异，跟着爷爷奶奶长大，高中时转学过一次，有一段不愿提起的过去..."></textarea>
+</div>
+<div class="form-group">
+<label class="form-label">额外设定补充</label>
+<span class="form-label-hint">任何额外要求：特殊剧情偏好、希望触发的事件、世界观微调等</span>
+<textarea class="form-textarea tall" id="userExtra" placeholder="如：希望剧情节奏快一点 / 想要更多职场剧情 / 开局就遇到一个神秘人物..."></textarea>
+</div>
+<div aria-live="polite" class="form-message" id="characterMessage" role="status"></div></div>
+<div class="step-navigation">
+<button class="step-link" data-go="world-setting" type="button"><span aria-hidden="true">←</span> 上一步 · 选择世界</button>
+<button class="step-btn primary" data-go="npc" type="button">下一步 · 创建 NPC <span aria-hidden="true">→</span></button>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="tabbtn-npc" class="tab-content" id="npc" role="tabpanel">
+<h2 class="section-title">创建 NPC</h2>
+<p class="section-lead">这一步可以跳过。想让人物以你设定的方式出现，再展开创建；不想创建，直接前往最终预览即可。</p>
+<div class="current-world-banner"><span>当前世界：<strong id="currentWorldForNpc">现代现实</strong></span><button class="step-link" data-go="config" type="button">返回主角配置</button></div>
+<div aria-label="是否创建 NPC" class="npc-choice" role="radiogroup">
+<label class="world-option selected" id="npcSkipOption"><input checked="" name="npcMode" type="radio" value="skip"/><span class="world-option-copy"><strong>暂不创建</strong><small>本次不加入自建 NPC，直接进入最终预览</small></span></label>
+<label class="world-option" id="npcCreateOption"><input name="npcMode" type="radio" value="create"/><span class="world-option-copy"><strong>创建 NPC</strong><small>展开创建列表，可添加一名或多名，也可只填部分资料</small></span></label>
+</div>
+<div class="npc-skip-panel" id="npcSkipPanel"><p id="npcSkipNote">本次不创建自建 NPC。直接点击页底“下一步 · 最终预览”即可。</p></div>
+<div hidden="" id="npcBuilderContent"><div class="form-section npc-form-section" id="npcFormSection">
+<div class="form-row">
+<div class="form-group"><label class="form-label" for="npcName">NPC 姓名</label><input class="form-input" id="npcName" placeholder="输入姓名" type="text"/></div>
+<div class="form-group"><label class="form-label" for="npcRelation">与主角的关系 / 定位</label><input class="form-input" id="npcRelation" placeholder="如：青梅竹马 / 顶头上司 / 竞争对手……" type="text"/></div>
+</div>
+<div class="form-row-3">
+<div class="form-group"><label class="form-label" for="npcAge">年龄</label><input class="form-input" id="npcAge" placeholder="如：24 / 外表约30岁" type="text"/></div>
+<div class="form-group"><label class="form-label" for="npcGender">性别</label><input class="form-input" id="npcGender" placeholder="如：女 / 男 / 其他" type="text"/></div>
+<div class="form-group"><label class="form-label" for="npcOccupation">身份 / 职业</label><input class="form-input" id="npcOccupation" placeholder="如：急诊医生 / 佣兵……" type="text"/></div>
+</div>
+<hr class="form-divider"/><div class="form-divider-label">TA 是怎样的人</div>
+<div class="form-group"><label class="form-label" for="npcAppearance">外貌与标志性特征</label><textarea class="form-textarea" id="npcAppearance" placeholder="身高体型、发型五官、穿着、辨识特征……"></textarea></div>
+<div class="form-group"><label class="form-label" for="npcPersonality">性格与处事方式</label><span class="form-label-hint">写 TA 的性情、习惯与待人方式，不必用经历填满性格栏</span><textarea class="form-textarea" id="npcPersonality" placeholder="如：慢热克制，嘴上不饶人但会照顾细节；面对权威时格外强硬……"></textarea></div>
+<div class="form-group"><label class="form-label" for="npcGoal">TA 自己的目标或欲望</label><span class="form-label-hint">让 NPC 拥有独立人生，而不只是围绕主角行动</span><textarea class="form-textarea" id="npcGoal" placeholder="如：想攒钱离开家乡；竭力隐瞒一次失败；正在寻找失散的亲人……"></textarea></div>
+<hr class="form-divider"/><div class="form-divider-label">TA 如何进入故事</div>
+<div class="form-group"><label class="form-label" for="npcBackground">背景与现状</label><textarea class="form-textarea" id="npcBackground" placeholder="出身、重要经历、目前处境，以及与主角的过去……"></textarea></div>
+<div class="form-group"><label class="form-label" for="npcAbility">能力、资源或弱点</label><textarea class="form-textarea" id="npcAbility" placeholder="擅长什么、掌握什么资源、有什么明显短板……"></textarea></div>
+<div class="form-group"><label class="form-label" for="npcMeeting">初遇 / 出场方式</label><textarea class="form-textarea" id="npcMeeting" placeholder="如：开场时正在主角家门口等人 / 第一次上班时由 TA 接待……"></textarea></div>
+<div aria-live="polite" class="form-message" id="npcFormMessage" role="status"></div>
+<div class="npc-form-actions"><button class="step-btn primary" id="addNpcButton" type="button">＋ 添加 NPC</button><button class="step-link" hidden="" id="cancelEditButton" type="button">取消编辑</button></div>
+</div><div class="npc-list-section"><h3 class="npc-list-title">已创建的 NPC <span id="npcListCount">0</span></h3><div id="npcList"></div></div><div class="npc-preview-wrap">
+<div class="preview-title">-- NPC 配置预览</div>
+<div aria-live="polite" class="preview-box" id="npcPreviewBox">尚未添加 NPC。</div>
+<div class="npc-save-note">
+<strong>复制后的保存建议</strong>
+<p>推荐保存到「自定义配置 → 世界书」，按 NPC 分条，并将对应 NPC 的姓名填为关键词；也可以放入你的常用提示词池备用。多名 NPC 建议分开保存，避免设定互相串用。</p>
+</div>
+<div aria-live="polite" class="form-message" id="npcCopyMessage" role="status"></div>
+<div class="btn-container"><button class="copy-btn" id="copyNpcButton" type="button"><span>单独复制 NPC 信息</span></button></div>
+</div></div>
+<div class="step-navigation">
+<button class="step-link" data-go="config" type="button"><span aria-hidden="true">←</span> 上一步 · 创建角色</button>
+<button class="step-btn primary" data-go="final-preview" type="button">下一步 · 最终预览 <span aria-hidden="true">→</span></button>
+</div>
+</div>
+<div aria-hidden="true" aria-labelledby="tabbtn-final-preview" class="tab-content" id="final-preview" role="tabpanel">
+<h2 class="section-title">最终预览</h2>
+<p class="section-lead">在这里统一核对世界、主角与全部 NPC。需要修改时，可返回上一步或直接点击顶部对应页签。</p>
+<div class="current-world-banner"><span>当前世界：<strong id="finalWorldName">现代现实</strong><span class="banner-separator">/</span>自建 NPC：<strong id="finalNpcCount">0</strong> 名</span><button class="step-link" data-go="config" type="button">检查主角资料</button></div>
+<div class="final-preview-wrap"><p class="preview-hint">将汇总当前世界、主角资料与已经添加的全部 NPC。</p><div class="preview-container">
+<div class="preview-title">-- 完整开局预览</div>
+<div aria-live="polite" class="preview-box" id="previewBox">请填写上方信息，预览将在此显示...</div>
+</div><div aria-live="polite" class="form-message" id="configMessage" role="status"></div><div class="btn-container">
+<button class="copy-btn" id="copyButton"><span>复制完整开局配置</span></button>
+</div></div>
+<div class="step-navigation">
+<button class="step-link" data-go="npc" type="button"><span aria-hidden="true">←</span> 上一步 · 创建 NPC</button>
+<span class="step-caption">确认无误后，复制完整开局配置</span>
+</div>
+</div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const $ = id => document.getElementById(id);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const loadingScreen = $('loadingScreen');
+  const mainContainer = $('mainContainer');
+  let loadingHidden = false;
+  function hideLoading(){
+    if(loadingHidden) return;
+    loadingHidden = true;
+    if(reducedMotion){
+      loadingScreen.style.display = 'none';
+      mainContainer.classList.add('visible');
+      return;
+    }
+    loadingScreen.classList.add('opening');
+    setTimeout(() => loadingScreen.classList.add('fade-out'), 680);
+    setTimeout(() => {
+      loadingScreen.style.display = 'none';
+      mainContainer.classList.add('visible');
+    }, 1100);
+  }
+  loadingScreen.addEventListener('click', hideLoading, true);
+  document.addEventListener('keydown', hideLoading, {once:true});
+  setTimeout(hideLoading, reducedMotion ? 100 : 3000);
+
+  const tabBtns = Array.from(document.querySelectorAll('.tab-btn'));
+  const tabContents = Array.from(document.querySelectorAll('.tab-content'));
+  function activateTab(tabId, moveFocus){
+    tabBtns.forEach(btn => {
+      const active = btn.dataset.tab === tabId;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-selected', String(active));
+      btn.tabIndex = active ? 0 : -1;
+      if(active && moveFocus) btn.focus();
+    });
+    tabContents.forEach(content => {
+      const active = content.id === tabId;
+      content.classList.toggle('active', active);
+      content.setAttribute('aria-hidden', String(!active));
+    });
+  }
+  tabBtns.forEach((btn, index) => {
+    btn.addEventListener('click', () => {
+      activateTab(btn.dataset.tab, false);
+      scrollToStepStart();
+    });
+    btn.addEventListener('keydown', event => {
+      let target = null;
+      if(event.key === 'ArrowRight') target = (index + 1) % tabBtns.length;
+      if(event.key === 'ArrowLeft') target = (index - 1 + tabBtns.length) % tabBtns.length;
+      if(event.key === 'Home') target = 0;
+      if(event.key === 'End') target = tabBtns.length - 1;
+      if(target !== null){
+        event.preventDefault();
+        activateTab(tabBtns[target].dataset.tab, true);
+      }
+    });
+  });
+  function scrollToStepStart(){
+    const header = document.querySelector('.header');
+    const top = mainContainer.offsetTop + header.offsetTop + header.offsetHeight - 4;
+    window.scrollTo({top, behavior:'auto'});
+  }
+  document.querySelectorAll('[data-go]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activateTab(btn.dataset.go, false);
+      scrollToStepStart();
+    });
+  });
+
+  document.querySelectorAll('.tag-toggle').forEach(btn => {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.addEventListener('click', function(){
+      const panel = $(this.dataset.target);
+      panel.classList.toggle('open');
+      this.classList.toggle('open');
+      this.setAttribute('aria-expanded', String(panel.classList.contains('open')));
+    });
+  });
+  document.querySelectorAll('.tag-item').forEach(tag => {
+    tag.setAttribute('tabindex', '0');
+    tag.setAttribute('role', 'button');
+    function applyTag(){
+      const textarea = $(tag.dataset.field);
+      const val = tag.textContent.trim();
+      if(textarea.value && !/[， 、]$/.test(textarea.value)) textarea.value += '，' + val;
+      else textarea.value += val;
+      textarea.focus();
+      updatePreviews();
+    }
+    tag.addEventListener('click', applyTag);
+    tag.addEventListener('keydown', event => {
+      if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); applyTag(); }
+    });
+  });
+  document.querySelectorAll('.checkbox-label').forEach(label => {
+    const cb = label.querySelector('input[type="checkbox"]');
+    cb.addEventListener('change', () => {
+      label.classList.toggle('checked', cb.checked);
+      updatePreviews();
+    });
+  });
+  function checkedValues(groupId){
+    return Array.from(document.querySelectorAll('#' + groupId + ' input:checked')).map(c => c.value);
+  }
+  function v(id){
+    const el = $(id);
+    return el ? el.value.trim() : '';
+  }
+  function playerGender(){
+    const checked = document.querySelector('input[name="gender"]:checked');
+    return checked ? checked.value : '';
+  }
+  function npcMode(){
+    const checked = document.querySelector('input[name="npcMode"]:checked');
+    return checked ? checked.value : 'skip';
+  }
+  function worldMode(){
+    const checked = document.querySelector('input[name="worldMode"]:checked');
+    return checked ? checked.value : 'modern';
+  }
+  function currentWorldName(){
+    return worldMode() === 'modern' ? '现代现实' : (v('worldName') || '自定义世界观（未命名）');
+  }
+  function buildWorldLines(includeModern){
+    const lines = ['【世界观】'];
+    if(worldMode() === 'modern'){
+      if(!includeModern) return [];
+      lines.push('名称：现代现实（默认）');
+      lines.push('规则：遵循现代社会的现实逻辑，法律、经济、职业、社交与科技正常运转。');
+      return lines;
+    }
+    const hasCustomContent = ['worldName','worldEra','worldOverview','worldRules','worldFactions','worldExtra'].some(id => v(id));
+    if(!hasCustomContent) return [];
+    if(v('worldName')) lines.push('名称：' + v('worldName'));
+    if(v('worldEra')) lines.push('时代与舞台：' + v('worldEra'));
+    if(v('worldOverview')) lines.push('世界概述：' + v('worldOverview'));
+    if(v('worldRules')) lines.push('核心法则：' + v('worldRules'));
+    if(v('worldFactions')) lines.push('势力与社会：' + v('worldFactions'));
+    if(v('worldExtra')) lines.push('其他设定：' + v('worldExtra'));
+    return lines;
+  }
+  function buildPlayerLines(){
+    const lines = ['【主角（你）】'];
+    // 先确定时空坐标，再写人物；开场场景与补充放在末尾。
+    if(v('startTime')) lines.push('时间：' + v('startTime'));
+    const city = v('userCity'), country = v('userCountry');
+    if(city || country) lines.push('地点：' + [country, city].filter(Boolean).join(' · '));
+    const name = v('userName'), age = v('userAge'), gender = playerGender();
+    if(name || age || gender) lines.push([name || '未命名', age ? age + '岁' : '', gender].filter(Boolean).join('，'));
+    if(v('userOccupation')) lines.push('身份 / 职业：' + v('userOccupation'));
+    if(v('userEconomy')) lines.push('资源 / 经济 / 地位：' + v('userEconomy'));
+    if(v('userAppearance')) lines.push('外貌：' + v('userAppearance'));
+    if(v('userPersonality')) lines.push('性格：' + v('userPersonality'));
+    if(v('userFamily')) lines.push('家庭：' + v('userFamily'));
+    if(v('userLove')) lines.push('感情：' + v('userLove'));
+    if(v('userSocial')) lines.push('社交：' + v('userSocial'));
+    const hobbies = checkedValues('hobbyGroup');
+    if(hobbies.length) lines.push('爱好：' + hobbies.join('、'));
+    if(v('userSkills') && v('userSkills') !== '没有特别的') lines.push('技能：' + v('userSkills'));
+    const goals = checkedValues('goalGroup');
+    if(goals.length) lines.push('追求：' + goals.join('、'));
+    if(v('userShortGoal')) lines.push('目标：' + v('userShortGoal'));
+    if(v('startScene')) lines.push('场景：' + v('startScene'));
+    if(v('userBackground')) lines.push('背景：' + v('userBackground'));
+    if(v('userExtra')) lines.push('补充：' + v('userExtra'));
+    return lines;
+  }
+
+  const npcFields = ['npcName','npcRelation','npcAge','npcGender','npcOccupation','npcAppearance','npcPersonality','npcGoal','npcBackground','npcAbility','npcMeeting'];
+  let npcs = [];
+  let editingNpcId = null;
+  function npcLines(npc, index){
+    const lines = ['NPC ' + (index + 1) + '：' + (npc.npcName || '未命名')];
+    const basic = [npc.npcAge, npc.npcGender, npc.npcOccupation].filter(Boolean).join('，');
+    if(basic) lines.push('基本信息：' + basic);
+    if(npc.npcRelation) lines.push('与主角的关系 / 定位：' + npc.npcRelation);
+    if(npc.npcAppearance) lines.push('外貌：' + npc.npcAppearance);
+    if(npc.npcPersonality) lines.push('性格：' + npc.npcPersonality);
+    if(npc.npcGoal) lines.push('个人目标：' + npc.npcGoal);
+    if(npc.npcBackground) lines.push('背景与现状：' + npc.npcBackground);
+    if(npc.npcAbility) lines.push('能力 / 资源 / 弱点：' + npc.npcAbility);
+    if(npc.npcMeeting) lines.push('初遇 / 出场：' + npc.npcMeeting);
+    return lines;
+  }
+  function buildNpcLines(){
+    if(npcMode() !== 'create' || !npcs.length) return [];
+    const lines = ['【自建 NPC】'];
+    npcs.forEach((npc, index) => {
+      if(index) lines.push('');
+      lines.push(...npcLines(npc, index));
+    });
+    return lines;
+  }
+  function updatePreviews(){
+    const world = buildWorldLines(false);
+    const player = buildPlayerLines();
+    const npc = buildNpcLines();
+    const panelWorld = buildWorldLines(true);
+    $('worldPreviewBox').textContent = panelWorld.length ? panelWorld.join('\n') : '填写任意内容后在此生成预览，留空也可以。';
+    const fullSections = [];
+    if(world.length) fullSections.push(world.join('\n'));
+    fullSections.push(player.join('\n'));
+    if(npc.length) fullSections.push(npc.join('\n'));
+    $('previewBox').textContent = fullSections.join('\n\n');
+    const npcSections = [];
+    if(world.length) npcSections.push(world.join('\n'));
+    if(npc.length) npcSections.push(npc.join('\n'));
+    $('npcPreviewBox').textContent = npcs.length && npcMode() === 'create' ? npcSections.join('\n\n') : '尚未添加 NPC。';
+    $('currentWorldForCharacter').textContent = currentWorldName();
+    $('currentWorldForNpc').textContent = currentWorldName();
+    $('npcCountForCharacter').textContent = String(npcs.length);
+    $('npcListCount').textContent = String(npcs.length);
+    $('finalWorldName').textContent = currentWorldName();
+    $('finalNpcCount').textContent = String(npcMode() === 'create' ? npcs.length : 0);
+    $('npcSkipNote').textContent = npcs.length ? '本次不将已创建的 ' + npcs.length + ' 名 NPC 纳入最终配置。资料仍保留，重新选择“创建 NPC”即可恢复。' : '本次不创建自建 NPC。直接点击页底“下一步 · 最终预览”即可。';
+  }
+  function updateWorldUI(){
+    const custom = worldMode() === 'custom';
+    $('worldModernOption').classList.toggle('selected', !custom);
+    $('worldCustomOption').classList.toggle('selected', custom);
+    $('worldModernPanel').hidden = custom;
+    $('worldCustomPanel').hidden = !custom;
+    $('worldPreviewWrap').hidden = !custom;
+    updatePreviews();
+  }
+  function updateNpcUI(){
+    const create = npcMode() === 'create';
+    $('npcSkipOption').classList.toggle('selected', !create);
+    $('npcCreateOption').classList.toggle('selected', create);
+    $('npcBuilderContent').hidden = !create;
+    $('npcSkipPanel').hidden = create;
+    updatePreviews();
+  }
+  document.querySelectorAll('input[name="npcMode"]').forEach(radio => radio.addEventListener('change', updateNpcUI));
+  document.querySelectorAll('input[name="worldMode"]').forEach(radio => radio.addEventListener('change', updateWorldUI));
+  document.querySelectorAll('#world-setting input[type="text"], #world-setting textarea, #config input, #config textarea').forEach(el => {
+    el.addEventListener('input', () => {
+      if(el.closest('#world-setting')) setMessage('worldMessage', '');
+      if(el.closest('#config')) setMessage('characterMessage', '');
+      updatePreviews();
+    });
+    el.addEventListener('change', updatePreviews);
+  });
+
+  function setMessage(id, text, success){
+    const el = $(id);
+    el.textContent = text || '';
+    el.classList.toggle('success', Boolean(success));
+  }
+  function clearNpcForm(){
+    npcFields.forEach(id => { $(id).value = ''; });
+    editingNpcId = null;
+    $('addNpcButton').textContent = '＋ 添加 NPC';
+    $('cancelEditButton').hidden = true;
+  }
+  function readNpcForm(){
+    const data = {};
+    npcFields.forEach(id => { data[id] = v(id); });
+    return data;
+  }
+  function make(tag, className, text){
+    const el = document.createElement(tag);
+    if(className) el.className = className;
+    if(text !== undefined) el.textContent = text;
+    return el;
+  }
+  function renderNpcList(){
+    const list = $('npcList');
+    list.replaceChildren();
+    if(!npcs.length){
+      list.appendChild(make('div', 'empty-state', '尚未添加 NPC。此项可选，不影响单独创建主角。'));
+      updatePreviews();
+      return;
+    }
+    npcs.forEach((npc, index) => {
+      const item = make('article', 'npc-item');
+      const head = make('div', 'npc-item-head');
+      head.appendChild(make('div', 'npc-index', 'NPC ' + String(index + 1).padStart(2, '0')));
+      const body = make('div');
+      body.appendChild(make('h4', '', npc.npcName || '未命名 NPC'));
+      body.appendChild(make('p', 'npc-relation', npc.npcRelation || '未填写关系 / 定位'));
+      const detail = [npc.npcOccupation, npc.npcPersonality, npc.npcGoal].filter(Boolean).join('\n');
+      if(detail) body.appendChild(make('p', 'npc-detail', detail));
+      head.appendChild(body);
+      const actions = make('div', 'npc-actions');
+      const edit = make('button', 'small-btn', '编辑');
+      edit.type = 'button';
+      edit.setAttribute('aria-label', '编辑 NPC ' + (npc.npcName || '未命名'));
+      edit.addEventListener('click', () => editNpc(npc.id));
+      const del = make('button', 'small-btn danger', '删除');
+      del.type = 'button';
+      del.setAttribute('aria-label', '删除 NPC ' + (npc.npcName || '未命名'));
+      del.addEventListener('click', () => deleteNpc(npc.id));
+      actions.append(edit, del);
+      head.appendChild(actions);
+      item.appendChild(head);
+      list.appendChild(item);
+    });
+    updatePreviews();
+  }
+  $('addNpcButton').addEventListener('click', () => {
+    const data = readNpcForm();
+    if(editingNpcId !== null){
+      const index = npcs.findIndex(npc => npc.id === editingNpcId);
+      if(index !== -1) npcs[index] = {...data, id:editingNpcId};
+      setMessage('npcFormMessage', '已保存「' + (data.npcName || '未命名') + '」的修改。', true);
+    }else{
+      data.id = Date.now() + Math.random();
+      npcs.push(data);
+      setMessage('npcFormMessage', '已添加「' + (data.npcName || '未命名') + '」，可以继续添加下一名 NPC。', true);
+    }
+    clearNpcForm();
+    renderNpcList();
+  });
+  $('cancelEditButton').addEventListener('click', () => {
+    clearNpcForm();
+    setMessage('npcFormMessage', '已取消编辑。', true);
+  });
+  function editNpc(id){
+    const npc = npcs.find(item => item.id === id);
+    if(!npc) return;
+    editingNpcId = id;
+    npcFields.forEach(field => { $(field).value = npc[field] || ''; });
+    $('addNpcButton').textContent = '保存修改';
+    $('cancelEditButton').hidden = false;
+    setMessage('npcFormMessage', '正在编辑「' + (npc.npcName || '未命名') + '」。');
+    $('npcFormSection').scrollIntoView({behavior:reducedMotion ? 'auto' : 'smooth', block:'start'});
+    $('npcName').focus({preventScroll:true});
+  }
+  function deleteNpc(id){
+    const npc = npcs.find(item => item.id === id);
+    if(!npc) return;
+    if(!window.confirm('确定删除 NPC「' + (npc.npcName || '未命名') + '」吗？')) return;
+    npcs = npcs.filter(item => item.id !== id);
+    if(editingNpcId === id) clearNpcForm();
+    renderNpcList();
+    setMessage('npcFormMessage', '已删除「' + (npc.npcName || '未命名') + '」。', true);
+  }
+  npcFields.forEach(id => $(id).addEventListener('input', () => setMessage('npcFormMessage', '')));
+
+  async function writeClipboard(text){
+    if(navigator.clipboard && window.isSecureContext){
+      try{ await navigator.clipboard.writeText(text); return true; }catch(error){ console.warn('Clipboard API 失败', error); }
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    let success = false;
+    try{ success = document.execCommand('copy'); }catch(error){ console.warn('execCommand 失败', error); }
+    textarea.remove();
+    return success;
+  }
+  async function copyWithFeedback(button, text, successText){
+    if(button.disabled) return;
+    const original = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>复制中……</span>';
+    const success = await writeClipboard(text);
+    button.innerHTML = '<span>' + (success ? successText : '复制失败，请手动选择预览文字') + '</span>';
+    button.style.background = success ? '#047857' : '#b91c1c';
+    setTimeout(() => {
+      button.innerHTML = original;
+      button.style.background = '';
+      button.disabled = false;
+    }, 2200);
+    return success;
+  }
+  $('copyButton').addEventListener('click', async () => {
+    setMessage('configMessage', '');
+    updatePreviews();
+    const ok = await copyWithFeedback($('copyButton'), $('previewBox').textContent, '✓ 完整配置已复制');
+    setMessage('configMessage', ok ? '已复制当前已填写的全部内容，空白部分交由 AI 补全。' : '自动复制受浏览器限制，请手动选择预览框文字复制。', ok);
+  });
+  $('copyNpcButton').addEventListener('click', async () => {
+    if(!npcs.length){
+      setMessage('npcCopyMessage', '还没有 NPC 条目。只填部分资料也可以直接添加；不需要 NPC 时，进入下一步即可。');
+      $('npcName').focus();
+      return;
+    }
+    updatePreviews();
+    const ok = await copyWithFeedback($('copyNpcButton'), $('npcPreviewBox').textContent, '✓ NPC 配置已复制');
+    setMessage('npcCopyMessage', ok ? '已复制当前世界与全部自建 NPC。' : '自动复制受浏览器限制，请手动选择预览框文字复制。', ok);
+  });
+
+  updateWorldUI();
+  updateNpcUI();
+  renderNpcList();
+});
+</script></body></html>

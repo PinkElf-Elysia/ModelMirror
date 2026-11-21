@@ -18,6 +18,7 @@ import chooseRpgModel from "./articles/choose-rpg-model.md?raw";
 import editRpgReply from "./articles/edit-rpg-reply.md?raw";
 import branchRpgStory from "./articles/branch-rpg-story.md?raw";
 import playGodCard from "./articles/play-god-card.md?raw";
+import playModernLifeCard from "./articles/play-modern-life-card.md?raw";
 import playMedievalCard from "./articles/play-medieval-card.md?raw";
 import playAiGirlsCard from "./articles/play-ai-girls-card.md?raw";
 import playHarryPotterCard from "./articles/play-harry-potter-card.md?raw";
@@ -163,6 +164,7 @@ export const helpArticles: HelpArticle[] = [
   { slug: "play-god-card", title: "游玩神临凡尘与使用插件", summary: "自由写下开场，也可以制作天书档案，接着已有故事继续。", category: "按目标找指南", contentType: "how-to", audience: "神临凡尘玩家", estimatedMinutes: 5, keywords: ["RPG", "神临凡尘", "上帝", "天书", "离线", "插件"], relatedRoutes: ["/rpg", "/rpg/god", "/rpg/plugins"], verifiedCommit: "d9f20fe6", verifiedDate: "2026-11-05", content: playGodCard, nextSlug: "play-rpg-cards" },
   { slug: "play-jinyong-card", title: "制作金庸人物帖并开始聊天", summary: "选择江湖、制作人物帖，核对草稿并恢复故事。", category: "按目标找指南", contentType: "how-to", audience: "金庸卡玩家", estimatedMinutes: 5, keywords: ["金庸", "人物帖", "江湖", "命数", "草稿", "状态", "倒计时"], relatedRoutes: ["/rpg", "/rpg/jinyong"], verifiedCommit: "3789ca73", verifiedDate: "2026-11-06", content: playJinyongCard, nextSlug: "use-rpg-rolling-summary" },
   { slug: "play-harry-potter-card", title: "制作霍格沃茨角色并开始聊天", summary: "选择作品、角色与天赋，核对完整档案并保留聊天草稿。", category: "按目标找指南", contentType: "how-to", audience: "哈利波特卡玩家", estimatedMinutes: 5, keywords: ["哈利波特", "霍格沃茨", "霍格沃兹", "魔杖", "天赋", "草稿"], relatedRoutes: ["/rpg", "/rpg/harry-potter"], verifiedCommit: "c9db3034", verifiedDate: "2026-11-13", content: playHarryPotterCard, nextSlug: "play-rpg-cards" },
+  { slug: "play-modern-life-card", title: "现代超真实人生：用自建主角和 NPC 开局", summary: "从选择世界、核对两人关系到恢复故事馆存档。", category: "按目标找指南", contentType: "how-to", audience: "现代生活 RPG 玩家", estimatedMinutes: 5, keywords: ["现代超真实人生", "自建 NPC", "现代现实", "开局", "存档"], relatedRoutes: ["/rpg", "/rpg/modern-life"], verifiedCommit: "5dd2df2b", verifiedDate: "2026-11-21", content: playModernLifeCard, nextSlug: "play-rpg-cards" },
   { slug: "play-medieval-card", title: "中世纪：创建角色并接着故事继续", summary: "选择时代、职业和技艺，核对角色草稿并恢复存档。", category: "按目标找指南", contentType: "how-to", audience: "中世纪卡片玩家", estimatedMinutes: 6, keywords: ["中世纪", "铁匠", "时代", "技艺", "命运", "此生", "存档"], relatedRoutes: ["/rpg", "/rpg/medieval"], verifiedCommit: "4627d73d", verifiedDate: "2026-11-13", content: playMedievalCard, nextSlug: "play-rpg-cards" },
   { slug: "play-ai-girls-card", title: "AI 娘：创建主角与开始故事", summary: "浏览八位角色，创建开局档案，控制音乐并带入独立聊天。", category: "按目标找指南", contentType: "how-to", audience: "AI 娘卡片玩家", estimatedMinutes: 4, keywords: ["RPG", "AI 娘", "主角创建", "背景音乐", "档案", "开局"], relatedRoutes: ["/rpg", "/rpg/ai-girls"], verifiedCommit: "f000baf8", verifiedDate: "2026-11-13", content: playAiGirlsCard, nextSlug: "play-rpg-cards" },
   { slug: "play-elderland-card", title: "在艾尔德兰制作角色并开始故事", summary: "浏览西幻地图、预览角色卡，将档案带入聊天并保留存档。", category: "按目标找指南", contentType: "tutorial", audience: "西幻大世界玩家", estimatedMinutes: 5, keywords: ["RPG", "西幻", "艾尔德兰", "地图", "角色", "存档"], relatedRoutes: ["/rpg", "/rpg/elderland"], verifiedCommit: "4627d73d", verifiedDate: "2026-11-13", content: playElderlandCard, nextSlug: "choose-rpg-model" },
@@ -649,6 +651,7 @@ export const helpSections: HelpSection[] = [
       { id: "rag-content-contract", title: "看懂 RAG 分块与历史只读限制", summary: "区分估算 Token、诊断候选与已激活版本回滚。", to: "/help/understand-rag-content-contract", keywords: ["RAG", "估算 Token", "内容合同", "历史只读", "回滚"] },
       { id: "god-guide", title: "游玩神临凡尘与使用插件", summary: "填写天书并核对共享插件流程。", to: "/help/play-god-card", keywords: ["RPG", "神临凡尘", "天书", "离线"] },
       { id: "elderland-guide", title: "在艾尔德兰制作角色并开始故事", summary: "查看地图、预览角色并带入聊天草稿。", to: "/help/play-elderland-card", keywords: ["西幻", "艾尔德兰", "角色", "存档"] },
+      { id: "modern-life-guide", title: "现代超真实人生：自建人物并继续故事", summary: "核对世界、人物关系和开局草稿，恢复已保存的回合。", to: "/help/play-modern-life-card", keywords: ["现代超真实人生", "自建 NPC", "草稿", "存档"] },
       { id: "medieval-guide", title: "中世纪：创建角色并恢复故事", summary: "核对时代、职业、天赋与聊天草稿。", to: "/help/play-medieval-card", keywords: ["中世纪", "此生", "铁匠", "存档"] },
       { id: "ai-girls-guide", title: "AI 娘：创建主角与开始故事", summary: "浏览角色、控制音乐，并把主角档案带入聊天。", to: "/help/play-ai-girls-card", keywords: ["AI 娘", "音乐", "主角创建"] },
       { id: "harry-potter-guide", title: "制作霍格沃茨角色并开始聊天", summary: "核对角色、魔杖、天赋与聊天草稿。", to: "/help/play-harry-potter-card", keywords: ["哈利波特", "霍格沃茨", "魔杖"] },

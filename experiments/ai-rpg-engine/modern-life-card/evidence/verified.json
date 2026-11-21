@@ -1,0 +1,49 @@
+{
+  "turns": [
+    {
+      "turn": 1,
+      "runId": "chatrun_dfd12c5f2c134a99a03289ecba936c8f",
+      "tokens": {
+        "prompt_tokens": 8660,
+        "completion_tokens": 7174,
+        "total_tokens": 15834
+      },
+      "currentInputSha256": "c9aa75f8e3dffebcf77b25be64a39e86f453103007554042d283d2c24dfc03be",
+      "responseSha256": "4acf71af3b362497f7bf583a8339ba246ac0de3ae97cc4e722690590d83dd62e",
+      "chars": 8264,
+      "http": 200,
+      "phase": "before"
+    },
+    {
+      "turn": 2,
+      "runId": "chatrun_603841ae15c244efbb339b67df4b0254",
+      "tokens": {
+        "prompt_tokens": 15105,
+        "completion_tokens": 5886,
+        "total_tokens": 20991
+      },
+      "currentInputSha256": "3fe311c4a122bb3c53b8981026c38a85ac319da8aeeefe704960a8b7baab0fed",
+      "responseSha256": "df02db031f5854e4e5a3133996446452c234f500ee80c2d4212f4d82b4ca68d6",
+      "chars": 5181,
+      "http": 200,
+      "phase": "before"
+    },
+    {
+      "turn": 3,
+      "runId": "chatrun_7fe6964a0d6c4b808b9422a1370fd65d",
+      "tokens": {
+        "prompt_tokens": 19182,
+        "completion_tokens": 6651,
+        "total_tokens": 25833
+      },
+      "currentInputSha256": "d6ee7c019df1ee7c4d475afe4291f5984fd8b913e1661f1bbf37aceb1bbaa54e",
+      "responseSha256": "9b6738f2442389c4e88741af3a9bdcb2c3565b0d771b863a6290d3d535011da8",
+      "chars": 8471,
+      "http": 200,
+      "phase": "after"
+    }
+  ],
+  "sameSaveAfterRestart": true,
+  "allMessagesExact": true,
+  "budgetUsed": 3
+}

@@ -4,6 +4,7 @@ import RpgShell from './RpgShell';
 import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-replica/src/presentation';
 
 const titles={
+  'modern-life':'现代超真实人生',
   doupo:'斗破苍穹！',
   daomu:'盗墓笔记大世界',
   naruto:'火影大世界',
