@@ -1,3 +1,4 @@
+import {assembleCenturyTurn,indexedPrompt,originalIndex} from './worldbook.mjs';
 import {beforeSpeechDescriptor} from '../studio/speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -17,6 +18,8 @@ export async function createMedievalHost(directory,control,{cardId,name,system,a
   if(cardId!=='medieval')throw fail('CONTROL_CARD_INCOMPATIBLE');
   const mode=control?'real':'offline',systemHash=sha(system);
   const paths=['host.mjs','assembly.mjs','resources/system.txt','offline-store.mjs','transport/controlled-provider.mjs','transport/memory-budget.mjs','transport/memory-task-provider.mjs'];
+  const legacyPaths=[...paths];
+  paths.push('worldbook.mjs','resources/century-worldbook.json','resources/century-supplement.json');
   const artifacts=async()=>Object.fromEntries(await Promise.all(paths.map(async p=>[p,sha(await readFile(new URL(p,import.meta.url)))])));
   const transportArtifacts=await artifacts();
   const params={temperature:0.7,top_p:0.8,max_tokens:16384};
@@ -29,9 +32,19 @@ export async function createMedievalHost(directory,control,{cardId,name,system,a
   if(!selected)throw fail('CARD_MODEL_UNAVAILABLE');
   const initial=modelPolicy.controlledChoice(selected),state=createCardState(modelPolicy);
   const context=createCardContext({cardId,state,assemble(session,input){
+    const version=session.runtime.descriptor.centuryWorldbook;
+    if(version===1||version===2)return assembleCenturyTurn(session,input,version);
     return {current:input,messages:[{role:'system',content:system},...session.history,{role:'user',content:input}]};
   }});
-  const descriptor={format:5,cardId,mode,model:initial,systemHash,transportArtifacts,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const descriptor={format:5,cardId,mode,model:initial,systemHash:sha(indexedPrompt),centuryWorldbook:2,transportArtifacts,adapterHash:transportArtifacts['host.mjs']};
+  // Historical bindings retain the complete author prompt and their exact transport.
+  const previousHostHash='f563e2dd59c2c39ccb25118ab6a0737239ff6b74a90c375c0a0e4c97221e5ca0';
+  const previousArtifacts=Object.fromEntries(legacyPaths.map(path=>[path,path==='host.mjs'?previousHostHash:transportArtifacts[path]]));
+  const previous={format:5,cardId,mode,model:initial,systemHash,transportArtifacts:previousArtifacts,adapterHash:previousHostHash};
+  // The four-book trial retains its original runtime binding and prompt.
+  const firstTrialHost='758a11ed38f7b6c9127819e1ed7a56f40ef282f5ed051e1c8eb2e47d2de51bc3';
+  const firstTrialArtifacts={...previousArtifacts,'host.mjs':firstTrialHost,'worldbook.mjs':'3a028a1d3005d700fd05f16769f70effe15d57653b86adaca5ee9805258de816','resources/century-worldbook.json':transportArtifacts['resources/century-worldbook.json']};
+  const firstTrial={...previous,centuryWorldbook:1,systemHash:sha(originalIndex),adapterHash:firstTrialHost,transportArtifacts:firstTrialArtifacts};
   const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){
     if(canonical(await artifacts())!==canonical(transportArtifacts))throw fail('RUNTIME_CHANGED');
   }};
@@ -40,7 +53,7 @@ export async function createMedievalHost(directory,control,{cardId,name,system,a
     // A catalog refresh may change only its revision. Sending still requires the
     // current exact selection; reading a reviewed save does not grant dispatch.
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return [descriptor,beforeSpeechDescriptor(descriptor,'medieval-card/host.mjs')].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
+    return [descriptor,firstTrial,previous,beforeSpeechDescriptor(previous,'medieval-card/host.mjs')].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){
