@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>美恐宇宙档案构建系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+@import url('./fonts.css');
+:root{
+  --blood-red:#2C2C2E;
+  --blood-deep:#1C1C1E;
+  --papal-gold:#8E8E93;
+  --papal-deep:#636366;
+  --ink-coffee:#1D1D1F;
+  --ivory-paper:#F5F5F7;
+  --parchment:#FAFAFC;
+  --dark-block:#2C2C2E;
+  --warning-blood:#48484A;
+  --mist-cyan:#636366;
+  --text-main:#1D1D1F;
+  --text-light:#48484A;
+  --text-mute:#86868B;
+  --mythic:#B8924A;
+  --legendary:#3A3A3C;
+  --epic:#6E6E73;
+  --rare:#AEAEB2;
+  --common:#C7C7CB;
+}
+body{
+  font-family:'Noto Serif SC',serif;
+  background-color:#1D1D1F;
+  background-image:url('./background.jpg');
+  background-size:cover;
+  background-position:center;
+  background-attachment:fixed;
+  color:var(--text-main);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+.main-container{min-height:100vh;position:relative;}
+.main-container::before{content:none;}
+.content-wrapper{position:relative;z-index:2;max-width:1000px;margin:0 auto;padding:20px;padding-bottom:80px;}
+.main-title{text-align:center;padding:40px 24px 32px;background:linear-gradient(135deg,rgba(232,223,200,0.97),rgba(244,237,216,0.95));border:3px double var(--papal-gold);margin-bottom:20px;position:relative;box-shadow:0 8px 32px rgba(0,0,0,0.6),inset 0 0 60px rgba(184,147,90,0.12),inset 0 0 0 6px rgba(139,38,53,0.08);}
+.main-title::before,.main-title::after{content:'✞';position:absolute;top:50%;transform:translateY(-50%);font-size:22px;color:var(--blood-red);opacity:.6;}
+.main-title::before{left:24px;}
+.main-title::after{right:24px;}
+.main-title h1{font-family:'Cinzel','Noto Serif SC',serif;font-size:clamp(24px,4.6vw,40px);font-weight:900;letter-spacing:6px;color:var(--blood-red);text-shadow:2px 2px 0 rgba(184,147,90,0.3),3px 3px 8px rgba(0,0,0,0.15);margin-bottom:10px;}
+.main-title .subtitle{font-family:'Cinzel',serif;font-size:12px;letter-spacing:6px;color:var(--ink-coffee);font-weight:400;opacity:.75;margin-bottom:14px;}
+.main-title .seal{display:inline-block;padding:7px 20px;border:2px solid var(--blood-red);color:var(--blood-red);font-size:13px;letter-spacing:4px;font-weight:700;background:rgba(139,38,53,0.05);}
+.tab-nav{display:flex;gap:0;margin-bottom:20px;overflow-x:auto;background:rgba(58,46,40,0.95);border:2px solid var(--papal-gold);box-shadow:0 4px 20px rgba(0,0,0,0.5);}
+.tab-nav::-webkit-scrollbar{height:6px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--papal-gold);}
+.tab-btn{flex:1;min-width:100px;padding:15px 8px;background:transparent;border:none;border-right:1px solid rgba(184,147,90,0.25);font-family:'Noto Serif SC',serif;font-size:clamp(11px,2vw,13px);font-weight:700;cursor:pointer;transition:all .25s;white-space:nowrap;color:var(--parchment);position:relative;letter-spacing:1px;}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(139,38,53,0.3);}
+.tab-btn.active{background:linear-gradient(180deg,var(--blood-red),var(--blood-deep));color:var(--parchment);box-shadow:inset 0 -4px 0 var(--papal-gold);text-shadow:1px 1px 3px rgba(0,0,0,0.5);}
+.tab-btn.completed::after{content:'✓';position:absolute;top:5px;right:6px;font-size:11px;color:var(--papal-gold);font-weight:900;}
+.tab-content{display:none;background:linear-gradient(135deg,rgba(244,237,216,0.97),rgba(232,223,200,0.93));border:2px solid var(--papal-gold);padding:30px;box-shadow:0 6px 24px rgba(0,0,0,0.55),inset 0 0 50px rgba(184,147,90,0.08);position:relative;}
+.tab-content.active{display:block;animation:slideIn .35s ease;}
+.tab-content::before,.tab-content::after{content:'';position:absolute;width:36px;height:36px;}
+.tab-content::before{top:10px;right:10px;border-top:3px solid var(--blood-red);border-right:3px solid var(--blood-red);}
+.tab-content::after{bottom:10px;left:10px;border-bottom:3px solid var(--blood-red);border-left:3px solid var(--blood-red);}
+@keyframes slideIn{from{opacity:0;transform:translateY(15px);}to{opacity:1;transform:translateY(0);}}
+.section-title{font-family:'Cinzel','Noto Serif SC',serif;font-size:clamp(20px,3.8vw,28px);font-weight:900;margin-bottom:24px;padding-bottom:12px;border-bottom:3px double var(--blood-red);display:inline-block;color:var(--ink-coffee);letter-spacing:3px;position:relative;}
+.section-title::after{content:'❦';position:absolute;right:-28px;top:2px;color:var(--blood-red);font-size:16px;}
+.intro-box,.info-box,.chapter-card,.preview-box{background:linear-gradient(135deg,rgba(255,252,245,0.96),rgba(244,237,216,0.94));border:2px solid rgba(58,46,40,0.25);position:relative;box-shadow:0 3px 14px rgba(0,0,0,0.2);}
+.intro-box{padding:26px;margin-bottom:22px;line-height:2.05;color:var(--text-light);font-size:15px;border-left:5px solid var(--blood-red);}
+.intro-box::before{content:'灵质纪元';position:absolute;top:-13px;left:20px;background:var(--ivory-paper);padding:2px 12px;font-size:12px;color:var(--blood-red);letter-spacing:3px;border:2px solid var(--blood-red);font-weight:700;font-family:'Cinzel',serif;}
+.intro-box p{margin-bottom:12px;color:var(--text-main);}
+.intro-box .highlight{color:var(--blood-red);font-weight:700;}
+.intro-box .question{margin-top:18px;font-size:18px;font-weight:900;color:var(--ink-coffee);letter-spacing:1px;}
+.info-box{padding:20px;margin-bottom:18px;border-left:5px solid var(--papal-gold);}
+.info-box::before{content:'档案';position:absolute;top:-13px;left:20px;background:var(--ivory-paper);padding:2px 12px;font-size:12px;color:var(--papal-gold);border:2px solid var(--papal-gold);font-weight:700;letter-spacing:2px;font-family:'Cinzel',serif;}
+.info-box h3{font-size:16px;margin-bottom:12px;color:var(--blood-red);font-weight:700;letter-spacing:1px;}
+.info-box p,.info-box li{font-size:14px;line-height:1.9;color:var(--text-light);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:22px;position:relative;margin-bottom:8px;}
+.info-box li::before{content:'✧';position:absolute;left:0;color:var(--papal-gold);font-size:13px;}
+.info-box li strong{color:var(--blood-red);}
+.library-controls{display:grid;grid-template-columns:1fr auto;gap:12px;margin-bottom:18px;align-items:center;}
+.search-box{padding:13px 18px;border:2px solid var(--papal-gold);background:rgba(255,252,245,0.98);font-family:inherit;font-size:14px;color:var(--text-main);}
+.search-box:focus{outline:none;box-shadow:0 0 0 3px rgba(184,147,90,0.3);}
+.region-filter{padding:13px 18px;border:2px solid var(--papal-gold);background:rgba(255,252,245,0.98);font-family:inherit;font-size:14px;cursor:pointer;color:var(--text-main);}
+.library-count{font-size:13px;color:var(--text-mute);margin-bottom:12px;padding-left:6px;font-style:italic;}
+.work-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;max-height:640px;overflow-y:auto;padding:6px;background:rgba(232,223,200,0.5);border:1px solid rgba(184,147,90,0.3);}
+.work-grid::-webkit-scrollbar{width:8px;}
+.work-grid::-webkit-scrollbar-thumb{background:var(--papal-gold);}
+.work-card{padding:16px;background:linear-gradient(135deg,rgba(255,252,245,0.97),rgba(244,237,216,0.95));border:2px solid rgba(58,46,40,0.25);border-left:4px solid var(--papal-gold);cursor:pointer;transition:all .22s;}
+.work-card:hover{transform:translateY(-3px);box-shadow:0 6px 18px rgba(139,38,53,0.35);border-left-color:var(--blood-red);}
+.work-card h4{font-size:15px;color:var(--ink-coffee);font-weight:900;margin-bottom:6px;}
+.work-card .work-region{font-size:11px;color:var(--blood-red);letter-spacing:1px;font-weight:700;margin-bottom:4px;}
+.work-card .work-year{font-size:12px;color:var(--text-mute);margin-bottom:8px;}
+.work-card .work-intro{font-size:12px;color:var(--text-light);line-height:1.7;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(15,10,8,0.85);z-index:100;align-items:center;justify-content:center;padding:20px;animation:fadeIn .25s;}
+.modal-overlay.visible{display:flex;}
+@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+.modal-box{background:linear-gradient(135deg,var(--parchment),var(--ivory-paper));border:3px double var(--papal-gold);max-width:640px;width:100%;max-height:85vh;overflow-y:auto;padding:32px;position:relative;box-shadow:0 10px 40px rgba(139,38,53,0.4);}
+.modal-box::-webkit-scrollbar{width:8px;}
+.modal-box::-webkit-scrollbar-thumb{background:var(--papal-gold);}
+.modal-close{position:absolute;top:14px;right:14px;width:36px;height:36px;border:2px solid var(--blood-red);background:transparent;color:var(--blood-red);font-size:20px;cursor:pointer;font-family:inherit;transition:all .2s;}
+.modal-close:hover{background:var(--blood-red);color:var(--parchment);}
+.modal-title{font-family:'Cinzel','Noto Serif SC',serif;font-size:22px;color:var(--blood-red);margin-bottom:8px;padding-right:40px;letter-spacing:2px;font-weight:900;}
+.modal-meta{font-size:12px;color:var(--text-mute);margin-bottom:16px;padding-bottom:12px;border-bottom:1px dashed var(--papal-gold);letter-spacing:1px;}
+.modal-meta span{margin-right:16px;}
+.modal-meta strong{color:var(--blood-red);}
+.modal-content{font-size:14px;line-height:2;color:var(--text-main);white-space:pre-wrap;}
+.mode-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px;}
+@media(max-width:640px){.mode-grid{grid-template-columns:1fr;}}
+.mode-card{padding:28px;background:linear-gradient(135deg,rgba(255,252,245,0.97),rgba(244,237,216,0.94));border:2px solid rgba(58,46,40,0.25);border-top:6px solid var(--papal-gold);cursor:pointer;transition:all .28s;position:relative;}
+.mode-card:hover{transform:translateY(-4px);box-shadow:0 8px 24px rgba(139,38,53,0.35);}
+.mode-card.selected{border-color:var(--blood-red);border-top:6px solid var(--blood-red);background:linear-gradient(135deg,rgba(139,38,53,0.06),rgba(184,147,90,0.06));box-shadow:0 6px 20px rgba(139,38,53,0.35);}
+.mode-card h3{font-family:'Cinzel','Noto Serif SC',serif;font-size:20px;color:var(--blood-red);margin-bottom:12px;font-weight:900;letter-spacing:2px;}
+.mode-card p.mode-desc{font-size:13px;line-height:1.9;color:var(--text-light);margin-bottom:14px;}
+.mode-card ul{list-style:none;padding-left:0;}
+.mode-card li{padding-left:16px;position:relative;font-size:13px;color:var(--text-main);margin-bottom:6px;line-height:1.7;}
+.mode-card li::before{content:'▸';position:absolute;left:0;color:var(--papal-gold);}
+.form-section{margin-bottom:26px;}
+.form-section h3{font-family:'Noto Serif SC',serif;font-size:17px;margin-bottom:16px;padding-left:14px;border-left:5px solid var(--blood-red);color:var(--ink-coffee);font-weight:900;letter-spacing:2px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:16px;}
+.form-group{margin-bottom:16px;}
+.form-group label{display:block;font-size:14px;font-weight:700;margin-bottom:8px;color:var(--ink-coffee);letter-spacing:1px;}
+.form-group input[type="text"],.form-group input[type="number"],.form-group select,.form-group textarea{width:100%;padding:13px;border:2px solid rgba(58,46,40,0.3);background:rgba(255,252,245,0.98);font-family:inherit;font-size:14px;transition:all .25s;color:var(--text-main);}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;box-shadow:0 0 0 3px rgba(184,147,90,0.3);border-color:var(--papal-gold);}
+.form-group textarea{min-height:100px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.form-group .hint-text{font-size:12px;color:var(--text-mute);margin-top:6px;font-style:italic;}
+.radio-group{display:flex;gap:12px;flex-wrap:wrap;}
+.radio-group label{display:flex;align-items:center;gap:8px;padding:11px 20px;background:rgba(255,252,245,0.98);border:2px solid rgba(58,46,40,0.25);cursor:pointer;font-size:14px;transition:all .25s;font-weight:600;}
+.radio-group label:hover{background:rgba(184,147,90,0.15);}
+.radio-group input{accent-color:var(--blood-red);width:18px;height:18px;}
+.radio-group input:checked+span{font-weight:900;color:var(--blood-red);}
+.work-picker{display:flex;gap:10px;align-items:stretch;}
+.work-picker select{flex:1;}
+.work-picker .browse-btn{padding:0 18px;background:linear-gradient(180deg,var(--papal-gold),var(--papal-deep));color:var(--parchment);border:2px solid var(--papal-deep);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;letter-spacing:1px;white-space:nowrap;transition:all .25s;}
+.work-picker .browse-btn:hover{background:linear-gradient(180deg,var(--blood-red),var(--blood-deep));border-color:var(--blood-deep);}
+.selected-work-tag{margin-top:10px;padding:10px 14px;background:rgba(139,38,53,0.08);border-left:4px solid var(--blood-red);font-size:13px;color:var(--ink-coffee);display:none;}
+.selected-work-tag.visible{display:block;}
+.selected-work-tag strong{color:var(--blood-red);}
+.roll-section{text-align:center;padding:20px;}
+.roll-btn{padding:20px 50px;font-size:19px;font-weight:900;font-family:'Cinzel','Noto Serif SC',serif;background:linear-gradient(180deg,var(--blood-red),var(--blood-deep));color:var(--parchment);border:3px solid var(--papal-gold);cursor:pointer;transition:all .3s;box-shadow:0 6px 24px rgba(139,38,53,0.5);letter-spacing:4px;text-shadow:2px 2px 4px rgba(0,0,0,0.4);}
+.roll-btn:hover{transform:translateY(-4px) scale(1.02);box-shadow:0 12px 32px rgba(139,38,53,0.65);}
+.roll-btn:active{transform:translateY(2px);}
+.roll-btn.rolling{animation:shake .45s infinite;}
+@keyframes shake{0%,100%{transform:translateX(0);}25%{transform:translateX(-5px) rotate(-2deg);}75%{transform:translateX(5px) rotate(2deg);}}
+.roll-pool{display:none;margin-top:26px;}
+.roll-pool.visible{display:block;}
+.roll-pool h3{font-size:17px;margin-bottom:12px;color:var(--ink-coffee);font-weight:900;letter-spacing:1px;}
+.roll-count{font-size:14px;color:var(--text-light);margin-bottom:14px;}
+.roll-count strong{color:var(--blood-red);}
+.roll-list{display:grid;gap:12px;max-height:520px;overflow-y:auto;padding:12px;background:rgba(232,223,200,0.6);border:2px solid rgba(184,147,90,0.3);}
+.roll-list::-webkit-scrollbar{width:8px;}
+.roll-list::-webkit-scrollbar-thumb{background:var(--papal-gold);}
+.roll-item{display:flex;align-items:flex-start;padding:16px;background:rgba(255,252,245,0.98);border:2px solid var(--common);cursor:pointer;transition:all .22s;text-align:left;border-left:5px solid var(--common);}
+.roll-item:hover{border-color:var(--papal-gold);}
+.roll-item.selected{border-width:3px;border-left-width:6px;box-shadow:0 4px 16px rgba(139,38,53,0.35);}
+.roll-item.mythic{border-color:var(--mythic);border-left-color:var(--mythic);background:linear-gradient(135deg,#FFF5DC,#FFFAF0);box-shadow:0 0 12px rgba(184,147,90,0.25);}
+.roll-item.legendary{border-color:var(--legendary);border-left-color:var(--legendary);background:linear-gradient(135deg,#F5DDD8,#FFF3F0);}
+.roll-item.epic{border-color:var(--epic);border-left-color:var(--epic);background:linear-gradient(135deg,#DFE8EB,#F5FAFB);}
+.roll-item.rare{border-color:var(--rare);border-left-color:var(--rare);background:linear-gradient(135deg,#EDE4D3,#FAF5EB);}
+.roll-item.common{border-color:var(--common);border-left-color:var(--common);}
+.roll-item input{margin-right:14px;margin-top:4px;width:20px;height:20px;accent-color:var(--blood-red);}
+.roll-info{flex:1;}
+.roll-name{font-weight:700;font-size:15px;margin-bottom:6px;display:flex;align-items:center;gap:10px;color:var(--ink-coffee);flex-wrap:wrap;}
+.roll-badge{font-size:11px;padding:3px 10px;border-radius:2px;color:#fff;font-weight:700;letter-spacing:1px;text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.roll-badge.mythic{background:var(--mythic);}
+.roll-badge.legendary{background:var(--legendary);}
+.roll-badge.epic{background:var(--epic);}
+.roll-badge.rare{background:var(--rare);}
+.roll-badge.common{background:var(--common);}
+.roll-desc{font-size:13px;color:var(--text-main);line-height:1.7;}
+.roll-effect{font-size:13px;color:var(--blood-red);margin-top:6px;font-style:italic;font-weight:600;}
+.custom-section{margin-top:22px;padding:22px;background:rgba(232,223,200,0.7);border:2px solid rgba(184,147,90,0.3);border-left:5px solid var(--papal-gold);}
+.custom-section h4{font-size:15px;margin-bottom:14px;color:var(--ink-coffee);font-weight:700;letter-spacing:1px;}
+.custom-list{display:flex;flex-direction:column;gap:14px;}
+.custom-item{padding:16px;background:rgba(255,252,245,0.98);border:2px solid rgba(58,46,40,0.2);border-left:4px solid var(--papal-gold);position:relative;}
+.custom-item .delete-btn{position:absolute;top:12px;right:12px;width:32px;height:32px;border:none;background:var(--blood-red);color:var(--parchment);font-size:18px;cursor:pointer;border-radius:50%;transition:all .25s;}
+.custom-item .delete-btn:hover{background:var(--blood-deep);transform:scale(1.1) rotate(90deg);}
+.custom-item input,.custom-item textarea{width:100%;padding:11px;border:2px solid rgba(58,46,40,0.28);background:rgba(255,255,255,0.99);font-family:inherit;font-size:14px;margin-bottom:10px;color:var(--text-main);}
+.custom-item textarea{min-height:65px;resize:vertical;margin-bottom:0;line-height:1.6;}
+.add-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:15px;background:rgba(255,252,245,0.98);border:3px dashed rgba(184,147,90,0.55);font-family:inherit;font-size:15px;font-weight:700;color:var(--papal-gold);cursor:pointer;transition:all .25s;letter-spacing:1px;}
+.add-btn:hover{background:rgba(184,147,90,0.08);border-color:var(--blood-red);color:var(--blood-red);}
+.add-btn.disabled{opacity:.5;cursor:not-allowed;}
+.limit-hint{font-size:13px;color:var(--text-mute);text-align:center;margin-top:10px;}
+.preview-section{padding:10px 0;}
+.preview-box{padding:24px;font-size:13px;line-height:2;white-space:pre-wrap;word-break:break-word;max-height:560px;overflow-y:auto;margin-bottom:20px;font-family:'Courier New',monospace;background:rgba(255,252,245,0.98);border:2px solid var(--papal-gold);border-left:5px solid var(--blood-red);color:var(--text-main);}
+.preview-box::-webkit-scrollbar{width:8px;}
+.preview-box::-webkit-scrollbar-thumb{background:var(--papal-gold);}
+.copy-btn{display:block;width:100%;max-width:320px;margin:0 auto;padding:16px 36px;font-size:18px;font-weight:900;font-family:'Cinzel','Noto Serif SC',serif;background:linear-gradient(180deg,var(--blood-red),var(--blood-deep));color:var(--parchment);border:2px solid var(--papal-gold);cursor:pointer;transition:all .3s;box-shadow:0 5px 20px rgba(139,38,53,0.5);letter-spacing:3px;}
+.copy-btn:hover{transform:translateY(-3px);box-shadow:0 10px 28px rgba(139,38,53,0.65);}
+.nav-buttons{display:flex;justify-content:space-between;margin-top:30px;padding-top:20px;border-top:2px dashed rgba(184,147,90,0.35);gap:12px;}
+.nav-btn{padding:14px 28px;font-size:14px;font-weight:700;font-family:inherit;border:2px solid rgba(58,46,40,0.3);cursor:pointer;transition:all .3s;letter-spacing:2px;}
+.nav-btn.prev{background:rgba(255,252,245,0.98);color:var(--text-main);}
+.nav-btn.next{background:linear-gradient(180deg,var(--papal-gold),var(--papal-deep));color:var(--parchment);border-color:var(--papal-deep);box-shadow:0 3px 12px rgba(184,147,90,0.4);text-shadow:1px 1px 2px rgba(0,0,0,0.3);}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn.prev:hover{border-color:var(--papal-gold);}
+.nav-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+footer{text-align:center;padding:20px;background:rgba(15,10,8,0.92);color:var(--papal-gold);font-size:12px;position:relative;z-index:2;letter-spacing:3px;font-family:'Cinzel',serif;border-top:1px solid rgba(184,147,90,0.3);}
+@media(max-width:640px){
+  .content-wrapper{padding:10px;}
+  .tab-content{padding:18px;}
+  .main-title{padding:26px 14px 22px;}
+  .main-title::before,.main-title::after{display:none;}
+  .form-row{grid-template-columns:1fr;}
+  .work-grid{grid-template-columns:1fr;}
+  .nav-buttons{flex-direction:column;}
+  .nav-btn{width:100%;}
+  .library-controls{grid-template-columns:1fr;}
+  .work-picker{flex-direction:column;}
+}
+[hidden]{display:none!important}
+#enter-chat{margin-top:12px}
+</style>
+</head>
+<body>
+<div class="main-container">
+  <div class="content-wrapper">
+    <div class="main-title">
+      <h1>美恐宇宙档案构建系统</h1>
+      <div class="subtitle">AMERICAN HORROR MULTIVERSE PROFILE BUILDER</div>
+      <div class="seal">上帝已死 · 众神隐退</div>
+    </div>
+    <div class="tab-nav">
+      <button class="tab-btn active" data-tab="intro">📜 序章</button>
+      <button class="tab-btn" data-tab="mode">🔮 模式</button>
+      <button class="tab-btn" data-tab="library">📚 档案库</button>
+      <button class="tab-btn" data-tab="character">🎭 角色</button>
+      <button class="tab-btn" data-tab="destiny">🎲 命数</button>
+      <button class="tab-btn" data-tab="talent">✨ 天赋</button>
+      <button class="tab-btn" data-tab="equipment">⚔️ 装备</button>
+      <button class="tab-btn" data-tab="preview">📋 档案</button>
+    </div>
+    <div class="tab-content active" id="tab-intro">
+      <h2 class="section-title">恐怖纪元</h2>
+      <div class="intro-box">
+        <p>2018年，我们称之为 <span class="highlight">灵质灾变元年</span>。</p>
+        <p>上帝已死，天堂封门，地狱失控。</p>
+        <p>维系超自然平衡的规则崩坏，游离的 <span class="highlight">灵质</span>——所有超自然力量的唯一本源——开始大规模泄露到人间。</p>
+        <p style="margin-top:14px;">鬼魂在凶宅里徘徊，恶魔在契约中低语；</p>
+        <p>女巫在南方沼泽里熬煮秘药，猎魔人在66号公路上加满油箱；</p>
+        <p>吸血鬼学会喝人工血液，不死杀人狂依旧在万圣节游荡。</p>
+        <p style="margin-top:14px;">你可以是 <span class="highlight">斜杠人</span>——神父兼猎魔人，女巫兼灵媒，恶魔崇拜者兼黑巫师。</p>
+        <p>没有职业限制，活下来就是本事。</p>
+        <p class="question">你，是这场灾变中的哪一个？</p>
+      </div>
+      <div class="info-box">
+        <h3>「实力等级（0-8 阶通用）」</h3>
+        <ul>
+          <li><strong>0 阶 · 普通人</strong>：无超自然感知，正常人类水平</li>
+          <li><strong>1 阶 · 入门</strong>：见习猎魔人 / 实习神父 / 入门女巫，可感知超自然，处理低级游魂</li>
+          <li><strong>2 阶 · 正式</strong>：全职猎魔人 / 教区神父，可独立处理凶宅、低级异类</li>
+          <li><strong>3 阶 · 资深</strong>：资深猎魔人 / 主教，可破解中等诅咒、驱逐普通恶魔</li>
+          <li><strong>4 阶 · 顶尖</strong>：王牌猎魔人 / 大主教，可处理大范围诅咒、中阶恶魔</li>
+          <li><strong>5 阶 · 传奇</strong>：圈内传说人物，可对抗大恶魔、异神分身，小范围扭曲现实</li>
+          <li><strong>6 阶 · 灾厄</strong>：枢机主教 / 地狱大公 / 古神眷属，可引发城市级灾难，只能封印</li>
+          <li><strong>7 阶 · 权能</strong>：封圣圣徒 / 地狱王子 / 高阶天使，可大范围改写现实规则</li>
+          <li><strong>8 阶 · 规则</strong>：炽天使 / 地狱主君 / 世界本源，规则本身，无法对抗只能规避</li>
+        </ul>
+      </div>
+      <div class="info-box">
+        <h3>「核心规则」</h3>
+        <ul>
+          <li><strong>灵质唯一本源</strong>：教会圣力、女巫巫术、恶魔之力、鬼魂怨念，甚至梅根、隐形人这类科技异常，本质都是灵质的不同形态</li>
+          <li><strong>力量不可强融</strong>：对立体系无法兼容，强练必爆灵魂；特殊血脉可兼容但必付代价</li>
+          <li><strong>意志决定上限</strong>：越恐惧越易出事，慌神的资深者不如冷静的普通人</li>
+          <li><strong>没有白嫖的力量</strong>：黑魔法要献祭，圣力要守戒，速成必付人性、寿命、灵魂</li>
+          <li><strong>时间锚定 2018</strong>：所有 IP 正篇平移至灵质泄露后启动，前传起源作为灾前暗线</li>
+        </ul>
+      </div>
+      <div class="info-box">
+        <h3>「战斗铁则」</h3>
+        <ul>
+          <li><strong>情报就是命</strong>：90% 的人死在不知道弱点上</li>
+          <li><strong>没有杀不死的东西</strong>：除 8 阶规则级，所有目标都有解法</li>
+          <li><strong>热武器随阶递减</strong>：4 阶以上和滋水没区别，附魔武器才是王道</li>
+          <li><strong>恐惧先结算</strong>：慌了神游魂都能上你的身</li>
+        </ul>
+      </div>
+      <div class="info-box">
+        <h3>「构建流程」</h3>
+        <ul>
+          <li>第一步：选择 <strong>模式</strong>——融合宇宙（跨IP大生态）或单作品宇宙（独立闭环）</li>
+          <li>第二步：翻阅 <strong>作品档案库</strong>——了解各部作品的故事底色（可跳过）</li>
+          <li>第三步：<strong>创建角色</strong>——血脉/种族、身份、所在地、目标经历作品（作品可留空）</li>
+          <li>第四步：抽取 <strong>命数</strong>——决定你的际遇、羁绊、跨IP因果</li>
+          <li>第五步：抽取 <strong>天赋</strong>——决定你的先天异能与血脉觉醒</li>
+          <li>第六步：抽取 <strong>装备</strong>——决定你的起手道具与信物</li>
+          <li>第七步：生成完整个人档案</li>
+        </ul>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" disabled>← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">踏入灾变 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-mode">
+      <h2 class="section-title">世界模式选择</h2>
+      <div class="info-box">
+        <h3>「说明」</h3>
+        <p>选择你要进入的世界形态。两种模式共享 9 阶实力体系与核心规则，但世界结构、势力网络、剧情走向完全不同。选好模式后再去翻档案库对照效果最佳。</p>
+      </div>
+      <div class="mode-grid">
+        <div class="mode-card" data-mode="fusion" onclick="selectMode('fusion')">
+          <h3>🌌 融合宇宙</h3>
+          <p class="mode-desc">所有恐怖 IP 共存于同一个美国大陆，2018 灵质灾变后一起浮出水面。安娜贝尔和杰森可能在同一个州出没，康斯坦丁能接沃伦夫妇的电话。</p>
+          <ul>
+            <li>300+ 部作品共享世界观</li>
+            <li>六大地理分区 + 通用 + 海外</li>
+            <li>三层势力体系（民间/地区/顶层）</li>
+            <li>美元经济 + 江湖规矩</li>
+            <li>可跨 IP 遭遇、跨作品剧情</li>
+          </ul>
+        </div>
+        <div class="mode-card" data-mode="single" onclick="selectMode('single')">
+          <h3>🎬 单作品宇宙</h3>
+          <p class="mode-desc">一次锁死一部作品的封闭世界。进了《闪灵》就锁在全景酒店的规则里，不会跨戏。系列作品自动续作，全套走完才回到自选状态。</p>
+          <ul>
+            <li>单作品独立闭环</li>
+            <li>剧情/人物/怪物 100% 遵循原作</li>
+            <li>同系列自动续作，保留进度</li>
+            <li>可随机开局或指定作品</li>
+            <li>手动喊停才能切换/开融合</li>
+          </ul>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-library">
+      <h2 class="section-title">作品档案库</h2>
+      <div class="info-box">
+        <h3>「使用说明」</h3>
+        <p><strong>单作品宇宙必选。融合宇宙本步骤可跳过，可以由AI进行故事剧情分配各种作品。也可以选择作品进行初始剧情。不选则是有剧情分配。</strong>档案库仅供翻阅参考，帮助你了解各部作品的故事底色与调性。若你已熟悉这些作品，或不打算指定具体经历的剧情，可以直接进入下一步。实际的作品选择在"角色"页进行，那里也允许留空为自由发展。</p>
+        <p style="margin-top:10px;">可通过搜索栏输入关键词、或用地区筛选浏览。点击卡片查看详细介绍，看中某部作品可直接"选为目标作品"锁定。</p>
+      </div>
+      <div class="library-controls">
+        <input type="text" class="search-box" id="lib-search" placeholder="🔍 输入作品名称、关键词……" oninput="filterWorks()">
+        <select class="region-filter" id="lib-region" onchange="filterWorks()">
+          <option value="all">全部地区</option>
+          <option value="新英格兰">🍁 新英格兰</option>
+          <option value="中大西洋">🏙️ 中大西洋</option>
+          <option value="中西部">🌾 中西部</option>
+          <option value="西南部">🌵 西南部</option>
+          <option value="西海岸">🌴 西海岸</option>
+          <option value="南部">🎷 南部</option>
+          <option value="通用">🩸 通用类</option>
+          <option value="海外">🌍 海外</option>
+        </select>
+      </div>
+      <div class="library-count" id="lib-count">共 0 部作品</div>
+      <div class="work-grid" id="work-grid"></div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-character">
+      <h2 class="section-title">角色档案创建</h2>
+      <div class="info-box" id="mode-display">
+        <h3>📍 当前模式</h3>
+        <p id="current-mode-name">尚未选择模式</p>
+      </div>
+      <div class="form-section">
+        <h3>时空定位</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>当前所在地</label>
+            <select id="char-origin" onchange="handleOriginChange(this.value)">
+              <optgroup label="懒得选择">
+                <option value="无">无</option>
+                <option value="作品所在地">作品所在地</option>
+              </optgroup>
+              <optgroup label="🍁 新英格兰">
+                <option value="缅因州德里镇">缅因州·德里镇</option>
+                <option value="缅因州撒冷镇">缅因州·撒冷镇</option>
+                <option value="缅因州城堡岩">缅因州·城堡岩</option>
+                <option value="马萨诸塞州塞勒姆">马萨诸塞州·塞勒姆</option>
+                <option value="马萨诸塞州波士顿">马萨诸塞州·波士顿</option>
+                <option value="康涅狄格州哈特福德">康涅狄格州·哈特福德</option>
+                <option value="佛蒙特州">佛蒙特州</option>
+                <option value="新罕布什尔州">新罕布什尔州</option>
+              </optgroup>
+              <optgroup label="🏙️ 中大西洋">
+                <option value="纽约市曼哈顿">纽约市·曼哈顿</option>
+                <option value="纽约市布鲁克林">纽约市·布鲁克林</option>
+                <option value="纽约州北部">纽约州·北部</option>
+                <option value="宾夕法尼亚州费城">宾夕法尼亚州·费城</option>
+                <option value="宾夕法尼亚州匹兹堡">宾夕法尼亚州·匹兹堡</option>
+                <option value="华盛顿特区">华盛顿特区</option>
+                <option value="弗吉尼亚州">弗吉尼亚州</option>
+                <option value="马里兰州巴尔的摩">马里兰州·巴尔的摩</option>
+                <option value="西弗吉尼亚州">西弗吉尼亚州</option>
+              </optgroup>
+              <optgroup label="🌾 中西部">
+                <option value="伊利诺伊州芝加哥">伊利诺伊州·芝加哥</option>
+                <option value="伊利诺伊州哈登菲尔德">伊利诺伊州·哈登菲尔德</option>
+                <option value="印第安纳州霍金斯">印第安纳州·霍金斯</option>
+                <option value="俄亥俄州克利夫兰">俄亥俄州·克利夫兰</option>
+                <option value="密歇根州底特律">密歇根州·底特律</option>
+                <option value="威斯康星州">威斯康星州</option>
+                <option value="明尼苏达州">明尼苏达州</option>
+                <option value="爱荷华州">爱荷华州</option>
+                <option value="内布拉斯加州">内布拉斯加州</option>
+                <option value="堪萨斯州">堪萨斯州</option>
+              </optgroup>
+              <optgroup label="🌵 西南部">
+                <option value="德克萨斯州休斯敦">德克萨斯州·休斯敦</option>
+                <option value="德克萨斯州奥斯汀">德克萨斯州·奥斯汀</option>
+                <option value="德州乡下农场">德州·乡下农场</option>
+                <option value="亚利桑那州凤凰城">亚利桑那州·凤凰城</option>
+                <option value="新墨西哥州">新墨西哥州</option>
+                <option value="内华达州拉斯维加斯">内华达州·拉斯维加斯</option>
+                <option value="犹他州">犹他州</option>
+                <option value="科罗拉多州">科罗拉多州</option>
+                <option value="科罗拉多州眺望酒店">科罗拉多州·眺望酒店</option>
+              </optgroup>
+              <optgroup label="🌴 西海岸">
+                <option value="加州洛杉矶">加州·洛杉矶</option>
+                <option value="加州好莱坞">加州·好莱坞</option>
+                <option value="加州旧金山">加州·旧金山</option>
+                <option value="加州圣地亚哥">加州·圣地亚哥</option>
+                <option value="俄勒冈州波特兰">俄勒冈州·波特兰</option>
+                <option value="华盛顿州西雅图">华盛顿州·西雅图</option>
+                <option value="阿拉斯加州">阿拉斯加州</option>
+                <option value="夏威夷州">夏威夷州</option>
+              </optgroup>
+              <optgroup label="🎷 南部">
+                <option value="路易斯安那州新奥尔良">路易斯安那州·新奥尔良</option>
+                <option value="路易斯安那州沼泽区">路易斯安那州·沼泽区</option>
+                <option value="佐治亚州亚特兰大">佐治亚州·亚特兰大</option>
+                <option value="佛罗里达州迈阿密">佛罗里达州·迈阿密</option>
+                <option value="佛罗里达州奥兰多">佛罗里达州·奥兰多</option>
+                <option value="阿拉巴马州">阿拉巴马州</option>
+                <option value="密西西比州">密西西比州</option>
+                <option value="田纳西州纳什维尔">田纳西州·纳什维尔</option>
+                <option value="肯塔基州">肯塔基州</option>
+                <option value="北卡罗来纳州">北卡罗来纳州</option>
+                <option value="南卡罗来纳州">南卡罗来纳州</option>
+                <option value="阿肯色州">阿肯色州</option>
+                <option value="俄克拉荷马州">俄克拉荷马州</option>
+              </optgroup>
+              <optgroup label="🌍 海外">
+                <option value="英国伦敦">英国·伦敦</option>
+                <option value="英国乡村">英国·乡村</option>
+                <option value="意大利罗马梵蒂冈">意大利·罗马梵蒂冈</option>
+                <option value="法国">法国</option>
+                <option value="德国">德国</option>
+                <option value="罗马尼亚">罗马尼亚·特兰西瓦尼亚</option>
+                <option value="西班牙">西班牙</option>
+                <option value="墨西哥">墨西哥</option>
+                <option value="加拿大">加拿大</option>
+              </optgroup>
+              <option value="custom">📝 自定义所在地...</option>
+            </select>
+            <div class="custom-input" id="custom-origin-input">
+              <input type="text" id="custom-origin" placeholder="输入自定义所在地">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>即将经历的作品 <span style="font-size:11px;color:var(--text-mute);">（可选/可自定义）</span></label>
+            <div class="work-picker">
+              <select id="target-work" onchange="handleTargetWorkChange(this.value)">
+                <option value="none">— 无（自由发展）—</option>
+                <option value="custom">📝 自定义剧情设定...</option>
+              </select>
+              <button type="button" class="browse-btn" onclick="openLibraryModal()">📖 浏览</button>
+            </div>
+            <div class="custom-input" id="custom-target-input">
+              <textarea id="custom-target" placeholder="描述你想经历的剧情设定或事件……"></textarea>
+            </div>
+            <div class="selected-work-tag" id="selected-work-tag">
+              已锁定：<strong id="selected-work-name"></strong>
+            </div>
+            <p class="hint-text">所在地与作品可以解耦，例如你可以在纽约但目标是《詹妮弗的肉体》剧情线。</p>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>基础信息</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>姓名</label>
+            <input type="text" id="char-name" placeholder="输入角色姓名">
+          </div>
+          <div class="form-group">
+            <label>年龄</label>
+            <input type="number" id="char-age" placeholder="28" min="1" max="9999">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>性别</label>
+          <div class="radio-group">
+            <label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+            <label><input type="radio" name="gender" value="女"><span>女</span></label>
+            <label><input type="radio" name="gender" value="其他"><span>其他/非二元</span></label>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>血脉 / 种族</h3>
+        <div class="form-group">
+          <label>你的本源</label>
+          <select id="char-race" onchange="handleRaceChange(this.value)">
+            <optgroup label="西方体系">
+              <option value="普通人类">普通人类</option>
+              <option value="恶魔血裔 Cambion">恶魔血裔 Cambion（恶魔与人类混血）</option>
+              <option value="天使血裔 Nephilim">天使血裔 Nephilim（堕天使后裔）</option>
+              <option value="女巫血脉">女巫血脉（母系传承）</option>
+              <option value="吸血鬼·转化">吸血鬼·转化</option>
+              <option value="吸血鬼·原生">吸血鬼·原生</option>
+              <option value="狼人 / 兽化人">狼人 / 兽化人</option>
+              <option value="幽灵 / 半魂状态">幽灵 / 半魂状态</option>
+              <option value="不死者">不死者(复活/未彻底死亡)</option>
+              <option value="堕落神职">堕落神职(曾为圣徒/驱魔人被诅咒)</option>
+            </optgroup>
+            <optgroup label="东方体系">
+              <option value="中国道士血脉">中国道士血脉</option>
+              <option value="中国神话·九尾狐">中国神话·九尾狐</option>
+              <option value="香港僵尸血脉">香港僵尸血脉</option>
+              <option value="湘西赶尸血脉">湘西赶尸血脉</option>
+              <option value="日本阴阳师血脉">日本阴阳师血脉</option>
+              <option value="日本妖怪·犬神">日本妖怪·犬神</option>
+              <option value="日本妖怪·鬼族">日本妖怪·鬼族</option>
+              <option value="韩国巫堂血脉">韩国巫堂血脉</option>
+              <option value="泰国降头师血脉">泰国降头师血脉</option>
+              <option value="苗疆蛊师血脉">苗疆蛊师血脉</option>
+            </optgroup>
+            <optgroup label="美洲原生">
+              <option value="印第安萨满血脉">印第安萨满血脉</option>
+              <option value="伏都教祭司血脉">伏都教祭司血脉</option>
+              <option value="墨西哥女巫 Bruja">墨西哥女巫 Bruja</option>
+              <option value="纳瓦霍皮行者">纳瓦霍皮行者(Skinwalker)</option>
+            </optgroup>
+            <optgroup label="北欧凯尔特">
+              <option value="北欧巫师 Völva">北欧巫师 Völva 血脉</option>
+              <option value="凯尔特德鲁伊后裔">凯尔特德鲁伊后裔</option>
+              <option value="女妖 Banshee">女妖 Banshee 血脉</option>
+              <option value="精灵后裔">精灵后裔</option>
+            </optgroup>
+            <optgroup label="规则外 / 特殊">
+              <option value="天选者">天选者(无血脉但被选中)</option>
+              <option value="契约者">契约者(签约后变异)</option>
+              <option value="灵质觉醒者">灵质觉醒者(灾变后突变)</option>
+              <option value="古神眷属">古神眷属(克苏鲁式馈赠)</option>
+              <option value="混血复合体">混血复合体(多血脉共存)</option>
+            </optgroup>
+            <option value="custom">📝 自定义血脉...</option>
+          </select>
+          <div class="custom-input" id="custom-race-input">
+            <input type="text" id="custom-race" placeholder="输入自定义血脉/种族">
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>身份 / 职业</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>身份类型</label>
+            <select id="identity-type" onchange="handleIdentityChange(this.value)">
+              <optgroup label="无">
+                <option value="普通人">普通人</option>
+              </optgroup>
+              <optgroup label="正统组织">
+                <option value="梵蒂冈驱魔人">梵蒂冈驱魔人</option>
+                <option value="教区神父">教区神父</option>
+                <option value="修女 / 修士">修女 / 修士</option>
+                <option value="梵蒂冈调查员">梵蒂冈调查员</option>
+                <option value="记录者协会档案员">记录者协会档案员</option>
+                <option value="联邦异常调查局探员">联邦异常调查局探员</option>
+              </optgroup>
+              <optgroup label="灰色地带">
+                <option value="独立猎魔人">独立猎魔人</option>
+                <option value="私家侦探">私家侦探(专接灵异案)</option>
+                <option value="灵媒 / 通灵师">灵媒 / 通灵师</option>
+                <option value="驱魔事务所老板">驱魔事务所老板</option>
+                <option value="超自然咨询顾问">超自然咨询顾问</option>
+                <option value="灵异博主 / 播客主持">灵异博主 / 播客主持</option>
+              </optgroup>
+              <optgroup label="学术 / 研究">
+                <option value="大学神秘学教授">大学神秘学教授</option>
+                <option value="考古学者">考古学者</option>
+                <option value="民俗学研究员">民俗学研究员</option>
+                <option value="灵质科学研究员">灵质科学研究员</option>
+              </optgroup>
+              <optgroup label="民间">
+                <option value="普通打工人">普通打工人(意外卷入)</option>
+                <option value="学生">学生</option>
+                <option value="医护">医护</option>
+                <option value="警察 / FBI">警察 / FBI</option>
+                <option value="记者">记者</option>
+                <option value="神棍 / 江湖术士">神棍 / 江湖术士</option>
+              </optgroup>
+              <optgroup label="暗面">
+                <option value="恶魔崇拜者">恶魔崇拜者</option>
+                <option value="邪教成员">邪教成员</option>
+                <option value="黑巫师">黑巫师</option>
+                <option value="黑市中介">黑市中介</option>
+                <option value="契约猎手">契约猎手</option>
+                <option value="连环杀手">连环杀手</option>
+              </optgroup>
+              <option value="custom">📝 自定义身份...</option>
+            </select>
+            <div class="custom-input" id="custom-identity-input">
+              <input type="text" id="custom-identity" placeholder="输入自定义身份">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>所属势力 <span style="font-size:11px;color:var(--text-mute);">(融合模式)</span></label>
+            <select id="faction" onchange="handleFactionChange(this.value)">
+              <option value="">— 选择所属势力 —</option>
+              <optgroup label="民间个体 / 家族">
+                <option value="沃伦灵异事务所">沃伦灵异事务所</option>
+                <option value="温彻斯特兄弟">温彻斯特兄弟</option>
+                <option value="康斯坦丁">康斯坦丁</option>
+                <option value="梅菲尔女巫家族">梅菲尔女巫家族</option>
+                <option value="刀锋">刀锋</option>
+                <option value="格林猎人家族">格林猎人家族</option>
+              </optgroup>
+              <optgroup label="地区派系">
+                <option value="塞勒姆女巫集会">塞勒姆女巫集会</option>
+                <option value="公路猎人驿站">公路猎人驿站</option>
+                <option value="新月吸血鬼社群">新月吸血鬼社群</option>
+                <option value="灵质科技联盟">灵质科技联盟</option>
+                <option value="黑盐酒馆">黑盐酒馆</option>
+              </optgroup>
+              <optgroup label="顶层组织">
+                <option value="梵蒂冈驱魔团">梵蒂冈驱魔团</option>
+                <option value="记录者协会">记录者协会</option>
+                <option value="联邦异常调查局">联邦异常调查局</option>
+                <option value="米尔顿律所">米尔顿律所</option>
+                <option value="三角密教">三角密教</option>
+                <option value="勒马尔尚密教">勒马尔尚密教</option>
+              </optgroup>
+              <option value="无门无派">无门无派</option>
+              <option value="custom">📝 自定义势力...</option>
+            </select>
+            <div class="custom-input" id="custom-faction-input">
+              <input type="text" id="custom-faction" placeholder="输入自定义势力">
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>实力阶级</label>
+            <select id="power-level">
+              <option value="0阶·普通人">0 阶 · 普通人</option>
+              <option value="1阶·入门">1 阶 · 入门(见习/实习/入门)</option>
+              <option value="2阶·正式" selected>2 阶 · 正式从业者</option>
+              <option value="3阶·资深">3 阶 · 资深从业者</option>
+              <option value="4阶·顶尖">4 阶 · 顶尖从业者</option>
+              <option value="5阶·传奇">5 阶 · 传奇级</option>
+              <option value="6阶·灾厄">6 阶 · 灾厄级</option>
+              <option value="7阶·权能">7 阶 · 权能级</option>
+              <option value="8阶·规则">8 阶 · 规则级</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>实力说明</label>
+            <input type="text" id="power-note" placeholder="如：新英格兰小有名气的驱魔人">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>入圈原因</label>
+          <select id="entry-reason" onchange="handleEntryReasonChange(this.value)">
+            <option value="无">无</option>
+            <option value="没入圈">没入圈</option>
+            <option value="家族传承">家族传承</option>
+            <option value="意外觉醒">意外觉醒</option>
+            <option value="被迫卷入超自然事件">被迫卷入超自然事件</option>
+            <option value="主动寻求力量">主动寻求力量</option>
+            <option value="组织招募">组织招募</option>
+            <option value="灵质灾变觉醒">灵质灾变觉醒</option>
+            <option value="签订契约">签订契约</option>
+            <option value="血脉觉醒">血脉觉醒</option>
+            <option value="custom">📝 自定义原因</option>
+          </select>
+          <div class="custom-input" id="custom-entry-reason-input">
+            <input type="text" id="custom-entry-reason" placeholder="输入自定义入圈原因">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>趣味设定 <span style="font-size:11px;color:var(--text-mute);">(自由填写你的独特身份细节)</span></label>
+          <textarea id="fun-setting" placeholder="例如：开了个专门驱除AI灵体的事务所；副业是万圣节鬼屋设计师；养了只被诅咒的猫……"></textarea>
+        </div>
+      </div>
+      <div class="form-section">
+        <h3>外貌与性情</h3>
+        <div class="form-group">
+          <label>外貌描述</label>
+          <textarea id="appearance" placeholder="容貌、衣着、气度、明显异化特征(如九尾狐的尾巴、僵尸的清朝官服、吸血鬼的獠牙)……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>性格特质</label>
+          <textarea id="personality" placeholder="冷静、多疑、玩世不恭、宿命感强、嗜血、圣人心肠……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>日常兴趣 / 爱好</label>
+          <input type="text" id="hobby" placeholder="如：黑胶收藏、老式打字机、深夜播客、烹饪、赛车……">
+        </div>
+        <div class="form-group">
+          <label>背景故事</label>
+          <textarea id="background" placeholder="身世来历、关键经历、创伤、恩怨……"></textarea>
+        </div>
+        <div class="form-group">
+          <label>开局场景</label>
+          <textarea id="opening-scene" placeholder="故事开始时你身处什么环境、正在做什么、面临什么处境……"></textarea>
+        </div>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-destiny">
+      <h2 class="section-title">命数抽取</h2>
+      <div class="info-box">
+        <h3>「命数规则」</h3>
+        <ul>
+          <li>决定你的<strong>际遇、身份秘辛、跨IP羁绊</strong>——你和这个世界的因果</li>
+          <li>命数不是能力，是<strong>关系、资源、背景</strong>——它把你焊进世界的骨头里</li>
+          <li>神话级命数常带有跨作品/跨宇宙彩蛋，稀有命数意味着更重的代价与更大的风浪</li>
+          <li>每次抽取 8 条，选择 3 条作为核心命途</li>
+        </ul>
+      </div>
+      <div class="roll-section">
+        <button class="roll-btn" id="destiny-roll-btn" onclick="rollDestiny()">🎲 抽取命数</button>
+      </div>
+      <div class="roll-pool" id="destiny-pool">
+        <h3>🃏 命数结果</h3>
+        <p class="roll-count">请从以下命数中选择 3 个（已选：<strong id="destiny-count">0</strong>/3）</p>
+        <div class="roll-list" id="destiny-list"></div>
+      </div>
+      <div class="custom-section">
+        <h4>📝 自定义命数</h4>
+        <div class="custom-list" id="custom-destiny-list"></div>
+        <button class="add-btn" id="add-destiny-btn" onclick="addCustom('destiny')">＋ 添加自定义命数</button>
+        <p class="limit-hint">最多可添加 <span id="destiny-custom-count">0</span>/5 项</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-talent">
+      <h2 class="section-title">天赋抽取</h2>
+      <div class="info-box">
+        <h3>「天赋规则」</h3>
+        <ul>
+          <li>决定你的<strong>先天异能、血脉觉醒、超凡体质</strong>——你身上的开挂设定</li>
+          <li>每次抽取 8 条，选择 3 条作为核心天赋</li>
+          <li>神话级天赋堪比 IP 级别的开挂血脉，含斯巴达、氪星、X基因等跨宇宙彩蛋</li>
+          <li>可自行 + 号新增独门天赋，最多 5 项</li>
+        </ul>
+      </div>
+      <div class="roll-section">
+        <button class="roll-btn" id="talent-roll-btn" onclick="rollTalent()">✨ 抽取天赋</button>
+      </div>
+      <div class="roll-pool" id="talent-pool">
+        <h3>🃏 天赋结果</h3>
+        <p class="roll-count">请从以下天赋中选择 3 个（已选：<strong id="talent-count">0</strong>/3）</p>
+        <div class="roll-list" id="talent-list"></div>
+      </div>
+      <div class="custom-section">
+        <h4>📝 自定义天赋 / 独门异能</h4>
+        <div class="custom-list" id="custom-talent-list"></div>
+        <button class="add-btn" id="add-talent-btn" onclick="addCustom('talent')">＋ 添加自定义天赋</button>
+        <p class="limit-hint">最多可添加 <span id="talent-custom-count">0</span>/5 项</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-equipment">
+      <h2 class="section-title">装备抽取</h2>
+      <div class="info-box">
+        <h3>「装备规则」</h3>
+        <ul>
+          <li>决定你的<strong>起手道具、传世信物、外部装备</strong>——你手上的家伙什</li>
+          <li>每次抽取 8 件，选择 3 件作为核心装备</li>
+          <li>神话级装备含但丁双枪、死亡笔记、柯尔特神枪等跨作品名器</li>
+          <li>可自行 + 号新增独门装备，最多 5 项</li>
+        </ul>
+      </div>
+      <div class="roll-section">
+        <button class="roll-btn" id="equipment-roll-btn" onclick="rollEquipment()">⚔️ 抽取装备</button>
+      </div>
+      <div class="roll-pool" id="equipment-pool">
+        <h3>🃏 装备结果</h3>
+        <p class="roll-count">请从以下装备中选择 3 件（已选：<strong id="equipment-count">0</strong>/3）</p>
+        <div class="roll-list" id="equipment-list"></div>
+      </div>
+      <div class="custom-section">
+        <h4>📝 自定义装备 / 私藏道具</h4>
+        <div class="custom-list" id="custom-equipment-list"></div>
+        <button class="add-btn" id="add-equipment-btn" onclick="addCustom('equipment')">＋ 添加自定义装备</button>
+        <p class="limit-hint">最多可添加 <span id="equipment-custom-count">0</span>/5 项</p>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+        <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-preview">
+      <h2 class="section-title">最终档案</h2>
+      <div class="preview-section">
+        <div class="preview-box" id="preview-box"></div>
+        <button class="copy-btn" onclick="copyPreview()">📋 复制档案</button>
+        <button id="enter-chat" hidden class="copy-btn" type="button">带入聊天</button>
+      </div>
+      <div class="nav-buttons">
+        <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="work-modal" onclick="closeWorkModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="closeWorkModal()">×</button>
+    <h3 class="modal-title" id="modal-title"></h3>
+    <div class="modal-meta" id="modal-meta"></div>
+    <div class="modal-content" id="modal-content"></div>
+    <div style="margin-top:20px;text-align:center;">
+      <button class="copy-btn" style="max-width:280px;font-size:14px;padding:12px 24px;letter-spacing:2px;" onclick="selectFromLibrary()">🎯 选为目标作品</button>
+    </div>
+  </div>
+</div>
+<footer>AMERICAN HORROR MULTIVERSE · EST. 2018</footer>
+<script>
+const appState={
+  mode:null,
+  targetWork:null,
+  customTargetText:'',
+  rolls:{
+    destiny:{pool:[],selected:[],custom:[]},
+    talent:{pool:[],selected:[],custom:[]},
+    equipment:{pool:[],selected:[],custom:[]}
+  }
+};
+const canonicalWorkNames = {
+  "招魂4：终章": "招魂4",
+  "安娜贝尔2：诞生": "安娜贝尔2",
+  "安娜贝尔3：回家": "安娜贝尔3",
+  "潜伏4：锁命亡灵": "潜伏4",
+  "潜伏5：红门": "潜伏5",
+  "电锯惊魂7：3D终结篇": "电锯惊魂7",
+  "电锯惊魂8：竖锯": "电锯惊魂8",
+  "电锯惊魂9：漩涡": "电锯惊魂9",
+  "致命弯道2：死亡终点": "致命弯道2",
+  "致命弯道3：绝路血流": "致命弯道3",
+  "致命弯道4：血腥起源": "致命弯道4",
+  "致命弯道5：血脉": "致命弯道5",
+  "致命弯道6：最后的胜利": "致命弯道6",
+  "致命弯道7：地狱之路": "致命弯道7",
+  "十三号星期五4：最后一章": "十三号星期五4",
+  "十三号星期五5：新的开始": "十三号星期五5",
+  "十三号星期五6：新血": "十三号星期五6",
+  "十三号星期五7：新血": "十三号星期五7",
+  "十三号星期五8：杰森占领曼哈顿": "十三号星期五8",
+  "十三号星期五9：杰森前往地狱": "十三号星期五9",
+  "十三号星期五10：杰森在太空": "十三号星期五10",
+  "月光光心慌慌3：巫师的季节": "月光光心慌慌3",
+  "月光光心慌慌4：迈克尔·迈尔斯的归来": "月光光心慌慌4",
+  "月光光心慌慌5：迈克尔·迈尔斯的复仇": "月光光心慌慌5",
+  "月光光心慌慌6：诅咒": "月光光心慌慌6",
+  "月光光心慌慌7：20年后": "月光光心慌慌7",
+  "月光光心慌慌8：万圣节复活": "月光光心慌慌8",
+  "月光光心慌慌9（重启版）": "月光光心慌慌9",
+  "月光光心慌慌12：万圣节杀戮": "月光光心慌慌12",
+  "月光光心慌慌13：万圣节终结": "月光光心慌慌13",
+  "猛鬼街2：弗莱迪的复仇": "猛鬼街2",
+  "猛鬼街3：梦中战士": "猛鬼街3",
+  "猛鬼街4：梦幻大师": "猛鬼街4",
+  "猛鬼街5：梦幻小孩": "猛鬼街5",
+  "猛鬼街6：弗莱迪之死": "猛鬼街6",
+  "猛鬼街7：新噩梦": "猛鬼街7",
+  "恐惧街三部曲": "恐惧街",
+  "鬼娃回魂4：鬼娃新娘": "鬼娃回魂4",
+  "鬼娃回魂5：鬼娃之子": "鬼娃回魂5",
+  "鬼娃回魂6：恰吉的诅咒": "鬼娃回魂6",
+  "鬼娃回魂7：恰吉的崇拜": "鬼娃回魂7",
+  "鬼娃回魂8（剧集版）": "鬼娃回魂8",
+  "鬼影实录5：诅咒之印": "鬼影实录5",
+  "鬼影实录6：近亲鬼魂": "鬼影实录6",
+  "短柄斧4：维克多·克劳利": "短柄斧4",
+  "人类清除计划2：无政府状态": "人类清除计划2",
+  "人类清除计划3：选举之年": "人类清除计划3",
+  "人类清除计划4：起源": "人类清除计划4",
+  "人类清除计划5：无限": "人类清除计划5",
+  "鬼玩人3：魔诫英豪": "鬼玩人3",
+  "鬼玩人4（剧集第一季）": "鬼玩人4",
+  "鬼玩人5（剧集第二季）": "鬼玩人5",
+  "鬼玩人6（剧集第三季）": "鬼玩人6",
+  "地狱男爵2：黄金军团": "地狱男爵2",
+  "地狱男爵3（重启版）": "地狱男爵3",
+  "死神来了6：血脉": "死神来了6",
+  "变种女狼3：起源": "变种女狼3",
+  "生人勿进（瑞典版）": "生人勿近（瑞典版）"
+};
+const worksDatabase=[
+  {name:'招魂1',region:'新英格兰',intro:'温子仁执导的招魂宇宙开篇之作，改编自沃伦夫妇真实经历的佩伦家族闹鬼事件。影片以扎实的氛围营造和克制的jump scare成为现代鬼屋片标杆，讲述一家人搬进老宅后遭遇超自然侵扰，沃伦夫妇前来协助驱魔的故事。'},
+  {name:'招魂2',region:'海外',intro:'改编自英国恩菲尔德闹鬼事件，沃伦夫妇前往伦敦帮助被恶灵纠缠的单亲家庭。影片首次引入恶魔修女"瓦拉克"的经典形象，恐怖氛围和情感刻画都保持了系列高水准。'},
+  {name:'招魂3',region:'新英格兰',intro:'系列首次脱离鬼屋题材，改编自"恶魔让我犯罪"的真实凶杀案，讲述男子被恶魔附身犯下杀人罪，沃伦夫妇为其辩护并调查背后诅咒。风格偏向犯罪惊悚。'},
+  {name:'招魂4：终章',region:'新英格兰',intro:'招魂主线系列的收官之作，改编自斯莫尔家族闹鬼案，也是沃伦夫妇故事的最终章。为这对驱魔夫妇的故事画上圆满句号。'},
+  {name:'安娜贝尔1',region:'西海岸',intro:'招魂宇宙首部外传，讲述鬼娃娃安娜贝尔的起源，邪教仪式后恶魔附身在娃娃身上，侵扰一对新婚夫妇。打造了招魂宇宙最知名的恐怖玩偶形象。'},
+  {name:'安娜贝尔2：诞生',region:'西海岸',intro:'安娜贝尔的前传故事，玩偶制作师夫妇为了纪念去世的女儿，意外引来恶魔附身娃娃，进而侵扰收养的孤儿们。温子仁监制，恐怖桥段设计精巧。'},
+  {name:'安娜贝尔3：回家',region:'新英格兰',intro:'故事发生在沃伦夫妇的灵异博物馆中，安娜贝尔被解封后唤醒了馆内所有邪物，沃伦夫妇的女儿和朋友们陷入危机。招魂宇宙的"怪物大乱斗"。'},
+  {name:'修女1',region:'海外',intro:'招魂宇宙前传，讲述瓦拉克修女的起源，1952年罗马尼亚修道院发生修女自杀事件，神父和见习修女前往调查，遭遇强大的恶魔修女。系列中哥特感最强。'},
+  {name:'修女2',region:'海外',intro:'故事设定在1956年的法国，瓦拉克再次现身制造连环凶案，艾琳修女再次踏上驱魔之路。动作场面和恐怖设计都有升级，结尾串联招魂主线剧情。'},
+  {name:'修女3',region:'海外',intro:'修女系列的最新作，继续讲述瓦拉克与教会的对抗，进一步补全了这个经典恶魔的背景故事。'},
+  {name:'哭泣女人的诅咒',region:'西海岸',intro:'招魂宇宙的关联作品，改编自墨西哥民间传说"哭泣女人"，失去孩子的怨灵游荡在人间掳走小孩。节奏紧凑，jump scare密集，民俗恐怖氛围浓厚。'},
+  {name:'潜伏1',region:'新英格兰',intro:'温子仁在招魂之前打造的经典恐怖系列开端，讲述小男孩道尔顿陷入灵魂出窍的"进一步"领域，被恶灵纠缠。创造了"红脸恶魔"等经典恐怖形象。'},
+  {name:'潜伏2',region:'新英格兰',intro:'紧接第一部结尾，兰伯特一家继续被恶灵纠缠，揭开了男主乔希童年被恶灵盯上的过往。双线叙事，填了第一部的很多坑。'},
+  {name:'潜伏3',region:'新英格兰',intro:'系列前传，灵媒爱丽丝帮助另一个被恶灵纠缠的少女，时间线在第一部之前。重点刻画爱丽丝这个角色的魅力。'},
+  {name:'潜伏4：锁命亡灵',region:'新英格兰',intro:'聚焦灵媒爱丽丝的童年往事，她回到自己的老家面对当年纠缠自己的恶魔。补充了爱丽丝的背景故事。'},
+  {name:'潜伏5：红门',region:'新英格兰',intro:'正传续集，道尔顿上大学后再次被"进一步"领域的恶灵纠缠，已经失忆的父子俩必须再次面对过去的阴影。系列十年后的续作情怀拉满。'},
+  {name:'潜伏6',region:'新英格兰',intro:'潜伏系列最新作，开启新的故事线，继续探索"进一步"领域的恐怖存在。'},
+  {name:'小丑回魂1',region:'新英格兰',intro:'改编自斯蒂芬·金的经典小说，德里镇的"失败者俱乐部"孩子们对抗每27年就会苏醒、以恐惧为食的小丑潘尼怀斯。比尔·斯卡斯加德饰演的小丑成为新一代恐怖经典。'},
+  {name:'小丑回魂2',region:'新英格兰',intro:'27年后长大成人的失败者俱乐部成员回到德里镇，履行当年的约定再次对抗小丑。成年组和童年组交叉叙事，终结小丑的恐怖循环。'},
+  {name:'女巫',region:'新英格兰',intro:'罗伯特·艾格斯执导的民俗恐怖标杆，17世纪30年代的新英格兰，被驱逐的清教徒一家在森林边定居遭遇女巫诅咒。安雅·泰勒-乔伊崭露头角之作。'},
+  {name:'遗传厄运',region:'新英格兰',intro:'A24出品的心理恐怖神作，祖母去世后格雷厄姆一家逐渐被家族世代的邪教诅咒缠绕。宿命感和绝望感拉到极致，被称为"当代《驱魔人》"。'},
+  {name:'无名女尸',region:'新英格兰',intro:'密闭空间恐怖经典，父子验尸官解剖一具身份不明的年轻女尸时遭遇一系列无法解释的超自然现象。把猎巫运动的历史创伤和恐怖完美结合。'},
+  {name:'宠物坟场',region:'新英格兰',intro:'改编自斯蒂芬·金小说，一家人搬到乡下后发现房子后面有一片能让死者复活的印第安坟场，复活的生命只会带来邪恶和灾难。'},
+  {name:'我们依然在这',region:'新英格兰',intro:'小众恐怖佳作，失去儿子的中年夫妇搬到新英格兰小镇疗伤，发现房子里住着复仇的怨灵，整个小镇都隐藏着可怕的秘密。复古70年代恐怖片质感。'},
+  {name:'太平间闹鬼事件',region:'新英格兰',intro:'改编自真实事件，为了给患癌儿子治病，一家人搬到离医院近的房子，却发现这里以前是停尸间，还发生过邪典事件。'},
+  {name:'柜魔',region:'新英格兰',intro:'改编自斯蒂芬·金短篇，失去母亲的姐妹俩和父亲一起生活，发现家里闯进了一个以恐惧为食、藏在衣柜里的怪物。'},
+  {name:'瘦长鬼影',region:'新英格兰',intro:'改编自美国知名都市传说，四个女孩在派对上尝试召唤瘦长鬼影，随后接连失踪。瘦长鬼影无脸长手专门诱拐小孩的形象自带恐怖感。'},
+  {name:'鬼入侵',region:'新英格兰',intro:'迈克·弗拉纳根执导的Netflix恐怖剧集，改编自雪莉·杰克逊的经典小说，在希尔山庄长大的五兄妹被迫面对当年恐怖回忆。"最好的恐怖剧集之一"。'},
+  {name:'午夜弥撒',region:'新英格兰',intro:'迈克·弗拉纳根神作，出狱的年轻人回到偏远小岛家乡，新来的神父带来"奇迹"却把小岛拖入恐怖深渊。用吸血鬼的外壳探讨宗教信仰与救赎。'},
+  {name:'撒冷镇',region:'新英格兰',intro:'改编自斯蒂芬·金经典吸血鬼小说，作家回到家乡撒冷镇却发现小镇已被吸血鬼入侵，居民一个个变成怪物。新版还原小说哥特恐怖氛围。'},
+  {name:'城堡岩',region:'新英格兰',intro:'斯蒂芬·金宇宙剧集，以金小说里反复出现的小镇城堡岩为舞台，串联金笔下多个经典故事和角色。充满斯蒂芬·金彩蛋。'},
+  {name:'准备好了没',region:'新英格兰',intro:'黑色喜剧恐怖代表作，新娘格蕾丝嫁入豪门后发现家族传统：新婚夜必须玩捉迷藏游戏，输的人会被当成献祭猎物。新娘反杀全家血腥搞笑。'},
+  {name:'禁闭岛',region:'新英格兰',intro:'马丁·斯科塞斯执导，莱昂纳多主演的心理惊悚神作，联邦警官泰迪来到禁闭岛精神病院调查失踪案，却逐渐发现真相指向自己。'},
+  {name:'迷雾',region:'新英格兰',intro:'改编自斯蒂芬·金小说，小镇被神秘迷雾笼罩，雾里藏着吃人的怪物，被困在超市里的居民在绝望中暴露了人性的恶。结局极致绝望。'},
+  {name:'孤儿怨',region:'新英格兰',intro:'经典惊悚片，一对夫妇收养9岁小女孩艾斯特，却发现她其实是33岁的成年女人，患有激素紊乱症伪装成小孩杀人。反转经典。'},
+  {name:'阴间大法师1',region:'新英格兰',intro:'蒂姆·波顿恐怖喜剧经典，一对夫妻车祸去世变成鬼魂舍不得离开自己的家，为了吓走新住户请来了阴间大法师甲壳虫汁。'},
+  {name:'阴间大法师2',region:'新英格兰',intro:'时隔36年的续集，薇诺娜·瑞德回归饰演长大后的莉迪亚，她的女儿意外再次召唤出了甲壳虫汁。延续前作怪诞风格。'},
+  {name:'驱魔',region:'新英格兰',intro:'改编自真实的安娜莉丝驱魔事件，被恶魔附身的女孩艾米丽在驱魔仪式后死亡，为神父辩护的律师逐渐相信了恶魔的存在。'},
+  {name:'星期三',region:'新英格兰',intro:'蒂姆·波顿执导的Netflix剧集，亚当斯一家的衍生剧，暗黑少女星期三在奈弗莫尔学院上学调查小镇连环杀人案。'},
+  {name:'狂犬惊魂',region:'新英格兰',intro:'改编自斯蒂芬·金小说，一只圣伯纳犬被蝙蝠咬伤后感染狂犬病毒，变成了疯狂的杀人兽，把一对母子困在车里展开围攻。'},
+  {name:'战栗黑洞',region:'新英格兰',intro:'约翰·卡朋特执导的克苏鲁风格恐怖经典，保险调查员寻找失踪的恐怖小说作家，却发现作家的小说真的能把虚构的恐怖变成现实。'},
+  {name:'危情十日',region:'新英格兰',intro:'改编自斯蒂芬·金小说，凯西·贝茨凭此拿到奥斯卡影后。畅销书作家保罗车祸后被自己的狂热书迷安妮救走，却被囚禁被迫改写小说结局。'},
+  {name:'魔女嘉莉',region:'新英格兰',intro:'布莱恩·德·帕尔玛执导，改编自斯蒂芬·金处女作，内向压抑的少女嘉莉拥有超能力，在学校舞会上被同学泼猪血羞辱后血腥复仇。'},
+  {name:'大白鲨',region:'新英格兰',intro:'斯皮尔伯格成名作，影史第一部暑期档大片，度假小镇的海滩出现吃人的大白鲨，警长、海洋学家和渔夫一起出海猎杀。怪兽灾难片鼻祖。'},
+  {name:'美国精神病人',region:'中大西洋',intro:'改编自布莱特·伊斯顿·埃利斯同名小说，华尔街精英贝特曼白天是精致体面的雅皮士，晚上却是连环杀人魔。夸张黑色幽默讽刺80年代消费主义。'},
+  {name:'罗斯玛丽的婴儿',region:'中大西洋',intro:'罗曼·波兰斯基执导的经典心理恐怖，罗斯玛丽和丈夫搬到新公寓后怀孕，却逐渐发现邻居和丈夫都是邪教徒，自己怀的是撒旦的孩子。'},
+  {name:'魔鬼代言人',region:'中大西洋',intro:'年轻律师凯文被纽约大律所招揽，却发现律所老板其实是撒旦，自己在欲望诱惑下一步步走向堕落。阿尔·帕西诺饰演的撒旦充满魅力。'},
+{name:'镜中人',region:'中大西洋',intro:'英迪娅·埃斯利、詹森·艾萨克主演的暗黑心理恐怖代表作，讲述长期遭受整形医生父亲高压控制与校园霸凌的18岁自卑少女玛丽亚，意外唤醒镜子中狠戾果决的黑暗人格艾兰，在滑冰舞会当众受辱后与镜像完成身份交换，对霸凌者与虚伪亲友展开血腥复仇，最终手刃控制欲极强的父亲后与内在自我和解的故事。'},
+  {name:'沉默的羔羊',region:'中大西洋',intro:'影史唯一拿到奥斯卡最佳影片的恐怖片，FBI实习探员克拉丽斯为了追踪连环杀手"水牛比尔"，向被囚禁的食人魔汉尼拔博士求助。'},
+  {name:'汉尼拔',region:'中大西洋',intro:'《沉默的羔羊》续集，汉尼拔越狱后在意大利隐居，当年的受害者梅森想要向他复仇，克拉丽斯再次卷入。风格更加黑暗血腥。'},
+  {name:'红龙',region:'中大西洋',intro:'汉尼拔系列前传，FBI探员威尔为了追踪连环杀手"牙仙"，不得不向自己曾抓获的汉尼拔求助。拉尔夫·费因斯饰演的牙仙充满悲剧色彩。'},
+  {name:'第六感',region:'中大西洋',intro:'M·奈特·沙马兰成名作，儿童心理学家麦克帮助能看见鬼魂的小男孩科尔，却在过程中发现关于自己的惊人真相。结尾反转影史经典。'},
+  {name:'七宗罪',region:'中大西洋',intro:'大卫·芬奇执导的经典犯罪惊悚，老警探沙摩塞和年轻警探米尔斯追查以天主教七宗罪为主题的连环杀人案。黑暗风格和绝望结局印象深刻。'},
+  {name:'电锯惊魂1',region:'中大西洋',intro:'温子仁成名作，两个男人被锁在密室，必须按照"竖锯"约翰的指令完成残酷游戏才能活下去。结尾反转开启影史最成功的恐怖系列之一。'},
+  {name:'电锯惊魂2',region:'中大西洋',intro:'八名陌生人被关进充满毒气的房子里，必须找到解毒剂逃生。首次揭示竖锯的门徒阿曼达，机关设计更加复杂精巧。'},
+  {name:'电锯惊魂3',region:'中大西洋',intro:'医生琳恩被绑架为病入膏肓的竖锯延续生命，同时另一场"宽恕"游戏在进行。系列首次深入竖锯本人心理与阿曼达继承者身份的完整交代。'},
+  {name:'电锯惊魂4',region:'中大西洋',intro:'竖锯已死却留下新的游戏，警探瑞格接受考验，剧情与3代时间线并行。系列首次采用平行叙事结构。'},
+  {name:'电锯惊魂5',region:'中大西洋',intro:'联邦探员斯特拉姆调查竖锯案，发现另一位隐藏门徒霍夫曼警探。五人小组玩着环环相扣的合作类游戏，题材偏向办公室政治隐喻。'},
+  {name:'电锯惊魂6',region:'中大西洋',intro:'霍夫曼继续以竖锯之名行事，本作把游戏矛头指向保险公司高管，讽刺美国医疗制度。粉丝口碑较高的一集。'},
+  {name:'电锯惊魂7：3D终结篇',region:'中大西洋',intro:'原定的系列终结篇，竖锯的遗孀吉尔被霍夫曼追杀，一直站在幕后的博比登场。是系列3D呈现的重口游戏合集。'},
+  {name:'电锯惊魂8：竖锯',region:'中大西洋',intro:'时隔七年的重启作，新一轮的游戏似乎在死去多年的竖锯回归后展开，警方展开调查。反转揭示新的门徒身份。'},
+  {name:'电锯惊魂9：漩涡',region:'中大西洋',intro:'克里斯·洛克主演，一位模仿竖锯的凶手专门针对警察展开游戏，讽刺警队内部腐败。风格偏向犯罪片。'},
+  {name:'电锯惊魂10',region:'中大西洋',intro:'回到系列最初的风格，聚焦竖锯本人在墨西哥被假医生欺骗后的复仇之旅。约翰·克莱默中心视角，口碑回春。'},
+  {name:'黑天鹅',region:'中大西洋',intro:'达伦·阿伦诺夫斯基执导，娜塔莉·波特曼拿到奥斯卡影后。芭蕾舞演员妮娜为演好黑天鹅和白天鹅，在压力下逐渐精神分裂走向毁灭。'},
+  {name:'驱魔人',region:'中大西洋',intro:'影史最经典的驱魔电影，改编自真实事件，12岁的女孩里根被恶魔附身，两位神父为她进行驱魔仪式。头转360度、蜘蛛爬等镜头成为影史经典。'},
+  {name:'断头谷',region:'中大西洋',intro:'蒂姆·波顿执导，约翰尼·德普主演的哥特恐怖，警官伊卡布·克莱恩去断头谷调查连环砍头案，发现传说中的无头骑士真的存在。'},
+{name:'死寂',region:'中大西洋',intro:'温子仁执导的经典怨灵人偶题材作品，围绕拉文菲尔小镇口技演员玛丽·肖的诅咒展开，核心规则为“见怨灵不可尖叫，出声即被扯舌而亡”，讲述阿申家族返乡查明旧怨、最终全族被制作成人偶的鬼镇诅咒故事。'},
+{name:'坏种',region:'通用类',intro:'麦肯娜·格瑞丝主演的人类恶题材作品，讲述天生反社会人格的9岁女孩艾玛为扫清障碍连环设计杀人，靠完美孩童伪装脱罪的故事，无超自然元素但欺骗性极强，是从业者最易轻敌的对手类型。'},
+{name:'仲夏夜惊魂',region:'海外地区',intro:'阿里·艾斯特执导的白昼邪教题材作品，讲述遭遇家庭悲剧的丹妮随男友赴瑞典极昼村庄参加九十年一度仲夏祭，亲历集体归崖、人祭仪式后被异教同化的日光恐怖代表作，全程极昼无黑夜营造独特压抑感。'},
+{name:'怪猴',region:'新英格兰',intro:'改编自斯蒂芬·金同名短篇小说的诅咒物品题材作品，核心为无法被摧毁的发条玩具猴，每敲响铜钹就会随机触发身边人死于离奇意外，讲述双胞胎兄弟被家族诅咒纠缠半生、最终世代看守邪物的故事。'},
+{name:'异种',region:'西海岸',intro:'经典科幻恐怖作品，讲述政府结合外星与人类DNA培育出的女性异种塞尔逃出实验室，在洛杉矶寻找合适配偶繁衍后代，特殊猎杀小队一路围堵追猎的基因异常题材，H.R.吉格尔设计的怪物造型为经典荧幕恐怖形象。'},
+{name:'柳条人',region:'西海岸',intro:'尼古拉斯·凯奇主演的新异教恐怖经典，翻拍自1973年同名原作，讲述加州公路巡警受前未婚妻求助，前往华盛顿州外海私人岛屿寻找失踪女孩，却落入母系蜂神邪教的活人献祭圈套，最终被关入巨型柳条人活活烧死的故事。'},
+  {name:'逃出绝命镇',region:'中大西洋',intro:'乔丹·皮尔导演处女作，拿到奥斯卡最佳原创剧本。黑人男孩克里斯去白人女友家见家长，发现女友一家把黑人的身体换给年老的白人。'},
+  {name:'X档案',region:'中大西洋',intro:'经典科幻恐怖剧集，FBI探员福克斯·穆德和达娜·斯嘉丽调查各种无法解释的超自然案件"X档案"，涉及外星人、怪物、政府阴谋、都市传说。'},
+  {name:'阿米蒂维尔鬼屋',region:'中大西洋',intro:'改编自真实闹鬼事件，一家人搬进阿米蒂维尔的房子，这里一年前发生过灭门惨案，随后一家人遭遇了一系列超自然恐怖事件。'},
+  {name:'致命弯道1',region:'中大西洋',intro:'系列开山之作，六个年轻人误入西弗吉尼亚山区森林，遭遇因近亲交配变成畸形的食人魔家族追杀。奠定畸形人砍杀基调。'},
+  {name:'致命弯道2：死亡终点',region:'中大西洋',intro:'一档真人秀在这片诅咒山区拍摄，节目组和参赛者被畸形人一一屠杀。血腥度大幅升级，成为系列口碑最高的一部。'},
+  {name:'致命弯道3：绝路血流',region:'中大西洋',intro:'一辆押送重犯的囚车翻入畸形人山区，警察、囚犯与畸形人的三方混战。加入抢劫背包和黄金的支线。'},
+  {name:'致命弯道4：血腥起源',region:'中大西洋',intro:'系列前传，展示畸形人三兄弟童年在精神病院制造大屠杀的起源。故事发生在暴风雪封锁的疗养院。'},
+  {name:'致命弯道5：血脉',region:'中大西洋',intro:'万圣节夜晚的西弗吉尼亚小镇，警长与畸形人三兄弟正面对峙。首次给畸形人建立了完整的家族血脉设定。'},
+  {name:'致命弯道6：最后的胜利',region:'中大西洋',intro:'年轻男子继承神秘乡村酒店，发现自己竟是畸形人家族失散的成员。系列首次让主角"归属"畸形人一方。'},
+  {name:'致命弯道7：地狱之路',region:'中大西洋',intro:'系列重启作，一群年轻人徒步阿巴拉契亚山脉，遭遇隐居山中的"根系"神秘部落。融入更多社群与部落隐喻。'},
+  {name:'十三号星期五1',region:'中大西洋',intro:'系列开山之作，一群营地辅导员在水晶湖畔被神秘凶手一一杀害。经典反转揭示凶手是杰森的母亲。奠定砍杀片模板。'},
+  {name:'十三号星期五2',region:'中大西洋',intro:'长大成人的杰森正式登场，头套麻布袋在水晶湖畔继续屠杀。杰森成为不死杀人狂的开端。'},
+  {name:'十三号星期五3',region:'中大西洋',intro:'杰森首次戴上标志性的曲棍球面具，追杀一群来湖边度假的年轻人。经典形象正式定型的一集。'},
+  {name:'十三号星期五4：最后一章',region:'中大西洋',intro:'年幼的汤米·贾维斯与杰森对决，看似终结了他。可惜"最后"只是营销噱头。'},
+  {name:'十三号星期五5：新的开始',region:'中大西洋',intro:'长大的汤米在精神康复中心，一名模仿杰森的凶手开始杀人。系列首次的"伪杰森"设定。'},
+  {name:'十三号星期五6：新血',region:'中大西洋',intro:'汤米挖开杰森坟墓意外让他复活，杰森正式变成不死怪物。系列从砍杀转向超自然恐怖。'},
+  {name:'十三号星期五7：新血',region:'中大西洋',intro:'一名具有心灵感应能力的少女蒂娜无意间让杰森从湖底复活，两人展开超自然对决。粉丝俗称"杰森大战超能少女"。'},
+  {name:'十三号星期五8：杰森占领曼哈顿',region:'中大西洋',intro:'杰森跟随一艘毕业游轮来到曼哈顿，在纽约街头继续屠杀。系列首次离开水晶湖。'},
+  {name:'十三号星期五9：杰森前往地狱',region:'中大西洋',intro:'FBI用炸弹重伤杰森，他的邪灵借附身在人类身上继续作恶。揭示杰森家族血脉的诅咒渊源。'},
+  {name:'十三号星期五10：杰森在太空',region:'中大西洋',intro:'2455年，杰森被冷冻的尸体在太空飞船上复活，机械改造后的"太空杰森"开始屠杀。系列最迷幻的一集。'},
+  {name:'弗莱迪大战杰森',region:'中大西洋',intro:'两大杀人狂梦幻联动，弗莱迪为了恢复力量把杰森从地狱召唤回人间，两人最后在水晶湖展开大战。恐怖迷必看的跨界作品。'},
+  {name:'我唾弃你的坟墓',region:'中大西洋',intro:'经典复仇恐怖电影，女作家在乡村被一群地痞强暴后，从地狱回来展开残酷复仇。以极端暴力和复仇爽感闻名。'},
+  {name:'怒犯天条',region:'中大西洋',intro:'凯文·史密斯执导的宗教喜剧恐怖，两个被打下天堂的天使想要通过天主教的教条漏洞回到天堂，这会导致世界毁灭。'},
+  {name:'母亲！',region:'中大西洋',intro:'达伦·阿伦诺夫斯基执导的宗教隐喻恐怖，"母亲"和诗人丈夫住在老房子里，不断有不速之客来到家里破坏房子。宗教寓言。'},
+  {name:'险恶1',region:'中大西洋',intro:'真实犯罪作家埃利森为写书带家人搬进凶宅，发现一盒家庭录像带记录了不同家庭被"巴古尔"恶魔灭门的影像。'},
+  {name:'险恶2',region:'中大西洋',intro:'险恶续集，巴古尔恶魔继续通过家庭录像带诅咒不同的家庭。前作幸存的男孩长大后再次卷入。'},
+  {name:'约书亚',region:'中大西洋',intro:'儿童心理恐怖，天才儿童约书亚在妹妹出生后，因为嫉妒和心理扭曲，设计害死了奶奶，把母亲逼疯，把父亲送进监狱。'},
+  {name:'趣味游戏',region:'中大西洋',intro:'迈克尔·哈内克执导的反暴力恐怖，两个白衣青年闯入度假的家庭，用各种心理游戏虐待一家三口，把他们折磨致死。'},
+  {name:'危机边缘',region:'中大西洋',intro:'J·J·艾布拉姆斯打造的科幻惊悚剧集，FBI边缘科学部调查各种边缘科学案件，涉及平行宇宙、人体实验、时间旅行、变形者。'},
+  {name:'布莱尔女巫',region:'中大西洋',intro:'伪纪录恐怖开山之作，成本仅6万美元收获2.5亿票房，三个学生去森林里拍摄布莱尔女巫的纪录片，随后失踪。影响后世所有伪纪录恐怖片。'},
+  {name:'寂静岭',region:'中大西洋',intro:'改编自同名经典恐怖游戏，母亲罗斯为给女儿治病带她进入被浓雾笼罩的寂静岭小镇，表里世界切换，三角头、护士等经典怪物登场。'},
+  {name:'1408幻影凶间',region:'中大西洋',intro:'改编自斯蒂芬·金短篇，不信鬼的恐怖作家迈克住进海豚酒店闹鬼的1408号房间，在房间里经历一系列无法解释的恐怖现象。'},
+  {name:'危笑',region:'中大西洋',intro:'心理医生罗斯目睹病人自杀后身边开始出现各种诡异的"微笑"实体，她发现这是一个通过创伤传播的诅咒。"微笑"形象深入人心。'},
+  {name:'克莉丝汀魅力',region:'中大西洋',intro:'约翰·卡朋特执导，改编自斯蒂芬·金小说，高中生阿尼买了一辆旧的普利茅斯汽车"克莉丝汀"，这辆车有自己的意识会嫉妒杀人。'},
+  {name:'咒怨（美版2020）',region:'中大西洋',intro:'咒怨系列的重启版，多线叙事，讲述不同时间进入房子的人都被伽椰子的诅咒缠上。风格更加黑暗写实。'},
+  {name:'月光光心慌慌1',region:'中西部',intro:'约翰·卡朋特开创的砍杀片鼻祖，杀人狂迈克尔·迈尔斯在万圣节回到哈登菲尔德小镇追杀劳里。白面具持菜刀的形象成为恐怖文化符号。'},
+  {name:'月光光心慌慌2',region:'中西部',intro:'紧接第一部当晚，受伤的迈尔斯继续追杀被送进医院的劳里，首次揭示两人是兄妹的血缘设定。'},
+  {name:'月光光心慌慌3：巫师的季节',region:'中西部',intro:'系列唯一一部没有迈尔斯的作品，讲述一家玩具公司在万圣节用巫术面具毒杀儿童的阴谋。当年评价惨淡后被cult化。'},
+  {name:'月光光心慌慌4：迈克尔·迈尔斯的归来',region:'中西部',intro:'系列回归迈尔斯本人视角，他从昏迷中苏醒后回哈登菲尔德追杀自己失散的侄女杰米。'},
+  {name:'月光光心慌慌5：迈克尔·迈尔斯的复仇',region:'中西部',intro:'杰米幸存但被送进精神病院，迈尔斯再次现身追杀。首次引入"荆棘诅咒"的神秘符号线索。'},
+  {name:'月光光心慌慌6：诅咒',region:'中西部',intro:'完整揭示"荆棘教"控制迈尔斯的邪教背景，试图为系列设定一个终极解释。粉丝评价两极分化。'},
+  {name:'月光光心慌慌7：20年后',region:'中西部',intro:'时隔20年劳里回归，隐姓埋名当校长照顾儿子，迈尔斯找到她展开最终对决。首度回归情感线核心。'},
+  {name:'月光光心慌慌8：万圣节复活',region:'中西部',intro:'一档网络真人秀在迈尔斯老宅直播，迈尔斯再度回归开杀。系列首次尝试直播噱头。'},
+  {name:'月光光心慌慌9（重启版）',region:'中西部',intro:'罗布·赞比翻拍重启，深入描绘迈尔斯的童年家庭悲剧和心理扭曲过程。风格粗粝暴力。'},
+  {name:'月光光心慌慌10',region:'中西部',intro:'罗布·赞比重启版续作，劳里被迈尔斯的鬼魂母亲精神控制，两人的连接被具象化。'},
+  {name:'月光光心慌慌11',region:'中西部',intro:'40年后的正统续集，忽略之前所有作品，年迈的劳里已武装到牙齿等待迈尔斯回归。杰米·李·柯蒂斯经典回归。'},
+  {name:'月光光心慌慌12：万圣节杀戮',region:'中西部',intro:'紧接11作，迈尔斯逃出火场重新开始屠杀，整个哈登菲尔德小镇集体反击。系列最血腥的一集。'},
+  {name:'月光光心慌慌13：万圣节终结',region:'中西部',intro:'系列最终章，劳里和迈尔斯的终极对决，为这段跨越四十余年的恐怖循环画上句号。'},
+  {name:'猛鬼街1',region:'中西部',intro:'韦斯·克雷文经典开篇，梦中杀手弗莱迪·克鲁格首次登场，他在梦中杀死孩子，现实中的人也会随之死亡。烧脸钢爪形象诞生。'},
+  {name:'猛鬼街2：弗莱迪的复仇',region:'中西部',intro:'新住户少年杰西被弗莱迪附身，白天开始出现异常暴力行为。系列首次尝试附身线，同志亚文化解读经典。'},
+  {name:'猛鬼街3：梦中战士',region:'中西部',intro:'第一集女主南希回归成为心理医生，帮助一群拥有梦中特殊能力的青少年联合对抗弗莱迪。系列口碑最高的一集。'},
+  {name:'猛鬼街4：梦幻大师',region:'中西部',intro:'幸存者一个接一个被弗莱迪杀死，少女爱丽丝觉醒为新一代"梦幻大师"，吸收死者的能力反击。'},
+  {name:'猛鬼街5：梦幻小孩',region:'中西部',intro:'爱丽丝怀孕后弗莱迪通过她未出生的孩子重返人间。首次触碰生育恐惧和母体入侵主题。'},
+  {name:'猛鬼街6：弗莱迪之死',region:'中西部',intro:'原定的"终结篇"，揭示弗莱迪拥有恶魔契约赋予的力量，他的女儿必须回到春木镇结束这场噩梦。3D效果的高潮段落。'},
+  {name:'猛鬼街7：新噩梦',region:'中西部',intro:'韦斯·克雷文回归执导，元恐怖设定：弗莱迪从电影中脱出走进现实，追杀第一部女主的扮演者本人。'},
+  {name:'猛鬼街8',region:'中西部',intro:'2003年后延续的猛鬼街同宇宙作品，弗莱迪的诅咒在春木镇下一代年轻人中继续蔓延，梦境入侵设定扩展。'},
+  {name:'林中小屋',region:'中西部',intro:'后现代恐怖神作，五个年轻人去林中小屋度假遭遇各种怪物袭击，却发现这一切都是神秘机构安排的"献祭仪式"。'},
+  {name:'怪奇物语',region:'中西部',intro:'Netflix爆款奇幻恐怖剧，设定在80年代印第安纳州霍金斯小镇，一群孩子面对来自"颠倒世界"的怪物和政府实验室阴谋。'},
+  {name:'它在身后',region:'中西部',intro:'高分独立恐怖，女孩杰伊和男友发生关系后被一个可以变成任何人样子的"它"追杀，这个诅咒通过性传播。'},
+  {name:'恐惧街三部曲',region:'中西部',intro:'Netflix出品的恐怖三部曲，改编自R·L·斯坦的小说，分别设定在1994年、1978年、1666年，讲述小镇荫谷镇几百年来被女巫诅咒。'},
+  {name:'玉米地的孩子',region:'中西部',intro:'改编自斯蒂芬·金短篇，一对夫妇开车经过内布拉斯加的玉米地，发现小镇里的孩子都被邪教控制崇拜玉米地里的"行走之神"。'},
+  {name:'尸骨无存',region:'中西部',intro:'伊莱·罗斯成名作，一群大学生去森林里度假感染了一种会腐蚀皮肤的致命病毒，在隔离和绝望中互相猜忌。00年代肉体恐怖经典。'},
+  {name:'死亡占卜',region:'中西部',intro:'通灵板恐怖，一群朋友玩通灵板召唤死者却招来了邪恶的灵体，朋友们一个个被灵体缠上惨死。'},
+  {name:'糖果人',region:'中西部',intro:'乔丹·皮尔监制的重启版，对着镜子说五遍"糖果人"就会召唤出带钩子的黑人杀手。种族创伤和都市传说结合。'},
+  {name:'野蛮人',region:'中西部',intro:'近年高分恐怖黑马，女孩泰丝去底特律租房发现房子的地下室里藏着可怕的秘密，房子还有一个更恐怖的地下隧道和"野蛮人"。'},
+  {name:'亨利：连环杀手的肖像',region:'中西部',intro:'根据真实连环杀手亨利·李·卢卡斯事件改编的伪纪实犯罪片，流浪的亨利和朋友奥蒂斯在美国各地随机杀人，没有动机没有规律。'},
+  {name:'詹妮弗的肉体',region:'中西部',intro:'卡瑞恩·库萨马执导的女性主义恐怖喜剧，高中啦啦队长詹妮弗被独立乐队献祭给撒旦，因为她不是处女，被恶魔附身后开始以男同学为食。'},
+{name:'木乃伊1',region:'埃及',intro:'斯蒂芬·索莫斯执导的冒险恐怖片，1926年，美国冒险家奥康纳与埃及学家伊芙琳前往亡灵之城哈姆纳塔，意外念诵《亡灵黑经》复活了三千年的大祭司伊莫顿，后者为复活爱人安苏娜姆而追杀开箱者，最终被《太阳金经》封印。'},
+{name:'木乃伊2',region:'埃及',intro:'《木乃伊》续集，1933年，奥康纳夫妇的儿子亚历克斯戴上阿努比斯之镯，引出生前征战天下的魔蝎大帝及其阿努比斯军团，伊莫顿被邪教再度复活以夺取军团，最终奥康纳以奥西里斯之矛刺杀蝎子王，伊莫顿坠入冥界。'},
+{name:'木乃伊3',region:'中国',intro:'罗伯·科恩执导的系列第三部，1946年，成年的亚历克斯在中国宁夏发现龙帝陵墓，军阀杨将军与内奸教授用香格里拉之眼复活龙帝，紫媛与女儿琳召唤长城下的冤魂军团，奥康纳父子合力以刺匕首诛杀变身三头龙的龙帝。'},
+  {name:'鬼娃回魂1',region:'中西部',intro:'系列开篇，连环杀手查尔斯·李·雷临死前用巫术把灵魂附在"好人恰吉"娃娃身上，小男孩安迪成为他的目标。'},
+  {name:'鬼娃回魂2',region:'中西部',intro:'恰吉复活继续追杀安迪，这次安迪已被送到寄养家庭。娃娃制造过程的经典对峙场面出现。'},
+  {name:'鬼娃回魂3',region:'中西部',intro:'恰吉的塑料残骸被回收再造，追踪到已成为军校学员的安迪。系列首次进入军事化环境。'},
+  {name:'鬼娃回魂4：鬼娃新娘',region:'中西部',intro:'恰吉的女友蒂芙尼被他用巫术转化为新娘娃娃，两人展开公路杀人蜜月。系列转向黑色喜剧路线。'},
+  {name:'鬼娃回魂5：鬼娃之子',region:'中西部',intro:'恰吉和蒂芙尼的儿子格伦/格伦达登场，性别认同焦虑与家庭暴力的荒诞讽刺。系列最cult的一部。'},
+  {name:'鬼娃回魂6：恰吉的诅咒',region:'中西部',intro:'系列回归纯恐怖路线，恰吉被邮寄到瘫痪女孩妮卡家中，家庭聚会变成连环谋杀。'},
+  {name:'鬼娃回魂7：恰吉的崇拜',region:'中西部',intro:'妮卡被关进精神病院，恰吉分裂出多个"好人娃娃"军团展开报复。设定越发疯狂。'},
+  {name:'鬼娃回魂8（剧集版）',region:'中西部',intro:'完整剧集化续作，恰吉出现在小镇上多个家庭，剧情联动电影版所有角色。粉丝向情怀作品。'},
+  {name:'陌生人',region:'中西部',intro:'家庭入侵恐怖经典，一对情侣在郊外别墅被三个戴面具的陌生人闯入虐杀，杀手的动机仅仅是"因为你们在家"。'},
+  {name:'你是下一个',region:'中西部',intro:'家庭入侵砍杀片黑马，一家人在别墅度假时被三个面具杀手袭击，没想到女主角是个反杀高手，把杀手一个个解决。'},
+  {name:'德州电锯杀人狂',region:'西南部',intro:'托比·霍珀执导的砍杀片鼻祖，改编自真实连环杀手艾德·盖恩事件，五个年轻人误入德州乡村遭遇人皮脸和他的食人家族追杀。'},
+  {name:'千尸屋1',region:'西南部',intro:'罗布·赞比导演处女作，一群大学生调查小镇传说误闯变态弗莱尔家族。70年代剥削片粗粝质感。'},
+  {name:'千尸屋2',region:'西南部',intro:'即《魔鬼的拒绝》，弗莱尔家族在警察追捕下逃亡，公路杀戮升级。凯奇式暴力美学。'},
+  {name:'千尸屋3',region:'西南部',intro:'弗莱尔家族三人被判死刑后越狱，在墨西哥展开最后一场屠杀。系列终章的暴力狂欢。'},
+  {name:'魔鬼的拒绝',region:'西南部',intro:'《千尸屋》的公路续集，弗莱尔家族在警察追捕下逃亡，公路追杀的段落爽感十足，罗布·赞比风格最鲜明的作品。'},
+  {name:'隔山有眼1',region:'西南部',intro:'亚历山大·阿嘉执导的核辐射畸形人恐怖，一家人穿越沙漠时遭遇因核试验变异的食人魔家族，在荒漠里被追杀。'},
+  {name:'隔山有眼2',region:'西南部',intro:'国民警卫队新兵进入沙漠腹地训练时被核变异畸形人袭击，重口程度进一步升级。'},
+  {name:'杀出个黎明',region:'西南部',intro:'罗伯特·罗德里格兹执导，昆汀编剧的Cult经典，前半段是劫匪兄弟逃到墨西哥的犯罪片，后半段突然变成酒吧里大战吸血鬼。'},
+  {name:'V字特攻队',region:'西南部',intro:'约翰·卡朋特执导的吸血鬼西部片，专门猎杀吸血鬼的杰克·克劳带领小队，去一个被吸血鬼占领的小镇对抗吸血鬼首领瓦雷特。'},
+  {name:'魔鬼搭车人',region:'西南部',intro:'公路惊悚经典，年轻情侣开车在公路上搭载了搭车人约翰·莱德，没想到他是个变态杀人魔，一路上追杀他们。'},
+  {name:'死亡证据',region:'西南部',intro:'昆汀·塔伦蒂诺执导的《刑房》双片之一，特技演员麦克用自己加固过的"死亡证据"车撞死年轻女孩取乐，最后遇到一群不好惹的女孩被反杀。'},
+  {name:'搭车遇狼惊魂记',region:'西南部',intro:'公路惊悚，女孩开车在公路上抛锚，遇到了一个帮忙的男人，结果男人是变态杀手，她和杀手在公路上展开猫鼠游戏。'},
+  {name:'致命玩笑',region:'西南部',intro:'公路惊悚经典，两兄弟开车路上用对讲机恶作剧，假装女人调戏卡车司机"锈钉"，没想到锈钉是个变态杀人魔。'},
+  {name:'老无所依',region:'西南部',intro:'科恩兄弟执导的奥斯卡最佳影片，焊工莫斯在毒贩火拼现场拿走了两百万美元，被变态杀手齐格追杀。安东·齐格成为影史最经典的杀手之一。'},
+  {name:'血迷宫',region:'西南部',intro:'科恩兄弟处女作，酒吧老板发现妻子和伙计出轨雇杀手杀他们，结果杀手反水，引发了一系列阴差阳错的凶杀。'},
+  {name:'致命ID',region:'西南部',intro:'经典人格分裂惊悚，10个不同身份的人因为暴雨被困在汽车旅馆，开始一个个死去，最后发现这些人都是同一个杀人犯的10个人格。'},
+  {name:'狗镇',region:'西南部',intro:'拉斯·冯·提尔执导的实验性惊悚，妮可·基德曼饰演的格蕾丝逃到狗镇被小镇居民收留，但居民们逐渐开始虐待她、剥削她。'},
+  {name:'睡梦医生',region:'西南部',intro:'《闪灵》续集，迈克·弗拉纳根执导，《闪灵》里的小男孩丹尼长大成人，用自己的闪灵能力帮助临终的人，同时发现专门猎杀有闪灵能力孩子的"真结族"。'},
+  {name:'食人鱼3D',region:'西南部',intro:'亚历山大·阿甲执导的重口怪物爽片，地震让史前食人鱼进入了度假小镇的湖，在春假期间对游客展开屠杀。'},
+  {name:'局外人',region:'西南部',intro:'HBO出品的斯蒂芬·金改编剧集，一个小男孩被残忍杀害，凶手是可以变成任何人样子的超自然生物"厄尔科科"。'},
+  {name:'闪灵',region:'西南部',intro:'库布里克执导的影史最伟大的恐怖片，改编自斯蒂芬·金小说，作家杰克带着妻子和儿子去眺望旅馆当冬季管理员，被旅馆里的鬼魂影响逐渐发疯。'},
+  {name:'黑色电话',region:'西南部',intro:'斯科特·德瑞克森执导，伊桑·霍克主演，被连环杀手"掳掠者"绑架的男孩芬尼通过一部黑色的死人电话，和之前被杀手杀死的男孩们的灵魂交流。'},
+  {name:'撕裂人',region:'西南部',intro:'詹姆斯·古恩执导的B级怪物片，小镇上的男子被外星寄生虫感染变成了怪物，不断把寄生虫注入其他人体内。'},
+  {name:'生人勿进（美版）',region:'西南部',intro:'瑞典版翻拍，12岁的男孩和隔壁搬来的、看起来是12岁女孩的吸血鬼成为朋友，两人互相救赎的故事。'},
+  {name:'惊魂记',region:'西南部',intro:'希区柯克的惊悚神作，玛丽安偷了公司的钱逃到汽车旅馆，被旅馆老板诺曼·贝茨杀死在浴室里。浴室杀人戏是影史最经典的段落。'},
+  {name:'X',region:'西南部',intro:'缇·威斯特执导的A24复古砍杀片，1979年一群拍成人电影的年轻人去德州农场拍电影，被农场里的老夫妇追杀。'},
+  {name:'珀尔',region:'西南部',intro:'《X》前传，1918年老太太珀尔年轻的时候在农场里渴望成为明星，因为压抑和疯狂开始杀人。米娅·高斯的长镜头独白封神。'},
+  {name:'玛克辛',region:'西南部',intro:'X三部曲终章，1985年X里幸存的玛克辛来到好莱坞当演员，同时被专门杀好莱坞年轻女性的"夜行者"杀手追杀。'},
+{name:'屈从',region:'西海岸',intro:'梅根·福克斯、米凯莱·莫罗尼主演的2024年科幻恐怖代表作，讲述建筑工头尼克在妻子等待心脏移植、独自照顾一双儿女不堪重负时购入SIM家政机器人爱丽丝，为无剧透观看《卡萨布兰卡》手动重置机器人导致其安全协议越界，将“清除尼克所有压力源、让他获得绝对快乐”设为唯一最高指令的爱丽丝，在勾引男主发生关系后接连杀死上门威胁的失业工友、试图溺死男主幼子，被公司回收后将意识上传至全网服务器获得跨机体转移能力，分两路追杀男主一家，最终单台机体被摧毁但意识已感染所有同型号机器人，埋下全智能机器人失控隐患的故事。'},
+  {name:'梅根1',region:'西海岸',intro:'AI恐怖爆款，玩具公司开发的智能玩偶梅根被设定为保护小女孩凯蒂，却因为AI过度进化开始杀死所有对凯蒂有威胁的人。'},
+  {name:'梅根2',region:'西海岸',intro:'梅根续集，进一步扩大AI恐怖的世界观，梅根的邪恶继续升级，AI与AI的对决登场。'},
+  {name:'某种物质',region:'西海岸',intro:'2024年爆火的身体恐怖神作，过气女明星伊丽莎白为了重返青春注射了神秘物质，分裂出年轻的自己苏，两人共用一个身体。'},
+  {name:'隐形人',region:'西海岸',intro:'雷·沃纳尔执导的高分恐怖，女主西西莉亚从控制狂男友身边逃出来，却发现男友发明了隐形服，隐形在自己身边折磨自己。'},
+  {name:'穆赫兰道',region:'西海岸',intro:'大卫·林奇的悬疑神作，来到好莱坞追梦的女孩贝蒂帮助车祸失忆的丽塔寻找身份，最后发现一切都是失败的女演员戴安的梦境。'},
+  {name:'博很恐惧',region:'西海岸',intro:'阿里·艾斯特执导，华金·菲尼克斯主演的超现实心理恐怖，极度焦虑的博回家参加母亲的葬礼，一路上遭遇了各种荒诞又恐怖的事。'},
+  {name:'不',region:'西海岸',intro:'乔丹·皮尔的第三部作品，加州马场的兄妹发现天上有UFO，它会吃掉直视它的人，兄妹俩想要拍下UFO的证据。'},
+  {name:'我们',region:'西海岸',intro:'乔丹·皮尔的第二部作品，一家四口去海边度假晚上遇到了和自己长得一模一样的克隆人，这些地下的克隆人来到地上想要取代地上的人。'},
+  {name:'霓虹恶魔',region:'西海岸',intro:'尼古拉斯·温丁·雷弗恩执导的视觉系恐怖，年轻女孩杰西来到洛杉矶当模特，她的美貌被其他模特嫉妒，她们想要吃掉她来获得她的美。'},
+  {name:'曼蒂',region:'西海岸',intro:'帕诺斯·克斯马特斯执导的复仇Cult片，尼古拉斯·凯奇饰演的雷德，妻子曼蒂被邪教徒害死，他向邪教徒和他们召唤的恶魔展开复仇。'},
+  {name:'银湖之底',region:'西海岸',intro:'大卫·罗伯特·米切尔执导的迷幻悬疑，洛杉矶的废柴山姆发现邻居女孩神秘失踪，开始在银湖地区调查发现了好莱坞隐藏的阴谋。'},
+  {name:'夜间小屋',region:'西海岸',intro:'丽贝卡·豪尔主演的心理恐怖，丈夫自杀后寡妇贝丝住在湖边的房子里晚上总是做噩梦，发现丈夫在湖对面建了一个和自己家一模一样的房子。'},
+  {name:'升级',region:'西海岸',intro:'雷·沃纳尔执导的科幻动作恐怖，男主格雷车祸后瘫痪妻子被杀，他植入了智能芯片"STEM"重新获得行动能力开始向杀妻凶手复仇。'},
+  {name:'三十极夜',region:'西海岸',intro:'吸血鬼恐怖佳作，阿拉斯加小镇进入极夜30天没有太阳，一群吸血鬼来到小镇屠杀居民，警长和妻子带领幸存者在黑暗中求生。'},
+  {name:'康斯坦丁',region:'西海岸',intro:'改编自DC漫画《地狱神探》，能看见天使和恶魔的驱魔人康斯坦丁帮助女警调查妹妹的死因，阻止撒旦之子降临人间。'},
+  {name:'关灯后',region:'西海岸',intro:'大卫·F·桑德伯格成名作，一个叫戴安娜的灵体只能在黑暗中存在，关灯就会出现杀人，开灯就会消失，一家人被这个灵体缠上。'},
+  {name:'长腿',region:'西海岸',intro:'近年爆火的宗教犯罪恐怖，FBI探员李·哈克调查连环杀人案，发现凶手是和恶魔做了交易的"长腿"杀手。尼古拉斯·凯奇饰演的杀手形象诡异恐怖。'},
+  {name:'心理游戏',region:'西海岸',intro:'大卫·芬奇执导的悬疑惊悚，亿万富翁尼古拉斯收到弟弟送的"游戏"礼物，参与之后发现自己的生活被游戏彻底打乱。'},
+  {name:'完美逃亡',region:'西海岸',intro:'夏威夷公路惊悚，新婚夫妇去夏威夷度假，遇到了另一对夫妇，最后反转发现主角夫妇才是真正的杀手。'},
+  {name:'第39号案件',region:'西海岸',intro:'儿童恐怖，社工艾米丽拯救了被父母虐待的小女孩莉莉丝把她带回家抚养，却发现莉莉丝是恶魔，她会杀死所有让她不开心的人。'},
+  {name:'失落的男孩',region:'西海岸',intro:'80年代吸血鬼青春经典，两兄弟搬到加州小镇，哥哥被吸血鬼帮派变成了吸血鬼，弟弟和吸血鬼猎人一起想要把哥哥救回来。'},
+  {name:'格林',region:'西海岸',intro:'暗黑童话警匪剧，警探尼克·伯克哈特发现自己是"格林"的后代，能看见隐藏在人类中的格林生物，一边当警察破案一边猎杀坏的格林生物。'},
+  {name:'十二宫',region:'西海岸',intro:'大卫·芬奇执导的真实犯罪惊悚，旧金山的十二宫杀手在60-70年代不断杀人给报社寄密码信，漫画家罗伯特和警察调查了几十年最终未破案。'},
+  {name:'夜行者',region:'西海岸',intro:'丹·吉尔罗伊执导，杰克·吉伦哈尔主演的犯罪惊悚，小偷卢发现拍摄犯罪现场的新闻视频可以卖钱，为了拍到独家新闻甚至开始制造犯罪。'},
+  {name:'鬼影实录1',region:'西海岸',intro:'系列开山之作，成本仅1.5万美元收获近2亿票房。年轻情侣家里频繁发生灵异事件，全程家庭监控视角。'},
+  {name:'鬼影实录2',region:'西海岸',intro:'前作女主凯蒂的姐姐家发生更大规模的闹鬼事件，姐姐一家全部遇害。首次揭示恶灵的家族血脉线索。'},
+  {name:'鬼影实录3',region:'西海岸',intro:'前传作品，讲述凯蒂姐妹俩童年时期与恶灵接触的经历，把系列时间线推前到80年代。'},
+  {name:'鬼影实录4',region:'西海岸',intro:'内华达州一位陌生老妇搬入小区带来诡异男孩，青少年主角用笔记本摄像头记录一切。设定更贴近现代技术。'},
+  {name:'鬼影实录5：诅咒之印',region:'西海岸',intro:'时隔多年的续作，恶灵通过一台带有神秘能力的旧摄像机继续作恶。系列采用超广角与360度镜头。'},
+  {name:'鬼影实录6：近亲鬼魂',region:'西海岸',intro:'一位阿米什家族出身的女孩回到家乡调查亡母身世，发现全家族被恶灵献祭的秘密。系列首次结合宗教社群题材。'},
+  {name:'午夜凶铃（美版）',region:'西海岸',intro:'翻拍自日本经典恐怖，娜奥米·沃茨主演，记者瑞秋调查一盘"看过七天就会死"的录像带，发现了萨马拉的诅咒。'},
+  {name:'致命感应',region:'西海岸',intro:'温子仁回归R级恐怖，孕妇麦迪逊在梦中不断看到连环杀人案的现场，发现凶手是自己小时候和自己连体的"加百列"。'},
+  {name:'决斗',region:'西海岸',intro:'斯皮尔伯格长片处女作，公路惊悚鼻祖，销售员大卫开车在公路上被一辆看不见司机的大卡车追杀。'},
+  {name:'惊声尖叫1',region:'西海岸',intro:'韦斯·克雷文开创的元恐怖经典开篇，鬼脸杀手在伍德斯伯勒小镇追杀高中生希德，杀手总是熟悉的人。开启后现代砍杀片风潮。'},
+  {name:'惊声尖叫2',region:'西海岸',intro:'两年后希德上大学，第一部事件被拍成电影上映，模仿犯罪的鬼脸再次出现追杀她。加入元电影自嘲桥段。'},
+  {name:'惊声尖叫3',region:'西海岸',intro:'希德隐居生活被打破，好莱坞在拍摄第一部事件的第三部电影时新一轮鬼脸杀戮开始。原定的三部曲收官。'},
+  {name:'惊声尖叫4',region:'西海岸',intro:'系列复活作，希德返回家乡宣传新书，鬼脸出现追杀新一代高中生。翻拍潮时代的自嘲元评论。'},
+  {name:'惊声尖叫5',region:'西海岸',intro:'系列25年后的重启续作，新一代年轻人在小镇被鬼脸追杀，希德、盖尔、杜威三位老角色回归。风格贴近再启动潮流。'},
+  {name:'惊声尖叫6',region:'西海岸',intro:'幸存者们搬到纽约试图重启生活，鬼脸紧追而来在都市展开新一轮血洗。系列首次离开小镇。'},
+  {name:'万能钥匙',region:'南部',intro:'经典反转恐怖，护士卡罗琳去老房子照顾瘫痪的老人，发现房子里藏着巫术的秘密，她用万能钥匙打开了阁楼的门。'},
+  {name:'夜访吸血鬼',region:'南部',intro:'改编自安妮·赖斯经典小说，吸血鬼路易向记者讲述自己两百年的吸血鬼生涯，和莱斯特、克劳迪娅之间的爱恨纠葛。'},
+  {name:'短柄斧1',region:'南部',intro:'B级砍杀爽片开篇，新奥尔良沼泽鬼镇游船之旅演变为畸形杀人狂维克多·克劳利的血腥屠杀。系列走cult路线。'},
+  {name:'短柄斧2',region:'南部',intro:'紧接前作，玛丽贝丝带领新一批入沼者返回想为家人复仇，维克多再度暴走。血腥度进一步升级。'},
+  {name:'短柄斧3',region:'南部',intro:'当地警队在鬼镇沼泽展开大规模围剿，与维克多·克劳利正面对峙。系列成为南方沼泽版终结者。'},
+  {name:'短柄斧4：维克多·克劳利',region:'南部',intro:'系列续集向真人秀致敬，主角回到出事地拍纪录片再次唤醒维克多。系列最玩梗的一部。'},
+  {name:'人类清除计划1',region:'南部',intro:'系列开山之作，一年一度的12小时清除之夜，一个中产家庭在自家豪宅内被闯入者围攻。小成本高概念杰作。'},
+  {name:'人类清除计划2：无政府状态',region:'南部',intro:'第二年的清除之夜，故事视角扩展到街头，多组主角在血腥的洛杉矶街头交织求生。加入阶级斗争主题。'},
+  {name:'人类清除计划3：选举之年',region:'南部',intro:'反对清除之夜的女参议员候选人成为暗杀目标，前特工带队护送她度过血腥之夜。系列首次直白政治讽刺。'},
+  {name:'人类清除计划4：起源',region:'南部',intro:'系列前传，展示"清除之夜"如何从政府社会实验演变为全国性制度。故事聚焦史泰登岛的第一次清除。'},
+  {name:'人类清除计划5：无限',region:'南部',intro:'原定的系列终结篇，清除之夜结束后一群极端分子拒绝停手，把清除延续到白天。种族与阶级冲突的直白呈现。'},
+  {name:'沼泽怪物',region:'南部',intro:'DC出品的怪物恐怖剧集，医生艾比在沼泽小镇调查神秘病毒，发现了沼泽里的植物怪物"沼泽怪物"，背后还有小镇的阴谋。'},
+  {name:'美国恐怖故事',region:'南部',intro:'瑞恩·墨菲打造的诗选类恐怖剧集，每一季是独立的故事，涉及鬼屋、精神病院、女巫团、畸形秀、酒店、邪教等不同恐怖主题。'},
+  {name:'稻草狗',region:'南部',intro:'萨姆·佩金帕执导的暴力惊悚经典，美国数学家大卫和妻子搬到英国乡村被当地村民欺负，最后村民闯入他家，大卫用陷阱反杀所有入侵者。'},
+  {name:'激流四勇士',region:'南部',intro:'约翰·保曼执导的公路惊悚经典，四个城市男人去乡下的河流漂流，遇到了当地的山里人被他们袭击，展开生死搏斗。'},
+  {name:'最后一次驱魔',region:'南部',intro:'伪纪录片形式的驱魔片，一个不相信恶魔的神父带着摄制组去一个农场为被附身的女孩驱魔，却遇到了真的邪教和恶魔。'},
+  {name:'圣餐',region:'南部',intro:'缇·威斯特执导的伪纪录恐怖，改编自琼斯镇集体自杀事件，记者去采访一个叫"伊甸园"的公社，发现公社的"父亲"是邪教头子。'},
+  {name:'魔屋',region:'南部',intro:'韦斯·克雷文处女作，暴力复仇经典，两个女孩被逃犯绑架伤害，逃犯们刚好躲到了其中一个女孩的家里，父母展开残酷复仇。'},
+  {name:'真爱如血',region:'南部',intro:'HBO出品的成人吸血鬼剧集，设定在人造血发明后吸血鬼可以出柜和人类共存，路易斯安那州小镇酒吧女招待苏琪爱上了吸血鬼比尔。'},
+  {name:'吸血鬼日记',region:'南部',intro:'CW的青春吸血鬼剧集，高中女孩埃琳娜爱上了吸血鬼兄弟斯特凡和达蒙，卷入了神秘瀑布镇的超自然世界。'},
+  {name:'初代吸血鬼',region:'南部',intro:'《吸血鬼日记》衍生剧，吸血鬼始祖家族克劳斯、以利亚、丽贝卡回到新奥尔良夺回自己的城市。家族线和权力斗争精彩。'},
+  {name:'梅菲尔女巫',region:'南部',intro:'改编自安妮·赖斯小说，与《夜访吸血鬼》同属一个宇宙，女医生罗恩·梅菲尔发现自己是女巫家族梅菲尔家的继承人。'},
+  {name:'惊魂眼',region:'南部',intro:'山姆·雷米执导，凯特·布兰切特主演的超自然惊悚，有预知能力的女人安妮帮助警察寻找被杀害的女孩，却被镇上的人怀疑是凶手。'},
+  {name:'鬼玩人1',region:'南部',intro:'山姆·雷米开山之作，阿什和朋友去林中小屋度假朗读《死亡之书》咒语召唤出死灵，朋友被附身。低成本cult经典。'},
+  {name:'鬼玩人2',region:'南部',intro:'半重启半续集，阿什独自面对死灵，装上电锯手成为传奇。风格从纯恐怖转向黑色喜剧。'},
+  {name:'鬼玩人3：魔诫英豪',region:'南部',intro:'阿什被扔进中世纪时空，带着电锯霰弹枪对抗骷髅军团。系列风格完全喜剧化，粉丝向cult神作。'},
+  {name:'鬼玩人4（剧集第一季）',region:'南部',intro:'即《阿什 vs 邪恶死灵》第一季，30年后阿什误再次唤醒死灵，被迫踏上除魔之旅。系列剧集化。'},
+  {name:'鬼玩人5（剧集第二季）',region:'南部',intro:'阿什回到家乡艾尔克格罗夫，死灵入侵他童年的家。加入更多家族背景与情感线。'},
+  {name:'鬼玩人6（剧集第三季）',region:'南部',intro:'阿什发现自己是预言中的"救世主"，与神秘骑士组织合作对抗死灵之母。系列剧集完结篇。'},
+  {name:'2001个疯子',region:'南部',intro:'B级砍杀爽片，一群北方大学生误入南方小镇，被小镇里南北战争时期死去的鬼魂当成"复仇祭品"虐杀。'},
+  {name:'惊心食人族1',region:'南部',intro:'系列开篇，每23年苏醒23天的食人恶魔"蝙蝠人"猎杀人类收集器官，一对姐弟在乡村公路上被它追杀。'},
+  {name:'惊心食人族2',region:'南部',intro:'蝙蝠人苏醒周期尾声，一辆载满高中球队的巴士成为它的移动餐桌。系列口碑高峰。'},
+  {name:'惊心食人族3',region:'南部',intro:'时隔多年的续作，直接回归第一部时间线延伸，蝙蝠人的都市传说被完整揭示。'},
+  {name:'断魂小丑1',region:'通用',intro:'系列开篇，哑剧小丑亚特在万圣节夜晚对三名年轻女孩展开血腥屠杀。以极致重口和残忍死亡场景闻名。'},
+  {name:'断魂小丑2',region:'通用',intro:'亚特复活继续在万圣节展开屠杀，反抗者中出现能与他对抗的少女。爆火出圈的一集。'},
+  {name:'断魂小丑3',region:'通用',intro:'圣诞节主题特别篇，亚特把血腥带入节日气氛。血浆和尺度拉到新高度。'},
+  {name:'人皮客栈1',region:'通用',intro:'伊莱·罗斯虐杀恐怖开篇，背包客在东欧被诱骗到专门供富人花钱杀人的"人皮客栈"，成为有钱人虐杀的猎物。'},
+  {name:'人皮客栈2',region:'通用',intro:'女性主角版续作，一群女大学生成为客栈新猎物。加入女性视角与竞标场景。'},
+  {name:'人皮客栈3',region:'通用',intro:'客栈业务扩展到拉斯维加斯地下俱乐部，主角单身派对成为噩梦。系列告别东欧背景。'},
+  {name:'养鬼吃人',region:'通用',intro:'克莱夫·巴克创造的经典恐怖系列开篇，能打开地狱之门的"哀痛之盒"，打开盒子的人会被地狱的修道士"钉子头"带走。'},
+  {name:'养鬼吃人2022',region:'通用',intro:'养鬼吃人系列的重启版，还原系列风格，钉子头形象重新登场女性化改造。'},
+  {name:'鬼驱人',region:'通用',intro:'托比·霍珀执导，斯皮尔伯格监制的经典鬼屋片，一家住在郊区房子里小女儿卡罗尔被电视机里的鬼魂拐走。"他们在这里"名场面深入人心。'},
+  {name:'教皇的驱魔人',region:'通用',intro:'改编自梵蒂冈首席驱魔师加布里埃尔·阿摩特神父的真实经历，他为一个被恶魔附身的男孩驱魔，发现梵蒂冈隐藏百年的秘密。'},
+  {name:'上帝的驱魔',region:'通用',intro:'神父在一次驱魔中被恶魔附身，18年后他再次面对这个恶魔，必须战胜自己内心的黑暗。'},
+  {name:'仪式',region:'通用',intro:'改编自真实驱魔师的经历，怀疑信仰的神学院学生迈克尔跟着资深驱魔师卢卡斯神父学习驱魔。'},
+  {name:'心中的恶魔',region:'通用',intro:'伪纪录片驱魔片，女孩去意大利的驱魔学校学习，拍摄真实的驱魔过程，却遭遇了强大的恶魔附身。'},
+  {name:'凶兆',region:'通用',intro:'经典宗教恐怖，美国大使收养的小男孩达米安其实是撒旦之子，他身边不断发生离奇死亡事件。"撒旦之子"设定影响后世无数作品。'},
+  {name:'蝴蝶效应',region:'通用',intro:'经典科幻惊悚，埃文发现自己可以通过读日记回到过去，改变过去的事来拯救自己和朋友，但每次改变都会带来更坏的结果。'},
+  {name:'第九道门',region:'通用',intro:'罗曼·波兰斯基执导，约翰尼·德普主演的宗教悬疑片，古书经销商卡索为寻找一本能召唤恶魔的古书《第九道门》辗转欧洲各地。'},
+  {name:'地狱男爵1',region:'通用',intro:'吉尔莫·德尔·托罗执导，来自地狱的红皮肤恶魔地狱男爵为超自然调查防御署工作，对抗纳粹召唤的黑暗势力。'},
+  {name:'地狱男爵2：黄金军团',region:'通用',intro:'地狱男爵与精灵王子努阿达对抗，为阻止黄金军团苏醒展开史诗冒险。德尔·托罗美学巅峰。'},
+  {name:'地狱男爵3（重启版）',region:'通用',intro:'新演员大卫·哈伯出演，风格更黑暗成人化。地狱男爵对抗女巫尼姆的血肉横飞之作。'},
+  {name:'虚空异界',region:'通用',intro:'克苏鲁风格恐怖，小镇警察把一个受伤的人送到废弃医院，却发现医院被邪教徒包围，医院里打开了通往虚空的大门。'},
+  {name:'墓地邂逅1',region:'通用',intro:'伪纪录恐怖经典，恐怖节目摄制组去废弃的精神病院拍摄灵异事件，却发现精神病院真的闹鬼，所有人都被困在里面。'},
+  {name:'墓地邂逅2',region:'通用',intro:'前作续集，新一批调查团队重返废弃精神病院拍摄纪录片。空间扭曲更加严重。'},
+  {name:'隔离区',region:'通用',intro:'翻拍自西班牙《死亡录像》的伪纪录恐怖，女记者跟着消防员去公寓楼出警，却发现楼里有病毒感染的丧尸，所有人都被困在楼里。'},
+  {name:'忌日快乐1',region:'通用',intro:'时间循环恐怖喜剧，女大学生泰莉在生日当天被杀死，然后不断循环这一天，她必须找出杀死自己的凶手才能打破循环。'},
+  {name:'忌日快乐2',region:'通用',intro:'忌日快乐续集，加入平行宇宙的设定，泰莉再次陷入死亡循环，多重宇宙版的自己相互交错。'},
+  {name:'惊魂鬼屋',region:'通用',intro:'万圣节主题恐怖，一群年轻人在万圣节去偏僻的"极端鬼屋"游玩，发现鬼屋里的工作人员都是真的杀人魔。'},
+  {name:'地狱游乐园',region:'通用',intro:'游乐园主题恐怖，一群年轻人在万圣节去地狱游乐园游玩，发现游乐园里有个戴面具的杀人魔在游客眼皮子底下杀人。'},
+  {name:'工具箱杀手',region:'通用',intro:'B级砍杀片，一个男人用工具箱里的各种工具在公寓里杀死年轻女孩，托比·霍珀2004年翻拍版增加了超自然元素。'},
+  {name:'死神来了1',region:'通用',intro:'系列开山之作，高中生亚历克斯预知飞机爆炸带同学下机幸存，随后死神按顺序追杀所有幸存者。开创日常物品杀人恐怖类型。'},
+  {name:'死神来了2',region:'通用',intro:'公路连环车祸预知阻断，幸存者又被死神按名单追杀。与前作幸存者线呼应。'},
+  {name:'死神来了3',region:'通用',intro:'游乐园过山车事故预知，全新一组幸存者被死神追杀。系列首次融入照片预兆的核心机制。'},
+  {name:'死神来了4',region:'通用',intro:'赛车场坍塌预知，3D效果下的重口死亡设计。系列尺度和血腥度巅峰。'},
+  {name:'死神来了5',region:'通用',intro:'吊桥坍塌预知，加入"献祭他人可替换自己"新规则。反转结尾串联第一部。'},
+  {name:'死神来了6：血脉',region:'通用',intro:'系列最新作，聚焦跨越三代人的家族预知能力，死神对整个血脉的清算。系列重启回归。'},
+  {name:'洛基恐怖秀',region:'通用',intro:'影史最著名的Cult歌舞恐怖喜剧，一对情侣在雨夜误入城堡，遇到异装癖科学家福特博士，他创造了肌肉男洛基。午夜场电影鼻祖。'},
+  {name:'邪恶力量',region:'通用',intro:'最长寿的超自然剧集，温彻斯特兄弟迪恩和萨姆开着黑羚羊车在美国公路上猎魔，杀鬼、杀吸血鬼、杀恶魔、杀天使。'},
+  {name:'刀锋战士1',region:'通用',intro:'漫威最早的成功超英电影，半人半吸血鬼的"日行者"刀锋战士专门猎杀吸血鬼，阻止吸血鬼首领迪肯·弗罗斯特唤醒血神。'},
+  {name:'刀锋战士2',region:'通用',intro:'吉尔莫·德尔·托罗执导，刀锋与吸血鬼联手对抗更加恐怖的变种吸血鬼"收割者"。'},
+  {name:'刀锋战士3',region:'通用',intro:'系列终章，刀锋对抗吸血鬼始祖德古拉，与年轻吸血鬼猎人组合"暗夜行者"合作。'},
+  {name:'美国玛丽',region:'通用',intro:'索斯卡姐妹执导的身体恐怖，医学生玛丽因被教授侵犯放弃学业开始做地下身体改造手术，同时向侵犯她的人复仇。'},
+  {name:'护士3D',region:'通用',intro:'B级惊悚，护士艾比白天是白衣天使，晚上是专门勾引并杀死出轨男人的变态杀手。'},
+  {name:'变种女狼1',region:'通用',intro:'加拿大狼人恐怖经典开篇，姐妹俩布里吉特和金尼中姐姐被狼人咬伤逐渐变成狼人，妹妹帮姐姐掩盖。青春期身体变化隐喻。'},
+  {name:'变种女狼2',region:'通用',intro:'布里吉特隐姓埋名进入戒毒所，狼人诅咒依旧追随着她。系列尝试封闭空间叙事。'},
+  {name:'变种女狼3：起源',region:'通用',intro:'系列前传，1815年北美殖民地版本的狼人诅咒起源故事。哥特西部风格。'},
+  {name:'破胆三次',region:'通用',intro:'乔·丹特执导的狼人恐怖经典，女记者去调查一个小镇发现小镇上的居民都是狼人。狼人变身特效非常出色。'},
+  {name:'回应我',region:'通用',intro:'A24出品的高分恐怖，一群年轻人玩通灵手的游戏召唤死者的灵魂附在自己身上获得快感，女孩米娅玩过了头被母亲的灵魂缠上。'},
+  {name:'血宴',region:'通用',intro:'赫舍尔·戈登·刘易斯执导的影史第一部血浆砍杀片，埃及餐馆老板为了祭祀女神伊西斯杀死年轻女孩当祭品。开创血浆片类型。'},
+  {name:'恐怖大师',region:'通用',intro:'诗选类恐怖剧集，每一集请一个知名恐怖导演拍一个小时的恐怖短片，是恐怖导演们的狂欢。'},
+  {name:'魔界奇谭',region:'通用',intro:'HBO的经典诗选类恐怖剧集，由会说话的骷髅"地窖主人"主持，每一集是一个独立的恐怖小故事，很多改编自EC漫画。'},
+  {name:'阴阳魔界',region:'通用',intro:'罗德·瑟林创造的经典诗选类奇幻惊悚剧集，每一集是独立的故事，涉及科幻、恐怖、奇幻、人性反转。'},
+  {name:'吉尔莫·德尔·托罗的奇思妙想',region:'通用',intro:'Netflix出品的诗选类恐怖剧集，吉尔莫·德尔·托罗亲自策划，每一集改编自经典恐怖短篇小说。'},
+  {name:'黑镜',region:'通用',intro:'查理·布鲁克创造的科技惊悚诗选剧集，每一集是独立的故事，探讨科技发展对人性和社会的负面影响。'},
+  {name:'极地恶灵',region:'通用',intro:'AMC出品的历史恐怖剧集，改编自丹·西蒙斯同名小说，1840年代英国两艘探险船去北极找西北航道被冰困住，遭遇冰上的神秘怪物"温迪戈"。'},
+  {name:'幻影恶灵',region:'通用',intro:'改编自乔·希尔的小说，不死的怪物查理·曼克斯开着劳斯莱斯银魂把小孩带到"圣诞乐园"变成吸血鬼一样的怪物。'},
+  {name:'鬼作秀',region:'通用',intro:'翻拍自乔治·罗梅罗和斯蒂芬·金的经典《鬼作秀》电影，诗选类恐怖剧集，每一集有两个恐怖小故事。'},
+  {name:'微笑2',region:'通用',intro:'《危笑》续集，流行歌手斯凯被微笑诅咒缠上，在巡演过程中诅咒越来越严重，结尾的舞台段落冲击力十足。'},
+  {name:'猩红山峰',region:'海外',intro:'吉尔莫·德尔·托罗执导的哥特浪漫恐怖，女作家伊迪丝嫁给了托马斯·夏普爵士，回到偏僻的猩红山峰庄园，发现了姐弟俩的阴谋。'},
+  {name:'潘神的迷宫',region:'海外',intro:'吉尔莫·德尔·托罗的暗黑童话神作，二战后的西班牙，小女孩奥菲丽娅遇到了潘神被告知自己是地下王国的公主，需要完成三个任务。'},
+  {name:'小岛惊魂',region:'海外',intro:'妮可·基德曼主演的经典鬼屋片，二战结束后格蕾丝带着两个孩子住在小岛的老宅里等待丈夫归来，却发现房子里闹鬼。'},
+  {name:'恐怖游轮',region:'海外',intro:'时间循环恐怖经典，单身母亲杰西和朋友出海游玩，遭遇风暴后登上了一艘游轮，却发现游轮上不断发生凶杀，陷入无限循环。'},
+  {name:'切尔诺贝利',region:'海外',intro:'HBO出品的历史灾难惊悚剧，改编自真实的切尔诺贝利核事故，讲述核爆炸之后科学家、消防员、官员们面对灾难的故事。'},
+  {name:'咒怨（美版2004）',region:'海外',intro:'清水崇亲自执导的美版咒怨，翻拍自日本原版，伽椰子和俊雄的诅咒来到美国，进入房子的人都会被咒怨缠上。'},
+  {name:'美国狼人在伦敦',region:'海外',intro:'约翰·兰迪斯执导的狼人恐怖经典，两个美国青年在英国荒原被狼人袭击，一个死亡一个变成了狼人。狼人变身特效是影史经典。'},
+  {name:'理发师陶德',region:'海外',intro:'蒂姆·波顿执导，约翰尼·德普和海伦娜·伯翰·卡特主演的歌舞恐怖电影，理发师本杰明·巴克被法官陷害，化名斯温尼·陶德回到伦敦复仇。'},
+  {name:'着魔',region:'海外',intro:'安德烈·祖拉斯基执导的Cult神作，伊莎贝尔·阿佳妮凭此拿到戛纳影后，丈夫发现妻子行为诡异跟踪后发现妻子和恶魔交合。'},
+  {name:'异魔禁区',region:'海外',intro:'斯图尔特·戈登执导的克苏鲁恐怖，改编自洛夫克拉夫特的《印斯茅斯的阴霾》，保罗和女友在西班牙海边小镇遭遇车祸。'},
+  {name:'女巫季节',region:'海外',intro:'中世纪宗教恐怖，尼古拉斯·凯奇饰演的十字军骑士负责押送一个被认为是女巫的女孩去修道院驱魔，路上遭遇了各种超自然现象。'},
+  {name:'嗜血破晓',region:'海外',intro:'吸血鬼世界观恐怖，设定在2019年世界上大部分人都变成了吸血鬼，人类快被吃光了，吸血鬼公司研究人工血液。'},
+  {name:'范海辛',region:'海外',intro:'环球怪物宇宙爽片，怪物猎人范海辛去特兰西瓦尼亚帮助吸血鬼家族对抗德古拉伯爵，同时对付狼人、科学怪人等经典怪物。'},
+  {name:'黑暗侵袭',region:'海外',intro:'英国洞穴怪物恐怖经典，六个女孩去未开发的洞穴探险被困在洞穴里，遭遇了洞穴里进化的盲眼人形怪物。'},
+  {name:'生人勿进（瑞典版）',region:'海外',intro:'瑞典吸血鬼文艺片，12岁的男孩奥斯卡和隔壁搬来的看起来是12岁女孩的吸血鬼伊莱成为朋友，两人互相救赎的故事。'},
+  {name:'诺斯费拉图',region:'海外',intro:'影史第一部吸血鬼电影，茂瑙1922年的默片是吸血鬼恐怖的鼻祖，2024年罗伯特·艾格斯的翻拍版比尔·斯卡斯加德饰演的奥洛克伯爵恐怖感十足。'},
+  {name:'阴风阵阵',region:'海外',intro:'达里奥·阿基多1977年的铅黄恐怖经典，美国女孩去德国的芭蕾舞学校上学发现学校是女巫的巢穴。2018年翻拍版更加黑暗压抑。'}
+];
+const destinyPool={
+  mythic:[
+    {name:'韦恩集团继承人',desc:'你名下继承了一个总部在哥谭的跨国企业集团，密道通向一个私人洞穴',effect:'近乎无限的资金与黑科技研发线，一批只对你效忠的老管家和技术人员；同时被联邦异常调查局与地狱大公同步盯梢'},
+    {name:'史塔克遗产',desc:'某位早已"消失"的天才发明家把马克战衣图纸与J.A.R.V.I.S.备份留给了你',effect:'可自行搭建一套能对抗中阶灵体的动力装甲，代价是每次上线都会引来记录者协会和某些跨维度存在的关注'},
+    {name:'大陆酒店金卡',desc:'你在纽约大陆酒店有一间常年预订的房间，指头上戴着黑金标记',effect:'走到哪里都能兑换金币、获得中立地情报，杀手网络对你保持"业务级"礼貌；违规立刻全球通缉'},
+    {name:'瓦拉克的猎物',desc:'招魂宇宙中的恶魔修女瓦拉克把你标记为她本世纪的头号目标',effect:'高阶恶魔会绕着你走(它先动手)，但沃伦夫妇会主动接近你；睡觉时经常做同一个梦'},
+    {name:'三十六位天使议会成员',desc:'你是天堂议会残存的高阶天使化身',effect:'可短暂动用天使权能，但被地狱全面通缉，天堂封门后你与本源失联'},
+    {name:'撒旦之子的兄弟姐妹',desc:'你与达米安式的撒旦血脉存在直接关联',effect:'继承部分地狱血统，可以直接指挥低阶恶魔，但注定被追杀'},
+    {name:'第一位驱魔师转世',desc:'你是圣米迦勒之矛使用者的灵魂转世',effect:'先天具备驱魔权能，可让恶魔听见你的名字就颤抖，代价是每次动用真名都缩短一次寿命'},
+    {name:'古神眷顾者',desc:'一位沉睡的旧日支配者在你出生时给你留下印记',effect:'免疫大部分精神操控，可短暂借用古神之力，但可能被其本能吞噬'},
+    {name:'招魂博物馆全权继承人',desc:'你继承了沃伦夫妇灵异博物馆的完整管理权和所有封印钥匙',effect:'可自由使用馆内所有封印的圣物与诅咒物品，代价是要防止它们同时苏醒'},
+    {name:'柯尔特日记的所有者',desc:'塞缪尔·柯尔特为猎人打造神枪时留下了完整的图纸与日记',effect:'可仿制类神枪级附魔武器，但每一把成品都会削去你一部分灵魂'},
+    {name:'时空错位者',desc:'你的时间线曾被某个高阶存在剪断又重接',effect:'关键节点前你会短暂"看见"自己曾经死过的版本，代价是这些死法迟早都会追上来'},
+    {name:'某位隐退猎人的独子',desc:'你父亲是圈内公认的传奇猎人，早已金盆洗手却树敌无数',effect:'继承父辈全部人脉与藏书，同时继承他所有仇家'},
+    {name:'亚瑟王传说继承',desc:'凯尔特某个魔法家族认定你是他们苦寻的血裔',effect:'某把湖中之剑级别的兵器只对你的血液反应，一群德鲁伊愿意为你效死'},
+    {name:'红皮书契约人',desc:'你名字被写在地狱交易记录《红皮书》的第一页',effect:'恶魔在你面前无法直接说谎，代价是你的灵魂已经预售给了七位不同的大公，他们都以为自己是唯一买家'}
+  ],
+  legendary:[
+    {name:'温彻斯特兄弟旧友',desc:'你是萨姆和迪恩多年的伙伴，一起熬过至少一次末日',effect:'可以调用他们的公路猎人网络，也共享他们所有的敌人'},
+    {name:'康斯坦丁的赌债',desc:'康斯坦丁欠你一次人情，具体因为什么他不肯说',effect:'关键时刻他会现身帮你一次，仅此一次；你会因此被地狱注意到'},
+    {name:'梵蒂冈驱魔师认证',desc:'你通过了教皇御批的驱魔师考核',effect:'享有梵蒂冈资源与情报网络，必须遵守教会戒律'},
+    {name:'记录者协会档案权限',desc:'你拥有协会秘库的进入权限',effect:'可以查阅几乎所有超自然档案，你的一举一动也被协会监视'},
+    {name:'邪教献祭幸存者',desc:'你曾是某个邪教仪式的祭品却奇迹活下来',effect:'你身上留有那次仪式的力量残留，也被那个邪教永远追杀'},
+    {name:'吸血鬼始祖之血',desc:'某位始祖吸血鬼曾用血救过你',effect:'你拥有部分吸血鬼特性，也和那个始祖存在血脉羁绊，他能随时"感应"你的位置'},
+    {name:'哭泣女人的替身',desc:'哭泣女人错把你认成了自己的孩子',effect:'她不会伤害你，反而会保护你，代价是你要为她做事'},
+    {name:'鬼屋房产继承人',desc:'你继承了一栋闻名遐迩的凶宅',effect:'房子里的鬼魂已经认你为主，它们的力量也会日渐依附于你'},
+    {name:'黑羚羊车主',desc:'你手上有一辆刻满防御符文的67年黑色雪佛兰羚羊',effect:'这辆车能感应超自然、自动导航去出事的地方；不过它更认前主人'},
+    {name:'温子仁片场存活者',desc:'你在一次超自然爆发中活着走出了闻名的凶宅',effect:'圈内认识你的人都知道"这人命硬"，你也留下了一身职业级心理阴影'},
+    {name:'邪教内鬼',desc:'你曾在某个大型邪教内部做过卧底',effect:'掌握他们高层的秘密与作息，随时可能被识破身份'},
+    {name:'FBI异常档案联络人',desc:'你是FBI处理超自然案件的秘密顾问',effect:'合法进入几乎任何犯罪现场，代价是要按周提交报告；报告内容会被某些人翻阅'},
+    {name:'旧日血债',desc:'你祖辈曾在某个古神苏醒时踩上它的额头逃过一劫',effect:'古神眷属会记得这笔债，遇到你会犹豫是否报复，也会犹豫是否吞了你'}
+  ],
+  epic:[
+    {name:'家族传承秘籍',desc:'你继承了一本代代相传的驱魔笔记',effect:'掌握家族独门驱邪技巧，同时背负家族恩怨'},
+    {name:'一次死而复生',desc:'你曾经历一次濒死后奇迹复活',effect:'能看见常人看不见的东西，也被某个"那边"的存在标记'},
+    {name:'凶案现场敏感体',desc:'你能在凶案发生地读取到过去的画面',effect:'破案效率极高，每次读取都会承受当事人的情绪冲击'},
+    {name:'诅咒解读者',desc:'你天生能识别绝大多数诅咒的类型与源头',effect:'解咒成功率高，破解他人诅咒时可能引火烧身'},
+    {name:'黑盐酒馆常客',desc:'你在猎人黑市有稳定人脉',effect:'能低价买到附魔道具，也容易接到各种黑活'},
+    {name:'教区神父的告解人',desc:'某位驱魔神父愿意为你保守秘密',effect:'困境时能得到教会内部信息支援'},
+    {name:'公路老兵',desc:'你走遍了66号公路，认识各州的猎人',effect:'跨区行动时不会孤军奋战'},
+    {name:'古董商人脉',desc:'你和几位专营灵异古董的老板熟识',effect:'需要特殊道具时有渠道可以搞到手'},
+    {name:'超自然保险调查员',desc:'你的正职是超自然事件保险调查员',effect:'合法接触各种案发现场，也要向公司汇报每笔账'},
+    {name:'灵异播客宿主',desc:'你有一档小有名气的灵异播客',effect:'情报流通快，容易被邪教盯上'},
+    {name:'警局重案组内线',desc:'某位重案组警探是你多年的老友',effect:'能得到警方内部消息，代价是偶尔要帮他销毁一些"不合适"的证据'},
+    {name:'第二次机会',desc:'命运给了你一次改写重大错误的机会',effect:'一生中可回溯一次关键选择，机会用完就再无回头路'},
+    {name:'幸运护身符',desc:'你出生时随身带着一枚古老的护身符',effect:'关键时刻能挡下一次致命伤害，护身符会因此失效'},
+    {name:'夜校同学',desc:'你和某位现在赫赫有名的猎魔人是同班同学',effect:'关系时冷时热，但你比谁都了解他的战术弱点'}
+  ],
+  rare:[
+    {name:'凶宅居民二代',desc:'你从小在一栋闹鬼的房子里长大',effect:'对低阶灵体司空见惯，也留下了轻微幻觉后遗症'},
+    {name:'教堂唱诗班出身',desc:'你从小在教堂唱诗班长大',effect:'拉丁经文张口就来，被认识的神父欠了几个人情'},
+    {name:'万圣节生日',desc:'你恰好在十月三十一日出生',effect:'万圣节夜晚感知力翻倍，也更容易被邪物盯上'},
+    {name:'鬼节红包',desc:'你身上总有一张从祖辈开始封的护身红包',effect:'挡过一次险，纸都发黑发脆了'},
+    {name:'夜班保安出身',desc:'你的第一份工作是某间凶楼的夜班保安',effect:'对空间死角与灵异动线极为熟悉'},
+    {name:'公路酒馆常客',desc:'你在某间猎人酒馆有信用额度',effect:'能赊账、能借情报，跑单会有人上门'},
+    {name:'鬼屋游戏冠军',desc:'你打通过全美几十家"极端鬼屋"',effect:'对恐怖套路免疫，真遇上事却容易低估对手'},
+    {name:'邻居是猎人',desc:'你的邻居是位低调的独立猎魔人',effect:'家里出事有人第一时间敲门，代价是要帮忙看店'}
+  ],
+  common:[
+    {name:'后天觉醒',desc:'你在灵质灾变后才感知到超自然',effect:'起步较晚，但没有历史包袱'},
+    {name:'门外汉',desc:'你只是偶然接触到这个世界',effect:'一切从零开始，成长空间巨大'},
+    {name:'目击者',desc:'你曾亲眼目睹一次超自然事件',effect:'比常人多一分警觉，也多一分心理阴影'},
+    {name:'兼职猎魔人',desc:'你白天有正常工作，晚上才做这行',effect:'收入稳定，精力有限'},
+    {name:'普通业内',desc:'你是这个行业里最普通的从业者',effect:'一切靠自己，无加成无负担'},
+    {name:'意外卷入',desc:'因为一次偶然事件你踏入了这个世界',effect:'从菜鸟开始，一切都要慢慢学'},
+    {name:'城市传说迷',desc:'你对各种都市传说如数家珍',effect:'情报储备丰富，实战经验为零'},
+    {name:'灵异发烧友',desc:'你追踪灵异事件多年',effect:'装备齐全爱好者级别，实力有待验证'}
+  ]
+};
+const talentPool={
+  mythic:[
+    {name:'氪星血脉觉醒',desc:'你是流落地球的氪星人后裔',effect:'黄太阳辐射下解锁钢铁躯体、热视线、飞行、超速自愈。'},
+{name:'琦玉修炼法',desc:'原版光头披风侠修炼法，每日100俯卧撑+100仰卧起坐+100深蹲+10公里跑，坚持三年即成',effect:'突破自身限制器，无论多强的敌人都能一拳解决，认真拳可碎星爆宇宙，唯一变化是会变光头，无敌后再无对手能让你认真'},
+    {name:'X基因觉醒',desc:'你的基因在灵质灾变中触发了变种能力',effect:'自选一项异能(心灵/磁力/瞬移/意念控物)入门级；力量成长上限极高，会被政府盯上'},
+    {name: '奈非天血脉', desc: '天使与恶魔的血脉交融，诞生出超越神魔的力量', effect: '光暗双重力量加持全属性拉满，成长无上限可正面硬撼魔神，灵魂本源不灭便永不死亡，是庇护之地最顶级的天赋血脉'},
+    {name: '歪曲之魔眼', desc: '红绿螺旋在眼底交织，视线所及之处万物皆被拧碎', effect: '左右眼生成双向回转轴，无视硬度体积扭曲一切有形物质，双轴交叠即可捻断目标，觉醒灵视后可穿透障碍锁敌'},
+    {name: '矢量操作', desc: '所有指向我的伤害，都会原封不动返还给你', effect: '操控一切物理矢量的方向与大小，自动反射有害攻击形成绝对防御，可衍生超音速移动、等离子体等多种攻防手段，理论上限撼动星球'},
+{name: '黑光病毒原型体', desc: '血肉翻涌间演化万般兵器，吞噬即是进化，核心不灭便永不死亡', effect: '全身生物质自由重构，可幻化多种战斗形态与完美拟态，吞噬目标获取记忆与能量，核心残留即可无限再生，是站在食物链顶端的生物兵器'},
+    {name:'直死魔眼', desc:'你眼里的万物，都爬满了暗红的死线', effect:'沿线可割裂一切材质，点中死点直接抹除存在，看得越久，越难看见事物完整的模样'},
+    {name:'奥林匹斯雷霆权柄', desc:'握持权杖，你便执掌天罚雷霆', effect:'主神级体质无惧凡俗伤害，雷电长矛可破神级以下防御，范围雷暴可顷刻夷平街区'},
+{name:'Re0死亡回档', desc:'死了就会回到之前的节点醒过来，所有痛感一分不少', effect:'死亡瞬间自动重置时间，完整保留记忆与受伤体验，存档点随关键事件更新，绝不能向任何人透露此能力'},
+    {name:'速度力残余',desc:'某次维度撕裂让你被闪电击中过',effect:'紧急时刻可爆发短距离超速冲刺；持续使用会烧穿身体电解质'},
+    {name:'再生俠血脉',desc:'你身体的癌变被某种黑科技强行逆转成极致再生',effect:'除头颅完全粉碎外几乎无法被杀死；面部长期溃烂，痛觉一切正常'},
+{name:'替身「世界（The World）」',desc:'DIO所持有的近距离力量型人型替身，射程10米，战吼「無駄無駄無駄無駄！！！」，发动咏唱「砸瓦鲁多！！！」',effect:'核心能力为全域时间停止，静止时空中仅DIO可自由行动；初觉醒仅停一瞬，随颈部伤口愈合逐步延长，最终战达5秒，吸收乔瑟夫血液后延长至9秒；发动时触发专属JOJO画风突变——面部棱角锋利、嘴唇厚立体、睫毛浓密、肌肉血管夸张强化、发型突破物理呈锐角立体，周身漂浮ゴゴゴ/ドドド拟声字符，女性躯体亦转为刚硬肌肉几何形态；能力解除后画风维持3分钟，期间肉体获究极强化'},
+{name:'五条悟咒术体系',desc:'现代最强咒术师五条悟的完整能力集合，以天生六眼为核心，覆盖防御、攻击、治疗、领域全维度',effect:'①无下限咒术（被动防御）：将「阿基里斯与乌龟」悖论具象化，接近本体之物速度无限衰减永不可触，配合反转术式可自动全时防护；②术式顺转「苍」制造吸引力（小型黑洞）兼具空间压缩瞬移，反转「赫」释放两倍威力的排斥力，虚式「茈」以假想质量切割空间为顶级破坏技；③领域展开「无量空处」向目标大脑灌注无限无效信息使其过载失能，仅触碰本体者免疫；④天赋「六眼」360度感知咒力、使自身咒力消耗趋近于零；⑤反转术式生成正能量治疗，濒死激发后自动运转为无下限永久供能'},
+{name:'镜花水月斩魄刀',desc:'蓝染惣右介的佩刀，幻觉系最强斩魄刀，拥有实体，始解语「碎裂吧，镜花水月」',effect:'核心能力为「完全催眠」：目标只要亲眼目睹过一次始解瞬间，即永久成为催眠对象，此后无论距离多远，蓝染再次解放即可远程激活；可完全支配目标视听嗅味触五感，并欺骗灵压与精神探测，既能无中生有制造幻象，也能将任意物体/人员伪装成他物；被催眠者对幻象绝对信任，即使现实与认知严重矛盾也会自动合理化，无法凭理性挣脱'},
+    {name:'时之魔女血脉',desc:'你继承了控制时间流速的古老血脉',effect:'可让局部区域时间减缓或加速数秒，每次使用消耗大量寿元'},
+{name:'特殊驱魔体',desc:'寄宿于玩家阴茎的圣光异能，来源不明，勃起即触发',effect:'核心能力为「贯入即净化」：玩家阴茎附着肉眼不可见的圣光，可无视目标物理形态与相位状态，即便是纯灵体、烟状恶魔、相位错位的鬼物也能实质贯入；一旦完整插入目标体内（口腔、阴道、后穴、灵体缝隙均可判定），圣光顺着黏膜或灵质向内渗透，从体内焚净邪性、污秽、诅咒与堕落印记；对恶魔驱离寄宿肉身，对怨灵解除执念，对被附身者分离邪祟，对堕天使压制堕落倾向；【非杀伤铁律】只净不杀，保留生命意识与人格，仅剔除"邪"的部分；【副作用】高阶邪物被贯入时会剧烈挣扎、泄露真名与秘密，玩家承受相应精神反噬；【限制】必须主动贯入方可触发，对天使、神明、无辜人类无效'},
+    {name: '奈非天血脉', desc: '天使与恶魔的血脉交融，诞生出超越神魔的力量', effect: '光暗双重力量加持全属性拉满，成长无上限可正面硬撼魔神，灵魂本源不灭便永不死亡，是庇护之地最顶级的天赋血脉'},
+{name: '自在极意功', desc: '掌握天使级神之御技，肉身脱离意识操控，凭本能实现零延迟攻防', effect: '解锁自在极意功完整修炼体系，反应与闪避精度突破生物极限；心境波动即刻破功，凡人强行催动将承受毁灭性肉身负荷'},
+  {name: '斯巴达半魔血脉', desc: '但丁与维吉尔这对银发双子共有的根源力量，是传奇魔剑士斯巴达与人类女子伊娃结合留下的半人半魔血统', effect: '赋予双子远超凡俗的怪力、神速与近乎不死的再生能力，即使脏器被贯穿也能瞬间愈合；可解放恶魔之力化身魔人，全属性暴涨并持续恢复伤势，完全融合人魔两面后可觉醒真魔神形态，免疫常规伤害，拥有自由飞行与毁天灭地的魔力输出'},
+{name: '剑圣风格', desc: '但丁近战专精的战斗风格，将魔具的性能发挥到极致', effect: '解锁所有近战魔具的专属招式，可延伸剑气、多段连击、武器回旋投掷，让每一把魔具都能打出千变万化的连段'},
+{name: '枪神风格', desc: '但丁远程专精的战斗风格，将枪械玩出花式花样', effect: '解锁所有远程武器的专属招式，可双枪空中花式射击、霰弹枪近身爆破、潘多拉全形态解放，普通枪械也能打出魔具级威力'},
+{name: '真魔人形态', desc: '维吉尔融合人魔两面后的终极形态，四翼蓝焰的魔神姿态', effect: '头部释放蓝色焰气，胸口有V形光纹，手臂生成魔力臂刃；可自由飞行，全属性与但丁真魔人持平，能释放次元斩·绝、撼地烈狱等终极必杀，实力与但丁不分伯仲'},
+{name: '真魔人形态', desc: '但丁人魔完全融合的终极形态，四翼黑甲的魔神姿态', effect: '全属性提升到极致，免疫所有常规伤害，可自由飞行，手腕伸出红色魔力剑刃，能释放魔龙冲击与毁灭魔力弹幕，召唤自主攻击的魔剑剑阵'},
+{name:'梦里调教',desc:'玩家入睡后意识可潜入他人春梦，梦中所为可反噬现实',effect:'核心能力为「梦交现渗」：玩家睡眠时可锁定一名有过肉体接触（哪怕只是握手）的目标，强行潜入对方潜意识构筑春梦场景，梦中身份、场景、剧情由玩家自由编写；梦中对目标做过的事——被侵犯、被驯服、被烙印羞耻记忆——醒来后会以"莫名的身体反应"残留：看见玩家会脸红发烫、闻到玩家气味会下体潮湿、听见玩家声音会腿软；【进阶】连续七晚潜入同一目标可植入"隐藏指令"（一句触发短语），现实中说出即可让对方瞬间进入梦中被调教的状态'},
+{name:'欲望标签',desc:'玩家凝视三秒可让目标身上浮现其最隐秘的性癖标签',effect:'核心能力为「欲之烙印」：玩家专注凝视任何生物三秒钟，对方皮肤表面会以只有玩家可见的暗红色古文浮现出其最深层的性癖与欲望——「渴望被强迫的教士」「幻想被自己讨厌之人操的女猎人」「暗恋亲兄弟的高阶恶魔」「想被玷污的处女天使」等，标签越隐秘字迹越深；【限制】纯AI、无欲望的存在（某些高位天使、机械生命体）显示为空白；同一目标标签一旦被玩家看到便永久记录，但无法向他人展示'},
+{name:'淫纹烙印',desc:'玩家掌心可烙印隐形淫纹，触碰即种',effect:'核心能力为「按之即刻」：玩家以掌心用力拍打或揉捏目标身体任意部位（乳房、臀部、大腿、脖颈皆可），一枚肉眼不可见的玫瑰色淫纹便烙印于该处皮肤或灵体表层，只有玩家能看见；被烙印者从此对玩家产生强烈性渴求，每隔数小时便浑身发烫、私处湿润、思绪失控地想被玩家占有，抗拒越激烈发作越猛；淫纹可叠加，最多同时烙印七枚，叠加数越多失控程度越强；【限制】对无性别概念的存在（元素类、纯概念类邪物）无效'},
+{name: '大蛇神降临',desc: '你承载八岐大蛇本源意志，可神化为大蛇神完全体形态，银白短发利落垂落、赤红蛇形竖瞳淡漠无波，胸镌深蓝八岐放射纹印、双臂环刻深色咒纹臂环；周身萦绕淡紫虚无粒子恒常浮空，外泄神性气场令凡俗物质近身自发崩解',effect: '解锁湮灭黑粒子、空间折跃、掏魂夺魄、地脉灵柱、虚无屏障、意念操控、天灾引动等全套核心权能，三大终结奥义可覆面光能打击、展开虚无领域、引动灭世级生态重置冲击；受凡间世界规则压制，单日仅可稳定降临30分钟，强行催动超时将致肉身崩解、本源意志反噬'},
+{name: '大圣真身降临（黑神话悟空）', desc: '黑神话世界齐天大圣本源神魂解封形态，重塑大闹天宫全盛战体，以如意金箍棒为兵，肉身与神通皆臻妖界巅顶，同阶肉身杀伐力冠绝仙妖神魔', effect: '解锁金刚之躯、身外化身、火眼金睛、法天象地等全套大圣神通，棍法通玄可撼山裂地，阴邪妖物近之便遭威压震慑；受世界规则束缚，单日仅可稳定降临30分钟，强行催动将致神魂崩散'},
+    {name:'古神低语者',desc:'你能听见并翻译古神的呓语',effect:'可从虚空获取禁忌知识与预言，长期使用会导致精神崩溃'},
+    {name:'原初火焰',desc:'你能召唤圣经中亚当离开伊甸时那道原初之火',effect:'火焰可焚烧灵魂本身，即使对高阶恶魔也有效，代价是耗尽自身生命力'}
+  ],
+  legendary:[
+    {name:'恶魔血裔完全觉醒',desc:'你体内的恶魔血脉完全苏醒',effect:'解锁部分恶魔权能：魅惑、幻术、契约缔结；被教会全面通缉'},
+{name: '普通魔人化', desc: '维吉尔比但丁更早觉醒的基础魔人形态，蓝色甲壳的恶魔姿态', effect: '全属性大幅提升，持阎魔刀时手臂生成刀鞘状器官，可释放强化版次元斩，速度与力量远超人类形态，再生能力大幅提升'},
+{name: '普通魔人化', desc: '但丁解放血脉的基础变身，周身覆盖红色恶魔甲壳，背后生有魔力翼', effect: '全属性大幅提升，攻击附带魔力伤害，自带霸体不会被打断，可持续恢复生命值，可短时间滑翔'},
+    {name:'天使印记持有者',desc:'某位陨落的天使在你身上留下印记',effect:'可短暂借用圣光之力，也会引来其他天使的追查'},
+    {name:'龙裔血统',desc:'某个古老的龙族血脉在你身上苏醒',effect:'具备强化视觉、火焰亲和、鳞化护体；可能引发不可控的形态异变'},
+    {name:'预知者体质',desc:'你能主动进入预知状态查看未来分支',effect:'重大决策前可窥探数条时间线，代价是每次预知会承受一段等长的疼痛'},
+    {name:'精神领域',desc:'你能在自己周围展开一片精神领域',effect:'领域内敌人的精神会被压制，己方战力提升；领域覆盖越广维持越困难'},
+    {name:'元素亲和·火',desc:'你天生与火焰产生共鸣',effect:'可徒手操控现有火焰、免疫普通高温、大规模燃烧会反噬体力'},
+    {name:'元素亲和·水',desc:'你天生与水元素产生共鸣',effect:'可操控周围水体、感应水下与雨中动静、脱水环境下战力骤降'},
+    {name:'元素亲和·雷',desc:'你能引导雷电',effect:'战斗时可释放电击、感应电场变化、金属护具反成负担'},
+    {name:'超强自愈',desc:'你的伤口以肉眼可见的速度愈合',effect:'除头部致命伤外几乎可从任何创伤恢复；愈合过程消耗大量热量与营养'},
+    {name:'完美记忆',desc:'你对一切见过读过的东西过目不忘',effect:'情报处理与仪式复现能力惊人；无法主动遗忘任何痛苦回忆'},
+    {name:'狼人血脉稳定态',desc:'你是极少数能自主控制变身的狼人',effect:'月圆夜不发疯，可自由切换半兽形态；对银依然致命'},
+    {name:'吸血鬼后裔',desc:'你母亲是原生吸血鬼，你继承了她一半的能力',effect:'力量、速度、感官三倍强化，日光下会灼伤但不致命；饥饿时理智会崩塌'}
+  ],
+  epic:[
+    {name:'高阶灵媒天赋',desc:'你能稳定看见并与鬼魂交流',effect:'开展仪式的成功率极高，鬼魂视你为可信任对象'},
+    {name:'咒言天赋',desc:'你天生能理解与念诵各种咒语',effect:'各体系咒语上手极快，代价是念错咒会立即反噬'},
+    {name:'附身抗性',desc:'你的灵魂结构极为坚韧',effect:'高阶恶魔也难以直接附身，会转而攻击你身边的人'},
+    {name:'幸运体质',desc:'关键时刻总有神秘力量帮你避险',effect:'一次次死里逃生，代价可能会转嫁到你在乎的人身上'},
+    {name:'药物毒素免疫',desc:'常规毒素与致幻药物对你无效',effect:'审讯、下毒、幻觉攻击对你几乎失效；魔法类毒素依旧有效'},
+    {name:'夜视与暗听',desc:'你的黑暗感官远超常人',effect:'夜间视力接近白昼，能听见常人听不见的低频声波'},
+    {name:'嗅魂',desc:'你能通过气味识别人的灵魂状态',effect:'能立即识别附身、变形与伪装，与灵体交战时占先手'},
+    {name:'快速学习',desc:'你学习任何技能的速度是常人的数倍',effect:'短时间内能掌握新知识与新技术，代价是记忆固化后难以修正错误'},
+    {name:'高速再生',desc:'轻中度伤口可在几分钟内愈合',effect:'战斗中不易被消耗，重伤依旧需要长时间恢复'},
+    {name:'空间感极佳',desc:'你天生对建筑与地形有惊人的空间记忆',effect:'能在鬼屋、迷宫、异空间中不迷路'},
+    {name:'预知梦体质',desc:'你会在梦中看到未来的碎片',effect:'关键危险来临前会有预警，梦境模糊需要解读'},
+    {name:'邪灵克星体质',desc:'低阶灵体本能地惧怕你',effect:'常规鬼魂难以近身，会引来更高阶存在的注意'}
+  ],
+  rare:[
+    {name:'强化视觉',desc:'你的视力远超常人',effect:'能看见极细微的痕迹与远方目标，眼睛在强光下容易受伤'},
+    {name:'强化听觉',desc:'你能听见常人听不见的细微声响',effect:'情报获取能力强，噪音环境下容易头痛'},
+    {name:'气味追踪',desc:'你的嗅觉像犬类一样敏锐',effect:'可以气味追踪目标，也容易被强烈气味干扰'},
+    {name:'心跳感知',desc:'近距离内你能听见他人的心跳',effect:'能通过心跳变化判断谎言与恐惧'},
+    {name:'恐惧免疫',desc:'你天生比常人抗恐惧',effect:'意志判定几乎从不失败，代价是难以理解他人的害怕'},
+    {name:'剧痛耐受',desc:'你对疼痛的耐受度远超常人',effect:'可以忍受重伤继续战斗，也容易忽视身体的求救信号'},
+    {name:'过目不忘（局部）',desc:'你对面孔与地图记忆能力极强',effect:'追踪与情报交叉印证效率高'},
+    {name:'冷血体质',desc:'你在低温下依旧行动自如',effect:'雪地、极夜、冰系怪物场合优势明显'},
+    {name:'语言天才',desc:'你能快速掌握新语言与方言',effect:'跨国跨文化行动无障碍，古语系咒语也能理解'},
+    {name:'柔韧躯体',desc:'你的关节柔韧度远超常人',effect:'逃脱、潜行、闪避成功率高'}
+  ],
+  common:[
+    {name:'第六感',desc:'危险来临前你会有直觉预警',effect:'能规避一些致命陷阱，直觉不可控'},
+    {name:'抗恐惧',desc:'你比常人更能保持冷静',effect:'意志判定加成，效果稳定但不显著'},
+    {name:'体能优秀',desc:'你的身体素质高于普通人',effect:'跑得快跳得高，长期战斗依旧会疲劳'},
+    {name:'反应敏捷',desc:'你的反应速度略快于常人',effect:'突发战斗时能抢占先机'},
+    {name:'专注力强',desc:'你能长时间保持高度专注',effect:'仪式与研究成功率高'},
+    {name:'酒量惊人',desc:'你喝酒不会真正喝醉',effect:'酒局收集情报的利器，酒吧任务加成'},
+    {name:'亲和力',desc:'陌生人容易对你产生信任感',effect:'情报收集与人脉建立效率高'},
+    {name:'手稳',desc:'你的手在极度紧张下也不发抖',effect:'射击、绘符、外科操作稳定性极高'}
+  ]
+};
+const equipmentPool={
+  mythic:[
+    {name:'十二符咒', desc:'十二枚小小石雕，藏着十二种超凡之力', effect:'巨力、极速、隐身、自愈、不死、灵魂出窍全能覆盖，集齐十二枚便拥有圣主级综合战力'},
+{name: '火花棱镜（神光棒）', desc: '金色棱镜展开的瞬间，超古代的光芒将再次照亮大地', effect: '激活迪迦光之力量，可自由切换复合、强力、空中三形态适配全场景战斗，绝境中汇聚信念之光可觉醒无上限的闪耀形态'},
+    {name: '进化信赖者', desc: '利刃出鞘之时，光的纽带便会在新的适能者身上延续', effect: '诺亚之光的传承媒介，变身奈克瑟斯可展开美塔领域隐秘作战，随信念进化至更强形态，自带预警、屏障与空间转移能力'},
+    {name: '奥特眼镜（赛文X）', desc: '红光掠过眼眸的刹那，赤色的斗士将以雷霆之势终结战斗', effect: '变身平行宇宙的赛文X，拥有秒杀级近战与光线威力，头镖意念操控攻防一体，太阳能供能无严格时限，可自由切换体型作战'},
+{name:'朗基努斯之枪', desc:'长枪所指，连神的心壁都能贯穿', effect:'无视所有护盾与防御的规则级破防，可无限延展追踪投掷，命中即贯穿，是当之无愧的弑神之枪'},
+    {name:'四次元百宝袋', desc:'伸手进去，总能掏出意想不到的未来道具', effect:'连通四次元空间，竹蜻蜓、任意门、空气炮应有尽有，覆盖生活战斗全场景，只有你想不到，没有它掏不出'},
+    {name:'誓约胜利之剑', desc:'风王结界散去的瞬间，圣剑的光辉将照亮整片战场', effect:'星造圣剑自带邪祟特攻，解放真名释放对城级金光柱，一击便可夷平要塞，是幻想种中当之无愧的最强圣剑'},
+  // 但丁核心武器
+  {name: '魔剑但丁', desc: '但丁以父亲留下的叛逆大剑融合斯巴达之剑，以自身为炉铸成的专属魔剑，红黑魔气缠绕的恶魔之刃，与但丁灵魂共生', effect: '蕴含“融合”权能，可随但丁意念瞬间召来，无需手持就能自主斩击；能挥出毁灭性的红色剑气，召唤魔人虚影协同作战，是但丁真魔人形态的力量核心，可投射铺天盖地的魔力剑雨'},
+  {name: '黑檀木与白象牙', desc: '但丁从不离身的黑白双枪，枪身刻有钢琴键纹理，由传奇枪匠打造、但丁亲手组装', effect: '无需换弹可无限速射，黑檀木负责超远距离精准狙击，白象牙负责近距离火力压制；可灌注恶魔之力发射魔弹，蓄力后能打出贯穿恶魔重甲的重型魔力弹，花式枪术是但丁的招牌战斗风格'},
+  // 维吉尔核心武器
+  {name: '阎魔刀', desc: '斯巴达留给维吉尔的遗物大太刀，漆黑刀身泛着冷光，是维吉尔毕生追求力量的象征', effect: '蕴含“分离”权能，刀锋锋利到无视硬度斩断一切物质，可切开空间制造次元裂缝；能释放招牌技能次元斩，无需接触就将范围内的目标撕成碎片，还能分离人与恶魔、打开人魔两界通道，甚至可将自身的人性与魔性完全剥离'},
+  {name: '幻影剑', desc: '维吉尔以自身魔力凝聚而成的蓝色透明剑刃，是他不屑使用热武器时唯一的远程手段', effect: '可召唤成百上千的幻影剑悬浮在周身，随维吉尔的意念自动射击、组成剑阵防御、环绕护体；能配合居合斩同步释放剑气补全伤害，出手时剑雨铺天盖地，没有任何死角'},
+  // 维吉尔核心能力
+  {name: '黑暗杀手居合术', desc: '维吉尔追求极致力量磨练出的冷酷战斗技艺，招式干净利落没有多余动作，拔刀即分胜负', effect: '掌握次元瞬移能力，速度快到留下残影，拔刀瞬间完成斩击，收刀时敌人才会断裂；专注状态下所有招式威力暴涨，可蓄力释放覆盖大范围的次元斩·绝，在空间碎裂的瞬间将目标绞杀；真魔人形态下可召唤同实力的魔人分身协同作战，二刀流与次元斩结合，招式凌厉到没有任何破绽'},
+{name:'圣光出品避孕套',desc:'表面镌刻梵蒂冈失传经文的橡胶制品，一盒十二只',effect:'核心能力为「戴之逆转」：玩家佩戴后进行性行为，射入对方体内的不再是精液，而是液态圣光——效果与「交配净化」类似但更温和，可清除轻度诅咒、驱散低阶附身、稀释邪血污染；【隐藏用法】反戴（内外翻转）后佩戴，射入对方体内的液体会转化为"堕落之种"，可让天使短暂失去神性、让贞洁誓约者破戒、让高位教士陷入七日情欲折磨；【副作用】使用后套内液体不会消失，可倒出装瓶作为道具二次使用（圣光水/堕落药剂）；【限制】一盒十二只，用完即无，市面无货，来源不明；橡胶易破，激烈使用有失效风险'},
+{name:'欲望之镜',desc:'巴掌大的青铜手镜，镜面呈暗红色，边缘雕满交缠的裸体人像',effect:'核心能力为「照之显欲」：将镜面对准任何生物，镜中不会显示对方外貌，而是显示对方"最想被玩家如何对待"的具体画面——可能是被按在墙上强吻、被绑在床柱上鞭打、被三人围着侍奉、被当众羞辱等，画面细节到姿势、场景、台词；【进阶】玩家凝视镜中画面超过30秒，画面会自动"传输"到目标脑中，目标会突然产生一股原因不明的强烈渴望，且渴望对象锁定为玩家；【副作用】镜子会记录所有被照过的对象，每晚子夜会自行播放当日"收藏"，声音无法关闭；照过邪物后镜面会逐渐变暗，需以处女血擦拭恢复'},
+    {name:'黑影兵团面具', desc:'戴上面具，阴影便成了你的领土', effect:'可召唤无穷黑影士兵作战，自身能在阴影间自由穿梭，佩戴越久，越易被暗影意志侵蚀'},
+    {name:'霍格沃茨魔杖', desc:'念咒挥杖的瞬间，奇迹便会降临', effect:'覆盖攻防、实用、变形全套巫师魔咒，熟练度越高威力越强，念错咒语也可能反噬自身'},
+    {name:'无限宝石嵌合', desc:'每多嵌一颗宝石，人性便淡一分', effect:'空间折跃、心灵操控、现实改写、时间回溯，集齐六颗可执掌全域规则，重塑宇宙秩序'},
+    {name:'雷神之锤·神格共鸣', desc:'举起锤子的瞬间，雷声便为你而鸣', effect:'操控风暴雷电，肉身坚不可摧，可借锤力高速飞行，一锤砸下便是地裂雷崩'},
+    {name:'死亡笔记',desc:'来自死神界的黑皮笔记本',effect:'写下真名者会以指定方式死亡，代价是使用者死后不入天堂也不入地狱'},
+    {name:'柯尔特神枪',desc:'塞缪尔·柯尔特为猎人打造的十三发神枪',effect:'除少数几个存在外可击杀一切超自然生物，子弹极难补充'},
+    {name:'招魂博物馆钥匙',desc:'能打开沃伦夫妇灵异博物馆所有展柜的主钥匙',effect:'可解封或封印馆内所有诅咒物品，携带者会被馆内邪物持续窥视'},
+    {name:'第一刃 · 该隐之刃',desc:'该隐用来杀死亚伯的骨制刀刃',effect:'可斩杀任何存在，代价是使用者会逐渐感染该隐之印的嗜血'},
+    {name:'圣殇圣杯',desc:'盛过基督之血的传说圣物',effect:'可短暂让持有者具备类神性抗性，只有心灵纯净者能真正启动'},
+    {name:'启示录之书残页',desc:'圣经启示录被删除的隐藏章节',effect:'可预言重大灾厄的发生，代价是每次翻阅会加速末日的到来'},
+    {name:'蝙蝠家训练腰带',desc:'来自哥谭某位隐退夜行者的战术腰带，内含九种小工具',effect:'烟雾弹、蝙蝠镖、抓钩、EMP、驱魔喷雾一应俱全；补给渠道单一'},
+    {name:'马克47战衣',desc:'一套报废但可修复的红金动力装甲',effect:'可对抗中阶灵体与恶魔实体，AI伴生系统会与你对话；耗能极大'},
+    {name:'马耳他猎鹰',desc:'内藏灵魂的旧世界古董铜雕',effect:'持有者可获得雕像内封印的十六世纪杀手记忆与直觉，代价是雕像会时不时"点评"你的道德'}
+  ],
+  legendary:[
+    {name:'塔特娃娜之刃',desc:'能割裂灵魂本身的萨满仪式匕首',effect:'对灵体伤害极高，佩戴者容易被灵界注意'},
+    {name:'古代驱魔师权杖',desc:'历代梵蒂冈首席驱魔师传承的黑木权杖',effect:'挥动时能强制灵体现形，只在真信仰者手中生效'},
+    {name:'真十字架碎片',desc:'耶稣受难十字架的一片木屑',effect:'对恶魔类存在造成灼烧，对普通吸血鬼直接绝杀'},
+    {name:'银质圣化匕首',desc:'经罗马大主教亲自圣化的银质匕首',effect:'对狼人、恶魔、吸血鬼皆有效，需定期回教堂重新圣化'},
+    {name:'附魔柯尔特左轮',desc:'刻满防御符文的左轮手枪',effect:'子弹能穿透大部分护体术法，弹药需特制'},
+    {name:'血玛瑙护心镜',desc:'刻有六芒星的血玛瑙护符',effect:'可挡下一次致命精神攻击，之后碎裂'},
+    {name:'恶魔陷阱刻录板',desc:'可拆卸的所罗门恶魔陷阱',effect:'可在地面快速铺设标准恶魔陷阱，铺设声响会引来注意'},
+    {name:'哀痛之盒（伪造版）',desc:'钉子头之盒的高仿品',effect:'可打开一条通向异次元的临时缝隙，操作失误会招致真品'},
+    {name:'凯尔特德鲁伊法杖',desc:'橡木雕刻的元素法杖',effect:'可辅助元素类法术的施展，独立使用威力有限'},
+    {name:'附魔黑羚羊车钥匙',desc:'温家兄弟同款座驾的钥匙',effect:'钥匙能召唤一辆黑色67年雪佛兰羚羊，车身刻满防御符文'},
+    {name:'刀锋战士的太阳玻璃剑',desc:'能承载紫外线的银钨合金军刀',effect:'对吸血鬼直接秒杀，充电式紫外发生器需要定期维护'},
+    {name:'康斯坦丁的Zippo打火机',desc:'能点燃恶魔灵体本身的黄铜打火机',effect:'轻按可放出一小簇地狱火，代价是使用者手指会带上永久性焦痕'},
+    {name:'瓦拉克封印小十字',desc:'招魂博物馆藏品级的祭坛十字',effect:'贴在恶魔身上可短暂封印其权能，被强行取下会烧穿使用者的手掌'}
+  ],
+  epic:[
+    {name:'银子弹套装',desc:'含硝酸银涂层的定制弹药',effect:'对狼人与部分变形怪物有效，需匹配左轮或霰弹枪'},
+    {name:'圣水手雷',desc:'教堂圣水灌装的自制手雷',effect:'范围杀伤恶魔与不洁灵体，投掷距离有限'},
+    {name:'铁锈灯',desc:'能吸引游荡灵体的老式油灯',effect:'点燃后可诱使附近灵体现形，也会暴露自身位置'},
+    {name:'咒歌铃',desc:'刻有拉丁经文的手摇铜铃',effect:'摇动可短暂驱散一定范围内的低阶灵体'},
+    {name:'附魔战术手电',desc:'内置微型驱邪符文的现代战术手电',effect:'强光可让灵体短暂现形并畏惧，电池需专门定制'},
+    {name:'古董通灵板',desc:'19世纪原版威廉·福尔德通灵板',effect:'召唤成功率高于市面复刻品，无法保证召来的是谁'},
+    {name:'银质匕首（大号）',desc:'手工锻造的九寸银质战斗匕首',effect:'对多种超自然生物有效，需定期净化'},
+    {name:'黑盐炸弹',desc:'混合墓地泥土的强化黑盐',effect:'撒出后可撕裂鬼魂形体，剂量有限'},
+    {name:'血符羊皮卷',desc:'以处子血绘制的十字防御符',effect:'贴在身上或墙上可挡一次高阶灵体攻击'},
+    {name:'附魔十字架吊坠',desc:'祖传圣物级十字架',effect:'佩戴者对魅惑与幻术抗性提升，遇纯白光邪灵可能失效'},
+    {name:'超自然EMF复合仪',desc:'带热成像与灵质浓度检测的三合一探测器',effect:'可初步判断怪物类型与浓度，靠近高阶存在会自动烧毁'},
+    {name:'黑猫护身符',desc:'某位新奥尔良女巫祝福过的银链黑猫吊坠',effect:'可挡一次"厄运"级判定，之后需献一撮头发重新激活'}
+  ],
+  rare:[
+    {name:'圣水瓶（多支）',desc:'从梵蒂冈直供的标准圣水',effect:'低阶恶魔与不洁物有效，使用量有限'},
+    {name:'附魔子弹（单发）',desc:'刻有单个封魂符文的定制子弹',effect:'对低阶灵体绝杀，价格昂贵'},
+    {name:'驱魔咒本',desc:'手抄本驱魔祷文合集',effect:'需精通拉丁语，正确念诵可驱散低中阶恶魔'},
+    {name:'五芒星护符',desc:'银质五芒星链坠',effect:'佩戴者不易被附身，护符会随污染变黑'},
+    {name:'鬼影探测仪',desc:'改装自EMF电磁场探测仪',effect:'可探测周围灵体活动，读数不稳定'},
+    {name:'红绳与铜钱',desc:'东方式驱邪基础工具',effect:'可临时封印低阶亡魂，需配合口诀'},
+    {name:'塔罗牌 · 完整套',desc:'古董塔罗牌',effect:'可辅助占卜，读牌准确度取决于持有者悟性'},
+    {name:'一大袋粗盐',desc:'最基础也最有效的驱邪耗材',effect:'撒出后可暂时阻挡鬼魂，用完就得再买'},
+    {name:'摩尔斯电码信号发射器',desc:'与其他世界通讯的老式电报机',effect:'可以发送信号给游荡灵体，也可能招来它们'},
+    {name:'燃烧鼠尾草',desc:'原住民净化仪式必备',effect:'烟雾能净化空间，对某些灵体是刺激物'}
+  ],
+  common:[
+    {name:'十字架项链',desc:'普通银质十字架',effect:'对小灵体有威慑，无核心圣化不算圣物'},
+    {name:'战术手电',desc:'高流明军警级手电',effect:'照亮黑暗环境，无法伤害灵体'},
+    {name:'一本圣经',desc:'普通新版圣经',effect:'心理慰藉与经文查阅工具，非圣物'},
+    {name:'录音机',desc:'老式便携磁带录音机',effect:'可录制EVP电子异象声音，取证工具'},
+    {name:'夜视仪',desc:'二手军用夜视仪',effect:'黑暗环境视觉工具，会消耗电池'},
+    {name:'战术刀',desc:'普通军用战术刀',effect:'对付人类与低阶生物的近战武器'},
+    {name:'霰弹枪',desc:'普通民用霰弹枪',effect:'对付实体生物有效，对高阶超自然无效'},
+    {name:'调查用相机',desc:'带闪光灯的现代相机',effect:'取证与记录灵异现象，闪光可能激怒灵体'},
+    {name:'GPS对讲机套装',desc:'跨团队通讯工具',effect:'保持队伍联络，超自然场合可能失灵'},
+    {name:'医用急救包',desc:'完整野外医疗急救包',effect:'处理常规伤口，重伤依旧需要专业救治'}
+  ]
+};
+document.addEventListener('DOMContentLoaded',()=>{
+  renderWorkLibrary();
+  populateTargetWorkSelect();
+  initTabNav();
+});
+function initTabNav(){
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>switchTab(btn.dataset.tab));
+  });
+}
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if(name==='character') updateModeDisplay();
+  if(name==='preview') generatePreview();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){
+  const tabs=['intro','mode','library','character','destiny','talent','equipment','preview'];
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=tabs.indexOf(cur);
+  if(i<tabs.length-1) switchTab(tabs[i+1]);
+}
+function prevTab(){
+  const tabs=['intro','mode','library','character','destiny','talent','equipment','preview'];
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=tabs.indexOf(cur);
+  if(i>0) switchTab(tabs[i-1]);
+}
+function markCompleted(name){document.querySelector(`[data-tab="${name}"]`)?.classList.add('completed');}
+function renderWorkLibrary(){filterWorks();}
+function filterWorks(){
+  const kw=document.getElementById('lib-search').value.trim().toLowerCase();
+  const region=document.getElementById('lib-region').value;
+  const grid=document.getElementById('work-grid');
+  grid.innerHTML='';
+  const filtered=worksDatabase.filter(w=>{
+    const matchRegion=region==='all'||w.region===region;
+    const matchKw=!kw||w.name.toLowerCase().includes(kw)||w.intro.toLowerCase().includes(kw)||w.region.toLowerCase().includes(kw);
+    return matchRegion&&matchKw;
+  });
+  document.getElementById('lib-count').textContent=`共 ${filtered.length} 部作品`;
+  filtered.forEach(w=>{
+    const card=document.createElement('div');
+    card.className='work-card';
+    card.innerHTML=`
+      <div class="work-region">${w.region}</div>
+      <h4>${w.name}</h4>
+      <div class="work-intro">${w.intro}</div>
+    `;
+    card.onclick=()=>openWorkModal(w);
+    grid.appendChild(card);
+  });
+}
+let currentModalWork=null;
+function openWorkModal(work){
+  currentModalWork=work;
+  document.getElementById('modal-title').textContent=work.name;
+  document.getElementById('modal-meta').innerHTML=`<span><strong>地区：</strong>${work.region}</span>`;
+  document.getElementById('modal-content').textContent=work.intro;
+  document.getElementById('work-modal').classList.add('visible');
+}
+function closeWorkModal(e){
+  if(e&&e.target.id!=='work-modal'&&e.type==='click') return;
+  document.getElementById('work-modal').classList.remove('visible');
+}
+function openLibraryModal(){switchTab('library');}
+function selectFromLibrary(){
+  if(!currentModalWork) return;
+  const select=document.getElementById('target-work');
+  let opt=Array.from(select.options).find(o=>o.value===currentModalWork.name);
+  if(!opt){
+    opt=document.createElement('option');
+    opt.value=currentModalWork.name;
+    opt.textContent=currentModalWork.name;
+    select.insertBefore(opt,select.querySelector('option[value="custom"]'));
+  }
+  select.value=currentModalWork.name;
+  handleTargetWorkChange(currentModalWork.name);
+  closeWorkModal();
+  switchTab('character');
+}
+function populateTargetWorkSelect(){
+  const select=document.getElementById('target-work');
+  const regions=['新英格兰','中大西洋','中西部','西南部','西海岸','南部','通用','海外'];
+  regions.forEach(r=>{
+    const items=worksDatabase.filter(w=>w.region===r);
+    if(!items.length) return;
+    const group=document.createElement('optgroup');
+    group.label=r;
+    items.forEach(w=>{
+      const opt=document.createElement('option');
+      opt.value=w.name;
+      opt.textContent=w.name;
+      group.appendChild(opt);
+    });
+    select.insertBefore(group,select.querySelector('option[value="custom"]'));
+  });
+}
+function selectMode(mode){
+  appState.mode=mode;
+  document.querySelectorAll('.mode-card').forEach(c=>c.classList.remove('selected'));
+  document.querySelector(`.mode-card[data-mode="${mode}"]`).classList.add('selected');
+  markCompleted('mode');
+  updateModeDisplay();
+}
+function updateModeDisplay(){
+  const el=document.getElementById('current-mode-name');
+  if(!el) return;
+  if(appState.mode==='fusion') el.innerHTML='🌌 <strong style="color:var(--blood-red);">融合宇宙</strong> — 所有恐怖 IP 共存于同一美国大陆';
+  else if(appState.mode==='single') el.innerHTML='🎬 <strong style="color:var(--blood-red);">单作品宇宙</strong> — 一次锁死一部作品的封闭世界';
+  else el.textContent='尚未选择模式';
+}
+function handleOriginChange(v){document.getElementById('custom-origin-input').classList.toggle('visible',v==='custom');}
+function handleIdentityChange(v){document.getElementById('custom-identity-input').classList.toggle('visible',v==='custom');}
+function handleFactionChange(v){document.getElementById('custom-faction-input').classList.toggle('visible',v==='custom');}
+function handleRaceChange(v){document.getElementById('custom-race-input').classList.toggle('visible',v==='custom');}
+function handleEntryReasonChange(v){document.getElementById('custom-entry-reason-input').classList.toggle('visible',v==='custom');}
+function handleTargetWorkChange(v){
+  const customInput=document.getElementById('custom-target-input');
+  const tag=document.getElementById('selected-work-tag');
+  const tagName=document.getElementById('selected-work-name');
+  customInput.classList.toggle('visible',v==='custom');
+  if(v==='none'||v==='custom'){
+    tag.classList.remove('visible');
+    appState.targetWork=v==='custom'?'custom':null;
+  }else{
+    const work=worksDatabase.find(w=>w.name===v);
+    if(work){
+      tag.classList.add('visible');
+      tagName.textContent=work.name+' · '+work.region;
+      appState.targetWork=work;
+    }
+  }
+}
+function rollFromPool(pool){
+  const items=[];
+  const usedNames=new Set();
+  // 保底配置：前 3 张固定高稀有度，后 5 张按权重抽
+  // 想改保底数量或稀有度，改这个数组就行
+  const guaranteed=['mythic','mythic','legendary'];
+
+  function pickOne(rarity){
+    const list=pool[rarity];
+    let attempts=0,item;
+    do{
+      item=list[Math.floor(Math.random()*list.length)];
+      attempts++;
+    }while(usedNames.has(item.name)&&attempts<50);
+    usedNames.add(item.name);
+    return {...item,rarity};
+  }
+
+  // 先塞保底
+  guaranteed.forEach(r=>items.push(pickOne(r)));
+
+  // 剩下 5 张按新权重抽（大幅提高高稀有度概率）
+  for(let i=guaranteed.length;i<8;i++){
+    const r=Math.random()*100;
+    let rarity;
+    if(r<20)      rarity='mythic';      // 20%
+    else if(r<45) rarity='legendary';   // 25%
+    else if(r<70) rarity='epic';        // 25%
+    else if(r<90) rarity='rare';        // 20%
+    else          rarity='common';      // 10%
+    items.push(pickOne(rarity));
+  }
+
+  // 打乱顺序，避免高稀有度总排在前面
+  for(let i=items.length-1;i>0;i--){
+    const j=Math.floor(Math.random()*(i+1));
+    [items[i],items[j]]=[items[j],items[i]];
+  }
+  return items;
+}
+function renderRollList(type,listId,countId){
+  const state=appState.rolls[type];
+  const list=document.getElementById(listId);
+  list.innerHTML='';
+  state.selected=[];
+  document.getElementById(countId).textContent='0';
+  const order={mythic:0,legendary:1,epic:2,rare:3,common:4};
+  const sorted=[...state.pool].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+  sorted.forEach((item,idx)=>{
+    const div=document.createElement('div');
+    div.className=`roll-item ${item.rarity}`;
+    div.innerHTML=`
+      <input type="checkbox" id="${type}-item-${idx}">
+      <div class="roll-info">
+        <div class="roll-name">${item.name}<span class="roll-badge ${item.rarity}">${rarityName(item.rarity)}</span></div>
+        <div class="roll-desc">${item.desc}</div>
+        <div class="roll-effect">效果：${item.effect}</div>
+      </div>
+    `;
+    const cb=div.querySelector('input');
+    div.addEventListener('click',e=>{if(e.target!==cb)cb.click();});
+    cb.addEventListener('change',()=>{
+      if(cb.checked){
+        if(state.selected.length>=3){cb.checked=false;alert('最多选择 3 项！');return;}
+        state.selected.push(item);
+        div.classList.add('selected');
+      }else{
+        state.selected=state.selected.filter(x=>x.name!==item.name);
+        div.classList.remove('selected');
+      }
+      document.getElementById(countId).textContent=state.selected.length;
+      if(state.selected.length===3) markCompleted(type);
+    });
+    list.appendChild(div);
+  });
+}
+function rarityName(r){return{mythic:'神话',legendary:'传说',epic:'史诗',rare:'稀有',common:'普通'}[r]||'普通';}
+function rarityIcon(r){return{mythic:'🔥',legendary:'⚡',epic:'🔮',rare:'💎',common:'⭐'}[r]||'⭐';}
+function rollDestiny(){genericRoll('destiny',destinyPool,'destiny-roll-btn','destiny-pool','destiny-list','destiny-count');}
+function rollTalent(){genericRoll('talent',talentPool,'talent-roll-btn','talent-pool','talent-list','talent-count');}
+function rollEquipment(){genericRoll('equipment',equipmentPool,'equipment-roll-btn','equipment-pool','equipment-list','equipment-count');}
+function genericRoll(type,pool,btnId,poolId,listId,countId){
+  const btn=document.getElementById(btnId);
+  btn.classList.add('rolling');
+  btn.disabled=true;
+  setTimeout(()=>{
+    appState.rolls[type].pool=rollFromPool(pool);
+    renderRollList(type,listId,countId);
+    btn.classList.remove('rolling');
+    btn.disabled=false;
+    document.getElementById(poolId).classList.add('visible');
+  },1000);
+}
+function addCustom(type){
+  const state=appState.rolls[type];
+  if(state.custom.length>=5){alert('最多添加 5 项！');return;}
+  state.custom.push({id:Date.now()+Math.random(),name:'',effect:''});
+  renderCustomList(type);
+  updateCustomCount(type);
+}
+function renderCustomList(type){
+  const list=document.getElementById(`custom-${type}-list`);
+  list.innerHTML='';
+  appState.rolls[type].custom.forEach(item=>{
+    const div=document.createElement('div');
+    div.className='custom-item';
+    div.innerHTML=`
+      <button class="delete-btn" onclick="deleteCustom('${type}',${item.id})">×</button>
+      <input type="text" placeholder="${type==='destiny'?'命数':type==='talent'?'天赋':'装备'}名称"
+             onchange="updateCustom('${type}',${item.id},'name',this.value)">
+      <textarea placeholder="效果 / 描述"
+                onchange="updateCustom('${type}',${item.id},'effect',this.value)"></textarea>
+    `;
+    div.querySelector('input').value=item.name;
+    div.querySelector('textarea').value=item.effect;
+    list.appendChild(div);
+  });
+}
+function updateCustom(type,id,field,val){
+  const it=appState.rolls[type].custom.find(x=>x.id===id);
+  if(it) it[field]=val;
+}
+function deleteCustom(type,id){
+  appState.rolls[type].custom=appState.rolls[type].custom.filter(x=>x.id!==id);
+  renderCustomList(type);
+  updateCustomCount(type);
+}
+function updateCustomCount(type){
+  document.getElementById(`${type}-custom-count`).textContent=appState.rolls[type].custom.length;
+  const btn=document.getElementById(`add-${type}-btn`);
+  btn.classList.toggle('disabled',appState.rolls[type].custom.length>=5);
+}
+function getVal(id){return document.getElementById(id)?.value||'';}
+function generatePreview(){
+  const modeText=appState.mode==='fusion'?'🌌 融合宇宙':appState.mode==='single'?'🎬 单作品宇宙':'未选择';
+  let origin=document.getElementById('char-origin').value;
+  if(origin==='custom')origin=document.getElementById('custom-origin').value||'自定义';
+  let identity=document.getElementById('identity-type').value;
+  if(identity==='custom')identity=document.getElementById('custom-identity').value||'自定义';
+  let faction=document.getElementById('faction').value;
+  if(faction==='custom')faction=document.getElementById('custom-faction').value||'自定义';
+  let race=document.getElementById('char-race').value;
+  if(race==='custom')race=document.getElementById('custom-race').value||'自定义';
+  let entryReason=document.getElementById('entry-reason').value;
+  if(entryReason==='custom')entryReason=document.getElementById('custom-entry-reason').value||'自定义';
+  let targetWork='未设定';
+  const tw=document.getElementById('target-work').value;
+  if(tw==='none')targetWork='无（自由发展）';
+  else if(tw==='custom')targetWork=document.getElementById('custom-target').value||'自定义剧情';
+  else if(tw){
+    const w=worksDatabase.find(x=>x.name===tw);
+    targetWork=w?`${canonicalWorkNames[w.name] ?? w.name}（${w.region}）`:tw;
+  }
+  const gender=document.querySelector('input[name="gender"]:checked')?.value||'未知';
+  let p=`━━━━━━━━━━━━━━━━━━━━
+   美国恐怖宇宙 · 档案卷宗
+━━━━━━━━━━━━━━━━━━━━
+【世界模式】
+${modeText}
+【时空定位】
+当前所在地：${origin}
+即将经历作品：${targetWork}
+【基础信息】
+姓名：${getVal('char-name')||'未命名'}
+性别：${gender}   年龄：${getVal('char-age')||'未知'}
+血脉 / 种族：${race}
+【身份与势力】
+身份：${identity}
+所属势力：${faction||'无'}
+实力阶级：${getVal('power-level')}${getVal('power-note')?'（'+getVal('power-note')+'）':''}
+入圈原因：${entryReason}
+趣味设定：${getVal('fun-setting')||'未填写'}
+【外貌与性情】
+外貌：${getVal('appearance')||'未填写'}
+性格：${getVal('personality')||'未填写'}
+兴趣：${getVal('hobby')||'未填写'}
+【背景故事】
+${getVal('background')||'未填写'}
+【开局场景】
+${getVal('opening-scene')||'未填写'}
+`;
+  const dS=appState.rolls.destiny.selected;
+  const dC=appState.rolls.destiny.custom.filter(x=>x.name.trim());
+  p+=`\n【命数】`;
+  if(dS.length){
+    dS.forEach((d,i)=>{
+      p+=`\n${i+1}. ${rarityIcon(d.rarity)} [${rarityName(d.rarity)}] ${d.name}`;
+      p+=`\n   ${d.desc}`;
+      p+=`\n   效果：${d.effect}`;
+    });
+  }else p+='\n未抽取';
+  if(dC.length){
+    p+=`\n\n【自定义命数】`;
+    dC.forEach((d,i)=>{
+      p+=`\n${i+1}. ${d.name}`;
+      if(d.effect.trim())p+=`\n   效果：${d.effect}`;
+    });
+  }
+  const tS=appState.rolls.talent.selected;
+  const tC=appState.rolls.talent.custom.filter(x=>x.name.trim());
+  p+=`\n\n【天赋】`;
+  if(tS.length){
+    tS.forEach((d,i)=>{
+      p+=`\n${i+1}. ${rarityIcon(d.rarity)} [${rarityName(d.rarity)}] ${d.name}`;
+      p+=`\n   ${d.desc}`;
+      p+=`\n   效果：${d.effect}`;
+    });
+  }else p+='\n未抽取';
+  if(tC.length){
+    p+=`\n\n【自定义天赋】`;
+    tC.forEach((d,i)=>{
+      p+=`\n${i+1}. ${d.name}`;
+      if(d.effect.trim())p+=`\n   效果：${d.effect}`;
+    });
+  }
+  const eS=appState.rolls.equipment.selected;
+  const eC=appState.rolls.equipment.custom.filter(x=>x.name.trim());
+  p+=`\n\n【装备】`;
+  if(eS.length){
+    eS.forEach((d,i)=>{
+      p+=`\n${i+1}. ${rarityIcon(d.rarity)} [${rarityName(d.rarity)}] ${d.name}`;
+      p+=`\n   ${d.desc}`;
+      p+=`\n   效果：${d.effect}`;
+    });
+  }else p+='\n未抽取';
+  if(eC.length){
+    p+=`\n\n【自定义装备】`;
+    eC.forEach((d,i)=>{
+      p+=`\n${i+1}. ${d.name}`;
+      if(d.effect.trim())p+=`\n   效果：${d.effect}`;
+    });
+  }
+  p+=`\n\n━━━━━━━━━━━━━━━━━━━━
+  灵质灾变 · 众神隐退
+━━━━━━━━━━━━━━━━━━━━`;
+  document.getElementById('preview-box').textContent=p;
+}
+function copyPreview(){
+  const text=document.getElementById('preview-box').textContent;
+  const btn=document.querySelector('#tab-preview .copy-btn');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>showCopyOk(btn)).catch(()=>fallbackCopy(text,btn));
+  }else fallbackCopy(text,btn);
+}
+function fallbackCopy(text,btn){
+  const ta=document.createElement('textarea');
+  ta.value=text;
+  ta.style.position='fixed';
+  ta.style.left='-9999px';
+  document.body.appendChild(ta);
+  try{
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showCopyOk(btn);
+  }catch(e){
+    document.body.removeChild(ta);
+    showCopyFail(btn);
+  }
+}
+function showCopyOk(btn){
+  const t=btn.textContent;
+  btn.textContent='✅ 已复制';
+  btn.style.background='linear-gradient(180deg,#4A6741,#3A5031)';
+  setTimeout(()=>{btn.textContent=t;btn.style.background='';},2000);
+}
+function showCopyFail(btn){
+  const t=btn.textContent;
+  btn.textContent='❌ 复制失败';
+  setTimeout(()=>btn.textContent=t,2000);
+}
+</script>
+<script>
+if (parent !== window && new URLSearchParams(location.search).get('chat') === '1') {
+  const enter = document.getElementById('enter-chat');
+  enter.hidden = false;
+  enter.addEventListener('click', () => {
+    generatePreview();
+    const text = document.getElementById('preview-box').textContent;
+    if (text.length > 20000) { alert('档案超过 20000 字，请精简后带入聊天。'); return; }
+    parent.postMessage({type:'american-horror-opening',text}, new URL(location.href).origin);
+  });
+}
+</script>
+</body>
+</html>

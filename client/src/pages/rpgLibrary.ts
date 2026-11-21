@@ -13,6 +13,7 @@ const libraryCovers:Record<string,string>={
 // Display copy stays outside the immutable card runtime used by existing saves.
 const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:string}>={
   'harry-potter':{description:'收到霍格沃茨的来信，选择作品、血统与魔杖，在魔法世界展开属于自己的故事。'},
+  'american-horror':{description:'在 2018 年的灵质灾变中选择融合宇宙或单作品，建立档案，踏入第一起恐怖事件。'},
   slime:{description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。'},
   'modern-life':{description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。'},
   'type-moon':{description:'在根源续接档案馆选择作品世界线，登记魔术师或英灵身份，沿自己的切入点展开故事。'},
