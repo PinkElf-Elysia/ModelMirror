@@ -1,0 +1,11 @@
+.star-rail-output { background:#101720; color:#e8e4da; border:1px solid #796747; padding:clamp(12px,3vw,28px); line-height:1.85; overflow-wrap:anywhere }
+.star-rail-output details { margin:10px 0; padding:8px 14px; border:1px solid #514a3c; background:#18212c; border-radius:3px }
+.star-rail-output summary,.star-rail-output .sr-rg { color:#e9c983; font-weight:600 }
+.star-rail-output .sr-z { margin:1.3em 0 }
+.star-rail-output .sr-d { color:#f2dba9 }
+.star-rail-output .sr-o,.star-rail-output .sr-fbar { margin-top:.55em; padding:.4em .8em; border-inline-start:2px solid #b59761; background:#1e2833 }
+.star-rail-output .sr-e,.star-rail-output .sr-step,.star-rail-output .sr-rj { margin:.25em 0 }
+.star-rail-output .sr-pos i,.star-rail-output .sr-mc span,.star-rail-output .sr-fbar i { margin-inline-end:.6em }
+.star-rail-output .sr-panel-k { font-size:.9em }
+.star-rail-shortcuts { display:flex; gap:.4rem; overflow:auto; padding:4px 0 8px }
+.star-rail-shortcuts button { flex:none; border:1px solid #6c604c; border-radius:4px; padding:.2rem .65rem; background:#1b2432; color:#eadcc2; cursor:pointer }
