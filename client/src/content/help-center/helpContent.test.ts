@@ -376,12 +376,10 @@ describe("help center content catalog", () => {
     };
     helpArticles.forEach((article) => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
-      images.forEach((image) => {
-        expect(image[1].trim(), article.slug).not.toBe("");
-        if (!image[2].startsWith(`/help-center/${article.verifiedCommit}/`)) {
-          expect(historicalCaptures[article.slug], article.slug).toContain(image[2]);
-        }
-      });
+      for (const image of images) expect(image[1].trim(), article.slug).not.toBe("");
+      const prior = images.map(image => image[2])
+        .filter(path => !path.startsWith(`/help-center/${article.verifiedCommit}/`));
+      expect(prior.sort(), article.slug).toEqual([...(historicalCaptures[article.slug] ?? [])].sort());
     });
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/e3ac4555/qwen38-0902-add-image-menu.png");
     expect(helpArticles.find((article) => article.slug === "create-repeatable-agent")?.content).toContain("/help-center/b5e0e85e/agent-create-form.png");
