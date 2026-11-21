@@ -1,4 +1,5 @@
 import {speechService} from './speech.mjs';
+import {installDoupo,doupoOptions} from '../doupo-card/integration.mjs';
 import {installAiGirls,aiGirlsOptions} from '../ai-girls-card/integration.mjs';
 import {installBlueFish,blueFishOptions} from '../blue-fish-card/integration.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
@@ -80,6 +81,8 @@ async function run(env){
   installBlueFish(server,{directory,speech,control:blueFishControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const aiGirlsControl=aiGirlsOptions(env);if(aiGirlsControl)aiGirlsControl.fetcher=configFetch;
   installAiGirls(server,{directory,speech,control:aiGirlsControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const doupoControl=doupoOptions(env);if(doupoControl)doupoControl.fetcher=configFetch;
+  installDoupo(server,{directory,speech,control:doupoControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();

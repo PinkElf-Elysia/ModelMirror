@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗破苍穹 · 角色引导</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'KaiTi','楷体','STKaiti','SimSun',serif;min-height:100vh;background:url('paper.jpg') center/cover fixed;color:#4a3728;line-height:1.8;overflow-x:hidden;}
+body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,250,245,0.78);z-index:0;}
+.intro-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:#080808;z-index:9999;display:flex;flex-direction:column;justify-content:center;align-items:center;cursor:pointer;transition:opacity 1.2s ease;}
+.intro-overlay.hidden{opacity:0;pointer-events:none;}
+.intro-bg{position:absolute;width:100%;height:100%;background:url('intro.jpg') center/cover no-repeat;opacity:0;filter:brightness(0.75);}
+.intro-bg.show{animation:bgBurst 1.4s ease forwards;}
+@keyframes bgBurst{0%{opacity:0;transform:scale(1.12);filter:brightness(2) blur(4px);}15%{opacity:1;filter:brightness(1.6) blur(1px);}100%{opacity:1;transform:scale(1);filter:brightness(0.75) blur(0);}}
+.intro-flash{position:absolute;width:100%;height:100%;background:radial-gradient(ellipse at center,rgba(255,255,255,0.9) 0%,transparent 70%);opacity:0;pointer-events:none;}
+.intro-flash.show{animation:flashB 0.6s ease forwards;}
+@keyframes flashB{0%{opacity:0.9;}100%{opacity:0;}}
+.intro-text{position:relative;z-index:2;text-align:center;color:#f0e6d3;text-shadow:0 0 20px rgba(0,0,0,0.9),0 0 40px rgba(139,69,19,0.6),0 2px 4px #000;}
+.intro-line{font-size:1.3rem;font-size:clamp(1.3rem,4.5vw,2.8rem);opacity:0;transform:translateY(30px);letter-spacing:0.3em;margin:0.5em 0;}
+.intro-line:nth-child(1){animation:tUp 0.9s ease 0.8s forwards;}
+.intro-line:nth-child(2){animation:tUp 0.9s ease 1.6s forwards;}
+.intro-line:nth-child(3){animation:tUp 0.9s ease 2.4s forwards;font-weight:bold;color:#ffd700;text-shadow:0 0 30px rgba(255,215,0,0.8),0 0 60px rgba(255,107,53,0.6);}
+.intro-text.shift{animation:tShift 0.8s ease 3.8s forwards;}
+@keyframes tUp{to{opacity:1;transform:translateY(0);}}
+@keyframes tShift{to{transform:translateY(-18vh);}}
+.intro-skip{position:absolute;bottom:6%;font-size:0.85rem;color:rgba(255,255,255,0.45);opacity:0;animation:fadeIn 1s ease 5s forwards;z-index:3;}
+@keyframes fadeIn{to{opacity:1;}}
+#petalContainer{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1;overflow:hidden;}
+.petal{position:absolute;pointer-events:none;opacity:0;}
+.petal-shape{width:100%;height:100%;background:radial-gradient(ellipse at 30% 30%,#ffb6c1 0%,#ff69b4 50%,#db7093 100%);border-radius:150% 0 150% 0;filter:drop-shadow(0 0 3px rgba(255,182,193,0.5));}
+.petal.small{width:10px;height:10px;}.petal.medium{width:15px;height:15px;}.petal.large{width:20px;height:20px;}
+.petal.animate{animation:falling linear forwards;}
+@keyframes falling{0%{transform:translateY(-5vh) rotate(0deg) translateX(0);opacity:0;}8%{opacity:0.8;}85%{opacity:0.55;}100%{transform:translateY(110vh) rotate(720deg) translateX(80px);opacity:0;}}
+.container{max-width:900px;margin:0 auto;padding:20px;position:relative;z-index:2;}
+.main-title{text-align:center;padding:30px 0 20px;}
+.main-title h1{font-size:1.8rem;font-size:clamp(1.8rem,5vw,2.8rem);color:#8b4513;text-shadow:2px 2px 4px rgba(139,69,19,0.2);letter-spacing:0.2em;position:relative;display:inline-block;}
+.main-title h1::before,.main-title h1::after{content:'~';color:#dc5b7a;margin:0 12px;font-size:0.7em;vertical-align:middle;}
+.main-title p{color:#a0522d;margin-top:10px;font-size:1rem;letter-spacing:0.15em;}
+.tab-nav{display:flex;justify-content:center;flex-wrap:nowrap;gap:6px;margin-bottom:25px;}
+.tab-btn{padding:11px 16px;background:linear-gradient(135deg,#f5e6d3,#e8d4bc);border:2px solid #c9a86c;border-radius:8px 8px 0 0;cursor:pointer;font-family:inherit;font-size:0.88rem;color:#5d4037;transition:all 0.3s;position:relative;overflow:hidden;white-space:nowrap;}
+.tab-btn::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent);transition:left 0.5s;}
+.tab-btn:hover::before{left:100%;}
+.tab-btn:hover{background:linear-gradient(135deg,#ffe4c9,#f5d6ba);transform:translateY(-3px);box-shadow:0 5px 15px rgba(139,69,19,0.2);}
+.tab-btn.active{background:linear-gradient(135deg,#dc5b7a,#c94c6a);color:#fff;border-color:#b8405e;box-shadow:0 5px 20px rgba(220,91,122,0.4);}
+.tab-content{display:none;background:linear-gradient(180deg,rgba(255,253,250,0.95),rgba(255,248,240,0.92));border:3px solid #c9a86c;border-radius:15px;padding:25px;box-shadow:0 10px 40px rgba(139,69,19,0.15),inset 0 0 60px rgba(255,255,255,0.5);position:relative;}
+.tab-content.active{display:block;animation:fadeC 0.5s ease;}
+@keyframes fadeC{from{opacity:0;transform:translateY(20px);}to{opacity:1;transform:translateY(0);}}
+.tab-content::before{content:'';position:absolute;top:10px;left:10px;right:10px;bottom:10px;border:1px solid rgba(201,168,108,0.3);border-radius:10px;pointer-events:none;}
+.corner{position:absolute;width:35px;height:35px;}
+.corner-tl{top:-3px;left:-3px;border-top:3px solid #8b4513;border-left:3px solid #8b4513;border-radius:8px 0 0 0;}
+.corner-tr{top:-3px;right:-3px;border-top:3px solid #8b4513;border-right:3px solid #8b4513;border-radius:0 8px 0 0;}
+.corner-bl{bottom:-3px;left:-3px;border-bottom:3px solid #8b4513;border-left:3px solid #8b4513;border-radius:0 0 0 8px;}
+.corner-br{bottom:-3px;right:-3px;border-bottom:3px solid #8b4513;border-right:3px solid #8b4513;border-radius:0 0 8px 0;}
+.section-title{font-size:1.25rem;color:#8b4513;text-align:center;margin-bottom:20px;padding-bottom:10px;border-bottom:2px dashed #dcc9a6;position:relative;}
+.section-title::after{content:'◆';position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);background:#fffdf8;padding:0 10px;color:#dc5b7a;}
+.info-card{background:linear-gradient(135deg,rgba(255,250,245,0.9),rgba(248,224,230,0.5));border:1px solid #e8d4bc;border-radius:10px;padding:18px;margin-bottom:18px;}
+.info-card h3{color:#a0522d;font-size:1.05rem;margin-bottom:10px;}
+.info-card h3::before{content:'◇ ';color:#dc5b7a;}
+.info-card p,.info-card ul{color:#5d4037;font-size:0.92rem;}
+.info-card ul{padding-left:22px;}
+.info-card li{margin:6px 0;}
+.info-card li::marker{color:#dc5b7a;}
+.form-group{margin-bottom:16px;}
+.form-group label{display:block;color:#8b4513;font-size:0.98rem;margin-bottom:6px;}
+.form-group label::before{content:'◇ ';color:#dc5b7a;}
+.form-input{width:100%;padding:11px 14px;background:linear-gradient(180deg,#fffdf8,#faf5ef);border:2px solid #dcc9a6;border-radius:8px;font-family:inherit;font-size:0.95rem;color:#4a3728;transition:all 0.3s;}
+.form-input:focus{outline:none;border-color:#dc5b7a;box-shadow:0 0 0 3px rgba(220,91,122,0.15);}
+.form-input::placeholder{color:#b8a090;font-style:italic;}
+textarea.form-input{min-height:90px;resize:vertical;}
+.select-box{margin-bottom:16px;}
+.select-box>label{display:block;color:#8b4513;font-size:0.98rem;margin-bottom:6px;}
+.select-box>label::before{content:'◇ ';color:#dc5b7a;}
+.select-trigger{width:100%;padding:12px 16px;background:linear-gradient(180deg,#fffdf8,#faf5ef);border:2px solid #dcc9a6;border-radius:8px;cursor:pointer;transition:all 0.3s;display:flex;align-items:center;justify-content:space-between;font-family:inherit;font-size:0.95rem;color:#4a3728;}
+.select-trigger:hover{border-color:#dc5b7a;background:linear-gradient(180deg,#fff5f7,#ffe8ec);}
+.radio-group{display:flex;gap:10px;flex-wrap:wrap;}
+.radio-box{flex:1;min-width:70px;padding:12px 14px;background:linear-gradient(180deg,#fffdf8,#faf5ef);border:2px solid #dcc9a6;border-radius:8px;cursor:pointer;transition:all 0.3s;display:flex;align-items:center;justify-content:center;font-size:0.95rem;color:#5d4037;position:relative;}
+.radio-box:hover{border-color:#dc5b7a;background:linear-gradient(180deg,#fff5f7,#ffe8ec);}
+.radio-box.selected{background:linear-gradient(135deg,#fff0f3,#ffe8ec);border-color:#dc5b7a;color:#8b4513;font-weight:bold;}
+.radio-box.selected::before{content:'✓';position:absolute;left:10px;color:#dc5b7a;font-size:1rem;animation:chkPop 0.3s ease;}
+@keyframes chkPop{0%{transform:scale(0);}50%{transform:scale(1.2);}100%{transform:scale(1);}}
+/* Popup */
+.popup-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center;z-index:999;}
+.popup-overlay.show{display:flex;}
+.popup-panel{background:linear-gradient(180deg,#fffdf8,#f8f0e8);border:3px solid #c9a86c;border-radius:15px;width:90%;max-width:500px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:popIn 0.3s ease;position:relative;overflow:hidden;}
+.popup-panel::before{content:'';position:absolute;top:10px;left:10px;right:10px;bottom:10px;border:1px solid rgba(201,168,108,0.3);border-radius:10px;pointer-events:none;z-index:0;}
+@keyframes popIn{from{transform:translateY(30px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.popup-title{font-size:1.15rem;color:#8b4513;text-align:center;padding:18px 20px 14px;border-bottom:2px dashed #dcc9a6;flex-shrink:0;position:relative;z-index:1;}
+.popup-title::before{content:'◇ ';color:#dc5b7a;}
+.popup-list{overflow-y:auto;padding:12px 14px 16px;flex:1;position:relative;z-index:1;}
+.popup-list::-webkit-scrollbar{width:4px;}
+.popup-list::-webkit-scrollbar-track{background:transparent;}
+.popup-list::-webkit-scrollbar-thumb{background:#c9a86c;border-radius:2px;}
+.popup-item{display:flex;align-items:center;padding:13px 16px;background:linear-gradient(180deg,#fffdf8,#faf5ef);border:1px solid #dcc9a6;border-bottom:none;cursor:pointer;transition:all 0.25s;font-size:0.92rem;color:#5d4037;position:relative;}
+.popup-item:first-child{border-radius:6px 6px 0 0;}
+.popup-item:last-child{border-bottom:1px solid #dcc9a6;border-radius:0 0 6px 6px;}
+.popup-item:only-child{border-radius:6px;border-bottom:1px solid #dcc9a6;}
+.popup-item::before{content:'';width:3px;height:0;background:#dc5b7a;position:absolute;left:0;top:50%;transform:translateY(-50%);transition:height 0.3s;border-radius:0 2px 2px 0;}
+.popup-item:hover{background:linear-gradient(180deg,#fff5f7,#ffe8ec);color:#8b4513;}
+.popup-item:hover::before{height:60%;}
+.popup-item.selected{background:linear-gradient(135deg,#fff0f3,#ffe8ec);color:#8b4513;font-weight:bold;}
+.popup-item.selected::before{height:100%;background:linear-gradient(180deg,#dc5b7a,#ff9a76);}
+.popup-item .chk{margin-right:10px;color:#dc5b7a;font-size:1rem;opacity:0;transform:scale(0);transition:all 0.3s;flex-shrink:0;}
+.popup-item.selected .chk{opacity:1;transform:scale(1);}
+.popup-item .otxt{flex:1;}
+.popup-item .odesc{font-size:0.8rem;color:#a0897a;margin-left:8px;flex-shrink:0;}
+/* Level glow */
+.glow-qi .select-trigger{border-color:#ccc!important;box-shadow:0 0 8px rgba(200,200,200,0.4)!important;}
+.glow-zhe .select-trigger{border-color:#e0e0e0!important;box-shadow:0 0 12px rgba(255,255,255,0.5)!important;}
+.glow-shi .select-trigger{border-color:#90ee90!important;box-shadow:0 0 14px rgba(144,238,144,0.5)!important;}
+.glow-dashi .select-trigger{border-color:#4caf50!important;box-shadow:0 0 16px rgba(76,175,80,0.5)!important;}
+.glow-ling .select-trigger{border-color:#2196f3!important;box-shadow:0 0 16px rgba(33,150,243,0.5)!important;}
+.glow-wang .select-trigger{border-color:#1565c0!important;box-shadow:0 0 18px rgba(21,101,192,0.5)!important;}
+.glow-huang .select-trigger{border-color:#9c27b0!important;box-shadow:0 0 18px rgba(156,39,176,0.5)!important;}
+.glow-zong .select-trigger{border-color:#e040fb!important;box-shadow:0 0 20px rgba(224,64,251,0.5)!important;}
+.glow-zun .select-trigger{border-color:#ff9800!important;box-shadow:0 0 22px rgba(255,152,0,0.6)!important;}
+.glow-sheng .select-trigger{border-color:#ffd700!important;box-shadow:0 0 25px rgba(255,215,0,0.6)!important;}
+.glow-di .select-trigger{border-color:#ffd700!important;box-shadow:0 0 30px rgba(255,215,0,0.5),0 0 60px rgba(156,39,176,0.3)!important;animation:diG 2s ease-in-out infinite!important;}
+@keyframes diG{0%,100%{box-shadow:0 0 30px rgba(255,215,0,0.5),0 0 60px rgba(156,39,176,0.3);}50%{box-shadow:0 0 40px rgba(255,215,0,0.7),0 0 80px rgba(156,39,176,0.5);}}
+.alchemist-sub{display:none;margin-top:16px;}
+.alchemist-sub.show{display:block;animation:fadeC 0.3s ease;}
+/* Talent Grid */
+.roll-btn{display:block;width:100%;max-width:260px;margin:0 auto 10px;padding:14px 28px;background:linear-gradient(135deg,#ff9a56,#ff6b35 50%,#e55a2b);border:none;border-radius:30px;font-family:inherit;font-size:1.05rem;color:#fff;cursor:pointer;transition:all 0.3s;box-shadow:0 5px 20px rgba(255,107,53,0.4);position:relative;overflow:hidden;}
+.roll-btn::after{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:linear-gradient(45deg,transparent 40%,rgba(255,255,255,0.3) 50%,transparent 60%);transform:rotate(45deg);animation:shine 3s infinite;}
+@keyframes shine{0%,100%{left:-50%;}50%{left:150%;}}
+.roll-btn:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 8px 25px rgba(255,107,53,0.5);}
+.reroll-btn{display:none;width:100%;max-width:200px;margin:0 auto 15px;padding:10px 20px;background:linear-gradient(135deg,#b0886a,#8b6f55);border:none;border-radius:20px;font-family:inherit;font-size:0.9rem;color:#fff;cursor:pointer;transition:all 0.3s;box-shadow:0 3px 12px rgba(139,69,19,0.25);}
+.reroll-btn:hover{transform:translateY(-2px);}
+.reroll-btn.show{display:block;}
+.reroll-warning{text-align:center;color:#a07060;font-size:0.8rem;margin-bottom:14px;font-style:italic;display:none;}
+.reroll-warning.show{display:block;}
+.talent-results{display:none;margin-top:10px;}
+.talent-results.show{display:block;animation:fadeC 0.5s ease;}
+.talent-hint{text-align:center;color:#a0522d;margin-bottom:14px;font-size:0.92rem;padding:10px;background:rgba(220,91,122,0.1);border-radius:8px;}
+.talent-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.talent-card{padding:16px 12px;background:linear-gradient(180deg,#fffdf8,#faf5ef);border:2px solid #dcc9a6;border-radius:10px;cursor:pointer;transition:all 0.3s;text-align:center;position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;min-height:80px;justify-content:center;}
+.talent-card:hover{border-color:#dc5b7a;box-shadow:0 3px 12px rgba(220,91,122,0.2);transform:translateY(-2px);}
+.talent-card.selected{background:linear-gradient(135deg,#fff0f3,#ffe8ec);border-color:#dc5b7a;}
+.talent-card.disabled{opacity:0.4;cursor:not-allowed;transform:none!important;box-shadow:none!important;}
+.talent-card.disabled:hover{border-color:#dcc9a6;}
+.talent-card .tq{padding:2px 10px;border-radius:4px;font-size:0.72rem;color:#fff;display:inline-block;}
+.talent-card .tn{font-size:0.95rem;font-weight:bold;color:#4a3728;}
+.talent-card .tc{position:absolute;top:6px;right:8px;color:#dc5b7a;font-size:0.9rem;opacity:0;transform:scale(0);transition:all 0.3s;}
+.talent-card.selected .tc{opacity:1;transform:scale(1);animation:chkPop 0.3s ease;}
+.talent-card:nth-child(7){grid-column:1/3;max-width:50%;justify-self:center;width:100%;}
+.qc-common{background:#9e9e9e;}.qc-spirit{background:#4caf50;}.qc-mystic{background:#2196f3;}.qc-earth{background:#9c27b0;}.qc-sky{background:#ff9800;}
+.qc-myth{background:linear-gradient(135deg,#ff0044,#ffd700 50%,#ff0044);animation:mythG 2s infinite;}
+@keyframes mythG{0%,100%{box-shadow:0 0 5px #ff0044,0 0 10px #ffd700;}50%{box-shadow:0 0 15px #ff0044,0 0 25px #ffd700;}}
+.selected-count{text-align:center;margin-top:14px;padding:10px;background:rgba(139,69,19,0.08);border-radius:8px;color:#8b4513;font-size:0.9rem;}
+/* Talent Detail Popup */
+.td-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center;z-index:1000;}
+.td-overlay.show{display:flex;}
+.td-panel{background:linear-gradient(180deg,#fffdf8,#f8f0e8);border:3px solid #c9a86c;border-radius:15px;width:88%;max-width:420px;padding:28px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:popIn 0.3s ease;position:relative;}
+.td-panel::before{content:'';position:absolute;top:10px;left:10px;right:10px;bottom:10px;border:1px solid rgba(201,168,108,0.3);border-radius:10px;pointer-events:none;}
+.td-panel .corner{width:30px;height:30px;}
+.td-head{font-size:1.1rem;color:#8b4513;margin-bottom:6px;padding-bottom:12px;border-bottom:2px dashed #dcc9a6;}
+.td-head::before{content:'◇ ';color:#dc5b7a;}
+.td-quality{display:inline-block;padding:3px 14px;border-radius:4px;font-size:0.78rem;color:#fff;margin:14px 0 6px;}
+.td-name{font-size:1.2rem;font-weight:bold;color:#4a3728;margin-bottom:14px;}
+.td-desc{font-size:0.92rem;color:#5d4037;line-height:1.8;padding:14px 16px;background:rgba(255,248,240,0.8);border:1px dashed #dcc9a6;border-radius:8px;margin-bottom:20px;text-align:left;}
+.td-btn{display:block;width:100%;max-width:200px;margin:0 auto;padding:12px 28px;border:none;border-radius:25px;font-family:inherit;font-size:0.98rem;color:#fff;cursor:pointer;transition:all 0.3s;}
+.td-btn.sel{background:linear-gradient(135deg,#dc5b7a,#c94c6a);box-shadow:0 4px 15px rgba(220,91,122,0.4);}
+.td-btn.sel:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(220,91,122,0.5);}
+.td-btn.unsel{background:linear-gradient(135deg,#b0886a,#8b6f55);box-shadow:0 4px 15px rgba(139,69,19,0.3);}
+.td-btn.unsel:hover{transform:translateY(-2px);}
+.td-btn.off{background:#bbb;cursor:not-allowed;box-shadow:none;}
+.td-btn.off:hover{transform:none;}
+.preview-box{background:linear-gradient(180deg,#fffdf8,#faf5ef);border:2px solid #c9a86c;border-radius:10px;padding:20px;min-height:200px;font-size:0.92rem;line-height:1.9;white-space:pre-wrap;word-wrap:break-word;color:#4a3728;}
+.next-btn{display:block;width:100%;max-width:220px;margin:25px auto 0;padding:14px 35px;background:linear-gradient(135deg,#dc5b7a,#c94c6a);border:none;border-radius:30px;font-family:inherit;font-size:1.05rem;color:#fff;cursor:pointer;transition:all 0.3s;box-shadow:0 5px 20px rgba(220,91,122,0.3);}
+.next-btn:hover{transform:translateY(-3px);box-shadow:0 8px 25px rgba(220,91,122,0.5);}
+.copy-btn{display:block;width:100%;max-width:260px;margin:20px auto 0;padding:16px 35px;background:linear-gradient(135deg,#8b4513,#a0522d);border:none;border-radius:30px;font-family:inherit;font-size:1.1rem;color:#fff;cursor:pointer;transition:all 0.3s;box-shadow:0 5px 20px rgba(139,69,19,0.3);}
+.copy-btn:hover{transform:translateY(-3px);box-shadow:0 8px 25px rgba(139,69,19,0.5);}
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:none;justify-content:center;align-items:center;z-index:1001;}
+.modal-overlay.show{display:flex;}
+.modal-box{background:linear-gradient(180deg,#fffdf8,#f8f0e8);border:3px solid #c9a86c;border-radius:15px;padding:30px 40px;text-align:center;max-width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:popIn 0.3s ease;}
+.modal-box h3{color:#8b4513;font-size:1.2rem;margin-bottom:8px;}
+.modal-box p{color:#5d4037;margin-bottom:18px;}
+.modal-close{padding:10px 30px;background:linear-gradient(135deg,#dc5b7a,#c94c6a);border:none;border-radius:20px;color:#fff;font-family:inherit;font-size:0.95rem;cursor:pointer;}
+.timeline-hint{text-align:center;color:#a0897a;font-style:italic;padding:20px 0;}
+footer{text-align:center;padding:30px 20px;color:#a0897a;font-size:0.82rem;}
+footer a{color:#8b4513;text-decoration:none;}footer a:hover{color:#dc5b7a;}
+@media(max-width:520px){.container{padding:10px;}.tab-nav{gap:3px;}.tab-btn{padding:8px 5px;font-size:0.68rem;flex:1;min-width:0;text-align:center;}.main-title h1{letter-spacing:0.1em;font-size:1.5rem;}.main-title h1::before,.main-title h1::after{margin:0 6px;}.radio-box{min-width:55px;padding:10px 6px;font-size:0.85rem;}.talent-card{padding:14px 8px;min-height:72px;}.talent-card .tn{font-size:0.88rem;}.talent-card:nth-child(7){max-width:52%;}}
+</style>
+</head>
+<body>
+<div class="intro-overlay" id="introOverlay">
+<div class="intro-bg" id="introBg"></div>
+<div class="intro-flash" id="introFlash"></div>
+<div class="intro-text" id="introText">
+<div class="intro-line">三十年河东</div>
+<div class="intro-line">三十年河西</div>
+<div class="intro-line">莫欺少年穷！</div>
+</div>
+<div class="intro-skip">— 点击任意处继续 —</div>
+</div>
+<div id="petalContainer"></div>
+<div class="container">
+<div class="main-title"><h1>斗破苍穹</h1><p>踏入斗气大陆，书写你的传奇</p></div>
+<div class="tab-nav">
+<button class="tab-btn active" data-tab="1">世界观</button>
+<button class="tab-btn" data-tab="2">时间线</button>
+<button class="tab-btn" data-tab="3">角色塑造</button>
+<button class="tab-btn" data-tab="4">天赋觉醒</button>
+<button class="tab-btn" data-tab="5">预览确认</button>
+</div>
+<!-- Tab1 世界观 -->
+<div class="tab-content active" id="tab1">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<h2 class="section-title">斗气大陆</h2>
+<div class="info-card"><h3>世界概述</h3><p>这是一片属于斗气的大陆，没有花俏艳丽的魔法，有的只是繁衍到巅峰的斗气。强者可以傲立苍穹，俯瞰众生；弱者则如蝼蚁，任人宰割。大陆之上，宗门林立，帝国割据，远古家族隐匿于世。斗气，决定着一切！</p></div>
+<div class="info-card">
+  <h3>修炼等级</h3>
+  <p>斗气修炼体系以《斗破苍穹》原著小说官方设定为准，起始为斗之气阶段，核心大境界从斗者至斗帝，各境界细分规则不同，以下为完整严谨的原著设定。</p>
+  <ul>
+    <li><strong>斗之气</strong> — 一至十段，滋润筋骨、强壮身体，修行之始，唯有十段圆满方可凝聚斗之气旋，突破至斗者境界</li>
+    <li><strong>斗者</strong> — 一至九星，丹田内凝聚斗气气旋，可内视自身斗气，正式踏入斗气修炼正途</li>
+    <li><strong>斗师</strong> — 一至九星，斗气可稳定外放，可完整修习对应等级斗技，斗气修为小有所成</li>
+    <li><strong>大斗师</strong> — 一至九星，可凝聚斗气铠甲抵御攻击，斗气发生质变，足以在小城内称雄</li>
+    <li><strong>斗灵</strong> — 一至九星，可实现斗气凝物，将斗气凝聚为任意形态，战力大幅提升</li>
+    <li><strong>斗王</strong> — 一至九星，可凝聚斗气化翼实现长时间稳定飞行，斗气凝化为液态，为一方豪强</li>
+    <li><strong>斗皇</strong> — 一至九星，可调动少量天地能量，实力足以成为帝国柱石级别的强者</li>
+    <li><strong>斗宗</strong> — 一至九星，可无需斗翼踏空而行，初步掌控空间之力，为地域顶尖、中州一流水准</li>
+    <li><strong>斗尊</strong> — 一至九星，每星分初、中、后、巅峰四期，立于大陆巅峰之列，可撕裂空间、实现空间穿梭</li>
+    <li><strong>斗尊巅峰</strong> — 一转至九转，唯有九星斗尊巅峰方可踏入，需将斗气极致压缩凝练九次，九转圆满才有资格冲击半圣</li>
+    <li><strong>半圣</strong> — 分初级、中级、高级三个层级，九转斗尊巅峰突破后方可踏入，高级半圣圆满方可冲击斗圣境界</li>
+    <li><strong>斗圣</strong> — 一至九星，每星分初、中、后、巅峰四期，举手投足间可引动天地之力，能开辟独立空间，为大陆顶级战力</li>
+    <li><strong>斗帝</strong> — 斗气大陆传说中的终极境界，千年难出，可掌控天地法则，斗气蜕变为帝炎，能改变自身与家族血脉，寿元远超寻常强者</li>
+  </ul>
+</div>
+<div class="info-card"><h3>主要势力</h3><ul>
+<li><strong>迦南学院</strong> — 大陆顶尖学府，内院强者如云，藏有陨落心炎</li>
+<li><strong>丹塔</strong> — 全大陆炼药师圣地，八品以上丹方皆出于此，中州最中立的顶级势力</li>
+<li><strong>魂殿</strong> — 魂族的明面工具，神秘暗势力，以收集强者魂魄为目的</li>
+<li><strong>古族</strong> — 远古八族之首，帝品血脉传承者，实力深不可测</li>
+<li><strong>炎族</strong> — 远古八族之一，掌控多种异火，以火属性功法闻名</li>
+<li><strong>药族</strong> — 远古八族之一，以炼药天赋著称的上古家族</li>
+<li><strong>云岚宗</strong> — 加玛帝国曾经的第一宗门，萧炎前期的核心对手</li>
+<li><strong>天府联盟</strong> — 萧炎牵头成立的抗魂联盟，中州最强的中立势力</li>
+</ul></div>
+<div class="info-card"><h3>异火榜（部分）</h3><ul>
+<li><strong>第一 · 陀舍古帝之火</strong> — 帝火，由异火修炼而成，可焚灭苍穹</li>
+<li><strong>第三 · 净莲妖火</strong> — 拥有自我意识的妖异之火，可炼化万物、操控人心</li>
+<li><strong>第四 · 金帝焚天炎</strong> — 古族传承异火，有焚尽天地之威</li>
+<li><strong>第九 · 三千焱炎火</strong> — 号称不死之火，生于星空，自愈能力极强</li>
+<li><strong>第十一 · 骨灵冷火</strong> — 药老传承异火，阴寒彻骨的白色火焰</li>
+<li><strong>第十四 · 陨落心炎</strong> — 号称修炼作弊器，可加速斗气修炼</li>
+<li><strong>第十九 · 青莲地心火</strong> — 生于地底岩浆的三色莲花之焰</li>
+</ul></div>
+<button class="next-btn" onclick="nextTab(2)">落笔续章</button>
+</div>
+<!-- Tab2 时间线 -->
+<div class="tab-content" id="tab2">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<h2 class="section-title">选择篇章</h2>
+<div class="select-box" id="chapterBox"><label>篇章</label>
+<div class="select-trigger" onclick="openPopup('chapterBox')"><span class="trigger-text">— 请选择篇章 —</span><span class="arrow">▼</span></div></div>
+<h2 class="section-title" style="margin-top:25px;">时间节点</h2>
+<div id="timelineHint" class="timeline-hint">请先于上方择定篇章...</div>
+<div class="select-box" id="timelineBox" style="display:none;"><label>时间节点</label>
+<div class="select-trigger" onclick="openPopup('timelineBox')"><span class="trigger-text">— 请选择时间节点 —</span><span class="arrow">▼</span></div></div>
+<button class="next-btn" onclick="nextTab(3)">落笔续章</button>
+</div>
+<!-- Tab3 角色塑造 -->
+<div class="tab-content" id="tab3">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<h2 class="section-title">角色信息</h2>
+<div class="form-group"><label>姓名</label><input type="text" class="form-input" id="charName" placeholder="请赐名..."></div>
+<div class="form-group"><label>性别</label><div class="radio-group">
+<div class="radio-box selected" data-value="男" onclick="selRadio(this,'gender')">男</div>
+<div class="radio-box" data-value="女" onclick="selRadio(this,'gender')">女</div>
+<div class="radio-box" data-value="其他" onclick="selRadio(this,'gender')">其他</div>
+</div></div>
+<div class="form-group"><label>年龄</label><input type="text" class="form-input" id="charAge" placeholder="岁月几何..."></div>
+<div class="form-group"><label>性格</label><textarea class="form-input" id="charPersonality" placeholder="沉稳隐忍、桀骜不驯、杀伐果断、洒脱不羁……" rows="2"></textarea></div>
+<div class="select-box" id="levelBox"><label>修为境界</label><div class="select-trigger" onclick="openPopup('levelBox')"><span class="trigger-text">点击选择修为</span><span class="arrow">▼</span></div></div>
+<div class="select-box" id="elementBox"><label>斗气属性</label><div class="select-trigger" onclick="openPopup('elementBox')"><span class="trigger-text">点击选择属性</span><span class="arrow">▼</span></div></div>
+<div class="select-box" id="factionBox"><label>势力归属</label><div class="select-trigger" onclick="openPopup('factionBox')"><span class="trigger-text">点击选择势力</span><span class="arrow">▼</span></div></div>
+<div class="select-box" id="bloodlineBox"><label>特殊血脉</label><div class="select-trigger" onclick="openPopup('bloodlineBox')"><span class="trigger-text">点击选择血脉</span><span class="arrow">▼</span></div></div>
+<div class="form-group"><label>是否为炼药师</label><div class="radio-group">
+<div class="radio-box selected" data-value="否" onclick="selAlch(this)">否</div>
+<div class="radio-box" data-value="是" onclick="selAlch(this)">是</div>
+</div></div>
+<div class="alchemist-sub" id="alchemistSub">
+<div class="select-box" id="alchemistRankBox"><label>炼药师品阶</label><div class="select-trigger" onclick="openPopup('alchemistRankBox')"><span class="trigger-text">点击选择品阶</span><span class="arrow">▼</span></div></div>
+</div>
+<div class="form-group"><label>外貌</label><textarea class="form-input" id="charAppearance" placeholder="描绘容貌、衣着、气质..."></textarea></div>
+<div class="form-group"><label>身份背景</label><textarea class="form-input" id="charBackground" placeholder="家族、师承、经历..."></textarea></div>
+<div class="form-group"><label>额外设定</label><textarea class="form-input" id="charExtra" placeholder="其他补充，如特殊经历、秘密、羁绊、异火等..."></textarea></div>
+<button class="next-btn" onclick="nextTab(4)">落笔续章</button>
+</div>
+<!-- Tab4 天赋觉醒 -->
+<div class="tab-content" id="tab4">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<h2 class="section-title">天赋觉醒</h2>
+<button class="roll-btn" id="rollBtn" onclick="rollTalents()">觉醒天赋</button>
+<button class="reroll-btn" id="rerollBtn" onclick="rollTalents()">重新觉醒</button>
+<div class="reroll-warning" id="rerollWarning">命运无法回溯，重新觉醒将清除当前所选</div>
+<div class="talent-results" id="talentResults">
+<div class="talent-hint">命运赐予七道天赋，点击查看详情并择其三</div>
+<div class="talent-grid" id="talentGrid"></div>
+<div class="selected-count">已选择: <span id="selectedCount">0</span> / 3</div>
+</div>
+<button class="next-btn" onclick="nextTab(5)">落笔续章</button>
+</div>
+<!-- Tab5 预览确认 -->
+<div class="tab-content" id="tab5">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<h2 class="section-title">角色总览</h2>
+<div class="preview-box" id="previewBox">请先完成角色塑造与天赋觉醒...</div>
+<button class="copy-btn" onclick="copyContent()">一键复制</button>
+<button class="copy-btn" id="enterChat" hidden>带入聊天</button>
+</div>
+</div>
+<!-- 选择弹窗 -->
+<div class="popup-overlay" id="popupOverlay" onclick="popOvClick(event)">
+<div class="popup-panel"><div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<div class="popup-title" id="popupTitle"></div>
+<div class="popup-list" id="popupList"></div></div>
+</div>
+<!-- 天赋详情弹窗 -->
+<div class="td-overlay" id="tdOverlay" onclick="tdOvClick(event)">
+<div class="td-panel" id="tdPanel">
+<div class="corner corner-tl"></div><div class="corner corner-tr"></div><div class="corner corner-bl"></div><div class="corner corner-br"></div>
+<div class="td-head">天赋详情</div>
+<div class="td-quality" id="tdQuality"></div>
+<div class="td-name" id="tdName"></div>
+<div class="td-desc" id="tdDesc"></div>
+<button class="td-btn" id="tdBtn" onclick="tdAction()"></button>
+</div>
+</div>
+<!-- 复制成功弹窗 -->
+<div class="modal-overlay" id="modalOverlay">
+<div class="modal-box"><h3>复制成功</h3><p>角色信息已复制到剪贴板</p><button class="modal-close" onclick="document.getElementById('modalOverlay').classList.remove('show')">确定</button></div>
+</div>
+<script>
+// 开场动画
+(function(){var o=document.getElementById('introOverlay'),bg=document.getElementById('introBg'),fl=document.getElementById('introFlash'),tx=document.getElementById('introText');setTimeout(function(){fl.classList.add('show');bg.classList.add('show');tx.classList.add('shift');},3600);function h(){o.classList.add('hidden');setTimeout(function(){o.style.display='none';},1200);}o.addEventListener('click',h);setTimeout(function(){if(!o.classList.contains('hidden'))h();},10000);})();
+// 花瓣特效
+(function(){var c=document.getElementById('petalContainer');if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion:reduce)').matches)return;function mk(){var p=document.createElement('div'),s=document.createElement('div');s.className='petal-shape';var sz=['small','medium','large'];p.className='petal '+sz[Math.floor(Math.random()*3)];var d=Math.random()*6+8;p.style.left=Math.random()*100+'vw';p.style.animationDuration=d+'s';p.style.animationDelay=Math.random()*1.5+'s';s.style.filter='hue-rotate('+((Math.random()*30-10)|0)+'deg) drop-shadow(0 0 3px rgba(255,182,193,0.5))';p.appendChild(s);p.classList.add('animate');c.appendChild(p);setTimeout(function(){if(p.parentNode)p.remove();},(d+2)*1000);}for(var i=0;i<15;i++)setTimeout(mk,i*200);setInterval(mk,400);})();
+// 标签页切换
+document.querySelectorAll('.tab-btn').forEach(function(b){b.addEventListener('click',function(){switchTab(b.dataset.tab);});});
+function switchTab(id){document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.toggle('active',b.dataset.tab===String(id));});document.querySelectorAll('.tab-content').forEach(function(c){c.classList.remove('active');});var t=document.getElementById('tab'+id);if(t)t.classList.add('active');if(String(id)==='5')updatePreview();window.scrollTo({top:0,behavior:'smooth'});}
+// 必填项校验
+function nextTab(id){
+  if(id===3 && (!selChapterKey || !selNode)){
+    alert('请先选择篇章和对应的时间节点，再继续下一步');
+    return;
+  }
+  if(id===4 && !document.getElementById('charName').value.trim()){
+    alert('请先填写角色姓名，再继续下一步');
+    return;
+  }
+  switchTab(id);
+}
+var popCfg={
+chapterBox: {
+  title: '选择篇章',
+options: [
+    {v:'wutan', t:'壹 · 乌坦城少年篇'},
+    {v:'jiama', t:'贰 · 加玛帝国篇'},
+    {v:'jianan', t:'叁 · 迦南学院篇（含黑角域）'},
+    {v:'fuchou', t:'肆 · 加玛帝国复仇篇'},
+    {v:'churuzhongzhou', t:'伍 · 初入中州篇'},
+    {v:'danhui', t:'陆 · 中州丹会篇'},
+    {v:'jiuyao', t:'柒 · 营救药老篇'},
+    {v:'zhongzhoufengyun', t:'捌 · 中州风云篇'},
+    {v:'hundian', t:'玖 · 魂殿大战篇'},
+    {v:'shuangdi', t:'拾 · 双帝之战篇'},
+    {v:'daqian', t:'拾壹 · 大千世界篇'}
+  ]
+},
+timelineBox:{title:'选择时间节点',options:[]},
+levelBox:{title:'修为境界',options:[{v:'无修为',t:'无修为（白纸一张）',g:'none'},{v:'斗之气',t:'斗之气',g:'qi'},{v:'斗者',t:'斗者',g:'zhe'},{v:'斗师',t:'斗师',g:'shi'},{v:'大斗师',t:'大斗师',g:'dashi'},{v:'斗灵',t:'斗灵',g:'ling'},{v:'斗王',t:'斗王',g:'wang'},{v:'斗皇',t:'斗皇',g:'huang'},{v:'斗宗',t:'斗宗',g:'zong'},{v:'斗尊',t:'斗尊',g:'zun'},{v:'斗圣',t:'斗圣',g:'sheng'},{v:'斗帝',t:'斗帝（慎选）',g:'di'}]},
+elementBox:{title:'斗气属性',options:[{v:'无属性',t:'无属性',d:'尚未觉醒'},{v:'火属性',t:'火属性',d:'烈焰灼烧'},{v:'冰属性',t:'冰属性',d:'寒冰凝霜'},{v:'雷属性',t:'雷属性',d:'迅猛无匹'},{v:'风属性',t:'风属性',d:'飘逸灵动'},{v:'木属性',t:'木属性',d:'生机盎然'},{v:'土属性',t:'土属性',d:'厚重沉稳'},{v:'水属性',t:'水属性',d:'至柔至刚'},{v:'暗属性',t:'暗属性',d:'诡谲莫测'},{v:'光属性',t:'光属性',d:'驱邪破暗'},{v:'空间属性',t:'空间属性',d:'掌控虚空'}]},
+factionBox:{title:'势力归属',options:[{v:'自由身',t:'自由身',d:'无势力依附'},{v:'萧家',t:'萧家'},{v:'迦南学院',t:'迦南学院'},{v:'云岚宗',t:'云岚宗'},{v:'丹塔',t:'丹塔'},{v:'加玛帝国皇室',t:'加玛帝国皇室'},{v:'蛇人族',t:'蛇人族'},{v:'黑角域势力',t:'黑角域势力'},{v:'魂殿',t:'魂殿',d:'慎选'},{v:'古族',t:'古族'},{v:'药族',t:'药族'},{v:'炎族',t:'炎族'},{v:'天府联盟',t:'天府联盟'},{v:'其他',t:'其他',d:'请在额外设定说明'}]},
+bloodlineBox:{title:'特殊血脉',options:[{v:'无特殊血脉',t:'无特殊血脉',d:'普通人族'},{v:'萧家血脉',t:'萧家血脉',d:'帝品血脉'},{v:'古族血脉',t:'古族血脉',d:'远古传承'},{v:'药族血脉',t:'药族血脉',d:'炼丹体质'},{v:'炎族血脉',t:'炎族血脉',d:'异火契合'},{v:'魂族血脉',t:'魂族血脉',d:'灵魂天赋'},{v:'雷族血脉',t:'雷族血脉',d:'天雷淬体'},{v:'石族血脉',t:'石族血脉',d:'防御无匹'},{v:'蛇人族血脉',t:'蛇人族血脉',d:'毒术天赋'},{v:'魔兽混血',t:'魔兽混血',d:'野性直觉'},{v:'神秘血脉',t:'神秘血脉',d:'额外说明'}]},
+alchemistRankBox:{title:'炼药师品阶',options:[{v:'无品级',t:'无品级',d:'刚入门'},{v:'一品炼药师',t:'一品炼药师'},{v:'二品炼药师',t:'二品炼药师'},{v:'三品炼药师',t:'三品炼药师'},{v:'四品炼药师',t:'四品炼药师'},{v:'五品炼药师',t:'五品炼药师'},{v:'六品炼药师',t:'六品炼药师'},{v:'七品炼药师',t:'七品炼药师'},{v:'八品炼药师',t:'八品炼药师',d:'丹雷级'},{v:'九品炼药师',t:'九品炼药师',d:'传说级'}]}
+};
+// 100%对应原著的时间线（无任何错误）
+var tlData = {
+    // 零·前传（药老传奇 & 萧炎童年）
+    prequel: [
+        '药尘出身药族旁支，幼年丧父，因执行任务失败被药万归逐出药族',
+        '药尘逆袭为中州第一炼药师，与风闲共同建立星陨阁，收韩枫为徒',
+        '韩枫觊觎《焚诀》勾结魂殿慕骨老人偷袭，药尘残魂藏于纳戒，骨灵冷火一同封存',
+        '纳戒辗转流落至加玛帝国乌坦城，被萧炎母亲所得作为遗物留给萧炎',
+        '萧炎4岁练气，10岁达九段斗之气，11岁凝聚斗之气旋成斗者，为萧家百年最年轻天才',
+        '萧薰儿寄养萧家，萧炎幼年以斗气温养其经脉，萧薰儿情根深种',
+        '萧炎12岁起斗气持续倒退，至15岁降至三段斗之气，沦为全城笑柄'
+    ],
+    // 壹·乌坦城少年篇
+    wutan: [
+        '纳兰嫣然携葛叶上门退婚，萧炎血写休书，定下三年之约',
+        '退婚当夜药老苏醒，师徒达成约定，药老助萧炎重回巅峰',
+        '药老传授《焚诀》、赠予玄重尺，打磨萧炎肉身与斗气根基',
+        '药老炼制筑基灵液，萧炎两月从三段重回七段，萧战暗中资助药材',
+        '萧炎晋为一品炼药师，加列家族联合柳席以回春散垄断药材市场',
+        '萧薰儿重创柳席，柳席服龟息丹假死，药老以骨灵冷火补刀彻底灭杀',
+        '萧炎以高品质凝血散发起反击，瓦解加列家族的药材垄断',
+        '16岁成人礼展露九段斗之气，击败萧宁，洗刷废柴污名',
+        '萧炎突破十段斗之气，以焚诀凝聚气旋晋入一星斗者',
+        '告别萧战与萧薰儿，离开乌坦城前往魔兽山脉，立下三年之约誓言'
+    ],
+    // 贰·加玛帝国篇
+    jiama: [
+        '青山镇结识小医仙，山洞探宝得《七彩毒经》《紫云翼》与首张净莲妖火残图',
+        '小医仙厄难毒体首次爆发，萧炎帮其压制后二人分别，小医仙独自寻解方',
+        '魔兽山脉救下被紫晶翼狮王封印重伤的云韵，以药岩、云芝化名相处情愫暗生',
+        '云韵赠贴身内甲与玄阶高级斗技《焰分噬浪尺》，引荐古河被萧炎婉拒',
+        '经黑岩城考取炼药师资格，在石漠城遇被封印至斗灵的冰皇海波东',
+        '以炼制破厄丹为条件换取第二张净莲妖火残图，解封后又以复灵紫丹换一年护卫期',
+        '塔戈尔沙漠潜入蛇人族神殿，趁美杜莎进化失败强取青莲地心火',
+        '成功炼化青莲地心火，《焚诀》升至玄阶中级，突破至斗师巅峰',
+        '美杜莎化为七彩吞天蟒，与萧炎签订共生契约',
+        '盐城救青鳞击杀墨承，身份被云岚宗识破埋下祸端',
+        '帝都化名岩枭为纳兰桀祛烙毒，炼药师大会以三纹青灵丹夺冠',
+        '获法犸授予融灵丹药方与荣誉长老之位，赛后突破至一星大斗师',
+        '三年之约登云岚宗，以一星大斗师修为击败二星大斗师纳兰嫣然',
+        '云山现身强留萧炎，药老被迫借体出战首次暴露身份',
+        '云棱擅自带人袭击萧家，萧战被魂殿劫走，萧炎二上云岚宗击杀云棱',
+        '海波东、美杜莎与凌影掩护萧炎逃离加玛帝国，正式进入黑角域'
+    ],
+    // 叁·迦南学院篇（含黑角域）
+    jianan: [
+        '抵达黑角域，击杀血宗范凌夺得《三千雷动》与第三张净莲妖火残图',
+        '通过迦南外院入学考核，结识琥嘉、吴昊',
+        '火能猎捕赛以弱胜强击败高年级队伍，拿下新生第一进入内院',
+        '联合萧薰儿、琥嘉、吴昊组建磐门，以丹药为根基快速发展为内院顶尖势力',
+        '进入天焚炼气塔修炼，用丹药收服太虚古龙紫妍，磐门实力大增',
+        '修炼天火三玄变第一变，强榜大赛与柳擎苦战平局，并列强榜第十',
+        '萧薰儿强榜赛后离开迦南返回古族，临别赠予地阶高级斗技《帝印诀》',
+        '韩枫联手黑角域斗皇组建黑盟，攻打迦南学院抢夺陨落心炎',
+        '陨落心炎暴动将萧炎拖入地底岩浆世界，药老为护萧炎耗尽灵魂力量沉睡',
+        '历经两年生死焚炼，成功收服陨落心炎，从斗灵巅峰直破斗王巅峰',
+        '地底炼化期间与美杜莎产生宿命羁绊',
+        '从地底回归，联手苏千、美杜莎击败韩枫，韩枫灵魂被魂殿鹜护法掳走',
+        '与二哥萧厉整合黑角域势力，定名萧门，成为黑角域新霸主',
+        '得知萧家被云岚宗持续打压，率萧门强者启程回归加玛帝国复仇'
+    ],
+    // 肆·加玛帝国复仇篇
+    fuchou: [
+        '回归加玛帝国，得知萧鼎被重伤致残，萧厉被追杀，全靠海波东拼死保护',
+        '得知美杜莎因陨落心炎怀了孩子，二人关系彻底缓和',
+        '联合海波东、加刑天、米特尔家族、炼药师公会等反云岚宗势力',
+        '打上云岚宗，十招击败丹王古河迫其中立',
+        '以斗王巅峰修为配合天火三玄变，以三色佛怒火莲击杀三星斗宗云山',
+        '鹜护法现身吞噬云山灵魂实力暴涨，药老现身对战不敌被锁魂链抓走',
+        '云韵以自刎相求，萧炎下令一月内解散云岚宗',
+        '从云岚宗长老口中确认萧战被魂殿掳走的消息',
+        '整合皇室、三大家族、炼药师公会，正式建立炎盟，萧炎任盟主，美杜莎任副盟主',
+        '蛇人族与黑角域萧门陆续加入炎盟体系，与美杜莎定下婚约',
+        '出云毒宗、落雁金雁宗、慕兰慕兰谷三宗联手入侵加玛',
+        '萧炎闭关突破斗皇后出关，以绝对实力击败联军，与小医仙重逢相认',
+        '炎盟成为西北地域绝对霸主，萧潇在萧炎前往中州后出生',
+        '为解萧厉噬生丹之毒重返迦南，收服天火尊者曜天火',
+        '韩枫以斗宗躯体重返黑角域作乱，萧炎将其击败，灵魂封印于玉瓶'
+    ],
+    // 伍·初入中州篇
+    churuzhongzhou: [
+        '穿越空间通道遭风暴，与紫妍、小医仙失散，重伤坠至天北城被韩雪所救',
+        '替韩家出战擂台击败洪辰，施展三千雷动被风雷北阁长老沈云认出',
+        '击杀沈云与洪天啸，引发风雷阁全境追杀，天火尊者全程协助作战',
+        '韩家被风雷北阁软禁，萧炎独闯天北城迎战风雷电三位长老',
+        '八星斗宗风雷北阁阁主费天亲自追杀，萧炎以地妖傀护体成功逃生',
+        '前往天目山争夺天山血潭名额，通过鼠潮音波阵夺得十个名额之一',
+        '与噬金鼠族长金石交易，以异火祛火毒换取潭底深处钥匙',
+        '血潭之底闭关78天，远超凤清儿等天骄的五日上限，成功突破至一星斗宗',
+        '突破过程中神魂感应到被囚禁的药老，获知需联合风尊者营救',
+        '四方阁大会为救林焱暴露身份，向风尊者展示药老纳戒，认亲获星陨阁少阁主之位',
+        '受邀入焚炎谷，成功炼制七品高阶火菩丹救唐火儿',
+        '通过长老会考验，获天火三玄变第二、三变口诀（缺萧族族纹激活法）',
+        '落神涧找到被冰河谷追杀的小医仙，激战冰河谷强者',
+        '魂殿强者介入混战，萧炎借助蝎毕岩留下的魔毒斑短暂提升实力，击退强敌',
+        '远古遗迹遭遇魂殿与天妖凰族埋伏，萧薰儿所赠玉牌激活斗圣印记击退强敌',
+        '实力与名望达到丹会参赛门槛，踏上前往丹域圣丹城的路途'
+    ],
+    // 陆·中州丹会篇
+    danhui: [
+        '进入丹域结识叶家，以叶家准女婿身份顶替参加五大家族测试',
+        '测试分灵魂、炼药、丹火对抗三项，击败曹休等人夺冠，保住叶家长老席位',
+        '获得丹会正式参赛资格，玄空子全程暗中关照',
+        '丹界试炼争夺珍稀药材，万药山脉遭慕骨老人猎杀，以地妖傀护体成功脱身',
+        '救下被妖兽围攻的曹颖，与紫妍结伴搜寻药材',
+        '决赛第一关灵魂幻境，直面内心执念看破虚妄，灵魂境界突破至灵境',
+        '决赛炼丹环节，以升灵之法将生骨融血丹从三色丹雷提升至五色',
+        '力压慕骨老人的四色丹雷，夺得丹会冠军',
+        '获得灵魂修炼之法、丹塔巨头候选资格与收服三千焱炎火的优先权',
+        '进入星域收服异火，三千焱炎火被慕骨动手脚凶性大发',
+        '被困星域大半年，以丹药与斗气温养异火，在玄空子、紫妍龙印协助下成功收服',
+        '修为直接跃升至九星斗宗，三千焱炎火赋予极强自愈能力',
+        '地妖傀吸收五色丹雷进化为天妖傀，实力达三星斗尊',
+        '玄空子告知药老被关押于亡魂山脉魂殿分殿，正式筹备营救行动'
+    ],
+    // 柒·营救药老篇
+    jiuyao: [
+        '丹塔确认药老关押在亡魂山脉魂殿分殿，由摘星老鬼镇守，五名斗尊看守',
+        '召集风尊者、天火尊者、小医仙、铁剑尊者、紫妍，加上萧炎与天妖傀组成核心营救队',
+        '紫妍降服噬石魔蚁蚁后为队伍开路，潜入亡魂山脉分殿',
+        '与看守斗尊激战，天妖傀牵制强敌，萧炎斩断锁魂链救出药老灵魂',
+        '摘星老鬼现身揭穿陷阱——以药老为诱饵，真实目标是抢夺陀舍古帝玉',
+        '古族烛离长老送熊战入场助阵，萧炎以九星斗宗修为施展四色毁灭火莲，炸断摘星老鬼一臂',
+        '铁剑尊者为掩护众人自爆重伤，被熊战救下，队伍趁乱成功突围',
+        '药老本源魂气严重受损，需魂婴果方可修复',
+        '远古遗迹多方混战，夺得魂婴果，意外收获斗圣右臂骨',
+        '集齐八品生骨融血丹、天妖凰古凰精血、四星斗尊骨骸、斗圣右臂骨四大复活材料',
+        '以异火炼化炼制新躯体，药老灵魂融入，复活后实力直达半圣境界',
+        '摘星老鬼率魂殿强者报复，药老出手横扫敌军，星陨阁跻身中州顶级势力',
+        '深入兽域九幽地冥蟒族，助妖暝夺回族长之位，获黄泉石碑进入资格',
+        '通过黄泉妖圣残魂考验，得黄泉指、黄泉掌、黄泉天怒三大天阶斗技',
+        '带回黄泉妖圣精血赠予药老，为其后续突破斗圣埋下伏笔',
+        '药老解除骨灵冷火灵魂印记，萧炎于花宗闭关一月成功炼化',
+        '修为从二星斗尊暴涨至四星斗尊，《焚诀》进化为准天阶'
+    ],
+    // 捌·中州风云篇
+    zhongzhoufengyun: [
+        '赴古界参加萧薰儿成人礼，击败古妖夺得天墓试炼名额',
+        '天墓深处遇萧族先祖萧玄残魂，融合三族血脉激活萧族族纹',
+        '突破至八星斗尊巅峰，获完整天火三玄变传承',
+        '莽荒古域菩提古树现世，各方顶级势力蜂拥而至',
+        '联合紫妍、小医仙深入古域，突破魂殿、天冥宗、天妖凰族多方围堵',
+        '帮助古树净化远古斗帝负面情绪，获菩提子、菩提心与百世轮回参悟机缘',
+        '幻境历经百世人生淬炼灵魂，修为从八星斗尊跃至九转斗尊巅峰',
+        '魂殿联合天冥宗组建冥河盟，趁萧炎闭关冲击斗圣之际围攻星陨阁',
+        '药老、彩鳞、小医仙等人拼死抵抗，遭三大半圣联手重创，星陨阁濒临覆灭',
+        '萧炎以菩提心为引，跨越半圣阶位直接晋升一星斗圣，破关而出',
+        '自创天阶斗技佛怒轮回，当场斩杀魂殿三天尊与天冥老妖，重创骨幽圣者',
+        '魂殿大天尊现身救走骨幽，星陨阁之危彻底化解',
+        '药老炼化黄泉妖圣精血，正式突破至一星斗圣',
+        '与药老分头游说盟友，助火云老祖祛隐伤争取焚炎谷支持，联动花宗加入阵营',
+        '参与小丹塔长老选拔，炼制九品宝丹菩提大还丹力压侯老怪胜出',
+        '成为小丹塔第十一位长老，拿到丹塔核心决策权，扫清结盟最后障碍',
+        '星陨阁、丹塔、花宗、焚炎谷四大势力正式结盟，定名天府联盟',
+        '药老出任首任盟主，萧炎任副盟主，正式向魂殿宣战，中州两极格局成型'
+    ],
+    // 玖·魂殿大战篇
+    hundian: [
+        '四张净莲妖火残图合一，妖火空间开启，各方势力涌入争夺',
+        '历经幻境考验，在净莲妖圣残魂相助下成功收服净莲妖火',
+        '修为突破至五星斗圣，《焚诀》进化至天阶低级，火灵小伊诞生',
+        '陨落之巅约战魂殿殿主魂灭生，以毁灭火莲摧毁其肉身',
+        '魂灭生残魂被魂千陌救走，魂殿主力遭受重创',
+        '魂族突袭药界，药族惨遭灭族，萧炎带队救出仅存年轻子弟',
+        '获得药族残存传承，魂天帝集齐八族血脉的阴谋彻底浮出水面',
+        '与萧薰儿再入天墓，萧玄告知本源帝气的成帝核心秘密',
+        '萧玄燃烧自身残魂，抽取天墓之魂本源助萧炎灵魂突破至天境大圆满',
+        '魂灭生经虚无吞炎重塑肉身，实力达七星斗圣，于葬天山脉设伏夺古玉',
+        '萧炎以天境大圆满灵魂形成绝对压制，彻底灭杀魂灭生，魂殿就此覆灭',
+        '此战救回萧战，但陀舍古帝玉被魂天帝夺走',
+        '魂天帝本尊踪迹显露，陀舍古帝洞府封印开始松动'
+    ],
+    // 拾·双帝之战篇
+    shuangdi: [
+        '魂天帝集齐八块古玉，在迦南学院地底岩浆开启陀舍古帝洞府',
+        '老龙皇烛坤从古帝洞府脱困，古元率古族强者赶到，三方混战',
+        '半步斗帝级帝品雏丹现身，魂天帝联合虚无吞炎以化丹环将其收服',
+        '魂天帝率魂族杀出重围，开启噬灵绝生阵血祭中州亿万生灵',
+        '耗时半年将帝品雏丹催熟为完整帝丹，魂天帝吞丹晋升斗帝，自号魂帝',
+        '中州全面沦陷，烛坤告知萧炎异火广场与帝之本源的传承秘密',
+        '萧炎修炼的焚诀与多种异火完美契合传承条件，进入异火广场',
+        '成功接受陀舍古帝完整传承，晋升斗帝，自号炎帝',
+        '双帝终极对决，魂天帝凝聚血之帝身，萧炎凝聚炎帝之身',
+        '魂天帝布下斩帝阵，催动斩帝鬼血刃；萧炎以二十二种异火凝聚异火恒古尺',
+        '萧炎自燃斗帝之体化为帝炎，融入异火广场将魂天帝永久封印',
+        '因救世功德重塑肉身，打通位面通道接引源气回归斗气大陆',
+        '古元、烛坤、萧薰儿、彩鳞借源气相继突破斗帝',
+        '数十年后，五帝破空，一同飞升大千世界（官方番外剧情）'
+    ],
+    // 拾壹·大千世界篇
+    daqian: [
+        '飞升大千世界，坠落于洛神族疆域，得洛天神帮助完成灵力同化',
+        '与火灵族老祖大战，滔天之炎将废弃大陆烧成废墟',
+        '收服焚天山脉地底的焚天灵火，进一步完善帝炎，炎帝之名响彻大千',
+        '选定大千世界极南边境的焚天山脉，建立无尽火域',
+        '短短数十年间，无尽火域崛起为大千世界超级势力',
+        '坐镇南部边境，抵御域外邪族入侵，成为大千世界南部屏障',
+        '药老被接至大千世界，任无尽火域太上长老，修为达仙品天至尊后期',
+        '萧潇、萧霖相继成长，萧霖为无尽火域少主',
+        '萧炎修为达圣品天至尊巅峰，为大千世界最顶级强者之一',
+        '天邪神最终决战中，与武祖林动联手为牧尘争取关键时间',
+        '天邪神陨落二十八年后，与林动同时在苍穹榜留全真名，晋入主宰境',
+        '无尽火域跻身大千世界三大顶级势力之列，与武境、牧府并列',
+        '与林动、牧尘并称大千世界三大守护者，炎帝之名成为万古传说'
+    ]
+};
+var selVals={},curPopBox='',selChapter='',selChapterKey='',selNode='',genderVal='男',alchVal='否';
+selVals.gender = '男';
+// 弹窗打开逻辑
+function openPopup(boxId){
+curPopBox=boxId;var cfg=popCfg[boxId];if(!cfg)return;
+if(boxId==='timelineBox'){var ns=tlData[selChapterKey]||[];cfg.options=ns.map(function(n,i){var idx=String(i+1);return{v:n,t:(idx.length<2?'0':'')+idx+' · '+n};});}
+document.getElementById('popupTitle').textContent=cfg.title;
+var cv=selVals[boxId]||'';
+document.getElementById('popupList').innerHTML=cfg.options.map(function(o){
+return'<div class="popup-item'+(o.v===cv?' selected':'')+'" data-v="'+o.v+'"'+(o.g?' data-g="'+o.g+'"':'')+' onclick="popPick(this)"><span class="chk">✓</span><span class="otxt">'+o.t+'</span>'+(o.d?'<span class="odesc">'+o.d+'</span>':'')+'</div>';
+}).join('');
+document.getElementById('popupOverlay').classList.add('show');
+setTimeout(function(){var s=document.querySelector('.popup-item.selected');if(s)s.scrollIntoView({block:'center',behavior:'smooth'});},100);
+}
+// 弹窗选择逻辑
+function popPick(el){
+var v=el.getAttribute('data-v'),t=el.querySelector('.otxt').textContent,g=el.getAttribute('data-g')||'';
+el.parentElement.querySelectorAll('.popup-item').forEach(function(it){it.classList.remove('selected');});
+el.classList.add('selected');selVals[curPopBox]=v;
+var box=document.getElementById(curPopBox);if(box){var tt=box.querySelector('.trigger-text');if(tt)tt.textContent='✓ '+t;}
+if(curPopBox==='chapterBox'){selChapterKey=v;selChapter=t;selNode='';selVals.timelineBox='';var tb=document.getElementById('timelineBox'),th=document.getElementById('timelineHint');if(tb)tb.style.display='block';if(th)th.style.display='none';var ttt=tb.querySelector('.trigger-text');if(ttt)ttt.textContent='— 请选择时间节点 —';}
+if(curPopBox==='timelineBox')selNode=v;
+if(curPopBox==='levelBox'){['none','qi','zhe','shi','dashi','ling','wang','huang','zong','zun','sheng','di'].forEach(function(x){box.classList.remove('glow-'+x);});if(g)box.classList.add('glow-'+g);}
+setTimeout(function(){document.getElementById('popupOverlay').classList.remove('show');},220);
+}
+function popOvClick(e){if(e.target===document.getElementById('popupOverlay'))document.getElementById('popupOverlay').classList.remove('show');}
+// 性别选择逻辑
+function selRadio(el,key){
+  el.parentElement.querySelectorAll('.radio-box').forEach(function(b){b.classList.remove('selected');});
+  el.classList.add('selected');
+  var val=el.getAttribute('data-value');
+  selVals[key] = val;
+  genderVal = val;
+}
+// 炼药师选择逻辑
+function selAlch(el){el.parentElement.querySelectorAll('.radio-box').forEach(function(b){b.classList.remove('selected');});el.classList.add('selected');alchVal=el.getAttribute('data-value');var sub=document.getElementById('alchemistSub');if(alchVal==='是')sub.classList.add('show');else sub.classList.remove('show');}
+// 天赋池
+var tPool=[
+{n:'资质平庸',q:'common',d:'修炼速度较常人慢三成，但根基格外扎实，突破时不易走火入魔。'},
+{n:'体弱多病',q:'common',d:'先天体质羸弱，剧烈战斗后易疲惫，但对丹药吸收效率极高。'},
+{n:'心思敏锐',q:'common',d:'善于察言观色，更容易发现他人破绽与隐藏意图。'},
+{n:'武痴',q:'common',d:'沉迷武学无法自拔，对人情世故不敏感，但战斗领悟力极强。'},
+{n:'坚韧不拔',q:'common',d:'意志力超乎常人，承受痛苦能力极强。'},
+{n:'天生蛮力',q:'common',d:'力量天赋异禀，近战有优势，但斗气细微操控略显粗糙。'},
+{n:'孤僻寡言',q:'common',d:'不善社交，但独处修炼时效率倍增。'},
+{n:'商贾之才',q:'common',d:'天生对财货敏感，获取修炼材料更加容易。'},
+{n:'过目不忘',q:'spirit',d:'所见功法、丹方可完美记忆，推演领悟速度倍增。'},
+{n:'炎之亲和',q:'spirit',d:'对火属性功法领悟力大增，异火灼烧伤害减半。'},
+{n:'灵魂感知',q:'spirit',d:'天生灵魂力量强于同阶，可感知方圆百里内强者气息。'},
+{n:'兽语天赋',q:'spirit',d:'能与魔兽简单沟通，更易获得契约机会。'},
+{n:'炼体奇才',q:'spirit',d:'肉身强度高于同阶，修炼体修功法事半功倍。'},
+{n:'风之感悟',q:'spirit',d:'天生对风属性有独特感悟，移动速度与反应力优于同阶。'},
+{n:'夜行者',q:'spirit',d:'夜间感知力大幅提升，黑暗中战斗如鱼得水。'},
+{n:'草木之心',q:'spirit',d:'对草药有天然辨识力，采药炼丹时总能发现旁人忽略的细节。'},
+{n:'毒体',q:'mystic',d:'百毒不侵的特殊体质，可炼制剧毒丹药而不受反噬。'},
+{n:'紫瞳',q:'mystic',d:'罕见的灵魂异瞳，可看破幻术，洞察虚实真假。'},
+{n:'战斗本能',q:'mystic',d:'战斗中直觉惊人，生死边缘更易突破瓶颈。'},
+{n:'丹道奇才',q:'mystic',d:'炼丹天赋卓绝，丹成率提升三成，偶尔还能炼出变异丹药。'},
+{n:'铸器之心',q:'mystic',d:'对器物有独特感知，铸造修复武器时天赋异禀。'},
+{n:'玄冰之体',q:'mystic',d:'天生契合冰寒属性，极寒环境中修炼效率翻倍。'},
+{n:'阵法天才',q:'mystic',d:'对阵法有天生直觉，复杂阵纹在眼中自动解析。'},
+{n:'气运之子',q:'mystic',d:'运气略好于常人，危机中总能获得微小转机。'},
+{n:'药族遗脉',q:'earth',d:'体内流淌远古药族稀薄血脉，炼丹时可引动微弱天象。'},
+{n:'雷体',q:'earth',d:'天雷淬体的特殊体质，修炼雷属性功法事半功倍。'},
+{n:'吞噬体质',q:'earth',d:'可缓慢吞噬他人残余斗气转化为己用，频繁使用会积累反噬。'},
+{n:'空间感悟',q:'earth',d:'天生对空间法则有所感悟，可感知空间裂缝。'},
+{n:'魅惑之体',q:'earth',d:'天生魅力非凡，言行举止自带蛊惑效果。'},
+{n:'古族稀薄血脉',q:'earth',d:'体内残存古族远祖血脉，激活后可短暂提升一个大境界战力。'},
+{n:'炼魂术',q:'earth',d:'天生掌握灵魂力量攻击手段，灵魂攻击威力远超同阶。'},
+{n:'双生斗气',q:'earth',d:'可同时修炼两种属性斗气，但需保持平衡否则有冲突风险。'},
+{n:'不灭魂体',q:'sky',d:'灵魂受致命攻击时可保留一缕残魂不灭，百年内有几率借体重生。'},
+{n:'焚天之体',q:'sky',d:'体质天生与异火契合至极，吞噬异火时痛苦减半，融合度远超常人。'},
+{n:'天妒之才',q:'sky',d:'修炼速度是常人三倍有余，但每逢大境界突破必遭强烈天劫。'},
+{n:'帝魂残念',q:'sky',d:'灵魂中沉睡着一缕上古强者残念，修炼至一定境界可获其记忆传承。'},
+{n:'万毒之体',q:'sky',d:'可吸收天地万般毒素强化己身，毒术威力倍增，以毒入道。'},
+{n:'时间碎片',q:'sky',d:'对时间法则有残缺感悟，极偶尔可感知到未来一瞬的画面。'},
+{n:'帝境余烬',q:'myth',d:'体内封印着一缕斗帝残魂，危难时可借其之力逆转乾坤，代价折损寿命与根基。'},
+{n:'混沌之体',q:'myth',d:'可同时修炼水火等相克属性而不冲突，可参悟混沌之道，失控则走火入魔。'},
+{n:'命运之子',q:'myth',d:'气运逆天加身，绝境必有生机，机缘如潮水般涌来，但因果纠缠至深。'},
+{n:'异火本源',q:'myth',d:'天生与异火同源而生，可无视等级差距驾驭任何异火，为真正的异火之主。'},
+{n:'轮回之眼',q:'myth',d:'可短暂窥探因果轮回，洞悉过去未来残碎片段，每次使用重创神魂。'}
+];
+var qN={common:'凡品',spirit:'灵品',mystic:'玄品',earth:'地品',sky:'天品',myth:'神话'};
+var qC={common:'qc-common',spirit:'qc-spirit',mystic:'qc-mystic',earth:'qc-earth',sky:'qc-sky',myth:'qc-myth'};
+var qW={common:40,spirit:25,mystic:18,earth:12,sky:4,myth:1};
+var selTalents=[],curTalents=[],tdIdx=-1;
+// 天赋抽取逻辑
+function rollTalents(){
+selTalents=[];curTalents=[];
+document.getElementById('selectedCount').textContent='0';
+var wp=[];tPool.forEach(function(t){for(var i=0;i<qW[t.q];i++)wp.push(t);});
+var res=[];while(res.length<7){var p=wp[Math.floor(Math.random()*wp.length)];if(!res.some(function(r){return r.n===p.n;}))res.push(p);}
+curTalents=res;renderGrid();
+document.getElementById('talentResults').classList.add('show');
+document.getElementById('rollBtn').style.display='none';
+document.getElementById('rerollBtn').classList.add('show');
+document.getElementById('rerollWarning').classList.add('show');
+}
+function renderGrid(){
+document.getElementById('talentGrid').innerHTML=curTalents.map(function(t,i){
+var isSel=selTalents.indexOf(t.n)!==-1;
+var isDis=selTalents.length>=3&&!isSel;
+return'<div class="talent-card'+(isSel?' selected':'')+(isDis?' disabled':'')+'" data-i="'+i+'" onclick="openTD('+i+')"><span class="tc">✓</span><span class="tq '+qC[t.q]+'">'+qN[t.q]+'</span><span class="tn">'+t.n+'</span></div>';
+}).join('');
+}
+// 天赋详情逻辑
+function openTD(idx){
+tdIdx=idx;var t=curTalents[idx];
+document.getElementById('tdQuality').textContent=qN[t.q];
+document.getElementById('tdQuality').className='td-quality '+qC[t.q];
+document.getElementById('tdName').textContent=t.n;
+document.getElementById('tdDesc').textContent=t.d;
+var btn=document.getElementById('tdBtn');
+var isSel=selTalents.indexOf(t.n)!==-1;
+var isFull=selTalents.length>=3;
+if(isSel){btn.textContent='取消选择';btn.className='td-btn unsel';}
+else if(isFull){btn.textContent='已选满三项';btn.className='td-btn off';}
+else{btn.textContent='选择此天赋';btn.className='td-btn sel';}
+document.getElementById('tdOverlay').classList.add('show');
+}
+function tdAction(){
+if(tdIdx<0)return;var t=curTalents[tdIdx];
+var isSel=selTalents.indexOf(t.n)!==-1;
+if(isSel){selTalents=selTalents.filter(function(x){return x!==t.n;});}
+else{if(selTalents.length>=3)return;selTalents.push(t.n);}
+document.getElementById('selectedCount').textContent=selTalents.length;
+renderGrid();
+document.getElementById('tdOverlay').classList.remove('show');
+}
+function tdOvClick(e){if(e.target===document.getElementById('tdOverlay'))document.getElementById('tdOverlay').classList.remove('show');}
+// 预览生成逻辑
+function updatePreview(){
+var name=document.getElementById('charName').value.trim()||'（未填写）';
+var age=document.getElementById('charAge').value.trim()||'（未填写）';
+var personality = document.getElementById('charPersonality').value.trim() || '（未填写）';
+var level=selVals.levelBox||'（未选择）';
+var element=selVals.elementBox||'（未选择）';
+var faction=selVals.factionBox||'（未选择）';
+var bloodline=selVals.bloodlineBox||'（未选择）';
+var appearance=document.getElementById('charAppearance').value.trim()||'（未填写）';
+var background=document.getElementById('charBackground').value.trim()||'（未填写）';
+var extra=document.getElementById('charExtra').value.trim();
+var rank=selVals.alchemistRankBox||'';
+var tText='（未觉醒）';
+if(selTalents.length>0){
+tText=selTalents.map(function(tn){
+for(var i=0;i<curTalents.length;i++){if(curTalents[i].n===tn)return'【'+qN[curTalents[i].q]+'】'+tn+'：'+curTalents[i].d;}return tn;
+}).join('\n');
+}
+var p = '《斗破苍穹》角色创建档案\n═══════════════════════\n【角色名】' + name + '\n【性别】' + genderVal + '\n【年龄】' + age + '\n【性格】' + personality + '\n【修为境界】'+level+'\n【斗气属性】'+element+'\n【势力归属】'+faction+'\n【特殊血脉】'+bloodline;
+p+='\n【炼药师】'+(alchVal==='是'?'是 — '+(rank||'未选品阶'):'否');
+p+='\n\n【所选篇章】'+(selChapter||'（未选择）')+'\n【时间节点】'+(selNode||'（未选择）');
+p+='\n\n【外貌】\n'+appearance+'\n\n【身份背景】\n'+background+'\n\n【天赋】\n'+tText;
+if(extra)p+='\n\n【额外设定】\n'+extra;
+document.getElementById('previewBox').textContent=p;
+}
+// 复制逻辑
+function copyContent(){
+var text=document.getElementById('previewBox').textContent;
+if(navigator.clipboard&&navigator.clipboard.writeText){
+navigator.clipboard.writeText(text).then(function(){document.getElementById('modalOverlay').classList.add('show');}).catch(function(){fbCopy(text);});
+}else fbCopy(text);
+}
+function fbCopy(text){
+var ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;opacity:0;left:-9999px';document.body.appendChild(ta);ta.select();
+try{document.execCommand('copy');document.getElementById('modalOverlay').classList.add('show');}catch(e){alert('复制失败，请手动复制');}
+document.body.removeChild(ta);
+}
+</script>
+<script>
+const enterChat = document.getElementById('enterChat');
+if (parent !== window && new URLSearchParams(location.search).get('chat') === '1') {
+  enterChat.hidden = false;
+  enterChat.addEventListener('click', () => {
+    updatePreview();
+    const text = document.getElementById('previewBox').textContent;
+    if (text.length > 20000) { alert('档案超过 20000 字，请精简后带入聊天。'); return; }
+    parent.postMessage({type:'doupo-opening',text}, new URL(location.href).origin);
+  });
+}
+</script>
+</body>
+</html>

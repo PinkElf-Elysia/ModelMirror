@@ -189,7 +189,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  function resolveFailure(row:typeof failureRows[number],action:'retry'|'edit'|'delete'){void changeSession({action:'dismiss-request',id:sessionId,requestId:row.requestId,input:action==='edit'&&local.draft?local.draft:row.input,retry:action==='retry',discard:action==='delete'});composer.current?.focus();}
  const deleteTurn=(turn:number)=>chooseSessionChange({action:'delete-turn',id:sessionId,turn});
  const close=()=>{if(!busy){setPanel('');setBranchTurn(null);}};
- return <section ref={configView} className="chat-shell rpg-chat-workspace" data-reading={reading.dark?'dark':'light'} data-sidebar={sidebar?'open':'closed'} data-width={reading.wide?'wide':'standard'} style={{'--reading-font':reading.font+'px'} as import('react').CSSProperties}>
+ return <section ref={configView} className="chat-shell rpg-chat-workspace" data-world={world?.id} data-reading={reading.dark?'dark':'light'} data-sidebar={sidebar?'open':'closed'} data-width={reading.wide?'wide':'standard'} style={{'--reading-font':reading.font+'px'} as import('react').CSSProperties}>
  <SessionSidebar open={sidebar} close={()=>setSidebar(false)}>
   <header><span>{world?.name||'我的故事'}</span><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="关闭会话列表">×</button></header>
   <button className="sidebar-new" disabled={busy||!!storageError} onClick={returnToCard}>＋ 新的故事</button>
