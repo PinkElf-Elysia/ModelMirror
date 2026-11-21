@@ -1,0 +1,458 @@
+{
+  "base": "429db774",
+  "mode": "offline",
+  "externalModelCalls": 0,
+  "sourceSha256": "343b7772770b489c4a0867f0deadf0294b2c5505c1b1a82508ddcf9d2cc81a98",
+  "fixedSha256": "e19f0db531f3656a87bab19b41eb98bf4b3d279efac8dcbae25b477031b2d1f2",
+  "worldbookVersion": "bb13915fb69ed24d1e3d7d5b494906b5ed8349548e33cd6d2f2d85fd8cd897be",
+  "originalCharacters": 20552,
+  "fixedCharacters": 14659,
+  "records": 677,
+  "works": [
+    "天龙八部",
+    "射雕英雄传",
+    "神雕侠侣",
+    "倚天屠龙记",
+    "笑傲江湖",
+    "连城诀",
+    "碧血剑",
+    "侠客行",
+    "书剑恩仇录",
+    "飞狐外传",
+    "雪山飞狐",
+    "鹿鼎记",
+    "白马啸西风",
+    "鸳鸯刀",
+    "越女剑"
+  ],
+  "stages": {
+    "天龙八部": [
+      "雁门旧案暗流未平",
+      "丐帮风波渐起",
+      "辽宋大势逼近"
+    ],
+    "射雕英雄传": [
+      "大漠少年初入江湖",
+      "中原群雄与真经之争",
+      "襄阳风雨将起"
+    ],
+    "神雕侠侣": [
+      "古墓初缘",
+      "江湖离散与绝情风波",
+      "十六年后与襄阳战云"
+    ],
+    "倚天屠龙记": [
+      "冰火余波未尽",
+      "光明顶风云",
+      "屠狮大会与天下局势"
+    ],
+    "笑傲江湖": [
+      "华山派内气氛紧绷",
+      "五岳并派暗流涌动",
+      "正邪大势全面失衡"
+    ],
+    "连城诀": [
+      "旧案埋伏未发",
+      "血刀与宝藏风声并起",
+      "人心败尽与终局相逼"
+    ],
+    "碧血剑": [
+      "旧朝脉络仍在潜行",
+      "金蛇线索与反抗暗线交汇",
+      "山河危局逼近总爆发"
+    ],
+    "侠客行": [
+      "江湖错认与身份混乱",
+      "赏善罚恶令惊动群雄",
+      "侠客岛之谜将开"
+    ],
+    "书剑恩仇录": [
+      "红花会暗线扩张",
+      "朝廷与会党正面博弈",
+      "回部与中原局势交缠"
+    ],
+    "飞狐外传": [
+      "胡苗旧怨尚未清算",
+      "药毒与恩怨交织",
+      "北地风波牵连更广"
+    ],
+    "雪山飞狐": [
+      "旧怨积压成局",
+      "雪岭群雄相逼",
+      "生死抉择逼近终点"
+    ],
+    "鹿鼎记": [
+      "京师暗线初织",
+      "双重身份不断加深",
+      "会党、朝廷与海上势力纠缠"
+    ],
+    "白马啸西风": [
+      "孤旅未远",
+      "宝藏与旧情交错",
+      "归处难寻"
+    ],
+    "鸳鸯刀": [
+      "失物风声渐起",
+      "多方人马争夺",
+      "真相与传闻相碰"
+    ],
+    "越女剑": [
+      "古剑传说仍在民间流转",
+      "吴越旧脉被再度追索",
+      "传说与现实短暂重叠"
+    ]
+  },
+  "legacy": {
+    "originalSystem": "343b7772770b489c4a0867f0deadf0294b2c5505c1b1a82508ddcf9d2cc81a98",
+    "firstRequest": "af6566778e77a7700b843b67e1a6b847b3714dd007275bbccaff4139f40072dc",
+    "resumedRequest": "efb25dd157d3dcd695cf8a2db19e3efbd75868c1e2534ef0a9a17703508d4f11",
+    "beforeSystem": "343b7772770b489c4a0867f0deadf0294b2c5505c1b1a82508ddcf9d2cc81a98",
+    "afterSystem": "343b7772770b489c4a0867f0deadf0294b2c5505c1b1a82508ddcf9d2cc81a98",
+    "unchangedFirstTurn": true
+  },
+  "turns": [
+    {
+      "turn": 1,
+      "roles": [
+        "system",
+        "user"
+      ],
+      "input": "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【金庸群侠 · 江湖人物帖】\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【世界归属】\n单一作品线 · 射雕英雄传 → 大漠少年初入江湖\n【入局方式】\n故事初起\n【基础信息】\n姓名：沈禾\n性别：未知\n年龄：19岁\n身份：行脚商贩\n实力：不入流\n出身：大漠\n所属势力：未定\n【外貌描述】\n未填写\n【性格特质】\n未填写\n【所求之事】\n未填写\n【背景故事】\n未填写\n【开局补充】\n初到大漠集市，想找个地方歇脚。\n【通用能力】\n\n【专属武学 / 区域技艺】\n骑射本领\n\n【命数】\n未抽取\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n群侠并世，江湖未定\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "work": "射雕英雄传",
+      "stage": "大漠少年初入江湖",
+      "systemCharacters": 15008,
+      "systemSha256": "f1c2ed7b567a61926839de2dcc1820e735a84ad85b385e5031ffc7503cfadd6a",
+      "messagesSha256": "9db4fc8d51500f98ae377b9215899e5e232ae746f16acf1af383b0188bab22d8",
+      "requestSha256": "d32f67cdb575f708796cfe43be8aea3e91851a02735607bf770c438c91c5b3a3",
+      "catalogCharacters": 286,
+      "hits": [
+        {
+          "id": "J21",
+          "work": "射雕英雄传",
+          "category": "作品",
+          "name": "射雕英雄传",
+          "source": "resources/original.html",
+          "line": 1657
+        },
+        {
+          "id": "J27",
+          "work": "射雕英雄传",
+          "category": "剧情阶段",
+          "name": "大漠少年初入江湖",
+          "source": "resources/original.html",
+          "line": 1662
+        },
+        {
+          "id": "J39",
+          "work": "射雕英雄传",
+          "category": "武学",
+          "name": "骑射本领",
+          "source": "resources/original.html",
+          "line": 1671
+        }
+      ],
+      "absentFromAllMessages": [
+        "杨过",
+        "小龙女",
+        "断臂之后",
+        "十六年后与襄阳战云",
+        "江湖离散与绝情风波",
+        "古墓初缘"
+      ]
+    },
+    {
+      "turn": 2,
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "input": "我在集市遇见丐帮弟子，向他打听郭靖去向，顺便问问打狗棒法的来历。",
+      "work": "射雕英雄传",
+      "stage": "大漠少年初入江湖",
+      "systemCharacters": 15041,
+      "systemSha256": "92ab6c816b5567416d72ccd5feff9c3786a8aa46d9b3d63d9f9729271cd914b9",
+      "messagesSha256": "34251cf282c553f4a30790d306d609cd3ff535ec3db6a1c755b6a312f1f300da",
+      "requestSha256": "79482424599aec9a698c2beba98c6b552e54a91ca323f23b100da649743e68ad",
+      "catalogCharacters": 286,
+      "hits": [
+        {
+          "id": "J21",
+          "work": "射雕英雄传",
+          "category": "作品",
+          "name": "射雕英雄传",
+          "source": "resources/original.html",
+          "line": 1657
+        },
+        {
+          "id": "J22",
+          "work": "射雕英雄传",
+          "category": "人物",
+          "name": "郭靖",
+          "source": "resources/original.html",
+          "line": 1660
+        },
+        {
+          "id": "J25",
+          "work": "射雕英雄传",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1660
+        },
+        {
+          "id": "J27",
+          "work": "射雕英雄传",
+          "category": "剧情阶段",
+          "name": "大漠少年初入江湖",
+          "source": "resources/original.html",
+          "line": 1662
+        },
+        {
+          "id": "J30",
+          "work": "射雕英雄传",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1666
+        },
+        {
+          "id": "J37",
+          "work": "射雕英雄传",
+          "category": "武学",
+          "name": "打狗棒法",
+          "source": "resources/original.html",
+          "line": 1669
+        },
+        {
+          "id": "J39",
+          "work": "射雕英雄传",
+          "category": "武学",
+          "name": "骑射本领",
+          "source": "resources/original.html",
+          "line": 1671
+        }
+      ],
+      "absentFromAllMessages": [
+        "杨过",
+        "小龙女",
+        "断臂之后",
+        "十六年后与襄阳战云",
+        "江湖离散与绝情风波",
+        "古墓初缘"
+      ]
+    }
+  ],
+  "openingLibrarySha256": "25849922748cf15551a1c4bf1849b1cb971409a17210059861d34fbebfe58d45",
+  "controls": [
+    {
+      "work": "射雕英雄传",
+      "stage": "大漠少年初入江湖",
+      "input": "查阅神雕、杨过、郭靖、全真教和丐帮，询问十六年后与襄阳战云。",
+      "divineCondorOriginalLine847Present": false,
+      "hits": [
+        {
+          "id": "J21",
+          "work": "射雕英雄传",
+          "category": "作品",
+          "name": "射雕英雄传",
+          "source": "resources/original.html",
+          "line": 1657
+        },
+        {
+          "id": "J22",
+          "work": "射雕英雄传",
+          "category": "人物",
+          "name": "郭靖",
+          "source": "resources/original.html",
+          "line": 1660
+        },
+        {
+          "id": "J25",
+          "work": "射雕英雄传",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1660
+        },
+        {
+          "id": "J27",
+          "work": "射雕英雄传",
+          "category": "剧情阶段",
+          "name": "大漠少年初入江湖",
+          "source": "resources/original.html",
+          "line": 1662
+        },
+        {
+          "id": "J30",
+          "work": "射雕英雄传",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1666
+        },
+        {
+          "id": "J31",
+          "work": "射雕英雄传",
+          "category": "门派与势力",
+          "name": "全真教",
+          "source": "resources/original.html",
+          "line": 1666
+        }
+      ]
+    },
+    {
+      "work": "神雕侠侣",
+      "stage": "古墓初缘",
+      "input": "查阅神雕、杨过、郭靖、全真教和丐帮，询问十六年后与襄阳战云。",
+      "divineCondorOriginalLine847Present": false,
+      "hits": [
+        {
+          "id": "J40",
+          "work": "神雕侠侣",
+          "category": "作品",
+          "name": "神雕侠侣",
+          "source": "resources/original.html",
+          "line": 1676
+        },
+        {
+          "id": "J41",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "杨过",
+          "source": "resources/original.html",
+          "line": 1679
+        },
+        {
+          "id": "J44",
+          "work": "神雕侠侣",
+          "category": "地点",
+          "name": "襄阳",
+          "source": "resources/original.html",
+          "line": 1679
+        },
+        {
+          "id": "J46",
+          "work": "神雕侠侣",
+          "category": "剧情阶段",
+          "name": "古墓初缘",
+          "source": "resources/original.html",
+          "line": 1681
+        },
+        {
+          "id": "J50",
+          "work": "神雕侠侣",
+          "category": "门派与势力",
+          "name": "全真教",
+          "source": "resources/original.html",
+          "line": 1685
+        },
+        {
+          "id": "J51",
+          "work": "神雕侠侣",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1685
+        },
+        {
+          "id": "J638",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "郭靖",
+          "source": "resources/system.txt",
+          "line": 867
+        }
+      ]
+    },
+    {
+      "work": "神雕侠侣",
+      "stage": "十六年后与襄阳战云",
+      "input": "查阅神雕、杨过、郭靖、全真教和丐帮，询问十六年后与襄阳战云。",
+      "divineCondorOriginalLine847Present": true,
+      "hits": [
+        {
+          "id": "J40",
+          "work": "神雕侠侣",
+          "category": "作品",
+          "name": "神雕侠侣",
+          "source": "resources/original.html",
+          "line": 1676
+        },
+        {
+          "id": "J41",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "杨过",
+          "source": "resources/original.html",
+          "line": 1679
+        },
+        {
+          "id": "J44",
+          "work": "神雕侠侣",
+          "category": "地点",
+          "name": "襄阳",
+          "source": "resources/original.html",
+          "line": 1679
+        },
+        {
+          "id": "J48",
+          "work": "神雕侠侣",
+          "category": "剧情阶段",
+          "name": "十六年后与襄阳战云",
+          "source": "resources/original.html",
+          "line": 1683
+        },
+        {
+          "id": "J50",
+          "work": "神雕侠侣",
+          "category": "门派与势力",
+          "name": "全真教",
+          "source": "resources/original.html",
+          "line": 1685
+        },
+        {
+          "id": "J51",
+          "work": "神雕侠侣",
+          "category": "门派与势力",
+          "name": "丐帮",
+          "source": "resources/original.html",
+          "line": 1685
+        },
+        {
+          "id": "J620",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "神雕",
+          "source": "resources/system.txt",
+          "line": 847
+        },
+        {
+          "id": "J638",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "郭靖",
+          "source": "resources/system.txt",
+          "line": 867
+        },
+        {
+          "id": "J639",
+          "work": "神雕侠侣",
+          "category": "人物",
+          "name": "杨过",
+          "source": "resources/system.txt",
+          "line": 867
+        }
+      ]
+    }
+  ],
+  "tests": {
+    "worldbook": 5,
+    "continuity": 7,
+    "speechCompatibility": 8,
+    "originalCardPassed": 4,
+    "originalCardFailed": 1,
+    "baselineFailure": "429db774 原版 new-card transport retains the reviewed budget and receipt logic 同样在 controlled-provider.mjs 失败；六份输入文件与基线逐字节相同。"
+  }
+}

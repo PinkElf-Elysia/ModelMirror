@@ -44,13 +44,13 @@ export function continuityContext(s){
 
 // Recipe versions belong to sealed per-turn policies. Rebuilding an old receipt
 // must use its old recipe, even after the session starts producing fixed turns.
-export function createJinyongContext({system,state}){
+export function createJinyongContext({system,state,selectSystem=()=>system}){
  const context=(full,nextPolicy)=>createCardContext({cardId:'jinyong',state,assemble(session,input){
   const policy=full.turns[session.turns.length]?.contextPolicy?.policy??nextPolicy;
   const version=policy?.continuityVersion;
   if(version!==undefined&&(version!==CONTINUITY_VERSION||policy.summaryVersion!==2))throw fail('CONTINUITY_VERSION_INVALID');
   const suffix=version===CONTINUITY_VERSION?continuityContext(session):'';
-  return {current:input,messages:[{role:'system',content:system+suffix},...session.history,{role:'user',content:input}]};
+  return {current:input,messages:[{role:'system',content:selectSystem(session,input)+suffix},...session.history,{role:'user',content:input}]};
  }});
  const policy=p=>p.summaryVersion===2?{...p,continuityVersion:CONTINUITY_VERSION}:p;
  return Object.freeze({
