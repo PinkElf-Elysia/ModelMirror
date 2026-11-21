@@ -2,6 +2,7 @@
 import {parseFragment, serialize} from 'parse5';
 // Marked is already pinned by the RPG engine package; parsing stays on the host.
 import {Marked} from 'marked';
+import {typeMoonPortrait} from './type-moon-portraits.mjs';
 import {imageMap, unavailableImageSources, disabledImageSources} from './image-library.mjs';
 
 export const douluoAssets = imageMap('douluo');
@@ -20,6 +21,8 @@ const classes = {
   earth: new Set('situation-panel info-row label-icon info-text main-text char-card char-header char-name char-tags tag char-section section-title info-grid grid-item key val appearance-text personality-tags motivation relation-list relation-item relation-type finance-grid finance-item finance-label finance-val status-bars stat-bar stat-label bar fill health hunger fatigue stat-num condition-text inventory-grid inv-category skill-list certificate-list vehicle-info npc-container npc-card npc-header npc-name npc-tags npc-body npc-row icon favor npc-collapsible collapsible-trigger collapsible-content npc-divider env-panel env-sense sense-icon sense-content env-crowd env-interact social-panel social-item social-label social-value memory-core memory-section section-header note anchor-list anchor-item aid atype divider ltm-scroll stm-scroll stm-card sid stime sscene sfact state-info entity-scroll entity-card entity-name entity-status open-scroll open-card oid otime ocontent ostatus close-scroll close-card cid ctime ccontent action-panel action-item'.split(' ')),
 };
 // Douluo uses the same reviewed live/commentary protocol, with its own scope.
+classes['type-moon'] = classes.archive;
+const archiveProfile = p => p === 'archive' || p === 'type-moon';
 classes.douluo = new Set(classes.god);
 const richProfile = p => p === 'god' || p === 'douluo';
 const escape = s => s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -103,7 +106,7 @@ function safeStyle(value, n, profile) {
   for(const declaration of value.split(';')) {
     const i=declaration.indexOf(':'); if(i<0)continue;
     const key=declaration.slice(0,i).trim().toLowerCase(), val=declaration.slice(i+1).trim();
-    if(profile==='archive') {
+    if(archiveProfile(profile)) {
       if(archiveStyleKeys.has(key)&&/^[#\w\s.,%()-]+$/.test(val)&&!/[()\\]|url|expression|position|fixed|sticky|var/i.test(val))kept.push(key+':'+val);
       continue;
     }
@@ -128,7 +131,7 @@ export function cardPresentation(raw, profile) {
       if(!run.length)return;
       const literals=run.filter(n=>n.nodeName==='#text').map(n=>n.value).join('');
       // The legacy main-text template owns plain-text line spacing in CSS.
-      const authorLines=profile==='archive'&&has(parent,'main-text')&&!/[*_`~#|\x5b]|(?:^|\n)\s*(?:[-+>]|\d+[.)])\s/.test(literals);
+      const authorLines=archiveProfile(profile)&&has(parent,'main-text')&&!/[*_`~#|\x5b]|(?:^|\n)\s*(?:[-+>]|\d+[.)])\s/.test(literals);
       if(authorLines||!literals.trim()||(!force&&!/\n\s*\n|(?:^|\n)\s*(?:---+|\*\*\*+|#{1,6} |[-*] |\d+\. )/.test(literals))) {result.push(...run);run=[];return;}
       const slots=[];
       const source=run.map(n=>n.nodeName==='#text'?n.value:marker+(slots.push(n)-1)+'END').join('');
@@ -172,6 +175,22 @@ export function cardPresentation(raw, profile) {
       let originalClass=attr(n,'class')||'';
       if(profile==='douluo' && n.tagName==='marquee' && ancestors.some(p=>has(p,'live-container'))) {
         n.tagName=n.nodeName='div'; n.attrs=[a('class','danmu-track')]; originalClass='danmu-track';
+      }
+      if(profile==='type-moon' && n.tagName==='say' && (has(n,'npc')||has(n,'user'))) {
+        const npc=has(n,'npc'), speaker=(attr(n,'data-speaker')||'').slice(0,150);
+        const portrait=npc && typeMoonPortrait(attr(n,'data-portrait'),attr(n,'data-face'));
+        // Buttons from the model are inert protocol markers. Build controls only from local assets.
+        n.childNodes=n.childNodes.filter(child=>child.tagName!=='button');
+        clean(n,[...ancestors,parent],depth+1,markdown);
+        const children=[];
+        if(portrait){
+          const image=(cls,src)=>element('img',[a('src',src),a('class',cls),a('alt',''),a('loading','lazy')]);
+          children.push(element('button',[a('type','button'),a('class',portrait.frame===undefined?'tm-avatar':'tm-avatar tm-sheet tm-frame-'+portrait.frame),a('aria-label','查看角色立绘')],[image('tm-thumb',portrait.avatar),image('tm-full',portrait.portrait)]));
+        }
+        if(speaker)children.push(element('strong',[a('class','tm-speaker')],[text(speaker)]));
+        children.push(...n.childNodes);
+        result.push(element('div',[a('class',npc?'tm-say tm-npc':'tm-say tm-user')],children));
+        continue;
       }
       if(n.tagName==='img') {
         if(profile==='douluo') {
@@ -227,7 +246,7 @@ export function cardPresentation(raw, profile) {
     }
     parent.childNodes=result;
     if(markdown && [undefined,'div','details','macroscopic','microscopic'].includes(parent.tagName)) {
-      markdownRuns(parent,depth,parent.tagName===undefined||profile==='archive'||parent.tagName==='details'||['macroscopic','microscopic'].includes(parent.tagName)||has(parent,'main-text'));
+      markdownRuns(parent,depth,parent.tagName===undefined||archiveProfile(profile)||parent.tagName==='details'||['macroscopic','microscopic'].includes(parent.tagName)||has(parent,'main-text'));
     }
     for(const n of parent.childNodes)n.parentNode=parent;
   }
