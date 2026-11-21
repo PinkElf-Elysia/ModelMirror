@@ -1,3 +1,4 @@
+import {assembleWorldbook,config,digest} from './worldbook.mjs';
 import {beforeSpeechMainDescriptor} from '../studio/speech-compatibility.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -26,21 +27,25 @@ export async function createHarryPotterHost(directory,control,{cardId,name,syste
   if(!selected)throw fail('CARD_MODEL_UNAVAILABLE');
   const initial=modelPolicy.controlledChoice(selected),state=createCardState(modelPolicy);
   const context=createCardContext({cardId,state,assemble(session,input){
-    return {current:input,messages:[{role:'system',content:system},...session.history,{role:'user',content:input}]};
+    const content=session.runtime.descriptor.worldbookHash ? assembleWorldbook({opening:session.characterText,history:session.history,input}).system : system;
+    return {current:input,messages:[{role:'system',content},...session.history,{role:'user',content:input}]};
   }});
   const artifactPaths=['host.mjs','offline-store.mjs','transport/controlled-provider.mjs','transport/memory-budget.mjs','transport/memory-task-provider.mjs'];
   const artifacts=async()=>Object.fromEntries(await Promise.all(artifactPaths.map(async p=>[p,sha(await readFile(new URL(p,import.meta.url)))])));
   const transportArtifacts=await artifacts();
-  const descriptor={transportArtifacts,format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const legacyBase={transportArtifacts,format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const descriptor=systemHash===config.sourceSha256?{...legacyBase,worldbookHash:digest()}:legacyBase;
+  const predecessors=["63ce4e8e55848bdbf4f16992d8bc33cab1176d6e679d52c556f4bb2f4b50da05","33c5e58754e73b738030c61d1dd8a528c759846ddb5c40029031e67b52a4f07c"].map(adapterHash=>({...legacyBase,adapterHash,transportArtifacts:{...transportArtifacts,'host.mjs':adapterHash}}));
+  predecessors.push(beforeSpeechMainDescriptor(legacyBase,'harry-potter-card/host.mjs'));
   const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){
-    if(canonical(await artifacts())!==canonical(transportArtifacts))throw fail('RUNTIME_CHANGED');
+    if((descriptor.worldbookHash&&descriptor.worldbookHash!==digest())||canonical(await artifacts())!==canonical(transportArtifacts))throw fail('RUNTIME_CHANGED');
   }};
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     // A catalog refresh may change only its revision. Sending still requires the
     // current exact selection; reading a reviewed save does not grant dispatch.
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return [descriptor,beforeSpeechMainDescriptor(descriptor,'harry-potter-card/host.mjs')].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
+    return [descriptor,...predecessors].some(candidate=>s.runtime.hash===sha(canonical({...candidate,model:bound})));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){

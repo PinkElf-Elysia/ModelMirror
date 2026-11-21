@@ -1,0 +1,221 @@
+{
+  "mode": "offline",
+  "realModelCalls": 0,
+  "systemBefore": 89475,
+  "fixedCharacters": 16216,
+  "libraryCharacters": 1192,
+  "sourceSha256": "10859780a0de93d01a2be111d31abf1fc3487778d6df9ae7d20bfe992e861f55",
+  "slotCount": 95,
+  "slotCounts": {
+    "人物": 25,
+    "设定": 1,
+    "势力": 34,
+    "地点": 8,
+    "作品": 12,
+    "机制": 15
+  },
+  "turns": [
+    {
+      "turn": 1,
+      "currentInput": "【作品】哈利·波特与魔法石（1991–1992学年）· 大难不死的男孩入学\n【入场时机】入学采购\n—— 基础信息 ——\n姓名：艾琳·里德\n—— 当前处境 ——\n我在对角巷准备购买一年级课本。",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "work": "哈利·波特与魔法石",
+      "hits": [
+        {
+          "id": "L1506",
+          "name": "对角巷",
+          "type": "地点",
+          "start": 1506,
+          "end": 1532,
+          "lines": [
+            1508,
+            1509,
+            1510,
+            1511,
+            1513,
+            1514,
+            1515,
+            1516,
+            1517,
+            1519,
+            1520,
+            1522,
+            1523,
+            1525,
+            1527,
+            1528,
+            1529
+          ],
+          "fragments": [
+            {
+              "line": 1515,
+              "characters": 39
+            },
+            {
+              "line": 1525,
+              "characters": 60
+            }
+          ]
+        },
+        {
+          "id": "L1580",
+          "name": "哈利·波特与魔法石",
+          "type": "作品",
+          "start": 1580,
+          "end": 1636
+        },
+        {
+          "id": "L2706",
+          "name": "对角巷",
+          "type": "地点",
+          "start": 2706,
+          "end": 2732,
+          "lines": [
+            2708,
+            2709,
+            2710,
+            2711,
+            2713,
+            2714,
+            2715,
+            2716,
+            2717,
+            2719,
+            2720,
+            2722,
+            2723,
+            2725,
+            2727,
+            2728,
+            2729
+          ],
+          "fragments": [
+            {
+              "line": 2715,
+              "characters": 39
+            },
+            {
+              "line": 2725,
+              "characters": 60
+            }
+          ]
+        }
+      ],
+      "otherWorkBooks": 0,
+      "systemCharacters": 21438,
+      "systemSha256": "bd25da8787c0b46212bc0a5c56a8a9ec9adeb7c44fd4e46772b1005899b74481",
+      "messagesSha256": "6b582f12368be0623fbe925eee7fdf0cb862cca47e739f7931315e6648478cd1",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      }
+    },
+    {
+      "turn": 2,
+      "currentInput": "走进丽痕书店，向店员询问一年级的书单。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "work": "哈利·波特与魔法石",
+      "hits": [
+        {
+          "id": "L1506",
+          "name": "对角巷",
+          "type": "地点",
+          "start": 1506,
+          "end": 1532,
+          "lines": [
+            1513,
+            1516
+          ],
+          "fragments": []
+        },
+        {
+          "id": "L1580",
+          "name": "哈利·波特与魔法石",
+          "type": "作品",
+          "start": 1580,
+          "end": 1636
+        },
+        {
+          "id": "L2706",
+          "name": "对角巷",
+          "type": "地点",
+          "start": 2706,
+          "end": 2732,
+          "lines": [
+            2713,
+            2716
+          ],
+          "fragments": []
+        }
+      ],
+      "otherWorkBooks": 0,
+      "systemCharacters": 20382,
+      "systemSha256": "13f5020e3d93afa3d41d4af620ad0e27c7df998ded8f67498a3451b96c2a7245",
+      "messagesSha256": "7cf00fc9fbb8a468f852dc7265f4301875193f70faa04dc268b5284dd66e60c8",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      }
+    }
+  ],
+  "sameSchoolAtDifferentTimes": [
+    {
+      "work": "霍格沃茨之遗",
+      "hitIds": [
+        "L1120",
+        "L1950",
+        "L2308"
+      ],
+      "greatHall": true,
+      "headmaster1890": true,
+      "headmaster1991": false,
+      "workBook": [
+        "霍格沃茨之遗"
+      ]
+    },
+    {
+      "work": "哈利·波特与魔法石",
+      "hitIds": [
+        "L1120",
+        "L1580",
+        "L2308"
+      ],
+      "greatHall": true,
+      "headmaster1890": false,
+      "headmaster1991": true,
+      "workBook": [
+        "哈利·波特与魔法石"
+      ]
+    },
+    {
+      "work": "哈利·波特：魔法觉醒",
+      "hitIds": [
+        "L1120",
+        "L2308"
+      ],
+      "greatHall": true,
+      "headmaster1890": false,
+      "headmaster1991": false,
+      "workBook": []
+    }
+  ],
+  "oldSave": {
+    "scenario": "拆分前由原宿主创建的独立样本，重启后续玩",
+    "oldFirstTurnPreserved": true,
+    "sameSession": true,
+    "openingSystemSha256": "10859780a0de93d01a2be111d31abf1fc3487778d6df9ae7d20bfe992e861f55",
+    "continuationSystemSha256": "10859780a0de93d01a2be111d31abf1fc3487778d6df9ae7d20bfe992e861f55"
+  },
+  "fixedSha256": "7076a97a0e76322c38fbd1d38ea44623f1af3e72242fcaf4329a6819742bae45",
+  "librarySha256": "998d24d136795282760f90172504257082617117116cbf87877ef40dd2ac8f6b"
+}
