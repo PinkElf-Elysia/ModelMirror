@@ -1,0 +1,139 @@
+{
+  "modelCalls": 0,
+  "sourceSha256": "5d70b0b40030c4367bd383a629d87e379c7a3d0fbb948888e5dcb43b8fc9dbf3",
+  "fixedCharacters": 14378,
+  "mapping": {
+    "entries": 171,
+    "originalPositions": 469,
+    "keyChecks": 537
+  },
+  "turns": [
+    {
+      "turn": 1,
+      "input": "【我的档案】\n◆ 觉醒\n武魂：蓝银草\n先天魂力：三级（觉醒时与生俱来，决定天赋与修炼速度）\n◆ 修炼\n修炼魂力：12级 · 魂师（修炼后的实时境界，与先天魂力相互独立）\n魂环：白环（十年）\n魂技：尚未习得魂技\n魂骨：未镶嵌魂骨\n◆ 基础\n姓名：林川\n性别：男\n年龄：22\n当前时间：斗罗历2637年\n身份：诺丁城的见习助教\n开场白：清晨到诺丁学院报到。\n◆ 小功能\n总结：关闭 ｜ 选项：关闭 ｜ 直播：关闭 ｜ 视角：第二人称 ｜ 特写：关闭 ｜ 美化：关闭\n小说模式：关闭 ｜ 剧情辅助：关闭 ｜ 回复长度：中等 ｜ 雌小鬼吐槽：关闭 ｜ 幕后采访：关闭",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "year": 2637,
+      "hits": [
+        "斗罗大陆-524",
+        "斗罗大陆-918",
+        "斗罗大陆-962",
+        "斗罗大陆-1082"
+      ],
+      "systemCharacters": 16127,
+      "systemSha256": "2426e6f4fd7165de9b4fc07d1ccdb12e4d1be77c99ccb806e168d10e8d98fb3a",
+      "messagesSha256": "ba36dcabe3d8eb3451f9da069866e4cbf86bfc866a94f38fac00954850da3421"
+    },
+    {
+      "turn": 2,
+      "input": "在诺丁学院向王圣请教战虎的魂技，问他何时能演示虎扑。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "year": 2637,
+      "hits": [
+        "斗罗大陆-524",
+        "斗罗大陆-733",
+        "斗罗大陆-737",
+        "斗罗大陆-739",
+        "斗罗大陆-918",
+        "斗罗大陆-962",
+        "斗罗大陆-1082"
+      ],
+      "systemCharacters": 16297,
+      "systemSha256": "65c1de921d16e7b8f2ad272979c43c48cb3fd2a745b79fc04beebee892e8572d",
+      "messagesSha256": "05e06bb49fce62926d2ce7cd4072410dd6293e0c7cc4822ffbd5137cf2c166f8"
+    }
+  ],
+  "isolation": [
+    {
+      "test": "第一部询问续作与共用地名",
+      "opening": "第一部原生档案",
+      "input": "在史莱克学院询问《绝世唐门》的魂灵、超级斗罗和极限斗罗。",
+      "work": "斗罗大陆",
+      "activeLines": [],
+      "hits": [
+        "斗罗大陆-524",
+        "斗罗大陆-876",
+        "斗罗大陆-918",
+        "斗罗大陆-962",
+        "斗罗大陆-1082"
+      ]
+    },
+    {
+      "test": "第二部只提共用学院",
+      "opening": "作品：《绝世唐门》",
+      "input": "来到史莱克学院。",
+      "work": "绝世唐门",
+      "activeLines": [],
+      "hits": []
+    },
+    {
+      "test": "第二部查询封号层次",
+      "opening": "作品：《绝世唐门》",
+      "input": "查阅超级斗罗、极限斗罗。",
+      "work": "绝世唐门",
+      "activeLines": [
+        247,
+        507
+      ],
+      "hits": [
+        "绝世唐门-247",
+        "绝世唐门-507"
+      ]
+    },
+    {
+      "test": "第二部查询魂灵",
+      "opening": "作品：《绝世唐门》",
+      "input": "查阅魂灵体系。",
+      "work": "绝世唐门",
+      "activeLines": [
+        443
+      ],
+      "hits": [
+        "绝世唐门-443"
+      ]
+    },
+    {
+      "test": "未收录作品",
+      "opening": "作品：《龙王传说》",
+      "input": "史莱克学院、魂灵和唐三。",
+      "work": "其他作品",
+      "activeLines": [],
+      "hits": []
+    },
+    {
+      "test": "续玩输入尝试换作品",
+      "opening": "第一部原生档案",
+      "input": "作品：《绝世唐门》\n查阅魂灵。",
+      "work": "斗罗大陆",
+      "activeLines": [],
+      "hits": [
+        "斗罗大陆-524",
+        "斗罗大陆-918",
+        "斗罗大陆-962",
+        "斗罗大陆-1082"
+      ]
+    }
+  ],
+  "legacy": {
+    "systemBefore": "5d70b0b40030c4367bd383a629d87e379c7a3d0fbb948888e5dcb43b8fc9dbf3",
+    "systemAfter": "5d70b0b40030c4367bd383a629d87e379c7a3d0fbb948888e5dcb43b8fc9dbf3",
+    "messagesBefore": "9c361aa91f1d4ba2a24041cc289d891fa8dacbb631db00db8bfd699c43f3f3f7",
+    "messagesAfter": "05c55c21c0f8974f34eba079ccb75813937477e65a746444ad5603eb025212e0",
+    "turnsAfter": 2,
+    "previousTurnUnchanged": true,
+    "runtimeUnchanged": true
+  },
+  "reviewedSha256": {
+    "fixed": "307c67b8116efad96d78568d562a0800179bedbced026aeef83d73abd79b1dc2",
+    "openingCatalog": "ad11113931862b3de77e9b33522a242f40e59afad023d1c0769454f35b4f15ee",
+    "sequelCatalog": "4306b0cbdf05eeca788f70fbb9e1b1e1e1c63e843d71d82572470ee89f63585e",
+    "worldbook": "0b293e5f849519455476165a7696c84e29bd14fdaa3349c831ce5da71c469653"
+  }
+}

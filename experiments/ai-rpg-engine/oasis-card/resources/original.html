@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OASIS｜绿洲虚拟世界</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+--cyan:#0ff;--magenta:#f0f;--yellow:#ffd700;--green:#0f0;
+--bg-dark:#0a0a0f;--bg-card:rgba(10,10,20,0.85);
+--text-main:#e0e0e0;--text-dim:#666;
+--glow-cyan:0 0 10px #0ff,0 0 20px #0ff,0 0 40px #0ff;
+--glow-magenta:0 0 10px #f0f,0 0 20px #f0f;
+--glow-yellow:0 0 10px #ffd700,0 0 20px #ffd700;
+}
+body{
+font-family:'Noto Sans SC',sans-serif;
+background:var(--bg-dark);
+color:var(--text-main);
+min-height:100vh;
+overflow-x:hidden;
+line-height:1.8;
+}
+body::before{
+content:'';position:fixed;top:0;left:0;width:100%;height:100%;
+background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,255,255,0.03) 2px,rgba(0,255,255,0.03) 4px);
+pointer-events:none;z-index:9999;animation:scanline 8s linear infinite;
+}
+@keyframes scanline{0%{transform:translateY(0);}100%{transform:translateY(100px);}}
+.bg-grid{
+position:fixed;top:0;left:0;width:100%;height:100%;
+background-image:
+linear-gradient(rgba(0,255,255,0.03) 1px,transparent 1px),
+linear-gradient(90deg,rgba(0,255,255,0.03) 1px,transparent 1px);
+background-size:50px 50px;
+animation:gridMove 20s linear infinite;
+z-index:-1;
+}
+@keyframes gridMove{0%{transform:perspective(500px) rotateX(60deg) translateY(0);}100%{transform:perspective(500px) rotateX(60deg) translateY(50px);}}
+.container{max-width:900px;margin:0 auto;padding:20px;position:relative;}
+header{text-align:center;padding:40px 20px;position:relative;}
+.logo{
+font-family:'Orbitron',sans-serif;
+font-size:clamp(2.5rem,8vw,4.5rem);
+font-weight:900;
+background:linear-gradient(135deg,var(--cyan),var(--magenta),var(--yellow));
+-webkit-background-clip:text;
+-webkit-text-fill-color:transparent;
+background-clip:text;
+text-shadow:0 0 50px rgba(0,255,255,0.5);
+letter-spacing:0.1em;
+animation:glitch 3s infinite;
+position:relative;
+}
+@keyframes glitch{
+0%,90%,100%{transform:translate(0);}
+92%{transform:translate(-2px,1px);}
+94%{transform:translate(2px,-1px);}
+96%{transform:translate(-1px,2px);}
+98%{transform:translate(1px,-2px);}
+}
+.logo::before,.logo::after{
+content:'OASIS';position:absolute;top:0;left:0;right:0;
+background:linear-gradient(135deg,var(--cyan),var(--magenta),var(--yellow));
+-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.logo::before{animation:glitchTop 3s infinite;clip-path:polygon(0 0,100% 0,100% 33%,0 33%);}
+.logo::after{animation:glitchBottom 3s infinite;clip-path:polygon(0 67%,100% 67%,100% 100%,0 100%);}
+@keyframes glitchTop{0%,90%,100%{transform:translate(0);}92%,96%{transform:translate(2px,0);}}
+@keyframes glitchBottom{0%,90%,100%{transform:translate(0);}94%,98%{transform:translate(-2px,0);}}
+.subtitle{
+font-family:'Orbitron',sans-serif;
+color:var(--cyan);
+font-size:0.9rem;
+letter-spacing:0.3em;
+margin-top:10px;
+opacity:0.8;
+}
+.tagline{
+color:var(--text-dim);
+font-size:0.85rem;
+margin-top:15px;
+font-style:italic;
+}
+.manifesto{
+text-align:center;
+padding:25px 20px;
+margin:20px 0;
+background:linear-gradient(135deg,rgba(255,0,255,0.1),rgba(0,255,255,0.1));
+border:1px solid rgba(255,215,0,0.3);
+border-radius:15px;
+position:relative;
+overflow:hidden;
+}
+.manifesto::before{
+content:'';position:absolute;top:-50%;left:-50%;
+width:200%;height:200%;
+background:radial-gradient(circle,rgba(255,215,0,0.05) 0%,transparent 70%);
+animation:pulse 4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:0.5;}50%{transform:scale(1.1);opacity:1;}}
+.manifesto-title{
+font-family:'Orbitron',sans-serif;
+font-size:1.1rem;
+color:#ffd700;
+margin-bottom:15px;
+text-shadow:0 0 10px rgba(255,215,0,0.5);
+position:relative;
+}
+.manifesto-content{
+display:flex;
+justify-content:center;
+gap:15px;
+flex-wrap:wrap;
+margin-bottom:15px;
+position:relative;
+}
+.manifesto-item{
+color:#ff6b6b;
+font-size:0.85rem;
+padding:5px 12px;
+background:rgba(0,0,0,0.3);
+border-radius:20px;
+border:1px solid rgba(255,107,107,0.3);
+}
+.manifesto-text{
+color:var(--text-main);
+font-size:0.85rem;
+line-height:1.8;
+margin-bottom:15px;
+position:relative;
+}
+.manifesto-quote{
+font-family:'Orbitron',sans-serif;
+color:var(--cyan);
+font-size:1rem;
+text-shadow:0 0 10px rgba(0,255,255,0.5);
+position:relative;
+}
+.tab-nav{
+display:flex;flex-wrap:wrap;justify-content:center;gap:8px;
+margin:30px 0;padding:10px;
+background:var(--bg-card);
+border:1px solid rgba(0,255,255,0.2);
+border-radius:10px;
+position:relative;
+overflow:hidden;
+}
+.tab-nav::before{
+content:'';position:absolute;top:0;left:-100%;width:50%;height:100%;
+background:linear-gradient(90deg,transparent,rgba(0,255,255,0.1),transparent);
+animation:shimmer 3s infinite;
+}
+@keyframes shimmer{0%{left:-100%;}100%{left:200%;}}
+.tab-btn{
+font-family:'Orbitron',sans-serif;
+padding:12px 20px;
+background:transparent;
+border:1px solid rgba(0,255,255,0.3);
+color:var(--cyan);
+font-size:0.8rem;
+cursor:pointer;
+transition:all 0.3s ease;
+border-radius:5px;
+text-transform:uppercase;
+letter-spacing:0.1em;
+position:relative;
+overflow:hidden;
+}
+.tab-btn:hover{
+background:rgba(0,255,255,0.1);
+border-color:var(--cyan);
+box-shadow:var(--glow-cyan);
+}
+.tab-btn.active{
+background:linear-gradient(135deg,rgba(0,255,255,0.2),rgba(255,0,255,0.2));
+border-color:var(--magenta);
+color:#fff;
+box-shadow:var(--glow-magenta);
+}
+.tab-content{display:none;animation:fadeIn 0.5s ease;}
+.tab-content.active{display:block;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:translateY(0);}}
+.panel{
+background:var(--bg-card);
+border:1px solid rgba(0,255,255,0.2);
+border-radius:10px;
+margin-bottom:15px;
+overflow:hidden;
+backdrop-filter:blur(10px);
+transition:all 0.3s ease;
+}
+.panel:hover{border-color:rgba(0,255,255,0.5);box-shadow:0 0 20px rgba(0,255,255,0.1);}
+.panel summary{
+padding:15px 20px;
+cursor:pointer;
+font-family:'Orbitron',sans-serif;
+font-size:0.9rem;
+color:var(--cyan);
+border-bottom:1px solid rgba(0,255,255,0.1);
+list-style:none;
+display:flex;align-items:center;gap:10px;
+transition:all 0.3s ease;
+}
+.panel summary::-webkit-details-marker{display:none;}
+.panel summary::before{
+content:'▸';color:var(--magenta);
+transition:transform 0.3s ease;
+}
+.panel[open] summary::before{transform:rotate(90deg);}
+.panel summary:hover{background:rgba(0,255,255,0.05);}
+.panel-content{padding:20px;color:var(--text-main);font-size:0.9rem;}
+.panel-content p{margin-bottom:12px;}
+.panel-content strong{color:var(--cyan);}
+.highlight-cyan{color:var(--cyan);}
+.highlight-magenta{color:var(--magenta);}
+.highlight-yellow{color:var(--yellow);}
+.highlight-green{color:var(--green);}
+.section-title{
+font-family:'Orbitron',sans-serif;
+color:var(--magenta);
+font-size:0.85rem;
+margin:20px 0 10px 0;
+padding-bottom:5px;
+border-bottom:1px solid rgba(255,0,255,0.3);
+letter-spacing:0.1em;
+}
+.section-title:first-child{margin-top:0;}
+.divider{
+height:1px;
+background:linear-gradient(90deg,transparent,rgba(0,255,255,0.3),transparent);
+margin:15px 0;
+}
+.list-item{
+padding:8px 0;
+padding-left:20px;
+position:relative;
+}
+.list-item::before{
+content:'›';
+position:absolute;left:0;
+color:var(--cyan);
+}
+.sub-item{
+padding-left:40px;
+color:var(--text-dim);
+font-size:0.85rem;
+}
+.grade-table{
+width:100%;
+border-collapse:collapse;
+margin:15px 0;
+font-size:0.85rem;
+}
+.grade-table th,.grade-table td{
+padding:10px;
+text-align:left;
+border-bottom:1px solid rgba(0,255,255,0.1);
+}
+.grade-table th{
+font-family:'Orbitron',sans-serif;
+color:var(--magenta);
+font-size:0.8rem;
+}
+.grade-e{color:#90EE90;}
+.grade-d{color:#87CEEB;}
+.grade-c{color:#DDA0DD;}
+.grade-b{color:#FFA500;}
+.grade-a{color:#FF6B6B;}
+.grade-s{color:#FF4444;}
+.grade-ss{color:#FFD700;text-shadow:0 0 10px #FFD700;}
+.form-section{margin-bottom:25px;}
+.form-title{
+font-family:'Orbitron',sans-serif;
+font-size:1rem;
+color:var(--cyan);
+margin-bottom:15px;
+display:flex;align-items:center;gap:10px;
+}
+.form-title::after{
+content:'';flex:1;height:1px;
+background:linear-gradient(90deg,var(--cyan),transparent);
+}
+.form-group{margin-bottom:15px;}
+.form-label{
+display:block;
+color:var(--magenta);
+font-size:0.8rem;
+margin-bottom:5px;
+font-family:'Orbitron',sans-serif;
+letter-spacing:0.05em;
+}
+.form-input,.form-select,.form-textarea{
+width:100%;
+padding:12px 15px;
+background:rgba(0,0,0,0.5);
+border:1px solid rgba(0,255,255,0.3);
+border-radius:5px;
+color:var(--text-main);
+font-family:'Noto Sans SC',sans-serif;
+font-size:0.9rem;
+transition:all 0.3s ease;
+}
+.form-input:focus,.form-select:focus,.form-textarea:focus{
+outline:none;
+border-color:var(--cyan);
+box-shadow:0 0 15px rgba(0,255,255,0.2);
+}
+.form-input::placeholder,.form-textarea::placeholder{color:var(--text-dim);}
+.form-select{cursor:pointer;}
+.form-select option{background:var(--bg-dark);color:var(--text-main);}
+.form-textarea{min-height:100px;resize:vertical;}
+.radio-group{display:flex;gap:20px;flex-wrap:wrap;}
+.radio-item{
+display:flex;align-items:center;gap:8px;
+cursor:pointer;
+padding:8px 15px;
+border:1px solid rgba(0,255,255,0.2);
+border-radius:5px;
+transition:all 0.3s ease;
+}
+.radio-item:hover{border-color:var(--cyan);background:rgba(0,255,255,0.05);}
+.radio-item input{display:none;}
+.radio-item input:checked+.radio-label{color:var(--cyan);}
+.radio-item:has(input:checked){
+border-color:var(--cyan);
+background:rgba(0,255,255,0.1);
+box-shadow:var(--glow-cyan);
+}
+.radio-label{font-size:0.9rem;}
+.preview-box{
+background:rgba(0,0,0,0.6);
+border:1px solid rgba(255,0,255,0.3);
+border-radius:8px;
+padding:20px;
+margin-top:20px;
+font-family:'Consolas','Courier New',monospace;
+font-size:0.85rem;
+line-height:1.8;
+white-space:pre-wrap;
+word-break:break-all;
+max-height:300px;
+overflow-y:auto;
+}
+.preview-box::-webkit-scrollbar{width:5px;}
+.preview-box::-webkit-scrollbar-track{background:rgba(0,0,0,0.3);}
+.preview-box::-webkit-scrollbar-thumb{background:var(--magenta);border-radius:5px;}
+.btn-copy{
+display:block;
+width:100%;
+padding:15px;
+margin-top:15px;
+background:linear-gradient(135deg,rgba(0,255,255,0.2),rgba(255,0,255,0.2));
+border:1px solid var(--cyan);
+border-radius:8px;
+color:#fff;
+font-family:'Orbitron',sans-serif;
+font-size:0.9rem;
+cursor:pointer;
+transition:all 0.3s ease;
+text-transform:uppercase;
+letter-spacing:0.1em;
+}
+.btn-copy:hover{
+background:linear-gradient(135deg,rgba(0,255,255,0.4),rgba(255,0,255,0.4));
+box-shadow:var(--glow-cyan),var(--glow-magenta);
+transform:translateY(-2px);
+}
+.btn-copy:active{transform:translateY(0);}
+.modal-overlay{
+display:none;
+position:fixed;top:0;left:0;width:100%;height:100%;
+background:rgba(0,0,0,0.8);
+z-index:10000;
+justify-content:center;align-items:center;
+backdrop-filter:blur(5px);
+}
+.modal-overlay.show{display:flex;}
+.modal-box{
+background:var(--bg-card);
+border:2px solid var(--cyan);
+border-radius:15px;
+padding:30px 40px;
+text-align:center;
+animation:modalPop 0.3s ease;
+box-shadow:var(--glow-cyan);
+}
+@keyframes modalPop{from{transform:scale(0.8);opacity:0;}to{transform:scale(1);opacity:1;}}
+.modal-box h3{
+font-family:'Orbitron',sans-serif;
+color:var(--cyan);
+margin-bottom:15px;
+}
+.modal-box p{color:var(--text-main);margin-bottom:20px;}
+.modal-close{
+padding:10px 30px;
+background:linear-gradient(135deg,var(--cyan),var(--magenta));
+border:none;
+border-radius:5px;
+color:#000;
+font-family:'Orbitron',sans-serif;
+font-weight:bold;
+cursor:pointer;
+transition:all 0.3s ease;
+}
+.modal-close:hover{transform:scale(1.05);box-shadow:var(--glow-cyan);}
+.author-section{
+text-align:center;
+padding:20px;
+}
+.author-section h3{
+font-family:'Orbitron',sans-serif;
+color:var(--yellow);
+margin-bottom:20px;
+font-size:1.2rem;
+}
+.author-section p{
+color:var(--text-main);
+line-height:2;
+margin-bottom:15px;
+}
+.author-signature{
+color:var(--magenta);
+font-style:italic;
+margin-top:30px;
+}
+footer{
+text-align:center;
+padding:30px;
+margin-top:30px;
+border-top:1px solid rgba(0,255,255,0.2);
+}
+footer a{
+color:var(--cyan);
+text-decoration:none;
+font-size:0.8rem;
+transition:all 0.3s ease;
+}
+footer a:hover{color:var(--magenta);text-shadow:var(--glow-magenta);}
+@media(max-width:600px){
+.tab-btn{padding:10px 12px;font-size:0.7rem;}
+.panel summary{padding:12px 15px;font-size:0.8rem;}
+.panel-content{padding:15px;}
+.form-input,.form-select,.form-textarea{padding:10px 12px;}
+.manifesto-item{font-size:0.75rem;padding:4px 10px;}
+.manifesto-text{font-size:0.8rem;}
+}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="container">
+<header>
+<h1 class="logo">OASIS</h1>
+<p class="subtitle">VIRTUAL REALITY SIMULATOR</p>
+<p class="tagline">"在绿洲，你可以成为任何人，去任何地方，做任何事。"</p>
+</header>
+<div class="manifesto">
+<div class="manifesto-title">⚠️ 这不是主神空间，不是无限流</div>
+<div class="manifesto-content">
+<div class="manifesto-item">❌ 没有强制任务</div>
+<div class="manifesto-item">❌ 没有积分抹杀</div>
+<div class="manifesto-item">❌ 没有必须完成的主线</div>
+</div>
+<div class="manifesto-text">
+你可以自由探索任何IP世界——<br>
+想去《咒术回战》打咒灵就去，想在《你的名字》谈恋爱就谈，<br>
+想当咸鱼在主城摆烂也完全可以。
+</div>
+<div class="manifesto-quote">「绿洲的意义，由你自己定义。」</div>
+</div>
+<nav class="tab-nav">
+<button class="tab-btn active" data-tab="world">🌐 世界观</button>
+<button class="tab-btn" data-tab="system">⚙️ 核心系统</button>
+<button class="tab-btn" data-tab="culture">🎭 流行文化</button>
+<button class="tab-btn" data-tab="config">📋 角色配置</button>
+<button class="tab-btn" data-tab="author">📖 作者的话</button>
+</nav>
+<section id="world" class="tab-content active">
+<details class="panel" open>
+<summary>🌐 绿洲（OASIS）</summary>
+<div class="panel-content">
+<p>2045年，一个名为<strong>詹姆斯·哈利迪</strong>的天才程序员创造了"绿洲"——一个超越所有人想象的超级VR宇宙。这不仅仅是一个游戏，而是一个平行于现实的完整世界。</p>
+<p>在绿洲中，<span class="highlight-yellow">版权概念已不存在</span>。哈利迪在临终前开源了所有IP接口，所有人类流行文化——电影、动漫、游戏、小说、电视剧——都在这里自由共存。</p>
+<p>你可以在<span class="highlight-magenta">霍格沃茨学习魔法</span>后，驾驶高达去《进击的巨人》的世界讨伐巨人；可以穿着黑客帝国的风衣，在《咒术回战》的涩谷与咒灵战斗；可以开着德罗宁时光机，载着你在《你的名字》里认识的少女去《千与千寻》的汤屋泡温泉。</p>
+<p class="highlight-cyan" style="text-align:center;font-size:1.1rem;margin-top:20px;">「这是一个梦想成真的地方。」</p>
+</div>
+</details>
+<details class="panel">
+<summary>🏚️ 现实世界（2045年）</summary>
+<div class="panel-content">
+<p>与绿洲的绚烂相反，现实世界早已满目疮痍。<span class="highlight-magenta">能源枯竭、气候崩坏、贫富分化到了极致</span>。</p>
+<p>富人住在高耸入云的穹顶城市，而普通人则挤在被称为"<strong>堆叠区</strong>"的贫民窟——无数集装箱和拖车屋层层堆叠，像是被遗忘的废弃物。</p>
+<p>大部分人选择逃避。只要戴上VR头盔，就能进入绿洲，成为任何想成为的人。现实的饥饿、疲惫、贫穷，在那一刻都会被遗忘。</p>
+<p class="highlight-cyan" style="text-align:center;font-size:1.1rem;margin-top:20px;">「绿洲不只是游戏，是唯一的希望。」</p>
+</div>
+</details>
+<details class="panel">
+<summary>⚖️ 核心法则</summary>
+<div class="panel-content">
+<div class="list-item"><span class="highlight-cyan">虚拟即真实</span>：绿洲中的货币"Credits"可以兑换成现实货币，许多人靠绿洲谋生</div>
+<div class="list-item"><span class="highlight-magenta">身份自由</span>：你可以选择任何种族、任何性别、任何外貌，成为任何你想成为的人</div>
+<div class="list-item"><span class="highlight-yellow">万物共存</span>：所有IP自由融合，跨界碰撞是常态</div>
+<div class="list-item"><span class="highlight-green">死亡有代价</span>：虽然可以复活，但死亡会让你损失金币和经验</div>
+</div>
+</details>
+<details class="panel">
+<summary>🏛️ 空间构成</summary>
+<div class="panel-content">
+<p class="section-title">绿洲中心（主城）</p>
+<div class="list-item"><strong>玩家广场</strong> — 社交、交易、组队的核心区域</div>
+<div class="list-item"><strong>拍卖行</strong> — 稀有物品的交易场所</div>
+<div class="list-item"><strong>公会大厅</strong> — 创建/加入公会的地方</div>
+<div class="list-item"><strong>竞技场</strong> — PVP对战的场所</div>
+<div class="list-item"><strong>传送门广场</strong> — 通往各个IP世界的入口</div>
+<div class="list-item"><strong>收藏馆</strong> — 展示和交易皮肤、载具、武器</div>
+<div class="list-item"><strong>哈利迪档案馆</strong> — 关于绿洲创始人的博物馆，据说隐藏着彩蛋线索</div>
+<div class="divider"></div>
+<p class="section-title">IP世界</p>
+<div class="list-item">无数个基于不同作品的独立世界</div>
+<div class="list-item">每个世界都完美还原原作设定</div>
+<div class="list-item">玩家可以参与原作剧情或自由探索</div>
+<div class="list-item">完成挑战获得该世界特有的奖励</div>
+</div>
+</details>
+<details class="panel">
+<summary>📊 IP世界难度分级</summary>
+<div class="panel-content">
+<p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:15px;">* 难度仅供参考，不限制进入。Lv.1也可以去S级世界，只是会很难。</p>
+<table class="grade-table">
+<tr><th>等级</th><th>推荐Lv.</th><th>类型</th><th>代表作品</th></tr>
+<tr><td class="grade-e">E级</td><td>1-10</td><td>休闲区</td><td>《你的名字》《千与千寻》《夏目友人帐》</td></tr>
+<tr><td class="grade-d">D级</td><td>11-25</td><td>冒险区</td><td>《我的英雄学院》《食戟之灵》</td></tr>
+<tr><td class="grade-c">C级</td><td>26-40</td><td>战斗区</td><td>《火影忍者》《海贼王》《鬼灭之刃》</td></tr>
+<tr><td class="grade-b">B级</td><td>41-60</td><td>危险区</td><td>《进击的巨人》《咒术回战》《电锯人》</td></tr>
+<tr><td class="grade-a">A级</td><td>61-80</td><td>地狱区</td><td>《JOJO》《猎人×猎人》《Fate》</td></tr>
+<tr><td class="grade-s">S级</td><td>81-95</td><td>禁区</td><td>《龙珠》《一拳超人》</td></tr>
+<tr><td class="grade-ss">SS级</td><td>96-100+</td><td>神域</td><td>挑战世界法则本身</td></tr>
+</table>
+</div>
+</details>
+</section>
+<section id="system" class="tab-content">
+<details class="panel" open>
+<summary>📈 等级与成长</summary>
+<div class="panel-content">
+<p class="section-title">等级系统</p>
+<div class="list-item">范围：<span class="highlight-cyan">Lv.1 - Lv.100+</span></div>
+<div class="list-item">升级：击败敌人、发现彩蛋、完成挑战</div>
+<div class="divider"></div>
+<p class="section-title">升级收益</p>
+<div class="list-item">每级获得 <span class="highlight-yellow">+1 SP</span>（强化点数）</div>
+<div class="list-item">HP上限增加（阶梯式）：</div>
+<div class="sub-item">Lv.1-30：每级 <span class="highlight-cyan">+10 HP</span></div>
+<div class="sub-item">Lv.31-60：每级 <span class="highlight-magenta">+15 HP</span></div>
+<div class="sub-item">Lv.61-100：每级 <span class="highlight-yellow">+20 HP</span></div>
+<div class="divider"></div>
+<p class="section-title">HP计算示例</p>
+<div class="list-item">Lv.1：100 HP（基础）</div>
+<div class="list-item">Lv.30：100 + 29×10 = <span class="highlight-cyan">390 HP</span></div>
+<div class="list-item">Lv.60：390 + 30×15 = <span class="highlight-magenta">840 HP</span></div>
+<div class="list-item">Lv.100：840 + 40×20 = <span class="highlight-yellow">1640 HP</span></div>
+</div>
+</details>
+<details class="panel">
+<summary>⚡ 强化系统（SP）</summary>
+<div class="panel-content">
+<p>每升1级获得<span class="highlight-cyan">1点SP（强化点数）</span>，用于强化你的装备。</p>
+<div class="divider"></div>
+<p class="section-title">SP用途</p>
+<div class="list-item"><span class="highlight-magenta">强化皮肤</span> → 技能威力↑ 冷却↓ 持续时间↑</div>
+<div class="list-item"><span class="highlight-cyan">强化武器</span> → 伤害↑ 特效↑ 暴击率↑</div>
+<div class="list-item"><span class="highlight-yellow">强化载具</span> → 速度↑ 耐久↑ 火力↑</div>
+<div class="divider"></div>
+<p class="section-title">强化特点</p>
+<div class="list-item"><span class="highlight-green">自由分配</span>：可专精一件装备，也可平均分配</div>
+<div class="list-item"><span class="highlight-green">无等级限制</span>：Lv.1也能穿神话皮肤，只是强化等级低</div>
+<div class="list-item"><span class="highlight-green">强化决定强度</span>：同样的【五条悟】皮肤，+50比+0强得多</div>
+<div class="divider"></div>
+<p class="section-title">强化示例</p>
+<div class="list-item">【五条悟】皮肤 +0：无下限只能维持5秒</div>
+<div class="list-item">【五条悟】皮肤 +25：无下限维持30秒，冷却缩短</div>
+<div class="list-item">【五条悟】皮肤 +50：无下限维持2分钟，接近原作水平</div>
+</div>
+</details>
+<details class="panel">
+<summary>💰 货币系统</summary>
+<div class="panel-content">
+<p class="section-title">Credits（C）</p>
+<div class="list-item">绿洲唯一通用货币</div>
+<div class="list-item"><span class="highlight-yellow">1000C = 1美元</span>（可双向兑换）</div>
+<div class="list-item">来源：出售物品、玩家交易、职业收入、发现彩蛋</div>
+<div class="divider"></div>
+<p class="section-title">经济生态</p>
+<div class="list-item">许多人靠绿洲赚钱养活现实中的自己</div>
+<div class="list-item">稀有皮肤/武器可以卖出天价</div>
+<div class="list-item">存在专业的商人、代练、主播等职业</div>
+</div>
+</details>
+<details class="panel">
+<summary>🎭 生活方式</summary>
+<div class="panel-content">
+<p>给自己贴上标签，表明你在绿洲的玩法偏好：</p>
+<div class="divider"></div>
+<div class="list-item">🗺️ <span class="highlight-cyan">冒险者</span> — 喜欢探索新世界，发现彩蛋</div>
+<div class="list-item">⚔️ <span class="highlight-magenta">战斗狂</span> — 喜欢PVP和挑战强敌</div>
+<div class="list-item">💎 <span class="highlight-yellow">收藏家</span> — 喜欢收集稀有装备和皮肤</div>
+<div class="list-item">💬 <span class="highlight-green">社交党</span> — 喜欢交朋友，参加聚会</div>
+<div class="list-item">💕 <span class="highlight-magenta">恋爱脑</span> — 喜欢发展感情线</div>
+<div class="list-item">💰 <span class="highlight-yellow">商人</span> — 喜欢赚钱，倒卖物品</div>
+<div class="list-item">🎬 <span class="highlight-cyan">主播</span> — 喜欢直播，吸引观众</div>
+<div class="list-item">🔧 <span class="highlight-green">打工人</span> — 在绿洲赚钱养活现实</div>
+<div class="divider"></div>
+<p style="color:var(--text-dim);font-size:0.85rem;">* 纯标签，无数值影响，只是身份认同和社交展示</p>
+</div>
+</details>
+<details class="panel">
+<summary>❤️ 好感度与恋爱</summary>
+<div class="panel-content">
+<p class="section-title">好感度阶段（0-100）</p>
+<div class="list-item"><span style="color:#666">0-20</span>：陌生/警惕</div>
+<div class="list-item"><span style="color:#888">21-40</span>：认识/中立</div>
+<div class="list-item"><span style="color:#90EE90">41-60</span>：友好/信任</div>
+<div class="list-item"><span style="color:#FF69B4">61-80</span>：亲密/暧昧</div>
+<div class="list-item"><span style="color:#FF4444">81-100</span>：挚爱/忠诚</div>
+<div class="divider"></div>
+<p class="section-title">恋爱对象</p>
+<div class="list-item"><span class="highlight-cyan">其他玩家</span>（背后是真人）</div>
+<div class="list-item"><span class="highlight-magenta">原作NPC</span>（AI控制，但有完整人格）</div>
+<div class="list-item"><span class="highlight-yellow">绿洲原创NPC</span></div>
+<div class="divider"></div>
+<p class="section-title">婚姻福利</p>
+<div class="list-item">共享部分经验加成</div>
+<div class="list-item">专属双人技能</div>
+<div class="list-item">可购买虚拟婚房</div>
+<div class="list-item">专属称号和外观特效</div>
+</div>
+</details>
+<details class="panel">
+<summary>💀 死亡与惩罚</summary>
+<div class="panel-content">
+<p class="section-title">普通死亡</p>
+<div class="list-item">在最近的复活点重生</div>
+<div class="list-item">损失：当前携带金币的<span class="highlight-yellow">50%</span>、当前等级经验的<span class="highlight-yellow">20%</span></div>
+<div class="list-item">装备不掉落</div>
+<div class="divider"></div>
+<p class="section-title">高风险区域死亡</p>
+<div class="list-item">装备有概率掉落</div>
+<div class="list-item">金币损失提高到<span class="highlight-magenta">80%</span></div>
+<div class="divider"></div>
+<p class="section-title" style="color:#FF4444">真死区域（慎入！）</p>
+<div class="list-item" style="color:#FF6B6B">死亡后角色永久删除，所有数据归零</div>
+<div class="list-item" style="color:#FF6B6B">必须重新创建角色</div>
+<div class="list-item">但奖励也<span class="highlight-yellow">极其丰厚</span></div>
+</div>
+</details>
+<details class="panel">
+<summary>🏰 公会系统</summary>
+<div class="panel-content">
+<p class="section-title">公会功能</p>
+<div class="list-item"><strong>公会仓库</strong>：共享资源</div>
+<div class="list-item"><strong>公会领地</strong>：占领地图区域</div>
+<div class="list-item"><strong>公会活动</strong>：协作完成大型挑战</div>
+<div class="list-item"><strong>公会战</strong>：与其他公会PVP</div>
+<div class="list-item"><strong>公会商店</strong>：用贡献值兑换物品</div>
+</div>
+</details>
+</section>
+<section id="culture" class="tab-content">
+<details class="panel" open>
+<summary>👕 皮肤系统</summary>
+<div class="panel-content">
+<p>玩家可以将自己的外观变成任何经典角色。</p>
+<div class="divider"></div>
+<p class="section-title">皮肤分类</p>
+<div class="list-item"><span class="highlight-cyan">【电影系】</span>：蝙蝠侠、钢铁侠、黑客帝国尼奥、星球大战角色...</div>
+<div class="list-item"><span class="highlight-magenta">【动漫系】</span>：鸣人、路飞、炭治郎、五条悟、蕾姆...</div>
+<div class="list-item"><span class="highlight-green">【游戏系】</span>：林克、2B、劳拉、士官长...</div>
+<div class="list-item"><span class="highlight-yellow">【原创系】</span>：绿洲原创设计</div>
+<div class="divider"></div>
+<p class="section-title">皮肤品质</p>
+<div class="list-item"><span style="color:#fff">普通（白）</span> → <span style="color:#90EE90">稀有（绿）</span> → <span style="color:#DDA0DD">史诗（紫）</span> → <span style="color:#FFA500">传说（橙）</span> → <span style="color:#FF4444;text-shadow:0 0 10px #FF4444">神话（红）</span></div>
+<div class="divider"></div>
+<p class="section-title">皮肤效果</p>
+<div class="list-item">普通皮肤：纯外观</div>
+<div class="list-item">高品质皮肤：附带原角色的标志性技能</div>
+<div class="list-item"><span class="highlight-yellow">技能威力受SP强化等级影响</span></div>
+<div class="divider"></div>
+<p style="color:var(--text-dim);font-size:0.85rem;">* 无等级限制！Lv.1也能穿神话皮肤，只是强化等级低，技能效果弱。</p>
+</div>
+</details>
+<details class="panel">
+<summary>🚗 载具系统</summary>
+<div class="panel-content">
+<p>玩家可以拥有各种经典载具。</p>
+<div class="divider"></div>
+<p class="section-title">载具分类</p>
+<div class="list-item"><span class="highlight-cyan">【陆地】</span>：德罗宁时光机、阿基拉摩托、蝙蝠车、疯狂麦克斯战车、AE86...</div>
+<div class="list-item"><span class="highlight-magenta">【空中】</span>：X翼战机、高达、EVA、钢铁侠战甲、龙猫巴士...</div>
+<div class="list-item"><span class="highlight-green">【水上】</span>：黑珍珠号、鹦鹉螺号、阳光号...</div>
+<div class="list-item"><span class="highlight-yellow">【特殊】</span>：任意门、时光机、哆啦A梦的道具...</div>
+<div class="divider"></div>
+<p class="section-title">载具属性</p>
+<div class="list-item">速度、防御、载客量</div>
+<div class="list-item">特殊能力（飞行、穿越、隐身等）</div>
+<div class="list-item">能源消耗</div>
+<div class="list-item"><span class="highlight-yellow">性能受SP强化等级影响</span></div>
+</div>
+</details>
+<details class="panel">
+<summary>⚔️ 武器系统</summary>
+<div class="panel-content">
+<p>玩家可以使用各种经典武器。</p>
+<div class="divider"></div>
+<p class="section-title">武器分类</p>
+<div class="list-item"><span class="highlight-cyan">【近战】</span>：光剑、斩魄刀、日轮刀、王者之剑、雷神之锤...</div>
+<div class="list-item"><span class="highlight-magenta">【远程】</span>：死亡之眼（守望先锋）、加特林、EVA狙击枪...</div>
+<div class="list-item"><span class="highlight-yellow">【魔法】</span>：哈利波特魔杖、死亡笔记、无限手套...</div>
+<div class="list-item"><span class="highlight-green">【特殊】</span>：写轮眼（需要特殊条件激活）、恶魔果实...</div>
+<div class="divider"></div>
+<p class="section-title">武器效果</p>
+<div class="list-item"><span class="highlight-yellow">威力受SP强化等级影响</span></div>
+</div>
+</details>
+<details class="panel">
+<summary>🥚 彩蛋系统</summary>
+<div class="panel-content">
+<p>哈利迪在绿洲中隐藏了无数彩蛋，找到它们可以获得极其珍贵的奖励。</p>
+<div class="divider"></div>
+<p class="section-title">彩蛋类型</p>
+<div class="list-item"><span class="highlight-cyan">【场景彩蛋】</span>：还原经典电影/动漫场景的隐藏区域</div>
+<div class="list-item"><span class="highlight-magenta">【行为彩蛋】</span>：做出特定动作触发（如《周六夜狂热》的舞步、《阿基拉》的摩托漂移）</div>
+<div class="list-item"><span class="highlight-yellow">【对话彩蛋】</span>：说出特定台词触发</div>
+<div class="list-item"><span class="highlight-green">【物品彩蛋】</span>：收集特定组合的物品触发</div>
+<div class="divider"></div>
+<p class="section-title">彩蛋奖励</p>
+<div class="list-item">神话级皮肤/载具/武器</div>
+<div class="list-item">独特称号</div>
+<div class="list-item">巨额Credits</div>
+<div class="list-item">隐藏区域的永久通行证</div>
+</div>
+</details>
+</section>
+<section id="config" class="tab-content">
+<div class="panel" style="border:none;background:transparent;">
+<div class="panel-content">
+<div class="form-section">
+<div class="form-title">🎮 绿洲身份（虚拟形象）</div>
+<div class="form-group">
+<label class="form-label">玩家ID</label>
+<input type="text" class="form-input" id="playerId" placeholder="你在绿洲中的名字...">
+</div>
+<div class="form-group">
+<label class="form-label">种族</label>
+<select class="form-select" id="race">
+<option value="">选择种族...</option>
+<option value="人类">人类</option>
+<option value="精灵">精灵</option>
+<option value="兽人">兽人</option>
+<option value="机械">机械</option>
+<option value="自定义">自定义</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">虚拟性别</label>
+<div class="radio-group">
+<label class="radio-item"><input type="radio" name="vGender" value="男"><span class="radio-label">男</span></label>
+<label class="radio-item"><input type="radio" name="vGender" value="女"><span class="radio-label">女</span></label>
+<label class="radio-item"><input type="radio" name="vGender" value="其他"><span class="radio-label">其他</span></label>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">虚拟外貌</label>
+<textarea class="form-textarea" id="vAppearance" placeholder="描述你在绿洲中的虚拟形象..."></textarea>
+</div>
+</div>
+<div class="form-section">
+<div class="form-title">🏚️ 现实身份（2045年）</div>
+<div class="form-group">
+<label class="form-label">现实姓名</label>
+<input type="text" class="form-input" id="realName" placeholder="你的真名...">
+</div>
+<div class="form-group">
+<label class="form-label">现实年龄</label>
+<input type="number" class="form-input" id="realAge" placeholder="年龄...">
+</div>
+<div class="form-group">
+<label class="form-label">现实性别</label>
+<div class="radio-group">
+<label class="radio-item"><input type="radio" name="rGender" value="男"><span class="radio-label">男</span></label>
+<label class="radio-item"><input type="radio" name="rGender" value="女"><span class="radio-label">女</span></label>
+</div>
+</div>
+<div class="form-group">
+<label class="form-label">居住地</label>
+<select class="form-select" id="location">
+<option value="">选择居住地...</option>
+<option value="堆叠区">堆叠区（贫民窟）</option>
+<option value="穹顶城市边缘">穹顶城市边缘</option>
+<option value="穹顶城市内部">穹顶城市内部（富人区）</option>
+<option value="其他">其他</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">现实背景</label>
+<textarea class="form-textarea" id="realBg" placeholder="描述你在现实世界中的身份、处境、故事..."></textarea>
+</div>
+</div>
+<div class="form-section">
+<div class="form-title">⚙️ 游戏设定</div>
+<div class="form-group">
+<label class="form-label">初始等级</label>
+<select class="form-select" id="initLevel">
+<option value="Lv.1（新手玩家）">Lv.1（新手玩家）</option>
+<option value="Lv.10（有一定经验）">Lv.10（有一定经验）</option>
+<option value="Lv.25（老玩家）">Lv.25（老玩家）</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">初始资金</label>
+<select class="form-select" id="initMoney">
+<option value="贫穷（1,000 C）">贫穷（1,000 C）</option>
+<option value="普通（5,000 C）">普通（5,000 C）</option>
+<option value="富裕（20,000 C）">富裕（20,000 C）</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">生活方式</label>
+<select class="form-select" id="lifestyle">
+<option value="">选择你的玩法偏好...</option>
+<option value="🗺️ 冒险者">🗺️ 冒险者</option>
+<option value="⚔️ 战斗狂">⚔️ 战斗狂</option>
+<option value="💎 收藏家">💎 收藏家</option>
+<option value="💬 社交党">💬 社交党</option>
+<option value="💕 恋爱脑">💕 恋爱脑</option>
+<option value="💰 商人">💰 商人</option>
+<option value="🎬 主播">🎬 主播</option>
+<option value="🔧 打工人">🔧 打工人</option>
+</select>
+</div>
+<div class="form-group">
+<label class="form-label">原作知识</label>
+<div class="radio-group">
+<label class="radio-item"><input type="radio" name="knowledge" value="完全不知道"><span class="radio-label">完全不了解各IP作品</span></label>
+<label class="radio-item"><input type="radio" name="knowledge" value="了解部分作品"><span class="radio-label">了解部分作品</span></label>
+<label class="radio-item"><input type="radio" name="knowledge" value="熟知大部分作品"><span class="radio-label">熟知大部分作品</span></label>
+</div>
+</div>
+</div>
+<div class="form-section">
+<div class="form-title">📋 信息预览</div>
+<div class="preview-box" id="previewBox">[ 填写上方信息后自动生成预览 ]</div>
+<button class="btn-copy" id="copyBtn">📋 复制角色信息</button>
+</div>
+</div>
+</div>
+</section>
+<section id="author" class="tab-content">
+<div class="panel" style="border:none;background:transparent;">
+<div class="panel-content author-section">
+<h3>✨ 欢迎来到绿洲</h3>
+<p>这是一个致敬《头号玩家》的世界。</p>
+<p>在这里，你可以穿越所有你热爱过的作品——<br>和鸣人并肩作战，与五条悟喝酒聊天，<br>驾驶高达征服星辰，在霍格沃茨学习魔法。</p>
+<p>没有强制任务，没有必须完成的主线。<br>你可以当英雄，也可以当咸鱼。<br>可以追求力量，也可以只想谈恋爱。</p>
+<p>现实或许灰暗而沉重，<br>但在绿洲，每一个梦想都有被实现的可能。</p>
+<p>这不是逃避，这是另一种活法。</p>
+<p>去冒险吧。去战斗吧。去恋爱吧。<br>成为你想成为的人。</p>
+<p class="highlight-cyan" style="font-size:1.1rem;margin-top:30px;">「Ready Player One.」</p>
+<p class="author-signature">—— 绿洲虚拟世界模拟器 ——</p>
+</div>
+</div>
+</section>
+</div>
+<div class="modal-overlay" id="modal">
+<div class="modal-box">
+<h3>✅ 复制成功</h3>
+<p>角色信息已复制到剪贴板！</p>
+<button class="modal-close" id="modalClose">确定</button>
+</div>
+</div>
+<script>
+const tabBtns=document.querySelectorAll('.tab-btn');
+const tabContents=document.querySelectorAll('.tab-content');
+tabBtns.forEach(btn=>{
+btn.addEventListener('click',()=>{
+tabBtns.forEach(b=>b.classList.remove('active'));
+tabContents.forEach(c=>c.classList.remove('active'));
+btn.classList.add('active');
+document.getElementById(btn.dataset.tab).classList.add('active');
+});
+});
+const formInputs=document.querySelectorAll('.form-input,.form-select,.form-textarea,input[type="radio"]');
+const previewBox=document.getElementById('previewBox');
+function updatePreview(){
+const playerId=document.getElementById('playerId').value||'未设置';
+const race=document.getElementById('race').value||'未设置';
+const vGender=document.querySelector('input[name="vGender"]:checked')?.value||'未设置';
+const vAppearance=document.getElementById('vAppearance').value||'未设置';
+const realName=document.getElementById('realName').value||'未设置';
+const realAge=document.getElementById('realAge').value||'未设置';
+const rGender=document.querySelector('input[name="rGender"]:checked')?.value||'未设置';
+const location=document.getElementById('location').value||'未设置';
+const realBg=document.getElementById('realBg').value||'未设置';
+const initLevel=document.getElementById('initLevel').value;
+const initMoney=document.getElementById('initMoney').value;
+const lifestyle=document.getElementById('lifestyle').value||'未设置';
+const knowledge=document.querySelector('input[name="knowledge"]:checked')?.value||'未设置';
+const preview=`【绿洲身份】
+玩家ID：${playerId}
+种族：${race}
+虚拟性别：${vGender}
+虚拟外貌：${vAppearance}
+【现实身份】
+姓名：${realName}
+年龄：${realAge}
+性别：${rGender}
+居住地：${location}
+背景：${realBg}
+【游戏设定】
+初始等级：${initLevel}
+初始资金：${initMoney}
+生活方式：${lifestyle}
+原作知识：${knowledge}`;
+previewBox.textContent=preview;
+}
+formInputs.forEach(input=>{
+input.addEventListener('input',updatePreview);
+input.addEventListener('change',updatePreview);
+});
+const copyBtn=document.getElementById('copyBtn');
+const modal=document.getElementById('modal');
+const modalClose=document.getElementById('modalClose');
+copyBtn.addEventListener('click',()=>{
+const text=previewBox.textContent;
+const textarea=document.createElement('textarea');
+textarea.value=text;
+document.body.appendChild(textarea);
+textarea.select();
+document.execCommand('copy');
+document.body.removeChild(textarea);
+modal.classList.add('show');
+});
+modalClose.addEventListener('click',()=>{
+modal.classList.remove('show');
+});
+modal.addEventListener('click',(e)=>{
+if(e.target===modal)modal.classList.remove('show');
+});
+</script>
+</body>

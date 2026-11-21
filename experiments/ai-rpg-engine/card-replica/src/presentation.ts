@@ -4,6 +4,7 @@ export const worlds = [
   {id:'slime',name:'关于我转生成史莱姆这件事',description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。',genre:'奇幻 · 转生',mark:'史',art:'/rpg-app/slime/background.jpg'},
   {id:'modern-life',name:'现代超真实人生',description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。',genre:'现代 · 开放世界',mark:'生',art:'/rpg-app/modern-life/cover.jpg'},
   {id:'type-moon',name:'型月大世界',description:'从魔术师与英灵两种身份进入型月世界。',genre:'型月 · 圣杯战争',mark:'月',art:'/rpg-app/type-moon/cover.webp'},
+  {id:'star-rail',name:'崩坏：星穹铁道',description:'沿星神曾行之途穿越银河。愿此行，终抵群星。',genre:'科幻 · 银河冒险',mark:'轨',art:'/rpg-app/star-rail/title.webp'},
   {id:'doupo',name:'斗破苍穹！',description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。',genre:'玄幻 · 斗气大陆',mark:'斗',art:'/rpg-app/doupo/cover.avif'},
   {id:'naruto',name:'火影大世界',description:'从忍者学校到忍界大战，选择篇章，写下自己的忍道。',genre:'忍界 · 羁绊',mark:'忍',art:'/rpg-app/naruto/world.jpg'},
   {id:'elderland',name:'西幻大世界',description:'艾尔德兰——剑与魔法的命运织机。它不关心你是谁，只关心你能成为谁。',genre:'西幻 · 剑与魔法',mark:'幻',art:'/rpg-app/elderland/background.jpg'},
@@ -21,12 +22,13 @@ export const worlds = [
   {id:'cultivation',name:'超级修仙',description:'择一身根骨，游历三界，走出自己的长生路。',genre:'仙侠 · 修行',mark:'仙',art:''},
   {id:'rpg05',name:'行间',description:'换一种身份，走进下一场冒险。你的选择，写在行间。',genre:'多世界 · 冒险',mark:'行',art:''},
   {id:'cyberpunk',name:'赛博朋克大世界',description:'在 2077 年的新巴比伦选择出身、职业与 AI 伴侣，从五层城区中开始自己的故事。',genre:'赛博朋克 · 开放世界',mark:'城',art:'/rpg-app/cyberpunk/cover.jpg'},
+  {id:'oasis',name:'OASIS！头号玩家！（游戏人生）',description:'在 2045 年的现实与绿洲之间切换身份，探索由电影、动漫和游戏构成的虚拟宇宙。',genre:'虚拟现实 · 开放世界',mark:'洲',art:'/rpg-app/oasis/cover.png'},
   {id:'daomu',name:'盗墓笔记大世界',description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。',genre:'悬疑 · 自由探索',mark:'墓',art:'/rpg-app/daomu/cover.avif'},
 ] as const;
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','american-horror','slime','modern-life','doupo','naruto','cyberpunk','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','american-horror','slime','modern-life','doupo','star-rail','naruto','cyberpunk','oasis','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

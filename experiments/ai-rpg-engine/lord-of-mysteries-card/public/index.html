@@ -2652,7 +2652,7 @@ function generatePreview(){
     const s=sourcesDB[appState.mainSource];
     const p=s.pathways[appState.mainPathway];
     const seq=p.sequences.find(x=>x.n===appState.mainSequence);
-    pathwayText=`${s.name} · ${p.name} · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
+    pathwayText=`${p.sequences.find(rank=>rank.n===9).name}途径 · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
   }
   const role=document.getElementById('role-playing-level').value;
   const mental=document.getElementById('mental-state').value;
@@ -2660,7 +2660,7 @@ function generatePreview(){
   if(appState.giftSource&&appState.giftSequence!==null){
     const g=giftsDB[appState.giftSource];
     const seq=g.pathway.sequences.find(x=>x.n===appState.giftSequence);
-    giftText=`${g.name} · ${g.pathway.name} · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
+    giftText=`${g.pathway.sequences.find(rank=>rank.n===9)?.name || seq.name}途径 · 序列${seq.n}「${seq.name}」\n   └ ${seq.desc}`;
   }
   const cont=document.querySelector('input[name="contamination"]:checked')?.value||'无';
   const artifacts=getCheckedValues('#artifact-grid input[type=checkbox]');
@@ -2732,6 +2732,7 @@ ${pathwayText}`;
     txt+=`\n\n【行囊机缘】（${appState.selectedGear.length}件）`;
     appState.selectedGear.forEach((g,i)=>{
       txt+=`\n${i+1}. ${rarityIcon(g.rarity)} [${rarityName(g.rarity)}] ${g.name}`;
+      if(g.name==='许愿神灯（已封印）') return;
       txt+=`\n   ${g.desc}`;
       txt+=`\n   效果：${g.effect}`;
     });

@@ -1,3 +1,4 @@
+import {assembleWorldbook} from './worldbook.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile,mkdir,mkdtemp} from 'node:fs/promises';
@@ -61,9 +62,11 @@ test('Jinyong route preserves system, two turns, idempotence, common Mod and car
   session=await api(path+'/send',body,headers);assert.equal(session.turns.at(-1).input,input);
   assert.equal(seen.length,i+1);await api(path+'/send',body,headers);assert.equal(seen.length,i+1);
  }
- const original=assemble({input:'样例'}).messages[0].content;
- assert.equal(seen[0].messages[0].content,original);assert.equal(seen[1].base.messages[0].content,original);
- const [mod]=await resolveMods('jinyong',['common.rationality.v1']);assert.equal(seen[1].messages[0].content,original+'\n\n'+mod.text);
+ const opening=seen[0].messages.at(-1).content;
+ const first=assembleWorldbook({input:opening}),second=assembleWorldbook({opening,history:seen[1].base.messages.slice(1,-1),input:'向茶摊老板问路。'});
+ assert.equal(first.work,'天龙八部');assert.equal(second.work,first.work);
+ assert.equal(seen[0].messages[0].content,first.system);assert.equal(seen[1].base.messages[0].content,second.system);
+ const [mod]=await resolveMods('jinyong',['common.rationality.v1']);assert.equal(seen[1].messages[0].content,second.system+'\n\n'+mod.text);
  assert.deepEqual(seen[1].messages.slice(1).map(m=>m.role),['user','assistant','user']);
  assert.equal((await api(path)).turns.length,2);assert.equal((await api(path)).runtime.compatible,true);
  const others=await api('/rpg-app/ancient/chat/api/sessions');assert.equal(others.length,0);

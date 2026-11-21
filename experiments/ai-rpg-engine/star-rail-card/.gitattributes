@@ -1,0 +1,3 @@
+resources/*.txt text eol=lf
+resources/*.json text eol=lf
+public/index.html text eol=lf

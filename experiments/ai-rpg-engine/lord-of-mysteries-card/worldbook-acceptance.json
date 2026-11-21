@@ -1,0 +1,61 @@
+{
+  "mode": "offline",
+  "externalModelCalls": 0,
+  "sourceSha256": "2ed6e8da7ac7415d9279c69ce5ab51da2e4dca6240667f60308b055291482c9e",
+  "sourceCharacters": 86723,
+  "fixedSha256": "bebb831cd96bc32f9b5e758d12d989dc9b5a52122f5d6a62e7ceb54e40f246ea",
+  "fixedCharacters": 15671,
+  "catalogSha256": "58320e33e96436fc2917ba1faae8d2ccf14eed503fd537bc18414296e97e9b69",
+  "catalogCharacters": 2851,
+  "worldbookVersion": "e5d60a8fa6b2384467151ae320c97893f29c38117f28801868de809786f90066",
+  "records": 237,
+  "formRecords": 61,
+  "openingFixtureReply": "柜员核验了见习文员的调阅手续，只批准查看许愿神灯的负面效应。\n档案授权｜许愿神灯｜负面效应",
+  "turns": [
+    {
+      "turn": 1,
+      "input": "━━━━━━━━━━━━━━━━━━━━━━━━━\n   诡秘之主档案构建系统\n━━━━━━━━━━━━━━━━━━━━━━━━━\n【时间线归属】\n廷根迷雾篇（1349年）\n【入场节点】\n篇章开始\n【基础信息】\n姓名：艾琳\n性别：未知　年龄：23岁　所在地：廷根\n职业/身份：见习文员\n【所属势力】\n势力：值夜者\n职阶：未填写\n入圈原因：\n【外貌性格】\n外貌：未填写\n性格：未填写\n兴趣爱好：未填写\n【背景故事】\n未填写\n【当前处境】\n在档案室查阅编号0-05的公开外观。\n【主修途径】\n占卜家途径 · 序列9「占卜家」\n   └ 掌握灵视与卡牌、占星等多种占卜术，神秘学知识扎实，缺乏直接战斗手段。\n扮演法掌握度：\n精神状态：\n\n【外神恩赐】\n未选择\n\n━━━━━━━━━━━━━━━━━━━━━━━━━\n灰雾笼罩 · 群星注视\n━━━━━━━━━━━━━━━━━━━━━━━━━",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      },
+      "systemCharacters": 18721,
+      "systemSha256": "9331295c2a320d12885403e3cbd742cc53140f4b3f782907a985247dafb2b2cb",
+      "messagesSha256": "60a796774f358a474183b5998438f9351d05e0ccf8c3e73543071117215b6b5e",
+      "requestFileSha256": "f2f4aec9db872a7911c112c0aecd3351b42a91e89a8da81e599a7077bc1d0a56",
+      "chapter": "廷根迷雾篇"
+    },
+    {
+      "turn": 2,
+      "input": "查阅许愿神灯的负面效应。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      },
+      "systemCharacters": 18809,
+      "systemSha256": "89a3f8f8b763b01e4c5df657eea78d317b93c14e14369332e0e40a9c5ccad066",
+      "messagesSha256": "b80fe31033d35eb5b8e88daf09461a08d1fdb9425b27849e5bac2284c5176199",
+      "requestFileSha256": "100c4d550c0d2231e09c1a4509c31ba6238ab76c4eae8d5b347ca7d1a83958c6",
+      "chapter": "廷根迷雾篇"
+    }
+  ],
+  "legacy": {
+    "turnMessagesSha256": [
+      "0a2a3f55d260687a66a9f06f7b8f51962f5efaecb1ff24f571461564ee898a07",
+      "a08da2fe671f5a680b585c57c77e9b19e2f72718342d83da6896b1588f0c070b"
+    ],
+    "systemSha256": "2ed6e8da7ac7415d9279c69ce5ab51da2e4dca6240667f60308b055291482c9e"
+  }
+}
