@@ -1,3 +1,4 @@
+import {assembleWorldbook} from './worldbook.mjs';
 import {readFile} from 'node:fs/promises';
 import {assembleOpening} from './host.mjs';
 import {invoke, applyModelChanges, recallMemories} from '../plugins/memory-palace.mjs';
@@ -13,7 +14,7 @@ export async function createStory(id, archive, memoryEnabled) {
     if (!manifest.compatibleCards.includes('cultivation') || manifest.id !== 'rpg.memory-palace' || sha(bytes) !== manifest.artifactSha256) throw Error('MEMORY_RELEASE_MISMATCH');
     plugin = {id:manifest.id, version:manifest.version, digest:manifest.artifactSha256};
   }
-  return {id, system, opening, plugin, turns:[], entries:[]};
+  return {id, worldbookVersion:1, system:{...system,content:assembleWorldbook({input:archive}).system}, opening, plugin, turns:[], entries:[]};
 }
 
 // The host claims each stage before dispatch and persists its receipt before returning content.
@@ -23,7 +24,9 @@ export async function playTurn(session, input, {generate, save}) {
   if (number === 1 && input !== session.opening.content) throw Error('OPENING_MISMATCH');
   const recalled = session.plugin && recallMemories({entries:session.entries, turns:session.turns, input});
   const current = recalled?.entries.length ? input + '\n\n【已召回记忆】\n' + JSON.stringify(recalled.entries) : input;
-  const messages = [session.system, ...session.turns.flatMap(t => [{role:'user',content:t.current},{role:'assistant',content:t.raw}]), {role:'user',content:current}];
+  const history=session.turns.flatMap(t=>[{role:'user',content:t.input},{role:'assistant',content:t.raw}]);
+  const system=session.worldbookVersion===1 ? {role:'system',content:assembleWorldbook({opening:session.opening.content,history,input}).system} : session.system;
+  const messages = [system, ...session.turns.flatMap(t => [{role:'user',content:t.current},{role:'assistant',content:t.raw}]), {role:'user',content:current}];
   const raw = await generate('story', number, messages);
   session.turns.push({input,current,raw,recall:recalled?.record ?? null});
   await save('story', number, session);

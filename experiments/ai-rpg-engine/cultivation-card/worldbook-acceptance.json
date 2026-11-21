@@ -1,0 +1,65 @@
+{
+  "mode": "offline",
+  "realModelCalls": 0,
+  "sourceSha256": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+  "fixedSha256": "ed1fa7c8d94cbdb4b904ff547d2e5c7e0204e5375be3be86b8916cdbf118a5d9",
+  "librarySha256": "33835ed20f18d21876c2d2ed880d7d0429547ccaea41cad211f444c9c2f5d51a",
+  "libraryNames": 1268,
+  "libraryCharacters": 5958,
+  "entryCounts": {
+    "凡界": 147,
+    "仙界": 24,
+    "神界": 65
+  },
+  "legacyContinuationSystemSha256": "9a1e707828659b3ee1daa9628c334c1782b6526b066287836e7f8db7806a5dc2",
+  "turns": [
+    {
+      "turn": 1,
+      "input": "姓名：林禾\n【出身与位置】\n出身界：凡界\n当前所在界：凡界\n所在区域：东域\n具体地点：青牛镇\n我是尚未拜师的凡人，清早在镇口打听今日集市的开市时辰。",
+      "roles": [
+        "system",
+        "user"
+      ],
+      "currentRealm": "凡界",
+      "hitIds": [
+        "L688",
+        "L1234",
+        "L3351"
+      ],
+      "foreignEntryHits": 0,
+      "systemCharacters": 22751,
+      "systemSha256": "ee22088934a372cb9926f0c955ad4f6f389da0aad06a78ec72c1994b57e179d9",
+      "messagesSha256": "1fae91a2f546675fe6840125db9778a135666c7ded9ec95601d0e1443f87ab61",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      }
+    },
+    {
+      "turn": 2,
+      "input": "去镇上的集市买一捆麻绳。",
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "currentRealm": "凡界",
+      "hitIds": [
+        "L688",
+        "L1234",
+        "L3351"
+      ],
+      "foreignEntryHits": 0,
+      "systemCharacters": 22751,
+      "systemSha256": "ee22088934a372cb9926f0c955ad4f6f389da0aad06a78ec72c1994b57e179d9",
+      "messagesSha256": "cf8aaa6266c4d0eccd5808bd2553c7d8b237f703a58e95954e0e5219c9d19624",
+      "parameters": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "max_tokens": 16384
+      }
+    }
+  ]
+}

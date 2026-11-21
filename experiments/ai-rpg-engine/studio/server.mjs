@@ -3,7 +3,7 @@ import {isMedievalAsset,serveMedievalAsset} from '../medieval-card/assets.mjs';
 import {ownLocalDirectory} from './local-owner.mjs';
 import {harryPotterResponse} from '../card-replica/lib/harry-potter-presentation.mjs';
 import {attachSessionLifecycle,sessionLifecycleHttp} from './session-lifecycle.mjs';
-import {cultivationHttp} from '../cultivation-card/host.mjs';
+import {cultivationHttp} from '../cultivation-card/prepare.mjs';
 import {MemorySessionStore} from './memory-session-store.mjs';
 import {memoryHostTransport} from './memory-host.mjs';
 import {memoryHttp,memoryProjection} from './memory-http.mjs';
@@ -145,7 +145,7 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
      id==='dragon-raja'?(await import('../dragon-raja-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
      (await import('../lord-of-mysteries-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content;
     const control=archiveControls[id];
-    const {createArchiveHost}=id==='harry-potter'?{createArchiveHost:(await import('../harry-potter-card/host.mjs')).createHarryPotterHost}:id==='medieval'?{createArchiveHost:(await import('../medieval-card/host.mjs')).createMedievalHost}:id==='jinyong'?{createArchiveHost:(await import('../jinyong-card/host.mjs')).createJinyongHost}:await import('../xingjian-card/host.mjs');
+    const {createArchiveHost}=id==='harry-potter'?{createArchiveHost:(await import('../harry-potter-card/host.mjs')).createHarryPotterHost}:id==='medieval'?{createArchiveHost:(await import('../medieval-card/host.mjs')).createMedievalHost}:id==='cultivation'?await import('../cultivation-card/archive-host.mjs'):id==='jinyong'?{createArchiveHost:(await import('../jinyong-card/host.mjs')).createJinyongHost}:await import('../xingjian-card/host.mjs');
     return openArchive(join(directory,'archive-chat',id,control?'real':'offline'),dir=>createArchiveHost(dir,control,{cardId:id,name:archiveNames[id],system,autoSummaryV2,pluginFeatures:archiveFeatures}));
    };
    archiveHosts.set(id,init().catch(error=>{archiveHosts.delete(id);throw error;}));
