@@ -19,6 +19,7 @@ import {SessionPlugins} from './session-plugins';
 import {SessionSidebar} from './session-sidebar';
 import {worlds,worldId} from './presentation';
 import './chat-workspace.css';
+import './daomu-chat.css';
 import {customScope} from './session-client';
 import {ConfigTools,ConfigText,useConfigView} from './custom-config';
 import {useIllustrations} from './illustrations';
@@ -36,6 +37,12 @@ import './card-presentation.css';
 import {Modal} from './modal';
 import {archiveRoot,localCatalog,cardStoragePrefix,inStudioCard,api,ApiError,catalogApi,emptyClientState,readClientState,writeClientState,reconcileClientState,sendBlocked} from './session-client';
 import type {Session,ClientState,BranchRecord,SelectionRecord} from './session-client';
+const daomuShortcuts = [
+  {label: '记忆区大总结', text: '【记忆归档】将所有STM和LTM按时间线合并为一条总结（字数为原记忆区总字数的90-100%），保留：具体时间、关键转折、重要角色、关系变化、核心冲突，清空后作为LTM#1，正文输出完整总结'},
+  {label: '存档', text: '【存档】'},
+  {label: '读档', text: '【读档】'},
+];
+
 export const SavedOutput=memo(function SavedOutput({raw,html}:{raw:string;html:string}){return typeof html==='string'?<div className={/<[a-z][a-z0-9-]*(?:\s|>)/i.test(raw)?"model-output":"model-output platform-prose"} dangerouslySetInnerHTML={{__html:html}}/>:<div className="model-output platform-prose"><ReactMarkdown components={{img:()=> <span>图片未加载</span>,a:({children})=><span>{children}</span>}} urlTransform={()=>''}>{raw}</ReactMarkdown></div>;});
 
 type BudgetSnapshot={remaining?:number;reserved?:number;used?:number;limit?:number};
@@ -211,6 +218,9 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  {edit&&<Modal title="编辑输入" className="chat-dialog" close={()=>setEdit(null)}><form className="branch-form" onSubmit={e=>{e.preventDefault();void rewrite(edit.turn,edit.text);}}><label htmlFor="message-edit">第 {edit.turn} 回合</label><textarea id="message-edit" autoFocus rows={8} maxLength={20000} value={edit.text} onChange={e=>setEdit({...edit,text:e.target.value})}/><p>在当前会话重新生成。原回复和后续剧情将保存为可恢复的历史版本。</p><button type="button" className="secondary" onClick={()=>setEdit(null)}>取消</button><button className="chat-primary" disabled={rewriteBlocked||!edit.text.trim()}>保存并重新生成</button></form></Modal>}
  {pictures.gallery(null)}{pictures.modal}{speech.modal}{voiceInput.modal}{voiceLibrary.modal}
  </div></div><div className="chat-dock">{s?.generationParameters&&catalog?.plugins.some(p=>p.id==='rpg.model-comparison')&&<ModelComparison sessionId={sessionId} enabled={!requirementsBlocked&&!!grants['rpg.model-comparison']?.enabled} getInput={()=>client.current.draft} setInput={value=>{persist({...client.current,draft:value});}} blocked={(value,ids)=>{setComparisonBlocked(value);setComparisonOperations(old=>JSON.stringify(old)===JSON.stringify(ids)?old:ids);}} changed={async()=>{accept(await api('sessions/'+sessionId));await loadBudget();await summary.refresh();await memory.refresh();}}/>}<div className="chat-tools" aria-label="聊天工具">
+ {world?.id==='daomu'&&daomuShortcuts.map(({label,text})=><button key={label} type="button"
+   title={text} disabled={busy||pending||trashed||incompatible||!!local.lifecycle||!!storageError||(local.draft.length+text.length+(local.draft?1:0))>20000}
+   onClick={()=>{const draft=client.current.draft;persist({...client.current,draft:(draft?draft+'\n':'')+text});composer.current?.focus();}}>{label}</button>)}
  {s?.generationParameters&&<button className="text-button" disabled={busy||pending||!grants['rpg.generation-parameters']?.enabled} onClick={()=>setPanel('parameters')}>生成参数</button>}{s?.requirements&&<button className="text-button" disabled={busy||(pending&&!requirementsBlocked)} onClick={()=>setPanel('requirements')}>持续要求{requirementsBlocked?' · 待核对':''}</button>}
  {summary.status?.enabled&&<button className="text-button" disabled={busy} onClick={()=>setPanel('summary')}>自动总结</button>}{memory.status?.enabled&&<button className="text-button" disabled={busy||!memory.status?.compatible} onClick={()=>setPanel('memory')}>记忆宫殿</button>}{grants['rpg.history-window']?.enabled&&<button className="text-button" disabled={busy||historyUnavailable} onClick={()=>setPanel('history')}>历史窗口</button>}
  {voiceInput.toolbar}{speech.toolbar}{voiceLibrary.toolbar}{pictures.toolbar}{s&&grants['rpg.transcript']?.enabled&&<TranscriptTools id={s.id} name={s.name} disabled={busy||pending||!!storageError} opened={opened}/>}{studio&&<ModPanel card={cardStoragePrefix()} session={sessionId} busy={busy||pending}/>} {configScope&&<ConfigTools scope={configScope}/>}

@@ -1,0 +1,28 @@
+.rpg-chat-workspace[data-world="daomu"] .chat-main {
+  background: #81938d url("/rpg-app/daomu/background.jpg") center / cover no-repeat;
+}
+.rpg-chat-workspace[data-world="daomu"] .chat-dock {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--chat-bg) 86%, transparent), var(--chat-bg));
+}
+.rpg-chat-workspace[data-world="daomu"] .conversation {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.rpg-chat-workspace[data-world="daomu"] .conversation > article,
+.rpg-chat-workspace[data-world="daomu"] .chat-empty {
+  background: var(--chat-surface);
+  border-radius: 10px;
+  padding: 18px;
+}
+.rpg-chat-workspace[data-world="daomu"][data-reading="light"] .chat-sidebar {
+  background: #fafcfb;
+  color: #28352f;
+  border-color: #dde4e0;
+}
+.rpg-chat-workspace[data-world="daomu"][data-reading="light"] .chat-sidebar :is(button,a,.sidebar-label,small) {
+  color: #385548;
+}
+.rpg-chat-workspace[data-world="daomu"][data-reading="light"] .chat-sidebar button {
+  background: #f2f5f3;
+  border-color: #cad5cf;
+}

@@ -15,11 +15,12 @@ export const worlds = [
   {id:'god',name:'神临凡尘',description:'写下天书，成为凡尘中一个不平凡的存在。',genre:'神话 · 沙盒',mark:'神',art:''},
   {id:'cultivation',name:'超级修仙',description:'择一身根骨，游历三界，走出自己的长生路。',genre:'仙侠 · 修行',mark:'仙',art:''},
   {id:'rpg05',name:'行间',description:'换一种身份，走进下一场冒险。你的选择，写在行间。',genre:'多世界 · 冒险',mark:'行',art:''},
+  {id:'daomu',name:'盗墓笔记大世界',description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。',genre:'悬疑 · 自由探索',mark:'墓',art:'/rpg-app/daomu/cover.avif'},
 ] as const;
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','doupo','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','doupo','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={
