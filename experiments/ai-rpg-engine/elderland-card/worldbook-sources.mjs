@@ -144,5 +144,5 @@ for(const [r,data] of Object.entries(regionData))for(const country of data.count
     if(!count)supplement(r,P,loc.name,[loc.id],loc.detail,loc,'detail',loc.name);
   }
 }
-export const omitted=[[1,25],[119,119],[595,602]];
+export const omitted=[[1,2]];
 export const sourceHash=manifest.system.sha256;
