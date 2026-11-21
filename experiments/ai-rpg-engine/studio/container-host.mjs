@@ -5,6 +5,7 @@ import {installSlime,slimeOptions} from '../slime-card/integration.mjs';
 import {installStarRail,starRailOptions} from '../star-rail-card/integration.mjs';
 import {installDoupo,doupoOptions} from '../doupo-card/integration.mjs';
 import {installCyberpunk,cyberpunkOptions} from '../cyberpunk-card/integration.mjs';
+import {installOasis,oasisOptions} from '../oasis-card/integration.mjs';
 import {installDaomu,daomuOptions} from '../daomu-card/integration.mjs';
 import {installNaruto,narutoOptions} from '../naruto-card/integration.mjs';
 import {installAiGirls,aiGirlsOptions} from '../ai-girls-card/integration.mjs';
@@ -106,6 +107,9 @@ async function run(env){
   installTypeMoon(server,{directory,speech,control:typeMoonControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   const starRailControl=starRailOptions(env);if(starRailControl)starRailControl.fetcher=configFetch;
   installStarRail(server,{directory,speech,control:starRailControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const oasisControl=oasisOptions(env);
+  if(oasisControl)oasisControl.fetcher=configFetch;
+  installOasis(server,{directory,speech,control:oasisControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();

@@ -21,6 +21,7 @@ COPY modern-life-card ./modern-life-card
 COPY slime-card ./slime-card
 COPY star-rail-card ./star-rail-card
 COPY doupo-card ./doupo-card
+COPY oasis-card ./oasis-card
 COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
 COPY naruto-card ./naruto-card
