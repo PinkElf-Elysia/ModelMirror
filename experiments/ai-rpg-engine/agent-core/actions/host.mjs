@@ -14,6 +14,10 @@ export class ActionHost extends CoreHost{
   if(old){need(old.requestHash===hash({request,options:opts}),'STATE_OPERATION_COLLISION');return r;}
   need(!r.pending&&r.revision===request.revision,'STATE_STALE');
   const context=await this.adapter.assembleTask(r,request.input);
+  if(this.store.modelProposalPolicy){
+   context.messages[0].content=this.store.modelProposalPolicy.instruction+'\n'+context.messages[0].content;
+   context.hash=hash({messages:context.messages,tools:context.tools,purpose:context.purpose});
+  }
   await this.store.start(id,request,context,opts);return this.advance(id,request.operationId,false);
  });}
  propose(id,request){return this.exclusive(id,()=>this.store.propose(id,request));}
@@ -80,7 +84,8 @@ export class ActionHost extends CoreHost{
      try{return await this.store.finishNarrative(id,opId,parsed.receipt);}
      catch(e){if(['ACTION_NARRATION_WRITE','STATE_REPLY_INCOMPLETE'].includes(e.code))return this.store.mark(id,opId,'rejected',e.code);throw e;}
     }
-    await this.store.receive(id,opId,parsed.receipt);return this.store.finish(id,opId);
+    const intent=this.store.modelProposalPolicy?.intentOnly?.(op.input,op.frozenState);
+    return this.store.finishDialogue(id,opId,parsed.receipt,intent);
    }
    throw Object.assign(Error('TOOL_STAGE_LIMIT'),{code:'TOOL_STAGE_LIMIT'});
   }finally{this.progress.delete(id);}

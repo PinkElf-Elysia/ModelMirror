@@ -3,13 +3,15 @@ import {NativeBridgeProvider} from '../../../local-state/tools/bridge-provider.m
 import {visibleText} from '../../../harness/measurement.mjs';
 import {hash,clone,need} from '../../contracts.mjs';
 import {reserve} from '../../actions/real/provider.mjs';
-import {MODEL,SLOTS,validateGrant,policyFor} from './contract.mjs';
+import * as historical from './contract.mjs';
+const r9={...historical,ports:['18919','18920'],limit:3,total:.30};
 // This transport records receipts; only the common TaskLedger owns the allowance.
 export class RealTransport{
  static async open({directory,...options}){const records=await SessionRecords.open(directory,{scope:'r9-live-transport',recoverDeadOwner:true});return new RealTransport({...options,records});}
- constructor({records,url,token,selections,authorization,mode,fetcher=fetch}){
-  const u=new URL(url);need(['real','mock'].includes(mode)&&u.protocol==='http:'&&u.hostname==='127.0.0.1'&&['18919','18920'].includes(u.port)&&!u.username&&!u.password,'R9_BRIDGE');
-  need(authorization.maximumCalls===3&&authorization.maximumUSD===.30&&authorization.requests.length<=3&&token.length>=32,'R9_AUTHORIZATION');
+ constructor({records,url,token,selections,authorization,mode,fetcher=fetch,contract=r9}){
+  const {SLOTS,MODEL,policyFor}=contract;this.contract=contract;
+  const u=new URL(url);need(['real','mock'].includes(mode)&&u.protocol==='http:'&&u.hostname==='127.0.0.1'&&contract.ports.includes(u.port)&&!u.username&&!u.password,'R9_BRIDGE');
+  need(authorization.maximumCalls===contract.limit&&authorization.maximumUSD===contract.total&&authorization.requests.length<=contract.limit&&token.length>=32,'R9_AUTHORIZATION');
   for(const slot of Object.values(SLOTS)){const s=selections[slot.profile];need(s?.available&&s.model===MODEL&&s.selectionId&&s.selectionRevision&&hash(s.parameters)===hash(policyFor(slot,authorization.pricing).model.parameters),'R9_SELECTION');}
   Object.assign(this,{records,url:u,token,selections,authorization,mode,fetcher,calls:0,active:0,maxActive:0});
  }
@@ -23,9 +25,10 @@ export class RealTransport{
   if(result.status==='completed'&&(reported!=null||estimated!=null))result.billing={kind:this.mode==='mock'?'simulated':reported!=null?'provider':'estimate',microUSD:reported??estimated};
   return result;
  }
- budgetPayload(p){const g=this.authorization.requests.find(x=>x.taskId===p.taskId);need(g&&g.session===p.session,'R9_REAL_GRANT');const selection=this.selections[SLOTS[g.slot].profile];return {sessionId:p.session,requestId:p.id,selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,parameters:clone(selection.parameters),...clone(p.request)};}
+ budgetPayload(p){const {SLOTS}=this.contract;const g=this.authorization.requests.find(x=>x.taskId===p.taskId);need(g&&g.session===p.session,'R9_REAL_GRANT');const selection=this.selections[SLOTS[g.slot].profile];return {sessionId:p.session,requestId:p.id,selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,parameters:clone(selection.parameters),...clone(p.request)};}
  async generate(packet){
-  need(Date.now()<Date.parse(this.authorization.expiresAt),'R9_AUTHORIZATION_EXPIRED');need(this.authorization.requests.length===3,'R9_GRANTS_INCOMPLETE');const g=this.authorization.requests.find(x=>x.taskId===packet.taskId);validateGrant(g,packet);need(g.inputHash===hash(packet.meta.input),'R9_INPUT_CHANGED');
+  const {SLOTS,validateGrant,policyFor,limit}=this.contract;
+  need(Date.now()<Date.parse(this.authorization.expiresAt),'R9_AUTHORIZATION_EXPIRED');need(this.authorization.requests.length===limit,'R9_GRANTS_INCOMPLETE');const g=this.authorization.requests.find(x=>x.taskId===packet.taskId);validateGrant(g,packet);need(g.inputHash===hash(packet.meta.input),'R9_INPUT_CHANGED');
   const slot=SLOTS[g.slot],selection=clone(this.selections[slot.profile]);need(hash(packet.model)===hash(policyFor(slot,this.authorization.pricing).model),'R9_MODEL_POLICY');
   const payload={sessionId:packet.session,requestId:packet.id,selectionId:selection.selectionId,selectionRevision:selection.selectionRevision,parameters:selection.parameters,...clone(packet.request)};
   const bound=reserve(payload,this.authorization.pricing,slot);need(bound.reserveMicros<=packet.reserveMicroUSD,'R9_PAYLOAD_RESERVE');
@@ -41,11 +44,11 @@ export class RealTransport{
   if(result.finishReason==='stop'&&typeof result.message?.content==='string'&&visibleText(result.message.content)&&!/<(?:think|cot|state_delta|variable_panel)\b/i.test(result.message.content))timing.proseFirstMs=timing.firstContentMs;
   result.timing=timing;const e=await this.records.get(key);await this.records.put(key,e.hash,{...e.data,result,response:response??null,completedAt:Date.now()});return result;
  }
- async lookup(session,id){for(const slot of Object.values(SLOTS)){const key='request-'+slot.id,e=await this.records.get(key);if(e?.data.payload.sessionId!==session||e?.data.payload.requestId!==id)continue;
+ async lookup(session,id){for(const slot of Object.values(this.contract.SLOTS)){const key='request-'+slot.id,e=await this.records.get(key);if(e?.data.payload.sessionId!==session||e?.data.payload.requestId!==id)continue;
   if(e.data.result&&e.data.result.status!=='unknown')return e.data.result;
   const response=await this.request('/api/rpg/v1/'+slot.route+'/results/'+session+'/'+id);if(response.status!==200)return null;
   const result=this.decode({status:response.body.httpStatus,body:response.body.body},e.data.payload,e.data.selection);result.timing=e.data.result?.timing??null;await this.records.put(key,e.hash,{...e.data,result,recoveredResponse:response});return result;
  }return null;}
- async evidence(){return {mode:this.mode,calls:(await Promise.all([1,2,3].map(n=>this.records.get('request-'+n)))).filter(Boolean).map(e=>e.data),maxConcurrent:this.maxActive};}
+ async evidence(){return {mode:this.mode,calls:(await Promise.all(Object.keys(this.contract.SLOTS).map(n=>this.records.get('request-'+n)))).filter(Boolean).map(e=>e.data),maxConcurrent:this.maxActive};}
  close(){return this.records.close();}
 }
