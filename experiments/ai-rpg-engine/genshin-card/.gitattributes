@@ -1,0 +1,4 @@
+*.json text eol=lf
+*.mjs text eol=lf
+*.txt -text
+*.html -text

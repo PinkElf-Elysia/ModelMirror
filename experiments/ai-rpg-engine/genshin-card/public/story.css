@@ -1,0 +1,1818 @@
+.genshin-story {
+    color: #2c2418 !important;
+    font-family: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif !important;
+    font-weight: 700 !important;
+    font-size: 15px !important;
+    line-height: 1.65 !important;
+    letter-spacing: 0.01em !important;
+    text-rendering: optimizeLegibility !important;
+}
+.genshin-story .modal-box blk {
+    display: block !important;
+    position: relative !important;
+    z-index: 1 !important;
+    margin-bottom: 12px !important;
+    padding: 6px 10px !important;
+    background: linear-gradient(180deg, rgba(255, 253, 248, 0.88) 0%, rgba(246, 238, 222, 0.88) 100%) !important;
+    border: 1px solid #d4bc90 !important;
+    border-radius: 6px !important;
+    box-shadow:
+        0 2px 6px rgba(140, 102, 53, 0.08),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.75) !important;
+}
+.genshin-story .modal-box blk:last-child {
+    margin-bottom: 0 !important;
+}
+.genshin-story .modal-box blk:not(:last-child)::after {
+    content: "✦" !important;
+    position: absolute !important;
+    bottom: -7px !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: 14px !important;
+    height: 14px !important;
+    line-height: 14px !important;
+    text-align: center !important;
+    font-size: 13px !important;
+    color: #b5853b !important;
+    background: #f6efe2 !important;
+    text-shadow: 0 1px 0 #fff, 0 0 6px rgba(212, 163, 89, 0.6) !important;
+    z-index: 2 !important;
+    pointer-events: none !important;
+}
+.genshin-story .modal-box r {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    padding: 5px 0 !important;
+    border-bottom: 1px dashed rgba(194, 165, 117, 0.45) !important;
+    font-family: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif !important;
+    line-height: 1.55 !important;
+    font-size: 14px !important;
+}
+.genshin-story .modal-box r:last-child {
+    border-bottom: none !important;
+}
+.genshin-story .modal-box k {
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+    color: #8b5a2b !important;
+    font-weight: 900 !important;
+    text-shadow: 0.5px 0.5px 0px rgba(194, 165, 117, 0.3) !important;
+    margin-right: 6px !important;
+    user-select: none !important;
+}
+.genshin-story .modal-box v {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    color: #3d2f1d !important;
+    font-weight: 600 !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+}
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) {
+    background: rgba(255, 248, 250, 0.85) !important;
+    border: 3px solid #ffb347 !important;
+    border-radius: 8px !important;
+    margin: 0 0 6px 0 !important;
+    padding: 0 !important;
+    box-shadow:
+            4px 4px 0px rgba(160, 70, 100, 0.45),
+            0 2px 4px rgba(0, 0, 0, 0.2),
+            inset 0 0 0 1px #fffef7,
+            inset 0 0 0 2px #e8d7b8 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+}
+
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) summary {
+    display: flex !important;
+    align-items: center !important;
+    background: linear-gradient(135deg, #ff6b9d 0%, #b84a8a 50%, #6ec8ff 100%) !important;
+    color: #FFF !important;
+    text-shadow: 2px 2px 0px rgba(0, 0, 0, 0.3) !important;
+    font-weight: 900 !important;
+    padding: 2px 14px !important;
+    cursor: pointer !important;
+    list-style: none !important;
+    outline: none !important;
+    user-select: none !important;
+}
+
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) summary::-webkit-details-marker {
+    display: none !important;
+}
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) summary::before {
+    content: '✦' !important;
+    display: inline-block !important;
+    margin-right: 8px !important;
+    font-size: 1.15em !important;
+    color: #ffffff !important;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4)) !important;
+}
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu)[open] summary::before {
+    content: '✧' !important;
+    color: #ffffff !important;
+}
+
+.genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) > *:not(summary) {
+    padding: 8px !important;
+    background: rgba(255, 252, 240, 0.6) !important;
+    border-top: 0px solid #e2c7a1 !important;
+}
+.genshin-story {
+    content-visibility: visible !important;
+    contain: none !important;
+    container-type: normal !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    filter: none !important;
+    -webkit-filter: none !important;
+    transform: none !important;
+    -webkit-transform: none !important;
+    perspective: none !important;
+    will-change: auto !important;
+}
+.genshin-story .hero-modal[open] {
+    position: static !important;
+    transform: none !important;
+    contain: none !important;
+}
+.genshin-story .hero-modal[open] .modal-box,
+.genshin-story .hero-modal[open] .hero-btn::before,
+.genshin-story .hero-modal[open] .hero-btn::after {
+    box-sizing: border-box !important;
+}
+.genshin-story:has(.hero-modal[open]) {
+    position: relative !important;
+    z-index: 2147483640 !important;
+}
+.genshin-story .hero-modal[open] .hero-btn::before {
+    touch-action: none !important;
+    overscroll-behavior: contain !important;
+    -webkit-overflow-scrolling: auto !important;
+}
+.genshin-story .hero-modal[open] .modal-box {
+    overscroll-behavior: contain !important;
+    touch-action: pan-y !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+.genshin-story .hero-bar,
+.genshin-story p:has(> .hero-modal),
+.genshin-story div:has(> .hero-modal) {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    justify-content: space-evenly !important;
+    align-items: center !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 8px auto !important;
+    padding: 6px 2px 2px 2px !important;
+    box-sizing: border-box !important;
+
+    background: linear-gradient(180deg, #fffcf5 0%, #f7eedb 100%) !important;
+    border: 2px solid #c2a575 !important;
+    border-radius: 8px !important;
+    box-shadow:
+        0 0 0 1px #e8d7b8,
+        0 4px 12px rgba(0, 0, 0, 0.25),
+        inset 0 0 10px rgba(178, 130, 69, 0.15) !important;
+}
+.genshin-story .hero-modal summary::-webkit-details-marker { display: none !important; }
+.genshin-story .hero-modal summary::before { content: none !important; display: none !important; }
+.genshin-story .hero-modal summary { list-style: none !important; outline: none !important; }
+.genshin-story .hero-modal {
+    flex: 1 1 0% !important;
+    max-width: 72px !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    box-sizing: border-box !important;
+    padding-bottom: 18px !important;
+}
+.genshin-story .hero-btn {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    width: 50px !important;
+    height: 50px !important;
+    aspect-ratio: 1 / 1 !important;
+    border-radius: 50% !important;
+    background-color: #fffef7 !important;
+    border: 2px solid #e2c7a1 !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25), inset 0 0 6px rgba(139, 94, 46, 0.2) !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    overflow: visible !important;
+    position: relative !important;
+
+    background-repeat: no-repeat !important;
+    background-position: center calc(50% - 0.5px) !important;
+    background-size: 100% !important;
+}
+
+.genshin-story .hero-btn:hover {
+    background-color: #fff3d6 !important;
+    border-color: #c2a575 !important;
+}
+.genshin-story .hero-btn:active {
+    transform: scale(0.92) !important;
+}
+.genshin-story .hero-btn[title="主角信息"] { background-image: url('portraits/f3160ba7-787f-4226-2305-f06e6c397100.webp') !important; }
+.genshin-story .hero-btn[title="互动角色"] { background-image: url('portraits/9d6c53aa-43b4-4021-de08-77a01d0b7700.webp') !important; }
+.genshin-story .hero-btn[title="状态面板"] { background-image: url('portraits/98e06f99-8259-4177-a1b8-6e72bdca9200.webp') !important; }
+.genshin-story .hero-btn[title="世界情报"] { background-image: url('portraits/499ad697-3a66-4aba-2e59-2ddb6191db00.webp') !important; }
+.genshin-story .hero-btn[title="记忆回廊"] { background-image: url('portraits/b0c7335f-c100-42ed-b6a0-37e2e7b07300.webp') !important; }
+.genshin-story .hero-btn[title="主角信息"]::after,
+.genshin-story .hero-btn[title="互动角色"]::after,
+.genshin-story .hero-btn[title="状态面板"]::after,
+.genshin-story .hero-btn[title="世界情报"]::after,
+.genshin-story .hero-btn[title="记忆回廊"]::after {
+    display: block !important;
+    position: absolute !important;
+    top: 100% !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    margin-top: 4px !important;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+    color: #734b21 !important;
+    letter-spacing: 0.5px !important;
+    white-space: nowrap !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+    pointer-events: none !important;
+    line-height: 1 !important;
+}
+.genshin-story .hero-btn[title="主角信息"]::after { content: '主角信息' !important; }
+.genshin-story .hero-btn[title="互动角色"]::after { content: '互动角色' !important; }
+.genshin-story .hero-btn[title="状态面板"]::after { content: '状态面板' !important; }
+.genshin-story .hero-btn[title="世界情报"]::after { content: '世界情报' !important; }
+.genshin-story .hero-btn[title="记忆回廊"]::after { content: '记忆回廊' !important; }
+.genshin-story .hero-modal[open] .hero-btn {
+    overflow: visible !important;
+    transform: none !important;
+}
+.genshin-story .hero-modal[open] .hero-btn:active {
+    transform: none !important;
+}
+.genshin-story .hero-modal[open] .hero-btn::before {
+    content: '' !important;
+    display: block !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(20, 14, 8, 0.5) !important;
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
+    z-index: 2147483640 !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    -webkit-tap-highlight-color: transparent !important;
+}
+.genshin-story .hero-modal[open] .hero-btn::after,
+.genshin-story .hero-modal[open] .hero-btn[title]::after {
+    content: '✧ 关闭 ✧' !important;
+    display: block !important;
+    position: fixed !important;
+    top: auto !important;
+    bottom: calc(5vh - 17px) !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
+    width: auto !important;
+    height: 36px !important;
+    padding: 0 24px !important;
+    margin: 0 !important;
+    background:
+        radial-gradient(ellipse 75% 55% at 50% 0%, rgba(255, 255, 255, 0.9) 0%, transparent 70%),
+        linear-gradient(180deg, #fff8e7 0%, #f3dfb6 48%, #e2c286 100%) !important;
+    border: 2px solid #c89e56 !important;
+    border-radius: 18px !important;
+    color: #7a4b13 !important;
+    font-size: 15px !important;
+    font-weight: 900 !important;
+    line-height: 32px !important;
+    text-align: center !important;
+    letter-spacing: 1px !important;
+    box-shadow:
+        0 4px 12px rgba(140, 98, 38, 0.35),
+        0 0 12px rgba(255, 236, 185, 0.8),
+        inset 0 0 0 1.5px rgba(255, 255, 255, 0.9) !important;
+    z-index: 2147483647 !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+    white-space: nowrap !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+.genshin-story .hero-modal[open] .hero-btn:hover::after,
+.genshin-story .hero-modal[open] .hero-btn[title]:hover::after {
+    background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, #ffffff 0%, transparent 75%),
+        linear-gradient(180deg, #fffcf2 0%, #f8e8c4 48%, #ebd09a 100%) !important;
+    color: #5e370a !important;
+}
+.genshin-story .modal-box { display: none !important; }
+.genshin-story .hero-modal[open] .modal-box {
+    display: block !important;
+    position: fixed !important;
+    top: 5vh !important;
+    bottom: 5vh !important;
+    left: 5vw !important;
+    right: 5vw !important;
+    max-height: 100vh !important;
+    margin: auto !important;
+    text-align: left !important;
+
+    background-color: #f7f2e7 !important;
+    background-image:
+        radial-gradient(ellipse 70% 18% at 50% 0%, rgba(255, 240, 195, 0.85) 0%, transparent 100%),
+        linear-gradient(180deg, #fbf7ee 0%, #f4ecdc 100%) !important;
+    background-repeat: no-repeat, no-repeat !important;
+    background-position: top center, center !important;
+    border: 2px solid #9c7541 !important;
+    border-radius: 8px !important;
+    z-index: 2147483645 !important;
+    padding: 10px 7px 23px 7px !important;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.65),
+        inset 0 0 18px rgba(194, 165, 117, 0.22) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    animation: none !important;
+    cursor: default !important;
+    pointer-events: auto !important;
+}
+.genshin-story .hero-modal[open] .modal-box::after {
+    content: '' !important;
+    display: block !important;
+    position: fixed !important;
+    top: 5vh !important;
+    bottom: 5vh !important;
+    left: 5vw !important;
+    right: 5vw !important;
+    margin: auto !important;
+    border-radius: 0 0 8px 8px !important;
+    box-sizing: border-box !important;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 36 36'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23c5a059'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23b28245'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,1) translate(-36,0)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23c5a059'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23b28245'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 36 36'%3E%3Cg transform='scale(1,-1) translate(0,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23c5a059'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23b28245'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,-1) translate(-36,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23c5a059'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%23b28245'/%3E%3C/g%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat !important;
+    background-position: top 4px left 4px, top 4px right 4px, bottom 4px left 4px, bottom 4px right 4px !important;
+    box-shadow:
+        inset 0 0 0 2px #9c7541,
+        inset 0 0 0 3px #fffef7,
+        inset 0 0 0 4px #d5b882 !important;
+    z-index: 15 !important;
+    pointer-events: none !important;
+    user-select: none !important;
+}
+.genshin-story .hero-modal[open] .modal-box::-webkit-scrollbar {
+    width: 0px !important;
+}
+.genshin-story .hero-modal[open] .modal-box::-webkit-scrollbar-track {
+    background: #f5eedc !important;
+    border-radius: 3px !important;
+}
+.genshin-story .hero-modal[open] .modal-box::-webkit-scrollbar-thumb {
+    background: #c2a575 !important;
+    border-radius: 3px !important;
+}
+.genshin-story .hero-modal[open] .modal-box::before {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    position: fixed !important;
+    top: calc(6vh - 36px) !important;
+    left: 5vw !important;
+    right: 5vw !important;
+    transform: none !important;
+    margin: 0 !important;
+    height: 32px !important;
+    padding: 0 36px !important;
+    box-sizing: border-box !important;
+    background-color: #f6e7c8 !important;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='12' viewBox='0 0 68 12'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='%23b28245' stop-opacity='0'/%3E%3Cstop offset='75%25' stop-color='%23b28245' stop-opacity='0.75'/%3E%3Cstop offset='100%25' stop-color='%238b5a2b' stop-opacity='1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 6 L46 5.2 L46 6.8 Z' fill='url(%23g)'/%3E%3Cpolygon points='50,6 46,3.5 42,6 46,8.5' fill='%23b28245' opacity='0.85'/%3E%3Cpath d='M60 0 C60 4.2 61.8 6 66 6 C61.8 6 60 7.8 60 12 C60 7.8 58.2 6 54 6 C58.2 6 60 4.2 60 0 Z' fill='%239c6b2e'/%3E%3Ccircle cx='60' cy='6' r='1.3' fill='%23fffdf7'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='12' viewBox='0 0 68 12'%3E%3Cg transform='scale(-1,1) translate(-68,0)'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='%23b28245' stop-opacity='0'/%3E%3Cstop offset='75%25' stop-color='%23b28245' stop-opacity='0.75'/%3E%3Cstop offset='100%25' stop-color='%238b5a2b' stop-opacity='1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 6 L46 5.2 L46 6.8 Z' fill='url(%23g2)'/%3E%3Cpolygon points='50,6 46,3.5 42,6 46,8.5' fill='%23b28245' opacity='0.85'/%3E%3Cpath d='M60 0 C60 4.2 61.8 6 66 6 C61.8 6 60 7.8 60 12 C60 7.8 58.2 6 54 6 C58.2 6 60 4.2 60 0 Z' fill='%239c6b2e'/%3E%3Ccircle cx='60' cy='6' r='1.3' fill='%23fffdf7'/%3E%3C/g%3E%3C/svg%3E"),
+        radial-gradient(ellipse 65% 75% at 50% 0%, rgba(255, 255, 255, 0.92) 0%, transparent 75%),
+        linear-gradient(180deg, #fffcf2 0%, #f5e4be 52%, #e6cb94 100%) !important;
+    background-repeat: no-repeat, no-repeat, no-repeat, no-repeat !important;
+    background-position: calc(50% - 95px) center, calc(50% + 95px) center, center top, center center !important;
+    background-size: 58px 12px, 58px 12px, 100% 100%, 100% 100% !important;
+    border-top: 2px solid #9c7541 !important;
+    border-left: 2px solid #9c7541 !important;
+    border-right: 2px solid #9c7541 !important;
+    border-bottom: 2px solid #b58947 !important;
+    border-radius: 20px 20px 0 0 !important;
+
+    color: #6e4010 !important;
+    font-family: 'Noto Serif SC', 'Georgia', serif !important;
+    font-size: 16px !important;
+    font-weight: 900 !important;
+    text-align: center !important;
+    letter-spacing: 3px !important;
+    text-indent: 3px !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+    box-shadow:
+        0 3px 8px rgba(120, 82, 30, 0.22),
+        inset 0 -1px 0 rgba(255, 254, 247, 0.85) !important;
+    z-index: 20 !important;
+    pointer-events: none !important;
+    user-select: none !important;
+    white-space: nowrap !important;
+}
+.genshin-story .hero-btn[title="主角信息"] + .modal-box::before {
+    content: '主 角 信 息' !important;
+}
+.genshin-story .hero-btn[title="互动角色"] + .modal-box::before {
+    content: '互 动 角 色' !important;
+}
+.genshin-story .hero-btn[title="状态面板"] + .modal-box::before {
+    content: '状 态 面 板' !important;
+}
+.genshin-story .hero-btn[title="世界情报"] + .modal-box::before {
+    content: '世 界 情 报' !important;
+}
+.genshin-story .hero-btn[title="记忆回廊"] + .modal-box::before {
+    content: '记 忆 回 廊' !important;
+}
+.genshin-story a {
+    color: #b4692c !important;
+    text-decoration: underline dotted !important;
+}
+@media (min-width: 768px) {
+    .genshin-story .hero-modal[open] .modal-box,
+    .genshin-story .hero-modal[open] .modal-box::after {
+        width: 520px !important;
+        left: 0 !important;
+        right: 0 !important;
+        margin: auto !important;
+    }
+    .genshin-story .hero-modal[open] .modal-box::before {
+        width: 520px !important;
+        left: 0 !important;
+        right: 0 !important;
+        margin: 0 auto !important;
+    }
+}
+
+.genshin-story .top-status-bar {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0px !important;
+    margin: 0px auto 0px auto !important;
+    padding: 3px 6px !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    overflow: hidden !important;
+
+    border: 2px solid #c2a575 !important;
+    border-radius: 8px !important;
+    box-shadow:
+        0 0 0 1px #e8d7b8,
+        0 4px 12px rgba(140, 98, 38, 0.2),
+        inset 0 0 0 1px #fffef7,
+        inset 0 0 0 2px #e6d2ad !important;
+    background-color: #fbf7ee !important;
+    background-image:
+        /* 1~4：四角鎏金卷草角花（加深显色度） */
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,1) translate(-36,0)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(1,-1) translate(0,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,-1) translate(-36,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        /* 5：右侧提瓦特原石星芒与星轨罗盘（提升手机端清晰度） */
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23b88a3e' opacity='0.32'%3E%3Ccircle cx='60' cy='60' r='48' stroke-width='1.2' stroke-dasharray='4 3'/%3E%3Ccircle cx='60' cy='60' r='36' stroke-width='1.4'/%3E%3Ccircle cx='60' cy='60' r='22' stroke-width='1'/%3E%3Cpath d='M60 4 L64 48 L60 56 L56 48 Z M60 116 L64 72 L60 64 L56 72 Z M4 60 L48 64 L56 60 L48 56 Z M116 60 L72 64 L64 60 L72 56 Z' fill='%23b88a3e' stroke='none'/%3E%3Cpath d='M60 22 C60 46 74 60 98 60 C74 60 60 74 60 98 C60 74 46 60 22 60 C46 60 60 46 60 22 Z' stroke-width='1.5' fill='%23e6c57a' fill-opacity='0.35'/%3E%3Ccircle cx='60' cy='60' r='4' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        /* 6：右侧暖金星辉光晕 */
+        radial-gradient(circle 85px at 88% 50%, rgba(255, 226, 155, 0.55) 0%, transparent 100%),
+        /* 7：羊脂玉至浅香槟金丝滑底衬 */
+        linear-gradient(180deg, #fffdf9 0%, #fbf3e0 52%, #f2e0bc 100%) !important;
+
+    background-repeat: no-repeat !important;
+    background-position:
+        3px 3px,
+        calc(100% - 3px) 3px,
+        3px calc(100% - 3px),
+        calc(100% - 3px) calc(100% - 3px),
+        calc(100% + 10px) 50%,
+        0 0,
+        0 0 !important;
+    background-size:
+        22px 22px,
+        22px 22px,
+        22px 22px,
+        22px 22px,
+        115px 115px,
+        100% 100%,
+        100% 100% !important;
+}
+.genshin-story .top-status-bar::before {
+    content: none !important;
+    display: none !important;
+}
+.genshin-story .top-status-bar item {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 3px 4px !important;
+    position: relative !important;
+    z-index: 1 !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(194, 165, 117, 0.28) !important;
+    border-radius: 0 !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+    font-family: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif !important;
+}
+.genshin-story .top-status-bar item:last-child {
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
+.genshin-story .top-status-bar item k {
+    display: inline-flex !important;
+    align-items: center !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    width: 55px !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #8b5a2b !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    letter-spacing: 2px !important;
+    padding-right: 8px !important;
+    margin-right: 10px !important;
+    border-right: 1.5px solid rgba(194, 155, 90, 0.45) !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+    user-select: none !important;
+}
+.genshin-story .top-status-bar item v {
+    display: inline-block !important;
+    flex: 1 1 auto !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #3d2f1d !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
+    letter-spacing: 0.3px !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    word-break: break-word !important;
+}
+
+@media (max-width: 640px) {
+    .genshin-story .top-status-bar {
+        padding: 3px 4px !important;
+        gap: 0px !important;
+    }
+    .genshin-story .top-status-bar item {
+        padding: 3px 5px !important;
+    }
+}
+.genshin-story details.action-panel {
+    margin-top: 6px !important;
+    margin-bottom: 6px !important;
+    padding: 0 !important;
+    background-color: #fbf7ee !important;
+    border: 2px solid #c2a575 !important;
+    outline: 1px solid #f3e2c3 !important;
+    outline-offset: -0px !important;
+    border-radius: 8px !important;
+    box-shadow:
+        0 0 0 1px rgba(212, 175, 106, 0.45),
+        0 4px 12px rgba(166, 118, 46, 0.22),
+        inset 0 0 10px rgba(197, 155, 78, 0.12) !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+.genshin-story details.action-panel > summary {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 8px !important;
+    text-align: center !important;
+    padding: 5px 12px !important;
+    margin: 0 !important;
+    text-indent: 0 !important;
+    background:
+        radial-gradient(ellipse 60% 80% at 50% 0%, rgba(255, 255, 255, 0.95) 0%, transparent 75%),
+        linear-gradient(180deg, #fffcf5 0%, #f7eedb 100%) !important;
+    color: #734b21 !important;
+    font-weight: 900 !important;
+    letter-spacing: 2px !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+    box-shadow: inset 0 0 10px rgba(178, 130, 69, 0.15) !important;
+    border: none !important;
+    border-bottom: none !important;
+    list-style: none !important;
+    outline: none !important;
+    user-select: none !important;
+}
+.genshin-story details.action-panel > summary::-webkit-details-marker,
+.genshin-story details.action-panel > summary::marker {
+    display: none !important;
+    content: none !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.genshin-story details.action-panel[open] > summary {
+    border-bottom: 1.5px solid #dec393 !important;
+    box-shadow:
+        0 2px 6px rgba(140, 98, 38, 0.1),
+        inset 0 0 10px rgba(178, 130, 69, 0.18) !important;
+}
+.genshin-story details.action-panel > summary::before,
+.genshin-story details.action-panel > summary::after,
+.genshin-story details.action-panel[open] > summary::before,
+.genshin-story details.action-panel[open] > summary::after {
+    content: '' !important;
+    display: inline-block !important;
+    width: 64px !important;
+    height: 12px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 64px !important;
+    pointer-events: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='12' viewBox='0 0 68 12'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='%23c59b4e' stop-opacity='0'/%3E%3Cstop offset='75%25' stop-color='%23c59b4e' stop-opacity='0.75'/%3E%3Cstop offset='100%25' stop-color='%239e6f27' stop-opacity='1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 6 L46 5.2 L46 6.8 Z' fill='url(%23g)'/%3E%3Cpolygon points='50,6 46,3.5 42,6 46,8.5' fill='%23c59b4e' opacity='0.85'/%3E%3Cpath d='M60 0 C60 4.2 61.8 6 66 6 C61.8 6 60 7.8 60 12 C60 7.8 58.2 6 54 6 C58.2 6 60 4.2 60 0 Z' fill='%23b28245'/%3E%3Ccircle cx='60' cy='6' r='1.3' fill='%23fff8e7'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 100% 100% !important;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.8)) !important;
+    transition: transform 0.25s ease, filter 0.25s ease !important;
+}
+.genshin-story details.action-panel > summary::before {
+    transform: none !important;
+}
+.genshin-story details.action-panel > summary::after {
+    transform: translateX(-2px) scaleX(-1) !important;
+}
+.genshin-story details.action-panel[open] > summary::before {
+    transform: translateX(-2px) !important;
+    filter: drop-shadow(0 0 3px rgba(212, 163, 73, 0.55)) !important;
+}
+.genshin-story details.action-panel[open] > summary::after {
+    transform: translateX(0px) scaleX(-1) !important;
+    filter: drop-shadow(0 0 3px rgba(212, 163, 73, 0.55)) !important;
+}
+.genshin-story details.action-panel > .action-box,
+.genshin-story .action-box {
+    position: relative !important;
+    overflow: hidden !important;
+    padding: 6px 8px !important;
+    border: none !important;
+    border-radius: 0 0 6px 6px !important;
+    box-shadow: inset 0 0 0 1px #fffef7, inset 0 0 0 2px #e6d2ad !important;
+
+    background-color: #fbf7ee !important;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,1) translate(-36,0)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(1,-1) translate(0,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 36 36'%3E%3Cg transform='scale(-1,-1) translate(-36,-36)'%3E%3Cpath d='M2 2h18v2H4v16H2V2zm4 4h10v1.5H7.5V16H6V6zm12-4c0 6-6 12-12 12v-2c4.5 0 10-5.5 10-10h2z' fill='%23b88a3e'/%3E%3Ccircle cx='6' cy='6' r='2' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='none' stroke='%23b88a3e' opacity='0.32'%3E%3Ccircle cx='60' cy='60' r='48' stroke-width='1.2' stroke-dasharray='4 3'/%3E%3Ccircle cx='60' cy='60' r='36' stroke-width='1.4'/%3E%3Ccircle cx='60' cy='60' r='22' stroke-width='1'/%3E%3Cpath d='M60 4 L64 48 L60 56 L56 48 Z M60 116 L64 72 L60 64 L56 72 Z M4 60 L48 64 L56 60 L48 56 Z M116 60 L72 64 L64 60 L72 56 Z' fill='%23b88a3e' stroke='none'/%3E%3Cpath d='M60 22 C60 46 74 60 98 60 C74 60 60 74 60 98 C60 74 46 60 22 60 C46 60 60 46 60 22 Z' stroke-width='1.5' fill='%23e6c57a' fill-opacity='0.35'/%3E%3Ccircle cx='60' cy='60' r='4' fill='%239e6f27'/%3E%3C/g%3E%3C/svg%3E"),
+        radial-gradient(circle 85px at 88% 50%, rgba(255, 226, 155, 0.55) 0%, transparent 100%),
+        linear-gradient(180deg, #fffdf9 0%, #fbf3e0 52%, #f2e0bc 100%) !important;
+
+    background-repeat: no-repeat !important;
+    background-position:
+        3px 3px,
+        calc(100% - 3px) 3px,
+        3px calc(100% - 3px),
+        calc(100% - 3px) calc(100% - 3px),
+        calc(100% + 10px) 50%,
+        0 0,
+        0 0 !important;
+    background-size:
+        22px 22px,
+        22px 22px,
+        22px 22px,
+        22px 22px,
+        115px 115px,
+        100% 100%,
+        100% 100% !important;
+}
+.genshin-story .action-box r {
+    position: relative !important;
+    z-index: 1 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    padding: 3px 4px !important;
+    border-bottom: 1px solid rgba(194, 165, 117, 0.28) !important;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) !important;
+    font-family: 'Noto Serif SC', 'Georgia', 'Times New Roman', serif !important;
+    line-height: 1.55 !important;
+    font-size: 14px !important;
+    border-radius: 4px !important;
+}
+.genshin-story .action-box r:last-child {
+    border-bottom: none !important;
+    box-shadow: none !important;
+}
+
+.genshin-story .action-box k {
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+    color: #8b5a2b !important;
+    font-weight: 900 !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+    margin-right: 6px !important;
+    user-select: none !important;
+}
+
+.genshin-story .action-box v {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    color: #3d2f1d !important;
+    font-weight: 600 !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+}
+
+@media (max-width: 640px) {
+    .genshin-story details.action-panel > .action-box,
+    .genshin-story .action-box {
+        padding: 4px 6px !important;
+    }
+    .genshin-story .action-box r {
+        padding: 2px 2px !important;
+        font-size: 13px !important;
+    }
+}
+.genshin-story details.canshu {
+    margin: 0px auto 10px auto !important;
+    padding: 0 !important;
+    background-color: transparent !important;
+    border: 0px solid #b99a68 !important;
+    border-radius: 0px !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+}
+.genshin-story details.canshu > summary {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 8px !important;
+    text-align: center !important;
+    padding: 2px 2px !important;
+    margin: 0 !important;
+    text-indent: 0 !important;
+    background: transparent !important;
+    font-family: 'Noto Serif SC', 'Georgia', serif !important;
+    color: #999999 !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1.5px !important;
+    line-height: 1.5 !important;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+    border: none !important;
+    border-bottom: 1.5px solid rgba(185, 154, 104, 0.25) !important;
+    list-style: none !important;
+    outline: none !important;
+    cursor: pointer !important;
+    user-select: none !important;
+    box-shadow: inset 0 0 10px rgba(178, 130, 69, 0) !important;
+}
+.genshin-story details.canshu > summary::-webkit-details-marker,
+.genshin-story details.canshu > summary::marker {
+    display: none !important;
+    content: none !important;
+}
+.genshin-story details.canshu  > summary::before,
+.genshin-story details.canshu  > summary::after,
+.genshin-story details.canshu [open] > summary::before,
+.genshin-story details.canshu [open] > summary::after {
+    content: '' !important;
+    display: inline-block !important;
+    width: 64px !important;
+    height: 12px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 64px !important;
+    pointer-events: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='12' viewBox='0 0 68 12'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='%23c59b4e' stop-opacity='0'/%3E%3Cstop offset='75%25' stop-color='%23c59b4e' stop-opacity='0.75'/%3E%3Cstop offset='100%25' stop-color='%239e6f27' stop-opacity='1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 6 L46 5.2 L46 6.8 Z' fill='url(%23g)'/%3E%3Cpolygon points='50,6 46,3.5 42,6 46,8.5' fill='%23c59b4e' opacity='0.85'/%3E%3Cpath d='M60 0 C60 4.2 61.8 6 66 6 C61.8 6 60 7.8 60 12 C60 7.8 58.2 6 54 6 C58.2 6 60 4.2 60 0 Z' fill='%23b28245'/%3E%3Ccircle cx='60' cy='6' r='1.3' fill='%23fff8e7'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 100% 100% !important;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.8)) !important;
+    transition: transform 0.25s ease, filter 0.25s ease !important;
+}
+.genshin-story details.canshu  > summary::before {
+    transform: none !important;
+}
+.genshin-story details.canshu  > summary::after {
+    transform: translateX(-2px) scaleX(-1) !important;
+}
+@media (max-width: 640px) {
+
+        .genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) {
+        border-width: 2px !important;
+        box-shadow:
+            3px 3px 0px rgba(160, 70, 100, 0.45),
+            0 2px 4px rgba(0, 0, 0, 0.2),
+            inset 0 0 0 1px #fffef7,
+            inset 0 0 0 2px #e8d7b8 !important;
+        margin: 0 0 6px 0 !important;
+        border-radius: 8px !important;
+    }
+
+    .genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) summary {
+        padding: 5px 10px !important;
+        font-size: 1em !important;
+    }
+
+    .genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) > *:not(summary) {
+        padding: 5px 5px !important;
+    }
+
+    .genshin-story details:not(.hero-modal):not(.action-panel):not(.canshu) summary::before {
+        font-size: 1em !important;
+        margin-right: 6px !important;
+    }
+.genshin-story,
+.genshin-story *:not([style*="color"]):not([color]):not(code):not(code *):not(summary):not(summary *):not(strong):not(strong *):not(b):not(b *):not(a):not(a *):not(.modal-box):not(.modal-box *):not(n):not(n *) {
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+    font-weight: 650 !important;
+}
+
+        .genshin-story .hero-bar,
+    .genshin-story p:has(> .hero-modal),
+    .genshin-story div:has(> .hero-modal) {
+        gap: 4px !important;
+        padding: 4px 6px 0px 6px !important;
+        margin: 8px auto !important;
+        justify-content: space-evenly !important;
+    }
+
+    .genshin-story .hero-btn {
+        width: 50px !important;
+        height: 50px !important;
+        margin: 0 auto !important;
+    }
+
+    .genshin-story .hero-modal {
+        margin: 0 !important;
+        padding-bottom: 16px !important;
+        text-align: center !important;
+    }
+
+    .genshin-story .hero-btn[title="主角信息"]::after,
+    .genshin-story .hero-btn[title="互动角色"]::after,
+    .genshin-story .hero-btn[title="状态面板"]::after,
+    .genshin-story .hero-btn[title="世界情报"]::after,
+    .genshin-story .hero-btn[title="记忆回廊"]::after {
+        font-size: 11px !important;
+        margin-top: 4px !important;
+    }
+
+    .genshin-story .hero-modal[open] .hero-btn::after {
+        bottom: calc(6vh - 20px) !important;
+        height: 32px !important;
+        line-height: 28px !important;
+        font-size: 15px !important;
+        padding: 0 16px !important;
+    }
+    .genshin-story .modal-box blk {
+        padding: 4px 6px !important;
+        margin-bottom: 8px !important;
+    }
+    .genshin-story .modal-box blk:not(:last-child)::after {
+        bottom: -6.5px !important;
+        font-size: 11px !important;
+        height: 12px !important;
+        line-height: 12px !important;
+    }
+    .genshin-story .modal-box r {
+        padding: 4px 0 !important;
+        font-size: 14px !important;
+    }
+
+    .genshin-story .hero-modal[open] .hero-btn::after,
+    .genshin-story .hero-modal[open] .hero-btn[title]::after {
+        bottom: calc(6vh - 20px) !important;
+        height: 32px !important;
+        line-height: 28px !important;
+        font-size: 13px !important;
+        padding: 0 18px !important;
+    }
+}
+@media (max-width: 640px) {
+    .genshin-story .modal-box r v {
+        font-weight: 700 !important;
+    }
+    .genshin-story .modal-box r v strong,
+    .genshin-story .modal-box r v b {
+        font-weight: inherit !important;
+    }
+}
+.genshin-story msg,
+.genshin-story npc {
+    display: grid !important;
+    column-gap: 12px !important;
+    row-gap: 4px !important;
+    margin: 14px 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    align-items: start !important;
+}
+.genshin-story msg {
+    grid-template-columns: 1fr 55px !important;
+    justify-items: end !important;
+    --avatar: url('portraits/b21edf88-30cc-42e7-ffd0-88eed7576200.webp');
+    --color: #8c5a08;
+}
+.genshin-story npc {
+    grid-template-columns: 55px 1fr !important;
+    justify-items: start !important;
+    --avatar: url('portraits/550c46e3-5ea2-473f-2e49-451b89e37b00.webp');
+    --color: #666666;
+}
+.genshin-story msg::before,
+.genshin-story npc::before {
+    content: "" !important;
+    display: block !important;
+    width: 55px !important;
+    height: 55px !important;
+    border-radius: 50% !important;
+    background-image: var(--avatar) !important;
+    background-size: cover !important;
+    background-position: center center !important;
+    background-repeat: no-repeat !important;
+    box-sizing: border-box !important;
+    grid-row: 1 / span 2 !important;
+    transition: transform 0.25s ease !important;
+}
+
+.genshin-story msg::before:hover,
+.genshin-story npc::before:hover {
+    transform: scale(1.06) !important;
+}
+.genshin-story msg::before {
+    grid-column: 2 !important;
+    border: 2px solid #e2c7a1 !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), inset 0 0 4px rgba(255, 230, 163, 0.4) !important;
+}
+.genshin-story npc::before {
+    grid-column: 1 !important;
+    border: 2px solid #e2c7a1 !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3), inset 0 0 4px rgba(255, 245, 220, 0.3) !important;
+}
+.genshin-story msg n,
+.genshin-story npc n {
+    grid-row: 1 !important;
+    display: inline-block !important;
+    font-family: 'Noto Serif SC', 'Georgia', serif !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
+    padding: 0 4px !important;
+    margin: 0 !important;
+    user-select: none !important;
+    opacity: 0.9 !important;
+    transform: translateY(3px) !important;
+}
+
+.genshin-story msg n { grid-column: 1 !important; }
+.genshin-story npc n { grid-column: 2 !important; }
+
+.genshin-story msg n *,
+.genshin-story npc n * {
+    line-height: 1.2 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+.genshin-story msg t,
+.genshin-story npc t {
+    grid-row: 2 !important;
+    display: inline-block !important;
+    position: relative !important;
+    max-width: 100% !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    font-family: 'Noto Serif SC', 'Georgia', serif !important;
+    font-size: 15px !important;
+    line-height: 1.6 !important;
+    font-weight: 600 !important;
+    word-break: break-word !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    color: var(--color) !important;
+}
+.genshin-story msg t {
+    text-align: left !important;
+    grid-column: 1 !important;
+    background: #fffdf5 !important;
+    border: 1.5px solid rgba(194, 165, 117, 0.5) !important;
+    box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.8) !important;
+}
+.genshin-story npc t {
+    grid-column: 2 !important;
+    background: #fdfaf2 !important;
+    border: 1.5px solid rgba(181, 155, 107, 0.5) !important;
+    box-shadow: 2px 3px 8px rgba(0, 0, 0, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.8) !important;
+}
+.genshin-story msg t::after {
+    content: '' !important;
+    position: absolute !important;
+    top: 13px !important;
+    right: -6px !important;
+    width: 9px !important;
+    height: 9px !important;
+    background: #fffdf5 !important;
+    border-top: 1.5px solid rgba(194, 165, 117, 0.5) !important;
+    border-right: 1.5px solid rgba(194, 165, 117, 0.5) !important;
+    transform: rotate(45deg) !important;
+}
+.genshin-story npc t::after {
+    content: '' !important;
+    position: absolute !important;
+    top: 13px !important;
+    left: -6px !important;
+    width: 9px !important;
+    height: 9px !important;
+    background: #fdfaf2 !important;
+    border-bottom: 1.5px solid rgba(181, 155, 107, 0.5) !important;
+    border-left: 1.5px solid rgba(181, 155, 107, 0.5) !important;
+    transform: rotate(45deg) !important;
+}
+@media (max-width: 640px) {
+    .genshin-story msg {
+        grid-template-columns: 1fr 50px !important;
+        column-gap: 9px !important;
+        margin: 10px 0 !important;
+    }
+
+    .genshin-story npc {
+        grid-template-columns: 50px 1fr !important;
+        column-gap: 9px !important;
+        margin: 10px 0 !important;
+    }
+
+    .genshin-story msg::before,
+    .genshin-story npc::before {
+        width: 50px !important;
+        height: 50px !important;
+    }
+
+    .genshin-story msg n,
+    .genshin-story npc n {
+        font-size: 14px !important;
+    }
+
+    .genshin-story msg t,
+    .genshin-story npc t {
+        padding: 3px 5px !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
+    }
+
+    .genshin-story msg t::after,
+    .genshin-story npc t::after {
+        top: 9px !important;
+        width: 8px !important;
+        height: 8px !important;
+    }
+}
+.genshin-story .modal-box blk[c] {
+    display: grid !important;
+    grid-template-columns: 1fr 68px !important;
+    column-gap: 12px !important;
+    align-items: center !important;
+    background:
+        radial-gradient(circle at 85% 50%, rgba(255, 232, 175, 0.35) 0%, transparent 60%),
+        linear-gradient(180deg, rgba(255, 253, 248, 0.95) 0%, rgba(244, 234, 212, 0.95) 100%) !important;
+}
+.genshin-story .modal-box blk[c] > r {
+    grid-column: 1 !important;
+    justify-content: center !important;
+    align-items: baseline !important;
+    text-align: center !important;
+}
+.genshin-story .modal-box blk[c] > r > v {
+    flex: 0 1 auto !important;
+}
+.genshin-story .modal-box blk[c]::after {
+    content: "" !important;
+    position: relative !important;
+    bottom: auto !important;
+    left: auto !important;
+    transform: none !important;
+    display: block !important;
+    grid-column: 2 !important;
+    grid-row: 1 / span 2 !important;
+    width: 68px !important;
+    height: 68px !important;
+    border-radius: 50% !important;
+    background-color: #f7eedb !important;
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='46' fill='none' stroke='%23d4af37' stroke-width='2.5'/%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%23fff3c4' stroke-width='0' stroke-dasharray='4 2'/%3E%3Cpath d='M50 0 L53 8 L50 6 L47 8 Z M50 100 L53 92 L50 94 L47 92 Z M0 50 L8 53 L6 50 L8 47 Z M100 50 L92 53 L94 50 L92 47 Z M14.6 14.6 L22 18 L18 18 L18 22 Z M85.4 14.6 L78 18 L82 18 L82 22 Z M14.6 85.4 L22 82 L18 82 L18 78 Z M85.4 85.4 L78 82 L82 82 L82 78 Z' fill='%23b8860b'/%3E%3C/svg%3E"),
+        var(--avatar, url('portraits/b21edf88-30cc-42e7-ffd0-88eed7576200.webp')) !important;
+    background-size: 100% 100%, cover !important;
+    background-position: center center, center center !important;
+    background-repeat: no-repeat, no-repeat !important;
+    border: 2px solid #dfc184 !important;
+    box-shadow:
+        0 3px 10px rgba(120, 85, 35, 0.35),
+        0 0 0 1.5px #a67c38,
+        inset 0 0 6px rgba(139, 90, 43, 0.45) !important;
+    box-sizing: border-box !important;
+}
+.genshin-story .modal-box nm,
+.genshin-story .modal-box blk[c] > r:first-child > k {
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+    font-size: 20px !important;
+    font-weight: 900 !important;
+    line-height: 1.2 !important;
+    color: var(--color, #8c5a08) !important;
+    margin-right: 8px !important;
+    text-shadow: 0 1px 0 #fff, 0.5px 0.5px 2px rgba(139, 90, 43, 0.3) !important;
+}
+.genshin-story .modal-box ti,
+.genshin-story .modal-box blk[c] > r:nth-child(2) > v {
+    display: inline-block !important;
+    flex: 0 1 auto !important;
+    font-size: 14px !important;
+    font-weight: 800 !important;
+    line-height: 1.3 !important;
+    color: #8b5a2b !important;
+    text-align: center !important;
+    word-break: break-word !important;
+}
+.genshin-story .modal-box blk[c] > r:first-child {
+    flex-wrap: wrap !important;
+    gap: 4px 6px !important;
+}
+.genshin-story .modal-box nm,
+.genshin-story .modal-box blk[c] > r:first-child > nm,
+.genshin-story .modal-box blk[c] > r:first-child > k {
+    flex: 0 1 auto !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+}
+.genshin-story .modal-box blk[c] > r:first-child > v {
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    display: inline-flex !important;
+    align-items: center !important;
+}
+.genshin-story msg {
+    display: block !important;
+    position: relative !important;
+    padding-right: 62px !important;
+    min-height: 55px !important;
+    text-align: right !important;
+    box-sizing: border-box !important;
+}
+.genshin-story msg n,
+.genshin-story npc n {
+    display: block !important;
+    margin-bottom: 4px !important;
+}
+.genshin-story msg > span,
+.genshin-story msg > t {
+    display: inline-block !important;
+    text-align: left !important;
+    margin-top: 4px !important;
+}
+
+.genshin-story npc > span,
+.genshin-story npc > t {
+    display: inline-block !important;
+    text-align: left !important;
+    margin-top: 4px !important;
+}
+.genshin-story msg::before {
+    position: absolute !important;
+    top: 0 !important;
+    right: 0 !important;
+    left: auto !important;
+    width: 55px !important;
+    height: 55px !important;
+}
+.genshin-story npc {
+    display: block !important;
+    position: relative !important;
+    padding-left: 62px !important;
+    min-height: 55px !important;
+    text-align: left !important;
+    box-sizing: border-box !important;
+}
+.genshin-story npc::before {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: auto !important;
+    width: 55px !important;
+    height: 55px !important;
+}
+.genshin-story msg code,
+.genshin-story npc code {
+    display: inline !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    font-family: inherit !important;
+    font-size: inherit !important;
+    color: inherit !important;
+}
+.genshin-story details.canshu > summary::before,
+.genshin-story details.canshu > summary::after,
+.genshin-story details.canshu[open] > summary::before,
+.genshin-story details.canshu[open] > summary::after {
+    content: '' !important;
+    display: inline-block !important;
+    width: 64px !important;
+    height: 12px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    flex: 0 0 64px !important;
+    pointer-events: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='68' height='12' viewBox='0 0 68 12'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='%23c59b4e' stop-opacity='0'/%3E%3Cstop offset='75%25' stop-color='%23c59b4e' stop-opacity='0.75'/%3E%3Cstop offset='100%25' stop-color='%239e6f27' stop-opacity='1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 6 L46 5.2 L46 6.8 Z' fill='url(%23g)'/%3E%3Cpolygon points='50,6 46,3.5 42,6 46,8.5' fill='%23c59b4e' opacity='0.85'/%3E%3Cpath d='M60 0 C60 4.2 61.8 6 66 6 C61.8 6 60 7.8 60 12 C60 7.8 58.2 6 54 6 C58.2 6 60 4.2 60 0 Z' fill='%23b28245'/%3E%3Ccircle cx='60' cy='6' r='1.3' fill='%23fff8e7'/%3E%3C/svg%3E") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 100% 100% !important;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.8)) !important;
+    transition: transform 0.25s ease, filter 0.25s ease !important;
+}
+.genshin-story [c="派蒙"] {
+    --avatar: url('portraits/bfec2b3a-1c19-4449-6ad5-7b714c6aa300.webp');
+    --color: #66AAFF;
+}
+.genshin-story [c="空"] {
+    --avatar: url('portraits/27a3ed23-f587-4650-5b31-9a6de1d1a500.webp');
+    --color: #dfb655;
+}
+.genshin-story [c="荧"] {
+    --avatar: url('portraits/dd24fee8-b96d-4f7d-0920-cc42de659800.webp');
+    --color: #dfb655;
+}
+.genshin-story [c="安柏"] {
+    --avatar: url('portraits/06f6db8f-2776-4c8b-b04d-8280b26d3600.webp');
+    --color: #FF6B35;
+}
+.genshin-story [c="丽莎"] {
+    --avatar: url('portraits/49e6dbfa-599f-450c-bbf9-f5234fb5fc00.webp');
+    --color: #6a3b8c;
+}
+.genshin-story [c="凯亚"] {
+    --avatar: url('portraits/f9c83a85-c810-4bab-9103-818b3c2a7e00.webp');
+    --color: #24587a;
+}
+.genshin-story [c="芭芭拉"] {
+    --avatar: url('portraits/fd4c021d-dac7-425c-226d-e63e2c248500.webp');
+    --color: #4eafd0;
+}
+.genshin-story [c="罗莎莉亚"] {
+    --avatar: url('portraits/fd0cfbb5-1552-443d-663e-8fa83faf2d00.webp');
+    --color: #5C1A2B;
+}
+.genshin-story [c="砂糖"] {
+    --avatar: url('portraits/2601b957-8304-4432-610e-9d19a3e9d100.webp');
+    --color: #5ca282;
+}
+.genshin-story [c="温迪"] {
+    --avatar: url('portraits/bde16bee-4c29-480e-9710-7a19a0d6a800.webp');
+    --color: #2A7F62;
+}
+.genshin-story [c="琴"] {
+    --avatar: url('portraits/97fe4802-2751-4ea3-4084-4224a6367f00.webp');
+    --color: #2b7a78;
+}
+.genshin-story [c="迪卢克"] {
+    --avatar: url('portraits/9fa8c52f-2512-4243-92b5-b71ce8c46f00.webp');
+    --color: #a91616;
+}
+.genshin-story [c="可莉"] {
+    --avatar: url('portraits/dafb51bd-e024-4c7d-dae9-c60b3513a900.webp');
+    --color: #C62828;
+}
+.genshin-story [c="阿贝多"] {
+    --avatar: url('portraits/a4d9a68d-a478-42c0-a260-9c26ac235900.webp');
+    --color: #7A5C00;
+}
+.genshin-story [c="莫娜"] {
+    --avatar: url('portraits/cb79add9-8e9a-40ea-3af0-a9504b307b00.webp');
+    --color: #3F3A8F;
+}
+.genshin-story [c="优菈"] {
+    --avatar: url('portraits/1b1ba99d-f6fc-4049-317e-a84f4e94bc00.webp');
+    --color: #2F5D8A;
+}
+.genshin-story [c="菲谢尔"] {
+    --avatar: url('portraits/ed81cf28-e62e-4925-bbb7-166705621800.webp');
+    --color: #6A1B9A;
+}
+.genshin-story [c="塔利雅"] {
+    --avatar: url('portraits/4ba99c6d-e293-4f66-3f11-41e459099900.webp');
+    --color: #8E244D;
+}
+.genshin-story [c="诺艾尔"] {
+    --avatar: url('portraits/ed2c5528-f7f7-4bd3-7bbf-6996b8030a00.webp');
+    --color: #8C1D40;
+}
+.genshin-story [c="雷泽"] {
+    --avatar: url('portraits/a9fc5330-73f9-44b3-f754-e6b6af902800.webp');
+    --color: #635275;
+}
+.genshin-story [c="布伦妮"] {
+    --avatar: url('portraits/19c68648-07ec-4fb0-395e-53dfb02bde00.webp');
+    --color: #5B4B8A;
+}
+.genshin-story [c="法尔伽"] {
+    --avatar: url('portraits/e9028814-a2c4-4342-cfe3-d4bda0b13b00.webp');
+    --color: #8A6A1E;
+}
+.genshin-story [c="杜林"] {
+    --avatar: url('portraits/2dfcf396-d77c-4f76-c0d5-a505bbc6ac00.webp');
+    --color: #6E3A8A;
+}
+.genshin-story [c="尼可"] {
+    --avatar: url('portraits/5dd09336-1c06-4200-a5ac-87fefdd6f400.webp');
+    --color: #ebaa78;
+}
+.genshin-story [c="迪奥娜"] {
+    --avatar: url('portraits/3494ec20-b0e7-404b-f522-9973e179f100.webp');
+    --color: #B23A5E;
+}
+.genshin-story [c="米卡"] {
+    --avatar: url('portraits/ba32cb5e-cca6-4c59-627b-5504228d7200.webp');
+    --color: #356C96;
+}
+.genshin-story [c="班尼特"] {
+    --avatar: url('portraits/1218bea1-7667-492e-1d34-959e22784d00.webp');
+    --color: #B5451F;
+}
+.genshin-story [c="洛恩"] {
+    --avatar: url('portraits/87531dce-11c4-4c8c-935b-be2a93a22100.webp');
+    --color: #3E6A8E;
+}
+.genshin-story [c="七七"] {
+    --avatar: url('portraits/7b383cc2-4170-4371-bf91-b95f6d196700.webp');
+    --color: #6D4C9F;
+}
+.genshin-story [c="香菱"] {
+    --avatar: url('portraits/13fb9339-455e-427a-ff62-08079f03de00.webp');
+    --color: #C2410C;
+}
+.genshin-story [c="行秋"] {
+    --avatar: url('portraits/722ad665-b47a-4dbc-ef89-0362dbfea500.webp');
+    --color: #2F6F9E;
+}
+.genshin-story [c="兹白"] {
+    --avatar: url('portraits/5700284b-adc5-4f23-b7df-bf9530100b00.webp');
+    --color: #2B6F63;
+}
+.genshin-story [c="瑶瑶"] {
+    --avatar: url('portraits/309cd6ef-a70b-4fae-7534-e94d1a5d9e00.webp');
+    --color: #4A7C2F;
+}
+.genshin-story [c="申鹤"] {
+    --avatar: url('portraits/be2f296e-0a01-4723-dd84-0e8613466700.webp');
+    --color: #3A7582;
+}
+.genshin-story [c="烟绯"] {
+    --avatar: url('portraits/1a45355e-f680-4232-a0dd-9bd187c23700.webp');
+    --color: #C24A55;
+}
+.genshin-story [c="闲云"] {
+    --avatar: url('portraits/bb1787c8-3959-415f-ff87-117867fb6200.webp');
+    --color: #3A7D6A;
+}
+.genshin-story [c="北斗"] {
+    --avatar: url('portraits/c119a1aa-bf4c-43f9-4a77-02ee9ae77b00.webp');
+    --color: #B0303F;
+}
+.genshin-story [c="嘉明"] {
+    --avatar: url('portraits/559abb6d-7b34-4380-e06b-f9cadb8ed300.webp');
+    --color: #B33A2B;
+}
+.genshin-story [c="蓝砚"] {
+    --avatar: url('portraits/83310267-3b71-4c88-fe21-69f185c12800.webp');
+    --color: #3A7D5C;
+}
+.genshin-story [c="白术"] {
+    --avatar: url('portraits/436c7711-3a24-4e54-01b5-0ccacbb51d00.webp');
+    --color: #2E7D5A;
+}
+.genshin-story [c="刻晴"] {
+    --avatar: url('portraits/59616870-a4ea-4ab6-e52b-be5d897aab00.webp');
+    --color: #7E4DB5;
+}
+.genshin-story [c="甘雨"] {
+    --avatar: url('portraits/1d129dca-94b2-4e71-af1d-0f5edd107700.webp');
+    --color: #4E6FA8;
+}
+.genshin-story [c="魈"] {
+    --avatar: url('portraits/90d83785-3420-4f40-a6fb-41ee42054d00.webp');
+    --color: #3F7F6D;
+}
+.genshin-story [c="钟离"] {
+    --avatar: url('portraits/8bb48ab0-39ea-4173-7e29-efba89172700.webp');
+    --color: #8A6A2F;
+}
+.genshin-story [c="胡桃"] {
+    --avatar: url('portraits/7f7052f8-6a93-4add-ae84-ca366a895200.webp');
+    --color: #A63A5A;
+}
+.genshin-story [c="夜兰"] {
+    --avatar: url('portraits/cdc67dee-0f1f-4efb-68f8-77d0b5f87d00.webp');
+    --color: #2F6F7A;
+}
+.genshin-story [c="云堇"] {
+    --avatar: url('portraits/9e9ce5fa-2099-4a03-5087-d502b4717300.webp');
+    --color: #B23A3A;
+}
+.genshin-story [c="凝光"] {
+    --avatar: url('portraits/0c745020-f279-431a-1ded-6cd0aa537d00.webp');
+    --color: #A33D2F;
+}
+.genshin-story [c="重云"] {
+    --avatar: url('portraits/c1f69032-41c3-4f81-45ac-5022c5816d00.webp');
+    --color: #2F7396;
+}
+.genshin-story [c="辛焱"] {
+    --avatar: url('portraits/cc9a44f0-72b2-450b-d68b-25da27654400.webp');
+    --color: #B5432A;
+}
+.genshin-story :is([c="影"], [c="雷电影"], [c="雷电将军"]) {
+    --avatar: url('portraits/1a2faff7-8dfd-49a7-50d8-6434291f6300.webp');
+    --color: #7A4FB8;
+}
+.genshin-story [c="八重神子"] {
+    --avatar: url('portraits/8cb06028-837c-4389-ecf2-c46d40d45b00.webp');
+    --color: #ff1e85;
+}
+.genshin-story [c="梦见月瑞希"] {
+    --avatar: url('portraits/3d0528ba-56d3-4a78-d983-0fa7bf074700.webp');
+    --color: #7B68AE;
+}
+.genshin-story [c="绮良良"] {
+    --avatar: url('portraits/b9078fa7-426e-41b4-5f28-468af5d5e600.webp');
+    --color: #3F7D4E;
+}
+.genshin-story [c="五郎"] {
+    --avatar: url('portraits/77f0fcab-5cae-4f13-78f6-6de438a39e00.webp');
+    --color: #A85A22;
+}
+.genshin-story [c="神里绫华"] {
+    --avatar: url('portraits/25af0bba-0d4f-4f7b-0914-b4b8e63bcb00.webp');
+    --color: #3E6E9E;
+}
+.genshin-story [c="神里绫人"] {
+    --avatar: url('portraits/3ca2c80b-1e65-403b-8a0e-127fd9884500.webp');
+    --color: #466A9A;
+}
+.genshin-story [c="荒泷一斗"] {
+    --avatar: url('portraits/4a207f0b-7397-49a0-b19d-357b0da1b600.webp');
+    --color: #B5482E;
+}
+.genshin-story [c="宵宫"] {
+    --avatar: url('portraits/f143eb1e-7ccb-48b4-75c1-c27c6ba3b200.webp');
+    --color: #B84A1C;
+}
+.genshin-story [c="九条裟罗"] {
+    --avatar: url('portraits/ec69bd4e-4f59-4521-c637-b6b8acd12f00.webp');
+    --color: #7D3F68;
+}
+.genshin-story [c="托马"] {
+    --avatar: url('portraits/bf173753-2f7e-4209-5835-7f3a68c70800.webp');
+    --color: #B84E2E;
+}
+.genshin-story [c="枫原万叶"] {
+    --avatar: url('portraits/be1d0f45-d702-4213-0893-2598c0548100.webp');
+    --color: #B04A32;
+}
+.genshin-story [c="珊瑚宫心海"] {
+    --avatar: url('portraits/ed15bdf1-bb32-4422-7b2b-022987d58c00.webp');
+    --color: #3A7399;
+}
+.genshin-story [c="鹿野院平藏"] {
+    --avatar: url('portraits/c3a9ef60-eade-4473-37db-aafc0d1c3b00.webp');
+    --color: #A6463A;
+}
+.genshin-story [c="久岐忍"] {
+    --avatar: url('portraits/a4272a1a-f460-4ab2-6875-8622084f6f00.webp');
+    --color: #2F7A5A;
+}
+.genshin-story [c="早柚"] {
+    --avatar: url('portraits/642a1f9a-3f1e-4679-8b0d-d7fa57864900.webp');
+    --color: #4F7A2E;
+}
+.genshin-story [c="赛诺"] {
+    --avatar: url('portraits/59c7defd-8157-4666-fc46-f0a70aadce00.webp');
+    --color: #6F3F8F;
+}
+.genshin-story [c="坎蒂丝"] {
+    --avatar: url('portraits/6b9dcf38-7d14-430e-fe81-680d20558600.webp');
+    --color: #2A5EA7;
+}
+.genshin-story [c="赛索斯"] {
+    --avatar: url('portraits/cc50cedf-2fc0-4faa-738a-524e75903c00.webp');
+    --color: #8A4A6B;
+}
+.genshin-story [c="纳西妲"] {
+    --avatar: url('portraits/2cf546c4-8e95-4ffe-4287-ad067d8c8100.webp');
+    --color: #4C7A2E;
+}
+.genshin-story [c="妮露"] {
+    --avatar: url('portraits/fb3b2bdc-b359-4fdd-ac03-e82545e9b700.webp');
+    --color: #2C7899;
+}
+.genshin-story [c="艾尔海森"] {
+    --avatar: url('portraits/38e03062-78a7-4888-e153-9ed275e0e900.webp');
+    --color: #2F6B5E;
+}
+.genshin-story :is([c="散兵"], [c="流浪者"]) {
+    --avatar: url('portraits/4af24430-3a3a-4d02-4bc9-874b440a0800.webp');
+    --color: #3F5FA8;
+}
+.genshin-story [c="提纳里"] {
+    --avatar: url('portraits/687d53a3-dfb0-4d46-a851-0f749857f100.webp');
+    --color: #3C7A4F;
+}
+.genshin-story [c="迪希雅"] {
+    --avatar: url('portraits/0ef052ad-3d72-45c1-ce5c-f4631f8eb500.webp');
+    --color: #A65A2E;
+}
+.genshin-story [c="珐露珊"] {
+    --avatar: url('portraits/5a3eb274-a160-4364-1d2f-4b09ad6d0c00.webp');
+    --color: #2F7A6A;
+}
+.genshin-story [c="莱依拉"] {
+    --avatar: url('portraits/b4cc264b-3432-457a-8d38-231fcd0ded00.webp');
+    --color: #4A5A9E;
+}
+.genshin-story [c="卡维"] {
+    --avatar: url('portraits/f36f73e1-ca25-4c14-455f-21af560e9600.webp');
+    --color: #A64B2A;
+}
+.genshin-story [c="多莉"] {
+    --avatar: url('portraits/4a3344bb-b8e6-489d-822c-524d64e09000.webp');
+    --color: #7B3FAE;
+}
+.genshin-story [c="柯莱"] {
+    --avatar: url('portraits/c479595e-545d-4a43-c645-561e103d5e00.webp');
+    --color: #3B7A57;
+}
+.genshin-story [c="爱可菲"] {
+    --avatar: url('portraits/d0b63faa-971e-4ab5-38ec-c4aeb01d2600.webp');
+    --color: #2F6F7A;
+}
+.genshin-story [c="莱欧斯利"] {
+    --avatar: url('portraits/0a2aa624-176c-4943-f897-01c198d06800.webp');
+    --color: #7A3E4A;
+}
+.genshin-story [c="艾梅莉埃"] {
+    --avatar: url('portraits/fed368a7-17fc-42ab-8cbe-eb0100b0d200.webp');
+    --color: #3F6B55;
+}
+.genshin-story [c="克洛琳德"] {
+    --avatar: url('portraits/1cdaad63-4267-44df-848f-a4f0a1d98c00.webp');
+    --color: #425A8E;
+}
+.genshin-story [c="希格雯"] {
+    --avatar: url('portraits/24cd65d0-b7a8-4340-e8a6-c35403e10e00.webp');
+    --color: #B04A7A;
+}
+.genshin-story [c="娜维娅"] {
+    --avatar: url('portraits/29274154-6c8c-4a76-0bb6-26b2ab545f00.webp');
+    --color: #A65E1E;
+}
+.genshin-story [c="林尼"] {
+    --avatar: url('portraits/cd737624-941a-4cb3-d2f9-9193f732cf00.webp');
+    --color: #A63A55;
+}
+.genshin-story [c="夏洛蒂"] {
+    --avatar: url('portraits/22f8d4bc-04ee-453a-855c-854bdd1e7b00.webp');
+    --color: #B8435E;
+}
+.genshin-story [c="那维莱特"] {
+    --avatar: url('portraits/780b6bc4-f0c9-4da4-0acb-4f3ef41d5300.webp');
+    --color: #3A6D9E;
+}
+.genshin-story [c="芙宁娜"] {
+    --avatar: url('portraits/1cee2440-9349-43e0-31fb-d9d9fbeb2800.webp');
+    --color: #2E6FA8;
+}
+.genshin-story [c="千织"] {
+    --avatar: url('portraits/5a226b44-13a2-4abe-e192-816dabb7dc00.webp');
+    --color: #A64555;
+}
+.genshin-story [c="琳妮特"] {
+    --avatar: url('portraits/1cba78cd-9281-4155-36f0-40fbf07d4900.webp');
+    --color: #4F6F8F;
+}
+.genshin-story [c="夏沃蕾"] {
+    --avatar: url('portraits/a5e412b7-cf36-4cf5-d68b-73a9e4a76100.webp');
+    --color: #A33B4A;
+}
+.genshin-story [c="菲米尼"] {
+    --avatar: url('portraits/a5a317d7-de08-4e0a-2497-0fe9b21acc00.webp');
+    --color: #3D6B8A;
+}
+.genshin-story [c="丝柯克"] {
+    --avatar: url('portraits/63d80e68-ceb6-4801-c8e5-54e5e8408a00.webp');
+    --color: #7A5C8A;
+}
+.genshin-story [c="茜特菈莉"] {
+    --avatar: url('portraits/483ac398-2428-4d82-c188-c54339820f00.webp');
+    --color: #6B4C8A;
+}
+.genshin-story [c="玛薇卡"] {
+    --avatar: url('portraits/6fcda278-1054-4121-6c87-ed45f6885100.webp');
+    --color: #ff0000;
+}
+.genshin-story [c="恰斯卡"] {
+    --avatar: url('portraits/2f1b08eb-5ae3-40de-fbe8-1b1b40e68700.webp');
+    --color: #9E3D52;
+}
+.genshin-story [c="伊法"] {
+    --avatar: url('portraits/c03dfbce-8b9c-465f-d44e-bd672b419200.webp');
+    --color: #3D7A75;
+}
+.genshin-story [c="玛拉妮"] {
+    --avatar: url('portraits/20e79ff8-8bb5-4617-6ddb-9cf6c6d71300.webp');
+    --color: #1E7A96;
+}
+.genshin-story [c="欧洛伦"] {
+    --avatar: url('portraits/0298fe1c-5208-4cb1-9d46-163cd8052e00.webp');
+    --color: #3F5A8A;
+}
+.genshin-story [c="伊安珊"] {
+    --avatar: url('portraits/7cabfd92-28b4-47cb-d7a3-b3f50419f800.webp');
+    --color: #3A7D4A;
+}
+.genshin-story [c="基尼奇"] {
+    --avatar: url('portraits/12bf64c6-6611-4c7e-9d30-681e148bb800.webp');
+    --color: #5E7A1E;
+}
+.genshin-story [c="希诺宁"] {
+    --avatar: url('portraits/2ec9f0a5-ce2e-42af-8bf6-8596ca6f6f00.webp');
+    --color: #6B7A2E;
+}
+.genshin-story [c="瓦雷莎"] {
+    --avatar: url('portraits/b1d3a89a-536f-4946-b169-7c2caad6fe00.webp');
+    --color: #A64D6A;
+}
+.genshin-story [c="卡齐娜"] {
+    --avatar: url('portraits/dccaf274-26cc-4a52-ee0e-ff49dba31500.webp');
+    --color: #9C551B;
+}
+.genshin-story [c="达达利亚"] {
+    --avatar: url('portraits/614cc144-9cfd-43f8-a55c-4676f2526000.webp');
+    --color: #B34A2E;
+}
+.genshin-story [c="叶洛亚"] {
+    --avatar: url('portraits/98ebd401-af87-49a1-4e51-cf2a47bc2f00.webp');
+    --color: #4A6D7A;
+}
+.genshin-story [c="爱诺"] {
+    --avatar: url('portraits/5518e349-2cdb-40c2-ecad-3c4022630e00.webp');
+    --color: #A64D79;
+}
+.genshin-story [c="莉奈娅"] {
+    --avatar: url('portraits/762f4c9c-e2e7-4d4f-6cc2-a8e20d589600.webp');
+    --color: #B04A6E;
+}
+.genshin-story [c="雅珂达"] {
+    --avatar: url('portraits/e76eb851-16e7-40f8-f3ec-b85bd5b65200.webp');
+    --color: #2F7D5A;
+}
+.genshin-story [c="奈芙尔"] {
+    --avatar: url('portraits/313f1dfe-cb7d-404f-4d6b-9b8b695c3700.webp');
+    --color: #2F7D5A;
+}
+.genshin-story [c="菈乌玛"] {
+    --avatar: url('portraits/9acecfc3-728f-4282-f71a-7c4c7796e200.webp');
+    --color: #5A6E8C;
+}
+.genshin-story [c="桑多涅"] {
+    --avatar: url('portraits/e94930b7-6455-440b-a938-ce956d51eb00.webp');
+    --color: #A64D6E;
+}
+.genshin-story [c="哥伦比娅"] {
+    --avatar: url('portraits/6468a962-acac-452b-e70a-1033f1215d00.webp');
+    --color: #6B4C7A;
+}
+.genshin-story [c="阿罗夏"] {
+    --avatar: url('portraits/2554276a-bcde-48b5-ce85-7abd797a0f00.webp');
+    --color: #2F6B5E;
+}
+.genshin-story [c="阿蕾奇诺"] {
+    --avatar: url('portraits/21efeff5-206b-44c4-f2ee-78ca6fef2700.webp');
+    --color: #A63A4A;
+}
+.genshin-story [c="奥黛塔"] {
+    --avatar: url('portraits/f3951c42-52da-43d0-19a0-c2dc39d7b200.webp');
+    --color: #4A5A8A;
+}
+.genshin-story [c="菲林斯"] {
+    --avatar: url('portraits/c7e2d7d8-4f3c-4b10-fc45-0f8488385d00.webp');
+    --color: #4A6080;
+}
+.genshin-story [c="伊涅芙"] {
+    --avatar: url('portraits/482e19bb-47e7-4668-637b-39b8740fc000.webp');
+    --color: #3D5A8A;
+}
+.genshin-story [c="沃雅妮莎"] {
+    --avatar: url('portraits/96a9e18c-3e44-4abf-f79b-8a62422fc900.webp');
+    --color: #2E6B6E;
+}
+.genshin-story [c="薇斯纳"] {
+    --avatar: url('portraits/a9cc2928-6c53-41bb-1518-3f021f6f0500.webp');
+    --color: #3A7D6A;
+}
+.genshin-story [c="瓦列里"] {
+    --avatar: url('portraits/537cb13e-779b-47ed-e24d-93fac4e10800.webp');
+    --color: #3D4F6E;
+}
+.genshin-story [c="米提亚"] {
+    --avatar: url('portraits/452821b6-6724-4f34-ff78-4892cf1f9100.webp');
+    --color: #3A5A8A;
+}
+.genshin-story :is([c="普契涅拉"], [c="公鸡"]) {
+    --avatar: url('portraits/32b3ec1d-251a-4926-3462-e45d74d7aa00.webp');
+    --color: #8A6D1F;
+}
+.genshin-story :is([c="潘塔罗涅"], [c="富人"]){
+    --avatar: url('portraits/72105b51-1c62-4c91-5335-e367564cb600.webp');
+    --color: #6B4C7A;
+}
+.genshin-story :is([c="皮耶罗"], [c="丑角"]) {
+    --avatar: url('portraits/99e3c452-8905-4ca2-84a5-1eef70440500.webp');
+    --color: #3A5570;
+}
+.genshin-story :is([c="罗莎琳"], [c="女士"]) {
+    --avatar: url('portraits/10a087c6-9a16-47a0-ec36-9d6d1b702600.webp');
+    --color: #A63A3A;
+}
+.genshin-story :is([c="卡皮塔诺"], [c="队长"], [c="瑟雷恩"]) {
+    --avatar: url('portraits/b4660653-5543-4c28-474a-ae56d460ac00.webp');
+    --color: #355C7D;
+}
+.genshin-story :is([c="多托雷"], [c="博士"], [c="赞迪克"]) {
+    --avatar: url('portraits/14a84aeb-f73f-4480-c983-f6ec0e56df00.webp');
+    --color: #6B2D5C;
+}
+.genshin-story [c="若娜瓦"] {
+    --avatar: url('portraits/1ecea316-a398-45c4-55ac-666e34709100.webp');
+    --color: #a90019;
+}
+.genshin-story :is([c="莱茵多特"], [c="纳贝里士"], [c="纳贝"]) {
+    --avatar: url('portraits/af782f24-7a4a-4abb-6d3c-a6677189cc00.webp');
+    --color: #8A5A2A;
+}
+.genshin-story :is([c="安娜丝塔夏"], [c="冰之女皇"], [c="瓦沙嘉"], [c="安娜"]) {
+    --avatar: url('portraits/12bb84e5-e3b1-443f-733c-10afab8a2f00.webp');
+    --color: #00ccff;
+}
+.genshin-story [c="芙蕾德莉卡"] {
+    --avatar: url('portraits/da8174e0-18ca-404e-a60e-64c880689400.webp');
+    --color: #C2A15A;
+}
+.genshin-story [c="达妮卡"] {
+    --avatar: url('portraits/b63cec55-d7e8-4115-ec53-e9646ccb3300.webp');
+    --color: #2E5C5A;
+}
+.genshin-story [c="艾莉丝"] {
+    --avatar: url('portraits/b06bfe2a-fa2e-40d5-1ece-60a3a42bc600.webp');
+    --color: #ff0000;
+}
+.genshin-story [c="名"] {
+    --color: #2b7a78;
+}
+.genshin-story [c="路人"] {
+    --avatar: url('portraits/45d8257e-fa53-46d6-ad47-65138cc7bf00.webp');
+    --color: #66615b;
+}

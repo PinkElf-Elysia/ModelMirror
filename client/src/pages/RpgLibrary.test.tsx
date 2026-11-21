@@ -13,7 +13,7 @@ it('automatically lists published works, filters and refreshes without creating 
  render(<MemoryRouter><RpgPage/></MemoryRouter>);
  const entry=await screen.findByRole('article',{name:'雾港来信'});
  expect(entry).toHaveClass('rpg-story-card');expect(within(entry).getByRole('link')).toHaveAttribute('href',workbenchHref('18484',window.location,work));
- expect(screen.getAllByRole('article')).toHaveLength(24);
+ expect(screen.getAllByRole('article')).toHaveLength(25);
  expect(within(screen.getByRole('article',{name:'崩坏：星穹铁道'})).getByRole('link')).toHaveAttribute('href','/rpg/star-rail');
  expect(within(screen.getByRole('article',{name:'型月大世界'})).getByRole('link')).toHaveAttribute('href','/rpg/type-moon');
  fireEvent.change(screen.getByRole('searchbox',{name:'搜索作品'}),{target:{value:'本地冒险'}});expect(screen.getAllByRole('article')).toHaveLength(1);
@@ -90,4 +90,20 @@ it('keeps legacy worlds and filters character publications without losing their 
  expect(screen.getAllByRole('article')).toHaveLength(1);expect(screen.getByRole('article',{name:character.name})).toHaveTextContent('单角色卡');
  expect(within(screen.getByRole('article',{name:character.name})).getByRole('link')).toHaveAttribute('href',expect.stringContaining(character.versionId));
  fireEvent.change(screen.getByRole('combobox',{name:'作品类型'}),{target:{value:'world'}});expect(screen.queryByRole('article',{name:character.name})).toBeNull();expect(screen.getByRole('article',{name:work.name})).toBeInTheDocument();
+});
+
+it('opens Genshin from the library and links its recent save to the same card',async()=>{
+  vi.stubEnv('VITE_RPG_AUTHORING_PORT','');
+  const id='91240cb1-af44-419a-a01a-ec52005d9361';
+  const fetcher=vi.fn(async(url:string, _options?:RequestInit)=>Response.json(
+    url==='/rpg-app/genshin/chat/api/sessions'?[{id,name:'璃月来信',turns:1}]:url.endsWith('/sessions')?[]:{}
+  ));
+  vi.stubGlobal('fetch',fetcher);
+  render(<MemoryRouter><RpgPage/></MemoryRouter>);
+  const card=screen.getByRole('article',{name:'原神·提瓦特大陆'});
+  expect(within(card).getByRole('link')).toHaveAttribute('href','/rpg/genshin');
+  expect(card.querySelector('img')).toHaveAttribute('src','/rpg-app/genshin/cover.jpg');
+  const saved=await screen.findByRole('link',{name:/璃月来信.*原神·提瓦特大陆.*1 回合/});
+  expect(saved).toHaveAttribute('href','/rpg/genshin/chat/'+id);
+  expect(fetcher.mock.calls.every(([,options])=>!options?.method)).toBe(true);
 });

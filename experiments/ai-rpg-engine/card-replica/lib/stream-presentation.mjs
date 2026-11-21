@@ -1,10 +1,12 @@
 // Read-only browser projection. The same allowlist also renders saved replies.
 import {cardPresentation, cardDisplay} from './card-presentation.mjs';
 import {starRailPresentation} from './star-rail-presentation.mjs';
+import {genshinPresentation} from '../../genshin-card/presentation.mjs';
 import {harryPotterPresentation} from './harry-potter-presentation.mjs';
 export function streamPresentation(raw, card) {
   if (typeof raw !== 'string' || raw.length > 2097152) throw new RangeError('STREAM_SOURCE_LIMIT');
   if (card === 'star-rail') return starRailPresentation(raw);
+  if (card === 'genshin') return genshinPresentation(raw);
   if (card === 'harry-potter') return harryPotterPresentation(raw);
   const profile = card === 'earth' || card === 'god' || card === 'douluo' || card === 'type-moon' ? card : 'archive';
   // Use the throwing renderer first: a partial parse failure must not replace the
