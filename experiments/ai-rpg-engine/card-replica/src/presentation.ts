@@ -1,5 +1,6 @@
 // Presentation only: installation and session permissions are read from each host.
 export const worlds = [
+  {id:'american-horror',name:'美恐大世界',description:'在 2018 年的灵质灾变中选择融合宇宙或单作品，建立档案，踏入第一起恐怖事件。',genre:'恐怖 · 超自然',mark:'恐',art:'/rpg-app/american-horror/background.jpg'},
   {id:'slime',name:'关于我转生成史莱姆这件事',description:'选择时间线、角色与能力，从朱拉大森林启程，写下自己的转生故事。',genre:'奇幻 · 转生',mark:'史',art:'/rpg-app/slime/background.jpg'},
   {id:'modern-life',name:'现代超真实人生',description:'从现代现实或自定世界出发，写下主角和相遇的人，让工作、金钱与关系随你的选择而变化。',genre:'现代 · 开放世界',mark:'生',art:'/rpg-app/modern-life/cover.jpg'},
   {id:'type-moon',name:'型月大世界',description:'从魔术师与英灵两种身份进入型月世界。',genre:'型月 · 圣杯战争',mark:'月',art:'/rpg-app/type-moon/cover.webp'},
@@ -28,7 +29,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','slime','modern-life','doupo','star-rail','naruto','genshin','cyberpunk','oasis','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','american-horror','slime','modern-life','doupo','star-rail','naruto','genshin','cyberpunk','oasis','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

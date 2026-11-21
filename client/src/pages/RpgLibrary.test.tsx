@@ -13,7 +13,9 @@ it('automatically lists published works, filters and refreshes without creating 
  render(<MemoryRouter><RpgPage/></MemoryRouter>);
  const entry=await screen.findByRole('article',{name:'雾港来信'});
  expect(entry).toHaveClass('rpg-story-card');expect(within(entry).getByRole('link')).toHaveAttribute('href',workbenchHref('18484',window.location,work));
- expect(screen.getAllByRole('article')).toHaveLength(25);
+ expect(screen.getAllByRole('article')).toHaveLength(26);
+ expect(within(screen.getByRole('article',{name:'美恐大世界'})).getByRole('link')).toHaveAttribute('href','/rpg/american-horror');
+ expect(within(screen.getByRole('article',{name:'OASIS！头号玩家！（游戏人生）'})).getByRole('link')).toHaveAttribute('href','/rpg/oasis');
  expect(within(screen.getByRole('article',{name:'崩坏：星穹铁道'})).getByRole('link')).toHaveAttribute('href','/rpg/star-rail');
  expect(within(screen.getByRole('article',{name:'型月大世界'})).getByRole('link')).toHaveAttribute('href','/rpg/type-moon');
  fireEvent.change(screen.getByRole('searchbox',{name:'搜索作品'}),{target:{value:'本地冒险'}});expect(screen.getAllByRole('article')).toHaveLength(1);
