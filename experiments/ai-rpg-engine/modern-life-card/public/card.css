@@ -1,0 +1,31 @@
+@font-face {
+  font-family: 'Playfair Display';
+  src: url('./fonts/display.ttf') format('truetype');
+  font-weight: 400 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Serif SC';
+  src: url('./fonts/serif.woff') format('woff');
+  font-weight: 200 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans SC';
+  src: url('./fonts/sans.woff') format('woff');
+  font-weight: 100 900;
+  font-display: swap;
+}
+#final-preview .btn-container { flex-wrap: wrap; gap: 12px; }
+#removeNpcDialog {
+  max-width: min(26rem, 88vw);
+  margin: auto;
+  background: var(--bg);
+  color: var(--black);
+  border: 2px solid var(--black);
+  padding: 1.5rem;
+  overflow-wrap: anywhere;
+}
+#removeNpcDialog::backdrop { background: rgb(0 0 0 / .5); }
+#removeNpcDialog .dialog-actions { display: flex; justify-content: end; gap: .75rem; margin-top: 1rem; }
+#removeNpcDialog button { padding: .4rem .8rem; font: inherit; cursor: pointer; }
