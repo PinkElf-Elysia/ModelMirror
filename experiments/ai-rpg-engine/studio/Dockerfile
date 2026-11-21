@@ -18,6 +18,7 @@ COPY medieval-card ./medieval-card
 COPY harry-potter-card ./harry-potter-card
 COPY blue-fish-card ./blue-fish-card
 COPY doupo-card ./doupo-card
+COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
 COPY naruto-card ./naruto-card
 COPY ai-girls-card ./ai-girls-card

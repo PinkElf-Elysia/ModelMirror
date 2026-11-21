@@ -5,6 +5,7 @@ import {cardRoot,validSession} from '../../../experiments/ai-rpg-engine/card-rep
 
 const titles={
   doupo:'斗破苍穹！',
+  cyberpunk:'赛博朋克大世界',
   daomu:'盗墓笔记大世界',
   naruto:'火影大世界',
   elderland:'西幻大世界 · 艾尔德兰',

@@ -20,6 +20,7 @@ it.each([
  ['dragon-raja','/rpg-app/dragon-raja/chat/'],
  ['jinyong','/rpg-app/jinyong/chat/'],
  ['naruto','/rpg-app/naruto/chat/'],
+ ['cyberpunk','/rpg-app/cyberpunk/chat/'],
  ['daomu','/rpg-app/daomu/chat/'],
  ['elderland','/rpg-app/elderland/chat/'],
  ['ai-girls','/rpg-app/ai-girls/chat/'],
