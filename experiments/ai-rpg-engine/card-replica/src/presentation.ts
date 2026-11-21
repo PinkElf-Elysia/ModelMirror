@@ -21,6 +21,7 @@ export const worlds = [
   {id:'god',name:'神临凡尘',description:'写下天书，成为凡尘中一个不平凡的存在。',genre:'神话 · 沙盒',mark:'神',art:''},
   {id:'cultivation',name:'超级修仙',description:'择一身根骨，游历三界，走出自己的长生路。',genre:'仙侠 · 修行',mark:'仙',art:''},
   {id:'rpg05',name:'行间',description:'换一种身份，走进下一场冒险。你的选择，写在行间。',genre:'多世界 · 冒险',mark:'行',art:''},
+  {id:'genshin',name:'原神·提瓦特大陆',description:'选择旅行者、原著角色或自创角色，从七国主线、间章或节日启程。',genre:'原神 · 开放世界',mark:'旅',art:'/rpg-app/genshin/cover.jpg'},
   {id:'cyberpunk',name:'赛博朋克大世界',description:'在 2077 年的新巴比伦选择出身、职业与 AI 伴侣，从五层城区中开始自己的故事。',genre:'赛博朋克 · 开放世界',mark:'城',art:'/rpg-app/cyberpunk/cover.jpg'},
   {id:'oasis',name:'OASIS！头号玩家！（游戏人生）',description:'在 2045 年的现实与绿洲之间切换身份，探索由电影、动漫和游戏构成的虚拟宇宙。',genre:'虚拟现实 · 开放世界',mark:'洲',art:'/rpg-app/oasis/cover.png'},
   {id:'daomu',name:'盗墓笔记大世界',description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。',genre:'悬疑 · 自由探索',mark:'墓',art:'/rpg-app/daomu/cover.avif'},
@@ -28,7 +29,7 @@ export const worlds = [
 export type WorldId = typeof worlds[number]['id'];
 export const worldId=(id:string)=>id==='xingjian'?'rpg05':id;
 export const internalCard=(id:string)=>id==='rpg05'?'xingjian':id;
-export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','american-horror','slime','modern-life','doupo','star-rail','naruto','cyberpunk','oasis','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
+export const cardRoot=(id:string)=>'/rpg-app/'+internalCard(id)+(['ancient','cultivation','lord-of-mysteries','blue-fish','douluo','dragon-raja','jinyong','ai-girls','type-moon','american-horror','slime','modern-life','doupo','star-rail','naruto','genshin','cyberpunk','oasis','daomu','medieval','elderland','harry-potter'].includes(id)?'/chat/':'/');
 export const registryRoot=(id:string)=>['earth','god'].includes(id)?'/rpg-app/api/plugins':cardRoot(id)+'api/plugins';
 export const validSession=(id:unknown):id is string=>typeof id==='string'&&/^(?:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}|(?:branch|rewrite|import)-[a-f0-9]{64})$/i.test(id);
 export const pluginInfo:Record<string,{name:string;group:string;icon:string;description:string;cost:string;detail:string}>={

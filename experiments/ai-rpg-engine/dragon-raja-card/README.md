@@ -12,7 +12,7 @@
 
 ## 原文和素材
 
-`resources/prompts.json` 是《龙族提示词.docx》按 OOXML 正文段落顺序机械提取的 system 内容；未做语义改写、修正、删节或补全。859 段（含 169 空段），20,043 个 Unicode 字符。文档与文本哈希记录于 `resources/MANIFEST.json`，每次装配校验文本哈希。
+龙族卡从 `resources/prompts.json` 读取固定提示词，正文原样采用审核稿《01-固定提示词.txt》。装配时按 `resources/MANIFEST.json` 校验 SHA-256。世界书条目的行号和片段继续引用 `resources/worldbook-source.json`，其中保存《龙族提示词.docx》的原始提取文本。
 
 前端按用户实际超链接及已打开页面 `https://afengy.cash/zh/explore/installed/5892055f-8249-4ea2-9dda-9bf86b8806e5` 保存；其标题为“龙族大世界”。用户链接显示文字中的另一 ID 未作为来源。`resources/original.html` 保留原始 iframe 源码；`resources/ASSETS.json` 记录两张原始素材的 URL 与哈希。
 

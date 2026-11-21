@@ -1,0 +1,18 @@
+{
+  "page": "https://afengy.cash/zh/explore/installed/0f5a63d3-161f-4d81-932c-29dd66e09b11",
+  "openingSha256": "39d5bacec8a7ab43c66dc903639e3f980548e6cfd58a97666781152c698b36cd",
+  "sources": [
+    {
+      "name": "原神前置词、世界书.docx",
+      "docxSha256": "1dd799abd2ef7a7ee6f010c5977e6bac7e6802bd8e34975516484b53a4821887",
+      "paragraphs": 2022,
+      "textSha256": "def4a3397e317f82a27d80039475382a527d7adcfe6d2f83fdc86ef04dc11d99"
+    },
+    {
+      "name": "原神后置词.docx",
+      "docxSha256": "90e12e9368d34ad40e5d0982289828cf8bc8c39bc598492a2d7d301ac1fee071",
+      "paragraphs": 32,
+      "textSha256": "d15ff2d0ce696caadf92f5f24279b0690949f49718d798eeff0ca15bded99585"
+    }
+  ]
+}

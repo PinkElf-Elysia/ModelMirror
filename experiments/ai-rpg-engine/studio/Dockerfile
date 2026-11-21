@@ -23,6 +23,7 @@ COPY slime-card ./slime-card
 COPY star-rail-card ./star-rail-card
 COPY doupo-card ./doupo-card
 COPY oasis-card ./oasis-card
+COPY genshin-card ./genshin-card
 COPY cyberpunk-card ./cyberpunk-card
 COPY daomu-card ./daomu-card
 COPY naruto-card ./naruto-card

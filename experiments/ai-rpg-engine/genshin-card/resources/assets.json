@@ -1,0 +1,50 @@
+[
+  {
+    "url": "https://catai.wiki/27a70c3c-dbfe-4d23-3b7d-ceb7b148f900/w=3000",
+    "file": "background.jpg",
+    "mediaType": "image/jpeg",
+    "sha256": "6bbdcc880255fab22b03ffffae66320394e55ec2c354be14843f1ae3ce1631c2"
+  },
+  {
+    "url": "https://catai.wiki/aaa4336a-c703-4f17-0539-c63d9c46d100/w=3000",
+    "file": "logo.png",
+    "mediaType": "image/png",
+    "sha256": "7c56ca830e6b1572825eea0e332941ff371d030dda2e7234e55d62acee25020c"
+  },
+  {
+    "url": "https://catai.wiki/f8c7b57d-4888-48a3-dd32-2aafb2180700/w=3000",
+    "file": "teyvat.jpg",
+    "mediaType": "image/jpeg",
+    "sha256": "036334cfe5daec2554236cc739adcee1ac4578e22d3735579d11aa1c183abcb5"
+  },
+  {
+    "url": "https://catai.wiki/5ebe0d8e-1a84-42e9-435e-768cdcd8f900/w=3000",
+    "file": "avatar-1.png",
+    "mediaType": "image/png",
+    "sha256": "84c2672c3ba2e172343f8db9c91be9a9fe2eadac9731ba499b342599f3c8a116"
+  },
+  {
+    "url": "https://catai.wiki/04b44624-c7be-4d5b-d8b1-e3812c590500/w=3000",
+    "file": "avatar-2.png",
+    "mediaType": "image/png",
+    "sha256": "105ef5e5b7973964c1dc12fc8b8a7762f17500677da6dbaf43573546f20a14ac"
+  },
+  {
+    "url": "https://catai.wiki/3c362fa7-cfb5-4256-e8a9-dd53c2ed8800/w=3000",
+    "file": "avatar-3.png",
+    "mediaType": "image/png",
+    "sha256": "c1471201c3edb5f24119b5e546ad5094d8d90f4ae987caa5155670a94440ae54"
+  },
+  {
+    "url": "https://catai.wiki/a528c5ee-f6af-4b72-076b-a8d0fa904f00/w=3000",
+    "file": "avatar-4.png",
+    "mediaType": "image/png",
+    "sha256": "6da0737cdfb0cc6353e18c7b2a19192960be0375f87a381dd34b227006697dfb"
+  },
+  {
+    "url": "https://catai.wiki/7e992a23-d35e-4140-6098-242b50951c00/cover",
+    "file": "cover.jpg",
+    "mediaType": "image/jpeg",
+    "sha256": "5d6bfe6eb4746bec3b5e7a1cf82c6acb2947f8f1b95acd3d17946ef9e1754eee"
+  }
+]

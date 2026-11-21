@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+    <title>原神 · 沉浸式角色扮演卡 · 额外备注</title>
+
+    <style>
+        html, body { overscroll-behavior: none; }
+
+        @font-face {
+            font-family: 'UranusPixel';
+            src: url('https://cdn.jsdelivr.net/npm/zpix-pixel-font@3.1.2/dist/zpix.woff2') format('woff2');
+            font-weight: normal; font-style: normal; font-display: swap;
+        }
+
+        :root {
+            --primary-color: #55ccaa;
+            --accent-color: #33aa88;
+            --bg-color: #fcfcfc;
+            --text-color: #222;
+            --border-color: #111;
+            --card-bg: rgba(255, 255, 255, 0.75);
+            --shadow-color: rgba(0, 0, 0, 0.25);
+            --radio-shadow: rgba(0, 0, 0, 0.20);
+            --title-shadow1: #fff;
+            --title-shadow2: var(--primary-color);
+            --tag-bg: rgba(255, 255, 255, 0.80);
+            --tag-border: var(--border-color);
+            --input-border: var(--border-color);
+            --input-focus: var(--accent-color);
+            --preview-bg: #333;
+            --preview-color: #fff;
+            --preview-border: var(--border-color);
+            --btn-bg: var(--accent-color);
+            --btn-color: #fff;
+            --btn-border: var(--border-color);
+            --toast-bg: rgba(0, 0, 0, 0.92);
+            --toast-color: #fff;
+            --toast-border: var(--accent-color);
+            --footer-bg: rgba(255, 255, 255, 0.80);
+            --footer-border: var(--border-color);
+            --section-before-bg: var(--primary-color);
+            --story-tile-bg: rgba(255, 255, 255, 0.80);
+            --story-tile-border: var(--border-color);
+            --story-tile-checked: var(--primary-color);
+            --story-tile-checked-color: #fff;
+            --empty-hint-color: #888;
+            --hr-color: var(--primary-color);
+            --highlight-bg: var(--primary-color);
+            --highlight-color: #fff;
+            --favor-desc-color: var(--text-color);
+            --radio-bg: rgba(255, 255, 255, 0.80);
+            --radio-text: var(--text-color);
+            --radio-checked-bg: var(--primary-color);
+            --radio-checked-color: #fff;
+            --radio-border: var(--border-color);
+            --header-border: var(--primary-color);
+        }
+
+        [data-theme="pink"] {
+            --primary-color: #ff77aa;
+            --accent-color: #ee4477;
+            --section-before-bg: #ff77aa;
+            --title-shadow2: #ff77aa;
+            --story-tile-checked: #ff77aa;
+            --highlight-bg: #ff77aa;
+            --radio-checked-bg: #ff77aa;
+            --header-border: #ff77aa;
+        }
+
+        [data-theme="purple"] {
+            --primary-color: #aa77ff;
+            --accent-color: #8844ee;
+            --section-before-bg: #aa77ff;
+            --title-shadow2: #aa77ff;
+            --story-tile-checked: #aa77ff;
+            --highlight-bg: #aa77ff;
+            --radio-checked-bg: #aa77ff;
+            --header-border: #aa77ff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Comic Sans MS', 'Chalkboard SE', 'Microsoft YaHei', sans-serif;
+            background-color: #1a1a2e;
+            color: var(--text-color);
+            line-height: 1.6;
+            padding: 20px 10px;
+            min-height: 100vh;
+            transition: background-color 0.4s ease, color 0.4s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        #bg-layer {
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-image: url('https://catai.wiki/27a70c3c-dbfe-4d23-3b7d-ceb7b148f900/w=3000');
+            background-size: cover; background-position: center; background-repeat: no-repeat;
+            z-index: 0; pointer-events: none;
+        }
+
+        #meteor-canvas {
+            position: fixed; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            pointer-events: none; z-index: 999; display: block;
+        }
+
+        .container {
+            max-width: 820px; margin: 0 auto;
+            background: var(--card-bg);
+            border: 4px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 8px 8px 0px var(--shadow-color);
+            padding: 24px 28px;
+            overflow: hidden;
+            transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+            position: relative; z-index: 10;
+            backdrop-filter: blur(2px);
+        }
+
+        .header {
+            text-align: center; margin-bottom: 28px; padding-bottom: 18px;
+            border-bottom: 4px dashed var(--header-border);
+            transition: border-color 0.4s ease;
+        }
+        .header h1 { margin-bottom: 6px; text-align: center; text-shadow: none; font-size: inherit; font-weight: normal; letter-spacing: 0; transition: none; color: inherit; }
+
+        .title-image {
+            display: block; width: 100%; max-width: 200px; height: auto; margin: 0 auto;
+            border: none; border-radius: 0; box-shadow: none; transition: none;
+        }
+        .title-image:hover { transform: none; box-shadow: none; }
+
+        .header .subtitle {
+            font-size: 1.1em; font-weight: 700; color: var(--accent-color);
+            background: var(--card-bg); padding: 6px 20px;
+            border: 2px solid var(--border-color); border-radius: 8px;
+            display: inline-block; margin-top: 8px;
+            transition: color 0.4s ease, background 0.4s ease, border-color 0.4s ease;
+        }
+
+        .hero-image-container {
+            width: 100%; margin-bottom: 26px; border-radius: 12px; overflow: hidden;
+            border: 4px solid var(--border-color); box-shadow: 6px 6px 0px var(--shadow-color);
+            transition: box-shadow 0.3s ease, border-color 0.4s ease, transform 0.3s ease;
+        }
+        .hero-image-container:hover { transform: translate(-0.5px, -0.5px); box-shadow: 6px 6px 0px var(--shadow-color); }
+        .hero-image-container img { width: 100%; height: auto; display: block; }
+
+        .section-block {
+            margin-bottom: 28px; padding: 16px 20px;
+            background: var(--card-bg); border: 3px solid var(--border-color); border-radius: 12px;
+            position: relative;
+            transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, transform 0.3s ease;
+            box-shadow: 4px 4px 0px var(--shadow-color);
+        }
+        .section-block:hover { transform: translate(-0.5px, -0.5px); box-shadow: 4px 4px 0px var(--shadow-color); }
+
+        .section-block::before {
+            content: ''; position: absolute; top: -10px; left: -10px;
+            width: 20px; height: 20px; background: var(--section-before-bg);
+            border: 3px solid var(--border-color); border-radius: 50%;
+            transition: background 0.4s ease, border-color 0.4s ease; z-index: 2;
+        }
+
+        .section-block h2 {
+            color: var(--primary-color); font-size: 1.8em; font-weight: 900;
+            border-bottom: 3px solid var(--border-color); padding-bottom: 6px;
+            display: inline-block; margin-bottom: 14px;
+            text-shadow: 1px 1px 0 #fff, 3px 3px 0 var(--primary-color);
+            transition: color 0.4s ease, text-shadow 0.4s ease, border-color 0.4s ease;
+        }
+
+        .text-content { font-size: 1.05em; text-align: justify; color: var(--text-color); font-weight: 500; transition: color 0.4s ease; }
+        .text-content p { margin-bottom: 10px; }
+        .text-content ul { padding-left: 24px; margin: 8px 0 12px; }
+        .text-content ul li { margin-bottom: 6px; list-style-type: '✦ '; }
+
+        .highlight { background: var(--highlight-bg); color: var(--highlight-color); padding: 2px 8px; border-radius: 4px; font-weight: 700; transition: background 0.4s ease, color 0.4s ease; }
+
+        .list-block { margin-top: 8px; margin-left: 16px; }
+        .list-block li { margin-bottom: 8px; list-style-type: '▸ '; }
+        .list-block strong {
+            color: var(--accent-color); background: var(--card-bg);
+            padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent-color);
+            transition: color 0.4s ease, border-color 0.4s ease, background 0.4s ease;
+        }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label {
+            display: block; font-weight: 900; margin-bottom: 4px; font-size: 1.05em;
+            color: var(--primary-color);
+            text-shadow: 1px 1px 0 #fff, 2px 2px 0 var(--primary-color);
+            transition: color 0.4s ease, text-shadow 0.4s ease;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 10px 14px;
+            border: 3px solid var(--input-border); border-radius: 8px;
+            font-size: 1em; font-family: inherit;
+            background: var(--card-bg); color: var(--text-color);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.4s ease, color 0.4s ease;
+            box-shadow: 2px 2px 0px var(--shadow-color);
+        }
+        input:focus, select:focus { outline: none; border-color: var(--input-focus); box-shadow: 4px 4px 0px var(--input-focus); }
+
+        .radio-tile-group { display: flex; flex-wrap: wrap; gap: 10px; }
+        .radio-tile-label { cursor: pointer; }
+        .radio-tile-label input { display: none; }
+        .radio-tile {
+            display: flex; align-items: center; justify-content: center;
+            padding: 6px 18px; border: 2px solid var(--radio-border); border-radius: 30px;
+            background: var(--radio-bg); color: var(--radio-text);
+            font-weight: 800; font-size: 0.9rem; font-family: inherit;
+            transition: all 0.25s ease, background 0.4s ease, border-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease, transform 0.25s ease;
+            box-shadow: 3px 3px 0px var(--radio-shadow);
+        }
+        .radio-tile-label input:checked+.radio-tile {
+            background: var(--radio-checked-bg);
+            border-color: var(--border-color);
+            color: var(--radio-checked-color);
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--radio-shadow);
+        }
+        .sub-radio-group .radio-tile { font-size: 0.85rem; padding: 4px 14px; }
+        .role-tile { min-width: 80px; }
+
+        .dynamic-area {
+            margin-top: 12px; padding: 12px 14px;
+            background: var(--card-bg); border-radius: 10px;
+            border: 2px dashed var(--primary-color);
+            display: none;
+            transition: border-color 0.4s ease, background 0.4s ease;
+        }
+        .dynamic-area.active { display: block; }
+
+        .sub-radio-group { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+        .manual-input { margin-top: 8px; }
+        .manual-input input {
+            width: 100%; padding: 6px 12px;
+            border: 3px solid var(--input-border); border-radius: 8px;
+            font-size: 0.95em; font-family: inherit;
+            background: var(--card-bg); color: var(--text-color);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.4s ease, color 0.4s ease;
+            box-shadow: 2px 2px 0px var(--shadow-color);
+        }
+        .manual-input input:focus { outline: none; border-color: var(--input-focus); box-shadow: 4px 4px 0px var(--input-focus); }
+
+        .gender-dependent { display: none; margin-top: 6px; }
+        .gender-dependent.active { display: block; }
+
+        /* ===== 剧情布局 ===== */
+        .story-layout { display: flex; gap: 16px; margin-top: 6px; flex-wrap: wrap; }
+        .story-left { flex: 0 0 150px; min-width: 110px; display: flex; flex-direction: column; gap: 4px; }
+        .story-left .radio-tile {
+            font-size: 0.82rem; padding: 4px 12px; justify-content: flex-start;
+            width: 100%; border-radius: 20px; background: var(--card-bg); border-color: var(--border-color);
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: all 0.25s ease, transform 0.25s ease;
+        }
+        .story-left .radio-tile-label input:checked+.radio-tile {
+            background: var(--radio-checked-bg); border-color: var(--border-color);
+            color: var(--radio-checked-color); transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--shadow-color);
+        }
+
+        .story-right {
+            flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 4px;
+            padding: 6px 12px; background: var(--card-bg); border-radius: 12px;
+            border: 2px solid var(--border-color); min-height: 50px;
+            transition: border-color 0.4s ease, background 0.4s ease;
+        }
+        .story-right .radio-tile {
+            font-size: 0.78rem; padding: 3px 12px; justify-content: flex-start;
+            border-radius: 18px; background: var(--card-bg); border-color: var(--border-color);
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: all 0.25s ease, transform 0.25s ease;
+        }
+        .story-right .radio-tile-label input:checked+.radio-tile {
+            background: var(--story-tile-checked); border-color: var(--border-color);
+            color: var(--story-tile-checked-color); transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--shadow-color);
+        }
+        .story-right .empty-hint { color: var(--empty-hint-color); font-size: 0.9rem; padding: 6px 0; font-weight: 500; transition: color 0.4s ease; }
+
+        .story-manual-wrap { width: 100%; padding: 4px 0; }
+        .story-manual-wrap .manual-label { font-weight: 700; font-size: 0.85rem; color: var(--primary-color); margin-bottom: 2px; display: block; transition: color 0.4s ease; }
+        .story-manual-wrap input {
+            width: 100%; padding: 6px 12px;
+            border: 3px solid var(--input-border); border-radius: 8px;
+            font-size: 0.9em; font-family: inherit;
+            background: var(--card-bg); color: var(--text-color);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.4s ease, color 0.4s ease;
+            box-shadow: 2px 2px 0px var(--shadow-color); margin-bottom: 8px;
+        }
+        .story-manual-wrap input:focus { outline: none; border-color: var(--input-focus); box-shadow: 4px 4px 0px var(--input-focus); }
+        .story-manual-wrap input:last-child { margin-bottom: 0; }
+
+        .sub-ability-group {
+            border: 2px solid var(--border-color); border-radius: 12px; padding: 10px 12px;
+            background: var(--card-bg); margin-top: 8px;
+            transition: border-color 0.4s ease, background 0.4s ease;
+        }
+        .sub-ability-group .sub-radio-group { margin-top: 0; }
+
+        /* ===== 预览 ===== */
+        .preview-label {
+            font-weight: 900; font-size: 1.1em; color: var(--primary-color);
+            margin-bottom: 4px; margin-top: 18px;
+            text-shadow: 1px 1px 0 #fff, 2px 2px 0 var(--primary-color);
+            transition: color 0.4s ease, text-shadow 0.4s ease;
+        }
+        .preview-box {
+            margin-top: 4px; padding: 14px 18px;
+            background: var(--preview-bg); color: var(--preview-color);
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            border-radius: 10px; border: 3px solid var(--preview-border);
+            white-space: pre-wrap; font-size: 0.95em; font-weight: 600; line-height: 1.6;
+            box-shadow: 4px 4px 0px var(--shadow-color);
+            transition: all 0.4s ease, background 0.4s ease, border-color 0.4s ease, color 0.4s ease;
+        }
+
+        #copy-button {
+            display: block; width: 100%; margin-top: 18px; padding: 16px 20px;
+            background: var(--btn-bg); color: var(--btn-color);
+            font-size: 1.2em; font-weight: 900; font-family: inherit;
+            border: 4px solid var(--btn-border); border-radius: 12px; cursor: pointer;
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: all 0.2s ease, background 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, transform 0.2s ease;
+            text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
+            letter-spacing: 1px;
+        }
+        #copy-button:hover { transform: translate(-0.5px, -0.5px); box-shadow: 3px 3px 0px var(--shadow-color); filter: brightness(1.05); }
+        #copy-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+
+        #toast {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: var(--toast-bg); color: var(--toast-color);
+            padding: 28px 40px; border-radius: 14px;
+            border: 4px solid var(--toast-border);
+            font-size: 1.2rem; text-align: center;
+            z-index: 10000; display: none;
+            box-shadow: 10px 10px 0px var(--shadow-color);
+            font-weight: 700; font-family: inherit;
+            transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+            max-width: 90vw;
+        }
+        #toast button {
+            margin-top: 16px; padding: 8px 28px;
+            background: var(--primary-color); border: 2px solid var(--border-color);
+            color: var(--btn-color); cursor: pointer; border-radius: 30px;
+            font-size: 1rem; font-weight: 700; font-family: inherit;
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: all 0.2s ease, background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, transform 0.2s ease;
+        }
+        #toast button:hover { transform: translate(-0.5px, -0.5px); box-shadow: 3px 3px 0px var(--shadow-color); filter: brightness(1.05); }
+        #toast button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+
+        footer { text-align: center; margin-top: 28px; padding: 10px; font-weight: 700; position: relative; z-index: 10; }
+        footer a {
+            color: var(--text-color); text-decoration: none;
+            background: var(--footer-bg); padding: 8px 24px;
+            border: 3px solid var(--footer-border); border-radius: 30px;
+            font-weight: 800; font-family: inherit;
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: all 0.2s ease, color 0.4s ease, background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, transform 0.2s ease;
+        }
+        footer a:hover {
+            transform: translate(-0.5px, -0.5px); box-shadow: 3px 3px 0px var(--shadow-color);
+            background: var(--primary-color); color: var(--btn-color); border-color: var(--border-color);
+        }
+        footer a:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+
+        hr { border: 3px dashed var(--hr-color); margin: 20px 0 16px; transition: border-color 0.4s ease; }
+
+        /* ============================================================
+           ★ 头像设定区块
+           ============================================================ */
+        .avatar-preset-group {
+            display: flex; flex-wrap: wrap; gap: 12px;
+            margin-top: 12px; align-items: center;
+        }
+        .avatar-preset {
+            width: 75px; height: 75px;
+            border-radius: 50%;
+            object-fit: cover;
+            cursor: pointer;
+            display: block;
+            background: var(--card-bg);
+            border: 3px solid var(--border-color);
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .avatar-preset:hover {
+            transform: translate(-1px, -1px);
+            box-shadow: 4px 4px 0px var(--shadow-color);
+            border-color: var(--accent-color);
+        }
+        .avatar-preset.selected {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px var(--primary-color), 3px 3px 0px var(--shadow-color);
+            transform: translate(1px, 1px);
+        }
+
+        .avatar-code-box {
+            margin-top: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-size: 0.88em;
+        }
+
+        #copy-avatar-button {
+            display: block; width: 100%; margin-top: 12px; padding: 13px 18px;
+            background: var(--btn-bg); color: var(--btn-color);
+            font-size: 1.05em; font-weight: 900; font-family: inherit;
+            border: 3px solid var(--btn-border); border-radius: 10px; cursor: pointer;
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            letter-spacing: 1px;
+            text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.2);
+            transition: all 0.2s ease, background 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease, transform 0.2s ease;
+        }
+        #copy-avatar-button:hover { transform: translate(-0.5px, -0.5px); box-shadow: 3px 3px 0px var(--shadow-color); filter: brightness(1.05); }
+        #copy-avatar-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+        #copy-avatar-button:active {
+            text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.75),
+                         2px 2px 0 rgba(255, 255, 255, 0.75) !important;
+        }
+
+        .avatar-hint {
+            margin-top: 10px; padding: 10px 14px;
+            font-size: 0.85em; line-height: 1.7; font-weight: 500;
+            color: var(--text-color);
+            background: var(--card-bg);
+            border: 2px dashed var(--primary-color);
+            border-radius: 10px;
+            transition: border-color 0.4s ease, background 0.4s ease, color 0.4s ease;
+        }
+        .avatar-hint strong { color: var(--accent-color); }
+
+        /* ============================================================
+           ★ 对话颜色：RGB 滑动条 + 预览
+           ============================================================ */
+        .color-title {
+            display: block;
+            font-weight: 900;
+            font-size: 0.95em;
+            color: var(--primary-color);
+            text-shadow: 1px 1px 0 #fff, 2px 2px 0 var(--primary-color);
+            margin-top: 16px;
+            margin-bottom: 4px;
+            transition: color 0.4s ease, text-shadow 0.4s ease;
+        }
+        .color-picker-row {
+            display: flex;
+            gap: 16px;
+            margin-top: 0;
+            padding: 10px 12px;
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            align-items: center;
+            flex-wrap: wrap;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        .color-sliders {
+            flex: 1;
+            min-width: 160px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .color-slider-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .color-label {
+            font-weight: 900;
+            font-size: 0.9em;
+            width: 18px;
+            text-align: center;
+            font-family: 'SF Mono', monospace;
+            transition: color 0.4s ease;
+        }
+        .color-label-r { color: #e23b3b; }
+        .color-label-g { color: #23a823; }
+        .color-label-b { color: #2b5be0; }
+        .color-value {
+            width: 34px;
+            text-align: right;
+            font-weight: 700;
+            font-size: 0.82em;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            color: var(--text-color);
+            transition: color 0.4s ease;
+        }
+        .color-preview-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .color-preview {
+            width: 62px;
+            height: 62px;
+            border-radius: 10px;
+            border: 3px solid var(--border-color);
+            box-shadow: 3px 3px 0px var(--shadow-color);
+            background: #8c5a08;
+            transition: background 0.12s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+        }
+        .color-hex {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-weight: 700;
+            font-size: 0.78em;
+            letter-spacing: 0.5px;
+            color: var(--text-color);
+            transition: color 0.4s ease;
+        }
+
+        /* 自定义 range 滑动条 */
+        input[type="range"].color-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: 1;
+            height: 18px;
+            background: transparent;
+            border: none;
+            outline: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        input[type="range"].color-slider:focus { outline: none; }
+        input[type="range"].color-slider::-webkit-slider-runnable-track {
+            height: 10px;
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            box-shadow: 2px 2px 0px var(--shadow-color);
+        }
+        #color-r::-webkit-slider-runnable-track { background: linear-gradient(to right, #000, #ff0000); }
+        #color-g::-webkit-slider-runnable-track { background: linear-gradient(to right, #000, #00ff00); }
+        #color-b::-webkit-slider-runnable-track { background: linear-gradient(to right, #000, #0000ff); }
+        input[type="range"].color-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            border: 2px solid var(--border-color);
+            box-shadow: 2px 2px 0px var(--shadow-color);
+            cursor: pointer;
+            margin-top: -6px;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+        input[type="range"].color-slider::-moz-range-track {
+            height: 10px;
+            border-radius: 6px;
+            border: 2px solid var(--border-color);
+            box-shadow: 2px 2px 0px var(--shadow-color);
+        }
+        #color-r::-moz-range-track { background: linear-gradient(to right, #000, #ff0000); }
+        #color-g::-moz-range-track { background: linear-gradient(to right, #000, #00ff00); }
+        #color-b::-moz-range-track { background: linear-gradient(to right, #000, #0000ff); }
+        input[type="range"].color-slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent-color);
+            border: 2px solid var(--border-color);
+            box-shadow: 2px 2px 0px var(--shadow-color);
+            cursor: pointer;
+            transition: background 0.4s ease, border-color 0.4s ease;
+        }
+
+        /* ============================================================
+           ★ 统一：所有按钮选中/按下文字阴影
+           ============================================================ */
+        .radio-tile-label input:checked + .radio-tile,
+        .story-left .radio-tile-label input:checked + .radio-tile,
+        .story-right .radio-tile-label input:checked + .radio-tile,
+        #copy-button:active,
+        #toast button:active,
+        footer a:active {
+            text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.75),
+                         2px 2px 0 rgba(255, 255, 255, 0.75) !important;
+        }
+
+        /* ============================================================
+           响应式
+           ============================================================ */
+        @media (max-width: 650px) {
+            body { padding: 10px 5px; background-attachment: scroll; }
+            .container { padding: 10px 5px; border-width: 3px; border-radius: 12px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .title-image { max-width: 100px; }
+            .header .subtitle { font-size: 0.9em; padding: 4px 12px; margin-top: 6px; }
+            .hero-image-container { border-width: 2px; box-shadow: 4px 4px 0px var(--shadow-color); margin-bottom: 16px; border-radius: 10px; }
+            .section-block { padding: 10px 12px; margin-bottom: 16px; border-width: 2px; border-radius: 10px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .section-block::before { width: 16px; height: 16px; top: -8px; left: -8px; border-width: 2px; }
+            .section-block h2 { font-size: 1.3em; border-bottom-width: 2px; padding-bottom: 4px; margin-bottom: 10px; }
+            .text-content { font-size: 0.95em; }
+            .text-content ul { padding-left: 16px; }
+            .form-group { margin-bottom: 12px; }
+            .form-group label { font-size: 0.95em; }
+            input[type="text"], input[type="number"], select { padding: 6px 10px; font-size: 0.95em; border-width: 2px; border-radius: 6px; box-shadow: 2px 2px 0px var(--shadow-color); }
+            .radio-tile { padding: 4px 12px; font-size: 0.88rem; border-width: 2px; border-radius: 20px; box-shadow: 3px 3px 0px var(--radio-shadow); }
+            .radio-tile-label input:checked+.radio-tile { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--radio-shadow); }
+            .sub-radio-group .radio-tile { font-size: 0.85rem; padding: 3px 20px; }
+            .role-tile { min-width: 60px; }
+            .dynamic-area { padding: 8px 10px; margin-top: 8px; border-width: 2px; }
+            .story-layout { flex-direction: column; gap: 8px; }
+            .story-left { flex: 1; flex-direction: row; flex-wrap: wrap; gap: 4px; min-width: unset; }
+            .story-left .radio-tile { width: auto; font-size: 0.8rem; padding: 4px 10px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .story-left .radio-tile-label input:checked+.radio-tile { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+            .story-right { min-height: 36px; padding: 4px 8px; border-width: 2px; }
+            .story-right .radio-tile { font-size: 0.78rem; padding: 4px 8px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .story-right .radio-tile-label input:checked+.radio-tile { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+            .story-manual-wrap input { font-size: 0.85rem; padding: 4px 10px; border-width: 2px; border-radius: 6px; box-shadow: 2px 2px 0px var(--shadow-color); }
+            .story-manual-wrap .manual-label { font-size: 0.8rem; }
+            .sub-ability-group { padding: 6px 8px; border-width: 2px; border-radius: 10px; }
+            .preview-box { padding: 10px 12px; font-size: 0.8rem; border-width: 2px; border-radius: 8px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .preview-label { font-size: 0.95em; margin-top: 12px; }
+            #copy-button { padding: 12px 16px; font-size: 1rem; border-width: 3px; border-radius: 10px; box-shadow: 3px 3px 0px var(--shadow-color); margin-top: 12px; }
+            #copy-button:hover { transform: translate(-0.5px, -0.5px); box-shadow: 3px 3px 0px var(--shadow-color); }
+            #copy-button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+            #toast { padding: 10px 12px; font-size: 1rem; border-width: 3px; box-shadow: 6px 6px 0px var(--shadow-color); width: 85vw; max-width: 85vw; }
+            #toast button { padding: 6px 18px; font-size: 0.9rem; box-shadow: 3px 3px 0px var(--shadow-color); }
+            #toast button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px var(--shadow-color); }
+            footer { margin-top: 16px; padding: 6px; }
+            footer a { padding: 6px 16px; font-size: 0.85rem; border-width: 2px; border-radius: 20px; box-shadow: 3px 3px 0px var(--shadow-color); }
+            .container { border-radius: 12px; }
+            .header { padding-bottom: 10px; margin-bottom: 16px; border-bottom-width: 3px; }
+
+            /* 头像设定移动端 */
+            .avatar-preset-group { gap: 10px; margin-top: 10px; }
+            .avatar-preset { width: 60px; height: 60px; border-width: 2px; box-shadow: 2px 2px 0px var(--shadow-color); }
+            .avatar-code-box { font-size: 0.76rem; padding: 8px 10px; border-width: 2px; }
+            #copy-avatar-button { padding: 10px 14px; font-size: 0.95rem; border-width: 2px; border-radius: 8px; margin-top: 10px; }
+            .avatar-hint { font-size: 0.8rem; padding: 8px 10px; border-width: 2px; line-height: 1.6; }
+
+            /* 对话颜色移动端 */
+            .color-title { font-size: 0.85em; margin-top: 12px; margin-bottom: 3px; }
+            .color-picker-row { gap: 10px; padding: 8px 10px; margin-top: 0; border-width: 2px; box-shadow: 2px 2px 0px var(--shadow-color); }
+            .color-sliders { min-width: 130px; gap: 6px; }
+            .color-slider-item { gap: 6px; }
+            .color-label { width: 14px; font-size: 0.8em; }
+            .color-value { width: 26px; font-size: 0.72em; }
+            .color-preview { width: 50px; height: 50px; border-width: 2px; box-shadow: 2px 2px 0px var(--shadow-color); border-radius: 8px; }
+            .color-hex { font-size: 0.7em; }
+            input[type="range"].color-slider { height: 16px; }
+            input[type="range"].color-slider::-webkit-slider-runnable-track { height: 8px; border-width: 2px; }
+            input[type="range"].color-slider::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; border-width: 2px; }
+            input[type="range"].color-slider::-moz-range-track { height: 8px; border-width: 2px; }
+            input[type="range"].color-slider::-moz-range-thumb { width: 16px; height: 16px; border-width: 2px; }
+        }
+
+        /* ===== 移除按钮点击/选中时的浏览器默认焦点框 ===== */
+        .radio-tile-label,
+        .radio-tile,
+        .tag-btn,
+        #copy-button,
+        #copy-avatar-button,
+        #toast button,
+        footer a,
+        button,
+        a,
+        label,
+        input[type="range"].color-slider {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+        }
+
+        .radio-tile-label:focus,
+        .radio-tile-label:focus-visible,
+        .radio-tile-label:focus-within,
+        .radio-tile:focus,
+        .radio-tile:focus-visible,
+        .story-left .radio-tile-label:focus,
+        .story-left .radio-tile:focus,
+        .story-right .radio-tile-label:focus,
+        .story-right .radio-tile:focus,
+        .tag-btn:focus,
+        .tag-btn:focus-visible,
+        #copy-button:focus,
+        #copy-button:focus-visible,
+        #copy-avatar-button:focus,
+        #copy-avatar-button:focus-visible,
+        #toast button:focus,
+        #toast button:focus-visible,
+        footer a:focus,
+        footer a:focus-visible,
+        button:focus,
+        button:focus-visible,
+        a:focus,
+        a:focus-visible,
+        input[type="range"].color-slider:focus,
+        input[type="range"].color-slider:focus-visible {
+            outline: none !important;
+            outline-offset: 0 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="bg-layer"></div>
+    <canvas id="meteor-canvas"></canvas>
+
+    <div class="container" id="appContainer">
+
+        <header class="header">
+            <h1>
+                <img src="https://catai.wiki/aaa4336a-c703-4f17-0539-c63d9c46d100/w=3000" alt="原神" class="title-image" />
+            </h1>
+            <div class="subtitle">—— 提瓦特大陆 · 沉浸式角色扮演 ——</div>
+        </header>
+
+        <div class="hero-image-container">
+            <img src="https://catai.wiki/f8c7b57d-4888-48a3-dd32-2aafb2180700/w=3000" alt="提瓦特大陆" />
+        </div>
+
+        <section class="section-block">
+            <h2>🌍 提瓦特 · 世界之章</h2>
+            <div class="text-content">
+                <p><span class="highlight">欢迎来到提瓦特大陆</span>——一个由七种元素交织而成的幻想世界。七座城邦信奉着对应的神明，尘世七执政守护着各自的子民。然而，深渊的暗流涌动，坎瑞亚的遗恨未消，天空岛的秘密深藏于云端。</p>
+            </div>
+        </section>
+
+        <section class="section-block">
+            <h2>⚙️ 核心机制 · 角色卡精要</h2>
+            <div class="text-content">
+                <ul class="list-block">
+                    <li><strong>🎭 身份选择</strong> —— 可扮演旅行者（空/荧）、任意原著NPC（七神、愚人众、仙人等），或自创角色（需提供背景设定）。AI将自动适配对应身份的记忆、立场与能力。</li>
+                    <li><strong>❤️ 好感度系统</strong>（0–100）—— 每位NPC都有独立好感度。从"陌路"到"挚友"，解锁不同对话、任务甚至隐藏剧情。你的选择、礼物、战斗援助都会影响数值。</li>
+                    <li><strong>⚡ 战力等级</strong>（T0–T5）—— 从"凡人"到"创世级"，所有角色均有明确的实力定位。战斗结果基于等级、元素反应与策略，杜绝无脑碾压。</li>
+                    <li><strong>🌫️ 迷雾规则</strong> —— 未到达的区域、未揭示的秘密，AI不会主动透露。你需通过探索、对话、任务逐步拼凑真相，保持代入感。</li>
+                    <li><strong>📜 活人感文风</strong> —— NPC有口头禅、小动作、情绪波动，会记仇、会犯错、会闲聊。世界动态推进，昼夜变化，事件不依赖你也会发展。</li>
+                </ul>
+                <p>所有交互均遵循 <strong>「写实模拟」</strong> 的原则，拒绝空洞辞藻，追求真实、鲜活的角色反应。</p>
+            </div>
+        </section>
+
+        <section class="section-block">
+            <h2>🎮 玩家设定 · 塑造你的化身</h2>
+            <form id="config-form">
+
+                <!-- 1. 扮演角色类型 -->
+                <div class="form-group">
+                    <label>🎭 扮演角色</label>
+                    <div class="radio-tile-group" id="role-type-group">
+                        <label class="radio-tile-label">
+                            <input type="radio" name="roleType" value="traveler" checked />
+                            <div class="radio-tile role-tile">旅行者</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="roleType" value="original" />
+                            <div class="radio-tile role-tile">原著角色</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="roleType" value="custom" />
+                            <div class="radio-tile role-tile">自创角色</div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 旅行者 -->
+                <div class="dynamic-area active" id="area-traveler">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>选择主角</label>
+                        <div class="sub-radio-group" id="traveler-choice-group">
+                            <label class="radio-tile-label">
+                                <input type="radio" name="travelerChoice" value="空" checked />
+                                <div class="radio-tile">空</div>
+                            </label>
+                            <label class="radio-tile-label">
+                                <input type="radio" name="travelerChoice" value="荧" />
+                                <div class="radio-tile">荧</div>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 原著角色 -->
+                <div class="dynamic-area" id="area-original">
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>选择角色</label>
+                        <div class="sub-radio-group" id="original-char-group">
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="钟离" checked /><div class="radio-tile">钟离</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="雷电影" /><div class="radio-tile">雷电影</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="温迪" /><div class="radio-tile">温迪</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="纳西妲" /><div class="radio-tile">纳西妲</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="芙宁娜" /><div class="radio-tile">芙宁娜</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="胡桃" /><div class="radio-tile">胡桃</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="萍姥姥" /><div class="radio-tile">萍姥姥</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="提米" /><div class="radio-tile">提米</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="丘丘人" /><div class="radio-tile">丘丘人</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="originalChar" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="manual-input-wrap" style="display:none; margin-top:10px;">
+                            <input type="text" id="original-manual" placeholder="输入角色名称…" value="" />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 自创角色 -->
+                <div class="dynamic-area" id="area-custom">
+                    <div class="form-group">
+                        <label>📖 主角名称</label>
+                        <input type="text" id="p-name" placeholder="输入自定义名字…" value="" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>👫 主角性别</label>
+                        <div class="sub-radio-group" id="gender-group">
+                            <label class="radio-tile-label"><input type="radio" name="gender" value="男" checked /><div class="radio-tile">男</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="gender" value="女" /><div class="radio-tile">女</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="gender" value="扶她" /><div class="radio-tile">扶她</div></label>
+                        </div>
+                    </div>
+
+                    <div class="gender-dependent active" id="gender-male">
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <label>🍌 肉棒长度 (CM)</label>
+                            <input type="number" id="p-dick" value="18" step="1" min="1" />
+                        </div>
+                    </div>
+                    <div class="gender-dependent" id="gender-female">
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <label>🎀 胸围大小</label>
+                            <input type="text" id="p-bust" placeholder="例：D罩杯" value="D罩杯" />
+                        </div>
+                    </div>
+                    <div class="gender-dependent" id="gender-futa">
+                        <div class="form-group" style="margin-bottom:10px;">
+                            <label>🍌 肉棒长度 (CM)</label>
+                            <input type="number" id="p-dick-futa" value="18" step="1" min="1" />
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label>🎀 胸围大小</label>
+                            <input type="text" id="p-bust-futa" placeholder="例：D罩杯" value="D罩杯" />
+                        </div>
+                    </div>
+
+                    <!-- ★ 性格 -->
+                    <div class="form-group">
+                        <label>😊 主角性格</label>
+                        <div class="sub-radio-group" id="personality-group">
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="沉稳内敛" checked /><div class="radio-tile">沉稳内敛</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="玩世不恭" /><div class="radio-tile">玩世不恭</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="温柔体贴" /><div class="radio-tile">温柔体贴</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="霸道强势" /><div class="radio-tile">霸道强势</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="腹黑狡黠" /><div class="radio-tile">腹黑狡黠</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="纯情木讷" /><div class="radio-tile">纯情木讷</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="personality" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="personality-manual-wrap" style="display:none;">
+                            <input type="text" id="p-personality" placeholder="输入自定义性格…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- ★ 外貌 -->
+                    <div class="form-group">
+                        <label>👦 主角外貌</label>
+                        <div class="sub-radio-group" id="appearance-group">
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="清秀俊美" checked /><div class="radio-tile">清秀俊美</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="金发异瞳" /><div class="radio-tile">金发异瞳</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="娇俏萝莉" /><div class="radio-tile">娇俏萝莉</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="可爱正太" /><div class="radio-tile">可爱正太</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="气质大叔" /><div class="radio-tile">气质大叔</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="高贵冷艳" /><div class="radio-tile">高贵冷艳</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="appearance" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="appearance-manual-wrap" style="display:none;">
+                            <input type="text" id="p-appearance" placeholder="输入自定义外貌…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- ★ 身材 -->
+                    <div class="form-group">
+                        <label>🕺 主角身材</label>
+                        <div class="sub-radio-group" id="body-group">
+                            <label class="radio-tile-label"><input type="radio" name="body" value="修长匀称" checked /><div class="radio-tile">修长匀称</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="肌肉猛男" /><div class="radio-tile">肌肉猛男</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="纤细瘦弱" /><div class="radio-tile">纤细瘦弱</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="微胖肉感" /><div class="radio-tile">微胖肉感</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="前凸后翘" /><div class="radio-tile">前凸后翘</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="黄金比例" /><div class="radio-tile">黄金比例</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="body" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="body-manual-wrap" style="display:none;">
+                            <input type="text" id="p-body" placeholder="输入自定义身材…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- ★ 身份 -->
+                    <div class="form-group">
+                        <label>🏷️ 主角身份</label>
+                        <div class="sub-radio-group" id="identity-group">
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="冒险家" checked /><div class="radio-tile">冒险家</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="雇佣兵" /><div class="radio-tile">雇佣兵</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="降临者" /><div class="radio-tile">降临者</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="学者" /><div class="radio-tile">学者</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="商人" /><div class="radio-tile">商人</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="平民" /><div class="radio-tile">平民</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="identity" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="identity-manual-wrap" style="display:none;">
+                            <input type="text" id="p-identity" placeholder="输入自定义身份…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- 战力标签 -->
+                    <div class="form-group" style="margin-bottom:10px;">
+                        <label>⚡ 主角战力</label>
+                        <div class="sub-radio-group" id="power-group">
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T0 创世级" /><div class="radio-tile">T0 创世级</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T1 执政级" /><div class="radio-tile">T1 执政级</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T2 神明级" /><div class="radio-tile">T2 神明级</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T3 魔神级" /><div class="radio-tile">T3 魔神级</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T4 眷属级" /><div class="radio-tile">T4 眷属级</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="power" value="T5 凡人级" checked /><div class="radio-tile">T5 凡人级</div></label>
+                        </div>
+                    </div>
+
+                    <!-- 主角能力 -->
+                    <div class="form-group">
+                        <label>💎 主角能力</label>
+                        <div class="sub-radio-group" id="ability-type-group">
+                            <label class="radio-tile-label">
+                                <input type="radio" name="abilityType" value="none" checked />
+                                <div class="radio-tile">无</div>
+                            </label>
+                            <label class="radio-tile-label">
+                                <input type="radio" name="abilityType" value="vision" />
+                                <div class="radio-tile">神之眼</div>
+                            </label>
+                            <label class="radio-tile-label">
+                                <input type="radio" name="abilityType" value="moon" />
+                                <div class="radio-tile">月之轮</div>
+                            </label>
+                            <label class="radio-tile-label">
+                                <input type="radio" name="abilityType" value="star" />
+                                <div class="radio-tile">星之楔</div>
+                            </label>
+                            <label class="radio-tile-label">
+                                <input type="radio" name="abilityType" value="manual" />
+                                <div class="radio-tile">手动输入</div>
+                            </label>
+                        </div>
+
+                        <div class="manual-input" id="ability-manual-wrap" style="display:none; margin-top:10px;">
+                            <input type="text" id="ability-manual" placeholder="输入自定义能力…" value="" />
+                        </div>
+
+                        <div class="sub-ability-group" id="ability-vision-group" style="display:none;">
+                            <div class="sub-radio-group">
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="风" checked /><div class="radio-tile">风</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="岩" /><div class="radio-tile">岩</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="草" /><div class="radio-tile">草</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="雷" /><div class="radio-tile">雷</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="水" /><div class="radio-tile">水</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="火" /><div class="radio-tile">火</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="冰" /><div class="radio-tile">冰</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityVision" value="邪眼" /><div class="radio-tile">邪眼</div></label>
+                            </div>
+                        </div>
+
+                        <div class="sub-ability-group" id="ability-moon-group" style="display:none;">
+                            <div class="sub-radio-group">
+                                <label class="radio-tile-label"><input type="radio" name="abilityMoon" value="草" checked /><div class="radio-tile">草</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityMoon" value="岩" /><div class="radio-tile">岩</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityMoon" value="雷" /><div class="radio-tile">雷</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityMoon" value="水" /><div class="radio-tile">水</div></label>
+                            </div>
+                        </div>
+
+                        <div class="sub-ability-group" id="ability-star-group" style="display:none;">
+                            <div class="sub-radio-group">
+                                <label class="radio-tile-label"><input type="radio" name="abilityStar" value="风" checked /><div class="radio-tile">风</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityStar" value="雷" /><div class="radio-tile">雷</div></label>
+                                <label class="radio-tile-label"><input type="radio" name="abilityStar" value="冰" /><div class="radio-tile">冰</div></label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 所在地 -->
+                    <div class="form-group">
+                        <label>📍 初始位置</label>
+                        <div class="sub-radio-group" id="location-group">
+                            <label class="radio-tile-label"><input type="radio" name="location" value="蒙德城" checked /><div class="radio-tile">蒙德城</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="璃月港" /><div class="radio-tile">璃月港</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="稻妻城" /><div class="radio-tile">稻妻城</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="须弥城" /><div class="radio-tile">须弥城</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="枫丹廷" /><div class="radio-tile">枫丹廷</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="纳塔" /><div class="radio-tile">纳塔</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="挪德卡莱" /><div class="radio-tile">挪德卡莱</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="至冬" /><div class="radio-tile">至冬</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="location" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="location-manual-wrap" style="display:none; margin-top:10px;">
+                            <input type="text" id="location-manual" placeholder="输入所在地…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- 遇见角色 -->
+                    <div class="form-group">
+                        <label>👤 遇见角色</label>
+                        <div class="sub-radio-group" id="meet-group">
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="无" checked /><div class="radio-tile">无</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="芙宁娜" /><div class="radio-tile">芙宁娜</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="雷电影" /><div class="radio-tile">雷电影</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="八重神子" /><div class="radio-tile">八重神子</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="桑多涅" /><div class="radio-tile">桑多涅</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="哥伦比娅" /><div class="radio-tile">哥伦比娅</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="优菈" /><div class="radio-tile">优菈</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="钟离" /><div class="radio-tile">钟离</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="温迪" /><div class="radio-tile">温迪</div></label>
+                            <label class="radio-tile-label"><input type="radio" name="meet" value="__manual__" /><div class="radio-tile">手动输入</div></label>
+                        </div>
+                        <div class="manual-input" id="meet-manual-wrap" style="display:none; margin-top:10px;">
+                            <input type="text" id="meet-manual" placeholder="输入角色名…" value="" />
+                        </div>
+                    </div>
+
+                    <!-- 额外备注 -->
+                    <div class="form-group">
+                        <label>🗒️ 额外备注</label>
+                        <input type="text" id="p-extra-note" placeholder="输入额外设定…" value="" />
+                    </div>
+                </div>
+
+                <!-- ★★★★★ 头像设定（仅自创角色显示） ★★★★★ -->
+                <div class="form-group" id="avatar-section">
+                    <label>🖼️ 头像设定</label>
+                    <input type="text" id="avatar-url" placeholder="输入头像图片地址…" value="" />
+
+                    <!-- 4个预设头像（位于地址输入框下方、颜色标题上方） -->
+                    <div class="avatar-preset-group" id="avatar-preset-group"></div>
+
+                    <!-- ★ 对话颜色标题（滑动条框外上方） -->
+                    <div class="color-title">🎨 对话颜色</div>
+
+                    <!-- 对话颜色：RGB 滑动条 + 预览 -->
+                    <div class="color-picker-row">
+                        <div class="color-sliders">
+                            <div class="color-slider-item">
+                                <span class="color-label color-label-r">R</span>
+                                <input type="range" id="color-r" min="0" max="255" value="140" class="color-slider" />
+                                <span class="color-value" id="color-r-value">140</span>
+                            </div>
+                            <div class="color-slider-item">
+                                <span class="color-label color-label-g">G</span>
+                                <input type="range" id="color-g" min="0" max="255" value="90" class="color-slider" />
+                                <span class="color-value" id="color-g-value">90</span>
+                            </div>
+                            <div class="color-slider-item">
+                                <span class="color-label color-label-b">B</span>
+                                <input type="range" id="color-b" min="0" max="255" value="8" class="color-slider" />
+                                <span class="color-value" id="color-b-value">8</span>
+                            </div>
+                        </div>
+                        <div class="color-preview-wrap">
+                            <div class="color-preview" id="color-preview"></div>
+                            <div class="color-hex" id="color-hex">#8c5a08</div>
+                        </div>
+                    </div>
+
+                    <div class="preview-box avatar-code-box" id="avatar-code-box"></div>
+
+                    <button type="button" id="copy-avatar-button">📋 复制头像代码</button>
+
+                    <div class="avatar-hint">
+                        💡 <strong>使用说明</strong>：将上方生成的代码粘贴至自定义配置的「内置 CSS」区域中，刷新对话页面即可生效。<br />
+                        · <strong>名字</strong>需要同步为当前设定的主角名称，<strong>对话颜色</strong>由上方 RGB 滑动条实时调节。<br />
+                        · 点击上方 <strong>预设头像</strong> 可快速填入地址，也可手动粘贴任意图片链接。
+                    </div>
+                </div>
+
+                <hr />
+
+                <div class="form-group">
+                    <label>📜 剧情节点</label>
+                    <div class="story-layout">
+                        <div class="story-left" id="story-left"></div>
+                        <div class="story-right" id="story-right">
+                            <div class="empty-hint">← 请选择一个章节</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>💬 回复字数（参考）</label>
+                    <input type="number" id="p-words" value="1000" step="50" />
+                </div>
+
+                <div class="form-group">
+                    <label>🔇 主角禁言（是否主动说话）</label>
+                    <div class="radio-tile-group">
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-mute" value="开启" />
+                            <div class="radio-tile">开启</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-mute" value="关闭" checked />
+                            <div class="radio-tile">关闭</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>🎥 描述视角</label>
+                    <div class="radio-tile-group">
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-pov" value="第一人称" />
+                            <div class="radio-tile">第一人称</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-pov" value="第二人称" checked />
+                            <div class="radio-tile">第二人称</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-pov" value="第三人称" />
+                            <div class="radio-tile">第三人称</div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 推演模式 -->
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>🧠 推演模式</label>
+                    <div class="radio-tile-group">
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-reasoning" value="思维链开启" />
+                            <div class="radio-tile">思维链开启</div>
+                        </label>
+                        <label class="radio-tile-label">
+                            <input type="radio" name="p-reasoning" value="无" checked />
+                            <div class="radio-tile">无</div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="preview-label">📜 设定预览</div>
+                <div class="preview-box" id="preview-area">✨ 设定预览区 ✨</div>
+                <button type="button" id="copy-button">📋 一键复制角色卡设定</button>
+            </form>
+        </section>
+    </div>
+
+    <div id="toast">
+        <div id="toast-message">✨ 设定已复制 ✨<br />请粘贴至AI对话窗口，开启你的提瓦特之旅。</div>
+        <button id="toast-close">启程</button>
+    </div>
+
+    <footer>
+        <a href="#" target="_blank">将复制的设定粘贴至AI对话窗口</a>
+    </footer>
+
+    <script>
+        /* ============================================================
+           流星特效
+           ============================================================ */
+        (function() {
+            const canvas = document.getElementById('meteor-canvas');
+            const ctx = canvas.getContext('2d');
+            let W, H;
+
+            function resizeCanvas() {
+                W = canvas.width = window.innerWidth;
+                H = canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            class Meteor {
+                constructor() { this.reset(true); }
+                reset(forceFromTop = false) {
+                    this.x = Math.random() * W;
+                    this.y = -10 - Math.random() * 60;
+                    this.angle = Math.PI / 2 + (Math.random() - 0.5) * 0.5;
+                    this.speed = 1.5 + Math.random() * 2.5;
+                    this.tailLength = 50 + Math.floor(Math.random() * 40);
+                    this.trail = [];
+                    this.glowSize = 7.5 + Math.random() * 7.5;
+                    this.alive = true;
+                    for (let i = 0; i < Math.min(this.tailLength, 20); i++) {
+                        this.trail.push({ x: this.x, y: this.y });
+                    }
+                }
+                update() {
+                    this.trail.push({ x: this.x, y: this.y });
+                    if (this.trail.length > this.tailLength) this.trail.shift();
+                    this.x += this.speed * Math.cos(this.angle);
+                    this.y += this.speed * Math.sin(this.angle);
+                    const margin = 120;
+                    if (this.x < -margin || this.x > W + margin || this.y < -margin || this.y > H + margin) {
+                        this.reset(false);
+                    }
+                }
+                draw(ctx) {
+                    const len = this.trail.length;
+                    if (len < 2) return;
+                    ctx.globalAlpha = 0.1;
+                    for (let i = 0; i < len - 1; i++) {
+                        const t = i / len;
+                        const alpha = t * t * 0.85;
+                        const radius = 0.25 + t * 6.5;
+                        const x = this.trail[i].x, y = this.trail[i].y;
+                        const r = 200 + 55 * t, g = 180 + 55 * t, b = 100 + 80 * t;
+                        ctx.beginPath();
+                        ctx.arc(x, y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.85})`;
+                        ctx.fill();
+                        if (radius > 1.5) {
+                            ctx.beginPath();
+                            ctx.arc(x, y, radius * 0.5, 0, Math.PI * 2);
+                            ctx.fillStyle = `rgba(${r + 30}, ${g + 30}, ${b + 20}, ${alpha * 0.2})`;
+                            ctx.fill();
+                        }
+                    }
+                    const head = this.trail[len - 1];
+                    const gs = this.glowSize;
+                    const glowGrad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, gs * 2.6);
+                    glowGrad.addColorStop(0, 'rgba(255, 235, 180, 0.45)');
+                    glowGrad.addColorStop(0.3, 'rgba(240, 215, 150, 0.25)');
+                    glowGrad.addColorStop(0.6, 'rgba(220, 200, 130, 0.10)');
+                    glowGrad.addColorStop(1, 'rgba(220, 200, 130, 0)');
+                    ctx.beginPath();
+                    ctx.arc(head.x, head.y, gs * 2.6, 0, Math.PI * 2);
+                    ctx.fillStyle = glowGrad;
+                    ctx.fill();
+                    const fontSize = Math.max(gs * 2, 10);
+                    ctx.font = `${fontSize}px "Segoe UI Symbol", "Arial Unicode MS", "Apple Color Emoji", sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const currentAlpha = ctx.globalAlpha;
+                    ctx.globalAlpha = 0.2;
+                    ctx.shadowColor = 'rgba(255, 215, 0, 0.5)';
+                    ctx.shadowBlur = 14;
+                    ctx.fillStyle = '#B8860B';
+                    ctx.fillText('✧', head.x, head.y);
+                    ctx.shadowBlur = 6;
+                    ctx.fillStyle = 'rgba(255, 220, 140, 0.5)';
+                    ctx.fillText('✧', head.x - 0.8, head.y - 0.8);
+                    ctx.globalAlpha = currentAlpha;
+                    ctx.shadowBlur = 0;
+                    for (let k = 0; k < 6; k++) {
+                        const ang = k * Math.PI / 3 + Math.random() * 0.15;
+                        const dist = gs * 0.9 + Math.random() * 3;
+                        const sx = head.x + dist * Math.cos(ang);
+                        const sy = head.y + dist * Math.sin(ang);
+                        ctx.beginPath();
+                        ctx.arc(sx, sy, 0.8 + Math.random() * 0.6, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255, 230, 170, ${0.25 + Math.random() * 0.25})`;
+                        ctx.fill();
+                    }
+                    ctx.globalAlpha = 1.0;
+                }
+            }
+
+            const METEOR_COUNT = 6;
+            let meteors = [];
+
+            function initMeteors() {
+                meteors = [];
+                for (let i = 0; i < METEOR_COUNT; i++) {
+                    const m = new Meteor();
+                    for (let j = 0; j < Math.floor(Math.random() * 80); j++) m.update();
+                    meteors.push(m);
+                }
+            }
+            initMeteors();
+
+            let animId = null, lastTime = 0;
+
+            function animate(timestamp) {
+                if (timestamp - lastTime < 16) { animId = requestAnimationFrame(animate); return; }
+                lastTime = timestamp;
+                ctx.clearRect(0, 0, W, H);
+                for (const m of meteors) { m.update(); m.draw(ctx); }
+                animId = requestAnimationFrame(animate);
+            }
+            animate(0);
+            const resizeHandler = () => { resizeCanvas(); for (const m of meteors) { if (m.x > W || m.y > H) m.reset(false); } };
+            window.addEventListener('resize', resizeHandler);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) { if (animId) { cancelAnimationFrame(animId); animId = null; } }
+                else { if (!animId) { lastTime = 0; animId = requestAnimationFrame(animate); } }
+            });
+        })();
+
+        /* ============================================================
+           交互逻辑
+           ============================================================ */
+        (function() {
+            const storyData = [
+                { id: '序章', label: '🌪️ 序章：蒙德', acts: ['第一幕：捕风的异乡人', '第二幕：为了没有眼泪的明天', '第三幕：巨龙与自由之歌'] },
+                { id: '第一章', label: '🏔️ 第一章：璃月', acts: ['第一幕：浮世浮生千岩间', '第二幕：辞行久远之躯', '第三幕：迫近的客星', '第四幕：我们终将重逢'] },
+                { id: '第二章', label: '⚡ 第二章：稻妻', acts: ['序幕：振袖秋风问红叶', '第一幕：不动鸣神，恒常乐土', '第二幕：无念无想，泡影断灭', '第三幕：千手百眼，天下人间', '第四幕：回响渊底的安魂曲'] },
+                { id: '第三章', label: '🌿 第三章：须弥', acts: ['第一幕：穿越烟帷与暗林', '第二幕：千朵玫瑰带来的黎明', '第三幕：迷梦与空幻与欺骗', '第四幕：赤土之王与三朝圣者', '第五幕：虚空鼓动，劫火高扬', '第六幕：卡利贝尔'] },
+                { id: '第四章', label: '💧 第四章：枫丹', acts: ['第一幕：白露与黑潮的序诗', '第二幕：仿若无因飘落的轻雨', '第三幕：向深水中的晨星', '第四幕：谕示胎动的终之刻', '第五幕：罪人舞步旋'] },
+                { id: '第五章', label: '🔥 第五章：纳塔', acts: ['第一幕：荣花与炎日之途', '第二幕：黑石湮落白石下', '第三幕：镜与迷烟的彼方', '第四幕：命定将焚的虹光', '幕间：万火归一', '第五幕：炽烈的还魂诗', '第六幕：你存在的时空'] },
+                { id: '第七章', label: '❄️ 第七章：至冬', acts: ['第一幕：无神怜爱的雪国', '第二幕：死魂灵的夜曲', '第三幕：白夜似梦初醒', '第四幕：往冥府的安魂歌', '第五幕：坏灭肇始之时', '第六幕：寄自彼岸的昨日'] },
+                { id: '？章', label: '🌑 ？章：坎瑞亚', acts: ['占位'] },
+                { id: '空月之歌', label: '🌙 空月之歌', acts: ['序奏：归途', '第一幕：雪浪与苍林之舞', '第二幕：尘与灯的挽歌', '第三幕：不存在的国土', '第四幕：回望湮灭的月光', '第五幕：终北的夜行诗', '第六幕：散于晨雾的月芒', '第七幕：如果在冬夜，一个旅人', '第八幕：真实之月', '第九幕：身土坏空，五蕴识转', '第十幕：道成千壑，因果异灭'] },
+                { id: '间章', label: '📑 间章', acts: ['第一幕：风起鹤归', '第二幕：危途疑踪', '第三幕：倾落伽蓝', '第四幕：悖理', '第五幕：睡前故事', '荆夫港：山中好长日', '挪德卡莱：望月'] },
+                { id: '节日活动', label: '🎆 节日活动', acts: ['璃月 海灯节：明霄升海平', '璃月 海灯节：飞彩镌流年', '璃月 海灯节：磬弦奏华夜', '璃月 海灯节：彩鹞栉春风', '璃月 海灯节：春曦画桃符', '璃月 海灯节：奔霄颂玉轮'] },
+                { id: '__manual__', label: '✏️ 手动输入', acts: ['手动输入'] }
+            ];
+
+            const container = document.getElementById('appContainer');
+            const storyLeft = document.getElementById('story-left');
+            const storyRight = document.getElementById('story-right');
+            const roleTypeRadios = document.querySelectorAll('input[name="roleType"]');
+            const areaTraveler = document.getElementById('area-traveler');
+            const areaOriginal = document.getElementById('area-original');
+            const areaCustom = document.getElementById('area-custom');
+            const avatarSection = document.getElementById('avatar-section');
+
+            const travelerRadios = document.querySelectorAll('input[name="travelerChoice"]');
+            const originalRadios = document.querySelectorAll('input[name="originalChar"]');
+            const manualInputWrap = document.getElementById('manual-input-wrap');
+            const originalManual = document.getElementById('original-manual');
+
+            const nameInput = document.getElementById('p-name');
+
+            const personalityRadios = document.querySelectorAll('input[name="personality"]');
+            const appearanceRadios = document.querySelectorAll('input[name="appearance"]');
+            const bodyRadios = document.querySelectorAll('input[name="body"]');
+            const identityRadios = document.querySelectorAll('input[name="identity"]');
+            const personalityManualWrap = document.getElementById('personality-manual-wrap');
+            const appearanceManualWrap = document.getElementById('appearance-manual-wrap');
+            const bodyManualWrap = document.getElementById('body-manual-wrap');
+            const identityManualWrap = document.getElementById('identity-manual-wrap');
+            const personalityInput = document.getElementById('p-personality');
+            const appearanceInput = document.getElementById('p-appearance');
+            const bodyInput = document.getElementById('p-body');
+            const identityInput = document.getElementById('p-identity');
+
+            const genderRadios = document.querySelectorAll('input[name="gender"]');
+            const genderMale = document.getElementById('gender-male');
+            const genderFemale = document.getElementById('gender-female');
+            const genderFuta = document.getElementById('gender-futa');
+            const dickInput = document.getElementById('p-dick');
+            const bustInput = document.getElementById('p-bust');
+            const dickFutaInput = document.getElementById('p-dick-futa');
+            const bustFutaInput = document.getElementById('p-bust-futa');
+
+            const powerRadios = document.querySelectorAll('input[name="power"]');
+            const wordsInput = document.getElementById('p-words');
+            const muteRadios = document.querySelectorAll('input[name="p-mute"]');
+            const povRadios = document.querySelectorAll('input[name="p-pov"]');
+            const reasoningRadios = document.querySelectorAll('input[name="p-reasoning"]');
+            const previewArea = document.getElementById('preview-area');
+            const copyBtn = document.getElementById('copy-button');
+
+            const abilityTypeRadios = document.querySelectorAll('input[name="abilityType"]');
+            const abilityVisionRadios = document.querySelectorAll('input[name="abilityVision"]');
+            const abilityMoonRadios = document.querySelectorAll('input[name="abilityMoon"]');
+            const abilityStarRadios = document.querySelectorAll('input[name="abilityStar"]');
+            const abilityVisionGroup = document.getElementById('ability-vision-group');
+            const abilityMoonGroup = document.getElementById('ability-moon-group');
+            const abilityStarGroup = document.getElementById('ability-star-group');
+            const abilityManualWrap = document.getElementById('ability-manual-wrap');
+            const abilityManual = document.getElementById('ability-manual');
+
+            const locationRadios = document.querySelectorAll('input[name="location"]');
+            const locationManualWrap = document.getElementById('location-manual-wrap');
+            const locationManual = document.getElementById('location-manual');
+            const meetRadios = document.querySelectorAll('input[name="meet"]');
+            const meetManualWrap = document.getElementById('meet-manual-wrap');
+            const meetManual = document.getElementById('meet-manual');
+
+            const extraNoteInput = document.getElementById('p-extra-note');
+
+            /* ===== ★ 头像设定元素 ===== */
+            const avatarUrlInput = document.getElementById('avatar-url');
+            const avatarPresetGroup = document.getElementById('avatar-preset-group');
+            const avatarCodeBox = document.getElementById('avatar-code-box');
+            const copyAvatarBtn = document.getElementById('copy-avatar-button');
+
+            /* ===== ★ 对话颜色元素 ===== */
+            const colorR = document.getElementById('color-r');
+            const colorG = document.getElementById('color-g');
+            const colorB = document.getElementById('color-b');
+            const colorRValue = document.getElementById('color-r-value');
+            const colorGValue = document.getElementById('color-g-value');
+            const colorBValue = document.getElementById('color-b-value');
+            const colorPreview = document.getElementById('color-preview');
+            const colorHexEl = document.getElementById('color-hex');
+
+            const presetAvatars = [
+                'https://catai.wiki/5ebe0d8e-1a84-42e9-435e-768cdcd8f900/w=3000',
+                'https://catai.wiki/04b44624-c7be-4d5b-d8b1-e3812c590500/w=3000',
+                'https://catai.wiki/3c362fa7-cfb5-4256-e8a9-dd53c2ed8800/w=3000',
+                'https://catai.wiki/a528c5ee-f6af-4b72-076b-a8d0fa904f00/w=3000'
+            ];
+
+            const manualStoryValues = { chapter: '', act: '' };
+            let currentActs = [];
+
+            /* ===== 主题 ===== */
+            function determineTheme() {
+                let roleType = document.querySelector('input[name="roleType"]:checked');
+                let roleVal = roleType ? roleType.value : 'traveler';
+                if (roleVal === 'traveler') {
+                    let traveler = document.querySelector('input[name="travelerChoice"]:checked');
+                    if (traveler && traveler.value === '荧') return 'pink';
+                    return 'blue';
+                } else if (roleVal === 'custom') {
+                    let gender = document.querySelector('input[name="gender"]:checked');
+                    if (gender) {
+                        if (gender.value === '女') return 'pink';
+                        if (gender.value === '扶她') return 'purple';
+                    }
+                    return 'blue';
+                } else return 'blue';
+            }
+            function applyTheme(theme) {
+                if (theme === 'blue') container.removeAttribute('data-theme');
+                else container.setAttribute('data-theme', theme);
+            }
+            function updateTheme() { applyTheme(determineTheme()); }
+            const themeTriggers = [...roleTypeRadios, ...travelerRadios, ...genderRadios];
+            themeTriggers.forEach(el => { if (el) el.addEventListener('change', updateTheme); });
+
+            /* ===== 性别 ===== */
+            function updateGenderFields() {
+                let selected = document.querySelector('input[name="gender"]:checked');
+                let val = selected ? selected.value : '男';
+                genderMale.classList.toggle('active', val === '男');
+                genderFemale.classList.toggle('active', val === '女');
+                genderFuta.classList.toggle('active', val === '扶她');
+                updatePreview();
+                updateTheme();
+            }
+            genderRadios.forEach(r => r.addEventListener('change', updateGenderFields));
+
+            /* ===== 能力组 ===== */
+            function updateAbilityGroups() {
+                let sel = document.querySelector('input[name="abilityType"]:checked');
+                let type = sel ? sel.value : 'none';
+                abilityVisionGroup.style.display = (type === 'vision') ? 'block' : 'none';
+                abilityMoonGroup.style.display = (type === 'moon') ? 'block' : 'none';
+                abilityStarGroup.style.display = (type === 'star') ? 'block' : 'none';
+                abilityManualWrap.style.display = (type === 'manual') ? 'block' : 'none';
+                updatePreview();
+            }
+            abilityTypeRadios.forEach(r => r.addEventListener('change', updateAbilityGroups));
+            [...abilityVisionRadios, ...abilityMoonRadios, ...abilityStarRadios, abilityManual].forEach(r => {
+                if (r) r.addEventListener('change', updatePreview);
+                if (r) r.addEventListener('input', updatePreview);
+            });
+
+            /* ===== 性格/外貌/身材/身份：手动输入切换 ===== */
+            function updatePersonalityInput() {
+                let sel = document.querySelector('input[name="personality"]:checked');
+                personalityManualWrap.style.display = (sel && sel.value === '__manual__') ? 'block' : 'none';
+                updatePreview();
+            }
+            function updateAppearanceInput() {
+                let sel = document.querySelector('input[name="appearance"]:checked');
+                appearanceManualWrap.style.display = (sel && sel.value === '__manual__') ? 'block' : 'none';
+                updatePreview();
+            }
+            function updateBodyInput() {
+                let sel = document.querySelector('input[name="body"]:checked');
+                bodyManualWrap.style.display = (sel && sel.value === '__manual__') ? 'block' : 'none';
+                updatePreview();
+            }
+            function updateIdentityInput() {
+                let sel = document.querySelector('input[name="identity"]:checked');
+                identityManualWrap.style.display = (sel && sel.value === '__manual__') ? 'block' : 'none';
+                updatePreview();
+            }
+            personalityRadios.forEach(r => r.addEventListener('change', updatePersonalityInput));
+            appearanceRadios.forEach(r => r.addEventListener('change', updateAppearanceInput));
+            bodyRadios.forEach(r => r.addEventListener('change', updateBodyInput));
+            identityRadios.forEach(r => r.addEventListener('change', updateIdentityInput));
+
+            /* ===== 剧情章节 ===== */
+            function renderStoryLeft() {
+                storyLeft.innerHTML = '';
+                storyData.forEach((item, idx) => {
+                    const label = document.createElement('label');
+                    label.className = 'radio-tile-label';
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'storyChapter';
+                    radio.value = item.id;
+                    if (idx === 0) radio.checked = true;
+                    const tile = document.createElement('div');
+                    tile.className = 'radio-tile';
+                    tile.textContent = item.label;
+                    label.appendChild(radio);
+                    label.appendChild(tile);
+                    storyLeft.appendChild(label);
+                    radio.addEventListener('change', function() {
+                        renderStoryRight(this.value);
+                        updatePreview();
+                    });
+                });
+                const firstRadio = storyLeft.querySelector('input[name="storyChapter"]');
+                if (firstRadio) renderStoryRight(firstRadio.value);
+                updatePreview();
+            }
+
+            function renderStoryRight(chapterId) {
+                if (chapterId === '__manual__') {
+                    storyRight.innerHTML = `
+                            <div class="story-manual-wrap">
+                                <span class="manual-label">章节名称</span>
+                                <input type="text" id="manual-chapter" placeholder="手动输入章节…" value="${manualStoryValues.chapter}" />
+                                <span class="manual-label" style="margin-top:6px;">幕数/节点</span>
+                                <input type="text" id="manual-act" placeholder="手动输入剧情节点…" value="${manualStoryValues.act}" />
+                            </div>
+                        `;
+                    const chInput = document.getElementById('manual-chapter');
+                    const actInput = document.getElementById('manual-act');
+                    if (chInput) chInput.addEventListener('input', function() { manualStoryValues.chapter = this.value; updatePreview(); });
+                    if (actInput) actInput.addEventListener('input', function() { manualStoryValues.act = this.value; updatePreview(); });
+                    return;
+                }
+                const found = storyData.find(item => item.id === chapterId);
+                currentActs = found ? found.acts : ['占位'];
+                storyRight.innerHTML = '';
+                if (currentActs.length === 0) {
+                    storyRight.innerHTML = '<div class="empty-hint">暂无幕数</div>';
+                    return;
+                }
+                currentActs.forEach((act, idx) => {
+                    const label = document.createElement('label');
+                    label.className = 'radio-tile-label';
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'storyAct';
+                    radio.value = act;
+                    if (idx === 0) radio.checked = true;
+                    const tile = document.createElement('div');
+                    tile.className = 'radio-tile';
+                    tile.textContent = act;
+                    label.appendChild(radio);
+                    label.appendChild(tile);
+                    storyRight.appendChild(label);
+                    radio.addEventListener('change', updatePreview);
+                });
+                updatePreview();
+            }
+
+            /* ===== 角色类型 ===== */
+            function updateRoleAreas() {
+                let selected = document.querySelector('input[name="roleType"]:checked');
+                let val = selected ? selected.value : 'traveler';
+                areaTraveler.classList.toggle('active', val === 'traveler');
+                areaOriginal.classList.toggle('active', val === 'original');
+                areaCustom.classList.toggle('active', val === 'custom');
+                if (avatarSection) {
+                    avatarSection.style.display = (val === 'custom') ? 'block' : 'none';
+                }
+                updatePreview();
+                updateTheme();
+            }
+            roleTypeRadios.forEach(r => r.addEventListener('change', updateRoleAreas));
+
+            /* ===== 原著手动 ===== */
+            function updateManualInput() {
+                let selected = document.querySelector('input[name="originalChar"]:checked');
+                if (selected && selected.value === '__manual__') manualInputWrap.style.display = 'block';
+                else manualInputWrap.style.display = 'none';
+                updatePreview();
+            }
+            originalRadios.forEach(r => r.addEventListener('change', updateManualInput));
+            originalManual.addEventListener('input', updatePreview);
+
+            /* ===== 所在地手动 ===== */
+            function updateLocationInput() {
+                let selected = document.querySelector('input[name="location"]:checked');
+                if (selected && selected.value === '__manual__') locationManualWrap.style.display = 'block';
+                else locationManualWrap.style.display = 'none';
+                updatePreview();
+            }
+            locationRadios.forEach(r => r.addEventListener('change', updateLocationInput));
+            locationManual.addEventListener('input', updatePreview);
+
+            /* ===== 遇见手动 ===== */
+            function updateMeetInput() {
+                let selected = document.querySelector('input[name="meet"]:checked');
+                if (selected && selected.value === '__manual__') meetManualWrap.style.display = 'block';
+                else meetManualWrap.style.display = 'none';
+                updatePreview();
+            }
+            meetRadios.forEach(r => r.addEventListener('change', updateMeetInput));
+            meetManual.addEventListener('input', updatePreview);
+
+            /* ===== getter ===== */
+            function getSelectedChapter() {
+                let sel = document.querySelector('input[name="storyChapter"]:checked');
+                let chapterId = sel ? sel.value : '序章';
+                if (chapterId === '__manual__') {
+                    const chInput = document.getElementById('manual-chapter');
+                    if (chInput && chInput.value.trim()) return chInput.value.trim();
+                    return '';
+                }
+                let found = storyData.find(item => item.id === chapterId);
+                return found ? found.label : '序章：蒙德';
+            }
+            function getSelectedAct() {
+                let sel = document.querySelector('input[name="storyChapter"]:checked');
+                let chapterId = sel ? sel.value : '序章';
+                if (chapterId === '__manual__') {
+                    const actInput = document.getElementById('manual-act');
+                    if (actInput && actInput.value.trim()) return actInput.value.trim();
+                    return '';
+                }
+                let actSel = document.querySelector('input[name="storyAct"]:checked');
+                return actSel ? actSel.value : '第一幕：捕风的异乡人';
+            }
+            function getGenderVal() {
+                let sel = document.querySelector('input[name="gender"]:checked');
+                return sel ? sel.value : '男';
+            }
+            function getPowerVal() {
+                let sel = document.querySelector('input[name="power"]:checked');
+                return sel ? sel.value : 'T4 眷属级';
+            }
+            function getAbilityVal() {
+                let typeSel = document.querySelector('input[name="abilityType"]:checked');
+                if (!typeSel) return '无';
+                let type = typeSel.value;
+                if (type === 'none') return '无';
+                if (type === 'vision') {
+                    let sel = document.querySelector('input[name="abilityVision"]:checked');
+                    return '神之眼（' + (sel ? sel.value : '风') + '）';
+                }
+                if (type === 'moon') {
+                    let sel = document.querySelector('input[name="abilityMoon"]:checked');
+                    return '月之轮（' + (sel ? sel.value : '草') + '）';
+                }
+                if (type === 'star') {
+                    let sel = document.querySelector('input[name="abilityStar"]:checked');
+                    return '星之楔（' + (sel ? sel.value : '风') + '）';
+                }
+                if (type === 'manual') {
+                    let manual = abilityManual.value.trim();
+                    return manual ? '自定义能力（' + manual + '）' : '未填写';
+                }
+                return '无';
+            }
+            function getLocationVal() {
+                let sel = document.querySelector('input[name="location"]:checked');
+                if (!sel) return '蒙德城';
+                if (sel.value === '__manual__') {
+                    let manual = locationManual.value.trim();
+                    return manual || '未填写';
+                }
+                return sel.value;
+            }
+            function getMeetVal() {
+                let sel = document.querySelector('input[name="meet"]:checked');
+                if (!sel) return '无';
+                if (sel.value === '__manual__') {
+                    let manual = meetManual.value.trim();
+                    return manual || '未填写';
+                }
+                return sel.value;
+            }
+            function getExtraNoteVal() {
+                return extraNoteInput.value.trim() || '无';
+            }
+
+            function getPersonalityVal() {
+                let sel = document.querySelector('input[name="personality"]:checked');
+                if (!sel) return '未填写';
+                if (sel.value === '__manual__') return personalityInput.value.trim() || '未填写';
+                return sel.value;
+            }
+            function getAppearanceVal() {
+                let sel = document.querySelector('input[name="appearance"]:checked');
+                if (!sel) return '未填写';
+                if (sel.value === '__manual__') return appearanceInput.value.trim() || '未填写';
+                return sel.value;
+            }
+            function getBodyVal() {
+                let sel = document.querySelector('input[name="body"]:checked');
+                if (!sel) return '未填写';
+                if (sel.value === '__manual__') return bodyInput.value.trim() || '未填写';
+                return sel.value;
+            }
+            function getIdentityVal() {
+                let sel = document.querySelector('input[name="identity"]:checked');
+                if (!sel) return '未填写';
+                if (sel.value === '__manual__') return identityInput.value.trim() || '未填写';
+                return sel.value;
+            }
+
+            /* ============================================================
+               ★ 对话颜色：RGB → 十六进制
+               ============================================================ */
+            function rgbToHex(r, g, b) {
+                const toHex = (n) => {
+                    const v = Math.max(0, Math.min(255, parseInt(n, 10) || 0));
+                    return v.toString(16).padStart(2, '0');
+                };
+                return '#' + toHex(r) + toHex(g) + toHex(b);
+            }
+
+            function getCurrentColor() {
+                const r = parseInt(colorR.value, 10) || 0;
+                const g = parseInt(colorG.value, 10) || 0;
+                const b = parseInt(colorB.value, 10) || 0;
+                return { r, g, b, hex: rgbToHex(r, g, b) };
+            }
+
+            function updateColorUI() {
+                const c = getCurrentColor();
+                colorRValue.textContent = c.r;
+                colorGValue.textContent = c.g;
+                colorBValue.textContent = c.b;
+                colorPreview.style.background = c.hex;
+                colorHexEl.textContent = c.hex;
+                renderAvatarCode();
+            }
+
+            [colorR, colorG, colorB].forEach(el => {
+                if (el) {
+                    el.addEventListener('input', updateColorUI);
+                    el.addEventListener('change', updateColorUI);
+                }
+            });
+
+            /* ============================================================
+               ★ 头像设定：主角名字 / 代码生成
+               ============================================================ */
+            function getProtagonistName() {
+                let roleType = document.querySelector('input[name="roleType"]:checked');
+                let roleTypeVal = roleType ? roleType.value : 'traveler';
+                if (roleTypeVal === 'traveler') {
+                    let t = document.querySelector('input[name="travelerChoice"]:checked');
+                    return t ? t.value : '空';
+                }
+                if (roleTypeVal === 'original') {
+                    let o = document.querySelector('input[name="originalChar"]:checked');
+                    if (o && o.value === '__manual__') {
+                        return originalManual.value.trim() || '名字';
+                    }
+                    return o ? o.value : '钟离';
+                }
+                return nameInput.value.trim() || '名字';
+            }
+
+            function buildAvatarCode() {
+                const name = getProtagonistName();
+                const url = avatarUrlInput.value.trim() || '图片地址';
+                const color = getCurrentColor().hex;
+                return '/* 【自定义】 */\n' +
+                    '.markdown-body [c="' + name + '"] {\n' +
+                    "    --avatar: url('" + url + "') !important;\n" +
+                    '    --color: ' + color + ' !important;\n' +
+                    '}';
+            }
+
+            function renderAvatarCode() {
+                avatarCodeBox.textContent = buildAvatarCode();
+                const cur = avatarUrlInput.value.trim();
+                document.querySelectorAll('.avatar-preset').forEach(img => {
+                    img.classList.toggle('selected', img.dataset.url === cur);
+                });
+            }
+
+            function initAvatarPresets() {
+                presetAvatars.forEach((url, i) => {
+                    const img = document.createElement('img');
+                    img.className = 'avatar-preset';
+                    img.src = url;
+                    img.dataset.url = url;
+                    img.alt = '预设头像' + (i + 1);
+                    img.title = '点击使用此预设头像';
+                    img.addEventListener('click', () => {
+                        avatarUrlInput.value = url;
+                        renderAvatarCode();
+                    });
+                    avatarPresetGroup.appendChild(img);
+                });
+            }
+
+            /* ===== 预览 ===== */
+            function updatePreview() {
+                let roleType = document.querySelector('input[name="roleType"]:checked');
+                let roleTypeVal = roleType ? roleType.value : 'traveler';
+
+                let roleDesc = '';
+                if (roleTypeVal === 'traveler') {
+                    let traveler = document.querySelector('input[name="travelerChoice"]:checked');
+                    roleDesc = '旅行者（' + (traveler ? traveler.value : '空') + '）';
+                } else if (roleTypeVal === 'original') {
+                    let orig = document.querySelector('input[name="originalChar"]:checked');
+                    if (orig && orig.value === '__manual__') {
+                        let manualVal = originalManual.value.trim() || '未填写';
+                        roleDesc = '原著角色（主角名称：' + manualVal + '）';
+                    } else {
+                        roleDesc = '原著角色（主角名称：' + (orig ? orig.value : '钟离') + '）';
+                    }
+                } else {
+                    let name = nameInput.value.trim() || '未填写';
+                    let gender = getGenderVal();
+                    let genderExtra = '';
+                    if (gender === '男') {
+                        let dick = dickInput.value.trim() || '18';
+                        genderExtra = '，肉棒：' + dick + 'CM';
+                    } else if (gender === '女') {
+                        let bust = bustInput.value.trim() || 'D罩杯';
+                        genderExtra = '，胸围：' + bust;
+                    } else if (gender === '扶她') {
+                        let dick = dickFutaInput.value.trim() || '18';
+                        let bust = bustFutaInput.value.trim() || 'D罩杯';
+                        genderExtra = '，肉棒：' + dick + 'CM，胸围：' + bust;
+                    }
+                    let personality = getPersonalityVal();
+                    let appearance = getAppearanceVal();
+                    let body = getBodyVal();
+                    let identity = getIdentityVal();
+                    let power = getPowerVal();
+                    let ability = getAbilityVal();
+                    let location = getLocationVal();
+                    let meet = getMeetVal();
+                    let extraNote = getExtraNoteVal();
+
+                    roleDesc = '自创角色\n主角名称：' + name + '\n主角性别：' + gender + genderExtra +
+                        '\n主角性格：' + personality + '\n主角外貌：' + appearance +
+                        '\n主角身材：' + body + '\n主角身份：' + identity + '\n主角战力：' + power +
+                        '\n主角能力：' + ability + '\n初始位置：' + location + '\n遇见角色：' + meet +
+                        '\n额外备注：' + extraNote;
+                }
+
+                let chapter = getSelectedChapter();
+                let act = getSelectedAct();
+                let words = wordsInput.value.trim() || '800';
+                let mute = '关闭';
+                for (let r of muteRadios) if (r.checked) mute = r.value;
+                let pov = '第二人称';
+                for (let r of povRadios) if (r.checked) pov = r.value;
+                let reasoning = '无';
+                for (let r of reasoningRadios) if (r.checked) reasoning = r.value;
+
+                let text = '扮演角色：' + roleDesc + '\n' +
+                    '剧情节点：' + chapter + ' > ' + act + '\n' +
+                    '回复字数：' + words + '\n' +
+                    '主角禁言：' + mute + '\n' +
+                    '描述视角：' + pov + '\n' +
+                    '推演模式：' + reasoning;
+
+                previewArea.textContent = text;
+
+                // ★ 头像代码同步刷新（不进入预览框）
+                renderAvatarCode();
+            }
+
+            /* ===== 统一事件绑定 ===== */
+            const allDynamicInputs = [
+                ...travelerRadios,
+                ...originalRadios,
+                originalManual,
+                nameInput,
+                personalityInput, appearanceInput, bodyInput, identityInput,
+                dickInput, bustInput, dickFutaInput, bustFutaInput,
+                ...powerRadios,
+                ...abilityTypeRadios,
+                ...abilityVisionRadios,
+                ...abilityMoonRadios,
+                ...abilityStarRadios,
+                abilityManual,
+                ...locationRadios,
+                locationManual,
+                ...meetRadios,
+                meetManual,
+                extraNoteInput,
+                wordsInput,
+                ...muteRadios,
+                ...povRadios,
+                ...reasoningRadios
+            ];
+            allDynamicInputs.forEach(el => {
+                if (el) {
+                    el.addEventListener('input', updatePreview);
+                    el.addEventListener('change', updatePreview);
+                }
+            });
+
+            storyRight.addEventListener('change', updatePreview);
+            avatarUrlInput.addEventListener('input', renderAvatarCode);
+
+            /* ===== 初始化 ===== */
+            initAvatarPresets();
+            renderStoryLeft();
+            updateRoleAreas();
+            updateManualInput();
+            updateLocationInput();
+            updateMeetInput();
+            updateGenderFields();
+            updateAbilityGroups();
+            updatePersonalityInput();
+            updateAppearanceInput();
+            updateBodyInput();
+            updateIdentityInput();
+            updateTheme();
+            updateColorUI();  /* ← 初始化颜色 UI，同时刷新头像代码 */
+
+            /* ============================================================
+               ★ 复制工具 & Toast
+               ============================================================ */
+            let toastTimer = null;
+            function showToast(html) {
+                const toast = document.getElementById('toast');
+                document.getElementById('toast-message').innerHTML = html;
+                toast.style.display = 'block';
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => { toast.style.display = 'none'; }, 5000);
+            }
+
+            function copyText(text) {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.top = '0';
+                ta.style.left = '0';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.focus();
+                ta.select();
+                let ok = false;
+                try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+                document.body.removeChild(ta);
+                return ok;
+            }
+
+            /* ===== 主复制按钮 ===== */
+            copyBtn.addEventListener('click', () => {
+                if (previewArea.textContent === '✨ 设定预览区 ✨') updatePreview();
+                copyText(previewArea.textContent);
+                showToast('✨ 设定已复制 ✨<br />请粘贴至AI对话窗口，开启你的提瓦特之旅。');
+            });
+
+            /* ===== 头像代码复制按钮 ===== */
+            copyAvatarBtn.addEventListener('click', () => {
+                copyText(buildAvatarCode());
+                showToast('✨ 头像代码已复制 ✨<br />请粘贴至「内置CSS」区域中使用。');
+            });
+
+            document.getElementById('toast-close').addEventListener('click', () => {
+                document.getElementById('toast').style.display = 'none';
+            });
+
+            document.getElementById('config-form').addEventListener('submit', e => e.preventDefault());
+        })();
+    </script>
+</body>
+</html>

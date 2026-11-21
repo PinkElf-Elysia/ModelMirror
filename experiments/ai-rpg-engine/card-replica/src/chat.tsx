@@ -38,6 +38,11 @@ import './star-rail.css';
 import {Modal} from './modal';
 import {archiveRoot,localCatalog,cardStoragePrefix,inStudioCard,api,ApiError,catalogApi,emptyClientState,readClientState,writeClientState,reconcileClientState,sendBlocked} from './session-client';
 import type {Session,ClientState,BranchRecord,SelectionRecord} from './session-client';
+const genshinShortcuts = [
+  {label:'存档载入',text:'【存档载入】'},
+  {label:'思维链关闭',text:'【推演模式】无'},
+  {label:'思维链开启',text:'【推演模式】思维链开启'},
+];
 const daomuShortcuts = [
   {label: '记忆区大总结', text: '【记忆归档】将所有STM和LTM按时间线合并为一条总结（字数为原记忆区总字数的90-100%），保留：具体时间、关键转折、重要角色、关系变化、核心冲突，清空后作为LTM#1，正文输出完整总结'},
   {label: '存档', text: '【存档】'},
@@ -198,6 +203,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  const deleteTurn=(turn:number)=>chooseSessionChange({action:'delete-turn',id:sessionId,turn});
  const close=()=>{if(!busy){setPanel('');setBranchTurn(null);}};
  return <section ref={configView} className="chat-shell rpg-chat-workspace" data-world={world?.id} data-reading={reading.dark?'dark':'light'} data-sidebar={sidebar?'open':'closed'} data-width={reading.wide?'wide':'standard'} style={{'--reading-font':reading.font+'px'} as import('react').CSSProperties}>
+ {world?.id==='genshin'&&<link rel="stylesheet" href="/rpg-app/genshin/story.css"/>}
  <SessionSidebar open={sidebar} close={()=>setSidebar(false)}>
   <header><span>{world?.name||'我的故事'}</span><button className="sidebar-close" onClick={()=>setSidebar(false)} aria-label="关闭会话列表">×</button></header>
   <button className="sidebar-new" disabled={busy||!!storageError} onClick={returnToCard}>＋ 新的故事</button>
@@ -219,7 +225,7 @@ function LegacyChatView({sessionId,exit,opened}:{sessionId:string;exit:()=>void;
  {edit&&<Modal title="编辑输入" className="chat-dialog" close={()=>setEdit(null)}><form className="branch-form" onSubmit={e=>{e.preventDefault();void rewrite(edit.turn,edit.text);}}><label htmlFor="message-edit">第 {edit.turn} 回合</label><textarea id="message-edit" autoFocus rows={8} maxLength={20000} value={edit.text} onChange={e=>setEdit({...edit,text:e.target.value})}/><p>在当前会话重新生成。原回复和后续剧情将保存为可恢复的历史版本。</p><button type="button" className="secondary" onClick={()=>setEdit(null)}>取消</button><button className="chat-primary" disabled={rewriteBlocked||!edit.text.trim()}>保存并重新生成</button></form></Modal>}
  {pictures.gallery(null)}{pictures.modal}{speech.modal}{voiceInput.modal}{voiceLibrary.modal}
  </div></div><div className="chat-dock">{s?.generationParameters&&catalog?.plugins.some(p=>p.id==='rpg.model-comparison')&&<ModelComparison sessionId={sessionId} enabled={!requirementsBlocked&&!!grants['rpg.model-comparison']?.enabled} getInput={()=>client.current.draft} setInput={value=>{persist({...client.current,draft:value});}} blocked={(value,ids)=>{setComparisonBlocked(value);setComparisonOperations(old=>JSON.stringify(old)===JSON.stringify(ids)?old:ids);}} changed={async()=>{accept(await api('sessions/'+sessionId));await loadBudget();await summary.refresh();await memory.refresh();}}/>}<div className="chat-tools" aria-label="聊天工具">
- {world?.id==='daomu'&&daomuShortcuts.map(({label,text})=><button key={label} type="button"
+ {(world?.id==='genshin'?genshinShortcuts:world?.id==='daomu'?daomuShortcuts:[]).map(({label,text})=><button key={label} type="button"
    title={text} disabled={busy||pending||trashed||incompatible||!!local.lifecycle||!!storageError||(local.draft.length+text.length+(local.draft?1:0))>20000}
    onClick={()=>{const draft=client.current.draft;persist({...client.current,draft:(draft?draft+'\n':'')+text});composer.current?.focus();}}>{label}</button>)}
  {s?.generationParameters&&<button className="text-button" disabled={busy||pending||!grants['rpg.generation-parameters']?.enabled} onClick={()=>setPanel('parameters')}>生成参数</button>}{s?.requirements&&<button className="text-button" disabled={busy||(pending&&!requirementsBlocked)} onClick={()=>setPanel('requirements')}>持续要求{requirementsBlocked?' · 待核对':''}</button>}
