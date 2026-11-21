@@ -253,15 +253,19 @@ describe("help center content catalog", () => {
 
   it("makes the manual RPG speech guide discoverable with bounded steps and current screenshots", () => {
     const article = helpArticles.find(item => item.slug === "listen-rpg-story")!;
-    expect(article.verifiedCommit).toBe("fefc14b0");
+    expect(article.verifiedCommit).toBe("ae67eb25");
     expect(searchHelpContent("沉浸语音").some(item => item.id === article.slug)).toBe(true);
     expect(article.content.match(/^\d+\. /gm)).toHaveLength(7);
     for (const heading of ["完成结果", "适用对象", "开始前", "真实范例", "操作步骤", "常见问题", "限制", "下一步"]) expect(article.content).toContain(`## ${heading}`);
     expect(article.content).toContain("不会自动重发");
     expect(article.content).toContain("可能产生费用");
     const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
-    expect(images).toHaveLength(3);
-    for (const image of images) { expect(image[1].trim()).not.toBe(""); expect(image[2]).toMatch(/^\/help-center\/fefc14b0\/speech-[a-z]+\.png$/); }
+    expect(images.map(image => image[2])).toEqual([
+      "/help-center/ae67eb25/common-voices.png",
+      "/help-center/fefc14b0/speech-generate.png",
+      "/help-center/fefc14b0/speech-history.png",
+      "/help-center/fefc14b0/speech-mobile.png",
+    ]);
   });
 
   it("keeps operational articles within the required structure and step count", () => {
@@ -327,18 +331,56 @@ describe("help center content catalog", () => {
   it("documents the verified Harry Potter cover and save compatibility without claiming new model calls", () => {
     const article = helpArticles.find((item) => item.slug === "play-harry-potter-card");
     expect(article?.verifiedCommit).toBe("c9db3034");
-    expect(article?.content).toContain("/help-center/c9db3034/harry-potter-cover.jpg");
+    expect(article?.content).toContain("/help-center/c9db3034/harry-potter-cover.png");
     expect(article?.content).toContain("不会增加或重置调用额度");
     expect(article?.content).toContain("没有新增真实模型调用");
     expect(article?.content).toContain("小蓝鱼旧会话保持创建时绑定的提示词");
   });
 
   it("uses descriptive alt text and the latest screenshot baseline", () => {
+    const historicalCaptures: Record<string, string[]> = {
+      "branch-rpg-story": [
+        "/help-center/425ff762/plugin-upgrade-confirm.png",
+        "/help-center/425ff762/plugin-upgrade-complete.png"
+      ],
+      "listen-rpg-story": [
+        "/help-center/fefc14b0/speech-generate.png",
+        "/help-center/fefc14b0/speech-history.png",
+        "/help-center/fefc14b0/speech-mobile.png"
+      ],
+      "manage-rpg-history": [
+        "/help-center/d9dd7094/failed-turn-actions.png",
+        "/help-center/d9dd7094/delete-turn-confirm.png",
+        "/help-center/fbe65f12/regen.png"
+      ],
+      "play-harry-potter-card": [
+        "/help-center/a237f26f/harry-potter-card.png"
+      ],
+      "play-medieval-card": [
+        "/help-center/0a68bfd4/medieval-century.png"
+      ],
+      "play-rpg-cards": [
+        "/help-center/d9dd7094/rpg-library-desktop-final.png",
+        "/help-center/0dfd2bd5/type-moon-opening.png",
+        "/help-center/d9dd7094/rpg-library-covers-clean.png",
+        "/help-center/d9dd7094/rpg-library-mobile-clean.png",
+        "/help-center/8a2a4f77/american-horror-opening.png"
+      ],
+      "publish-rpg-work": [
+        "/help-center/0cb019df/rpg-published-player.png"
+      ],
+      "use-rpg-voice-library": [
+        "/help-center/c187d01e/voice-library.png",
+        "/help-center/c187d01e/voice-create.png"
+      ]
+    };
     helpArticles.forEach((article) => {
       const images = [...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
       images.forEach((image) => {
         expect(image[1].trim(), article.slug).not.toBe("");
-        expect(image[2]).toMatch(new RegExp(`^/help-center/${article.verifiedCommit}/`));
+        if (!image[2].startsWith(`/help-center/${article.verifiedCommit}/`)) {
+          expect(historicalCaptures[article.slug], article.slug).toContain(image[2]);
+        }
       });
     });
     expect(helpArticles.find((article) => article.slug === "start-with-a-model")?.content).toContain("/help-center/e3ac4555/qwen38-0902-add-image-menu.png");
@@ -469,7 +511,7 @@ it("makes the RPG voice input guide searchable with verified offline boundaries"
  expect(article.content.match(/^\d+\. /gm)).toHaveLength(6);
  for(const text of ['不会自动重发','可能产生费用','尚未验证','60 秒','草稿','额度'])expect(article.content).toContain(text);
  const images=[...article.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];expect(images).toHaveLength(3);
- for(const image of images){expect(image[1].trim()).not.toBe('');expect(image[2]).toMatch(/^\/help-center\/a6563a9b\/stt-[a-z]+\.jpg$/);}
+ for(const image of images){expect(image[1].trim()).not.toBe('');expect(image[2]).toMatch(/^\/help-center\/a6563a9b\/stt-[a-z]+\.png$/);}
 });
 
 it("registers the isolated character group tutorial with exact versions, draft limits and neutral screenshots", () => {

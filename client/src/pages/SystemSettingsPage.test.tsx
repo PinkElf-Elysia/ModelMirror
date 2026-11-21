@@ -31,7 +31,15 @@ describe("SystemSettingsPage", () => {
   });
 
   it("uses URL-backed tabs while preserving every existing settings module", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ newApiWebUrl: "http://127.0.0.1:3000" }) }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/runtime-config.json") return Response.json({ newApiWebUrl: "http://127.0.0.1:3000" });
+      if (url === "/api/router/connections") return Response.json([]);
+      if (url === "/api/router/voice-library/control") return Response.json({
+        revision: 1, enabled: false, featureEnabled: false, connectionId: "",
+        modelIds: [], supportedModels: [], limit: 0, spent: 0,
+      });
+      throw new Error(`Unexpected settings request: ${url}`);
+    }));
     renderPage();
     expect(screen.getByText("overview panel")).toBeVisible();
     expect(screen.getByText("marble")).toBeVisible();

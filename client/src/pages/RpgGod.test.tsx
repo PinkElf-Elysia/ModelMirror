@@ -56,7 +56,7 @@ it('setup bridge ignores other origins and windows, creates only once, and never
 });
 it('God world remains reachable and its routed iframe stays God-specific',async()=>{
  const posts=mockHost(url=>url.endsWith('/status')?Response.json({cards:[{id:'god',enabled:false,model:null,remaining:0}]}):null);
- render(<MemoryRouter><RpgPage/></MemoryRouter>);await screen.findByText('神临凡尘');expect(screen.getByRole('link',{name:'进入神临凡尘'})).toHaveAttribute('href','/rpg/god');expect(posts).toHaveLength(0);cleanup();
+ render(<MemoryRouter><RpgPage/></MemoryRouter>);expect(await screen.findByRole('link',{name:'进入上帝模拟器'})).toHaveAttribute('href','/rpg/god');expect(posts).toHaveLength(0);cleanup();
  render(<MemoryRouter initialEntries={['/rpg/god']}><Routes><Route path="/rpg/:cardId" element={<RpgPage/>}/></Routes></MemoryRouter>);
  expect(screen.getByTitle('神临凡尘角色与会话')).toHaveAttribute('src','/rpg-app/god/');
 });
