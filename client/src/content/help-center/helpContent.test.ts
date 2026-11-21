@@ -43,6 +43,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.map((article) => article.slug)).toEqual([
       "use-rpg-voice-library",
       "create-single-character-card",
+      "review-character-proposals",
       "manage-character-memory",
       "control-character-context",
       "revise-character-conversations",
@@ -100,7 +101,7 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["manage-character-memory", "control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["review-character-proposals", "manage-character-memory", "control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
     expect(helpArticles.find(article => article.slug === "manage-character-memory")?.verifiedCommit).toBe("95ce9a83");
     expect(helpArticles.find(article => article.slug === "control-character-context")?.verifiedCommit).toBe("aebda0a1");
     expect(searchHelpContent("长对话").some(item => item.id === "control-character-context")).toBe(true);
@@ -266,6 +267,15 @@ describe("help center content catalog", () => {
       "/help-center/fefc14b0/speech-history.png",
       "/help-center/fefc14b0/speech-mobile.png",
     ]);
+  });
+
+  it("indexes the character proposal guide and its reviewed screenshots", () => {
+    const guide = helpArticles.find((article) => article.slug === "review-character-proposals");
+    expect(guide?.verifiedCommit).toBe("15ea26ca");
+    expect(guide?.content).toContain("/help-center/15ea26ca/character-proposal-review.png");
+    expect(guide?.content).toContain("/help-center/15ea26ca/character-partial-recovery.png");
+    expect(searchHelpContent("记忆提案").some((entry) => entry.id === guide?.slug)).toBe(true);
+    expect(helpSections.flatMap((section) => section.items).some((item) => item.to === "/help/review-character-proposals")).toBe(true);
   });
 
   it("keeps operational articles within the required structure and step count", () => {

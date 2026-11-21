@@ -36,6 +36,7 @@ export async function parameterMock(t,options={}) {
    assert.equal(req.headers.authorization,'Bearer '+token);const url=new URL(req.url,'http://localhost');
    const chunks=[];for await(const chunk of req)chunks.push(chunk);const p=chunks.length?JSON.parse(Buffer.concat(chunks)):null;
    f.requests.push({method:req.method,path:req.url,body:p});
+   if(options.live&&url.pathname.startsWith('/api/rpg/v1/authoring/live/'))return json(res,await options.live(url,req.method,f));
    if(url.pathname.endsWith('/models'))return f.unavailable?json(res,{},503):json(res,f.catalog(url.searchParams.get('parameterVersion')==='2'?2:1));
    if(url.pathname.endsWith('/readiness'))return json(res,{format:'modelmirror.rpg.authoring-readiness/1',executionEnabled:true,dispatched:false});
    if(url.pathname.endsWith('/parameters/validate')) {
@@ -72,7 +73,7 @@ export async function parameterMock(t,options={}) {
    throw new Error('unexpected fixture route '+req.url);
   } catch(error){f.error=error;return json(res,{error:'fixture-error'},500);}
  });
- await new Promise(r=>server.listen(0,'127.0.0.1',r));f.origin='http://127.0.0.1:'+server.address().port;
+ await new Promise((r,reject)=>server.once('error',reject).listen(options.port??0,'127.0.0.1',r));f.origin='http://127.0.0.1:'+server.address().port;
  f.control=new ControlPlaneModelControl({origin:f.origin,serviceToken:token,timeoutMs:options.controlTimeout??5000});await f.control.refresh();
  t.after(async()=>{server.closeAllConnections();await new Promise(r=>server.close(r));if(f.error)throw f.error;});return f;
 }

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>对话与记忆提案 · 模镜</title><link rel="stylesheet" href="/live.css"><script type="module" src="/live.js"></script></head>
+<body><header><a id="back">← 总结与记忆</a><strong>模镜 · 角色工作台</strong></header>
+<main><h1>对话与记忆提案</h1><p id="error" role="alert"></p>
+<section id="library"><h2>继续已有对话</h2><div id="desks"></div><h2>从资料分支开始</h2><div id="sources"></div></section>
+<section id="desk" hidden><div class="bar"><button id="all">所有分支</button><button id="export">导出可见对话</button><label>当前角色 <select id="actor"></select></label></div>
+<div class="layout"><section><h2>对话</h2><div id="history"></div><div id="responses"></div>
+<form id="composer"><label for="input">发给当前角色</label><textarea id="input" rows="3" maxlength="100000" required></textarea><button id="send">发送</button></form></section>
+<aside><h2>记忆提案</h2><p>只有你采纳的内容才会成为该角色的记忆。</p><button id="propose">从最近发言提取</button>
+<label class="check"><input type="checkbox" id="auto"> 每新增 6 条可见发言，提取一次</label><p id="budget"></p>
+<div id="reviews"></div><h3>已采纳</h3><div id="notes"></div></aside></div></section></main></body></html>
