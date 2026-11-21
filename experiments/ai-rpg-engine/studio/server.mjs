@@ -57,7 +57,7 @@ export async function start(options={}){
  try{return await startCore({...options,directory,ownArchiveDirectory:ownLocalDirectory,localRootLease:lease});}
  catch(error){await lease.fd.close();throw error;}
 }
-async function startCore({localRootLease=null,port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},messageTools=false,transcript=false,rewriteControl=null,speech=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null,shop=false}={}){
+async function startCore({localRootLease=null,port=18420,host='127.0.0.1',directory=resolve(root,'.rpg04-work/studio'),key='',enabled=false,limit=1,origins=[],fetcher,modelControl=null,historyWindow=false,rollingSummary=false,memoryPalace=false,autoSummaryV2=false,godCard=false,godBranches=false,godPlugins=false,godControl=null,godGenerate=offlineGenerate,cardDist=null,cultivationControl=null,xingjianControl=null,archiveControls={},mysteriesOfflineStory,messageTools=false,transcript=false,rewriteControl=null,speech=null,illustrationService=null,ownArchiveDirectory=null,generationCards=null,shop=false}={}){
  if(memoryPalace)rollingSummary=true;
  if(rollingSummary)historyWindow=true;
  const cultivation=cultivationControl?await (await import('../cultivation-card/runtime.mjs')).createCultivationRuntime(join(directory,'cultivation'),cultivationControl):null;
@@ -145,8 +145,8 @@ async function startCore({localRootLease=null,port=18420,host='127.0.0.1',direct
      id==='dragon-raja'?(await import('../dragon-raja-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content:
      (await import('../lord-of-mysteries-card/assembly.mjs')).assemble({input:'档案'}).messages[0].content;
     const control=archiveControls[id];
-    const {createArchiveHost}=id==='harry-potter'?{createArchiveHost:(await import('../harry-potter-card/host.mjs')).createHarryPotterHost}:id==='medieval'?{createArchiveHost:(await import('../medieval-card/host.mjs')).createMedievalHost}:id==='cultivation'?await import('../cultivation-card/archive-host.mjs'):id==='jinyong'?{createArchiveHost:(await import('../jinyong-card/host.mjs')).createJinyongHost}:await import('../xingjian-card/host.mjs');
-    return openArchive(join(directory,'archive-chat',id,control?'real':'offline'),dir=>createArchiveHost(dir,control,{cardId:id,name:archiveNames[id],system,autoSummaryV2,pluginFeatures:archiveFeatures}));
+    const {createArchiveHost}=id==='harry-potter'?{createArchiveHost:(await import('../harry-potter-card/host.mjs')).createHarryPotterHost}:id==='medieval'?{createArchiveHost:(await import('../medieval-card/host.mjs')).createMedievalHost}:id==='lord-of-mysteries'?await import('../lord-of-mysteries-card/archive-host.mjs'):id==='cultivation'?await import('../cultivation-card/archive-host.mjs'):id==='jinyong'?{createArchiveHost:(await import('../jinyong-card/host.mjs')).createJinyongHost}:await import('../xingjian-card/host.mjs');
+    return openArchive(join(directory,'archive-chat',id,control?'real':'offline'),dir=>createArchiveHost(dir,control,{cardId:id,name:archiveNames[id],system,...(id==='lord-of-mysteries'&&!control?{offlineStory:mysteriesOfflineStory}:{}),autoSummaryV2,pluginFeatures:archiveFeatures}));
    };
    archiveHosts.set(id,init().catch(error=>{archiveHosts.delete(id);throw error;}));
   }
