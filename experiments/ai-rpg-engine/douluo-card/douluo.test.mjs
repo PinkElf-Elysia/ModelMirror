@@ -5,6 +5,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assemble} from './assembly.mjs';
+import {assembleWorldbook} from './worldbook.mjs';
 import {start,archiveChatOptions} from '../studio/server.mjs';
 import {configFetch,installCustomConfig} from '../plugins/custom-config/host.mjs';
 import {canonical,sha} from '../plugins/catalog.mjs';
@@ -59,7 +60,7 @@ test('douluo two-turn mock transport preserves prompt, isolates sessions and mou
  const post=async(path,value,headers={})=>fetch(origin+path,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',...headers},body:JSON.stringify(value)});
  const base='/rpg-app/douluo/chat/api/sessions';
  let session=await(await post(base,{opening:'姓名：林川；年龄：20；武魂：蓝银草。'})).json();assert.ok(session.id);assert.equal(seen.length,0);
- const path=base+'/'+session.id;const system=assemble({input:'档案'}).messages[0].content;
+ const path=base+'/'+session.id;const opening='姓名：林川；年龄：20；武魂：蓝银草。';
  const mods=await(await fetch(origin+'/rpg-app/mod-panel/catalog')).json();const common=mods.items.find(m=>m.id==='common.rationality.v1');
  for(let i=0;i<2;i++){
   const policy=await(await fetch(origin+path+'/memory-palace')).json();
@@ -67,6 +68,7 @@ test('douluo two-turn mock transport preserves prompt, isolates sessions and mou
   const headers=i?{'X-Rpg-Mod-Panel':'1'}:{},body=i?{modIds:[common.id],request}:request;
   if(i)assert.equal((await post(path+'/send',{modIds:['ancient.strength.v1'],request},headers)).status,400);
   const r=await post(path+'/send',body,headers);assert.equal(r.status,200);session=await r.json();assert.equal(session.turns.length,i+1);
+  const system=assembleWorldbook({opening,history:seen[i].messages.slice(1,-1),input:request.input}).system;
   assert.equal(seen[i].messages[0].content,system+(i?'\n\n'+common.text:''));assert.equal(seen[i].messages.at(-1).content,request.input);
   assert.equal(seen[i].messages.length,2+i*2);await post(path+'/send',body,headers);assert.equal(seen.length,i+1);
  }
