@@ -35,7 +35,7 @@ it.each([true, false])('keeps the card library and gates the workbench link (ena
   expect(screen.getByRole('link', {name: '进入中世纪真实人生'})).toHaveAttribute('href', '/rpg/medieval');
   expect(screen.getByRole('link', {name: '进入斗罗大陆'})).toHaveAttribute('href', '/rpg/douluo');
   expect(screen.getByRole('link', {name: '进入蓝色大肥鱼'})).toHaveAttribute('href', '/rpg/blue-fish');
-  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(18);
+  expect(screen.getAllByRole('link', {name: /^进入/})).toHaveLength(19);
   expect(screen.getAllByRole('link', {name: /^进入/})[0]).toHaveAttribute('href', '/rpg/modern-life');
   expect(screen.getByRole('link', {name: '进入现代超真实人生'})).toHaveAttribute('href', '/rpg/modern-life');
   expect(screen.getByRole('link', {name: '进入地球online'})).toHaveAttribute('href', '/rpg/earth');

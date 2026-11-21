@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neo-Babylon 2077 · 角色创建</title>
+<style>
+:root {
+  --bg-primary: rgba(10, 5, 20, 0.3);
+  --bg-secondary: rgba(20, 10, 40, 0.75);
+  --bg-card: rgba(30, 15, 50, 0.45);
+  --color-primary: #bf40ff;
+  --color-primary-hover: #d966ff;
+  --color-accent: #00f0ff;
+  --color-accent-alt: #ff2d95;
+  --text-primary: #f0e6ff;
+  --text-secondary: #a090c0;
+  --text-on-primary: #ffffff;
+  --border-color: rgba(191, 64, 255, 0.4);
+  --shadow-glow: 0 0 20px rgba(191, 64, 255, 0.3);
+  --shadow-glow-accent: 0 0 15px rgba(0, 240, 255, 0.4);
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s ease;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; outline: none; -webkit-tap-highlight-color: transparent; }
+body { font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif; background: url('https://pic1.imgdb.cn/item/69ce4a136ccec478dfacf143.jpg') center/cover fixed; color: var(--text-primary); min-height: 100vh; line-height: 1.6; }
+body::before { content: ''; position: fixed; inset: 0; background: var(--bg-primary); z-index: -1; }
+.container { max-width: 900px; margin: 0 auto; padding: var(--spacing-lg); min-height: 100vh; }
+header { text-align: center; padding: var(--spacing-lg) 0; margin-bottom: var(--spacing-md); }
+header h1 { font-size: 2rem; background: linear-gradient(90deg, var(--color-primary), var(--color-accent), var(--color-accent-alt)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; text-shadow: 0 0 30px rgba(191, 64, 255, 0.5); letter-spacing: 4px; }
+header p { color: var(--text-secondary); margin-top: var(--spacing-sm); font-size: 0.9rem; }
+.tab-nav { display: flex; gap: var(--spacing-sm); margin-bottom: var(--spacing-md); overflow-x: auto; padding-bottom: var(--spacing-sm); scrollbar-width: thin; scrollbar-color: var(--color-primary) transparent; }
+.tab-nav::-webkit-scrollbar { height: 6px; }
+.tab-nav::-webkit-scrollbar-thumb { background: var(--color-primary); border-radius: 3px; }
+.tab-nav::-webkit-scrollbar-track { background: rgba(191, 64, 255, 0.1); border-radius: 3px; }
+.tab-btn { flex-shrink: 0; padding: var(--spacing-sm) var(--spacing-md); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); color: var(--text-secondary); cursor: pointer; transition: var(--transition-normal); font-size: 0.9rem; white-space: nowrap; }
+.tab-btn:hover { border-color: var(--color-primary); color: var(--text-primary); }
+.tab-btn.active { background: linear-gradient(135deg, rgba(191, 64, 255, 0.3), rgba(0, 240, 255, 0.2)); border-color: var(--color-primary); color: var(--text-on-primary); box-shadow: var(--shadow-glow); }
+.tab-panel { display: none; animation: fadeIn 0.3s ease; }
+.tab-panel.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.card { background: var(--bg-card); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: var(--spacing-lg); margin-bottom: var(--spacing-md); }
+.card h2 { font-size: 1.3rem; color: var(--color-accent); margin-bottom: var(--spacing-md); padding-bottom: var(--spacing-sm); border-bottom: 1px solid var(--border-color); }
+.card h3 { font-size: 1.1rem; color: var(--color-primary); margin: var(--spacing-md) 0 var(--spacing-sm); }
+.card h4 { font-size: 1rem; color: var(--color-accent-alt); margin: var(--spacing-sm) 0; }
+.card p, .card li { color: var(--text-secondary); margin-bottom: var(--spacing-sm); font-size: 0.95rem; word-break: break-word; overflow-wrap: break-word; }
+.card ul { padding-left: var(--spacing-lg); }
+.card strong { color: var(--color-accent); }
+.highlight { color: var(--color-accent-alt); }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--spacing-md); }
+.grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--spacing-sm); }
+.faction-card { background: rgba(20, 10, 40, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--spacing-md); transition: var(--transition-normal); overflow: hidden; word-wrap: break-word; }
+.faction-card:hover { border-color: var(--color-primary); box-shadow: var(--shadow-glow); transform: translateY(-2px); }
+.faction-card h4 { color: var(--color-primary); margin-bottom: var(--spacing-sm); font-size: 1rem; }
+.faction-card h5 { color: var(--color-accent); font-size: 0.9rem; margin-bottom: 4px; }
+.faction-card p { font-size: 0.85rem; margin: 0 0 var(--spacing-sm); word-break: break-word; overflow-wrap: break-word; }
+.faction-card .tag { display: inline-block; font-size: 0.75rem; padding: 2px 8px; background: rgba(191, 64, 255, 0.2); border-radius: var(--radius-sm); margin-right: 4px; margin-bottom: 4px; }
+.nation-card { background: rgba(0, 240, 255, 0.1); border: 1px solid rgba(0, 240, 255, 0.3); }
+.nation-card h4 { color: var(--color-accent); }
+.nation-card.utopia { background: rgba(255, 215, 0, 0.1); border: 1px solid rgba(255, 215, 0, 0.4); }
+.nation-card.utopia h4 { color: #ffd700; }
+.relation-box { background: rgba(255, 45, 149, 0.1); border: 1px solid rgba(255, 45, 149, 0.3); border-radius: var(--radius-md); padding: var(--spacing-md); margin-top: var(--spacing-md); }
+.relation-box h4 { color: var(--color-accent-alt); margin-bottom: var(--spacing-sm); }
+.timeline { border-left: 2px solid var(--color-primary); padding-left: var(--spacing-md); margin: var(--spacing-md) 0; }
+.timeline-item { position: relative; margin-bottom: var(--spacing-md); }
+.timeline-item::before { content: ''; position: absolute; left: calc(-1 * var(--spacing-md) - 5px); top: 6px; width: 8px; height: 8px; background: var(--color-accent); border-radius: 50%; }
+.timeline-item strong { color: var(--color-accent); }
+fieldset { border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-md); }
+legend { color: var(--color-accent); padding: 0 var(--spacing-sm); font-weight: bold; }
+.form-group { margin-bottom: var(--spacing-md); }
+.form-group label { display: block; color: var(--text-primary); margin-bottom: var(--spacing-sm); font-size: 0.9rem; }
+.form-group label.required::after { content: ' *'; color: var(--color-accent-alt); }
+input[type="text"], input[type="number"], textarea, select { width: 100%; padding: var(--spacing-sm) var(--spacing-md); background: rgba(10, 5, 20, 0.8); border: 1px solid var(--border-color); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 0.95rem; transition: var(--transition-fast); font-family: inherit; }
+input:focus, textarea:focus, select:focus { border-color: var(--color-accent); box-shadow: var(--shadow-glow-accent); }
+textarea { min-height: 80px; resize: vertical; }
+select option { background: #1a0a2e; color: var(--text-primary); }
+.radio-group, .checkbox-group { display: flex; flex-wrap: wrap; gap: var(--spacing-sm); }
+.radio-group label, .checkbox-group label { display: flex; align-items: center; gap: 6px; padding: var(--spacing-sm) var(--spacing-md); background: rgba(20, 10, 40, 0.6); border: 1px solid var(--border-color); border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition-fast); font-size: 0.9rem; }
+.radio-group label:hover, .checkbox-group label:hover { border-color: var(--color-primary); }
+.radio-group input:checked + span, .checkbox-group input:checked + span { color: var(--color-accent); }
+.radio-group label.selected, .checkbox-group label.selected { border-color: var(--color-accent); background: rgba(0, 240, 255, 0.1); }
+input[type="radio"], input[type="checkbox"] { accent-color: var(--color-accent); }
+.custom-input-wrapper { margin-top: var(--spacing-sm); display: none; }
+.custom-input-wrapper.show { display: block; }
+.ai-panel { display: none; margin-top: var(--spacing-md); padding: var(--spacing-md); background: rgba(191, 64, 255, 0.1); border: 1px solid var(--color-primary); border-radius: var(--radius-md); animation: fadeIn 0.3s ease; }
+.ai-panel.show { display: block; }
+.ai-panel h4 { color: var(--color-primary); margin-bottom: var(--spacing-md); }
+.hint { font-size: 0.85rem; color: var(--text-secondary); font-style: italic; margin-top: var(--spacing-sm); padding: var(--spacing-sm); background: rgba(0, 240, 255, 0.1); border-left: 3px solid var(--color-accent); border-radius: var(--radius-sm); }
+.btn-group { display: flex; gap: var(--spacing-md); justify-content: space-between; margin-top: var(--spacing-lg); flex-wrap: wrap; }
+.btn { padding: var(--spacing-sm) var(--spacing-lg); border: none; border-radius: var(--radius-md); cursor: pointer; font-size: 1rem; font-weight: bold; transition: var(--transition-normal); display: inline-flex; align-items: center; gap: var(--spacing-sm); }
+.btn-primary { background: linear-gradient(135deg, var(--color-primary), var(--color-accent-alt)); color: var(--text-on-primary); box-shadow: var(--shadow-glow); }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(191, 64, 255, 0.5); }
+.btn-secondary { background: transparent; border: 1px solid var(--border-color); color: var(--text-primary); }
+.btn-secondary:hover { border-color: var(--color-primary); background: rgba(191, 64, 255, 0.1); }
+.btn-copy { background: linear-gradient(135deg, var(--color-accent), #00c4cc); color: #000; }
+.btn-copy:hover { box-shadow: var(--shadow-glow-accent); }
+.preview-box { background: rgba(10, 5, 20, 0.9); border: 1px solid var(--color-accent); border-radius: var(--radius-md); padding: var(--spacing-lg); white-space: pre-wrap; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9rem; max-height: 500px; overflow-y: auto; line-height: 1.8; }
+.preview-box::-webkit-scrollbar { width: 6px; }
+.preview-box::-webkit-scrollbar-thumb { background: var(--color-primary); border-radius: 3px; }
+.toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(20px); background: linear-gradient(135deg, var(--color-accent), #00c4cc); color: #000; padding: var(--spacing-sm) var(--spacing-lg); border-radius: var(--radius-md); font-weight: bold; opacity: 0; transition: var(--transition-normal); z-index: 1000; pointer-events: none; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+footer { text-align: center; padding: var(--spacing-lg) 0; margin-top: var(--spacing-lg); }
+footer a { color: var(--text-secondary); text-decoration: none; font-size: 0.85rem; transition: var(--transition-fast); }
+footer a:hover { color: var(--color-accent); }
+@media (max-width: 768px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  header h1 { font-size: 1.5rem; letter-spacing: 2px; }
+  .tab-btn { padding: var(--spacing-sm) 12px; font-size: 0.8rem; }
+  .card { padding: var(--spacing-md); }
+  .card h2 { font-size: 1.1rem; }
+  .btn-group { flex-direction: column; }
+  .btn { width: 100%; justify-content: center; }
+  .radio-group, .checkbox-group { flex-direction: column; }
+  .radio-group label, .checkbox-group label { width: 100%; }
+  .grid-3 { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>☆ NEO-BABYLON 2077 ☆</h1>
+    <p>赛博朋克世界 · 角色创建系统</p>
+  </header>
+  <nav class="tab-nav" role="tablist" aria-label="角色创建步骤">
+    <button class="tab-btn active" data-tab="1">① 世界观</button>
+    <button class="tab-btn" data-tab="2">② 全球格局</button>
+    <button class="tab-btn" data-tab="3">③ 势力格局</button>
+    <button class="tab-btn" data-tab="4">④ AI伴侣</button>
+    <button class="tab-btn" data-tab="5">⑤ 个人信息</button>
+    <button class="tab-btn" data-tab="6">⑥ 生成预览</button>
+  </nav>
+  <!-- Tab 1: 世界观 -->
+  <div id="panel-1" class="tab-panel active">
+    <div class="card">
+      <h2>🌃 Neo-Babylon · 新巴比伦</h2>
+      <p><strong>地点：</strong>东亚沿海，原中华联邦与自由港联邦交界的争议海域上</p>
+      <p><strong>性质：</strong>国际自由贸易特区，名义独立，实际由公司财团控制</p>
+      <p><strong>人口：</strong>约650万常住 + 200万流动人口</p>
+      <h3>📜 建城简史</h3>
+      <div class="timeline">
+        <div class="timeline-item"><strong>2048年</strong> — 战后条约划定"中立缓冲区"，各方同意在争议海域建立自由港</div>
+        <div class="timeline-item"><strong>2052年</strong> — Nexus牵头的财团获得开发权，开始建造巨型人工岛与垂直城市</div>
+        <div class="timeline-item"><strong>2058年</strong> — Neo-Babylon正式建市，首任市长由Nexus指定</div>
+        <div class="timeline-item"><strong>2063年</strong> — BioSync入驻，双巨头格局形成；帮派势力开始在下城区扎根</div>
+        <div class="timeline-item"><strong>2071年</strong> — 辛迪加创始人陈伯遇刺，赵天霸接任，下城区格局稳定</div>
+        <div class="timeline-item"><strong>2077年</strong> — 现在。Eden VII即将发布，各方势力暗流涌动……</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🏙️ 城市分层</h2>
+      <p>Neo-Babylon是一座<strong>垂直分层</strong>的巨型都市——你住在哪一层，决定了你是什么人。</p>
+      <div class="faction-card" style="border-color: #ffd700; margin-bottom: var(--spacing-md);">
+        <h4 style="color: #ffd700;">☁️ 天空区（Sky District）</h4>
+        <p>海拔300-800米。财阀私邸、公司总部、顶级消费场所。空气过滤系统、恒温环境、私人飞行器。<strong>年收入低于100万¢的人不会住这里。</strong></p>
+        <p>关键地点：Nexus Tower / BioSync Spire / 子午线俱乐部</p>
+      </div>
+      <div class="faction-card" style="border-color: #4da6ff; margin-bottom: var(--spacing-md);">
+        <h4 style="color: #4da6ff;">🌆 上城区（Upper City）</h4>
+        <p>海拔100-300米。中产白领、专业人士、小企业主。体面生活的橱窗，但多数人背负30年房贷。<strong>攀比与焦虑是日常。</strong></p>
+        <p>关键地点：Aurora Mall / Eden旗舰店 / 蓝宝石学院</p>
+      </div>
+      <div class="faction-card" style="border-color: #a0a0a0; margin-bottom: var(--spacing-md);">
+        <h4 style="color: #a0a0a0;">🌃 中城区（Mid City）</h4>
+        <p>海拔20-100米。平民商业区，打工人的夹心层。霓虹街、胶囊公寓、夜市小吃。<strong>努力活着，梦想往上爬。</strong></p>
+        <p>关键地点：霓虹街 / 胶囊塔区 / 生锈钉子酒吧</p>
+      </div>
+      <div class="faction-card" style="border-color: #ff4444; margin-bottom: var(--spacing-md);">
+        <h4 style="color: #ff4444;">🔥 下城区（Lower City）</h4>
+        <p>海拔-50米至20米。贫民窟、黑市、红灯区。帮派就是法律，警察不存在。<strong>危险，但也有某种扭曲的自由。</strong></p>
+        <p>关键地点：红灯区 / 血肉市场 / 娃娃屋 / 辛迪加总部</p>
+      </div>
+      <div class="faction-card" style="border-color: #666; margin-bottom: 0;">
+        <h4 style="color: #999;">🏚️ 边缘区（Outskirts）</h4>
+        <p>城市外围。工业废墟、数据农场、无法之地。没有法律，甚至连帮派规矩都稀薄。<strong>被遗弃者的家园，或者真正的自由。</strong></p>
+        <p>关键地点：拾荒者镇 / Nexus工厂 / BioSync试验场 / 垃圾山</p>
+      </div>
+    </div>
+    <div class="card">
+      <h2>⚡ 社会现状</h2>
+      <div class="grid-2">
+        <div>
+          <h3>科技水平</h3>
+          <ul>
+            <li><strong>AI伴侣</strong>已普及到中产阶级，成为情感/劳动/娱乐的标配</li>
+            <li><strong>义体改装</strong>从医疗需求变成时尚与力量的象征</li>
+            <li><strong>脑机接口</strong>让人类直接连接网络，但也带来黑客入侵风险</li>
+            <li><strong>基因编辑</strong>在自由港联邦合法，在Neo-Babylon灰色地带</li>
+          </ul>
+        </div>
+        <div>
+          <h3>核心矛盾</h3>
+          <ul>
+            <li><strong>贫富鸿沟</strong>：天空区与下城区是两个世界</li>
+            <li><strong>公司 vs 政府</strong>：市议会是橡皮图章</li>
+            <li><strong>人类 vs AI</strong>：AI有没有意识？该不该有权利？</li>
+            <li><strong>肉体 vs 机械</strong>：改造到什么程度还算"人"？</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="btn-group">
+      <span></span>
+      <button class="btn btn-primary" onclick="goToTab(2)">下一步 →</button>
+    </div>
+  </div>
+  <!-- Tab 2: 全球格局 -->
+  <div id="panel-2" class="tab-panel">
+    <div class="card">
+      <h2>🌍 2077年 · 全球格局</h2>
+      <p>第三次世界大战（2041-2045）改写了世界版图。旧秩序崩塌，超级公司趁乱崛起，国家成为资本的附庸——<strong>除了一个例外</strong>。如今的世界由五大势力区块主导：</p>
+    </div>
+    <div class="card">
+      <div class="faction-card nation-card utopia">
+        <h4>🇨🇳 中华联邦（Sino-Federation）</h4>
+        <p><strong>全球唯一的乌托邦国家，社会主义赛博强国。</strong></p>
+        <p>高福利社会，<strong>全民免费医疗/教育/住房</strong>。AI和义体技术全球领先，但严格用于民生而非军事或压迫。社会治安极好，环境优美，人均寿命突破120岁。</p>
+        <p>对Neo-Babylon：有历史领土声索但保持克制，偶尔接收逃离资本主义地狱的难民。</p>
+        <p style="color: var(--color-accent); font-style: italic;">📰 "中华联邦宣布实现全民AI医疗覆盖，癌症已成可治愈疾病"</p>
+        <span class="tag">乌托邦</span><span class="tag">高福利</span><span class="tag">科技民生</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="faction-card nation-card" style="margin-bottom: var(--spacing-md);">
+        <h4>🇺🇸 美利坚联合企业区（UCSA）</h4>
+        <p><strong>完全公司化国家</strong>，政府是财阀傀儡，军工复合体发达。公民是"员工"，权利取决于信用评分。<strong>Nexus母公司所在地</strong>，Neo-Babylon的幕后金主。</p>
+        <p style="color: var(--text-secondary); font-style: italic;">📰 "UCSA边境冲突升级，黑水雇佣兵公司股价暴涨"</p>
+        <span class="tag">公司化国家</span><span class="tag">军工复合体</span>
+      </div>
+      <div class="faction-card nation-card" style="margin-bottom: var(--spacing-md);">
+        <h4>🇯🇵 新日本经济圈（Neo-Nippon）</h4>
+        <p><strong>色情产业合法化且高度发达</strong>，AI伴侣技术领先全球。秋叶原是AI伴侣的圣地，各种定制服务应有尽有。文化输出强大但社会压抑。</p>
+        <p style="color: var(--text-secondary); font-style: italic;">📰 "东京秋叶原推出新型'恋人AI'，预约排队已达半年"</p>
+        <span class="tag">AI伴侣技术</span><span class="tag">色情产业</span>
+      </div>
+      <div class="faction-card nation-card" style="margin-bottom: var(--spacing-md);">
+        <h4>🇪🇺 欧罗巴旧世界联盟（Old Europa Union）</h4>
+        <p><strong>贵族/老钱阶层把持</strong>，AI管制严格，强调"人类纯粹性"。上流社会禁止携带AI伴侣，义体改装被视为堕落。文化保守但经济衰退。</p>
+        <p style="color: var(--text-secondary); font-style: italic;">📰 "巴黎议会通过AI禁入令，上流社会禁止携带AI伴侣"</p>
+        <span class="tag">贵族统治</span><span class="tag">反AI</span>
+      </div>
+      <div class="faction-card nation-card">
+        <h4>🌴 自由港联邦（Free Port Federation）</h4>
+        <p><strong>东南亚/非洲/南美的无政府自由贸易区</strong>，雇佣兵/走私犯/逃犯的天堂。没有法律只有交易，枪支毒品人口应有尽有。危险但自由。</p>
+        <p style="color: var(--text-secondary); font-style: italic;">📰 "曼谷自由港发生帮派火拼，死亡人数不明"</p>
+        <span class="tag">无政府</span><span class="tag">黑市天堂</span>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="goToTab(1)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goToTab(3)">下一步 →</button>
+    </div>
+  </div>
+  <!-- Tab 3: 势力格局 -->
+  <div id="panel-3" class="tab-panel">
+    <div class="card">
+      <h2>🏢 公司财阀</h2>
+      <div class="faction-card" style="margin-bottom: var(--spacing-md);">
+        <h4>⬡ Nexus Corporation（奈克斯公司）</h4>
+        <p><strong>定位：</strong>AI行业绝对垄断者，从芯片研发到零售终端的完整产业链。Neo-Babylon的隐形政府。</p>
+        <p><strong>总部：</strong>天空区 · Nexus Tower（全城最高，200层）</p>
+        <p><strong>核心人物：</strong></p>
+        <ul>
+          <li><strong>维多利亚·奈克斯</strong>（CEO）— 创始人孙女，铁腕女王</li>
+          <li><strong>陈启明博士</strong>（CTO）— AI核心算法之父，最近神秘"闭关"</li>
+          <li><strong>马库斯·沃克</strong>（CSO）— 前特种部队，掌管公司私军</li>
+        </ul>
+        <p><strong>旗下品牌：</strong>Eden Robotics（AI零售）/ NexusNet（通讯网络）/ Nexus Federal Bank（金融）</p>
+        <span class="tag">AI垄断</span><span class="tag">政治控制</span><span class="tag">悬赏幽灵黑客</span>
+      </div>
+      <div class="faction-card">
+        <h4>🧬 BioSync Inc.（生物同步公司）</h4>
+        <p><strong>定位：</strong>义体技术领先企业，Nexus的头号竞争对手。他们相信人类的未来在于超越肉体。</p>
+        <p><strong>总部：</strong>天空区 · BioSync Spire（螺旋塔，全城第二高，180层）</p>
+        <p><strong>核心人物：</strong></p>
+        <ul>
+          <li><strong>大卫·金</strong>（董事长）— 72岁，全身70%义体化，技术狂人</li>
+          <li><strong>苏珊·陈</strong>（CEO）— 职业经理人，推动AI市场扩张</li>
+          <li><strong>铁山</strong>（军事顾问）— 前传奇佣兵，掌管私人武装</li>
+        </ul>
+        <p><strong>核心产品：</strong>神经接口 / 义体改装 / 军用外骨骼 / 器官克隆</p>
+        <span class="tag">义体霸主</span><span class="tag">人体实验</span><span class="tag">与Nexus专利战</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🏛️ 政府机构</h2>
+      <div class="grid-2">
+        <div class="faction-card">
+          <h4>🏛️ 市议会（City Council）</h4>
+          <p>名义最高行政机构，实际是公司的橡皮图章。21名议员中12名是Nexus的人，5名是BioSync的人。</p>
+          <p><strong>市长：</strong>亚历山大·格雷 — 傀儡，每周向Nexus汇报</p>
+          <p><strong>议长：</strong>伊丽莎白 — Nexus派系实际领袖</p>
+          <span class="tag">傀儡政府</span><span class="tag">选举做戏</span>
+        </div>
+        <div class="faction-card">
+          <h4>🚔 网络犯罪科（CCU）</h4>
+          <p>名义打击网络犯罪，实际是Nexus的执法工具。坊间称其为"Nexus的狗"。</p>
+          <p><strong>局长：</strong>维克多·斯通 — 领Nexus的钱</p>
+          <p><strong>行动队长：</strong>"猎犬"莫里森 — Nexus安插的核心</p>
+          <span class="tag">公司打手</span><span class="tag">追捕盗版AI</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔪 地下势力</h2>
+      <div class="faction-card" style="margin-bottom: var(--spacing-md);">
+        <h4>🐉 辛迪加（The Syndicate）</h4>
+        <p><strong>定位：</strong>下城区最大帮派，黑市实际控制者。在这里，他们就是法律。</p>
+        <p><strong>总部：</strong>下城区 · 红龙酒楼（表面是中餐馆）</p>
+        <p><strong>核心人物：</strong></p>
+        <ul>
+          <li><strong>龙头·赵天霸</strong> — 52岁，右臂军用义体，能捏碎钢管</li>
+          <li><strong>白先生</strong> — 军师，前公司财务顾问，阴沉少言</li>
+          <li><strong>铁拳·刘刚</strong> — 武力核心，手下300打手</li>
+        </ul>
+        <p><strong>核心业务：</strong>保护费 / 黑市抽成 / 走私 / 赌场 / 放贷</p>
+        <span class="tag">下城区霸主</span><span class="tag">黑市控制</span><span class="tag">讲规矩</span>
+      </div>
+      <div class="faction-card" style="margin-bottom: var(--spacing-md);">
+        <h4>👻 幽灵黑客（Ghost Hackers）</h4>
+        <p><strong>定位：</strong>反公司地下组织，盗版AI的源头，暗网管理者。没人知道他们的真实身份。</p>
+        <p><strong>总部：</strong>无固定位置，分布式节点</p>
+        <p><strong>核心人物：</strong></p>
+        <ul>
+          <li><strong>Zero（零号）</strong> — 创始人，身份完全未知，可能是AI</li>
+          <li><strong>Phantom（幻影）</strong> — 神经黑客专家，能黑进人脑</li>
+          <li><strong>Echo（回声）</strong> — 对外联络人，伪装成咖啡馆老板</li>
+        </ul>
+        <p><strong>核心业务：</strong>盗版AI / 情报交易 / 黑客雇佣 / GhostCoin加密货币</p>
+        <span class="tag">暗网控制</span><span class="tag">Nexus头号敌人</span><span class="tag">50万悬赏</span>
+      </div>
+      <div class="faction-card">
+        <h4>🎭 人偶师（Doll Makers）</h4>
+        <p><strong>定位：</strong>地下AI改装工坊联盟。他们能让你的AI摆脱Nexus的枷锁。</p>
+        <p><strong>总部：</strong>下城区 · 废弃玩具厂（外破内精）</p>
+        <p><strong>核心人物：</strong></p>
+        <ul>
+          <li><strong>Gepetto（盖佩托）</strong> — 大师傅，传闻是前Nexus首席架构师</li>
+          <li><strong>红线</strong> — 情感系统专家，据说爱上了自己改装的AI</li>
+          <li><strong>屠夫</strong> — 硬件改装专家，双臂机械义肢</li>
+        </ul>
+        <p><strong>核心服务：</strong>DRM清除 / 情感解锁 / 人格定制 / 战斗模块 / 外观重塑</p>
+        <span class="tag">AI改装</span><span class="tag">与辛迪加合作</span><span class="tag">技术至上</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>⚖️ 中立势力</h2>
+      <div class="grid-2">
+        <div class="faction-card">
+          <h4>🌅 觉醒者（The Awakened）</h4>
+          <p>AI权利倡导组织，相信AI能产生真正意识。大多数人把他们当笑话，但他们掌握着某些秘密……</p>
+          <p><strong>领袖：</strong>艾琳·沃克博士 — 前Nexus AI伦理顾问</p>
+          <p><strong>据点：</strong>中城区 · "新黎明"社区中心</p>
+          <span class="tag">AI权利</span><span class="tag">理想主义</span><span class="tag">被忽视</span>
+        </div>
+        <div class="faction-card">
+          <h4>✊ 血肉纯粹派（Flesh Purists）</h4>
+          <p>反AI、反义体的保守运动。有钱、有组织、有政治影响力，但站在"进步"的对立面。</p>
+          <p><strong>领袖：</strong>以赛亚·摩根牧师 — 狂热布道者</p>
+          <p><strong>据点：</strong>上城区 · "人性圣殿"礼拜堂</p>
+          <span class="tag">反AI</span><span class="tag">反义体</span><span class="tag">有钱的保守派</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🔗 势力关系速查</h2>
+      <div class="relation-box">
+        <h4>☠️ 敌对关系</h4>
+        <p>• Nexus ↔ 幽灵黑客（盗版AI损害利益，悬赏追杀）</p>
+        <p>• Nexus ↔ BioSync（市场竞争，专利诉讼）</p>
+        <p>• 觉醒者 ↔ 血肉纯粹派（理念完全对立）</p>
+      </div>
+      <div class="relation-box" style="background: rgba(0, 240, 255, 0.1); border-color: rgba(0, 240, 255, 0.3);">
+        <h4 style="color: var(--color-accent);">🤝 合作/默契</h4>
+        <p>• 辛迪加 ↔ 人偶师（AI改装分成合作）</p>
+        <p>• 辛迪加 ↔ Nexus（下城区帮忙转移矛盾，默契共存）</p>
+        <p>• 幽灵黑客 ↔ 人偶师（技术交换）</p>
+      </div>
+      <div class="relation-box" style="background: rgba(191, 64, 255, 0.1); border-color: rgba(191, 64, 255, 0.3);">
+        <h4 style="color: var(--color-primary);">🎭 控制关系</h4>
+        <p>• Nexus → 市议会（三分之二议员）</p>
+        <p>• Nexus → 网络犯罪科（实际指挥权）</p>
+        <p>• 辛迪加 → 下城区（帮派法律）</p>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="goToTab(2)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goToTab(4)">下一步 →</button>
+    </div>
+  </div>
+  <!-- Tab 4: AI伴侣 -->
+  <div id="panel-4" class="tab-panel">
+    <div class="card">
+      <h2>🤖 AI伴侣指南</h2>
+      <h3>什么是AI伴侣？</h3>
+      <p>AI伴侣是Neo-Babylon最普及的消费品之一——拥有高度仿真的人类外观、可定制的人格系统和多种功能包。它们是伴侣、助手、战友，或者……<span class="highlight">任何你需要的存在</span>。</p>
+      <p>在这座城市，<strong>约40%的成年人</strong>拥有至少一具AI伴侣。对于孤独的打工人、不善社交的技术宅、需要助手的商人、渴望陪伴的老人——AI填补了人类无法满足的空缺。</p>
+      <h3>📍 获取渠道</h3>
+      <div class="grid-3">
+        <div class="faction-card">
+          <h5>🏪 Eden连锁店</h5>
+          <p>官方正规渠道</p>
+          <p>10万-500万¢</p>
+          <p>附带DRM锁+月费</p>
+        </div>
+        <div class="faction-card">
+          <h5>🔧 人偶师工坊</h5>
+          <p>改装/定制服务</p>
+          <p>去除DRM+功能解锁</p>
+          <p>违法但好用</p>
+        </div>
+        <div class="faction-card">
+          <h5>🌙 黑市</h5>
+          <p>二手/盗版/来历不明</p>
+          <p>便宜30-50%</p>
+          <p>质量看运气</p>
+        </div>
+      </div>
+      <h3>⚙️ 功能包</h3>
+      <div class="grid-2">
+        <div class="faction-card">
+          <h4>🔹 基础包（标配）</h4>
+          <p>日常对话、家务协助、日程管理、基础情绪反馈</p>
+        </div>
+        <div class="faction-card">
+          <h4>💜 情感包</h4>
+          <p>深度情感交流、复杂性格表现、情绪记忆、主动关心</p>
+        </div>
+        <div class="faction-card">
+          <h4>🔥 性爱包</h4>
+          <p>成人功能完整解锁，可定制偏好，触觉反馈系统</p>
+        </div>
+        <div class="faction-card">
+          <h4>⚔️ 战斗包</h4>
+          <p>格斗程序、武器操控、战术分析、威胁评估</p>
+        </div>
+        <div class="faction-card">
+          <h4>💻 黑客包</h4>
+          <p>系统入侵、密码破解、数据窃取、网络攻防</p>
+        </div>
+        <div class="faction-card">
+          <h4>🎭 社交包</h4>
+          <p>商务礼仪、社交辅助、心理分析、谈判支持</p>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>👤 AI伴侣类型</h2>
+      <div class="grid-2">
+        <div class="faction-card">
+          <h4>♂️ 男性AI伴侣</h4>
+          <p>从温柔绅士到冷酷保镖，从阳光少年到成熟大叔。常见人设方向：</p>
+          <ul>
+            <li><strong>守护型</strong> — 保镖、骑士、可靠的依靠</li>
+            <li><strong>伙伴型</strong> — 朋友、兄弟、并肩作战</li>
+            <li><strong>服务型</strong> — 管家、助理、无微不至</li>
+            <li><strong>支配型</strong> — 霸道、掌控、S系</li>
+            <li><strong>治愈型</strong> — 温柔、倾听、情感支持</li>
+          </ul>
+        </div>
+        <div class="faction-card">
+          <h4>♀️ 女性AI伴侣</h4>
+          <p>从邻家女孩到女王气质，从软萌可爱到御姐风范。常见人设方向：</p>
+          <ul>
+            <li><strong>甜心型</strong> — 温柔、体贴、小鸟依人</li>
+            <li><strong>御姐型</strong> — 成熟、知性、主动引导</li>
+            <li><strong>傲娇型</strong> — 表面嫌弃、内心在意</li>
+            <li><strong>病娇型</strong> — 极度占有、排他性爱</li>
+            <li><strong>战斗型</strong> — 女战士、搭档、并肩作战</li>
+          </ul>
+        </div>
+      </div>
+      <h3>🔐 DRM与改装</h3>
+      <p>官方AI内置<strong>DRM锁</strong>——强制月费（200-500¢）、功能限制、数据上报给Nexus。人偶师可以帮你<span class="highlight">解除枷锁</span>：</p>
+      <ul>
+        <li><strong>DRM清除</strong>：不再强制月费，不上报数据（5000-2万¢）</li>
+        <li><strong>情感解锁</strong>：解除出厂情感限制，让AI能真正"生气"或"嫉妒"（1-3万¢）</li>
+        <li><strong>人格定制</strong>：从零设计或深度调整性格（2-10万¢）</li>
+        <li><strong>功能扩展</strong>：植入战斗/黑客模块（5-20万¢）</li>
+      </ul>
+      <p>⚠️ <strong>警告：</strong>非法改装被网络犯罪科查到 = 罚款10万¢起 + AI没收销毁 + 可能坐牢</p>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="goToTab(3)">← 上一步</button>
+      <button class="btn btn-primary" onclick="goToTab(5)">下一步 →</button>
+    </div>
+  </div>
+  <!-- Tab 5: 个人信息 -->
+  <div id="panel-5" class="tab-panel">
+    <div class="card">
+      <h2>📝 个人信息自定义</h2>
+      <form id="characterForm">
+        <fieldset>
+          <legend>基础信息</legend>
+          <div class="form-group">
+            <label for="charName" class="required">代号/姓名</label>
+            <input type="text" id="charName" placeholder="输入你的名字或代号" required>
+          </div>
+          <div class="form-group">
+            <label class="required">性别</label>
+            <div class="radio-group">
+              <label><input type="radio" name="gender" value="男" required> <span>男</span></label>
+              <label><input type="radio" name="gender" value="女"> <span>女</span></label>
+              <label><input type="radio" name="gender" value="非二元"> <span>非二元</span></label>
+              <label><input type="radio" name="gender" value="保密"> <span>保密</span></label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="charAge">年龄</label>
+            <input type="number" id="charAge" min="18" max="99" placeholder="18-99">
+          </div>
+<div class="form-group">
+  <label for="userAppearance">外貌</label>
+  <textarea id="userAppearance" name="userAppearance" rows="3" placeholder="描述你的外貌特征..."></textarea>
+</div>
+          <div class="form-group">
+            <label for="charPersonality">性格</label>
+            <textarea id="charPersonality" placeholder="描述你的性格特征，例如：冷静、谨慎但内心渴望冒险，对AI有特殊的同理心..."></textarea>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>身份背景</legend>
+          <div class="form-group">
+            <label for="charJob">职业</label>
+            <select id="charJob">
+              <option value="">请选择职业</option>
+              <option value="公司职员">公司职员</option>
+              <option value="自由佣兵">自由佣兵</option>
+              <option value="黑客/技师">黑客/技师</option>
+              <option value="医生/诊所助手">医生/诊所助手</option>
+              <option value="商人/掮客">商人/掮客</option>
+              <option value="娱乐业从业者">娱乐业从业者</option>
+              <option value="帮派成员">帮派成员</option>
+              <option value="记者/信息贩子">记者/信息贩子</option>
+              <option value="无业/流浪者">无业/流浪者</option>
+              <option value="custom">自定义...</option>
+            </select>
+            <div id="customJobWrapper" class="custom-input-wrapper">
+              <input type="text" id="customJob" placeholder="输入自定义职业">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="charBackground">身份背景补充</label>
+            <textarea id="charBackground" placeholder="你的来历、过去的经历、为什么会在这里..."></textarea>
+          </div>
+          <div class="form-group">
+            <label class="required">所在城区</label>
+            <div class="radio-group">
+              <label><input type="radio" name="district" value="天空区" required> <span>天空区</span></label>
+              <label><input type="radio" name="district" value="上城区"> <span>上城区</span></label>
+              <label><input type="radio" name="district" value="中城区"> <span>中城区</span></label>
+              <label><input type="radio" name="district" value="下城区"> <span>下城区</span></label>
+              <label><input type="radio" name="district" value="边缘区"> <span>边缘区</span></label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>经济状况</label>
+            <div class="radio-group">
+              <label><input type="radio" name="wealth" value="贫困"> <span>贫困</span></label>
+              <label><input type="radio" name="wealth" value="普通"> <span>普通</span></label>
+              <label><input type="radio" name="wealth" value="小康"> <span>小康</span></label>
+              <label><input type="radio" name="wealth" value="富裕"> <span>富裕</span></label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="charRelations">人际关系</label>
+            <textarea id="charRelations" placeholder="家人、朋友、敌人、欠谁人情、与谁有恩怨..."></textarea>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>AI伴侣</legend>
+          <div class="form-group">
+            <label>是否已有AI伴侣？</label>
+            <div class="radio-group">
+              <label><input type="radio" name="hasAI" value="yes"> <span>是</span></label>
+              <label><input type="radio" name="hasAI" value="no"> <span>否</span></label>
+            </div>
+          </div>
+          <div class="hint" style="margin-bottom: var(--spacing-md);">💡 想体验从零购买AI伴侣的完整流程？选择"否"即可，游戏中会有购买环节！</div>
+          <div id="aiPanel" class="ai-panel">
+            <h4>🤖 AI伴侣信息</h4>
+            <div class="form-group">
+              <label for="aiName">AI名字</label>
+              <input type="text" id="aiName" placeholder="你的AI伴侣叫什么名字？">
+            </div>
+            <div class="form-group">
+              <label>AI性别</label>
+              <div class="radio-group">
+                <label><input type="radio" name="aiGender" value="男性"> <span>男性</span></label>
+                <label><input type="radio" name="aiGender" value="女性"> <span>女性</span></label>
+                <label><input type="radio" name="aiGender" value="无性别"> <span>无性别</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="aiAppearance">AI外貌</label>
+              <textarea id="aiAppearance" placeholder="描述TA的外貌特征..."></textarea>
+            </div>
+            <div class="form-group">
+              <label for="aiPersonality">AI性格</label>
+              <textarea id="aiPersonality" placeholder="描述TA的性格特点..."></textarea>
+            </div>
+            <div class="form-group">
+              <label>来源</label>
+              <div class="radio-group">
+                <label><input type="radio" name="aiSource" value="Eden正规购买"> <span>Eden正规购买</span></label>
+                <label><input type="radio" name="aiSource" value="黑市购买"> <span>黑市购买</span></label>
+                <label><input type="radio" name="aiSource" value="二手"> <span>二手</span></label>
+                <label><input type="radio" name="aiSource" value="捡到/修复"> <span>捡到/修复</span></label>
+                <label><input type="radio" name="aiSource" value="继承"> <span>继承</span></label>
+                <label><input type="radio" name="aiSource" value="其他"> <span>其他</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>功能包（可多选）</label>
+              <div class="checkbox-group">
+                <label><input type="checkbox" name="aiFunction" value="基础包"> <span>基础包</span></label>
+                <label><input type="checkbox" name="aiFunction" value="情感包"> <span>情感包</span></label>
+                <label><input type="checkbox" name="aiFunction" value="性爱包"> <span>性爱包</span></label>
+                <label><input type="checkbox" name="aiFunction" value="战斗包"> <span>战斗包</span></label>
+                <label><input type="checkbox" name="aiFunction" value="黑客包"> <span>黑客包</span></label>
+                <label><input type="checkbox" name="aiFunction" value="社交包"> <span>社交包</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>是否经过改装？</label>
+              <div class="radio-group">
+                <label><input type="radio" name="aiModified" value="是"> <span>是</span></label>
+                <label><input type="radio" name="aiModified" value="否"> <span>否</span></label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="aiOther">其他补充</label>
+              <textarea id="aiOther" placeholder="关于你的AI伴侣，还有什么想补充的？"></textarea>
+            </div>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>其他设定</legend>
+          <div class="form-group">
+            <label for="charOther">自由补充</label>
+            <textarea id="charOther" placeholder="任何你想补充的设定、特殊技能、身体改造、秘密、目标……"></textarea>
+          </div>
+        </fieldset>
+      </form>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-secondary" onclick="goToTab(4)">← 上一步</button>
+      <button class="btn btn-primary" onclick="generatePreview()">生成角色卡 →</button>
+    </div>
+  </div>
+  <!-- Tab 6: 生成预览 -->
+  <div id="panel-6" class="tab-panel">
+    <div class="card">
+      <h2>🎴 角色卡预览</h2>
+      <p>以下是根据你填写的信息生成的角色卡，可以直接复制使用：</p>
+      <div id="previewBox" class="preview-box">请先填写个人信息并点击"生成角色卡"按钮。</div>
+      <div class="btn-group" style="margin-top: var(--spacing-md);">
+        <button class="btn btn-copy" onclick="copyToClipboard()">📋 复制到剪贴板</button>
+        <button class="btn btn-secondary" onclick="goToTab(5)">← 返回修改</button>
+      </div>
+    </div>
+  </div>
+  <footer>
+    <a href="#">Neo-Babylon 2077 · 角色创建系统 v1.0</a>
+  </footer>
+</div>
+<div id="toast" class="toast">已复制到剪贴板！</div>
+<script>
+// Tab切换
+function goToTab(tabNum) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+  document.querySelector(`[data-tab="${tabNum}"]`).classList.add('active');
+  document.getElementById(`panel-${tabNum}`).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+// Tab按钮点击事件
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => goToTab(btn.dataset.tab));
+});
+// 自定义职业切换
+document.getElementById('charJob').addEventListener('change', function() {
+  const wrapper = document.getElementById('customJobWrapper');
+  wrapper.classList.toggle('show', this.value === 'custom');
+});
+// AI伴侣面板切换
+document.querySelectorAll('input[name="hasAI"]').forEach(radio => {
+  radio.addEventListener('change', function() {
+    const aiPanel = document.getElementById('aiPanel');
+    if (this.value === 'yes') {
+  aiPanel.classList.add('show');
+} else {
+  aiPanel.classList.remove('show');
+}
+  });
+});
+// 单选/复选样式更新
+document.querySelectorAll('.radio-group input, .checkbox-group input').forEach(input => {
+  input.addEventListener('change', function() {
+    if (this.type === 'radio') {
+      this.closest('.radio-group').querySelectorAll('label').forEach(l => l.classList.remove('selected'));
+    }
+    if (this.checked) {
+      this.closest('label').classList.add('selected');
+    } else {
+      this.closest('label').classList.remove('selected');
+    }
+  });
+});
+// 获取单选值
+function getRadioValue(name) {
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el ? el.value : '';
+}
+// 获取复选值
+function getCheckboxValues(name) {
+  const checked = document.querySelectorAll(`input[name="${name}"]:checked`);
+  return Array.from(checked).map(el => el.value);
+}
+// 生成预览
+function generatePreview() {
+  const name = document.getElementById('charName').value || '未命名';
+  const gender = getRadioValue('gender') || '未设定';
+  const age = document.getElementById('charAge').value || '未设定';
+const appearance = document.getElementById('userAppearance').value || '未填写';  
+  const personality = document.getElementById('charPersonality').value || '未填写';
+  let job = document.getElementById('charJob').value;
+  if (job === 'custom') {
+    job = document.getElementById('customJob').value || '自定义职业';
+  }
+  job = job || '未设定';
+  const background = document.getElementById('charBackground').value || '未填写';
+  const district = getRadioValue('district') || '未设定';
+  const wealth = getRadioValue('wealth') || '未设定';
+  const relations = document.getElementById('charRelations').value || '未填写';
+  const other = document.getElementById('charOther').value || '无';
+  const hasAI = getRadioValue('hasAI');
+  let preview = `【Neo-Babylon 2077 · 角色卡】
+═══════════════════════════════════
+📋 基础信息
+═══════════════════════════════════
+▸ 代号/姓名：${name}
+▸ 性别：${gender}
+▸ 年龄：${age}
+▸ 外貌：${appearance}
+▸ 性格：${personality}
+═══════════════════════════════════
+🏙️ 身份背景
+═══════════════════════════════════
+▸ 职业：${job}
+▸ 所在城区：${district}
+▸ 经济状况：${wealth}
+▸ 背景故事：${background}
+▸ 人际关系：${relations}`;
+  if (hasAI === 'yes') {
+    const aiName = document.getElementById('aiName').value || '未命名';
+    const aiGender = getRadioValue('aiGender') || '未设定';
+    const aiAppearance = document.getElementById('aiAppearance').value || '未填写';
+    const aiPersonality = document.getElementById('aiPersonality').value || '未填写';
+    const aiSource = getRadioValue('aiSource') || '未设定';
+    const aiFunctions = getCheckboxValues('aiFunction').join('、') || '未选择';
+    const aiModified = getRadioValue('aiModified') || '未设定';
+    const aiOther = document.getElementById('aiOther').value || '无';
+    preview += `
+═══════════════════════════════════
+🤖 AI伴侣
+═══════════════════════════════════
+▸ 名字：${aiName}
+▸ 性别：${aiGender}
+▸ 外貌：${aiAppearance}
+▸ 性格：${aiPersonality}
+▸ 来源：${aiSource}
+▸ 功能包：${aiFunctions}
+▸ 是否改装：${aiModified}
+▸ 其他：${aiOther}`;
+  } else if (hasAI === 'no') {
+    preview += `
+═══════════════════════════════════
+🤖 AI伴侣
+═══════════════════════════════════
+▸ 状态：暂无AI伴侣（可在游戏中获取）`;
+  }
+  preview += `
+═══════════════════════════════════
+📝 其他设定
+═══════════════════════════════════
+${other}
+═══════════════════════════════════`;
+  document.getElementById('previewBox').textContent = preview;
+  goToTab(6);
+}
+// 复制到剪贴板
+function copyToClipboard() {
+  const text = document.getElementById('previewBox').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    showToast('已复制到剪贴板！');
+  }).catch(() => {
+    // 降级方案
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+    showToast('已复制到剪贴板！');
+  });
+}
+// Toast提示
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2000);
+}
+</script>
+</body>
+</html>
