@@ -19,6 +19,7 @@ const libraryCopy:Record<typeof worlds[number]['id'],{name?:string;description:s
   'star-rail':{description:'沿星神曾行之途穿越银河。愿此行，终抵群星。'},
   doupo:{description:'从乌坦城到大千世界，在斗气大陆走出自己的传奇。'},
   oasis:{description:'在 2045 年的现实与绿洲之间切换身份，探索由电影、动漫和游戏构成的虚拟宇宙。'},
+  genshin:{description:'选择旅行者、原著角色或自创角色，从七国主线、间章或节日启程。'},
   cyberpunk:{description:'在 2077 年的新巴比伦选择出身、职业与 AI 伴侣，从五层城区中开始自己的故事。'},
   daomu:{description:'长沙雨夜，盘口的煤油灯还亮着。选定篇章、身份与手艺，写下你的卷宗。'},
   naruto:{description:'从忍者学校到忍界大战，选择篇章，写下自己的忍道。'},

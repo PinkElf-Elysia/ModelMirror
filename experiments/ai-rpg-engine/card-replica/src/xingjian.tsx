@@ -13,8 +13,8 @@ import {createChatDraft} from './start-chat';
 
 export function Xingjian(){
   const card=cardStoragePrefix();
-  const title=({'type-moon':'型月大世界',slime:'关于我转生成史莱姆这件事','modern-life':'现代超真实人生',naruto:'火影大世界',cyberpunk:'赛博朋克大世界',oasis:'OASIS！头号玩家！（游戏人生）',daomu:'盗墓笔记大世界','star-rail':'崩坏：星穹铁道',doupo:'斗破苍穹！','harry-potter':'哈利波特大世界（霍格沃兹）',elderland:'西幻大世界 · 艾尔德兰',medieval:'中世纪真实人生','ai-girls':'完蛋！我被AI娘包围了！',jinyong:'金庸大世界',douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
-  const description=card==='oasis'?oasisDescription:card==='cyberpunk'?cyberpunkDescription:card==='daomu'?daomuDescription:card==='elderland'?elderlandDescription:null;
+  const title=({'type-moon':'型月大世界',slime:'关于我转生成史莱姆这件事','modern-life':'现代超真实人生',naruto:'火影大世界',genshin:'原神·提瓦特大陆',cyberpunk:'赛博朋克大世界',oasis:'OASIS！头号玩家！（游戏人生）',daomu:'盗墓笔记大世界','star-rail':'崩坏：星穹铁道',doupo:'斗破苍穹！','harry-potter':'哈利波特大世界（霍格沃兹）',elderland:'西幻大世界 · 艾尔德兰',medieval:'中世纪真实人生','ai-girls':'完蛋！我被AI娘包围了！',jinyong:'金庸大世界',douluo:'斗罗大陆','blue-fish':'蓝色大肥鱼 · 创作助手',xingjian:'行间',ancient:'古代人生',cultivation:'超级修仙大世界','lord-of-mysteries':'诡秘之主大世界','dragon-raja':'龙族大世界'} as Record<string,string>)[card];
+  const description=card==='oasis'?oasisDescription:card==='genshin'?'严格遵循原神世界观、人物性格、剧情逻辑，内置好感度系统、战力等级体系、迷雾规则与活人感文风。可扮演旅行者、原著角色或自创的异乡人。':card==='cyberpunk'?cyberpunkDescription:card==='daomu'?daomuDescription:card==='elderland'?elderlandDescription:null;
   useEffect(()=>{document.title=title;},[title]);
   const frame=useRef<HTMLIFrameElement>(null),creating=useRef(false);
   const [session,setSession]=useState(()=>new URLSearchParams(location.search).get('session')||'');

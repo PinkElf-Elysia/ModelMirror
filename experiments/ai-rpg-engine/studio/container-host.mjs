@@ -4,6 +4,7 @@ import {installModernLife,modernLifeOptions} from '../modern-life-card/integrati
 import {installSlime,slimeOptions} from '../slime-card/integration.mjs';
 import {installStarRail,starRailOptions} from '../star-rail-card/integration.mjs';
 import {installDoupo,doupoOptions} from '../doupo-card/integration.mjs';
+import {installGenshin,genshinOptions} from '../genshin-card/integration.mjs';
 import {installCyberpunk,cyberpunkOptions} from '../cyberpunk-card/integration.mjs';
 import {installOasis,oasisOptions} from '../oasis-card/integration.mjs';
 import {installDaomu,daomuOptions} from '../daomu-card/integration.mjs';
@@ -110,6 +111,9 @@ async function run(env){
   const oasisControl=oasisOptions(env);
   if(oasisControl)oasisControl.fetcher=configFetch;
   installOasis(server,{directory,speech,control:oasisControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
+  const genshinControl=genshinOptions(env);
+  if(genshinControl)genshinControl.fetcher=configFetch;
+  installGenshin(server,{directory,speech,control:genshinControl,origins:(env.RPG_PUBLIC_ORIGINS||'').split(',').filter(Boolean),ownDirectory,autoSummaryV2:env.RPG_AUTO_SUMMARY_V2_ENABLED!=='false',transcript:env.RPG_TRANSCRIPT_ENABLED!=='false',messageTools:env.RPG_MESSAGE_TOOLS_ENABLED!=='false'});
   installCustomConfig(server,(env.RPG_PUBLIC_ORIGINS||('http://127.0.0.1:'+server.address().port)).split(',').filter(Boolean),directory);
   if(!plugins)throw Error('PLUGIN_HOST_UNAVAILABLE');
   await lease.remember();
