@@ -1,0 +1,2195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>盗墓笔记档案构建系统</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --void-dark:#0F1418;
+  --stone-shadow:#2C343A;
+  --fog-white:#E8E6E1;
+  --ash-gray:#D4D2CC;
+  --slate-pale:#BCC0BE;
+  --ink-dark:#1F2528;
+  --ink-mid:#4A5259;
+  --ink-soft:#6B7278;
+  --rust-blood:#7A3838;
+  --rust-deep:#5C2A2A;
+  --moss-deep:#3D5259;
+  --bronze-worn:#6B7A5C;
+  --grade-tudou:#6B7278;
+  --grade-xiandou:#6B7A5C;
+  --grade-xuedou:#7A3838;
+  --grade-sidou:#2C343A;
+}
+body{
+  font-family:'Noto Sans SC',sans-serif;
+  background-color:#0F1418;
+  background-image:url('./opening.jpg');
+  background-size:cover;
+  background-position:center;
+  background-attachment:fixed;
+  color:var(--ink-dark);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+.main-container{min-height:100vh;position:relative;}
+.main-container::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  background:rgba(15,20,24,0.32);
+  pointer-events:none;
+  z-index:1;
+}
+.content-wrapper{
+  position:relative;
+  z-index:2;
+  max-width:980px;
+  margin:0 auto;
+  padding:20px;
+  padding-bottom:80px;
+}
+.main-title{
+  text-align:center;
+  padding:34px 20px 26px;
+  background:rgba(232,230,225,0.85);
+  backdrop-filter:blur(4px);
+  border:1px solid rgba(44,52,58,0.5);
+  margin-bottom:18px;
+  position:relative;
+  box-shadow:0 4px 22px rgba(15,20,24,0.55);
+}
+.main-title::before,.main-title::after{
+  content:'';
+  position:absolute;
+  top:50%;
+  width:56px;
+  height:1px;
+  background:linear-gradient(to right,transparent,var(--stone-shadow),transparent);
+}
+.main-title::before{left:24px;transform:translateY(-50%);}
+.main-title::after{right:24px;transform:translateY(-50%);}
+.main-title h1{
+  font-family:'Noto Serif SC',serif;
+  font-size:clamp(26px,5vw,40px);
+  font-weight:900;
+  letter-spacing:6px;
+  color:var(--ink-dark);
+}
+.main-title .subtitle{
+  margin-top:10px;
+  font-size:12px;
+  letter-spacing:5px;
+  color:var(--ink-mid);
+  font-weight:500;
+}
+.main-title .seal{
+  margin-top:14px;
+  display:inline-block;
+  padding:5px 18px;
+  border:1px solid var(--rust-blood);
+  color:var(--rust-blood);
+  font-size:12px;
+  letter-spacing:4px;
+  font-weight:700;
+  background:rgba(122,56,56,0.06);
+}
+.tab-nav{
+  display:flex;
+  gap:0;
+  margin-bottom:18px;
+  overflow-x:auto;
+  background:rgba(212,210,204,0.88);
+  backdrop-filter:blur(4px);
+  border:1px solid rgba(44,52,58,0.5);
+  box-shadow:0 3px 16px rgba(15,20,24,0.45);
+}
+.tab-nav::-webkit-scrollbar{height:4px;}
+.tab-nav::-webkit-scrollbar-thumb{background:var(--ink-soft);}
+.tab-btn{
+  flex:1;
+  min-width:96px;
+  padding:15px 10px;
+  background:transparent;
+  border:none;
+  border-right:1px solid rgba(44,52,58,0.25);
+  font-family:inherit;
+  font-size:clamp(12px,2.1vw,14px);
+  font-weight:700;
+  cursor:pointer;
+  transition:all .25s;
+  white-space:nowrap;
+  color:var(--ink-dark);
+  position:relative;
+  letter-spacing:2px;
+}
+.tab-btn:last-child{border-right:none;}
+.tab-btn:hover{background:rgba(60,68,75,0.12);}
+.tab-btn.active{
+  background:var(--moss-deep);
+  color:var(--fog-white);
+  box-shadow:inset 0 -2px 0 var(--rust-blood);
+}
+.tab-btn.completed::after{
+  content:'·';
+  position:absolute;
+  top:6px;right:10px;
+  font-size:22px;
+  line-height:1;
+  color:var(--rust-blood);
+  font-weight:900;
+}
+.tab-btn.active.completed::after{color:var(--fog-white);}
+.tab-content{
+  display:none;
+  background:rgba(232,230,225,0.86);
+  backdrop-filter:blur(5px);
+  border:1px solid rgba(44,52,58,0.5);
+  padding:26px;
+  box-shadow:0 4px 18px rgba(15,20,24,0.5);
+  position:relative;
+}
+.tab-content.active{display:block;animation:slideIn .32s ease forwards;}
+.tab-content::before,
+.tab-content::after{
+  content:'';
+  position:absolute;
+  width:22px;height:22px;
+  border-color:var(--rust-blood);
+  opacity:.55;
+}
+.tab-content::before{
+  top:10px;right:10px;
+  border-top:2px solid;
+  border-right:2px solid;
+}
+.tab-content::after{
+  bottom:10px;left:10px;
+  border-bottom:2px solid;
+  border-left:2px solid;
+}
+@keyframes slideIn{
+  from{opacity:0;transform:translateX(20px);}
+  to{opacity:1;transform:translateX(0);}
+}
+.section-title{
+  font-family:'Noto Serif SC',serif;
+  font-size:clamp(20px,4vw,26px);
+  font-weight:900;
+  margin-bottom:20px;
+  padding-bottom:10px;
+  border-bottom:2px solid var(--rust-blood);
+  display:inline-block;
+  color:var(--ink-dark);
+  letter-spacing:4px;
+}
+.intro-box,
+.info-box,
+.chapter-card,
+.preview-box{
+  background:rgba(220,218,212,0.92);
+  border:1px solid rgba(44,52,58,0.35);
+  position:relative;
+  box-shadow:0 2px 8px rgba(15,20,24,0.2);
+}
+.intro-box{
+  padding:24px;
+  margin-bottom:22px;
+  line-height:2;
+  color:var(--ink-mid);
+  font-size:14px;
+  border-left:4px solid var(--rust-blood);
+}
+.intro-box::before{
+  content:'总纲';
+  position:absolute;
+  top:-13px;left:18px;
+  background:var(--ash-gray);
+  padding:2px 12px;
+  font-size:12px;
+  color:var(--rust-blood);
+  letter-spacing:3px;
+  border:1px solid var(--rust-blood);
+  font-weight:700;
+  font-family:'Noto Serif SC',serif;
+}
+.intro-box p{margin-bottom:10px;color:var(--ink-dark);}
+.intro-box .highlight{color:var(--rust-blood);font-weight:700;}
+.intro-box .question{
+  margin-top:18px;
+  font-family:'Noto Serif SC',serif;
+  font-size:18px;
+  font-weight:900;
+  color:var(--ink-dark);
+  letter-spacing:2px;
+}
+.info-box{
+  padding:18px 20px;
+  margin-bottom:18px;
+  border-left:4px solid var(--moss-deep);
+}
+.info-box::before{
+  content:'附注';
+  position:absolute;
+  top:-13px;left:18px;
+  background:var(--ash-gray);
+  padding:2px 12px;
+  font-size:12px;
+  color:var(--moss-deep);
+  border:1px solid var(--moss-deep);
+  font-weight:700;
+  letter-spacing:2px;
+  font-family:'Noto Serif SC',serif;
+}
+.info-box.rule-box::before{content:'铁则';color:var(--rust-blood);border-color:var(--rust-blood);}
+.info-box.tier-box::before{content:'辈分';color:var(--bronze-worn);border-color:var(--bronze-worn);}
+.info-box.grade-box::before{content:'凶险';color:var(--rust-blood);border-color:var(--rust-blood);}
+.info-box h3{
+  font-size:15px;
+  margin-bottom:12px;
+  color:var(--rust-blood);
+  font-weight:700;
+  letter-spacing:1px;
+}
+.info-box p,.info-box li{font-size:13.5px;line-height:1.9;color:var(--ink-mid);}
+.info-box ul{list-style:none;padding-left:0;}
+.info-box li{padding-left:18px;position:relative;margin-bottom:7px;}
+.info-box li::before{
+  content:'—';
+  position:absolute;
+  left:0;
+  color:var(--rust-blood);
+  font-weight:700;
+}
+.info-box li strong{color:var(--ink-dark);}
+.grade-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;}
+.grade-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  background:rgba(255,255,255,0.7);
+  border:1px solid rgba(44,52,58,0.3);
+  font-size:12px;
+  color:var(--ink-dark);
+  font-weight:600;
+}
+.grade-chip .dot{width:10px;height:10px;display:inline-block;}
+.grade-chip.tudou .dot{background:var(--grade-tudou);}
+.grade-chip.xiandou .dot{background:var(--grade-xiandou);}
+.grade-chip.xuedou .dot{background:var(--grade-xuedou);}
+.grade-chip.sidou .dot{background:var(--grade-sidou);}
+.timeline-section{margin-bottom:28px;}
+.timeline-title{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  font-weight:900;
+  padding:12px 18px;
+  background:var(--stone-shadow);
+  color:var(--fog-white);
+  margin-bottom:14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border-left:5px solid var(--rust-blood);
+  letter-spacing:3px;
+}
+.timeline-title small{
+  font-weight:400;
+  font-size:12px;
+  letter-spacing:1px;
+  color:var(--slate-pale);
+  font-family:'Noto Sans SC',sans-serif;
+}
+.chapter-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:14px;
+}
+.chapter-grid.linear{grid-template-columns:1fr;}
+.chapter-card{
+  padding:18px;
+  cursor:pointer;
+  transition:all .28s;
+  border-left:3px solid var(--slate-pale);
+}
+.chapter-card:hover{
+  transform:translateY(-3px);
+  box-shadow:0 6px 18px rgba(15,20,24,0.35);
+  border-left-color:var(--moss-deep);
+}
+.chapter-card.selected{
+  border-left-color:var(--rust-blood);
+  border-left-width:5px;
+  background:rgba(232,230,225,0.98);
+  box-shadow:0 4px 14px rgba(122,56,56,0.35);
+}
+.chapter-badge{
+  display:inline-block;
+  font-size:11px;
+  padding:2px 9px;
+  margin-bottom:8px;
+  background:transparent;
+  color:var(--ink-mid);
+  border:1px solid var(--ink-soft);
+  font-weight:600;
+  letter-spacing:1px;
+}
+.chapter-badge.tudou{background:var(--grade-tudou);color:var(--fog-white);border-color:var(--grade-tudou);}
+.chapter-badge.xiandou{background:var(--grade-xiandou);color:var(--fog-white);border-color:var(--grade-xiandou);}
+.chapter-badge.xuedou{background:var(--grade-xuedou);color:var(--fog-white);border-color:var(--grade-xuedou);}
+.chapter-badge.sidou{background:var(--grade-sidou);color:var(--fog-white);border-color:var(--grade-sidou);}
+.chapter-card .chapter-index{
+  position:absolute;
+  top:10px;right:14px;
+  font-family:'Noto Serif SC',serif;
+  font-size:11px;
+  color:var(--ink-soft);
+  letter-spacing:1px;
+}
+.chapter-card h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:6px;
+  color:var(--ink-dark);
+  font-weight:900;
+  letter-spacing:1px;
+}
+.chapter-card .chapter-year{
+  font-size:12px;
+  color:var(--ink-soft);
+  margin-bottom:9px;
+  letter-spacing:1px;
+}
+.chapter-card .chapter-desc{
+  font-size:12.5px;
+  line-height:1.75;
+  color:var(--ink-dark);
+  margin-bottom:10px;
+}
+.chapter-status{
+  display:inline-block;
+  font-size:11px;
+  color:var(--rust-blood);
+  padding:2px 0;
+  margin-bottom:8px;
+  letter-spacing:1px;
+}
+.chapter-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
+.tag{
+  font-size:11px;
+  padding:2px 7px;
+  background:rgba(44,52,58,0.08);
+  border:1px solid rgba(44,52,58,0.2);
+  color:var(--ink-mid);
+}
+.entry-section{
+  display:none;
+  margin-top:20px;
+  padding:18px;
+  background:rgba(212,210,204,0.7);
+  border:1px solid rgba(44,52,58,0.3);
+  border-left:4px solid var(--moss-deep);
+}
+.entry-section.visible{display:block;}
+.entry-section h4{
+  font-size:14px;
+  margin-bottom:12px;
+  color:var(--rust-blood);
+  font-weight:700;
+  letter-spacing:2px;
+}
+.entry-option{
+  display:flex;
+  align-items:flex-start;
+  padding:14px;
+  background:rgba(255,255,255,0.7);
+  border:1px solid rgba(44,52,58,0.2);
+  margin-bottom:10px;
+  cursor:pointer;
+  transition:all .25s;
+}
+.entry-option:hover{border-color:var(--moss-deep);}
+.entry-option.selected{
+  border-color:var(--rust-blood);
+  border-width:2px;
+  background:rgba(122,56,56,0.06);
+}
+.entry-option input[type="radio"]{
+  margin-right:12px;
+  margin-top:3px;
+  accent-color:var(--rust-blood);
+  width:18px;height:18px;
+}
+.entry-option-content{flex:1;}
+.entry-option-content strong{
+  display:block;
+  margin-bottom:4px;
+  color:var(--ink-dark);
+  font-weight:700;
+}
+.entry-option-content span{font-size:12.5px;color:var(--ink-soft);}
+.custom-entry-input{display:none;margin-top:10px;}
+.custom-entry-input.visible{display:block;}
+.custom-entry-input textarea{
+  width:100%;
+  padding:12px;
+  border:1px solid var(--moss-deep);
+  background:rgba(255,255,255,0.95);
+  font-family:inherit;
+  font-size:13.5px;
+  min-height:80px;
+  resize:vertical;
+  color:var(--ink-dark);
+}
+.form-section{margin-bottom:24px;}
+.form-section h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:14px;
+  padding-left:10px;
+  border-left:4px solid var(--rust-blood);
+  color:var(--ink-dark);
+  font-weight:900;
+  letter-spacing:2px;
+}
+.form-row{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:14px;
+  margin-bottom:14px;
+}
+.form-group{margin-bottom:14px;}
+.form-group label{
+  display:block;
+  font-size:13.5px;
+  font-weight:700;
+  margin-bottom:6px;
+  color:var(--ink-dark);
+  letter-spacing:1px;
+}
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group select,
+.form-group textarea{
+  width:100%;
+  padding:11px 12px;
+  border:1px solid rgba(44,52,58,0.35);
+  background:rgba(255,255,255,0.95);
+  font-family:inherit;
+  font-size:13.5px;
+  transition:all .25s;
+  color:var(--ink-dark);
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus{
+  outline:none;
+  box-shadow:0 0 0 2px rgba(122,56,56,0.25);
+  border-color:var(--rust-blood);
+}
+.form-group textarea{min-height:100px;resize:vertical;line-height:1.7;}
+.form-group .custom-input{display:none;margin-top:10px;}
+.form-group .custom-input.visible{display:block;}
+.radio-group{display:flex;gap:10px;flex-wrap:wrap;}
+.radio-group label{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:9px 16px;
+  background:rgba(255,255,255,0.9);
+  border:1px solid rgba(44,52,58,0.25);
+  cursor:pointer;
+  font-size:13px;
+  transition:all .25s;
+  font-weight:600;
+}
+.radio-group label:hover{background:rgba(122,56,56,0.06);border-color:var(--rust-blood);}
+.radio-group input{accent-color:var(--rust-blood);width:16px;height:16px;}
+.radio-group input:checked+span{font-weight:900;color:var(--rust-blood);}
+.ability-section{margin-bottom:26px;}
+.ability-section h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:12px;
+  padding-left:10px;
+  border-left:4px solid var(--rust-blood);
+  color:var(--ink-dark);
+  font-weight:900;
+  letter-spacing:2px;
+}
+.ability-section p.hint{
+  font-size:12.5px;
+  color:var(--ink-soft);
+  margin-bottom:12px;
+  line-height:1.7;
+}
+.ability-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:10px;
+}
+.ability-item{
+  display:flex;
+  align-items:center;
+  padding:11px 13px;
+  background:rgba(255,255,255,0.9);
+  border:1px solid rgba(44,52,58,0.25);
+  cursor:pointer;
+  transition:all .22s;
+  position:relative;
+  gap:10px;
+  user-select:none;
+}
+.ability-item:hover{background:rgba(122,56,56,0.05);border-color:var(--moss-deep);}
+.ability-item.selected{
+  background:rgba(255,255,255,0.98);
+  border-color:var(--rust-blood);
+  border-width:2px;
+  padding:10px 12px;
+}
+.ability-item .check-mark{
+  width:16px;height:16px;
+  border:1.5px solid var(--ink-soft);
+  background:transparent;
+  flex-shrink:0;
+  position:relative;
+  transition:all .18s;
+}
+.ability-item.selected .check-mark{
+  background:var(--rust-blood);
+  border-color:var(--rust-blood);
+}
+.ability-item.selected .check-mark::after{
+  content:'✓';
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-55%);
+  color:var(--fog-white);
+  font-size:12px;
+  font-weight:900;
+  line-height:1;
+}
+.ability-item.radio-style .check-mark{border-radius:50%;}
+.ability-item.radio-style.selected .check-mark::after{
+  content:'';
+  width:8px;height:8px;
+  background:var(--fog-white);
+  border-radius:50%;
+  top:50%;left:50%;
+  transform:translate(-50%,-50%);
+}
+.ability-item .ab-name{
+  font-size:13px;
+  font-weight:600;
+  color:var(--ink-dark);
+  flex:1;
+  line-height:1.4;
+}
+.level-dots{
+  display:inline-flex;
+  gap:4px;
+  align-items:center;
+  flex-shrink:0;
+  padding:2px 4px;
+}
+.level-dot{
+  width:11px;
+  height:11px;
+  border:1.2px solid var(--ink-soft);
+  background:transparent;
+  cursor:pointer;
+  transition:all .15s;
+  border-radius:50%;
+}
+.level-dot:hover{border-color:var(--rust-blood);transform:scale(1.15);}
+.level-dot.filled{background:var(--rust-blood);border-color:var(--rust-blood);}
+.level-dot.disabled{cursor:not-allowed;opacity:.35;}
+.level-dot.disabled:hover{transform:none;border-color:var(--ink-soft);}
+.custom-skills-section{
+  margin-top:22px;
+  padding:20px;
+  background:rgba(212,210,204,0.7);
+  border:1px solid rgba(44,52,58,0.3);
+  border-left:4px solid var(--moss-deep);
+}
+.custom-skills-section h4{
+  font-family:'Noto Serif SC',serif;
+  font-size:15px;
+  margin-bottom:14px;
+  color:var(--ink-dark);
+  font-weight:900;
+  letter-spacing:2px;
+}
+.custom-skill-list{display:flex;flex-direction:column;gap:12px;}
+.custom-skill-item{
+  padding:14px;
+  background:rgba(255,255,255,0.95);
+  border:1px solid rgba(44,52,58,0.25);
+  position:relative;
+  border-left:3px solid var(--rust-blood);
+}
+.custom-skill-item .delete-btn{
+  position:absolute;
+  top:10px;right:10px;
+  width:26px;height:26px;
+  border:1px solid var(--rust-blood);
+  background:transparent;
+  color:var(--rust-blood);
+  font-size:16px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:all .2s;
+}
+.custom-skill-item .delete-btn:hover{background:var(--rust-blood);color:var(--fog-white);}
+.custom-skill-item input,
+.custom-skill-item textarea{
+  width:100%;
+  padding:10px;
+  border:1px solid rgba(44,52,58,0.3);
+  background:rgba(255,255,255,0.98);
+  font-family:inherit;
+  font-size:13px;
+  margin-bottom:10px;
+  color:var(--ink-dark);
+}
+.custom-skill-item textarea{min-height:60px;resize:vertical;margin-bottom:0;line-height:1.6;}
+.add-skill-btn{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:100%;
+  padding:14px;
+  background:rgba(255,255,255,0.85);
+  border:2px dashed rgba(44,52,58,0.4);
+  font-family:inherit;
+  font-size:14px;
+  font-weight:700;
+  color:var(--moss-deep);
+  cursor:pointer;
+  transition:all .25s;
+  letter-spacing:2px;
+}
+.add-skill-btn:hover{
+  background:rgba(122,56,56,0.06);
+  border-color:var(--rust-blood);
+  color:var(--rust-blood);
+}
+.add-skill-btn.disabled{opacity:.5;cursor:not-allowed;}
+.skill-limit-hint{font-size:12.5px;color:var(--ink-soft);text-align:center;margin-top:10px;}
+.destiny-section{text-align:center;padding:20px;}
+.roll-btn{
+  padding:18px 46px;
+  font-size:17px;
+  font-weight:900;
+  font-family:'Noto Serif SC',serif;
+  background:var(--rust-blood);
+  color:var(--fog-white);
+  border:1px solid var(--rust-deep);
+  cursor:pointer;
+  transition:all .3s;
+  box-shadow:0 4px 16px rgba(122,56,56,0.4);
+  letter-spacing:4px;
+}
+.roll-btn:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(122,56,56,0.5);background:var(--rust-deep);}
+.roll-btn:active{transform:translateY(1px);}
+.roll-btn.rolling{animation:shake .5s infinite;}
+@keyframes shake{
+  0%,100%{transform:translateX(0);}
+  25%{transform:translateX(-4px);}
+  75%{transform:translateX(4px);}
+}
+.destiny-pool{display:none;margin-top:24px;}
+.destiny-pool.visible{display:block;}
+.destiny-pool h3{
+  font-family:'Noto Serif SC',serif;
+  font-size:16px;
+  margin-bottom:12px;
+  color:var(--ink-dark);
+  font-weight:900;
+  letter-spacing:2px;
+}
+.destiny-count{font-size:13px;color:var(--ink-soft);margin-bottom:14px;}
+.destiny-list{
+  display:grid;
+  gap:10px;
+  max-height:520px;
+  overflow-y:auto;
+  padding:10px;
+  background:rgba(212,210,204,0.6);
+  border:1px solid rgba(44,52,58,0.3);
+}
+.destiny-list::-webkit-scrollbar{width:6px;}
+.destiny-list::-webkit-scrollbar-thumb{background:var(--ink-soft);}
+.destiny-item{
+  display:flex;
+  align-items:flex-start;
+  padding:14px;
+  background:rgba(255,255,255,0.92);
+  border:1px solid var(--slate-pale);
+  cursor:pointer;
+  transition:all .22s;
+  text-align:left;
+  border-left:4px solid var(--slate-pale);
+  user-select:none;
+}
+.destiny-item:hover{border-color:var(--moss-deep);}
+.destiny-item.selected{border-width:2px;border-left-width:5px;box-shadow:0 3px 10px rgba(15,20,24,0.3);}
+.destiny-item.tianming{background:rgba(255,250,240,0.95);border-color:var(--rust-blood);border-left-color:var(--rust-blood);}
+.destiny-item.qicai{border-color:var(--rust-deep);border-left-color:var(--rust-deep);}
+.destiny-item.suhui{border-color:var(--moss-deep);border-left-color:var(--moss-deep);}
+.destiny-item.boji{border-color:var(--bronze-worn);border-left-color:var(--bronze-worn);}
+.destiny-item.changren{border-color:var(--ink-soft);border-left-color:var(--ink-soft);}
+.destiny-item .check-mark{
+  width:16px;height:16px;
+  border:1.5px solid var(--ink-soft);
+  margin-right:12px;margin-top:2px;
+  flex-shrink:0;
+  position:relative;
+  transition:all .18s;
+}
+.destiny-item.selected .check-mark{background:var(--rust-blood);border-color:var(--rust-blood);}
+.destiny-item.selected .check-mark::after{
+  content:'✓';
+  position:absolute;
+  top:50%;left:50%;
+  transform:translate(-50%,-55%);
+  color:var(--fog-white);
+  font-size:12px;
+  font-weight:900;
+  line-height:1;
+}
+.destiny-info{flex:1;}
+.destiny-name{
+  font-weight:700;
+  font-size:14px;
+  margin-bottom:5px;
+  display:flex;
+  align-items:center;
+  gap:9px;
+  color:var(--ink-dark);
+  flex-wrap:wrap;
+}
+.destiny-badge{
+  font-size:11px;
+  padding:2px 9px;
+  color:var(--fog-white);
+  font-weight:700;
+  letter-spacing:1px;
+}
+.destiny-badge.tianming{background:var(--rust-blood);}
+.destiny-badge.qicai{background:var(--rust-deep);}
+.destiny-badge.suhui{background:var(--moss-deep);}
+.destiny-badge.boji{background:var(--bronze-worn);}
+.destiny-badge.changren{background:var(--ink-soft);}
+.destiny-desc{font-size:12.5px;color:var(--ink-dark);line-height:1.7;}
+.destiny-effect{
+  font-size:12.5px;
+  color:var(--rust-blood);
+  margin-top:5px;
+  font-style:italic;
+  font-weight:600;
+}
+.preview-section{padding:10px 0;}
+.preview-box{
+  padding:22px;
+  font-size:13px;
+  line-height:1.9;
+  white-space:pre-wrap;
+  word-break:break-all;
+  max-height:560px;
+  overflow-y:auto;
+  margin-bottom:18px;
+  font-family:'Courier New',monospace;
+  background:rgba(255,255,255,0.95);
+  border-left:4px solid var(--rust-blood);
+  color:var(--ink-dark);
+}
+.preview-box::-webkit-scrollbar{width:6px;}
+.preview-box::-webkit-scrollbar-thumb{background:var(--ink-soft);}
+.copy-btn{
+  display:block;
+  width:100%;
+  max-width:320px;
+  margin:0 auto;
+  padding:16px 36px;
+  font-size:17px;
+  font-weight:900;
+  font-family:'Noto Serif SC',serif;
+  background:var(--rust-blood);
+  color:var(--fog-white);
+  border:1px solid var(--rust-deep);
+  cursor:pointer;
+  transition:all .3s;
+  box-shadow:0 4px 16px rgba(122,56,56,0.4);
+  letter-spacing:4px;
+}
+.copy-btn:hover{transform:translateY(-2px);background:var(--rust-deep);}
+.copy-btn:active{transform:translateY(1px);}
+.nav-buttons{
+  display:flex;
+  justify-content:space-between;
+  margin-top:28px;
+  padding-top:20px;
+  border-top:1px dashed rgba(44,52,58,0.35);
+}
+.nav-btn{
+  padding:13px 28px;
+  font-size:14px;
+  font-weight:700;
+  font-family:inherit;
+  border:1px solid rgba(44,52,58,0.35);
+  cursor:pointer;
+  transition:all .28s;
+  letter-spacing:2px;
+}
+.nav-btn.prev{background:rgba(255,255,255,0.9);color:var(--ink-dark);}
+.nav-btn.next{
+  background:var(--moss-deep);
+  color:var(--fog-white);
+  border-color:var(--moss-deep);
+  box-shadow:0 3px 12px rgba(61,82,89,0.4);
+}
+.nav-btn:hover{transform:translateY(-2px);}
+.nav-btn.prev:hover{border-color:var(--rust-blood);}
+.nav-btn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+footer{
+  text-align:center;
+  padding:18px;
+  background:rgba(15,20,24,0.9);
+  color:var(--slate-pale);
+  font-size:12px;
+  position:relative;
+  z-index:2;
+  letter-spacing:3px;
+  font-family:'Noto Serif SC',serif;
+}
+@media(max-width:640px){
+  .content-wrapper{padding:10px;}
+  .tab-content{padding:18px;}
+  .main-title{padding:26px 14px 22px;}
+  .main-title::before,.main-title::after{display:none;}
+  .form-row{grid-template-columns:1fr;}
+  .chapter-grid,.ability-grid{grid-template-columns:1fr;}
+  .nav-buttons{flex-direction:column;gap:10px;}
+  .nav-btn{width:100%;}
+  .ability-item{flex-wrap:wrap;}
+}
+</style>
+</head>
+<body>
+<div class="main-container">
+<div class="content-wrapper">
+<div class="main-title">
+  <h1>盗墓笔记档案构建系统</h1>
+  <div class="subtitle">GRAVE ROBBERS ARCHIVE BUILDER</div>
+  <div class="seal">土中问路 · 斗里求生</div>
+</div>
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="intro">序章</button>
+  <button class="tab-btn" data-tab="timeline">时间线</button>
+  <button class="tab-btn" data-tab="character">身份</button>
+  <button class="tab-btn" data-tab="ability">手艺</button>
+  <button class="tab-btn" data-tab="destiny">天赋</button>
+  <button class="tab-btn" data-tab="preview">档案</button>
+</div>
+<!-- 序章 -->
+<div class="tab-content active" id="tab-intro">
+  <h2 class="section-title">世界总纲</h2>
+  <div class="intro-box">
+    <p>有人在长沙的老宅里点着灯翻家谱，</p>
+    <p>有人在西沙的礁盘下用铁钎撬开一具千年石棺，</p>
+    <p>也有人只是被人塞了一张<span class="highlight">战国帛书</span>，就再没能过上平静日子。</p>
+    <p style="margin-top:14px;">无神无鬼，皆为因果。</p>
+    <p>所有<span class="highlight">邪祟</span>都是长生遗祸，</p>
+    <p>所有<span class="highlight">行规</span>都是以命换来的经验。</p>
+    <p class="question">你可想好了，要下去这一趟？</p>
+  </div>
+  <div class="info-box rule-box">
+    <h3>「长生与阴物 · 唯一本源」</h3>
+    <ul>
+      <li>所有异常均源自长生体系：<strong>陨玉为核心、尸蹩王为丹引、玉俑为载体</strong>，无例外</li>
+      <li>禁婆为食尸蹩丹失败尸化者，血尸为玉俑中被强行取出的长生失败者</li>
+      <li>直接服食尸蹩丹、接触陨玉核心、被尸蹩王蛰刺、玉俑中被强行取出，<strong>必然尸变，无解药</strong></li>
+      <li>张家族长麒麟血为唯一稳定长生副作用产物，代价为周期性失魂症、记忆全失</li>
+      <li>手艺即经验：寻龙点穴、分金定穴、破机关、克粽子之法，均为历代土夫子以命积累的经验</li>
+      <li><strong>等价交换</strong>：拿明器则沾尸气，知长生秘密则被各方势力追杀，无白得之利</li>
+    </ul>
+  </div>
+  <div class="info-box grade-box">
+    <h3>「凶斗危险度参考 · 仅老江湖口传」</h3>
+    <ul>
+      <li><strong>死斗</strong>：青铜门后、西王母宫陨玉核心、张家古楼内层，长生秘密核心区，九死一生</li>
+      <li><strong>血斗</strong>：云顶天宫、七星鲁王宫、西沙海底墓等，有血尸、禁婆、万奴王与致命机关，需老手带队全装</li>
+      <li><strong>险斗</strong>：宋元以前贵族大墓，有普通粽子、尸蹩群、翻板毒烟，需熟手组队踩点</li>
+      <li><strong>土斗</strong>：明清富人墓、民国军阀墓，仅少量尸蹩与简单机关，新手随队可入，为日常营生</li>
+    </ul>
+    <p style="margin-top:12px;font-style:italic;color:var(--ink-soft);">无绝对安全。再弱的土斗遇突发状况也可致死，再凶的血斗准备充分也可生还，情报与准备重于一切。</p>
+    <div class="grade-legend">
+      <span class="grade-chip tudou"><span class="dot"></span>土斗</span>
+      <span class="grade-chip xiandou"><span class="dot"></span>险斗</span>
+      <span class="grade-chip xuedou"><span class="dot"></span>血斗</span>
+      <span class="grade-chip sidou"><span class="dot"></span>死斗</span>
+    </div>
+  </div>
+  <div class="info-box tier-box">
+    <h3>「手艺人辈分名望」</h3>
+    <ul>
+      <li><strong>新崽</strong>：刚入行，没单独下过斗，只会背点口诀，跟着师傅打下手，道上没人认识</li>
+      <li><strong>熟手</strong>：单独下过3-5个土斗，能独立探土、破简单机关，能组小队接小活</li>
+      <li><strong>老江湖</strong>：下过十几个斗，见过血尸遇过机关，临危不乱，有自己的路子和人脉，平三门的中坚都是这个级别</li>
+      <li><strong>门里人 / 顶流</strong>：老九门当家、各省瓢把子，下过凶斗数不清，家传手艺，道上说句话管用</li>
+      <li><strong>特例</strong>：张起灵这种"异类"，不算在常规评级里，道上只知道有个"哑巴张"，下斗从来不会死</li>
+    </ul>
+  </div>
+  <div class="info-box rule-box">
+    <h3>「江湖行规 · 犯了要出人命」</h3>
+    <ul>
+      <li>倒斗是杀头的买卖，绝不能在普通人面前露馅，泄密者全圈子共诛</li>
+      <li>九门有规：不跨区抢斗、不挖皇陵、不把明器卖给外国人、不卖队友</li>
+      <li>核心手艺只传亲传弟子/本家子侄，野路子连下三个险斗活着回来才被认</li>
+      <li>信过命的兄弟，不信神佛。做事前走三后走四留后路，欠命必还</li>
+      <li>拿墓主贴身殓物必出事，卖队友求活必被人卖——这是行里千年的教训</li>
+      <li>碰了长生秘密的核心，就算从斗里爬出来，这辈子也会被人追着杀</li>
+    </ul>
+  </div>
+  <div class="info-box">
+    <h3>「构建流程」</h3>
+    <ul>
+      <li>第一步：选一条时间线——你从哪一年的哪一桩事里入局</li>
+      <li>第二步：定身份——出身、辈分、门路、入行原因</li>
+      <li>第三步：点手艺——血脉/专属技/通用手艺/独门经验/家伙事儿</li>
+      <li>第四步：抽天赋——你这人生来带的本事天命</li>
+      <li>第五步：生成档案——一份能塞进解家库房的手写卷宗</li>
+    </ul>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" disabled>← 上一步</button>
+    <button class="nav-btn next" onclick="nextTab()">入局 →</button>
+  </div>
+</div>
+<!-- 时间线 -->
+<div class="tab-content" id="tab-timeline">
+  <h2 class="section-title">时间线篇章</h2>
+  <div class="info-box">
+    <h3>「说明」</h3>
+    <p>选一个篇章作为你角色故事的<strong>时空切入点</strong>，前传自1916年起，正篇自2003年七星鲁王宫起。官方支线不推进主线，可独立触发。<strong>原创副本</strong>不属正史，为雨村养老期间隙可选内容，带凶斗难度标签。</p>
+  </div>
+  <div class="timeline-section">
+    <div class="timeline-title">前传序列 <small>· 正篇之前</small></div>
+    <div class="chapter-grid" id="chapters-prequel"></div>
+  </div>
+  <div class="timeline-section">
+    <div class="timeline-title">正篇主线 <small>· 2003年起 · 强因果顺承</small></div>
+    <div class="chapter-grid" id="chapters-main"></div>
+  </div>
+  <div class="timeline-section">
+    <div class="timeline-title">官方支线 <small>· 独立触发不影响主线</small></div>
+    <div class="chapter-grid" id="chapters-side"></div>
+  </div>
+  <div class="timeline-section">
+    <div class="timeline-title">原创副本 <small>· 非正史 · 雨村养老期可选</small></div>
+    <div class="chapter-grid" id="chapters-fanben"></div>
+  </div>
+  <div class="entry-section" id="entry-section">
+    <h4>入场节点</h4>
+    <div class="entry-option selected" onclick="selectEntryPoint('start')">
+      <input type="radio" name="entry-point" value="start" checked>
+      <div class="entry-option-content">
+        <strong>篇章开始</strong>
+        <span>从事件刚发生时进入</span>
+      </div>
+    </div>
+    <div class="entry-option" onclick="selectEntryPoint('mid')">
+      <input type="radio" name="entry-point" value="mid">
+      <div class="entry-option-content">
+        <strong>篇章中期</strong>
+        <span>在冲突已明朗时切入</span>
+      </div>
+    </div>
+    <div class="entry-option" onclick="selectEntryPoint('end')">
+      <input type="radio" name="entry-point" value="end">
+      <div class="entry-option-content">
+        <strong>篇章尾声</strong>
+        <span>接近事件结局时介入</span>
+      </div>
+    </div>
+    <div class="entry-option" onclick="selectEntryPoint('custom')">
+      <input type="radio" name="entry-point" value="custom">
+      <div class="entry-option-content">
+        <strong>自定义入场</strong>
+        <span>自行描述时间点或场景</span>
+      </div>
+    </div>
+    <div class="custom-entry-input" id="custom-entry-input">
+      <textarea id="custom-entry-text" placeholder="描述你想切入的具体时间点、场景或事件节点……"></textarea>
+    </div>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+    <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+  </div>
+</div>
+<!-- 身份 -->
+<div class="tab-content" id="tab-character">
+  <h2 class="section-title">角色身份</h2>
+  <div class="info-box" id="selected-chapter-display">
+    <h3>「时间线归属」</h3>
+    <p id="selected-chapter-name">尚未选择篇章</p>
+  </div>
+  <div class="form-section">
+    <h3>基础信息</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>姓名</label>
+        <input type="text" id="char-name" placeholder="姓名或道上诨名">
+      </div>
+      <div class="form-group">
+        <label>年龄</label>
+        <input type="number" id="char-age" placeholder="25" min="1" max="999">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>性别</label>
+      <div class="radio-group">
+        <label><input type="radio" name="gender" value="男" checked><span>男</span></label>
+        <label><input type="radio" name="gender" value="女"><span>女</span></label>
+        <label><input type="radio" name="gender" value="其他"><span>其他</span></label>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+<label>籍贯 / 常在地</label>
+<select id="char-origin">
+  <optgroup label="核心剧情地标">
+    <option value="无">无（随剧情篇章地点）</option>
+    <option value="长沙">长沙（老九门本据 · 吴家盘口 · 镖子岭血尸墓）</option>
+    <option value="杭州">杭州（吴邪吴山居 · 铁三角起点）</option>
+    <option value="北京">北京（解家总部 · 新月饭店 · 盲塚）</option>
+    <option value="福建雨村">福建雨村/平潭（十年后铁三角定居地 · 南海王墓）</option>
+    <option value="长白山">长白山（青铜门 · 云顶天宫 · 张家本家）</option>
+    <option value="山东">山东（七星鲁王宫 · 蛇眉铜鱼出土地）</option>
+    <option value="陕西秦岭">陕西秦岭（古厍国青铜神树）</option>
+    <option value="广西巴乃">广西巴乃（张家旧居 · 阴山古楼）</option>
+    <option value="西沙群岛">西沙群岛（汪藏海海底墓）</option>
+    <option value="格尔木">格尔木（格尔木疗养院 · 进塔木陀起点）</option>
+    <option value="青海塔木陀">青海塔木陀（西王母宫 · 蛇沼鬼城）</option>
+    <option value="巴丹吉林沙漠">巴丹吉林沙漠（沙海古潼京）</option>
+    <option value="西藏墨脱">西藏墨脱（藏海花 · 吉拉寺）</option>
+    <option value="四川四姑娘山">四川四姑娘山（张家古楼密码锁 · 千里锁）</option>
+    <option value="内蒙黑灯海">内蒙黑灯海（灯海寻尸 · 天下第二陵）</option>
+    <option value="昆仑山">昆仑山（王母鬼宴 · 龙脉尽头）</option>
+  </optgroup>
+  <optgroup label="其他常在地">
+    <option value="湘西">湘西（老九门矿山 · 赶尸故里）</option>
+    <option value="四川">四川</option>
+    <option value="云南">云南（雨林 · 鸡冠蛇栖息地）</option>
+    <option value="贵州">贵州</option>
+    <option value="河南洛阳">河南洛阳（北派倒斗核心 · 邙山群墓）</option>
+    <option value="陕西西安">陕西西安（十三朝古都 · 古墓密集区）</option>
+    <option value="新疆罗布泊">新疆罗布泊（小河墓地 · 沙漠古墓）</option>
+    <option value="内蒙古">内蒙古</option>
+    <option value="漠河">漠河（极北冰墓 · 金匪老巢）</option>
+    <option value="上海">上海</option>
+    <option value="天津">天津</option>
+    <option value="广州">广州（千面渔村 · 南部码头）</option>
+    <option value="福建泉州">福建泉州（杨大广老家 · 听雷起点）</option>
+  </optgroup>
+  <optgroup label="境外">
+    <option value="南洋">南洋（张家南部档案馆 · 盘花海礁）</option>
+    <option value="尼泊尔">尼泊尔（进墨脱古道）</option>
+    <option value="俄罗斯">俄罗斯（花夜前行教堂古墓）</option>
+    <option value="日本">日本（别里亚克古宅）</option>
+    <option value="中缅边境">中缅边境（雷城 · 地下河丛林）</option>
+  </optgroup>
+  <option value="custom">自定义...</option>
+</select>
+        <div class="custom-input" id="custom-origin-input">
+          <input type="text" id="custom-origin" placeholder="输入自定义籍贯">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>职业 / 明面身份</label>
+        <input type="text" id="char-occupation" placeholder="如：古董商、大学生、退伍兵、导游……">
+      </div>
+    </div>
+  </div>
+  <div class="form-section">
+    <h3>身份与门路</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label>身份类型</label>
+<select id="identity-type" onchange="handleIdentityChange(this.value)">
+  <option value="">-- 请选择身份类型 --</option>
+  <optgroup label="老九门出身">
+  <option value="上三门">上三门（官面·平事·基本不下斗）</option>
+  <option value="平三门">平三门（倒斗主力·真正下墓的）</option>
+  <option value="下三门">下三门（销赃·掌眼·情报买卖）</option>
+</optgroup>
+  <optgroup label="地域流派">
+    <option value="南派土夫子">南派土夫子（长沙系·洛阳铲探土·尝土辨墓）</option>
+    <option value="北派倒斗的">北派倒斗的（寻龙点穴·分金定穴·规矩多）</option>
+  </optgroup>
+  <optgroup label="道上分工">
+    <option value="野路子">野路子（无师承·自己摸爬滚打出来的）</option>
+    <option value="筷子头">筷子头（攒局的·夹喇嘛组队伍的）</option>
+    <option value="掌眼">掌眼（鉴定明器·看货断代的）</option>
+    <option value="腿子/伙计">腿子/伙计（跟着队伍下墓干活的）</option>
+    <option value="点水的">点水的（踩点·望风·放哨的）</option>
+    <option value="情报贩子">情报贩子（卖消息的）</option>
+    <option value="销赃的">销赃的（走货出明器的）</option>
+  </optgroup>
+  <optgroup label="家族/组织">
+    <option value="张家人·本家">张家人·本家（长白山·守青铜门）</option>
+    <option value="张家人·海外分支">张家人·海外分支</option>
+    <option value="张家人·南部档案馆">张家人·南部档案馆（南洋分支）</option>
+    <option value="张家人·张启山系">张家人·张启山系（张大佛爷一脉）</option>
+    <option value="汪家人">汪家人（张家世敌·无血缘组织）</option>
+    <option value="「它」的人">「它」的人（半官方长生部门）</option>
+  </optgroup>
+  <optgroup label="其他身份">
+    <option value="官面人">官面人（考古队/军方/公职）</option>
+    <option value="裘德考团队的人">裘德考/境外团队的人</option>
+    <option value="新月饭店相关">新月饭店相关</option>
+    <option value="铁三角相关/熟人">铁三角相关/熟人</option>
+    <option value="沙海棋子">沙海棋子（被吴邪拉入局的外人）</option>
+    <option value="焦老板团队的人">焦老板团队的人（听雷找雷城）</option>
+    <option value="custom">自定义...</option>
+  </optgroup>
+</select>
+        <div class="custom-input" id="custom-identity-input">
+          <input type="text" id="custom-identity" placeholder="输入自定义身份">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>所属势力</label>
+        <select id="faction" onchange="handleFactionChange(this.value)">
+          <option value="">-- 请选择 --</option>
+        </select>
+        <div class="custom-input" id="custom-faction-input">
+          <input type="text" id="custom-faction" placeholder="输入自定义势力">
+        </div>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>辈分名望</label>
+        <select id="power-level">
+          <option value="普通人">普通人（不知江湖事）</option>
+          <option value="新崽">新崽（刚入行·打下手）</option>
+          <option value="熟手">熟手（能独立·可组小队）</option>
+          <option value="老江湖">老江湖（下过险斗·有路子）</option>
+          <option value="门里人">门里人 / 顶流（当家·瓢把子）</option>
+          <option value="圈内传说人物">圈内传说人物（你就是传说）</option>
+          <option value="特例">特例（哑巴张一类·规格外）</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>名号 / 道上称呼</label>
+        <input type="text" id="power-note" placeholder="如：三爷、老X、X把子……">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>入行原因</label>
+      <select id="entry-reason" onchange="handleEntryReasonChange(this.value)">
+        <option value="未入圈">未入圈</option>
+        <option value="家族倒斗世家">家族倒斗世家（生下来就在圈里）</option>
+        <option value="师承拜入">师承拜入（被老江湖收徒）</option>
+        <option value="意外卷入">意外卷入（一封信/一件物就上了船）</option>
+        <option value="被迫入行">被迫入行（要挟/血债/生计）</option>
+        <option value="主动追查">主动追查（家族失踪/身世谜团）</option>
+        <option value="组织招募">组织招募（官方/境外势力发展）</option>
+        <option value="铁三角关联">铁三角关联（因吴邪一行入局）</option>
+        <option value="custom">自定义原因</option>
+      </select>
+      <div class="custom-input" id="custom-entry-reason-input">
+        <input type="text" id="custom-entry-reason" placeholder="输入自定义入行原因">
+      </div>
+    </div>
+  </div>
+  <div class="form-section">
+    <h3>外貌与性情</h3>
+    <div class="form-group">
+      <label>外貌描述</label>
+      <textarea id="appearance" placeholder="描述容貌、衣着、气度……"></textarea>
+    </div>
+    <div class="form-group">
+      <label>性格特质</label>
+      <textarea id="personality" placeholder="如：闷、皮、稳、狠、贪、义气……"></textarea>
+    </div>
+    <div class="form-group">
+      <label>日常兴趣 / 爱好</label>
+      <input type="text" id="hobby" placeholder="如：养鱼、下棋、拍电影、抽烟……">
+    </div>
+    <div class="form-group">
+      <label>背景故事</label>
+      <textarea id="background" placeholder="补充身世、入行经过、关键经历、恩怨……"></textarea>
+    </div>
+    <div class="form-group">
+      <label>开局处境</label>
+      <textarea id="opening-scene" placeholder="故事开始时角色所在的环境、处境、正在做的事……"></textarea>
+    </div>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+    <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+  </div>
+</div>
+<!-- 手艺 -->
+<div class="tab-content" id="tab-ability">
+  <h2 class="section-title">手艺与家伙事儿</h2>
+  <div class="info-box">
+    <h3>「说明」</h3>
+    <ul>
+      <li><strong>血脉</strong>互斥单选，选中即拥有对应副作用</li>
+      <li><strong>原著专属技</strong>为原著人物招牌手艺，选中即视为你角色掌握此项，请自行酌情选择</li>
+      <li><strong>通用手艺</strong>四档等级：勾选后点右侧圆点选择等级（●○○○略知 · ●●○○熟练 · ●●●○精通 · ●●●●宗师）</li>
+      <li><strong>独门经验</strong>两档等级（●○听说过 · ●●使得开）</li>
+      <li><strong>家伙事儿</strong>直接勾选</li>
+    </ul>
+  </div>
+  <div class="ability-section">
+    <h3>先天血脉 · 单选互斥</h3>
+    <p class="hint">血脉是天生的，选中即拥有对应副作用。正常情况一人只占一项。</p>
+    <div class="ability-grid" id="bloodline-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>原著专属技 · 可选</h3>
+    <p class="hint">原著人物招牌手艺。选此项即视为你角色掌握，请自行酌情选择。</p>
+    <div class="ability-grid" id="signature-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>通用倒斗手艺 · 四档等级</h3>
+    <p class="hint">勾选技能后，点右侧圆点定等级。四档：略知 / 熟练 / 精通 / 宗师</p>
+    <div class="ability-grid" id="skill-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>特殊独门经验 · 两档</h3>
+    <p class="hint">●○听说过（紧急时能想起来试试） · ●●使得开（亲手用过稳定见效）</p>
+    <div class="ability-grid" id="lore-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>武器 · 冷兵器与枪械</h3>
+    <div class="ability-grid" id="weapon-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>探墓工具</h3>
+    <div class="ability-grid" id="tool-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>防护与照明</h3>
+    <div class="ability-grid" id="gear-grid"></div>
+  </div>
+  <div class="ability-section">
+    <h3>秘宝与消耗品</h3>
+    <div class="ability-grid" id="relic-grid"></div>
+  </div>
+  <div class="custom-skills-section">
+    <h4>自创手艺 / 独门绝活</h4>
+    <div class="custom-skill-list" id="custom-skill-list"></div>
+    <button class="add-skill-btn" id="add-skill-btn" onclick="addCustomSkill()">
+      <span>＋ 添加新手艺</span>
+    </button>
+    <p class="skill-limit-hint">最多 <span id="skill-count">0</span>/5 项</p>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+    <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+  </div>
+</div>
+<!-- 天赋 -->
+<div class="tab-content" id="tab-destiny">
+  <h2 class="section-title">天赋抽取</h2>
+  <div class="info-box">
+    <h3>「天赋规则」</h3>
+    <ul>
+      <li>每次抽取 8 条天赋，从中挑 3 条作为你与生俱来的本事</li>
+      <li>天赋是<strong>天生的</strong>，跟手艺不一样——不用学，生来就有</li>
+      <li>越是稀有的天赋，越接近传奇——但也未必是好事</li>
+      <li>五档：<strong>天命 / 奇才 / 宿慧 / 薄技 / 常人</strong></li>
+      <li>运气好能起飞</li>
+    </ul>
+  </div>
+  <div class="destiny-section">
+    <button class="roll-btn" id="roll-btn" onclick="rollDestiny()">抽取天赋</button>
+  </div>
+  <div class="destiny-pool" id="destiny-pool">
+    <h3>天赋签</h3>
+    <p class="destiny-count">从下列天赋中挑 3 条（已挑：<span id="destiny-selected-count">0</span>/3）</p>
+    <div class="destiny-list" id="destiny-list"></div>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+    <button class="nav-btn next" onclick="nextTab()">下一步 →</button>
+  </div>
+</div>
+<!-- 档案 -->
+<div class="tab-content" id="tab-preview">
+  <h2 class="section-title">卷宗</h2>
+  <div class="preview-section">
+    <div class="preview-box" id="preview-box"></div>
+    <button class="copy-btn" onclick="copyPreview()">复制卷宗</button>
+    <button class="copy-btn" id="enter-chat" hidden>带入聊天 →</button><p id="transfer-status" role="status"></p>
+  </div>
+  <div class="nav-buttons">
+    <button class="nav-btn prev" onclick="prevTab()">← 上一步</button>
+  </div>
+</div>
+</div>
+</div>
+<footer>土中问路 · 斗里求生 · 前走三 后走四</footer>
+<script>
+const appState={
+  selectedChapter:null,
+  entryPoint:'start',
+  customEntry:'',
+  customSkills:[],
+  rolledDestiny:[],
+  selectedDestiny:[],
+  bloodline:null,
+  selectedSignatures:[],
+  skillLevels:{},
+  loreLevels:{},
+  selectedEquipment:[]
+};
+// 篇章库
+const chaptersDatabase={
+  prequel:[
+    {id:'nanbu',name:'南部档案篇',year:'1916',status:'第一卷完结·后续断更',desc:'民国初年，南洋档案馆张海盐、张海侠调查盘花海礁27船失踪诡案，卷入莫云高为逼张起灵现身制造的五斗病瘟疫，礁洞被困半年后赴长沙破案截停瘟疫，莫云高逃走，二人南下广西寻张起灵，为盗笔宇宙最早正史时间线。',tags:['张海盐','张海侠','五斗病','莫云高']},
+    {id:'laojiumen',name:'老九门篇',year:'1930-1950年代',status:'仅人物番外完结·主线未完结',desc:'长沙，张启山整合九门势力，鬼车入长沙后众人探湘西矿山未竟，1952年战国帛书案引发九门大清洗，黑背老六被枪决，其余人四散，裘德考骗走战国帛书回国，为后续吴邪入局埋下伏笔。',tags:['张启山','二月红','九门','战国帛书']}
+  ],
+  main:[
+    {id:'luwang',name:'七星鲁王宫篇',year:'2003年2月',desc:'2003年2月大年初一，吴邪被大金牙的战国帛书入局，跟着吴三省、潘子、张起灵、王胖子倒山东七星鲁王宫，大奎中尸蹩王毒身亡，众人带出蛇眉铜鱼，回杭后吴三省留西沙合影失踪，铁三角初成，盗笔主线正式开启。',tags:['铁三角起点','蛇眉铜鱼','尸蹩王','吴三省']},
+    {id:'nuhai',name:'怒海潜沙篇',year:'2003年春',desc:'2003年春，吴邪受裘德考邀请赴西沙找失踪的吴三省，和张起灵、胖子、阿宁队伍进汪藏海海底墓，见汪藏海瓷画、解连环血书，炸墓逃出后张起灵失踪，众人得知西沙考古队的秘密，线索指向秦岭。',tags:['西沙','汪藏海','海底墓','阿宁','解连环']},
+    {id:'qinling',name:'秦岭神树篇',year:'2003年秋',desc:'2003年秋，老痒带吴邪赴陕西秦岭探古厍国青铜神树，地下河遇哲罗鲑、螭蛊、人面猴，吴邪发现老痒是物质化复制人，烛九阴炸塌祭祀坑后吴邪逃出，老痒带物质化母亲出国，吴邪收到陈皮阿四夹喇嘛消息。',tags:['青铜神树','老痒','六角铃','物质化']},
+    {id:'yunding-shang',name:'云顶天宫上篇',year:'2003年冬',desc:'2003年冬，吴邪加入陈皮阿四队伍赴长白山找云顶天宫，遇暴风雪、草蜱子，发现十年前进山的顺子父亲队伍尸体，和阿宁队伍汇合，雪崩露出昆仑胎中的云顶天宫灵宫，两拨人堵在石门前准备进墓。',tags:['长白山','陈皮阿四','昆仑胎']},
+    {id:'yunding-xia',name:'云顶天宫下篇',year:'2003年冬',desc:'2003年冬，众人进云顶天宫，陈皮阿四及手下全灭，顺子找到父亲遗骸，排道遇大头尸胎鬼打墙，到火山口见九龙抬尸棺万奴王，阴兵借道时张起灵持鬼玺进青铜门，吴邪等人逃出，回吉林收到格尔木录像带。',tags:['万奴王','青铜门','鬼玺','阴兵借道']},
+    {id:'shezhao',name:'蛇沼鬼城篇',year:'2004年春末',desc:'2004年春末，吴邪独闯格尔木疗养院遇变成禁婆的霍玲，被张起灵、黑瞎子救下加入阿宁队伍赴塔木陀，魔鬼城遇沙尘暴和吴三省队伍汇合，雨林中潘子被巨蟒所伤，阿宁在河边被鸡冠蛇咬颈身亡，张起灵追陈文锦走散。',tags:['禁婆','塔木陀','鸡冠蛇','黑瞎子']},
+    {id:'mihai',name:'谜海归巢篇',year:'2004年夏',desc:'2004年夏，众人进西王母宫，陈文锦告知"吴三省"是解连环假扮，主殿见西王母干尸和巨大陨玉，陈文锦为防尸变爬进陨玉，张起灵跟进十几天后失忆出来，只说"没时间了"，众人逃出后决定赴广西帮张起灵找记忆。',tags:['西王母宫','陨玉','陈文锦','失忆']},
+    {id:'yinshan',name:'阴山古楼篇',year:'2004年夏末',desc:'2004年夏末，铁三角赴广西巴乃找张起灵记忆，发现张起灵旧居被烧，盘马老爹坦白当年杀了考古队，第二天考古队"复活"，潜湖见水下镜像古寨和张家古楼模型，被密洛陀困玉矿，炸洞逃出后得知进张家古楼需样式雷。',tags:['巴乃','密洛陀','张家古楼','考古队']},
+    {id:'qionglong',name:'邛笼石影篇',year:'2004年秋',desc:'2004年秋，铁三角赴北京新月饭店抢样式雷，误坐点天灯位置大闹饭店抢得鬼玺，被解雨臣、霍秀秀救下，霍仙姑提出千里锁计划兵分两路，张起灵胖子霍仙姑去巴乃，吴邪解雨臣去四姑娘山，最后一位密码传错触发强碱机关。',tags:['样式雷','解雨臣','千里锁','霍仙姑']},
+    {id:'dajieju',name:'大结局篇',year:'2004冬-2005.8',desc:'2004年冬-2005年8月，吴邪戴人皮面具扮吴三省收长沙盘口赴巴乃救人，进张家古楼见霍仙姑已死，张起灵重伤，潘子被密洛陀拖入石壁强碱腐蚀，唱《红高粱》开路后自杀，云彩被鬼影杀害，张起灵赴长白山替吴邪守青铜门十年，定下十年之约。',tags:['潘子','人皮面具','十年之约','守青铜门']},
+    {id:'canghai',name:'藏海花篇',year:'2010年末',status:'第一卷完结·第二卷断更',desc:'2010年末，吴邪在杭州守吴山居五年，金万堂带月光石蝎子线索上门，吴邪经尼泊尔赴西藏墨脱吉拉寺，见张起灵画的青铜门油画，遇张海客等海外张家人得知汪家存在，和胖子、德国考察队进雪山，遇假青铜门陷阱，张海杏暴露汪家卧底身份后断更。',tags:['墨脱','吉拉寺','汪家','海外张家']},
+    {id:'qizhi',name:'七指篇',year:'2011年初',desc:'2011年初，吴邪从墨脱回杭州和解雨臣开始反汪布局，搬解家库房时发现七指修的暗室和失踪看门人陆傻的尸体，将计就计布煤气罐局，把陆傻戒指换成GPS演给汪家卧底唐宋看，点破身份后放她带定位回汪家，沙海计划正式启动。',tags:['解家库房','反汪布局','沙海计划']},
+    {id:'huanjing',name:'幻境篇',year:'2011年中',desc:'2011年中，吴邪在杭州附近废弃电站练蛇费洛蒙读取能力，意识附在蛇祖身上，见民国末年张海盐带蛇祖在南疆夹喇嘛，和年轻张起灵同行，确认自己能稳定读取费洛蒙，开始用鸡冠蛇收集汪家情报，为沙海布局做准备。',tags:['费洛蒙','蛇祖','南疆','布局']},
+    {id:'shahai-qiangxi',name:'沙海腔隙篇',year:'2012-2013',desc:'2012-2013年，吴邪化名关根选定无关路人黎簇作为沙海核心棋子，安排王盟监视，黄严在黎簇背上刻古潼京地图后逃走死亡，留铁盒引各方注意，吴邪以摄影师身份接触黎簇，寄装备引他入局，汪家上钩，沙海计划启动。',tags:['黎簇','关根','古潼京地图']},
+    {id:'shahai',name:'沙海篇',year:'2012-2014',desc:'2012-2014年，吴邪带黎簇等人进巴丹吉林沙漠古潼京，黎簇被黑毛蛇咬获得费洛蒙能力，汪家掳走黎簇，黎簇在基地传情报，解雨臣假死诱敌，胖子清北京汪家眼线，2014年黎簇在汪家全员监视下凭空消失，汪家内斗崩溃，吴邪在墨脱被割喉坠崖。',tags:['沙海','古潼京','邪帝','覆灭汪家']},
+    {id:'shinian',name:'十年篇',year:'2015.8.17',desc:'2015年8月17日，吴邪伤愈和胖子带鬼玺赴长白山赴十年之约，闯过余党、雪崩到青铜门外，等得睡着后张起灵从门内出来，对吴邪说"你老了"，铁三角重聚，下山后决定赴福建雨村买院隐居，金盆洗手。',tags:['青铜门','十年之约','铁三角重聚','雨村']},
+    {id:'diaowang',name:'钓王篇',year:'2016年春节',desc:'2016年春节，铁三角在雨村办年货遇九十岁老钓王雷本昌，他等二十年为给被鱼王吃掉的儿子报仇，三人帮他下死水龙王盐洞钓上鱼王，封了洞，大年初一吴邪收到吴三省号码发来的短信，附雷声录音和泉州杨大广地址，听雷线开启。',tags:['雨村','钓王','雷声']},
+    {id:'jihai',name:'极海听雷篇',year:'2016',desc:'2016年，吴邪患严重肺病，铁三角重出江湖找杨大广，下南海王墓得雷城地图，焦老板队伍尾随，众人进中缅边境丛林，张起灵黑瞎子先后失联，吴邪闯毒瘴虫谷到雷城，躺金水棺材听雷知吴三省留话让他好好生活，肺病大幅好转，焦老板听雷发疯被雷劈死。',tags:['雷城','听雷','肺病','吴三省']},
+    {id:'zusi',name:'祖祀篇',year:'2017',desc:'2017年，铁三角回雨村，帮吴邪大学同学阿康调查附近猴马顶村邪祀，吴邪化名关根进村被致幻瘴气困祠堂，胖子小哥进村救人，发现密室里被关18年的祭品阿祖，查明邪祀是致幻菌+心理暗示的骗局，烧祠堂破邪祀，阿祖获自由离开。',tags:['猴马顶','邪祀','致幻菌']},
+    {id:'mangzhong',name:'盲塚篇',year:'2017贺岁',status:'长期断更·无后续官方剧情',desc:'2017年贺岁篇，张海盐从南洋回国找黑瞎子，说北京近郊盲塚有治他眼疾的虫盘和张家线索，组织铁三角、解雨臣夹喇嘛，众人打听得知进墓会失明、影子消失、有钻眼的虫，下到第一层墓道后长期断更，无后续官方剧情。',tags:['盲塚','张海盐','眼疾']},
+    {id:'denghai',name:'灯海寻尸篇',year:'2018',desc:'2018年，金万堂带天下第二陵线索上门，先后夹44批喇嘛进内蒙古黑灯海草原，黑瞎子解雨臣先进去失联，铁三角为救人进草原，遇漫山举灯古尸，破三十三非人陶俑宴，到莲花地宫遇十三席鬼宴，张起灵天授往深处走，众人进入地下龙脉。',tags:['黑灯海','鬼宴','天授','龙脉']},
+    {id:'wanshan',name:'万山极夜篇',year:'2018',desc:'2018年，众人随天授的张起灵掉入永夜地下龙脉，数人永远多一个"第四人"，遇万尸神廊见历代张家人尸身，张起灵醒转告知龙脉通昆仑，尽头是西王母鬼宴，遇爬不到头的悬崖，识破黑岩模仿的黑瞎子声音，破鬼打墙往鬼宴走。',tags:['地下龙脉','第四人','万尸神廊','昆仑']},
+    {id:'wangmu',name:'王母鬼宴篇',year:'2018',status:'连载至100章停更·无官方结局',desc:'2018年，众人到昆仑山地下西王母鬼宴会场，见石化宴席和干尸宾客，找到彻底失明的黑瞎子和解雨臣，进宴就出不去，坐下会被同化成干尸，胖子差点干化，查明祭祀需张家族长献祭，众人准备破局时2023年更到第100章停更，无官方结局。',tags:['王母鬼宴','昆仑','祭祀','悬而未决']}
+  ],
+  side:[
+    {id:'qianmian',name:'千面篇',year:'2004',desc:'2004年云顶天宫事后，解雨臣北京别墅见长手怪影，找纹身师阿透、记者梁烟烟查线索到广州渔村，解开二人当年火灾植皮旧怨，安顿得巨人症的长神仙，事了黑瞎子收到"速去格尔木"短信衔接蛇沼主线，铁三角未出场。',tags:['解雨臣','阿透','长神仙']},
+    {id:'huaye',name:'花夜前行篇',year:'2016春节前',desc:'2016年春节前，解雨臣黑瞎子赴俄罗斯处理教堂明朝古棺异状，受委托赴日本古宅救被别里亚克困住的尤里，破失物之神风水局，事了直接回雨村过年衔接钓王主线，铁三角未出场。',tags:['俄罗斯','日本','别里亚克','尤里']},
+    {id:'yucun',name:'雨村笔记篇',year:'2015起',desc:'2015年铁三角定居雨村后贯穿全时期的日常，开"喜来眠"农家乐，吴邪管账胖子炒菜小哥干活，春种秋收摸鱼过年，老朋友常来串门，偶尔短途旅行，无主线冲突，可插入任意雨村主线间隙，纯养老沙盒内容。',tags:['雨村','农家乐','养老','铁三角日常']}
+  ],
+  fanben:[
+    {id:'nuoshen',name:'雨村傩神篇',grade:'tudou',desc:'福建雨村本地宋代傩祭窟，近家休闲本，有引魂香、傩面毒针、影壁迷墙机关，守洞的是困在戏台上等了徒弟八百年的老傩班主，无致命危险，可获宋代青铜傩面具、黑陶酒罐。',tags:['近家','傩祭','宋代']},
+    {id:'mawang',name:'马王堆侧室篇',grade:'xiandou',desc:'长沙马王堆汉墓未发掘的辛追陪嫁侧室，险斗，有沼气爆燃、木俑抱人机关，内有辛追不腐尸、早夭小公子干尸，可获汉代漆器、养生帛书。',tags:['马王堆','辛追','汉墓']},
+    {id:'tiangong',name:'天宫丽影篇',grade:'xuedou',desc:'陕西始皇陵地下无重力天宫，《神话》同人血斗，有水银河、兵马俑阵机关，内有守将南宫彦、等了蒙毅两千年的玉漱，可获长生药碎渣、秦代铜剑。',tags:['始皇陵','神话同人','玉漱']},
+    {id:'qianguan',name:'千棺笑面篇',grade:'xuedou',desc:'新疆罗布泊小河千棺坟，沙漠血斗，有黑沙暴、牛皮夹臂、干尸虱危险，内有笑面小河公主、沙民干尸，可获照身后物的青铜镜、黄金项圈。',tags:['小河','罗布泊','千棺']},
+    {id:'mangshan',name:'邙山毒陵篇',grade:'xuedou',desc:'洛阳邙山北魏冯太后永固陵，邙山凶墓血斗，有烂肤毒烟、落剑、致幻机关，内有冯太后不腐尸、无眼石俑，可获金凤冠、古毒方。',tags:['邙山','冯太后','毒烟']},
+    {id:'shugong',name:'蜀宫浮妃篇',grade:'xuedou',desc:'成都明蜀王水下陵，水墓血斗，有翻板刀坑、水下拽人、尸毒水机关，内有不腐漂妃、石俑兵、蜀王干尸，可获长明灯油、蜀王金印。',tags:['蜀王','水墓','浮妃']},
+    {id:'guishan',name:'龟山迷路篇',grade:'xiandou',desc:'徐州龟山西汉楚王墓，高死亡率险斗，有鬼打墙、塞石堵门、缺氧危险，内有引路楚王影、跟脚脚步声，可获龟钮金印、防迷路摸金符。',tags:['龟山','楚王','迷宫']},
+    {id:'longhu',name:'龙虎山悬棺篇',grade:'xiandou',desc:'江西龙虎山春秋越人悬棺，悬崖险斗，有落石、蛇毒箭、蛇群机关，内有五步蛇王、悬棺干尸，可获春秋青铜剑、百毒蛇药。',tags:['龙虎山','悬棺','越人']},
+    {id:'jinmian',name:'金面契丹篇',grade:'xiandou',desc:'内蒙古辽陈国公主合葬墓，草原险斗，有毒箭、流沙机关，内有戴黄金面具的公主、契丹武士干尸，可获黄金面具、琥珀璎珞。',tags:['契丹','陈国公主','金面']},
+    {id:'xiangxi',name:'湘西赶尸篇',grade:'xuedou',desc:'湘西赶尸祖师墓，苗疆血斗，有引尸铃、金蚕蛊、摄魂音机关，内有赶尸祖师、十二具赶尸干尸，可获引尸铜铃、金蚕蛊方。',tags:['湘西','赶尸','蛊']},
+    {id:'mohe',name:'漠河金窟篇',grade:'xuedou',desc:'漠河清末金匪冰墓，极寒冰墓血斗，有冰裂、失温、黑毛鼠危险，内有冻硬的金匪干尸、冰葬俄国女子，可获金疙瘩、老盒子炮。',tags:['漠河','冰墓','金匪']}
+  ]
+};
+// 势力库
+const factionsDatabase = {
+  jiumen_shang: ['张启山家（上三门）','二月红家（上三门）','半截李家（上三门）'],
+  jiumen_ping: ['陈皮阿四家（平三门）','吴老狗家（平三门）','黑背老六家（平三门）'],
+  jiumen_xia: ['霍家（下三门）','齐家（齐铁嘴·下三门）','解家（解雨臣·下三门）'],
+  zhang: ['张家本家（长白山·守青铜门）','海外张家（张海客等）','南部档案馆（南洋张海盐等）','张启山系（张大佛爷一脉）'],
+  core: ['「它」（半官方长生研究部门）','汪家（张家世敌）','新月饭店（北京明器拍卖行）','九门协会（张日山时期）','裘德考团队','焦老板团队（听雷）'],
+  protagonist: ['铁三角（吴邪·张起灵·王胖子）','吴家盘口','解家盘口','黑瞎子/刘丧等外围'],
+  loose: ['野路子散人','情报网络','销赃圈','掌眼先生','夹喇嘛筷子头'],
+  foreign: ['别里亚克（俄罗斯）','日本古宅势力','德国考察队','其他境外势力']
+};
+// 血脉（4项，互斥）
+const bloodlineDatabase=[
+  {name:'麒麟纯血',desc:'张家族长专属。血液驱退尸蹩禁婆毒虫蛇蚁，可令千年粽子下跪，衰老极慢',penalty:'周期性失魂症·记忆全失'},
+  {name:'后天麒麟竭体质',desc:'吴邪在鲁王宫服食麒麟竭后所得。血液可令低级邪物退散，效果弱于纯血',penalty:'长期毒素残留'},
+  {name:'不老体质',desc:'黑瞎子拥有的旗人贵族血脉，衰老极慢，数十年容貌不变',penalty:'眼疾畏光·黑暗中视力异常'},
+  {name:'张家混血',desc:'张启山这类族外通婚的张后人，拥有部分麒麟血驱邪效果，体质身手远强于常人',penalty:'轻度失魂倾向'},
+{name:'费洛蒙读取体质',desc:'吴邪、黎簇拥有的特殊体质，可以读取鸡冠蛇/黑毛蛇费洛蒙中储存的千年记忆，是沙海计划的核心',penalty:'记忆混乱，会被蛇的记忆侵蚀，分不清现实和记忆'}
+];
+// 原著专属技
+const signatureDatabase=[
+  {char:'张起灵',name:'发丘双指探洞',desc:'右手中指食指奇长力大，可单指夹墓砖、探机关、断骨逼供'},
+  {char:'张起灵',name:'张家缩骨功',desc:'张家族传，可缩小骨骼间隙穿过极窄缝隙'},
+  {char:'张起灵',name:'影帝级易容术',desc:'可完美伪装成任意年龄身份，连熟人都无法识破'},
+  {char:'张起灵',name:'粽子语',desc:'可模仿血尸咯咯声与粽子沟通'},
+  {char:'张起灵',name:'机关宗师造诣',desc:'仅凭双指触摸即可破解绝大多数古墓机关'},
+  {char:'张起灵',name:'天花板级格斗术',desc:'徒手格斗全书第一，可扭断血尸颈椎'},
+  {char:'吴邪',name:'逻辑推理与密码破解',desc:'全书最强脑力，沙海跨数年布局覆灭汪家'},
+  {char:'吴邪',name:'精准枪法',desc:'鲁王宫曾高处点射被尸蹩覆盖的炸药'},
+  {char:'吴邪',name:'拓片与古文字破译',desc:'精通战国帛书、女真文、鲁国古文字破译'},
+  {char:'吴邪',name:'建筑学与机关分析',desc:'系统掌握建筑力学，破解机械机关识别密道'},
+  {char:'吴邪',name:'沙海布局能力',desc:'邪帝级别心思缜密，操控人心完成复仇'},
+  {char:'王胖子',name:'精准可控爆破',desc:'控制炸药当量精准炸开石门而不引发坍塌'},
+  {char:'王胖子',name:'枚举破局法',desc:'自创枚举法破解逻辑难题，粗中有细'},
+  {char:'王胖子',name:'枪械全能',desc:'熟练乌兹、56式、双管猎枪各类枪械'},
+  {char:'王胖子',name:'北派倒斗经验',desc:'明器鉴定、墓道判断、逃生路线选择极准'},
+  {char:'王胖子',name:'怪力近战',desc:'力量极大可硬刚粽子·擅长工兵铲重击'},
+  {char:'王胖子',name:'绝境心态调节',desc:'绝境中永远保持乐观·团队心态稳定剂'},
+  {char:'黑瞎子',name:'顶级近身格斗',desc:'与张起灵不相上下·擅长短刀·吴邪格斗师父'},
+  {char:'黑瞎子',name:'神级黑暗枪法',desc:'完全黑暗中精准命中目标'},
+  {char:'黑瞎子',name:'跨学科知识储备',desc:'德国解剖学音乐学位·会拉小提琴'},
+  {char:'解雨臣',name:'花鼓戏身法',desc:'师从二月红武生功底·飞檐走壁'},
+  {char:'解雨臣',name:'龙纹棍与蝴蝶刀',desc:'家传兵器一体·招式狠辣'},
+  {char:'解雨臣',name:'撑杆跳绝技',desc:'特制撑杆跨越深渊断崖'},
+  {char:'解雨臣',name:'财力人脉统筹',desc:'解家当家·团队金主与后勤核心'},
+  {char:'陈皮阿四',name:'铁弹子绝技',desc:'比枪还准·隔空打灭数米外烛火'},
+  {char:'陈皮阿四',name:'九爪钩神技',desc:'可勾回十几米外生鸡蛋落地不碎'},
+  {char:'吴老狗',name:'驯狗寻墓法',desc:'训练西藏獚"三寸丁"探墓预警'},
+  {char:'黑背老六',name:'通神刀术',desc:'"闹市一路过·沿街落人头"·九门第一刀客'},
+  {char:'刘丧',name:'顺风耳绘图',desc:'嘈杂中分辨极细微声音·回声绘制地下结构图'},
+  {char:'坎肩',name:'弹弓神技',desc:'鳄鱼筋皮筋·堪比子弹·可拐弯命中'},
+  {char:'罗雀',name:'鱼竿武器大师',desc:'利用弹性精准攻击要害·切绳索破机关'}
+];
+// 通用倒斗手艺（4档）
+const skillDatabase=[
+  {name:'寻龙点穴/风水堪舆',desc:'罗盘看风水龙脉定位古墓·判断吉凶格局'},
+  {name:'洛阳铲探墓',desc:'扎地取土样判断墓位年代结构'},
+  {name:'尝土寻陵',desc:'品尝土壤质感判断墓葬信息·老土夫子绝技'},
+  {name:'机关破解术',desc:'破解弩机流沙翻板连环锁自来石'},
+  {name:'古文字破译',desc:'战国帛书女真文鲁国文字满蒙藏文密符'},
+  {name:'文物鉴定',desc:'明器年代价值真伪·墓主身份'},
+  {name:'易容术',desc:'制作佩戴人皮面具·潜入敌方阵营'},
+  {name:'盗墓工程学',desc:'打盗洞支撑通风定向爆破破解封石'},
+  {name:'专业潜水',desc:'水肺自由潜·水下导航·探海底墓必备'},
+  {name:'攀岩登山',desc:'悬崖雪山地下岩壁·登山绳飞爪'},
+  {name:'极端环境生存',desc:'沙漠雨林雪山洞穴·识方向找水源处外伤'},
+  {name:'倒斗黑话',desc:'土夫子圈黑话·识别身份传暗号'},
+  {name:'明器辨位',desc:'判断主墓室陪葬品位置·识别七星疑棺虚棺陷阱'},
+{name:'费洛蒙读取',desc:'读取鸡冠蛇/黑毛蛇费洛蒙中的记忆，获取千年前的信息'},
+{name:'人皮面具制作与易容',desc:'制作真人脸模，完美易容成任意人，连熟人都难识破'},
+{name:'夹喇嘛攒局',desc:'找人手、谈价钱、平事、组队伍，道上攒局的本事'}
+];
+// 独门经验（2档）
+const loreDatabase=[
+  {name:'犀照通灵',desc:'点燃犀角蜡烛照见尸胎阴物等隐形邪祟'},
+  {name:'麒麟血驱邪法',desc:'涂身或器物驱退邪物·破六角铃精神幻术'},
+  {name:'七星疑棺破解',desc:'叩首退出·从棺底凿孔探物·不贸然开棺'},
+  {name:'阿拉伯石堆导航',desc:'沙漠碎石堆标转向点·防鬼打墙绕圈'},
+  {name:'镜子空间破解',desc:'识破墓道镜面幻觉·找生门'},
+  {name:'鸡冠蛇识别',desc:'分辨蛇模仿人声诱捕·识别蛇群行为'},
+  {name:'密洛陀防御术',desc:'火焰强碱防御石中人·敲击声定位'},
+  {name:'前走三后走四',desc:'土夫子铁则·行动前预判三步·行动后预留四步退路'},
+  {name:'香灰止血法',desc:'墓中应急·香灰覆盖伤口止血隔菌'},
+{name:'火折子试气法',desc:'进墓第一铁则，点火折子试氧，火灭了/有异味立刻撤'},
+{name:'留绳留后路',desc:'进墓先拴安全绳，入口留人接应，绝不全队钻进去不留后路'},
+{name:'不摸贴身殓物',desc:'墓主贴身的玉、口含、随身物绝对不拿，拿了必出事'}
+];
+// 装备
+const equipmentDatabase={
+  weapon:[
+    {name:'黑金古刀',desc:'张起灵标志性武器·乌金陨铁锻造·削铁如泥'},
+    {name:'大白狗腿',desc:'吴邪贴身冷钢刀·12英寸弯刃·黑瞎子亲选'},
+    {name:'龙纹棍',desc:'解雨臣贴身武器·1.2米金刚·可拆短棍钩刃'},
+    {name:'黑金匕首',desc:'通用近身短刀·便携锋利'},
+    {name:'工兵铲',desc:'下墓万能工具·挖砍砸防身煎蛋'},
+    {name:'九爪钩',desc:'陈皮阿四独门·远距离钩取宝物或杀敌'},
+    {name:'乌兹冲锋枪',desc:'王胖子最爱"小叮当"·狭墓道近战清尸蹩'},
+    {name:'56式冲锋枪',desc:'王胖子常用长枪·对付大型目标'},
+    {name:'双管猎枪',desc:'土制锯短·近距离威力大'},
+    {name:'沙漠之鹰',desc:'阿宁配枪·大威力手枪'},
+    {name:'铁弹',desc:'陈皮阿四暗器·专打尸胎要害'},
+    {name:'黑漆铁针',desc:'古盗墓工具·撬锁破墙可作暗器'},
+    {name:'蝴蝶刀',desc:'解雨臣常用短刃·花式把玩实战兼具'},
+    {name:'鱼竿',desc:'罗雀特色·远距离攻要害·切绳索'},
+    {name:'弹弓',desc:'坎肩专属·鳄鱼筋皮筋·堪比子弹'},
+    {name:'手雷/塑性炸药',desc:'爆破石门封石必备'}
+  ],
+  tool:[
+    {name:'洛阳铲',desc:'南派土夫子标志·扎地取土样'},
+    {name:'探铲套装',desc:'勾铲月牙铲针铲重铲组合·专业身份象征'},
+    {name:'旋风铲',desc:'空心铜棍装摇杆·可伸缩调整开洞'},
+    {name:'探阴爪',desc:'撬棺盖起棺钉·钩取远处宝物'},
+    {name:'黑折子',desc:'伸缩撬棍·撬墓门墓墙墓砖'},
+    {name:'堪舆罗盘',desc:'分金定穴核心·刻阴阳五行八卦九星'},
+    {name:'墨斗',desc:'墨线弹粽子·克制尸变·传统镇尸物'},
+    {name:'捆尸索',desc:'专门捆绑尸体·防开棺尸变起尸'},
+    {name:'软尸香',desc:'软化僵硬尸体·便于脱下金缕玉衣'},
+    {name:'猫铲',desc:'长沙土夫子静音铲·掏土无声'},
+    {name:'登山镐',desc:'攀爬冰壁岩壁·紧急可作武器'},
+    {name:'飞爪/多功能镐',desc:'镐刀钩三合一·可抛出攀爬'}
+  ],
+  gear:[
+    {name:'防毒面具',desc:'过滤墓中尸气瘴气毒气'},
+    {name:'胶皮战术手套',desc:'防腐蚀防划伤防滑·开棺摸金必备'},
+    {name:'嘎乌',desc:'藏式护身符·藏海花中出现'},
+    {name:'犀角蜡烛',desc:'犀照通灵·照见尸胎阴邪'},
+    {name:'急救包',desc:'止血包扎消毒·绷带止血药'},
+    {name:'当十铜币手链',desc:'阿宁标志性·七枚光绪当十铜币'},
+    {name:'冲锋衣登山靴',desc:'野外洞穴基础防护·保暖防刮'},
+    {name:'狼眼手电',desc:'战术强光·射程50-100米·可致人暴盲'},
+    {name:'头灯',desc:'近距离照明·解放双手'},
+    {name:'冷烟火',desc:'高亮低温·坠落不熄·测深渊深度'},
+    {name:'火折子',desc:'古便携火种·一吹即燃'},
+    {name:'防风打火机',desc:'高温防风·对付禁婆关键'},
+    {name:'固体燃料风灯',desc:'登山专用·照明兼取暖'},
+    {name:'信号弹',desc:'五氧化二磷·可点火油形成火海'},
+    {name:'军用信号烟球',desc:'黄橙红三色·持续发烟3-4小时'},
+    {name:'磷光筒',desc:'骨粉配火绒·蓝色幽光·检测空气质量'},
+    {name:'防水对讲机',desc:'阿宁团队制式·续航三周·自动搜频'},
+    {name:'GPS卫星定位',desc:'无人区导航必备'},
+{name:'专业水肺潜水套装',desc:'氧气瓶、调节器、湿式潜水服、脚蹼、浮力控制器，水下墓必备'},
+{name:'水下强光手电',desc:'防水抗压，水下50米可用，黑暗水域照明'},
+{name:'潜水刀',desc:'钛合金防锈，水下割绳索、防海生物袭击'},
+{name:'防水背包/密封袋',desc:'装明器、火折子、炸药，防止进水失效'},
+{name:'水下通讯器',desc:'专业队伍配置，水下30米内队员对讲'},
+    {name:'气压海拔表',desc:'高原雪山监测·防高原反应'}
+  ],
+  relic:[
+    {name:'鬼玺',desc:'鲁殇王核心宝物·紫玉盒·打开青铜门唯一钥匙'},
+    {name:'蛇眉铜鱼',desc:'汪藏海信物·鱼鳞藏女真密文·记录万奴王真相'},
+    {name:'战国帛书',desc:'战国加密文书·记载古墓与长生秘密·全书线索源头'},
+    {name:'玉俑金缕玉柙',desc:'传说穿之长生·每五百年必须脱皮·失败化血尸'},
+    {name:'六角青铜铃',desc:'西王母国声学武器·致幻失忆精神控制'},
+    {name:'麒麟竭',desc:'麒麟血藤汁液凝结·服食后血液驱邪避蛊'},
+    {name:'公母图/鬼图',desc:'两张羊皮·叠合显现西王母国完整地图'},
+    {name:'样式雷图样',desc:'清代雷氏皇家图纸·记录张家古楼结构'},
+    {name:'人皮面具',desc:'真人脸模·超薄易容·可佩戴四周难识破'},
+    {name:'紫金八重宝函',desc:'佛教舍利盒·多层嵌套存核心物品'},
+    {name:'黑驴蹄子',desc:'下墓第一辟邪·塞粽子口令其失能·1923年制为极品'},
+    {name:'糯米',desc:'传统驱邪·可拔尸毒对付尸变初期'},
+    {name:'香灰',desc:'应急止血隔菌'},
+    {name:'天心岩粉末',desc:'涂身防御九头蛇柏藤蔓攻击'},
+    {name:'火油',desc:'燃烧形成火墙·阻挡邪物密洛陀·墓道长明灯光源'}
+  ]
+};
+// 天赋池（天命只放2·其他每档少量）
+const destinyPool={
+  tianming:[
+    {name:'麒麟血觉醒',desc:'你身上不知何时觉醒了张家的血脉，肩背温热时会浮现麒麟纹身，指尖沾血可令粽子退避',effect:'血液驱退千年粽子·衰老极慢·代价：不定期失魂症，可能忘掉自己是谁'},
+{name: '终极帝皇铠甲召唤腰带', desc: '出自《铠甲勇士》明界最高终极铠甲，是五行光影石力量完全融合后的光之帝皇完全体，鎏金盘龙纹的帝皇召唤腰带，只有拥有五行血脉的人才能驱动，变身音效为“帝皇铠甲！合体！”，代表天道意志的光明宇宙最强战力', effect: '变身后掌控金木水火土全部五行力量，手臂追加专属装甲，可召唤极光剑、极光盾（可手持或装配在胸口），二者可组合为最强武器帝皇战戟；自带帝皇磁场可干扰压制数倍于己的强敌，可从太阳中无限补充光能量，能展开覆盖数公里的光之护盾、光速飞行，可净化一切暗界邪气，召唤光之帝皇龙协同作战；必杀包括五圣必杀、五行终极斩、帝皇降魔歼灭斩，可一击摧毁巨型异能兽'},
+{name: '哆啦A梦·空气炮', desc: '哆啦A梦最常用的武器类秘密道具，圆筒形金属炮管，套在手上喊“砰”就能发射高压空气弹，不用装弹无限续航，是大雄和胖虎打架、大长篇冒险最常用的武器', effect: '低功率能把人打飞十几米，全功率能直接放倒大象、打穿薄砖墙，多个齐射甚至能打落小型飞行器，只有冲击伤害不会打死人，打粽子、打追兵、破木门都好用'},
+{name: '西王母·昆仑镜（天机镜）', desc: '上古十大神器之一，昆仑山西王母的镇山至宝，玄铜为胎刻满北斗七星太乙玄纹，是神话里最有名的时空神器，传说在西王母蟠桃会上失窃后下落不明', effect: '持镜可照见过去未来、看透一切幻术伪装、破万法邪术，能自由穿梭短距离时间空间，最多可回到3分钟前，镜光可反射所有法术攻击，照到邪祟直接打散神魂，下斗找机关、破幻境、躲粽子一照一个准；限制：用一次会头晕半小时，连续用超过3次会流鼻血暂时失明，照不了自己的生死未来，在陨玉、强磁场附近会失灵，强行改变重大因果会直接被弹回现在的时间点，没有额外天罚反噬'},
+{name: '二郎显圣·天眼通', desc: '出自《封神演义》《西游记》，二郎神杨戬额间第三只神眼，玉虚宫真传神通，上可观九天、下可照九幽，既是照妖镜也是杀器，是三界最有名的攻伐神眼', effect: '睁眼可破一切幻术变化，妖魔鬼怪再怎么伪装都直接现原形，千里之外的动静看得一清二楚；能射出纯阳破邪金光，专打神魂本源，普通妖邪一照直接魂飞魄散，金光可开山裂石、破一切邪术法宝，阴兵鬼将被扫到直接成飞灰，连孙悟空的七十二变都躲不过'},
+{name: '火麒麟内丹（麒麟神元）', desc: '出自《风云雄霸天下》乐山大佛凌云窟，四大瑞兽火麒麟的本命内丹，赤红如血的火属性珠子，是火麒麟一身精气所化，吃了直接融合麒麟之力，是凌云窟最顶级的机缘', effect: '服下后功力瞬间暴涨十倍，能御使麒麟真火，刀枪不入百毒不侵，再重的伤瞬间痊愈，还能获得瑞兽长生之力，出手自带烈焰，普通兵器碰着就化，比聂家祖传麒麟疯血力量更纯更强'},
+{name: '茅山五行罗庚（五行罗盘）', desc: '出自香港僵尸片《僵尸/七日重生》，茅山传雷击木法器，刻满五行八卦符文，平时只是落灰的老物件，只有感应到百年尸煞、极凶邪物时才会自己飞速旋转，是末法时代道士代代相传的大凶预警器', effect: '平时可当寻龙罗盘辨阴阳气场、定位邪物位置，百米内有成气候的尸煞怨灵时自动旋转预警，邪物越凶转速越快；以精血为引可布五行结界暂时困住顶级僵尸，配合墨斗糯米可大幅增幅镇邪效果；限制：普通小僵尸、孤魂野鬼触发不了预警，启动结界会耗损精血虚弱半月，末法时代结界最多困3分钟，普通人拿它就是个普通木盘'},
+{name: '大威天龙咒', desc: '出自徐克《青蛇》赵文卓版法海的本命伏魔咒，法海本身为天龙摩呼罗迦转世，念咒“大威天龙，世尊地藏，般若诸佛，般若巴嘛哄”唤醒自身龙种本源，是佛门最刚猛的除妖法', effect: '咒出背后显金龙法相，可出罗汉翻天印、飞龙在天，袈裟展开能收尽妖邪，普通妖魔鬼怪闻咒音直接魂飞魄散，能破一切幻术邪法，阴邪不侵'},
+{name: '茅山五雷令·闪电奔雷拳', desc: '出自《僵尸至尊》，茅山大师兄石坚的成名绝技，是茅山至阳至刚的镇邪雷法，以五雷铜令为引手搓天雷，是茅山术里最刚猛的攻伐术', effect: '露天开阔处可引天雷劈杀邪祟，普通僵尸阴魂一雷便成飞灰，拳带雷电可直接震碎尸身、破一切阴邪术法，雷光还能逼出附在人身上的邪物'},
+{name: '百年雷击桃木剑', desc: '九叔标配随身法器，取被天雷劈过的百年老桃木削成，剑身刻满镇邪符文，是每个茅山弟子下山必带的家伙', effect: '可斩僵尸、刺阴魂，沾公鸡血、黑狗血后威力倍增，能定住普通粽子、破低级邪术，也可当法笔引气画符'},
+{name: '茅山朱砂镇尸符', desc: '茅山最常用的基础消耗品，黄纸为底、朱砂混公鸡血手绘而成，分定身、驱邪、镇宅多种，是下墓捉鬼消耗量最大的东西', effect: '贴在普通僵尸额头可直接定住，烧符化水能解轻度尸毒，贴在门窗能挡邪祟进屋，折成三角符带身上可防鬼上身'},
+{name: '湘西赶尸术', desc: '湘西排教独有的术法，不是茅山的，摇着阴锣撒辰州符，赶客死异乡的尸体走路回家安葬，“辰州符、赶尸匠”说的就是这个', effect: '能让尸体跟着铃声自己跳着走，最多一次赶七八个，夜里走山路不用人抬，能避开野兽、邪祟'},
+{name: '敕令火符·急急如律令', desc: '茅山道士最常用的基础攻伐术，指尖蘸朱砂/鸡血隔空画敕令符，念完“急急如律令”一扔就炸，九叔打僵尸用得最多的术法', effect: '符纸燃出的是至阳真火，能烧退普通粽子、阴魂邪祟，贴在僵尸身上能持续灼烧，也能用来破阴邪阵法、烧断阴绳，画得快的话一秒就能出一张'},
+    {name:'陨玉共鸣体',desc:'你的身体与长生体系产生了某种玄妙共鸣，能感应到陨玉、玉俑、尸蹩王一类事物的方位',effect:'半径十里内感应长生器物·靠近核心时手心发烫·代价：缓慢的、不可逆的异变已经开始'}
+  ],
+  qicai:[
+    {name:'过目不忘',desc:'你看过的图、读过的字、走过的路，永远记得一清二楚',effect:'古图墓道结构瞬间记牢·古文字见一次就能对照'},
+    {name:'通感尸气',desc:'你的鼻子对尸气敏感得反常，隔着几米就能分辨死了多少年、什么死法',effect:'尸气浓度超标提前预警·分辨活尸死尸的距离'},
+    {name:'蛇虫感应',desc:'你天生和蛇虫气味投缘，鸡冠蛇、尸蹩看见你会绕着走',effect:'蛇虫类主动避让·被咬概率极低·鸡冠蛇诱捕对你无效'},
+    {name:'影帝之骨',desc:'你天生是块演戏的料，模仿声音、神态、走路姿势毫无破绽',effect:'伪装身份成功率极高·可短时间模仿熟人骗过对方'},
+    {name:'铁胃百毒',desc:'你从小什么都敢往嘴里塞，肠胃比常人多两层膜，一般毒物进肚不带发作',effect:'尝土寻陵不中毒·中低级毒物免疫·可试毒'},
+    {name:'心眼预警',desc:'临险境时你后颈会发凉，这感觉从没错过',effect:'重大机关触发前有五秒预感·被人瞄准时会本能低头'},
+    {name:'黑暗见明',desc:'你天生眼睛在暗处比常人亮，油灯灭了你还看得见路',effect:'完全黑暗中可视三米·强光不适应'}
+  ],
+  suhui:[
+    {name:'活罗盘',desc:'你从来没迷过路，闭着眼也能指出北在哪',effect:'鬼打墙对你减半·沙漠雨林中不会迷失方向'},
+    {name:'抗毒体质',desc:'你打小被虫咬蛇钻过无数次，一身抗性练出来了',effect:'蛇毒虫毒瘴气抗性远超常人·恢复速度快'},
+    {name:'一把子力气',desc:'你从小就比同龄人力气大，搬石头拉尸体一个人干俩人的活',effect:'负重能力翻倍·近身格斗吃亏也不落下风'},
+    {name:'憋气长',desc:'你能一口气憋两分半钟，水下、毒气中比别人多撑一倍时间',effect:'潜水时间极长·闭气过瘴气段无碍'},
+    {name:'瞌睡神',desc:'你能在任何环境下秒睡·十分钟一觉抵别人一晚',effect:'恢复效率极高·长途连续作战不掉状态'},
+    {name:'脸盲的反面',desc:'你对人脸记得死死的，一面之缘十年后还能认出',effect:'易容识破率极高·察觉双胞胎、替身、面具伪装'},
+    {name:'酒不上头',desc:'你喝什么都跟喝白水一样，从没被人灌醉过',effect:'酒桌应酬不失态·被下药察觉快'}
+  ],
+  boji:[
+    {name:'手稳',desc:'你的手比一般人稳，穿针、拆机关、扣扳机都不带抖',effect:'精细操作成功率略高'},
+    {name:'眼尖',desc:'你的眼力比同伴略好，看得清远处细节',effect:'易注意到暗记、伪装痕迹、微小机关'},
+    {name:'脚力好',desc:'你从小走山路长大，翻山越岭比别人省劲',effect:'长途跋涉体力消耗低·雪山沙漠适应快'},
+    {name:'嗓门大',desc:'你天生大嗓门，喊人不怕被听不见',effect:'紧急联络有优势·唱山歌能吓退小虫子'},
+    {name:'皮实',desc:'你从小摔打惯了，皮糙肉厚，一般的伤不当回事',effect:'轻伤恢复快·抗痛能力高'},
+    {name:'手指灵活',desc:'你会点小手法，撬锁、扒扣子、藏东西门儿清',effect:'处理机械锁略有优势·小偷小摸不易察觉'}
+  ],
+  changren:[
+    {name:'平平无奇',desc:'你没什么特别之处，就是一个普通人',effect:'无加成·无短板'},
+    {name:'手笨心细',desc:'手上活儿不利索，但心眼儿多，看得出别人看不出的门道',effect:'观察分析略优·实操略差'},
+    {name:'身体尚可',desc:'你身体不算好，也不算差，就是普通的健康',effect:'一般标准的体能'},
+    {name:'记性一般',desc:'你记东西记不太住，但胜在会记笔记',effect:'习惯做记录·遇事翻笔记'},
+    {name:'运气一般',desc:'你不算幸运，也不算倒霉，抓阄大概率中间',effect:'随机事件正态分布'},
+    {name:'胆子不大',desc:'你其实挺怕死的，只是被拽下来了',effect:'谨慎小心·遇险容易慌'}
+  ]
+};
+// ========= 初始化 =========
+document.addEventListener('DOMContentLoaded',function(){
+  renderAllChapters();
+  renderBloodlines();
+  renderSignatures();
+  renderSkills();
+  renderLores();
+  renderEquipment();
+  initTabNavigation();
+  updateFactionOptions(); // 一开始就填势力
+  // 籍贯自定义联动
+  document.getElementById('char-origin').addEventListener('change',function(){
+    document.getElementById('custom-origin-input').classList.toggle('visible',this.value==='custom');
+  });
+});
+// ========= Tab 导航 =========
+function initTabNavigation(){
+  document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',function(){switchTab(this.dataset.tab);});
+  });
+}
+function switchTab(tabName){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+  document.getElementById(`tab-${tabName}`).classList.add('active');
+  if(tabName==='character') updateSelectedChapterDisplay();
+  if(tabName==='preview') generatePreview();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function nextTab(){
+  const tabs=['intro','timeline','character','ability','destiny','preview'];
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=tabs.indexOf(cur);
+  if(i<tabs.length-1) switchTab(tabs[i+1]);
+}
+function prevTab(){
+  const tabs=['intro','timeline','character','ability','destiny','preview'];
+  const cur=document.querySelector('.tab-btn.active').dataset.tab;
+  const i=tabs.indexOf(cur);
+  if(i>0) switchTab(tabs[i-1]);
+}
+function markTabCompleted(tabName){
+  const tab=document.querySelector(`[data-tab="${tabName}"]`);
+  if(tab) tab.classList.add('completed');
+}
+// ========= 篇章 =========
+function renderAllChapters(){
+  renderChapterGrid('prequel','chapters-prequel',false);
+  renderChapterGrid('main','chapters-main',true);
+  renderChapterGrid('side','chapters-side',false);
+  renderChapterGrid('fanben','chapters-fanben',false);
+}
+function renderChapterGrid(group,containerId,linear){
+  const container=document.getElementById(containerId);
+  if(!container) return;
+  container.innerHTML='';
+  if(linear) container.classList.add('linear');
+  chaptersDatabase[group].forEach((chapter,idx)=>{
+    const card=document.createElement('div');
+    card.className='chapter-card';
+    card.dataset.chapterId=chapter.id;
+    card.dataset.group=group;
+    let badge='';
+    if(group==='fanben'&&chapter.grade){
+      const gradeMap={tudou:'土斗',xiandou:'险斗',xuedou:'血斗',sidou:'死斗'};
+      badge=`<div class="chapter-badge ${chapter.grade}">${gradeMap[chapter.grade]}</div>`;
+    }else{
+      const groupMap={prequel:'前传',main:'正篇',side:'官方支线',fanben:'原创副本'};
+      badge=`<div class="chapter-badge">${groupMap[group]}</div>`;
+    }
+    const status=chapter.status?`<div class="chapter-status">※ ${chapter.status}</div>`:'';
+    const year=chapter.year?`<p class="chapter-year">${chapter.year}</p>`:'';
+    const indexTag=linear?`<div class="chapter-index">${idx+1}/${chaptersDatabase[group].length}</div>`:'';
+    card.style.position='relative';
+    card.innerHTML=`
+      ${indexTag}
+      ${badge}
+      <h3>${chapter.name}</h3>
+      ${year}
+      ${status}
+      <p class="chapter-desc">${chapter.desc}</p>
+      <div class="chapter-tags">
+        ${chapter.tags.map(t=>`<span class="tag">${t}</span>`).join('')}
+      </div>
+    `;
+    card.onclick=()=>selectChapter(chapter,group);
+    container.appendChild(card);
+  });
+}
+function selectChapter(chapter,group){
+  document.querySelectorAll('.chapter-card').forEach(c=>c.classList.remove('selected'));
+  const target=document.querySelector(`[data-chapter-id="${chapter.id}"]`);
+  if(target) target.classList.add('selected');
+  appState.selectedChapter={...chapter,group};
+  document.getElementById('entry-section').classList.add('visible');
+  markTabCompleted('timeline');
+}
+function selectEntryPoint(type){
+  document.querySelectorAll('.entry-option').forEach(o=>o.classList.remove('selected'));
+  const opt=Array.from(document.querySelectorAll('.entry-option')).find(el=>el.querySelector(`input[value="${type}"]`));
+  if(opt){opt.classList.add('selected');opt.querySelector('input').checked=true;}
+  appState.entryPoint=type;
+  document.getElementById('custom-entry-input').classList.toggle('visible',type==='custom');
+}
+function updateSelectedChapterDisplay(){
+  const display=document.getElementById('selected-chapter-name');
+  if(!display) return;
+  if(appState.selectedChapter){
+    const year=appState.selectedChapter.year?`（${appState.selectedChapter.year}）`:'';
+    display.textContent=`${appState.selectedChapter.name}${year}`;
+  }else{
+    display.textContent='尚未选择篇章';
+  }
+}
+// ========= 势力下拉初始化 =========
+function updateFactionOptions(){
+  const sel=document.getElementById('faction');
+  if(!sel) return;
+  sel.innerHTML='<option value="">-- 请选择 --</option>';
+  const groups=[
+    ['老九门·上三门', factionsDatabase.jiumen_shang],
+    ['老九门·平三门', factionsDatabase.jiumen_ping],
+    ['老九门·下三门', factionsDatabase.jiumen_xia],
+    ['张家', factionsDatabase.zhang],
+    ['核心势力/组织', factionsDatabase.core],
+    ['主角关联', factionsDatabase.protagonist],
+    ['散人/江湖', factionsDatabase.loose],
+    ['境外势力', factionsDatabase.foreign]
+  ];
+  groups.forEach(([label, items])=>{
+    if(!items) return;
+    const og=document.createElement('optgroup');
+    og.label=label;
+    items.forEach(item=>{
+      const o=document.createElement('option');
+      o.value=item;
+      o.textContent=item;
+      og.appendChild(o);
+    });
+    sel.appendChild(og);
+  });
+  const custom=document.createElement('option');
+  custom.value='custom';
+  custom.textContent='自定义...';
+  sel.appendChild(custom);
+}
+function handleFactionChange(v){
+  document.getElementById('custom-faction-input').classList.toggle('visible',v==='custom');
+}
+function handleIdentityChange(v){
+  document.getElementById('custom-identity-input').classList.toggle('visible',v==='custom');
+}
+function handleEntryReasonChange(v){
+  document.getElementById('custom-entry-reason-input').classList.toggle('visible',v==='custom');
+}
+// ========= 血脉（div互斥）=========
+function renderBloodlines(){
+  const grid=document.getElementById('bloodline-grid');
+  bloodlineDatabase.forEach(b=>{
+    const item=document.createElement('div');
+    item.className='ability-item radio-style';
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <span class="ab-name" title="${b.desc}｜副作用：${b.penalty}">${b.name}</span>
+    `;
+    item.onclick=()=>{
+      const wasSelected=item.classList.contains('selected');
+      document.querySelectorAll('#bloodline-grid .ability-item').forEach(x=>x.classList.remove('selected'));
+      if(!wasSelected){
+        item.classList.add('selected');
+        appState.bloodline=b;
+      }else{
+        appState.bloodline=null;
+      }
+    };
+    grid.appendChild(item);
+  });
+}
+// ========= 原著专属技（可选·无锁）=========
+function renderSignatures(){
+  const grid=document.getElementById('signature-grid');
+  signatureDatabase.forEach(s=>{
+    const item=document.createElement('div');
+    item.className='ability-item';
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <span class="ab-name" title="${s.desc}">[${s.char}] ${s.name}</span>
+    `;
+    item.onclick=()=>{
+      const on=!item.classList.contains('selected');
+      item.classList.toggle('selected',on);
+      if(on){appState.selectedSignatures.push(s);}
+      else{appState.selectedSignatures=appState.selectedSignatures.filter(x=>x.name!==s.name);}
+    };
+    grid.appendChild(item);
+  });
+}
+// ========= 通用手艺（4档·修复圆点bug）=========
+function renderSkills(){
+  const grid=document.getElementById('skill-grid');
+  skillDatabase.forEach(s=>{
+    const item=document.createElement('div');
+    item.className='ability-item';
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <span class="ab-name" title="${s.desc}">${s.name}</span>
+      <span class="level-dots">
+        <span class="level-dot disabled" data-lv="1"></span>
+        <span class="level-dot disabled" data-lv="2"></span>
+        <span class="level-dot disabled" data-lv="3"></span>
+        <span class="level-dot disabled" data-lv="4"></span>
+      </span>
+    `;
+    const dots=item.querySelectorAll('.level-dot');
+    const dotsContainer=item.querySelector('.level-dots');
+    // 圆点区域彻底吞掉点击事件
+    dotsContainer.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(!item.classList.contains('selected')) return;
+      if(!e.target.classList.contains('level-dot')) return;
+      const lv=parseInt(e.target.dataset.lv);
+      appState.skillLevels[s.name]=lv;
+      updateDots(dots,lv);
+    });
+    // 卡片主体点击 = 切换勾选
+    item.addEventListener('click',()=>{
+      const on=!item.classList.contains('selected');
+      item.classList.toggle('selected',on);
+      dots.forEach(d=>d.classList.toggle('disabled',!on));
+      if(on){
+        appState.skillLevels[s.name]=2;
+        updateDots(dots,2);
+      }else{
+        delete appState.skillLevels[s.name];
+        updateDots(dots,0);
+      }
+    });
+    grid.appendChild(item);
+  });
+}
+// ========= 独门经验（2档）=========
+function renderLores(){
+  const grid=document.getElementById('lore-grid');
+  loreDatabase.forEach(l=>{
+    const item=document.createElement('div');
+    item.className='ability-item';
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <span class="ab-name" title="${l.desc}">${l.name}</span>
+      <span class="level-dots">
+        <span class="level-dot disabled" data-lv="1"></span>
+        <span class="level-dot disabled" data-lv="2"></span>
+      </span>
+    `;
+    const dots=item.querySelectorAll('.level-dot');
+    const dotsContainer=item.querySelector('.level-dots');
+    dotsContainer.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(!item.classList.contains('selected')) return;
+      if(!e.target.classList.contains('level-dot')) return;
+      const lv=parseInt(e.target.dataset.lv);
+      appState.loreLevels[l.name]=lv;
+      updateDots(dots,lv);
+    });
+    item.addEventListener('click',()=>{
+      const on=!item.classList.contains('selected');
+      item.classList.toggle('selected',on);
+      dots.forEach(d=>d.classList.toggle('disabled',!on));
+      if(on){
+        appState.loreLevels[l.name]=1;
+        updateDots(dots,1);
+      }else{
+        delete appState.loreLevels[l.name];
+        updateDots(dots,0);
+      }
+    });
+    grid.appendChild(item);
+  });
+}
+function updateDots(dots,level){
+  dots.forEach((d,i)=>d.classList.toggle('filled',i<level));
+}
+// ========= 装备 =========
+function renderEquipment(){
+  renderEquipCategory('weapon-grid',equipmentDatabase.weapon);
+  renderEquipCategory('tool-grid',equipmentDatabase.tool);
+  renderEquipCategory('gear-grid',equipmentDatabase.gear);
+  renderEquipCategory('relic-grid',equipmentDatabase.relic);
+}
+function renderEquipCategory(gridId,items){
+  const grid=document.getElementById(gridId);
+  items.forEach(eq=>{
+    const item=document.createElement('div');
+    item.className='ability-item';
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <span class="ab-name" title="${eq.desc}">${eq.name}</span>
+    `;
+    item.onclick=()=>{
+      const on=!item.classList.contains('selected');
+      item.classList.toggle('selected',on);
+      if(on){appState.selectedEquipment.push(eq);}
+      else{appState.selectedEquipment=appState.selectedEquipment.filter(x=>x.name!==eq.name);}
+    };
+    grid.appendChild(item);
+  });
+}
+// ========= 自创手艺 =========
+let customSkillId=0;
+function addCustomSkill(){
+  if(appState.customSkills.length>=5){alert('最多5项自创手艺');return;}
+  const id=++customSkillId;
+  appState.customSkills.push({id,name:'',effect:''});
+  renderCustomSkills();updateSkillCount();
+}
+function renderCustomSkills(){
+  const list=document.getElementById('custom-skill-list');
+  list.innerHTML='';
+  appState.customSkills.forEach(sk=>{
+    const item=document.createElement('div');
+    item.className='custom-skill-item';
+    item.innerHTML=`
+      <button class="delete-btn" onclick="deleteCustomSkill(${sk.id})">×</button>
+      <input type="text" placeholder="手艺名称" onchange="updateCustomSkill(${sk.id},'name',this.value)">
+      <textarea placeholder="效果描述" onchange="updateCustomSkill(${sk.id},'effect',this.value)"></textarea>
+    `;
+    item.querySelector("input").value=sk.name;
+    item.querySelector("textarea").value=sk.effect;
+    list.appendChild(item);
+  });
+}
+function updateCustomSkill(id,f,v){
+  const sk=appState.customSkills.find(s=>s.id===id);
+  if(sk) sk[f]=v;
+}
+function deleteCustomSkill(id){
+  appState.customSkills=appState.customSkills.filter(s=>s.id!==id);
+  renderCustomSkills();updateSkillCount();
+}
+function updateSkillCount(){
+  document.getElementById('skill-count').textContent=appState.customSkills.length;
+  document.getElementById('add-skill-btn').classList.toggle('disabled',appState.customSkills.length>=5);
+}
+// ========= 天赋抽取 =========
+function rollDestiny(){
+  const btn=document.getElementById('roll-btn');
+  btn.classList.add('rolling');btn.disabled=true;
+  setTimeout(()=>{
+    appState.rolledDestiny=[];appState.selectedDestiny=[];
+    for(let i=0;i<8;i++){
+  let pool,rarity;
+  if(i===0){
+pool=destinyPool.tianming;rarity='tianming';
+  }else{
+    const r=Math.random()*100;
+    if(r<8){pool=destinyPool.tianming;rarity='tianming';}
+    else if(r<28){pool=destinyPool.qicai;rarity='qicai';}
+    else if(r<55){pool=destinyPool.suhui;rarity='suhui';}
+    else if(r<82){pool=destinyPool.boji;rarity='boji';}   else{pool=destinyPool.changren;rarity='changren';}
+  }
+  let d,tries=0; do{d=pool[Math.floor(Math.random()*pool.length)];tries++;}
+while(appState.rolledDestiny.some(x=>x.name===d.name)&&tries<50);
+  appState.rolledDestiny.push({...d,rarity});
+}
+    renderDestinyList();
+    btn.classList.remove('rolling');btn.disabled=false;
+    document.getElementById('destiny-pool').classList.add('visible');
+  },1000);
+}
+function renderDestinyList(){
+  const list=document.getElementById('destiny-list');
+  list.innerHTML='';
+  appState.selectedDestiny=[];
+  document.getElementById('destiny-selected-count').textContent='0';
+  const order={tianming:0,qicai:1,suhui:2,boji:3,changren:4};
+  const sorted=[...appState.rolledDestiny].sort((a,b)=>order[a.rarity]-order[b.rarity]);
+  sorted.forEach((d,idx)=>{
+    const item=document.createElement('div');
+    item.className=`destiny-item ${d.rarity}`;
+    item.innerHTML=`
+      <span class="check-mark"></span>
+      <div class="destiny-info">
+        <div class="destiny-name">
+          ${d.name}
+          <span class="destiny-badge ${d.rarity}">${getRarityName(d.rarity)}</span>
+        </div>
+        <div class="destiny-desc">${d.desc}</div>
+        <div class="destiny-effect">效果：${d.effect}</div>
+      </div>
+    `;
+    item.addEventListener('click',()=>{
+      const on=!item.classList.contains('selected');
+      if(on){
+        if(appState.selectedDestiny.length>=3){alert('最多挑3条');return;}
+        appState.selectedDestiny.push(d);
+        item.classList.add('selected');
+      }else{
+        appState.selectedDestiny=appState.selectedDestiny.filter(x=>x.name!==d.name);
+        item.classList.remove('selected');
+      }
+      document.getElementById('destiny-selected-count').textContent=appState.selectedDestiny.length;
+      if(appState.selectedDestiny.length===3) markTabCompleted('destiny');
+    });
+    list.appendChild(item);
+  });
+}
+function getRarityName(r){
+  return {tianming:'天命',qicai:'奇才',suhui:'宿慧',boji:'薄技',changren:'常人'}[r]||'常人';
+}
+// ========= 档案预览 =========
+function generatePreview(){
+  const name=document.getElementById('char-name').value||'无名';
+  const age=document.getElementById('char-age').value||'未知';
+  const gender=document.querySelector('input[name="gender"]:checked')?.value||'未知';
+  let origin=document.getElementById('char-origin').value;
+  if(origin==='custom') origin=document.getElementById('custom-origin').value||'不详';
+  const occupation=document.getElementById('char-occupation').value||'未填';
+  let identity=document.getElementById('identity-type').value||'未定';
+  if(identity==='custom') identity=document.getElementById('custom-identity').value||'自定义';
+  let faction=document.getElementById('faction').value||'无';
+  if(faction==='custom') faction=document.getElementById('custom-faction').value||'自定义';
+  const powerLevel=document.getElementById('power-level').value||'未定';
+  const powerNote=document.getElementById('power-note').value||'';
+  let entryReason=document.getElementById('entry-reason').value;
+  if(entryReason==='custom') entryReason=document.getElementById('custom-entry-reason').value||'自定义';
+  const appearance=document.getElementById('appearance').value||'未填';
+  const personality=document.getElementById('personality').value||'未填';
+  const hobby=document.getElementById('hobby').value||'未填';
+  const background=document.getElementById('background').value||'未填';
+  const openingScene=document.getElementById('opening-scene').value||'未填';
+  let chapterInfo='未选择';
+  let entryText='未设';
+  if(appState.selectedChapter){
+    const y=appState.selectedChapter.year?`（${appState.selectedChapter.year}）`:'';
+    chapterInfo=`${appState.selectedChapter.name}${y}`;
+    const map={start:'篇章开始',mid:'篇章中期',end:'篇章尾声'};
+    if(appState.entryPoint==='custom') entryText=document.getElementById('custom-entry-text').value||'自定义入场';
+    else entryText=map[appState.entryPoint]||'未设';
+  }
+  let out=`━━━━━━━━━━━━━━━━━━━━
+    盗墓笔记角色卷宗
+━━━━━━━━━━━━━━━━━━━━
+【时间线】
+${chapterInfo}
+【入场】
+${entryText}
+【基础】
+姓名：${name}
+性别：${gender}  年龄：${age}
+籍贯/常在：${origin}
+明面身份：${occupation}
+【身份门路】
+类型：${identity}
+势力：${faction}
+辈分：${powerLevel}${powerNote?`（${powerNote}）`:''}
+入行：${entryReason}
+【外貌】
+${appearance}
+【性情】
+${personality}
+【爱好】
+${hobby}
+【背景】
+${background}
+【开局处境】
+${openingScene}`;
+  if(appState.bloodline){
+    out+=`\n\n【血脉】\n${appState.bloodline.name}\n  ${appState.bloodline.desc}\n  副作用：${appState.bloodline.penalty}`;
+  }
+  if(appState.selectedSignatures.length>0){
+    out+=`\n\n【原著专属技】（${appState.selectedSignatures.length}项）`;
+    appState.selectedSignatures.forEach((s,i)=>{
+      out+=`\n${i+1}. [${s.char}] ${s.name}\n   ${s.desc}`;
+    });
+  }
+  const skills=Object.entries(appState.skillLevels);
+  if(skills.length>0){
+    out+=`\n\n【通用手艺】（${skills.length}项）`;
+    const lvName={1:'略知',2:'熟练',3:'精通',4:'宗师'};
+    const lvDots={1:'●○○○',2:'●●○○',3:'●●●○',4:'●●●●'};
+    skills.forEach(([nm,lv],i)=>{
+      out+=`\n${i+1}. ${nm} ${lvDots[lv]} ${lvName[lv]}`;
+    });
+  }
+  const lores=Object.entries(appState.loreLevels);
+  if(lores.length>0){
+    out+=`\n\n【独门经验】（${lores.length}项）`;
+    const lvName={1:'听说过',2:'使得开'};
+    const lvDots={1:'●○',2:'●●'};
+    lores.forEach(([nm,lv],i)=>{
+      out+=`\n${i+1}. ${nm} ${lvDots[lv]} ${lvName[lv]}`;
+    });
+  }
+  if(appState.selectedEquipment.length>0){
+    out+=`\n\n【家伙事儿】（${appState.selectedEquipment.length}件）`;
+    appState.selectedEquipment.forEach((e,i)=>{
+      out+=`\n${i+1}. ${e.name} - ${e.desc}`;
+    });
+  }
+  const validCustom=appState.customSkills.filter(s=>s.name.trim());
+  if(validCustom.length>0){
+    out+=`\n\n【自创手艺】（${validCustom.length}项）`;
+    validCustom.forEach((s,i)=>{
+      out+=`\n${i+1}. ${s.name}`;
+      if(s.effect.trim()) out+=`\n   ${s.effect}`;
+    });
+  }
+  if(appState.selectedDestiny.length>0){
+    out+=`\n\n【天赋】（${appState.selectedDestiny.length}/3）`;
+    appState.selectedDestiny.forEach((d,i)=>{
+      out+=`\n${i+1}. [${getRarityName(d.rarity)}] ${d.name}\n   ${d.desc}\n   效果：${d.effect}`;
+    });
+  }else{
+    out+=`\n\n【天赋】\n未抽取`;
+  }
+  out+=`\n\n━━━━━━━━━━━━━━━━━━━━
+土中问路 · 斗里求生
+━━━━━━━━━━━━━━━━━━━━`;
+  document.getElementById('preview-box').textContent=out;
+}
+// ========= 复制 =========
+function copyPreview(){
+  const text=document.getElementById('preview-box').textContent;
+  const btn=document.querySelector('.copy-btn');
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(()=>showCopySuccess(btn)).catch(()=>fallbackCopy(text,btn));
+  }else{fallbackCopy(text,btn);}
+}
+function fallbackCopy(text,btn){
+  const ta=document.createElement('textarea');
+  ta.value=text;ta.style.position='fixed';ta.style.left='-9999px';
+  document.body.appendChild(ta);
+  try{
+    ta.select();ta.setSelectionRange(0,99999);
+    const ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    if(ok) showCopySuccess(btn);else showCopyFail(btn);
+  }catch(e){document.body.removeChild(ta);showCopyFail(btn);}
+}
+function showCopySuccess(btn){
+  const t=btn.textContent;
+  btn.textContent='已入库';
+  btn.style.background='var(--moss-deep)';
+  setTimeout(()=>{btn.textContent=t;btn.style.background='';},2000);
+}
+function showCopyFail(btn){
+  const t=btn.textContent;
+  btn.textContent='复制失败·请手动';
+  setTimeout(()=>{btn.textContent=t;},2500);
+}
+const enterChat = document.getElementById('enter-chat');
+if (parent !== window && new URLSearchParams(location.search).get('chat') === '1') {
+  enterChat.hidden = false;
+  enterChat.addEventListener('click', () => {
+    generatePreview();
+    const text = document.getElementById('preview-box').textContent;
+    if (text.length > 20000) {
+      document.getElementById('transfer-status').textContent = '卷宗超过 20,000 字，请精简后再带入聊天。';
+      return;
+    }
+    parent.postMessage({type: 'daomu-opening', text}, new URL(location.href).origin);
+  });
+}
+</script>
+</body>
+</html>
