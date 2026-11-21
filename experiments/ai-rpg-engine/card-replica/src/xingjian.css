@@ -6,3 +6,17 @@
 .xingjian-shell :focus-visible{outline:2px solid #70e4ef;outline-offset:2px}
 .xingjian-shell details{width:100%}.xingjian-shell pre{max-height:12rem;overflow:auto}
 .xingjian-shell iframe{display:block;background:#000}
+
+.rpg-chat-workspace[data-world="doupo"][data-reading="light"] .chat-scroll {
+  background: #647cba url('/rpg-app/doupo/cover.avif') center / cover;
+}
+.rpg-chat-workspace[data-world="doupo"][data-reading="light"] .conversation article,
+.rpg-chat-workspace[data-world="doupo"][data-reading="light"] .chat-empty {
+  background: #fffefa;
+  border: 1px solid #d6c49d;
+  border-radius: 12px;
+  padding: clamp(14px, 2vw, 26px);
+}
+.rpg-chat-workspace[data-world="doupo"] .model-output {
+  font-family: 'Songti SC', SimSun, serif;
+}
