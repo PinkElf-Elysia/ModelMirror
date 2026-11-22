@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>独立角色书 · 模镜</title><link rel="stylesheet" href="/character-assets/book-library/style.css"><script type="module" src="/character-assets/book-library/page.mjs"></script></head>
+<body><header><a href="/characters">← 角色库</a><a href="/characters?desk=profiles">玩家档案</a></header>
+<main inert aria-busy="true"><h1>独立角色书</h1><nav aria-label="角色书工作区"><a href="#library">我的书架</a><a href="#assign">角色与玩家</a><a href="#branches">会话分支</a></nav>
+<p id="status" role="status" aria-live="polite"></p>
+<section id="library"><h2>我的书架</h2><label>草稿<select id="book"></select></label><label>书名<input id="title" maxlength="120"></label>
+<div id="entries"></div><button id="add">添加条目</button>
+<details><summary>完整角色书 JSON</summary><label>包含扩展字段<textarea id="json" rows="8"></textarea></label><button id="apply">应用 JSON</button></details>
+<label>测试关键词<input id="trigger"></label><button id="trial">测试触发</button><output id="trial-result"></output>
+<div class="actions"><button id="save" class="primary">保存草稿</button><button id="seal">封存已保存草稿</button><button id="archive">归档此书</button></div></section>
+<section id="assign" hidden><h2>角色与玩家</h2><label>角色书目（可多选封存版本）<select multiple id="refs"></select></label>
+<label>角色作品<select id="role"></select></label><button id="save-role">保存角色草稿书目</button><button id="seal-role">带选中书封存角色新版本</button>
+<label>玩家档案<select id="profile"></select></label><label>玩家推荐书目（可多选封存版本）<select multiple id="player-refs"></select></label><button id="recommend">保存所选推荐书</button><p>推荐书默认仅供玩家使用。创建分支时可以逐本指定可阅读的角色。</p></section>
+<section id="branches" hidden><h2>会话分支</h2><label>来源<select id="source"></select></label>
+<div id="parent-controls" hidden><label>继承位置<select id="point"></select></label><label>子分支名称<input id="branch-title" value="续聊分支" maxlength="120"></label></div>
+<div id="grants"></div><div class="actions"><label><input type="checkbox" id="v3-rules"> 在新分支启用 V3 受限正则</label><button id="inspect">核对绑定</button><button id="confirm" class="primary" disabled>确认并创建分支</button></div><output id="review"></output>
+<article id="chat" hidden><h2>分支续聊</h2><label>查看角色<select id="actor"></select></label><div id="bindings"></div><ol id="history"></ol>
+<label>本次输入<textarea id="input" rows="2"></textarea></label><label>生成方式<select id="message"></select></label>
+<button id="preview">预览实际上下文</button><button id="send" class="primary" disabled>生成离线夹具回复</button>
+<div id="explain" aria-live="polite"></div><details><summary>查看本次请求原文</summary><pre id="assembly"></pre></details><div id="requests"></div></article></section></main></body></html>

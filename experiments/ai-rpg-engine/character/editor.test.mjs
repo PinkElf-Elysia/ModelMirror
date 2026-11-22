@@ -94,3 +94,33 @@ test('narrow-screen single preview and creation submit selected profile revision
  const preview=p.calls.filter(c=>c.path.endsWith('/characters/preview')).at(-1);assert.deepEqual(preview.body.player,{profileId:'profile-neutral',revision:2});
  const create=p.window.document.querySelector('#start-chat');assert.ok(create);create.click();await p.flush();const sent=p.calls.find(c=>c.method==='POST'&&c.path.endsWith('/characters/sessions'));assert.deepEqual(sent.body.player,{profileId:'profile-neutral',revision:2});assert.deepEqual(sent.body.reference,{workId:'work-fixture',versionId:'version-1'});assert.equal(p.calls.some(c=>c.path.endsWith('/send')),false);
 });
+test('book search, pagination and bulk edits retain source order and opaque fields',async t=>{
+ const p=await page(t,{url:'http://localhost/characters?work=work-fixture'});
+ const entries=Array.from({length:15},(_,i)=>({name:'条目'+i,content:'位置'+i,keys:[i===2?'例外':'船'],insertion_order:14-i,priority:i,enabled:true,extensions:{i}}));
+ const raw=JSON.stringify({extensions:{vendor:['原文']},entries});
+ p.input('#book-json',raw);p.change('#book-json',raw);
+ p.input('#book-filter','船');p.change('#book-sort','priority');
+ assert.equal(p.$('#book-entries h3').textContent,'条目14');
+ p.$('#book-next').click();
+ assert.equal(p.$('#book-entries h3').textContent,'条目1');
+ assert.equal(p.$('#book-json').value,raw);
+ p.$('#book-disable').click();
+ const edited=JSON.parse(p.$('#book-json').value);
+ assert.deepEqual(edited.entries.map(e=>e.name),entries.map(e=>e.name));
+ assert.deepEqual(edited.entries.filter(e=>e.enabled).map(e=>e.name),['条目2']);
+ assert.deepEqual(edited.entries.map(e=>e.extensions),entries.map(e=>e.extensions));
+ assert.deepEqual(edited.extensions,{vendor:['原文']});
+});
+test('invalid numeric entry remains an unsaved edit and blocks persistence and trial',async t=>{
+ const p=await page(t,{url:'http://localhost/characters?work=work-fixture'});
+ const count=p.calls.length;
+ p.input('[data-book-field="insertion_order"]','');
+ p.$('#save').click();await p.flush();
+ assert.equal(p.$('#error').hidden,false);
+ assert.equal(p.calls.slice(count).length,0);
+ assert.equal(JSON.parse(p.$('#book-json').value).entries[0].insertion_order,'');
+ p.$('#book-try').click();await p.flush();
+ assert.equal(p.calls.slice(count).length,0);
+ p.input('[data-book-field="insertion_order"]','0');p.$('#save').click();await p.flush();
+ assert.equal(p.work.draft.character.card.data.character_book.entries[0].insertion_order,0);
+});

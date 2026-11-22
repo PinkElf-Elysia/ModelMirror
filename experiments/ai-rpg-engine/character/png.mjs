@@ -33,9 +33,15 @@ export function placeholder(){
  const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(1);ihdr.writeUInt32BE(1,4);ihdr[8]=8;ihdr[9]=6;
  return Buffer.concat([signature,chunk('IHDR',ihdr),chunk('IDAT',deflateSync(Buffer.from([0,68,80,93,255]))),chunk('IEND',Buffer.alloc(0))]);
 }
-export function exportPng(card,image=placeholder()){
- const clean=pngChunks(portrait(pngChunks(image))),json=Buffer.from(JSON.stringify(card),'utf8');
+export function exportPng(card,image=placeholder(),backfill=null){
+ const clean=pngChunks(portrait(pngChunks(image)));
+ const chunks=[];
+ for(const [key,value] of [[card.spec==='chara_card_v3'?'ccv3':'chara',card],...(backfill?[['chara',backfill]]:[])]){
+ const json=Buffer.from(JSON.stringify(value),'utf8');
  if(json.length>CARD_LIMITS.json)problem('CHARACTER_FILE_SIZE');
- const data=Buffer.from('chara\0'+json.toString('base64'),'latin1');
- return Buffer.concat([signature,...clean.flatMap(c=>c.type==='IEND'?[chunk('tEXt',data),chunk(c.type,c.data)]:[chunk(c.type,c.data)])]);
+ chunks.push(chunk('tEXt',Buffer.from(key+'\0'+json.toString('base64'),'latin1')));
+ }
+ const parts=[signature,...clean.flatMap(c=>c.type==='IEND'?[...chunks,chunk(c.type,c.data)]:[chunk(c.type,c.data)])];
+ if(parts.reduce((n,p)=>n+p.length,0)>CARD_LIMITS.png)problem('CHARACTER_FILE_SIZE');
+ return Buffer.concat(parts);
 }

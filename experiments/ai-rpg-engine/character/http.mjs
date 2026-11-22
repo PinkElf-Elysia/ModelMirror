@@ -1,10 +1,12 @@
+import {previewCard} from './v3/selection.mjs';
+import {bookRoutes} from './book-library/routes.mjs';
 import {assembleIdentity} from './daily/identity.mjs';
 import {DailyWorkspace} from './daily/workspace.mjs';
 import {markdown} from './daily/markdown.mjs';
 import {readFile} from 'node:fs/promises';import {join} from 'node:path';
 import {blankDocument,keys,fail,sha256} from '../authoring/contracts.mjs';
 import {characterDocument} from './document.mjs';import {compatibility} from './card.mjs';import {decode64,pngChunks,portrait} from './png.mjs';
-import {inspectImport,exportCard} from './exchange.mjs';import {assembleCharacter,greeting} from './context.mjs';import {CharacterSources} from './sources.mjs';
+import {inspectImport,exportCard,authorCompatibility} from './exchange.mjs';import {assembleCharacter,greeting} from './context.mjs';import {CharacterSources} from './sources.mjs';
 import {CharacterFixtureProvider} from './fixture-provider.mjs';import {CharacterSessionHost} from './session.mjs';
 const prefix='/rpg-app/api/authoring/characters';
 export function isCharacterRoute(path){return path==='/characters'||path.startsWith('/character-assets/')||path===prefix||path.startsWith(prefix+'/');}
@@ -18,11 +20,14 @@ export async function createCharacterHttp({store,directory,settings=null,recover
  }catch(e){await sources.close();if(own)await provider?.close();throw e;}
  async function document(workId,versionId){return versionId?(await store.exportConfiguration(workId,versionId)).document:(await store.read(workId)).draft;}
  const ownWorkspace=!settings?.workspace,workspace=settings?.workspace??await DailyWorkspace.open(directory,{recoverDeadOwner});workspace.single=host;workspace.works=store;
+ const books=bookRoutes({workspace,store,directory,settings,recoverDeadOwner});
  const decorated=v=>({...v,messages:v.messages.map(m=>({...m,html:markdown(m.content)}))});
  return {
- host,workspace,
+ host,workspace,publishWithBooks:books.publish,
  async handle({req,res,url,send,body}){
   const path=url.pathname,route=path.slice(prefix.length);workspace.singleUrl=url.origin+'/characters';
+  if(req.method==='GET'&&path==='/characters'&&url.searchParams.has('books'))return send(await readFile(new URL('./book-library/page.html',import.meta.url)),200,'text/html; charset=utf-8');
+  if(req.method==='POST'&&route==='/books')return send(await books.post(await body()));
   if(path==='/characters'&&url.searchParams.has('desk'))return send(await readFile(new URL('./daily/page.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&route.startsWith('/daily/avatars/')){const a=await workspace.store.avatar(route.split('/').at(-1));return send(Buffer.from(a.base64,'base64'),200,a.mediaType);}
   if(route.startsWith('/daily/')&&!['GET','POST'].includes(req.method))fail('CHARACTER_ROUTE_NOT_FOUND');
@@ -30,7 +35,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
 
   if(req.method==='GET'&&path==='/characters')return send(await readFile(new URL('./editor.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&path.startsWith('/character-assets/')){
-   const files={'editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
+   const files={'v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
@@ -70,13 +75,26 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    }
    return send({workId:made.workId,report:inspection.report,portraitStored:!!inspection.cover&&inspection.cover.length<=5*1024*1024});
   }
-  if(route==='/preview'){keys(input,['document','player','openingIndex','input']);const d=input.document;if(d.kind!=='character')fail('CHARACTER_TYPE_REQUIRED');
-   const player=typeof input.player==='string'?{id:null,name:input.player}:await workspace.resolvePlayer(input.player);return send({report:compatibility(d.character.card),assembly:assembleIdentity({card:d.character.card,player:player.name,opening:greeting(d.character.card,input.openingIndex,player.name),input:input.input,maxTokens:24000},player)});
+  if(route==='/preview'){
+   keys({history:[],...input},['document','player','openingIndex','input','history']);
+   const d=input.document;
+   if(d.kind!=='character')fail('CHARACTER_TYPE_REQUIRED');
+   const history=input.history===undefined?[]:input.history;
+   if(!Array.isArray(history)||history.length>200||history.some(m=>
+    !m||Object.keys(m).length!==2||!['user','assistant'].includes(m.role)||
+    typeof m.content!=='string'||m.content.length>16000
+   ))fail('CHARACTER_PREVIEW_HISTORY_INVALID');
+   const player=typeof input.player==='string'?{id:null,name:input.player}:await workspace.resolvePlayer(input.player);const original=d.character.card;
+   const trial=original.spec==='chara_card_v3'&&original.data.character_book?.entries.some(e=>e.use_regex)?previewCard(original,history,input.input,player.name):null;
+   const assembly=assembleIdentity({card:trial?.card??original,player:player.name,opening:greeting(original,input.openingIndex,player.name),history,input:input.input,maxTokens:24000},player);
+   if(trial)assembly.trace.book=trial.trace.map((row,i)=>['triggered','budget-excluded'].includes(row.status)?assembly.trace.book[i]:row);
+   return send({report:authorCompatibility(original),assembly});
   }
   if(route==='/export'){
    keys(input,['workId','versionId','format','version','acceptLoss']);const doc=await document(input.workId,input.versionId);if(doc.kind!=='character')fail('CHARACTER_TYPE_REQUIRED');
    let image;const alias=doc.settings.media.cover;if(alias&&input.format==='png'){const a=await store.getAsset(input.workId,alias,input.versionId);if(a.asset.mediaType!=='image/png')fail('CHARACTER_PNG_PORTRAIT_REQUIRED');image=a.bytes;}
-   const out=exportCard(doc.character.card,{...input,image});if(out.confirmationRequired)return send(out);return send({...out,bytes:undefined,base64:out.bytes.toString('base64')});
+   const originalPng=input.format==='png'&&doc.character.source?.container==='png'?await sources.get(doc.character.source.sha256):undefined;
+   const out=exportCard(doc.character.card,{...input,image,originalPng});if(out.confirmationRequired)return send(out);return send({...out,bytes:undefined,base64:out.bytes.toString('base64')});
   }
   if(route==='/portrait'){
    keys(input,['workId','expectedRevision','operationId','base64']);const bytes=portrait(pngChunks(decode64(input.base64,32*1024*1024)));if(bytes.length>5*1024*1024)fail('AUTHORING_ASSET_SIZE');
@@ -89,6 +107,6 @@ export async function createCharacterHttp({store,directory,settings=null,recover
   if(action){const [,id,kind]=action;return await workspace.run(async()=>{const v=await (kind==='settings'?host.configure(id,input):kind==='memory'?host.editMemory(id,input):host[kind](id,input));await workspace.store.observe('single',id,v.revision);return send(decorated(v));});}
   fail('CHARACTER_ROUTE_NOT_FOUND');
  },
- async close(){if(ownWorkspace)await workspace.close();await host.close();if(own)await provider.close();await sources.close();}
+ async close(){await books.close();if(ownWorkspace)await workspace.close();await host.close();if(own)await provider.close();await sources.close();}
  };
 }
