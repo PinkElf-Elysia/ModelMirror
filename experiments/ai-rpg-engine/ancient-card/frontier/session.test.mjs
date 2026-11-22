@@ -64,3 +64,22 @@ test('读档、错误确认、重复送出及并发确认共用一份权威记�
     await send('接着说，宁远此刻归谁？');assert.match(s.turns.at(-1).raw,/后金/);
   }finally{await h.close();await rm(dir,{recursive:true,force:true});}
 });
+
+test('旧档地点按原名解析，京师只看到已送达且正确归属的地点记录',async()=>{
+  const s=emptySession();
+  await play(s,req(s,scroll),offlineNarrator);
+  const snapshot=structuredClone(s.world);
+  // Separate offline example: a courier from Shanhaiguan. No transfer of control.
+  snapshot.facts.push({id:'gate-letter',kind:'report',node:'山海关',text:'关门点验已毕。',
+    occurredAt:0,deliveries:[{recipient:'court',at:1}]});
+  snapshot.facts.push({id:'unlocated',kind:'report',text:'一封无地点旧报。',
+    occurredAt:0,deliveries:[{recipient:'court',at:1}]});
+  s.world=snapshot;
+  assert.equal(publicSession(s).frontier.known.length,0);
+  s.world.clock=1;
+  const v=publicSession(s).frontier;
+  assert.deepEqual(v.known.map(e=>e.placeId),['shanhaiguan',null]);
+  assert.deepEqual(v.locations.map(p=>p.placeId),['beijing','shanhaiguan','ningyuan','jinzhou']);
+  assert.ok(v.locations.every(p=>p.control==='明'));
+  assert.ok(!v.known.some(e=>e.placeId==='ningyuan'));
+});

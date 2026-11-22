@@ -22,10 +22,10 @@ export function validateRequest(request,registryTools,{maxTools=2}={}){
  }
  need(!waiting&&used.size<=1,'TRANSPORT_PAIR');return clone(request);
 }
-export function decodeSSE(wire,tools){
+export function decodeSSE(wire,tools,{allowedPair}={}){
  need(typeof wire==='string'&&Buffer.byteLength(wire)<=1024*1024,'TRANSPORT_CAPACITY');
  const parts=wire.replace(/\r\n/g,'\n').split('\n\n');need(parts.pop()==='','TRANSPORT_TRUNCATED');
- let content='',call=null,extra,finish=null,done=false,usage=null;const reasoning=[];
+ const calls=[];let content='',extra,finish=null,done=false,usage=null;const reasoning=[];
  const set=(obj,k,v)=>{need(obj[k]===undefined||hash(obj[k])===hash(v),'TRANSPORT_METADATA');obj[k]=clone(v);};
  for(const part of parts){
   const data=part.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trimStart()).join('\n');if(!data)continue;need(!done,'TRANSPORT_AFTER_DONE');
@@ -39,22 +39,28 @@ export function decodeSSE(wire,tools){
   need(!d.function_call,'TRANSPORT_LEGACY');if(d.content!=null){need(typeof d.content==='string','TRANSPORT_CONTENT');content+=d.content;}
   if(d.extra_content!==undefined){need(extra===undefined||hash(extra)===hash(d.extra_content),'TRANSPORT_METADATA');extra=clone(d.extra_content);}
   for(const f of d.tool_calls??[]){
-   need(f.index===0&&Object.keys(f).every(k=>['index','id','type','function','extra_content'].includes(k)),'TRANSPORT_CALL');
-   call??={function:{name:'',arguments:''}};for(const k of ['id','type','extra_content'])if(f[k]!==undefined)set(call,k,f[k]);
+   need((f.index===0||(allowedPair&&f.index===1))&&Object.keys(f).every(k=>['index','id','type','function','extra_content'].includes(k)),'TRANSPORT_CALL');
+   const call=calls[f.index]??={function:{name:'',arguments:''}};for(const k of ['id','type','extra_content'])if(f[k]!==undefined)set(call,k,f[k]);
    const fn=f.function??{};need(Object.keys(fn).every(k=>['name','arguments'].includes(k)),'TRANSPORT_FUNCTION');
    for(const k of ['name','arguments'])if(fn[k]!==undefined){need(typeof fn[k]==='string','TRANSPORT_FUNCTION');call.function[k]+=fn[k];}
   }
   finish=c.finish_reason||finish;
  }
- need(done,'TRANSPORT_TRUNCATED');const message={role:'assistant',content:content||null,...(call?{tool_calls:[call]}:{}),...(extra!==undefined?{extra_content:extra}:{}),...(reasoning.length?{reasoning_details:reasoning}:{})};
- const result={status:'completed',finishReason:finish,message,usage};parseResult(result,tools);return result;
+ need(done,'TRANSPORT_TRUNCATED');need(Array.from(calls).every(Boolean),'TRANSPORT_CALL');const message={role:'assistant',content:content||null,...(calls.length?{tool_calls:calls}:{}),...(extra!==undefined?{extra_content:extra}:{}),...(reasoning.length?{reasoning_details:reasoning}:{})};
+ const result={status:'completed',finishReason:finish,message,usage};parseResult(result,tools,{allowedPair});return result;
 }
 export function simulatedWire(result){
  const blocks=[],push=(delta,finish_reason=null)=>blocks.push('data: '+JSON.stringify({choices:[{delta,finish_reason}]}));
  const m=result.message;
- if(m.tool_calls){const c=m.tool_calls[0],a=c.function.arguments,cut=Math.floor(a.length/2);
-  push({tool_calls:[{index:0,id:c.id,type:c.type,function:{name:c.function.name,arguments:a.slice(0,cut)},...(c.extra_content?{extra_content:c.extra_content}:{})}],...(m.extra_content?{extra_content:m.extra_content}:{}),...(m.reasoning_details?{reasoning_details:m.reasoning_details}:{})});
-  push({tool_calls:[{index:0,function:{arguments:a.slice(cut)}}]},result.finishReason);
+ if(m.tool_calls){
+  const starts=[],ends=[];
+  for(const [index,c] of m.tool_calls.entries()){
+   const args=c.function.arguments,cut=Math.floor(args.length/2);
+   starts.push({index,id:c.id,type:c.type,function:{name:c.function.name,arguments:args.slice(0,cut)},...(c.extra_content?{extra_content:c.extra_content}:{})});
+   ends.push({index,function:{arguments:args.slice(cut)}});
+  }
+  push({tool_calls:starts,...(m.extra_content?{extra_content:m.extra_content}:{}),...(m.reasoning_details?{reasoning_details:m.reasoning_details}:{})});
+  push({tool_calls:ends.reverse()},result.finishReason);
  }else{const s=m.content,cut=Math.floor(s.length/2);push({content:s.slice(0,cut)});push({content:s.slice(cut)},result.finishReason);}
  return blocks.join('\n\n')+'\n\ndata: [DONE]\n\n';
 }
