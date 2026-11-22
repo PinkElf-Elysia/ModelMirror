@@ -1,3 +1,4 @@
+import reviewCharacterProposals from "./articles/review-character-proposals.md?raw";
 import manageCharacterMemory from "./articles/manage-character-memory.md?raw";
 import controlCharacterContext from "./articles/control-character-context.md?raw";
 import reviseCharacterConversations from "./articles/revise-character-conversations.md?raw";
@@ -153,6 +154,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 export const helpArticles: HelpArticle[] = [
   { slug: "use-rpg-voice-library", title: "创建并使用角色音色", summary: "注册云端固定音色、绑定角色，复用沉浸语音朗读。", category: "按目标找指南", contentType: "how-to", audience: "RPG 玩家与管理员", estimatedMinutes: 5, keywords: ["音色库", "声音克隆", "Qwen", "CosyVoice", "TTS"], relatedRoutes: ["/rpg/plugins", "/settings"], verifiedCommit: "ae67eb25", verifiedDate: "2026-11-14", content: useRpgVoiceLibrary, nextSlug: "listen-rpg-story" },
   { slug: "create-single-character-card", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色、核对上下文、封存版本并恢复独立会话。", category: "按目标找指南", contentType: "how-to", audience: "单角色卡作者与玩家", estimatedMinutes: 6, keywords: ["RPG", "单角色卡", "角色书", "导入", "开场白", "独立会话"], relatedRoutes: ["/rpg"], verifiedCommit: "92849f31", verifiedDate: "2026-11-14", content: createSingleCharacterCard, nextSlug: "use-character-group-chat" },
+  { slug: "review-character-proposals", title: "审阅角色记忆提案与中止回复", summary: "核对提案来源，采纳私有记忆，找回中止的回复片段。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 4, keywords: ["记忆提案", "中止回复", "部分结果", "流式"], relatedRoutes: ["/rpg"], verifiedCommit: "15ea26ca", verifiedDate: "2026-11-21", content: reviewCharacterProposals, nextSlug: "manage-character-memory" },
   { slug: "manage-character-memory", title: "整理角色总结与记忆", summary: "核对消息来源、采纳资料，向归队成员告知剧情。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["人工记忆", "总结", "消息依据", "群聊"], relatedRoutes: ["/rpg"], verifiedCommit: "95ce9a83", verifiedDate: "2026-11-21", content: manageCharacterMemory, nextSlug: "control-character-context" },
   { slug: "control-character-context", title: "调整角色上下文与本次参数", summary: "查看模型可见内容、裁剪原因、输出预留与分支默认值。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["上下文", "历史窗口", "本次参数", "长对话", "预算"], relatedRoutes: ["/rpg"], verifiedCommit: "aebda0a1", verifiedDate: "2026-11-14", content: controlCharacterContext, nextSlug: "revise-character-conversations" },
   { slug: "revise-character-conversations", title: "修改角色对话并选择续写分支", summary: "保留原回复，编辑消息、比较候选并从选定位置继续。", category: "按目标找指南", contentType: "how-to", audience: "角色卡创作者与玩家", estimatedMinutes: 5, keywords: ["续写分支", "候选回复", "消息编辑", "重新生成", "原始回复"], relatedRoutes: ["/rpg"], verifiedCommit: "f31bf50b", verifiedDate: "2026-11-14", content: reviseCharacterConversations, nextSlug: "manage-character-conversations" },
@@ -662,6 +664,7 @@ export const helpSections: HelpSection[] = [
       { id: "harry-potter-guide", title: "制作霍格沃茨角色并开始聊天", summary: "核对角色、魔杖、天赋与聊天草稿。", to: "/help/play-harry-potter-card", keywords: ["哈利波特", "霍格沃茨", "魔杖"] },
       { id: "jinyong-guide", title: "制作金庸人物帖并开始聊天", summary: "核对人物帖、聊天草稿与状态连续性。", to: "/help/play-jinyong-card", keywords: ["金庸", "人物帖", "草稿"] },
       { id: "single-character-guide", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色，封存版本后进入独立会话。", to: "/help/create-single-character-card", keywords: ["RPG", "单角色卡", "角色书", "开场白"] },
+      { id: "character-proposals-guide", title: "审阅角色记忆提案与中止回复", summary: "采纳角色记忆，查看流式回复与中止后的原请求。", to: "/help/review-character-proposals", keywords: ["提案", "中止", "部分结果"] },
       { id: "character-memory-guide", title: "整理角色总结与记忆", summary: "核对来源、采纳资料，告知归队同伴。", to: "/help/manage-character-memory", keywords: ["总结", "人工记忆", "来源"] },
       { id: "character-context-guide", title: "调整角色上下文与本次参数", summary: "先预览可见内容，再安排本次生成。", to: "/help/control-character-context", keywords: ["上下文", "参数", "历史窗口"] },
       { id: "character-revision-guide", title: "修改角色对话并选择续写分支", summary: "保留原回复、比较候选并续写不同走向。", to: "/help/revise-character-conversations", keywords: ["续写分支", "候选回复", "消息编辑"] },

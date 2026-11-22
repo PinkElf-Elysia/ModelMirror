@@ -2,7 +2,7 @@ import http from 'node:http';import {randomBytes} from 'node:crypto';import {rea
 import {check,branch,at,copy} from '../revisions/contracts.mjs';import {keys,parseJson} from '../../authoring/contracts.mjs';
 export async function startContextServer({store,host,sources,coordinator,port=0,charactersUrl,groupsUrl,executionLabel=null,budgetGuard=null,revisionsUrl=null,memoryUrl=null}){
  for(const url of [charactersUrl,groupsUrl])check(/^http:\/\/127\.0\.0\.1:[0-9]+\/(characters|groups)$/.test(url),'NAVIGATION_INVALID');
- const token=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');let origin;
+ const token=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');let origin,liveUrl=null;
  const server=http.createServer(async(req,res)=>{
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('Cross-Origin-Resource-Policy','same-origin');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
   const send=(v,status=200,type='application/json')=>{res.writeHead(status,{'Content-Type':type});res.end(type==='application/json'?JSON.stringify(v):v);};
@@ -14,7 +14,7 @@ export async function startContextServer({store,host,sources,coordinator,port=0,
    if(req.method==='GET'&&files[u.pathname]){if(u.pathname==='/revisions')res.setHeader('Set-Cookie',`${store.panel?'mm_manual_memory':'mm_context'}=${token}; HttpOnly; SameSite=Strict; Path=/`);const [f,type]=files[u.pathname];return send(await readFile(new URL(f,import.meta.url)),200,type);}
    check(req.headers.cookie?.split(';').some(x=>x.trim()===(store.panel?'mm_manual_memory=':'mm_context=')+token),'OWNER_REQUIRED');
    if(req.method==='GET'){
-    if(u.pathname==='/api/bootstrap')return send({csrf,revisionsUrl,memoryUrl,manualMemory:!!store.panel,capabilities:await store.capabilities(),sources:await sources.list(),families:await store.list(),charactersUrl,groupsUrl,realExecution:store.mode==='controlled',executionLabel:executionLabel??(store.mode==='controlled'?'受控生成':'离线预览 · 不调用模型'),models:store.catalog?.()??[],taskBudget:budgetGuard?await budgetGuard.status():null});
+    if(u.pathname==='/api/bootstrap')return send({csrf,revisionsUrl,memoryUrl,...(liveUrl?{liveUrl}:{}),manualMemory:!!store.panel,capabilities:await store.capabilities(),sources:await sources.list(),families:await store.list(),charactersUrl,groupsUrl,realExecution:store.mode==='controlled',executionLabel:executionLabel??(store.mode==='controlled'?'受控生成':'离线预览 · 不调用模型'),models:store.catalog?.()??[],taskBudget:budgetGuard?await budgetGuard.status():null});
     if(store.panel && u.pathname==='/api/notes')return send(await store.panel(u.searchParams.get('family'),u.searchParams.get('branch'),u.searchParams.get('actor')));
     if(u.pathname==='/api/context')return send(await store.contextPlan(u.searchParams.get('family'),u.searchParams.get('request')));
     if(u.pathname==='/api/capabilities')return send(await store.capabilities());
@@ -38,5 +38,5 @@ export async function startContextServer({store,host,sources,coordinator,port=0,
   }catch(e){send({error:e.code??'REVISION_REQUEST_FAILED'},400);}
  });
  await new Promise((ok,no)=>{server.once('error',no);server.listen(port,'127.0.0.1',ok);});origin='http://127.0.0.1:'+server.address().port;
- return {origin,linkMemory(url){check(/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(url),'NAVIGATION_INVALID');memoryUrl=url;},close:()=>new Promise((ok,no)=>server.close(e=>e?no(e):ok()))};
+ return {origin,linkLive(url){check(/^http:\/\/127\.0\.0\.1:[0-9]+\/live$/.test(url),'NAVIGATION_INVALID');liveUrl=url;},linkMemory(url){check(/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(url),'NAVIGATION_INVALID');memoryUrl=url;},close:()=>new Promise((ok,no)=>server.close(e=>e?no(e):ok()))};
 }

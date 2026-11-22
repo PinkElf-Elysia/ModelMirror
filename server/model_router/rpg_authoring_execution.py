@@ -15,6 +15,7 @@ import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from . import rpg_live_output as live
 from .egress import ProviderEgressError
 from .openrouter_errors import read_openrouter_error_code
 
@@ -99,7 +100,9 @@ async def _body(request, unique):
         character = isinstance(value, dict) and "messageContract" in value
         if character:
             fields.add("messageContract")
-            if (value["messageContract"] not in (CHARACTER_MESSAGES, GROUP_MESSAGES) or value.get("purpose") != "story"
+            contract = value["messageContract"]
+            if (contract not in (CHARACTER_MESSAGES, GROUP_MESSAGES, live.SINGLE, live.GROUP, live.PROPOSAL)
+                    or value.get("purpose") != ("memory" if contract == live.PROPOSAL else "story")
                     or value.get("format") not in (FORMAT, FORMAT_V2)):
                 raise ValueError()
         version_two = isinstance(value, dict) and value.get("format") in (FORMAT_V2, FORMAT_COMPARISON)
@@ -119,7 +122,11 @@ async def _body(request, unique):
         if value["purpose"] not in ("story", "summary", "compression", "memory") or not isinstance(value["parameters"], dict):
             raise ValueError()
         messages = value["messages"]
-        if character and value["messageContract"] == GROUP_MESSAGES:
+        if character and value["messageContract"] == live.PROPOSAL:
+            if not isinstance(messages, list) or len(messages) != 2:
+                raise ValueError()
+            roles = ["system", "user"]
+        elif character and value["messageContract"] in (GROUP_MESSAGES, live.GROUP):
             # Group history need not alternate: only the selected member is
             # assistant; other participants are explicitly attributed user data.
             if not isinstance(messages, list) or not 2 <= len(messages) <= 2204:
@@ -213,7 +220,7 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
             raise ValueError("rpg_authoring_selection_changed")
         return entry, connection
 
-    async def execute(stable, value, request_hash, result_path):
+    async def execute(stable, value, request_hash, result_path, channel=None):
         dispatch = None
         sent = False
         preflighting = False
@@ -279,6 +286,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                 selection(stable, value)
                 if not _execution_enabled():
                     raise ValueError("rpg_authoring_execution_disabled")
+                if channel:
+                    channel.begin(selected["modelId"], (dispatch.target.api_key, os.getenv("RPG_S2S_TOKEN")))
                 stable.mark_dispatched(dispatch)
                 sent = True
                 response = await stable.transport.send_authorized_stream(client, outbound)
@@ -300,6 +309,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                             if size > MAX_RESPONSE:
                                 raise ValueError("rpg_authoring_response_capacity")
                             chunks.append(chunk)
+                            if channel:
+                                channel.feed(chunk)
                     except (Exception, asyncio.CancelledError) as exc:
                         stream_error = exc
                     # Keep every received, bounded complete SSE fragment even if
@@ -312,6 +323,8 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                             pass
                         raise stream_error
                     _parse(sse, selected["modelId"], evidence)
+                    if channel:
+                        channel.finishing = True
                     if hasattr(stable.control.peek_policy(), "authoring_model_ids"):
                         selection(stable, value)  # Revoked late output remains evidence only.
                     status = "completed"
@@ -341,14 +354,17 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
                        "rpg_authoring_budget_exhausted", "rpg_authoring_routing_disabled", "rpg_authoring_model_not_allowed",
                        "rpg_authoring_dns_failed", "rpg_authoring_address_blocked",
                        "rpg_authoring_preflight_timeout", "rpg_authoring_preflight_network"}
-            if upstream_http_error is not None:
+            if channel and channel.stopping:
+                error = "rpg_authoring_host_stopped"
+            elif upstream_http_error is not None:
                 error = upstream_http_error
             else:
                 error = code if isinstance(code, str) and code in allowed else "rpg_authoring_result_unknown" if sent else "rpg_authoring_preflight_failed"
-            status = "unknown" if sent and error in {"rpg_authoring_result_unknown", "rpg_authoring_response_capacity"} else "failed"
+            status = "unknown" if sent and error in {"rpg_authoring_result_unknown", "rpg_authoring_response_capacity", "rpg_authoring_host_stopped"} else "failed"
         if dispatch:
             secret = dispatch.target.api_key
-            if secret and (secret in evidence["raw"] or secret in sse or secret in str(evidence["actualModel"])):
+            secrets = [secret, os.getenv("RPG_S2S_TOKEN")] if channel or value.get("messageContract") == live.PROPOSAL else [secret]
+            if any(s and (s in evidence["raw"] or s in sse or s in str(evidence["actualModel"])) for s in secrets):
                 evidence.update(raw="", actualModel=None, finishReason=None)
                 sse, error, status = "", "rpg_authoring_credential_echo_blocked", "failed"
             try:
@@ -409,10 +425,15 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
             _write_new(claim, {"format": value["format"], "requestHash": request_hash, "request": value})
         except FileExistsError:
             return JSONResponse(_lookup(stable, value["sessionId"], value["requestId"], request_hash), headers={"Cache-Control": "no-store"})
-        task = asyncio.create_task(execute(stable, value, request_hash, result))
+        channel = live.Channel(result) if value.get("messageContract") in (live.SINGLE, live.GROUP) else None
+        task = asyncio.create_task(execute(stable, value, request_hash, result, channel))
+        if channel:
+            channel.attach(task)
         _tasks.add(task)
         def settled(t):
             _tasks.discard(t)
+            if channel:
+                channel.detach()
             if not t.cancelled():
                 t.exception()  # Observe errors even when the original client left.
         task.add_done_callback(settled)
@@ -437,3 +458,5 @@ def register_authoring_execution(router, auth, get_stable, catalog, parameters, 
         if "receipt" in result:
             comparison.settle_result(stable, saved["request"], result)
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    live.register(router, auth, get_stable, _paths, _read)

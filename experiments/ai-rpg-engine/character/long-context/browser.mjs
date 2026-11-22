@@ -70,6 +70,7 @@ $('save-default').onclick=()=>run(async()=>{const settings=selectedSettings();st
 await run(async()=>{boot=await api('bootstrap');
  if(boot.memoryUrl){const link=el('a','总结与记忆');link.href=boot.memoryUrl;link.onclick=()=>{const u=new URL(boot.memoryUrl);if(state){u.searchParams.set('fromFamily',state.id);u.searchParams.set('fromBranch',state.branchId);}link.href=u.href;};document.querySelector('nav').append(link);}
  if(boot.manualMemory){const {install}=await import('/manual-memory.mjs');install({api,load,state:()=>state,write,el});document.querySelector('h1').textContent='整理对话中的总结与记忆';}
+ if(boot.liveUrl){const link=el('a','对话与记忆提案');link.href=boot.liveUrl;document.querySelector('nav').append(link);}
  $('previous').href=boot.revisionsUrl??boot.charactersUrl;$('mode').textContent=boot.executionLabel;for(const m of boot.models??[]){const option=el('option',m.label);option.value=m.id;$('model').append(option);}const nav=url=>{const u=new URL(url);u.searchParams.set('revisions',location.origin+'/revisions');return u.href;};$('library').href=nav(boot.charactersUrl);$('sessions').href=nav(boot.charactersUrl+'?desk=sessions');$('profiles').href=nav(boot.charactersUrl+'?desk=profiles');$('groups').href=nav(boot.groupsUrl);const q=new URLSearchParams(location.search);if(q.has('family'))await load(q.get('family'),q.get('branch'));else list();});
 
 function openPanel(id){const panel=$(id);panel.showModal();panel.scrollTop=0;panel.querySelector('button')?.focus({preventScroll:true});requestAnimationFrame(()=>{panel.scrollTop=0;});}
