@@ -15,14 +15,17 @@ export const catalog = [
   '并立政权简目：' + polities.map(entry => entry.name).join('、'),
 ].join('\n');
 
-const rules = source.slice(source.indexOf('# 核心设定\n'), source.indexOf('【先秦时期】\n\n时代概览')).trimEnd()
-  .replace(/^- 示例：新始建国元年.+\n/m, '');
-const anchoring = '📖 朝代锚定系统\n按开局命书的朝代规范名标注当前朝代。并立政权简目只供当前话题查考，保持原朝代、所在地和人物身份。';
-export const fixed = rules + '\n\n' + anchoring;
-const digestVersion = (code, data, prompt) => sha(Buffer.concat([code, data, prompt]));
-const loadedVersion = digestVersion(read('./worldbook.mjs'), config, Buffer.from(source));
+const readFixed = () => read('./fixed-prompt.txt').toString('utf8').replaceAll('\r\n', '\n');
+export const fixed = readFixed();
+const anchor = '\n\n📖 朝代锚定系统\n';
+const splitAt = fixed.lastIndexOf(anchor);
+if (splitAt < 0) throw Error('ANCIENT_ANCHOR_MISSING');
+const rules = fixed.slice(0, splitAt);
+const anchoring = fixed.slice(splitAt + 2);
+const digestVersion = (code, data, prompt, fixedPrompt) => sha(Buffer.concat([code, data, prompt, Buffer.from(fixedPrompt)]));
+const loadedVersion = digestVersion(read('./worldbook.mjs'), config, Buffer.from(source), fixed);
 export function versionHash() {
-  const onDisk = digestVersion(read('./worldbook.mjs'), read('./worldbook.json'), read('./system.txt'));
+  const onDisk = digestVersion(read('./worldbook.mjs'), read('./worldbook.json'), read('./system.txt'), readFixed());
   if (onDisk !== loadedVersion) throw Error('ANCIENT_WORLDBOOK_CHANGED');
   return loadedVersion;
 }
