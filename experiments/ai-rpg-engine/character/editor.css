@@ -194,6 +194,7 @@ details.advanced[open]{padding-bottom:6px}
 /* ---------- Chat ---------- */
 body[data-screen=chat],body.character-chat:not([data-screen]){height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 body[data-screen=chat]>*,body.character-chat:not([data-screen])>*{flex:none}
+#samples{width:min(40rem,94vw);max-height:85vh;overflow:auto}#samples fieldset{min-width:0;margin:.75rem 0}#samples label,#samples textarea{display:block;width:100%}#samples pre{white-space:pre-wrap;overflow-wrap:anywhere}#samples button{margin:.2rem}
 body[data-screen=chat] main.character-workspace,body.character-chat:not([data-screen]) main.character-workspace{flex:1 1 0;min-height:0}
 body[data-screen=chat] .character-nav,body.character-chat:not([data-screen]) .character-nav{position:static;height:auto;align-self:stretch}
 body[data-screen=chat] .workspace-main,body.character-chat:not([data-screen]) .workspace-main{display:flex;flex-direction:column;min-height:0}
@@ -351,3 +352,11 @@ body[data-screen=chat] main.character-workspace{display:flex;width:100%}
 }
 
 @media(max-width:720px){.character-nav #groups-navigation{display:none}}
+.book-toolbar,.book-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(14rem,100%),1fr));gap:.65rem 1rem;align-items:start}
+.book-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.8rem 0}
+#book-count{margin-right:auto;font-variant-numeric:tabular-nums}
+.book-test{margin:1.4rem 0;padding:1rem 0;border-block:1px solid var(--navy-line)}
+.book-test details,.knowledge-entry details{margin:.6rem 0}
+.book-fields .check{align-self:center}
+#book-result p,.knowledge-entry h3{overflow-wrap:anywhere}
+#book-result pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}

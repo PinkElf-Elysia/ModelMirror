@@ -4,7 +4,7 @@ import {prepareVariablePanel} from './variable-render.mjs';
 import {panelDefinition,initialPanelSnapshot} from './variable-panel.mjs';
 import {BranchCheckpoints} from './branch-storage.mjs';
 import {createServer} from 'node:http';
-import {readFile} from 'node:fs/promises';
+import {readFile,access} from 'node:fs/promises';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {resolve, dirname} from 'node:path';
 import {randomBytes} from 'node:crypto';
@@ -630,7 +630,12 @@ export async function startAuthoringServer({directory, port = 0, recoverDeadOwne
       query(url, []);
       const body = await jsonBody(req);
       if (action === 'save') return send(await store.save(workId, body));
-      if (action === 'publish') return send(await store.publish(workId, body));
+      if (action === 'publish') {
+        const shelf=resolve(directory,'character','independent-books','library','records','shelf.json');
+        const hasBooks=await access(shelf).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});
+        if(hasBooks&&(await store.read(workId)).draft.kind==='character')return send(await (await characterHost()).publishWithBooks(workId,body));
+        return send(await store.publish(workId,body));
+      }
       if (action === 'copy') return send(await store.copy(workId, body));
       if (action === 'assets/remove') return send(await store.removeAsset(workId, body));
       if (action === 'assets/from-gallery') return send(await store.adoptGalleryImage(workId, body));
