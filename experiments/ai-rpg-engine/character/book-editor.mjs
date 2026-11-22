@@ -16,10 +16,11 @@ export function mountBookEditor({document, read, write, locked, isV3=()=>false, 
     generation++;
     result.replaceChildren();
   }
-  function writeField(index, key, value) {
+  function writeField(index, key, value, extension=false) {
     if (locked()) return;
     const book = read();
-    const target = index === null ? book : book.entries[index];
+    const record = index === null ? book : book.entries[index];
+    const target = extension ? (record.extensions ??= {}) : record;
     if (value === undefined) delete target[key];
     else target[key] = value;
     write(book);
@@ -39,10 +40,12 @@ export function mountBookEditor({document, read, write, locked, isV3=()=>false, 
       }
     }
     if (type === 'number') {
-      el.step = 'any';
+      el.step = options.step ?? 'any';
+      if (options.max !== undefined) el.max = String(options.max);
       if (options.min !== undefined) el.min = String(options.min);
       if (options.required) el.required = true;
     }
+    if (options.maxLength) el.maxLength = options.maxLength;
     const initial = record[key];
     if (type === 'number' && initial !== undefined && typeof initial !== 'number') el.dataset.bookInvalid = '';
     if (options.placeholder) el.placeholder = options.placeholder;
@@ -59,15 +62,15 @@ export function mountBookEditor({document, read, write, locked, isV3=()=>false, 
       if (type === 'number') {
         if (!el.validity.valid) {
           el.dataset.bookInvalid = '';
-          writeField(index, key, el.value);
+          writeField(index, key, el.value, options.extension);
           return;
         }
         delete el.dataset.bookInvalid;
         value = value === '' ? undefined : Number(value);
       } else if (type === 'checkbox') value = el.checked;
       else if (options.keys) value = value.split(/\r?\n/).filter(k => k.length);
-      else if (type === 'select' && value === '') value = undefined;
-      writeField(index, key, value);
+      else if ((type === 'select' || options.extension) && value === '') value = undefined;
+      writeField(index, key, value, options.extension);
       if (key === 'name' && index !== null) container.closest('section').querySelector('h3').textContent = title({name:value}, index);
     });
     label.append(el);
@@ -99,6 +102,9 @@ export function mountBookEditor({document, read, write, locked, isV3=()=>false, 
     grid.className = 'book-fields';
     field(grid, entry, i, 'name', '条目名称');
     if (isV3()) field(grid, entry, i, 'use_regex', 'V3 受限正则', 'checkbox');
+    if (isV3()) field(grid, entry.extensions ?? {}, i, 'modelmirror.exclusiveGroup', '互斥组名', 'text', {extension:true,maxLength:64,placeholder:'留空表示独立触发'});
+    if (isV3()) field(grid, entry.extensions ?? {}, i, 'modelmirror.probability', '触发概率（%）', 'number', {min:0,max:100,step:'1',extension:true,placeholder:'留空表示不抽取'});
+    if (isV3()) field(grid, entry.extensions ?? {}, i, 'modelmirror.cooldown', '冷却间隔（本角色入史回复数）', 'number', {min:0,max:1000,step:'1',extension:true,placeholder:'0 表示关闭'});
     field(grid, entry, i, 'constant', '常驻', 'checkbox');
     field(grid, entry, i, 'case_sensitive', '区分大小写', 'checkbox');
     field(grid, entry, i, 'selective', '同时匹配次级关键词', 'checkbox');

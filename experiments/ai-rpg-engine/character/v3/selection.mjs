@@ -5,19 +5,20 @@ import {compileKeys,match,meter,limits,StepLimit} from './regex.mjs';
 export function withMeter(fn){
  try{return fn(meter());}catch(error){if(!(error instanceof StepLimit))throw error;return fn({disabled:true});}
 }
-export function selectV3(card,history,input,options,clock){
+export function selectV3(card,history,input,options,clock,gate,resolveGroup){
  const book=card.data.character_book;
- if(!book?.entries.some(e=>e.use_regex))return selectBook(card,history,input,options);
+ if(!book||(!gate&&!resolveGroup&&!book.entries.some(e=>e.use_regex)))return selectBook(card,history,input,options);
  const depth=Math.min(200,Math.floor(book.scan_depth??4)),player=options.player??'玩家';
  let corpus=[...(depth?history.slice(-depth).map(m=>m.content):[]),input].join('\n');
- const selected=new Set(),rows=book.entries.map((e,index)=>({index,id:e.id??null,status:'not-triggered'}));
+ const selected=new Set(),excluded=new Set(),rows=book.entries.map((e,index)=>({index,id:e.id??null,status:'not-triggered'}));
  for(let pass=0;pass<Math.min(32,book.entries.length+1);pass++){
-  const extra=[];let chars=null,lower=null;
+  const matches=[],extra=[];let chars=null,lower=null;
   for(const [index,e] of book.entries.entries()){
-   const row=rows[index];if(selected.has(index))continue;
+   const row=rows[index];if(selected.has(index)||excluded.has(index))continue;
    if(!e.enabled){row.status='disabled';continue;}
    if(/^\s*@@/m.test(e.content)){row.status='unsupported-behavior';continue;}
    if(e.use_regex){
+    if(!clock){row.status='unsupported-behavior';continue;}
     if(clock.disabled){row.status='regex-request-limit';continue;}
     let compiled=clock.cache.get(e);
     if(!compiled){compiled=compileKeys(e.keys);clock.cache.set(e,compiled);}
@@ -29,7 +30,16 @@ export function selectV3(card,history,input,options,clock){
     const has=keys=>keys?.some(k=>k.length&&text.includes(e.case_sensitive?expand(k,card,player):expand(k,card,player).toLowerCase()));
     if(!e.constant&&!(has(e.keys)&&(!e.selective||has(e.secondary_keys))))continue;
    }
-   selected.add(index);row.status='triggered';extra.push(expand(e.content,card,player));
+   if(gate){
+    const decision=gate(index);Object.assign(row,decision);
+    if(decision?.status){excluded.add(index);continue;}
+   }
+   matches.push(index);
+  }
+  const admitted=resolveGroup?resolveGroup(matches,rows):matches;
+  for(const index of matches)excluded.add(index);
+  for(const index of admitted){
+   selected.add(index);rows[index].status='triggered';extra.push(expand(book.entries[index].content,card,player));
   }
   if(!book.recursive_scanning||!extra.length)break;
   corpus+='\n'+extra.join('\n');

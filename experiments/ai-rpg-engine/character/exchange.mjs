@@ -1,3 +1,11 @@
+import {hasExclusive,groupName,exclusiveField} from './book-library/exclusive.mjs';
+import {hasProbability,probabilityField} from './book-library/probability.mjs';
+import {cooldownField,hasCooldown} from './book-library/cooldown.mjs';
+import {keepHeader} from './book-library/keep.mjs';
+import {hasFallback} from './book-library/fallback.mjs';
+import {timingHeader} from './book-library/timing.mjs';
+import {depthHeader} from './book-library/depth.mjs';
+import {onceBody} from './book-library/once.mjs';
 import {compileKeys} from './v3/regex.mjs';
 import {parseJson,sha256,canonical} from '../authoring/contracts.mjs';
 import {CARD_LIMITS,validateCard,compatibility,downgrade,problem} from './card.mjs';
@@ -8,8 +16,33 @@ export function authorCompatibility(card){
  if(card.spec==='chara_card_v3')for(const w of report.warnings){
   if(w.code!=='BOOK_BEHAVIOR_UNSUPPORTED')continue;
   const entry=card.data.character_book.entries[Number(w.path.split('/').pop())];
+  if(hasFallback(entry.content)){w.code='V3_BRANCH_FALLBACK';w.message='原回退链保留。启用回退链后，可在分支预览中查看选择及未纳入原因。';continue;}
+  const keep=keepHeader(entry.content);
+  if(keep&&!keep.invalid){w.code='V3_BRANCH_KEEP';w.message='在启用持续触发的分支，首次纳入条目并将完整回复写入历史后，后续可持续匹配。';continue;}
+  const timing=timingHeader(entry.content);
+  if(timing&&!timing.invalid){w.code='V3_BRANCH_TIMING';w.message='仅在启用延迟和周期触发的分支检查可见角色消息数；其他条目条件仍须满足。';continue;}
+  const depth=depthHeader(entry.content);
+  if(depth&&!depth.invalid){w.code='V3_BRANCH_SCAN_DEPTH';w.message='条目扫描深度 '+depth.depth+'；需启用条目扫描深度'+(depth.once?'和一次性触发':'')+(entry.use_regex?'和受限正则':'')+'。';continue;}
+  if(onceBody(entry.content)!==null){w.code='V3_BRANCH_ONCE';w.message='一次性条目在启用该规则的分支中生效，完整回复入史后消耗。';continue;}
   if(!entry.use_regex||/^\s*@@/m.test(entry.content))continue;
   const rule=compileKeys(entry.keys);w.code=rule.status??'V3_BRANCH_REGEX';w.message=rule.status?'原模式保留，本条跳过 · '+rule.status+(rule.key===undefined?'':' · keys['+rule.key+']'):'可在启用 V3 受限正则的新分支使用';
+ }
+ for(const [index,entry] of (card.data.character_book?.entries??[]).entries()){
+  if(hasExclusive(entry)){
+   const name=groupName(entry.extensions[exclusiveField]);
+   report.warnings.push({code:'MODELMIRROR_EXCLUSIVE_GROUP',path:'data/character_book/entries/'+index,
+    message:card.spec!=='chara_card_v3'?'已保留互斥组设置，V3 分支可启用。':name===null?'组名无效，启用互斥规则时跳过此条。':name?'启用互斥规则时，同书同组只选一条。':'组名为空，此条独立触发。'});
+  }
+  if(hasProbability(entry)){
+   const percent=entry.extensions[probabilityField];
+   report.warnings.push({code:'MODELMIRROR_PROBABILITY',path:'data/character_book/entries/'+index,
+    message:card.spec!=='chara_card_v3'?'保留模镜概率设置，V3 分支可启用。':Number.isInteger(percent)&&percent>=0&&percent<=100?'启用模镜概率时，匹配后按 '+percent+'% 抽取。':'概率设置保留；启用概率时无效条目跳过。'});
+  }
+  if(!hasCooldown(entry))continue;
+  const n=entry.extensions[cooldownField];
+  const valid=Number.isSafeInteger(n)&&n>=0&&n<=1000;
+  report.warnings.push({code:'MODELMIRROR_COOLDOWN',path:'data/character_book/entries/'+index,
+   message:card.spec!=='chara_card_v3'?'保留模镜冷却设置。V3 分支可启用。':!valid?'冷却值保留；启用冷却时无效条目跳过。':n?'模镜冷却：启用后间隔 '+n+' 条本角色入史回复。':'模镜冷却已关闭。'});
  }
  return report;
 }
