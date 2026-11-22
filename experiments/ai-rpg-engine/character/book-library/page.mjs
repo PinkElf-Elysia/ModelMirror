@@ -1,3 +1,4 @@
+import {createDisplayPanel} from './display-text.mjs';
 const $=id=>document.getElementById(id);
 const el=(tag,text)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;return node;};
 const option=(s,value,label)=>s.add(new Option(label,value));
@@ -9,10 +10,19 @@ async function api(action,args){
   const value=await response.json();if(!response.ok)throw Error(value.code??value.error?.code??JSON.stringify(value));return value;
 }
 async function run(task){
-  if(busy)return;busy=true;
-  try{await task();}catch(error){$('status').textContent='操作未完成 · '+error.message;clearReview();}
-  finally{busy=false;}
+  if(busy)return;busy=true;$('actor').disabled=true;$('source').disabled=true;
+  try{await task();}catch(error){
+    const reasons={REVISION_PREVIEW_CHANGED:'预览已变化，请重新预览并核对日期与内容。',
+      REVISION_VARIABLE_NESTING_LIMIT:'条件最多可嵌套四层。请简化角色设定或条目。',
+      REVISION_VARIABLE_CONDITION_SYNTAX:'请核对条件、可选的 else 和结束标记 /if 是否配对。',
+      REVISION_VARIABLE_MACRO_SYNTAX:'请核对宏中的范围、变量名和条件值。',
+      REVISION_VARIABLE_INPUT:'变量名须以字母、汉字或下划线开头。值须为纯文本，不能含控制字符或 {}<>@。',
+      REVISION_VARIABLE_HISTORY_LIMIT:'本分支变量修改已达 256 次。',REVISION_VARIABLE_SCOPE_LIMIT:'此范围内最多保存 32 个变量。'};
+    $('status').textContent=reasons[error.message]??('操作未完成 · '+error.message);clearReview();
+  }
+  finally{busy=false;$('actor').disabled=false;$('source').disabled=false;}
 }
+const display=createDisplayPanel(document,ref=>api('display-receipt',ref));
 const bind=(id,fn)=>$(id).onclick=()=>run(fn);
 function clearReview(){consent=null;prepared=null;$('confirm').disabled=true;$('send').disabled=true;$('review').textContent='';$('assembly').textContent='';$('explain').replaceChildren();}
 function dirtyBook(){dirty=true;$('status').textContent='草稿尚未保存';}
@@ -78,6 +88,19 @@ bind('apply',async()=>{const parsed=JSON.parse($('json').value);await api('trial
 bind('add',async()=>{if(rawDirty)throw Error('请先应用完整 JSON');book.entries.push({keys:[],content:'',extensions:{},enabled:true,insertion_order:book.entries.length});renderEntries();dirtyBook();});
 function savedForm(){const invalid=$('entries').querySelector('input:invalid');if(invalid){invalid.reportValidity();throw Error(invalid.validationMessage);}if(rawDirty)throw Error('请先应用完整 JSON');return {title:$('title').value,book};}
 function groupLabel(e){return '互斥组「'+e.exclusive.name+'」 · '+(e.exclusive.winner===e.index?'本条胜出':'同组条目 '+(e.exclusive.winner+1)+' 胜出');}
+function placementLabel(p){
+  if(p.slot==='history')return '历史深度 '+p.depth+(Number.isInteger(p.afterMessages)?'（前方有 '+p.afterMessages+' 条可见消息）':'');
+  return {before_desc:'描述前',after_desc:'描述后',personality:'性格段末',scenario:'场景段末'}[p.slot];
+}
+function macroDetails(snapshot,title){
+  const box=el('details');box.append(el('summary',title+(snapshot.timeZone?' · '+snapshot.timeZone:'')+' · '+snapshot.items.length+' 处'));
+  const labels={description:'人物描述',personality:'性格',scenario:'场景',mes_example:'对话示例',system_prompt:'角色提示',post_history_instructions:'历史后置指令'};
+  for(const item of snapshot.items){
+    const field=labels[item.source]??('角色书条目 '+(Number(item.source.split('/').at(-1))+1));
+    box.append(el('div',field+' · '+item.token+' → '+(item.reason==='missing'?'缺值':item.reason==='condition'?(item.value?'成立':'不成立')+'（'+item.observed+'）':item.value===''?'空文本':item.value)));
+  }
+  return box;
+}
 function probabilityLabel({percent,roll}){return '概率 '+percent+'% · 抽取值 '+roll+'（'+(roll<=percent?'抽中':'未抽中')+'）';}
 function fallbackPath(chain){
   const reasons={unknown:'未支持',off:'分支未启用',invalid:'参数无效',available:'已选用'};
@@ -116,19 +139,33 @@ async function showSource(target=null){
   if(a.startsWith('book-family-')){
     source={kind:'fork',familyId:a,branchId:b};view=await api('view',{familyId:a,branchId:b,targetId:target});
     $('chat').hidden=$('parent-controls').hidden=false;$('actor').replaceChildren();for(const m of view.members)option($('actor'),m.id,m.name+' · '+m.id.slice(-6));$('actor').value=view.targetId;
-    $('bindings').textContent='可用角色书 · '+(view.bindings.map(v=>v.title).join('、')||'无独立书')+(view.exclusivePolicy?' · 已启用同书互斥组':'')+(view.probabilityPolicy?' · 已启用概率触发':'')+(view.cooldownPolicy?' · 已启用冷却':'')+(view.keepPolicy?' · 已启用持续触发':'')+(view.fallbackPolicy?' · 已启用回退链':'')+(view.timingPolicy?' · 已启用延迟和周期触发':'')+(view.depthPolicy?' · 已启用条目扫描深度':'')+(view.oncePolicy?' · 已启用一次性触发':'');
-    $('point').replaceChildren();option($('point'),'','分支当前末尾');$('message').replaceChildren();option($('message'),'','新消息或接话');$('history').replaceChildren();
-    for(const m of view.messages){const item=el('li',m.content);item.id='history-'+m.id;item.tabIndex=-1;$('history').append(item);option($('point'),m.id,m.content.slice(0,40));if(m.canRegenerate&&m.speakerId===view.targetId)option($('message'),m.id,'精确重生成 · '+m.content.slice(0,32));}
-    $('requests').replaceChildren();for(const r of view.requests){const l=el('p','请求 · '+r.status);if(['prepared','unknown','dispatching'].includes(r.status)){const btn=el('button','核对原请求');btn.onclick=()=>run(async()=>{await api('recover',{familyId:a,requestId:r.id});await refresh();await showSource(target);});l.append(btn);}$('requests').append(l);}
+    $('variables').hidden=!view.variables;$('variables').disabled=view.pending;
+    $('variable-key').value='';$('variable-value').value='';$('variable-list').replaceChildren();
+    if(view.variables)for(const scope of ['shared','private'])for(const [key,value] of Object.entries(view.variables[scope])){
+      $('variable-list').append(el('li',(scope==='shared'?'共享':'当前角色私有')+' · '+key+' = '+(value||'空文本')));
+    }
+    $('bindings').textContent='可用角色书 · '+(view.bindings.map(v=>v.title).join('、')||'无独立书')+(view.positionPolicy?' · 已启用提示词插入位置':'')+(view.macroPolicy?' · 已启用日期与选择宏（UTC）':'')+(view.exclusivePolicy?' · 已启用同书互斥组':'')+(view.probabilityPolicy?' · 已启用概率触发':'')+(view.cooldownPolicy?' · 已启用冷却':'')+(view.keepPolicy?' · 已启用持续触发':'')+(view.fallbackPolicy?' · 已启用回退链':'')+(view.timingPolicy?' · 已启用延迟和周期触发':'')+(view.depthPolicy?' · 已启用条目扫描深度':'')+(view.oncePolicy?' · 已启用一次性触发':'');
+    $('point').replaceChildren();option($('point'),'','分支当前末尾');$('message').replaceChildren();option($('message'),'','新消息或接话');display.show({familyId:a,branchId:b,targetId:view.targetId},view.messages);
+    for(const m of view.messages){option($('point'),m.id,m.content.slice(0,40));if(m.canRegenerate&&m.speakerId===view.targetId)option($('message'),m.id,'精确重生成 · '+m.content.slice(0,32));}
+    $('requests').replaceChildren();for(const r of view.requests){const l=el('div','请求 · '+r.status);if(r.status==='completed')display.receipt(l,'request',r.id);if(r.macros)l.append(macroDetails(r.macros,'原请求宏快照'));if(['prepared','unknown','dispatching'].includes(r.status)){const btn=el('button','核对原请求');btn.onclick=()=>run(async()=>{await api('recover',{familyId:a,requestId:r.id});await refresh();await showSource(target);});l.append(btn);}$('requests').append(l);}
     grantForm(view.members);
   }else{const info=await api('source',{kind:a,sourceId:b});source={kind:a,sourceId:b,sourceHash:info.sourceHash};grantForm(info.members,info.recommended);}
 }
+for(const button of ['set-variable','delete-variable'])bind(button,async()=>{
+  const target=view.targetId,scope=$('variable-scope').value,key=$('variable-key').value.trim();
+  if(!key)throw Error('请填写变量名');
+  await api('set-variable',cmd({familyId:source.familyId,branchId:source.branchId,scope,memberId:scope==='private'?target:null,key,value:button==='delete-variable'?null:$('variable-value').value}));
+  await refresh();await showSource(target);$('status').textContent=button==='delete-variable'?'已移除变量':'已保存变量';
+});
 $('point').onchange=()=>run(async()=>{if(source?.kind==='fork'){const a=await api('anchor',{familyId:source.familyId,branchId:source.branchId,point:$('point').value||null});grantForm(a.members);clearReview();}});
 $('source').onchange=()=>run(()=>showSource());$('actor').onchange=()=>run(()=>showSource($('actor').value));
-for(const id of ['exclusive-rules','probability-rules','cooldown-rules','keep-rules','fallback-rules','timing-rules','depth-rules','once-rules','v3-rules','grants','point','branch-title','message','input'])$(id).addEventListener('input',clearReview);
+for(const id of ['position-rules','variable-rules','macro-rules','exclusive-rules','probability-rules','cooldown-rules','keep-rules','fallback-rules','timing-rules','depth-rules','once-rules','v3-rules','grants','point','branch-title','message','input'])$(id).addEventListener('input',clearReview);
 bind('inspect',async()=>{if(!source)throw Error('请先创建单聊或群聊');const {kind,...base}=source;
   const payload={...base,player:grants('player'),session:grants('session')};
   if(kind==='fork')Object.assign(payload,{point:$('point').value||null,title:$('branch-title').value});else payload.kind=kind;
+  if($('position-rules').checked)payload.positionPolicy='chat-prompt-positions/1';
+  if($('variable-rules').checked)payload.variablePolicy='scoped-text-conditions/1';
+  if($('macro-rules').checked)payload.macroPolicy='date-choice-utc/1';
   if($('exclusive-rules').checked)payload.exclusivePolicy='book-group-priority/1';
   if($('probability-rules').checked)payload.probabilityPolicy='stable-member-draw/1';
   if($('cooldown-rules').checked)payload.cooldownPolicy='member-adopted-replies/1';
@@ -145,10 +182,10 @@ bind('inspect',async()=>{if(!source)throw Error('请先创建单聊或群聊');c
 bind('confirm',async()=>{if(!consent)return;const r=await api(consent.action,consent.command);await refresh();$('source').value=r.familyId+'/'+r.branchId;history.replaceState(null,'','?books=1&family='+r.familyId+'&branch='+r.branchId+'#branches');await showSource();$('status').textContent='已创建独立分支';});
 bind('preview',async()=>{clearReview();const intent={branchId:source.branchId,targetId:view.targetId,messageId:$('message').value||null,input:$('message').value?null:$('input').value.trim()||null},operationId=op();
   const result=await api('preview',{familyId:source.familyId,intent,operationId});prepared={operationId,expectedRevision:result.revision,payload:{familyId:source.familyId,intent,previewHash:result.previewHash}};
-  const names={'invalid-exclusive':'互斥组名无效','exclusive-suppressed':'同组让位','invalid-probability':'触发概率无效','probability-miss':'本轮未抽中','invalid-cooldown':'冷却间隔无效','cooldown-wait':'冷却中','invalid-keep':'持续触发声明无效或规则冲突','invalid-fallback':'回退链格式无效','fallback-limit':'回退链超限','fallback-unavailable':'没有可用的备选规则','invalid-timing':'延迟或周期声明无效','timing-delay':'未到起始条数','timing-interval':'未到周期点','invalid-scan-depth':'深度声明无效或组合未支持','once-held':'等待原请求确认','once-used':'已在本分支使用','regex-invalid':'表达式无效','regex-unsupported':'语法未支持','regex-limit':'规则超过上限','regex-empty':'可能空匹配','regex-scan-limit':'可见文本超过上限','regex-request-limit':'本次正则总步数已耗尽',triggered:'已纳入','not-triggered':'未命中','book-budget':'超过本书预算','request-budget':'超过本次总预算','budget-excluded':'超过角色书预算',disabled:'已停用','unsupported-behavior':'保留的未支持行为','recursion-limit':'达到递归上限'};
+  const names={'invalid-position':'插入位置声明无效','position-section-absent':'缺少对应的设定段落','invalid-exclusive':'互斥组名无效','exclusive-suppressed':'同组让位','invalid-probability':'触发概率无效','probability-miss':'本轮未抽中','invalid-cooldown':'冷却间隔无效','cooldown-wait':'冷却中','invalid-keep':'持续触发声明无效或规则冲突','invalid-fallback':'回退链格式无效','fallback-limit':'回退链超限','fallback-unavailable':'没有可用的备选规则','invalid-timing':'延迟或周期声明无效','timing-delay':'未到起始条数','timing-interval':'未到周期点','invalid-scan-depth':'深度声明无效或组合未支持','once-held':'等待原请求确认','once-used':'已在本分支使用','regex-invalid':'表达式无效','regex-unsupported':'语法未支持','regex-limit':'规则超过上限','regex-empty':'可能空匹配','regex-scan-limit':'可见文本超过上限','regex-request-limit':'本次正则总步数已耗尽',triggered:'已纳入','not-triggered':'未命中','book-budget':'超过本书预算','request-budget':'超过本次总预算','budget-excluded':'超过角色书预算',disabled:'已停用','unsupported-behavior':'保留的未支持行为','recursion-limit':'达到递归上限'};
   const owners={card:'卡内',role:'角色',session:'会话',player:'玩家'};
   const summary=el('p',result.books.exact?'沿用原请求上下文':('本次角色书预算 '+result.bookBudget+' · 纳入 '+result.entries.filter(e=>e.status==='triggered').length+' 条'));
-  const list=el('ul');for(const e of result.entries){const version=e.version?' v'+e.version:'';const item=el('li',owners[e.owner]+' · '+e.title+version+' / '+(e.name||'条目 '+(e.index+1))+' · '+(e.once&&e.status==='triggered'?'本次将纳入 · 一次性':names[e.status]??e.status)+(e.timing?' · 已有 '+e.timing.count+' 条可见角色消息'+(e.timing.after!==undefined?'，至少 '+e.timing.after+' 条':'')+(e.timing.every?'，每 '+e.timing.every+' 条':''):'')+(e.window?' · 深度 '+e.window.limit+'，扫描历史 '+e.window.history+' 条'+(e.window.current?'＋本次输入':''):'')+(Number.isInteger(e.key)?' · 第 '+(e.key+1)+' 个模式':'')+(e.status==='triggered'?' · '+(e.position==='before_char'?'人设前':'人设后'):''));
+  const list=el('ul');for(const e of result.entries){const version=e.version?' v'+e.version:'';const item=el('li',owners[e.owner]+' · '+e.title+version+' / '+(e.name||'条目 '+(e.index+1))+' · '+(e.once&&e.status==='triggered'?'本次将纳入 · 一次性':names[e.status]??e.status)+(e.timing?' · 已有 '+e.timing.count+' 条可见角色消息'+(e.timing.after!==undefined?'，至少 '+e.timing.after+' 条':'')+(e.timing.every?'，每 '+e.timing.every+' 条':''):'')+(e.window?' · 深度 '+e.window.limit+'，扫描历史 '+e.window.history+' 条'+(e.window.current?'＋本次输入':''):'')+(Number.isInteger(e.key)?' · 第 '+(e.key+1)+' 个模式':'')+(e.status==='triggered'?' · '+(e.placement?placementLabel(e.placement):e.position==='before_char'?'人设前':'人设后'):''));
     if(e.exclusive)item.append(' · '+groupLabel(e));
     if(e.probability)item.append(' · '+probabilityLabel(e.probability));
     if(e.cooldown)item.append(' · 冷却间隔 '+e.cooldown.rounds+' 条，剩余 '+e.cooldown.remaining+' 条本角色回复');
@@ -159,7 +196,14 @@ bind('preview',async()=>{clearReview();const intent={branchId:source.branchId,ta
     for(const chain of e.fallback??[])item.append(el('div',fallbackPath(chain)));
     if(e.messageId&&$('history-'+e.messageId)){const locate=el('button','定位已使用的回复');locate.onclick=()=>$('history-'+e.messageId)?.focus();item.append(' ',locate);}
     list.append(item);}
-  $('explain').replaceChildren(summary,list);
+  $('explain').replaceChildren(summary,list);if(result.macros)$('explain').append(macroDetails(result.macros,result.books.exact?'原请求宏快照':'本次宏展开'));
+  const placementPlan=(result.books.exact?result.books.original:result.books)?.placements;
+  if(placementPlan?.length){
+    const box=el('details');box.append(el('summary',result.books.exact?'原请求插入位置':'查看插入位置'));
+    const order=el('ol');for(const p of placementPlan)order.append(el('li','条目 '+(p.index+1)+' · '+placementLabel(p)));
+    box.append(order);
+    $('explain').append(box);
+  }
   $('assembly').textContent=JSON.stringify({messages:result.messages,books:result.books,hash:result.requestHash},null,2);$('send').disabled=view.pending;
 });
 bind('send',async()=>{if(!prepared)return;const command=prepared;clearReview();$('preview').disabled=true;$('status').textContent='正在保存离线回复…';

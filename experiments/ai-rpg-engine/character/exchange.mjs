@@ -13,9 +13,16 @@ import {pngChunks,metadata,decode64,portrait,exportPng,textKey} from './png.mjs'
 const utf8=b=>{try{return new TextDecoder('utf-8',{fatal:true}).decode(b);}catch{problem('CHARACTER_UTF8_INVALID');}};
 export function authorCompatibility(card){
  const report=compatibility(card);
+ for(const warning of report.warnings){
+  if(warning.code==='MACRO_UNSUPPORTED'&&/^\/data\/(?:description|personality|scenario|mes_example|system_prompt|post_history_instructions|character_book\/entries\/\d+\/content)$/.test(warning.path)&&/\b(?:var|if)::/i.test(warning.message))warning.message+='。启用会话变量的分支可读取 shared 或 private 变量并按条件显示正文。';
+  if(warning.code==='MACRO_UNSUPPORTED'&&/^\/data\/(?:description|personality|scenario|mes_example|system_prompt|post_history_instructions|character_book\/entries\/\d+\/content)$/.test(warning.path)&&/\b(?:date\b|pick::)/i.test(warning.message)){
+   warning.message+='。启用日期与选择宏的角色书分支可展开 {{date}} 和有效的 {{pick::选项一::选项二}}；群聊采用本群场景。';
+  }
+ }
  if(card.spec==='chara_card_v3')for(const w of report.warnings){
   if(w.code!=='BOOK_BEHAVIOR_UNSUPPORTED')continue;
   const entry=card.data.character_book.entries[Number(w.path.split('/').pop())];
+  if(/^@@(?:position|depth)(?:\s|$)/m.test(entry.content)){w.message+='。启用提示词插入位置的分支支持四个设定段位置和受限聊天消息深度，请在实际上下文预览中核对。';}
   if(hasFallback(entry.content)){w.code='V3_BRANCH_FALLBACK';w.message='原回退链保留。启用回退链后，可在分支预览中查看选择及未纳入原因。';continue;}
   const keep=keepHeader(entry.content);
   if(keep&&!keep.invalid){w.code='V3_BRANCH_KEEP';w.message='在启用持续触发的分支，首次纳入条目并将完整回复写入历史后，后续可持续匹配。';continue;}

@@ -4,7 +4,7 @@
 <main inert aria-busy="true"><h1>独立角色书</h1><nav aria-label="角色书工作区"><a href="#library">我的书架</a><a href="#assign">角色与玩家</a><a href="#branches">会话分支</a></nav>
 <p id="status" role="status" aria-live="polite"></p>
 <section id="library"><h2>我的书架</h2><label>草稿<select id="book"></select></label><label>书名<input id="title" maxlength="120"></label>
-<div id="entries"></div><button id="add">添加条目</button>
+<div id="entries"></div><details><summary>指定条目插入位置</summary><p>在正文首行写 <code>@@position after_desc</code> 可插在描述后，也可用 before_desc、personality、scenario。<code>@@depth 0</code> 插在最近消息后，1 插在最近消息前。请在会话分支启用提示词插入位置并预览。</p></details><button id="add">添加条目</button>
 <details><summary>完整角色书 JSON</summary><label>包含扩展字段<textarea id="json" rows="8"></textarea></label><button id="apply">应用 JSON</button></details>
 <p>一次性条目以 <code>@@dont_activate_after_match</code> 单独起行，下一行填写正文。条目深度用 <code>@@scan_depth 2</code> 指定最近两条可见消息；发送时本次输入占一条，接话时只数历史。</p><label><input type="checkbox" id="trial-once"> 模拟一次性条目尚未使用</label><label><input type="checkbox" id="trial-depth"> 按条目扫描深度测试（本次输入为一条消息）</label><label><input type="checkbox" id="trial-fallback"> 测试回退链（用 @@@ 紧跟主规则填写备选）</label><label><input type="checkbox" id="trial-keep"> 试算首次持续触发（正文首行写 @@keep_activate_after_match）</label><label><input type="checkbox" id="trial-cooldown"> 试算尚未进入冷却的条目</label><label><input type="checkbox" id="trial-exclusive"> 试算同书互斥组</label><label><input type="checkbox" id="trial-probability"> 试算概率（使用固定草稿样本）</label><label>模拟已入史的可见角色消息数<input id="trial-count" type="number" min="0" step="1" placeholder="留空以关闭延迟和周期规则"></label><label>测试关键词<input id="trigger"></label><button id="trial">测试触发</button><output id="trial-result"></output>
 <div class="actions"><button id="save" class="primary">保存草稿</button><button id="seal">封存已保存草稿</button><button id="archive">归档此书</button></div></section>
@@ -13,8 +13,18 @@
 <label>玩家档案<select id="profile"></select></label><label>玩家推荐书目（可多选封存版本）<select multiple id="player-refs"></select></label><button id="recommend">保存所选推荐书</button><p>推荐书默认仅供玩家使用。创建分支时可以逐本指定可阅读的角色。</p></section>
 <section id="branches" hidden><h2>会话分支</h2><label>来源<select id="source"></select></label>
 <div id="parent-controls" hidden><label>继承位置<select id="point"></select></label><label>子分支名称<input id="branch-title" value="续聊分支" maxlength="120"></label></div>
-<div id="grants"></div><div class="actions"><label><input type="checkbox" id="v3-rules"> 在新分支启用 V3 受限正则</label><label><input type="checkbox" id="once-rules"> 在新分支启用一次性触发</label><label><input type="checkbox" id="depth-rules"> 在新分支启用条目扫描深度</label><label><input type="checkbox" id="timing-rules"> 在新分支启用延迟和周期触发</label><label><input type="checkbox" id="fallback-rules"> 在新分支启用装饰器回退链</label><label><input type="checkbox" id="keep-rules"> 在新分支启用持续触发（首次纳入并入史后生效）</label><label><input type="checkbox" id="cooldown-rules"> 在新分支启用条目冷却</label><label><input type="checkbox" id="exclusive-rules"> 在新分支启用同书互斥组</label><label><input type="checkbox" id="probability-rules"> 在新分支启用条目概率</label><button id="inspect">核对绑定</button><button id="confirm" class="primary" disabled>确认并创建分支</button></div><output id="review"></output>
-<article id="chat" hidden><h2>分支续聊</h2><label>查看角色<select id="actor"></select></label><div id="bindings"></div><ol id="history"></ol>
+<div id="grants"></div><div class="actions"><label><input type="checkbox" id="v3-rules"> 在新分支启用 V3 受限正则</label><label><input type="checkbox" id="once-rules"> 在新分支启用一次性触发</label><label><input type="checkbox" id="depth-rules"> 在新分支启用条目扫描深度</label><label><input type="checkbox" id="timing-rules"> 在新分支启用延迟和周期触发</label><label><input type="checkbox" id="fallback-rules"> 在新分支启用装饰器回退链</label><label><input type="checkbox" id="keep-rules"> 在新分支启用持续触发（首次纳入并入史后生效）</label><label><input type="checkbox" id="cooldown-rules"> 在新分支启用条目冷却</label><label><input type="checkbox" id="position-rules"> 在新分支启用提示词插入位置</label><label><input type="checkbox" id="variable-rules"> 在新分支启用会话变量与条件宏</label><label><input type="checkbox" id="macro-rules"> 在新分支启用日期与选择宏（UTC）</label><label><input type="checkbox" id="exclusive-rules"> 在新分支启用同书互斥组</label><label><input type="checkbox" id="probability-rules"> 在新分支启用条目概率</label><button id="inspect">核对绑定</button><button id="confirm" class="primary" disabled>确认并创建分支</button></div><output id="review"></output>
+<article id="chat" hidden><h2>分支续聊</h2><label>查看角色<select id="actor"></select></label><div id="bindings"></div><fieldset id="variables" hidden><legend>会话变量</legend>
+<p>共享值供本分支所有角色读取；私有值仅供所选角色读取。修改从下一次新请求生效。</p>
+<ul id="variable-list"></ul><label>范围<select id="variable-scope"><option value="shared">分支共享</option><option value="private">当前角色私有</option></select></label>
+<label>变量名<input id="variable-key" maxlength="32" placeholder="例如：天气"></label>
+<label>文本值<input id="variable-value" maxlength="256"></label><button id="set-variable">保存变量</button><button id="delete-variable">移除变量</button></fieldset><details id="display-controls"><summary>回复显示设置</summary>
+<label><input type="checkbox" id="display-enabled"> 启用显示转换</label>
+<label><input type="checkbox" id="display-paragraphs"> 将正文中连续的字面换行显示为段落</label>
+<label>查找文字<input id="display-find" maxlength="80" placeholder="留空跳过替换"></label>
+<label>显示为<input id="display-replacement" maxlength="160" placeholder="留空会隐藏匹配文字"></label>
+<button type="button" id="display-apply">应用显示设置</button><span id="display-status" role="status"></span>
+<p>仅用于当前标签页所选分支和角色的阅读视图。可随时展开原文。</p></details><ol id="history"></ol>
 <label>本次输入<textarea id="input" rows="2"></textarea></label><label>生成方式<select id="message"></select></label>
 <button id="preview">预览实际上下文</button><button id="send" class="primary" disabled>生成离线夹具回复</button>
 <div id="explain" aria-live="polite"></div><details><summary>查看本次请求原文</summary><pre id="assembly"></pre></details><div id="requests"></div></article></section></main></body></html>

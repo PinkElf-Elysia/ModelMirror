@@ -11,11 +11,11 @@ import {DailyWorkspace} from '../daily/workspace.mjs';
 import {fixtureModel} from '../revisions/sources.mjs';
 import {pathToFileURL} from 'node:url';
 
-export async function startPreview(dir,port=0,groupPort=0){
+export async function startPreview(dir,port=0,groupPort=0,bookClock){
   await mkdir(dir,{recursive:true});
   const workspace=await DailyWorkspace.open(dir),groupDirectory=join(dir,'groups');
   const studio=await startAuthoringServer({directory:join(dir,'studio'),port,creatorExperience:true,
-    characterSettings:{workspace,bookGroupDirectory:groupDirectory,...(groupPort?{groupsUrl:'http://127.0.0.1:'+groupPort+'/groups'}:{})}});
+    characterSettings:{workspace,bookClock,bookGroupDirectory:groupDirectory,...(groupPort?{groupsUrl:'http://127.0.0.1:'+groupPort+'/groups'}:{})}});
   let store,provider,groups;
   async function close(){await groups?.close();await store?.close();await provider?.close();await studio.close();await workspace.close();}
   try{
