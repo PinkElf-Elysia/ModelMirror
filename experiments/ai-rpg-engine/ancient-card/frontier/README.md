@@ -1,5 +1,7 @@
 # 古代人生 · 京师—辽东离线回合
 
+[全国舆图 · 地理来源、操作与第二轮验收](ATLAS.md)
+
 ## 玩家验收
 
 在本机预览的古代人生开局页选择「帝王之路 → 明 → 崇祯帝朱由检」。命书带入原卡聊天输入框后可编辑，点击发送才创建第一回合。地点固定为北京、山海关、宁远、锦州。开局登记与关报取自探索线场景，接防和交割为本档推演。
@@ -32,3 +34,5 @@ node ancient-card/frontier/server.mjs
 预览只监听 127.0.0.1，端口占用时会报错。存档保存在本独立工作树的 `experiments/ai-rpg-engine/.rpg03-work/ancient-frontier-v1`。浏览器验收在另一终端使用相同端口；设置 `PLAYWRIGHT_MODULE` 指向本机 Playwright 模块，运行 `node ancient-card/frontier/browser-check.mjs`。脚本实际填写原卡命书、发送十回合、关闭页面、从会话历史选回存档，续写后首次展开地图，输出可重开的验收地址。
 
 四项 Node 检查通过（含原卡离线回归、存储重开、并发重复确认与过期拒绝），TypeScript 检查与 Vite 构建通过。上述离线验收使用模拟供应商。随后完成了三组 Gemini 真实查询与续答，交割由本地宿主确认。[首轮实测、证据与后续分工](../../../../docs/ai-rpg-experiment/harness/ANCIENT-FRONTIER-CLOSEOUT.md)
+
+[地图剧情回合、4096 与 8192 对照实测及遗留问题](STORY-MAP.md)

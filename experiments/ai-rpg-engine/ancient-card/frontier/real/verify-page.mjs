@@ -27,10 +27,10 @@ try{
  const panel=page.getByRole('region',{name:'京师边务状态'});await panel.waitFor();
  const prose=await page.locator('.conversation article .model-output').last().innerText();
  assert.ok(visibleText(prose).includes('后金')&&visibleText(prose).includes('回执'));
- assert.equal(await panel.locator('details[open]').count(),0);
+ assert.equal(await page.locator('dialog.ming-atlas[open]').count(),0);
  const registered=await panel.locator('p').first().innerText();assert.match(registered,/后金/);
- await panel.getByText('查看京师—辽东地图',{exact:true}).click();
- const places=await panel.locator('.frontier-route button').allTextContents();
+ await panel.getByRole('button',{name:/展开全国舆图/}).click();
+ const places=await page.locator('[data-city]').evaluateAll(nodes=>nodes.map(n=>n.querySelector('title').textContent.replace(' · ','')));
  assert.deepEqual(places,['北京明','山海关明','宁远后金','锦州明']);
  await writeFile(new URL('render-check.json',root),JSON.stringify({save:s.id,turns:s.turns.length,registered,places,openedAfterReloadedNarration:true},null,2));
  console.log(JSON.stringify({registered,places}));

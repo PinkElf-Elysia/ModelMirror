@@ -1,10 +1,15 @@
 import {clone,need,bounded} from '../contracts.mjs';
-export function parseResult(r,tools){
+export function parseResult(r,tools,{allowedPair}={}){
  need(r?.status==='completed','NATIVE_RESULT_UNKNOWN');const m=r.message;
  need(m?.role==='assistant'&&(m.content==null||typeof m.content==='string')&&Object.keys(m).every(k=>['role','content','tool_calls','extra_content','reasoning_details'].includes(k)),'NATIVE_MESSAGE');
  const meta=v=>need(v===undefined||(v&&typeof v==='object'&&!Array.isArray(v)&&JSON.stringify(v).length<=65536),'NATIVE_METADATA');meta(m.extra_content);
  if(m.reasoning_details!==undefined){need(Array.isArray(m.reasoning_details)&&m.reasoning_details.every(x=>x&&typeof x==='object'&&!Array.isArray(x)),'NATIVE_METADATA');bounded(m.reasoning_details,{bytes:65536,depth:12});}
  if(m.tool_calls?.length){
+  if(allowedPair && Array.isArray(m.tool_calls) && m.tool_calls.length===2){
+   const calls=m.tool_calls.map(c=>parseResult({...r,message:{...m,tool_calls:[c]}},tools));
+   need(calls.every((call,i)=>call.name===allowedPair[i]) && calls[0].callId!==calls[1].callId,'NATIVE_TOOL_PAIR');
+   return {kind:'pair',calls:calls.map(({name,args,callId})=>({name,args,callId}))};
+  }
   need(r.finishReason==='tool_calls'&&m.tool_calls.length===1,'NATIVE_TOOL_LIMIT');const c=m.tool_calls[0];
   need(c&&Object.keys(c).every(k=>['id','type','function','extra_content'].includes(k))&&typeof c.id==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(c.id)&&c.type==='function','NATIVE_CALL');meta(c.extra_content);
   need(c.function&&Object.keys(c.function).sort().join()==='arguments,name'&&tools.some(t=>t.function.name===c.function.name),'TOOL_NOT_ALLOWED');

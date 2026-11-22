@@ -1,0 +1,83 @@
+dialog.ming-atlas {
+  --atlas-ink:#302f25; --atlas-paper:#f7f3e7; --atlas-rule:#c9bd9e;
+  position:fixed; inset:0; margin:auto; box-sizing:border-box;
+  width:min(1190px,96vw); height:min(810px,93dvh); max-width:96vw; max-height:93dvh;
+  padding:0; overflow:hidden; border:1px solid #94805b; border-radius:5px;
+  background:var(--atlas-paper); color:var(--atlas-ink); box-shadow:0 18px 64px #211b1355;
+}
+.ming-atlas::backdrop { background:rgb(26 28 24 / 60%); }
+.ming-atlas .atlas-layout { height:100%; display:grid; grid-template-rows:auto minmax(0,1fr) auto; }
+.ming-atlas .atlas-head,.ming-atlas footer { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 22px; }
+.ming-atlas .atlas-head { border-bottom:1px solid var(--atlas-rule); }
+.ming-atlas small { color:#625b4b; font:12px/1.5 system-ui,sans-serif; }
+.ming-atlas h2,.ming-atlas h3 { font-family:"Noto Serif SC","Songti SC","SimSun",serif; color:#332e21; margin:2px 0; }
+.ming-atlas h2 { font-size:26px; letter-spacing:.14em; }
+.ming-atlas h3 { font-size:25px; margin:22px 0 8px; }
+.ming-atlas button,.ming-atlas select,.frontier-register .atlas-open {
+  font:inherit; font-size:14px; min-height:36px; padding:5px 12px; color:#453a24; border:1px solid #ac9b77;
+  border-radius:4px; background:#faf6e9; cursor:pointer;
+}
+.ming-atlas button:hover,.frontier-register .atlas-open:hover { background:#e9e1cc; }
+.ming-atlas button:disabled { opacity:.45; cursor:auto; }
+.ming-atlas :focus-visible { outline:3px solid #24596e; outline-offset:2px; }
+.atlas-head button span,.atlas-open span { margin-left:10px; }
+.ming-atlas .atlas-body { min-height:0; display:grid; grid-template-columns:minmax(0,1fr) clamp(180px,20vw,232px); }
+.atlas-sheet { position:relative; overflow:hidden; background:#d9e5df; }
+.atlas-sheet svg { display:block; width:100%; height:100%; touch-action:none; user-select:none; cursor:grab; }
+.atlas-sheet svg:active { cursor:grabbing; }
+.atlas-sheet nav,.atlas-zoom,.atlas-compass { position:absolute; z-index:1; }
+.atlas-sheet nav { top:12px; left:12px; display:flex; gap:5px; }
+.atlas-zoom { bottom:12px; right:12px; display:flex; }
+.atlas-zoom button { min-width:38px; }
+.atlas-compass { top:14px; right:17px; font:13px/1.2 serif; text-align:center; pointer-events:none; }
+.atlas-compass span { display:block; font-size:24px; }
+.atlas-province { stroke:#796d55; vector-effect:non-scaling-stroke; stroke-width:1; cursor:pointer; stroke-dasharray:3 1.5; }
+.atlas-province:hover,.atlas-province.chosen { stroke:#342d21; stroke-width:1.45; stroke-dasharray:none; }
+.atlas-frontier-outline { fill:none; stroke:#938673; vector-effect:non-scaling-stroke; stroke-width:1.1; stroke-dasharray:4 3; }
+.atlas-lettering,.atlas-geography { font:600 10px "SimSun",serif; fill:#302c23; text-anchor:middle; pointer-events:none; paint-order:stroke; stroke:#f8ebce; stroke-width:1.4px; }
+.atlas-geography { fill:#686957; font-weight:400; stroke-width:.7px; }
+.atlas-road { fill:none; stroke:#83673c; vector-effect:non-scaling-stroke; stroke-width:1.5; stroke-dasharray:5 3; }
+.atlas-city { cursor:pointer; }
+.atlas-city text { fill:#382f22; font-family:"SimSun",serif; font-weight:bold; paint-order:stroke; stroke:#fff1d2; stroke-width:.14em; }
+.atlas-record { overflow:auto; border-left:1px solid var(--atlas-rule); padding:20px 17px; }
+.atlas-record label,.atlas-record li small { display:block; }
+.atlas-record label { font-size:12px; color:#645b48; }
+.atlas-record select { display:block; width:100%; margin-top:6px; }
+.atlas-record p,.atlas-record li { font-size:14px; line-height:1.65; margin:4px 0 12px; }
+.atlas-record h4 { margin:22px 0 8px; border-top:1px solid var(--atlas-rule); padding-top:14px; }
+.atlas-record ol { list-style:none; margin:0; padding:0; }
+.ming-atlas footer { border-top:1px solid var(--atlas-rule); flex-wrap:wrap; font-size:12px; }
+.ming-atlas footer a { color:#355950; text-decoration:underline; }
+.atlas-key { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.atlas-key i { display:inline-block; width:14px; height:10px; background:#bdc69f; border:1px dashed #746d5c; margin-right:4px; }
+.atlas-key span:nth-child(2) { color:#893724; }.atlas-key span:nth-child(3) { color:#294f66; }
+@media(max-width:700px) {
+  dialog.ming-atlas { width:100vw; max-width:100vw; height:100dvh; max-height:100dvh; border:0; border-radius:0; }
+  .ming-atlas .atlas-head,.ming-atlas footer { padding:9px 12px; }
+  .ming-atlas .atlas-body { grid-template-columns:1fr; grid-template-rows:minmax(0,1fr) minmax(105px,24%); }
+  .atlas-record { padding:10px 12px; border-left:0; border-top:1px solid var(--atlas-rule); }
+  .atlas-record label { float:right; width:112px; margin:0 0 8px 10px; }
+  .atlas-record h3 { margin:2px 0; font-size:20px; }
+  .ming-atlas footer { gap:4px; }
+}
+@media(max-width:700px){.atlas-lettering{font-size:14px}.atlas-sheet nav button,.atlas-zoom button{min-height:42px}}
+
+.atlas-record .atlas-basis{border-left:2px solid #5e786e;padding:4px 0 4px 8px;color:#304f42;font-size:13px}
+
+.atlas-reference,.atlas-polity {cursor:pointer}
+.atlas-place-label text,.atlas-polity text {font-family:"SimSun",serif;fill:#433d32;paint-order:stroke;stroke:#f5eedb;stroke-width:.24em;stroke-linejoin:round}
+.atlas-polity text {font-weight:bold;fill:#663f34}
+.atlas-polity line {stroke:#92755e;pointer-events:none}
+.atlas-reference:hover text,.atlas-polity:hover text {fill:#973e29}
+.atlas-site-links {display:flex;flex-wrap:wrap;gap:5px;margin-top:12px}
+.ming-atlas .atlas-site-links button {min-height:28px;padding:3px 7px;font-size:12px}
+.atlas-site-links button[aria-pressed=true] {border-color:#634e34;background:#ece3ce}
+
+.atlas-range {cursor:pointer}
+.atlas-province.atlas-division {stroke:#77654f;stroke-width:.7;stroke-opacity:.58}
+.atlas-ming-name {font-family:"Songti SC","SimSun",serif;fill:#544331;font-weight:bold;paint-order:stroke;stroke:#ebd5b5;stroke-width:.12em;pointer-events:none}
+.atlas-range-caption i {display:inline-block;width:13px;height:10px;border:1px solid #8f806d;margin-right:6px}
+
+.atlas-secondary-label {font-family:"Songti SC","SimSun",serif;fill:#403b32;paint-order:stroke;stroke:#faf2dd;stroke-width:.24em;stroke-linejoin:round;cursor:pointer}
+
+.atlas-rivers {fill:none;stroke:#5b8c98;stroke-opacity:.82;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
