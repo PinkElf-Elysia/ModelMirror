@@ -1,0 +1,131 @@
+{
+  "providerCalls": 0,
+  "turns": [
+    {
+      "session": "6b617edb-fed9-4328-adae-e428068e0b0e",
+      "input": "【人生路线】芸芸众生\n【朝代】西汉\n【起始时期】开国初期（前202-前141）\n\n【姓名】陈禾\n\n【家庭】排行：独子/独女\n\n【开场补充】我住在长安城外，家中以种粟为生。\n",
+      "hits": [
+        "西汉"
+      ],
+      "roles": [
+        "system",
+        "user"
+      ],
+      "systemSha256": "b8fb4019fa5df3bef5a71e201a2b6d325add39933451876351e295651e8efac1",
+      "messagesSha256": "aad520fab803404bdfd8b3ab03e5ea4b7de79bf207a1558a91da346c49ac8ad2"
+    },
+    {
+      "session": "6b617edb-fed9-4328-adae-e428068e0b0e",
+      "input": "我进长安集市，打听今年粟价，再问哪里收麻布。",
+      "hits": [
+        "西汉"
+      ],
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "systemSha256": "b8fb4019fa5df3bef5a71e201a2b6d325add39933451876351e295651e8efac1",
+      "messagesSha256": "e29103d0bdb5156e3f2d8e2b8161d6a4d6ed986d379c5a2dc1c676ca2d1fa168"
+    },
+    {
+      "session": "c2013b79-d541-48f7-ad80-0723e9456810",
+      "input": "【人生路线】芸芸众生\n【朝代】南宋\n【起始时期】中期承平（1162-1234）\n\n【姓名】沈宁\n\n【家庭】排行：独子/独女\n\n【开场补充】隆兴和议之后，我在临安一间茶坊做事。\n",
+      "hits": [
+        "南宋"
+      ],
+      "roles": [
+        "system",
+        "user"
+      ],
+      "systemSha256": "f63c3a5bbb54814094e6cb988115982f6411ead33883efbce06c99111b5ea8b0",
+      "messagesSha256": "d0b9e64628f7a92584ac6415b0fe0a69e8b4e86698bb979f7448b32434328fa0"
+    },
+    {
+      "session": "c2013b79-d541-48f7-ad80-0723e9456810",
+      "input": "我仍在临安茶坊，向北来的客商打听金国的情形。",
+      "hits": [
+        "南宋",
+        "金"
+      ],
+      "roles": [
+        "system",
+        "user",
+        "assistant",
+        "user"
+      ],
+      "systemSha256": "4136e2371cca4135e98a4df6d5641ff366909dd7a276a1260a23f3c7654bfd44",
+      "messagesSha256": "5f94dccd58922467879ea99ea9dc5e4b00f6e0c90fd00e7b30d5e55e5e6d6b8e"
+    }
+  ],
+  "controls": [
+    {
+      "opening": "【朝代】西汉",
+      "input": "我仍在临安茶坊，向北来的客商打听金国的情形。",
+      "hits": [
+        "西汉"
+      ]
+    },
+    {
+      "opening": "【朝代】南宋",
+      "input": "我去金陵买金饰，再问辽东来的茶商。",
+      "hits": [
+        "南宋"
+      ]
+    },
+    {
+      "opening": "【朝代】南宋",
+      "input": "我想打听北宋。",
+      "hits": [
+        "南宋"
+      ]
+    },
+    {
+      "opening": "【朝代】南宋",
+      "input": "在茶坊打听西夏。",
+      "hits": [
+        "南宋",
+        "西夏"
+      ]
+    },
+    {
+      "opening": "【朝代】北宋",
+      "input": "查阅辽国。",
+      "hits": [
+        "北宋",
+        "辽"
+      ]
+    },
+    {
+      "opening": "【帝王】汉武帝刘彻",
+      "input": "出行。",
+      "hits": [
+        "西汉"
+      ]
+    },
+    {
+      "opening": "【历史人物】辛弃疾",
+      "input": "启程。",
+      "hits": [
+        "南宋"
+      ]
+    },
+    {
+      "opening": "【人生路线】自定义世界",
+      "input": "打听金国。",
+      "hits": []
+    }
+  ],
+  "oldSave": {
+    "session": "a01c1947-6b79-471a-bba9-5a130dc7625e",
+    "turnsBefore": 1,
+    "turnsAfter": 2,
+    "preSplitSystemSha256": "4a7891e458fdd2a418e1e9de2f1fac5a962b68cf995a251fa63f5cfbf01a001b",
+    "resumedSystemSha256": "4a7891e458fdd2a418e1e9de2f1fac5a962b68cf995a251fa63f5cfbf01a001b",
+    "bindingUnchanged": true,
+    "previousTurnUnchanged": true
+  },
+  "catalogEntries": 20,
+  "versionHash": "3cf782adfd94b5a5939143ff31114ee9349fbd5ffa59a1ad6cf805354f7dca45"
+}

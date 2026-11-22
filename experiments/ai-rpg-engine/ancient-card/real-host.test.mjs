@@ -4,10 +4,11 @@ import {mkdtemp, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import test from 'node:test';
+import {assembleWorldbook} from './worldbook.mjs';
 import {createAncientHost} from './real-host.mjs';
 import {canonical,sha} from '../plugins/catalog.mjs';
 
-test('ancient opening uses the frozen author system and selected Gemini on the card ledger',async t=>{
+test('ancient opening uses the selected dynasty and selected Gemini on the card ledger',async t=>{
   const directory=await mkdtemp(join(tmpdir(),'ancient-card-test-'));
   let plugins;
   t.after(async()=>{await plugins?.close(); await rm(directory,{recursive:true,force:true});});
@@ -27,13 +28,14 @@ test('ancient opening uses the frozen author system and selected Gemini on the c
   const host=await createAncientHost(directory,{enabled:true,baseURL:'http://127.0.0.1:1/',
     limit:1,serviceToken:'synthetic-ancient-test-only-not-a-credential',fetcher});
   plugins=host.plugins;
-  const input='A neutral opening',s=await host.store.create({opening:input});
+  const input='【朝代】西汉',s=await host.store.create({opening:input});
   const status=await host.store.memoryTasks.status(s.id);
   const op=await host.store.send(s.id,{operationId:randomUUID(),input,expectedSessionRevision:status.sessionRevision,
     expectedMemoryRevision:status.memoryRevision,expectedContextPolicyRevision:status.effectivePolicy.revision});
   assert.equal(op.status,'complete');
   assert.equal(wires.length,1);
-  assert.equal(sha(wires[0].messages[0].content),'4a7891e458fdd2a418e1e9de2f1fac5a962b68cf995a251fa63f5cfbf01a001b');
+  assert.equal(wires[0].messages[0].content,assembleWorldbook({opening:input,input}).system);
+  assert.match(wires[0].messages[0].content,/前154年：吴、楚等七国反/);
   assert.deepEqual(wires[0].messages.slice(1),[{role:'user',content:input}]);
   assert.equal((await host.store.read(s.id)).turns.length,1);
 });
