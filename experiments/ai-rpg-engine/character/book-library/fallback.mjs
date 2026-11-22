@@ -1,3 +1,4 @@
+import {placementLine} from './positions.mjs';
 import {keepHeader} from './keep.mjs';
 import {depthHeader} from './depth.mjs';
 import {timingHeader} from './timing.mjs';
@@ -9,6 +10,9 @@ export const hasFallback=content=>/^@@@/m.test(content);
 function capability(name,line,policies){
   const probe=line+'\nx';
   switch(name){
+    case 'depth':case 'position':
+      if(!policies.positions)return 'unknown';
+      return placementLine(line)?'available':'invalid';
     case 'keep_activate_after_match':
       if(!policies.keep)return 'unknown'; // Preserve the exact diagnostics of older branches.
       return keepHeader(probe)?.remaining?'available':'invalid';

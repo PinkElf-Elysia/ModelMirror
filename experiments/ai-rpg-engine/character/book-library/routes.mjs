@@ -1,4 +1,5 @@
 import {join} from 'node:path';
+import {displayReceipt} from './display-receipt.mjs';
 import {BookWorkspace} from './store.mjs';
 import {LegacySources} from '../revisions/sources.mjs';
 import {keys,fail} from '../../authoring/contracts.mjs';
@@ -7,7 +8,7 @@ export function bookRoutes({workspace,store,directory,settings,recoverDeadOwner}
   const groupDirectory=settings?.bookGroupDirectory??join(directory,'..','..','groups');
   const sources=new LegacySources({workspace,singleDirectory:join(directory,'sessions'),groupDirectory});
   let instance;
-  const get=()=>(instance??=BookWorkspace.open({directory:join(directory,'independent-books'),works:store,profiles:workspace.store,sources,recoverDeadOwner}).catch(e=>{instance=null;throw e;}));
+  const get=()=>(instance??=BookWorkspace.open({directory:join(directory,'independent-books'),works:store,profiles:workspace.store,sources,recoverDeadOwner,now:settings?.bookClock}).catch(e=>{instance=null;throw e;}));
   return {
     async publish(workId,input){return (await get()).publishSaved(workId,input);},
     async post(input){
@@ -25,11 +26,12 @@ export function bookRoutes({workspace,store,directory,settings,recoverDeadOwner}
         case 'draft':keys(args,['bookId']);return desk.draft(args.bookId);
         case 'trial':keys(args,['title','book','input',...(Object.hasOwn(args,'oncePolicy')?['oncePolicy']:[]),...(Object.hasOwn(args,'depthPolicy')?['depthPolicy']:[]),...(Object.hasOwn(args,'count')?['count']:[]),...(Object.hasOwn(args,'fallbackPolicy')?['fallbackPolicy']:[]),...(Object.hasOwn(args,'keepPolicy')?['keepPolicy']:[]),...(Object.hasOwn(args,'cooldownPolicy')?['cooldownPolicy']:[]),...(Object.hasOwn(args,'exclusivePolicy')?['exclusivePolicy']:[]),...(Object.hasOwn(args,'probabilityPolicy')?['probabilityPolicy']:[])]);return desk.trial(args.title,args.book,args.input,args.oncePolicy,args.depthPolicy,args.count,args.fallbackPolicy,args.keepPolicy,args.cooldownPolicy,args.probabilityPolicy,args.exclusivePolicy);
         case 'source':keys(args,['kind','sourceId']);return desk.sourceInfo(args.kind,args.sourceId);
+        case 'display-receipt':return displayReceipt(desk,args);
         case 'view':keys(args,['familyId','branchId','targetId']);return desk.view(args.familyId,args.branchId,args.targetId);
         case 'preview':keys(args,['familyId','intent','operationId']);return desk.preview(args.familyId,args.intent,args.operationId);
         case 'recover':keys(args,['familyId','requestId']);return desk.recover(args.familyId,args.requestId);
         case 'inspect-open':case 'inspect-fork':return desk.command(action.slice(8),args,true);
-        case 'save':case 'seal':case 'archive':case 'role-draft':case 'role':case 'profile':case 'open':case 'fork':case 'send':return desk.command(action,args);
+        case 'save':case 'seal':case 'archive':case 'role-draft':case 'role':case 'profile':case 'open':case 'fork':case 'set-variable':case 'send':return desk.command(action,args);
         default:fail('CHARACTER_ROUTE_NOT_FOUND');
       }
     },

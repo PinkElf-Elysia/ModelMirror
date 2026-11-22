@@ -1,0 +1,55 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdir,mkdtemp} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {startPreview} from './preview.mjs';
+import {displayText} from './display-text.mjs';
+import {macroPolicy} from '../macros/date-choice.mjs';
+import {variablePolicy} from '../macros/variables.mjs';
+import {positionPolicy} from './positions.mjs';
+
+test('one branch freezes expanded and positioned input, while local reading preferences leave the next request and exact candidate untouched',async t=>{
+  const root=process.env.CHARACTER_R5C_TEST_ROOT??tmpdir();await mkdir(root,{recursive:true});
+  const dir=await mkdtemp(join(root,'combo-'));
+  let day='2031-06-18',host;
+  const open=()=>startPreview(dir,0,0,()=>new Date(day+'T12:00:00Z'));
+  host=await open();t.after(()=>host.close());
+  const catalog=await host.api('catalog'),source=catalog.sessions.find(s=>s.kind==='group');
+  const info=await host.api('source',{kind:'group',sourceId:source.id});
+  const entry={keys:['交班'],content:'@@position after_desc\n{{date}} {{pick::木牌::竹牌}} {{if::shared::天气::晴}}桥头{{else}}亭内{{/if}} {{var::private::暗号}}',extensions:{},enabled:true,insertion_order:0};
+  const draft=await host.write('save',{bookId:null,title:'巡桥交班簿',book:{entries:[entry],extensions:{},scan_depth:0}});
+  const ref=await host.write('seal',draft);
+  const loc=await host.write('open',{kind:'group',sourceId:source.id,sourceHash:info.sourceHash,player:[],session:[{ref,readers:'all'}],macroPolicy,variablePolicy,positionPolicy});
+  const who=await host.api('view',{...loc,targetId:null}),actor=who.targetId,other=who.members[1].id;
+  const set=(scope,memberId,key,value)=>host.write('set-variable',{...loc,scope,memberId,key,value});
+  await set('shared',null,'天气','晴');await set('private',actor,'暗号','风铃');await set('private',other,'暗号','纸鹤');
+  const view=()=>host.api('view',{...loc,targetId:actor});
+  function preview(operationId,input,messageId=null,targetId=actor){
+    const intent={branchId:loc.branchId,targetId,input,messageId},familyId=loc.familyId;
+    return host.api('preview',{familyId,intent,operationId}).then(p=>({p,cmd:{operationId,expectedRevision:p.revision,payload:{familyId,intent,previewHash:p.previewHash}}}));
+  }
+  const input='交班：蓝牌。\\n\\n桥头记录。',first=await preview('first',input);
+  const system=first.p.messages[0].content;
+  assert.match(system,/原创中性验收夹具。\n\n2031-06-18 (木牌|竹牌) 桥头 风铃/);
+  assert.ok(!JSON.stringify(first.p).includes('纸鹤'));assert.equal(first.p.books.placements[0].slot,'after_desc');
+  assert.deepEqual((await preview('other-op',input)).p.macros,first.p.macros);
+  assert.ok(!JSON.stringify((await preview('second-member',input,null,other)).p).includes('风铃'));
+  const {requestId}=await host.api('send',first.cmd),reply=(await view()).messages.at(-1);
+  const proof=()=>host.api('display-receipt',{...loc,targetId:actor,by:'request',id:requestId});
+  const raw=await proof(),shown=displayText(raw.rawText,{enabled:true,paragraphs:true,find:'蓝牌',replacement:'蓝色标记'});
+  assert.match(shown.text,/蓝色标记。\n\n桥头/);
+  await set('shared',null,'天气','雨');day='2031-06-19';
+  await host.close();host=await open();
+  const next=await preview('follow','交班');
+  assert.match(next.p.messages[0].content,/2031-06-19 (木牌|竹牌) 亭内 风铃/);
+  assert.ok(next.p.messages.some(m=>m.role==='assistant'&&JSON.parse(m.content).text===raw.rawText));
+  assert.ok(!JSON.stringify(next.p.messages).includes('蓝色标记'));
+  const exact=await preview('exact',null,reply.id);
+  assert.deepEqual(exact.p.messages,first.p.messages);assert.deepEqual(exact.p.macros,first.p.macros);
+  assert.deepEqual(exact.p.books.original,first.p.books);assert.equal(exact.p.requestHash,raw.contextHash);
+  const regen=await host.api('send',exact.cmd);
+  const c=await host.api('display-receipt',{...loc,targetId:actor,by:'request',id:regen.requestId});
+  assert.equal(c.kind,'regenerate');assert.equal(c.contextHash,raw.contextHash);assert.notEqual(c.requestId,raw.requestId);
+  assert.deepEqual(await proof(),raw);
+});

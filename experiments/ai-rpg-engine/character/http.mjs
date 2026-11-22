@@ -35,7 +35,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
 
   if(req.method==='GET'&&path==='/characters')return send(await readFile(new URL('./editor.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&path.startsWith('/character-assets/')){
-   const files={'v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
+   const files={'v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/display-text.mjs':'text/javascript; charset=utf-8','group/message-display.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
