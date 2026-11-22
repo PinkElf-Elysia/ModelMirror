@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { assemble } from './assembly.mjs';
+import {sessionSystem,versionHash} from './worldbook.mjs';
 import { createMemoryTransport } from '../studio/memory-task-provider.mjs';
 import { createMemoryStoreClass } from '../studio/memory-session-store.mjs';
 import { createCardContext } from '../studio/card-context.mjs';
@@ -21,14 +22,18 @@ export async function createAncientHost(directory, control) {
   const state = createCardState(modelPolicy);
   const context = createCardContext({cardId,state,assemble(session,input) {
     if (!session.history.length && input !== session.characterText) throw fail('ANCIENT_OPENING_MISMATCH');
-    return {messages:assemble({input,history:session.history}),current:input};
+    const messages=assemble({input,history:session.history});
+    if(session.runtime.descriptor.worldbookHash)messages[0].content=sessionSystem(session,input);
+    return {messages,current:input};
   }});
   const files = ['system.txt','assembly.mjs','real-host.mjs'];
   const artifacts = async () => Object.fromEntries(await Promise.all(files.map(async path => [path,sha(await readFile(new URL(path,import.meta.url)))])));
   const frozen = await artifacts();
   const descriptor = {format:5,cardId,mode:'controlled-real',models:[initial],artifacts:frozen};
+  const legacyHash=sha(canonical({...descriptor,artifacts:{...frozen,'real-host.mjs':'5efe1c3aa2dd7669b3247cdfeb9099f3fe07f0ec23aacec187d630a6fed4be07'}}));
+  descriptor.worldbookHash=versionHash();
   const runtime = {descriptor,hash:sha(canonical(descriptor)),async verify() {
-    if (canonical(await artifacts()) !== canonical(frozen)) throw fail('ANCIENT_RUNTIME_CHANGED');
+    if (versionHash()!==descriptor.worldbookHash || canonical(await artifacts()) !== canonical(frozen)) throw fail('ANCIENT_RUNTIME_CHANGED');
   }};
   const profile = {runtime, state, context, modelPolicy, initialSelection:()=>structuredClone(initial),
     create({opening}) {
@@ -37,7 +42,7 @@ export async function createAncientHost(directory, control) {
     },
     bind:s=>({format:5,hash:runtime.hash,descriptor:structuredClone(descriptor),setupHash:setupHash(s)}),
     status(s) {
-      const compatible=s.cardId===cardId && s.mode==='real' && s.runtime?.format===5 && s.runtime.hash===runtime.hash && sha(canonical(s.runtime.descriptor))===runtime.hash && s.runtime.setupHash===setupHash(s);
+      const compatible=s.cardId===cardId && s.mode==='real' && s.runtime?.format===5 && [runtime.hash,legacyHash].includes(s.runtime.hash) && sha(canonical(s.runtime.descriptor))===s.runtime.hash && s.runtime.setupHash===setupHash(s);
       return {compatible,code:compatible?null:'ANCIENT_RUNTIME_MISMATCH'};
     }
   };

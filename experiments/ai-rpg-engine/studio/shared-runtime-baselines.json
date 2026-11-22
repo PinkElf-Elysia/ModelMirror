@@ -2,6 +2,10 @@
   "source": "Reviewed shared deployment fingerprints, including fefc14b0+preserved-shared-compat; no saved descriptors are rewritten",
   "groups": [
     [
+      {"studio/server.mjs":"de5180e3ee78c8a9f665f232f232961e808c2994921ca5a380fa8ea7e2662511"},
+      ["afd2204a6fa78049f37ce2d02de7a06bdb03e0cc608a0ab92e1ce44c08e795e6","14b31129e4792063017ffbf61105c2c257feebbb30d4fc35496d59c4d07698cb","ad4eebf6acbc633356df7a96633509dc4b693d719803a3b17ed6266358b1a11d","72df3a2888524b9f036fb25c376994cb45ab1a115320cbcdbe31aa18b47db2fd","c5246aef4b78ea56c86c51ee5d0585411d2f25748c332cf482d05077a56395a5"]
+    ],
+    [
       {
         "card-replica/lib/assembly.mjs": "ad86c152b58c1532c8889c5f96456401949250909374c81ee057ef31c56ad712",
         "card-replica/lib/store.mjs": "cde075635723ffbfe8c526d1012be91483fa30278940af215d06a3d3e5126531",

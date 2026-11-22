@@ -28,7 +28,14 @@ export async function frozenCardAssembly(cardId){
  if(cardId==='god')return assembleWithOutputSuffix;
  let system;
  if(cardId==='xingjian'){const p=JSON.parse(await readFile(new URL('studio/rpg05-prompt.json',root),'utf8'));if(sha(p.system)!==p.sha256)throw fail('FROZEN_PROMPT_DRIFT');system=p.system+'\n\n'+(await readFile(new URL('xingjian-card/output-format.txt',root),'utf8')).replaceAll('\r\n','\n');if(sha(system)!=='c8b6e58d437a197d069494ff17781165f3e7c91d44629d9a2f2aee52271fed39')throw fail('FROZEN_PROMPT_DRIFT');}
- else if(cardId==='ancient')system=(await import('../ancient-card/assembly.mjs')).assemble({input:'档案'})[0].content;
+ else if(cardId==='ancient'){
+  const {source,sessionSystem}=await import('../ancient-card/worldbook.mjs');
+  return (s,input)=>{
+   if(!s.history.length&&input!==s.characterText)throw fail('OPENING_SNAPSHOT_REQUIRED');
+   const content=s.runtime?.descriptor?.hostArtifacts?.['ancient-card/worldbook.mjs']?sessionSystem(s,input):source;
+   return {current:input,messages:[{role:'system',content},...s.history,{role:'user',content:input}]};
+  };
+ }
  else if(cardId==='cultivation'||cardId==='lord-of-mysteries'){
   const {source,assembleWorldbook}=cardId==='cultivation'?await import('../cultivation-card/worldbook.mjs'):await import('../lord-of-mysteries-card/worldbook.mjs');
   return (s,input)=>{
@@ -63,7 +70,7 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
   for(const cardId of Object.keys(GENERATION_CARDS)){
    const policy=cardParameterPolicy(cardId,initial),state=createCardParameterState(policy),assemble=await frozenCardAssembly(cardId),context=createCardContext({cardId,state,assemble});
    const descriptor={format:5,cardId,release:'typed-generation-cards/1',hostArtifacts:frozen,initialModel:defaultModel};
-   const {versionHash}=cardId==='cultivation'?await import('../cultivation-card/worldbook.mjs'):cardId==='lord-of-mysteries'?await import('../lord-of-mysteries-card/worldbook.mjs'):{};
+   const {versionHash}=cardId==='ancient'?await import('../ancient-card/worldbook.mjs'):cardId==='cultivation'?await import('../cultivation-card/worldbook.mjs'):cardId==='lord-of-mysteries'?await import('../lord-of-mysteries-card/worldbook.mjs'):{};
    const legacyDescriptor={...descriptor};
    if(versionHash)descriptor.hostArtifacts={...frozen,[cardId+'-card/worldbook.mjs']:versionHash()};
    // Old saves remain bound to their original host and assembly. Files other than this adapter must still match.
@@ -71,6 +78,11 @@ export async function createGenerationCards({directory,budgetDirectory,control=n
    const previousArtifacts=cardId==='cultivation'?descriptor.hostArtifacts:frozen;
    for(const hash of ["256d78c47284c7b8784e0cf8fedefbbbe948d0b75e42e302d7cab4e2a1e26eec","2bdc62a0a6f9a9450df48360a0b093592c9bf5c61615841f6065ef7841e3153a"])previousHashes.push(digest({...legacyDescriptor,hostArtifacts:{...previousArtifacts,'studio/generation-cards.mjs':hash}}));
    const beforeEdit={...legacyDescriptor,hostArtifacts:Object.fromEntries(Object.entries(frozen).filter(([p])=>!editFiles.includes(p)).map(([p,h])=>[p,p==='studio/generation-cards.mjs'?'6764cacd029b5f3723fbbc97f1b54353b05f22e09005e9a96fc52c062f7e6b4c':h]))};
+   // Pre-split parameter hosts shared this adapter fingerprint across all six cards.
+   const previousAdapter={'studio/generation-cards.mjs':'2e1a4837ddc04bdb12c680d07b0be072d2144b070cc76a866de08a70fcda5641'};
+   const previousLegacy={...legacyDescriptor,hostArtifacts:{...frozen,...previousAdapter}};
+   const previousHost=cardId==='ancient'?previousLegacy:{...descriptor,hostArtifacts:{...descriptor.hostArtifacts,...previousAdapter}};
+   previousHashes.push(digest(previousHost),...speechPredecessorDescriptors(previousLegacy).map(digest));
    const beforeEditHash=digest(beforeEdit),speechPredecessorHashes=speechPredecessorDescriptors(legacyDescriptor).map(digest);
    const runtime={descriptor,hash:digest(descriptor),async verify(){if((versionHash && versionHash()!==descriptor.hostArtifacts[cardId+'-card/worldbook.mjs'])||canonical(await artifacts())!==canonical(frozen))throw fail('RUNTIME_FILES_CHANGED_RESTART_REQUIRED');}};
    const profile={runtime,state,context,initialSelection:()=>policy.fixedChoice(),create:data=>configuration(cardId,data),bind:s=>({format:5,hash:runtime.hash,descriptor:clone(descriptor),setupHash:setupHash(s)}),status:s=>({compatible:s.cardId===cardId&&s.mode==='real'&&[runtime.hash,beforeEditHash,...speechPredecessorHashes,...previousHashes].includes(s.runtime?.hash)&&digest(s.runtime.descriptor)===s.runtime.hash&&s.runtime.setupHash===setupHash(s),code:[runtime.hash,beforeEditHash,...speechPredecessorHashes,...previousHashes].includes(s.runtime?.hash)?null:'PARAMETER_LEGACY_READ_ONLY'})};
