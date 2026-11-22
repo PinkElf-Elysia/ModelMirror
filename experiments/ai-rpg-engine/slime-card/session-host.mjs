@@ -1,4 +1,5 @@
 import {assembleTurn} from './assembly.mjs';
+import {reviewedPrompt,reviewedTurn} from './reviewed-assembly.mjs';
 import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {canonical,sha,fail,loadReviewedPlugins,loadReviewedCatalog,TRANSCRIPT_ID,ILLUSTRATIONS_ID} from '../plugins/catalog.mjs';
@@ -16,7 +17,8 @@ import {safeHtml} from '../card-replica/lib/render.mjs';
 
 export async function createArchiveHost(directory,control,{cardId,name,system,autoSummaryV2=false,pluginFeatures={}}){
   if(cardId!=='slime')throw fail('CONTROL_CARD_INCOMPATIBLE');
-  const mode=control?'real':'offline',systemHash=sha(system);
+  const legacySystem=system,activeSystem=reviewedPrompt();
+  const mode=control?'real':'offline',systemHash=sha(activeSystem);
   const params={temperature:0.7,top_p:0.8,max_tokens:16384};
   const models=(control?['google/gemini-3.8-flash','google/gemini-4-argon']:['offline/'+cardId+'-a','offline/'+cardId+'-b']).map((model,i)=>({
     model,name:control?model:'离线演示 '+(i+1),available:true,parameters:params,selectionId:'offline-'+i,selectionRevision:'v1'
@@ -27,20 +29,31 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
   if(!selected)throw fail('CARD_MODEL_UNAVAILABLE');
   const initial=modelPolicy.controlledChoice(selected),state=createCardState(modelPolicy);
   const context=createCardContext({cardId,state,assemble(session,input){
-    return assembleTurn(system,session.history,input);
+    return session.runtime.descriptor.worldbookRevision===1
+      ?reviewedTurn(activeSystem,session.history,input,session.characterText)
+      :assembleTurn(legacySystem,session.history,input);
   }});
   const transportFiles=['assembly.mjs','resources/system.txt','resources/worldbook.json','resources/chapters.json','transport/memory-budget.mjs','transport/controlled-provider.mjs','transport/memory-task-provider.mjs','transport/offline-store.mjs'];
+  const legacyFiles=[...transportFiles];
+  transportFiles.push('reviewed-assembly.mjs','resources/reviewed-worldbook.json');
   const transportArtifacts=async()=>Object.fromEntries(await Promise.all(transportFiles.map(async p=>[p,sha(await readFile(new URL(p,import.meta.url)))])));
   const frozenTransport=await transportArtifacts();
-  const descriptor={transportArtifacts:frozenTransport,format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const descriptor={worldbookRevision:1,transportArtifacts:frozenTransport,format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
   const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){
     if(canonical(await transportArtifacts())!==canonical(frozenTransport))throw fail('RUNTIME_CHANGED');
     if(sha(await readFile(new URL(import.meta.url)))!==descriptor.adapterHash)throw fail('RUNTIME_CHANGED');
   }};
+  // Old saves bind hashes of the original adapter and assembly. Their prompt and turn path remain pinned.
+  const oldFiles=Object.fromEntries(legacyFiles.map(p=>[p,frozenTransport[p]]));
+  const assemblySource=await readFile(new URL('assembly.mjs',import.meta.url),'utf8');
+  oldFiles['assembly.mjs']=sha(assemblySource.replace(/\nexport \{alternatives,replyText,section,slots\};\n$/,''));
+  oldFiles['transport/offline-store.mjs']='0379df89ef697e4c61fcb2cf0613405001bff220c29207fc8e5715c2d9c79412';
+  const legacyDescriptor={transportArtifacts:oldFiles,format:5,cardId,mode,model:initial,systemHash:sha(legacySystem),adapterHash:'0f8605bcaa11c008571bca3bb85a5458928e2316a2c6ff50d12907f1b025c698'};
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return s.runtime.hash===sha(canonical({...descriptor,model:bound}));
+    const expected=s.runtime.descriptor.worldbookRevision===undefined?legacyDescriptor:descriptor;
+    return s.runtime.hash===sha(canonical({...expected,model:bound}));
   };
   const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){

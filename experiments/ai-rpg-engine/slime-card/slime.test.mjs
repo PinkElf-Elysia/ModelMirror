@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {assembleTurn, selectEntries, systemPrompt} from './assembly.mjs';
+import {reviewedPrompt,reviewedTurn} from './reviewed-assembly.mjs';
 import {installSlime, slimeOptions} from './integration.mjs';
 import {start} from '../studio/server.mjs';
 import {canonical, sha} from '../plugins/catalog.mjs';
@@ -93,7 +94,7 @@ test('normal HTTP session creation, mock dispatch, isolation and static assets',
   const memory=await api(path+'/memory-palace'), input='【时间线】开国祭篇。我拜访紫苑。';
   const saved=await api(path+'/send',{operationId:randomUUID(),expectedSessionRevision:session.revision,expectedMemoryRevision:memory.memoryRevision,expectedContextPolicyRevision:memory.effectivePolicy.revision,input});
   assert.equal(saved.turns.length,1);
-  assert.equal(received[0].messages[0].content,assembleTurn(fixed,[],input).messages[0].content);
+  assert.equal(received[0].messages[0].content,reviewedTurn(reviewedPrompt(),[],input).messages[0].content);
   assert.equal((await api(path)).turns.length,1);
   assert.deepEqual(await api('/rpg-app/ancient/chat/api/sessions'),[]);
   for(const [file,mime] of [['','text/html'],['opening.gif','image/gif'],['background.jpg','image/jpeg'],['fonts.css','text/css']]){
