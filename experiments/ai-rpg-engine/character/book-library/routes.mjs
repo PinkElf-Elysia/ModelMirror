@@ -23,7 +23,7 @@ export function bookRoutes({workspace,store,directory,settings,recoverDeadOwner}
         case 'recommendations':keys(args,['profileId','profileRevision']);return desk.recommendations(args.profileId,args.profileRevision);
         case 'anchor':keys(args,['familyId','branchId','point']);return desk.anchor(args.familyId,args.branchId,args.point);
         case 'draft':keys(args,['bookId']);return desk.draft(args.bookId);
-        case 'trial':keys(args,['title','book','input']);return desk.trial(args.title,args.book,args.input);
+        case 'trial':keys(args,['title','book','input',...(Object.hasOwn(args,'oncePolicy')?['oncePolicy']:[]),...(Object.hasOwn(args,'depthPolicy')?['depthPolicy']:[]),...(Object.hasOwn(args,'count')?['count']:[]),...(Object.hasOwn(args,'fallbackPolicy')?['fallbackPolicy']:[]),...(Object.hasOwn(args,'keepPolicy')?['keepPolicy']:[]),...(Object.hasOwn(args,'cooldownPolicy')?['cooldownPolicy']:[]),...(Object.hasOwn(args,'exclusivePolicy')?['exclusivePolicy']:[]),...(Object.hasOwn(args,'probabilityPolicy')?['probabilityPolicy']:[])]);return desk.trial(args.title,args.book,args.input,args.oncePolicy,args.depthPolicy,args.count,args.fallbackPolicy,args.keepPolicy,args.cooldownPolicy,args.probabilityPolicy,args.exclusivePolicy);
         case 'source':keys(args,['kind','sourceId']);return desk.sourceInfo(args.kind,args.sourceId);
         case 'view':keys(args,['familyId','branchId','targetId']);return desk.view(args.familyId,args.branchId,args.targetId);
         case 'preview':keys(args,['familyId','intent','operationId']);return desk.preview(args.familyId,args.intent,args.operationId);

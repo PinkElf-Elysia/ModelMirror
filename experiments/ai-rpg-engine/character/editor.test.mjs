@@ -124,3 +124,34 @@ test('invalid numeric entry remains an unsaved edit and blocks persistence and t
  p.input('[data-book-field="insertion_order"]','0');p.$('#save').click();await p.flush();
  assert.equal(p.work.draft.character.card.data.character_book.entries[0].insertion_order,0);
 });
+test('V3 card author edits cooldown without losing opaque extensions; clearing removes only cooldown',async t=>{
+ const document=fixture(),card=document.character.card;card.spec='chara_card_v3';card.spec_version='3.0';card.data.group_only_greetings=[];
+ const backup={revision:0,document,book:JSON.stringify(card.data.character_book),tags:JSON.stringify(card.data.tags)};
+ const p=await page(t,{url:'http://localhost/characters?work=work-fixture',storage:{'rpg-character-draft:http://localhost:work-fixture':backup}});
+ const selector='[data-book-field="modelmirror.cooldown"]';
+ p.input(selector,'3');p.$('#save').click();await p.flush();
+ const extensions=()=>p.work.draft.character.card.data.character_book.entries[0].extensions;
+ assert.deepEqual(extensions(),{unknown:[1,2],'modelmirror.cooldown':3});
+ p.input(selector,'');p.$('#save').click();await p.flush();assert.deepEqual(extensions(),{unknown:[1,2]});
+});
+test('V3 card author saves zero probability, then clears it without altering cooldown and private vendor fields',async t=>{
+ const document=fixture(),card=document.character.card;card.spec='chara_card_v3';card.spec_version='3.0';card.data.group_only_greetings=[];
+ card.data.character_book.entries[0].extensions['modelmirror.cooldown']=3;
+ const backup={revision:0,document,book:JSON.stringify(card.data.character_book),tags:JSON.stringify(card.data.tags)};
+ const p=await page(t,{url:'http://localhost/characters?work=work-fixture',storage:{'rpg-character-draft:http://localhost:work-fixture':backup}});
+ const field='[data-book-field="modelmirror.probability"]';
+ const extensions=()=>p.work.draft.character.card.data.character_book.entries[0].extensions;
+ for(const [input,expected] of [['0',{'modelmirror.probability':0}],['',{}]]){
+  p.input(field,input);p.$('#save').click();await p.flush();
+  assert.deepEqual(extensions(),{unknown:[1,2],'modelmirror.cooldown':3,...expected});
+ }
+});
+test('V3 author can save and remove the exclusive group while preserving opaque fields',async t=>{
+ const document=fixture(),card=document.character.card;card.spec='chara_card_v3';card.spec_version='3.0';card.data.group_only_greetings=[];
+ const backup={revision:0,document,book:JSON.stringify(card.data.character_book),tags:JSON.stringify(card.data.tags)};
+ const p=await page(t,{url:'http://localhost/characters?work=work-fixture',storage:{'rpg-character-draft:http://localhost:work-fixture':backup}});
+ for(const value of ['渡口','']){
+  p.input('[data-book-field="modelmirror.exclusiveGroup"]',value);p.$('#save').click();await p.flush();
+  assert.deepEqual(p.work.draft.character.card.data.character_book.entries[0].extensions,{unknown:[1,2],...(value?{'modelmirror.exclusiveGroup':value}:{})});
+ }
+});
