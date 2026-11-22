@@ -8,7 +8,7 @@ import {canonical,sha,fail} from '../../plugins/catalog.mjs';
 export async function createOfflineStore(directory,generate,profile,models){
  const Store=createMemoryStoreClass(profile),store=new Store(directory,generate);await store.init();
  // Local simulated ledger, separate from any real authorization or dispatches.
- const transport=await createMemoryTransport({directory:join(directory,'offline-plugin-dispatches'),cardId:profile.modelPolicy.cardId,modelPolicy:profile.modelPolicy,limit:100,enabled:true,baseURL:'http://127.0.0.1:1/',serviceToken:'offline-slime-test-value',
+ const transport=await createMemoryTransport({directory:join(directory,'offline-plugin-dispatches'),cardId:profile.modelPolicy.cardId,modelPolicy:profile.modelPolicy,limit:100,enabled:true,baseURL:'http://127.0.0.1:1/',serviceToken:'synthetic-local-offline-slime-fixture',
  fetcher:async(url,options)=>{
   if(options.method==='GET')return Response.json({models});
   const b=JSON.parse(options.body),model=models.find(m=>m.selectionId===b.selectionId)?.model;if(!model)throw fail('MODEL_SELECTION_UNAVAILABLE');

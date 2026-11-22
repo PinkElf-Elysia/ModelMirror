@@ -115,3 +115,5 @@ export function assembleTurn(system, history, input) {
   if (grouped.size) throw Error('世界书插入位置缺失');
   return {current:input, messages:[{role:'system', content}, ...history, {role:'user', content:input}]};
 }
+
+export {alternatives,replyText,section,slots};
