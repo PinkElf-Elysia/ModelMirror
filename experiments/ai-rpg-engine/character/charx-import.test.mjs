@@ -168,3 +168,135 @@ for(const phase of ['beforeCommit','afterCommit']) test('restart after '+phase+'
   const works=await json('/characters/works');assert.equal(works.length,1);assert.equal(works[0].id,result.workId);
   assert.equal((await json(resources(result.workId))).rows[0].sha256,sha256(png));
 });
+
+const wavePath='assets/other/audio/bell.wav';
+async function mediaPackage(sample=1) {
+  const {card,files}=await openCharx(pack('灯室记录员'));
+  const wave=Buffer.from('524946462600000057415645666d74201000000001000100401f0000803e00000200100064617461020000000000','hex');
+  wave.writeInt16LE(sample,44);
+  for(const name of ['远铃','近铃']) card.data.assets.push({name,type:'other',ext:'wav',uri:'embeded://'+wavePath});
+  return {card,wave,bytes:Buffer.from(zipSync({...Object.fromEntries(files),'card.json':Buffer.from(JSON.stringify(card)),[wavePath]:wave}))};
+}
+
+test('mixed archives pin bytes to their own work even with identical definitions, including across copies and restart',async t=>{
+  const {json,request,intent,restart}=await fixture(t);
+  const first=await mediaPackage(15),second=await mediaPackage(22);
+  const create=async(pkg,op)=>(await json(imports,intent(pkg.bytes,op))).workId;
+  const seal=async(id,op)=>(await json('/works/'+id+'/publish',{operationId:op,expectedRevision:(await json('/works/'+id)).revision})).result.versionId;
+  const exportBytes=async(id,v)=>{
+    const response=await request('/characters/charx/export',{workId:id,versionId:v});
+    assert.equal(response.status,200);return Buffer.from(await response.arrayBuffer());
+  };
+  const id=await create(first,'media-first'), other=await create(second,'media-other');
+  assert.notEqual(id,other);assert.equal(await create(first,'media-repeat'),id);
+  const v1=await seal(id,'seal-media-v1'),foreign=await seal(other,'seal-other');
+  const session=await json('/characters/sessions',{operationId:'start-media',reference:{workId:id,versionId:v1},openingIndex:0,player:{id:null,name:'私人访客'}});
+  const before=await json('/works/'+id);before.draft.character.card.data.description='第二版灯室说明';
+  await json('/works/'+id+'/save',{operationId:'edit-media-text',expectedRevision:before.revision,document:before.draft});
+  const v2=await seal(id,'seal-media-v2');
+  const copy=await json('/works/'+id+'/copy',{operationId:'copy-media',expectedRevision:(await json('/works/'+id)).revision,name:'灯室副本'});
+  const vc=await seal(copy.workId,'seal-copy');
+  await restart();
+  for(const [owner,version,pkg,name,description] of [
+    [id,v1,first,first.card.data.name,first.card.data.description],
+    [id,v2,first,first.card.data.name,'第二版灯室说明'],
+    [other,foreign,second,second.card.data.name,second.card.data.description],
+    [copy.workId,vc,first,'灯室副本','第二版灯室说明'],
+  ]) {
+    const list=await json(resources(owner,version));
+    const uses=list.rows.filter(r=>r.path===wavePath);
+    assert.deepEqual(uses.map(r=>[r.name,r.status,r.sha256,r.size]),['远铃','近铃'].map(label=>[label,'音频',sha256(pkg.wave),pkg.wave.length]));
+    assert.equal((await request(resources(owner,version).replace('/resources?','/image?')+'&path='+encodeURIComponent(wavePath))).ok,false);
+    const stored=await openCharx(await exportBytes(owner,version));
+    const expected=structuredClone(pkg.card);Object.assign(expected.data,{name,description});
+    assert.deepEqual(stored.card,expected);assert.deepEqual(stored.files.get(wavePath),pkg.wave);
+    assert.deepEqual([...stored.files.keys()].sort(),['card.json',path,wavePath].sort());
+    assert.deepEqual(Buffer.from(await (await request('/characters/source?work='+owner+'&version='+version)).arrayBuffer()),pkg.bytes);
+  }
+  const newPkg=await exportBytes(id,v2), again=await json(imports,intent(newPkg,'roundtrip-media'));
+  assert.equal((await json('/works/'+again.workId)).draft.character.card.data.description,'第二版灯室说明');
+  const old=await json('/characters/sessions/'+session.id);assert.deepEqual(old.binding,session.binding);assert.deepEqual(old.messages,session.messages);
+  assert.equal((await request('/characters/charx/export',{workId:id,versionId:foreign})).ok,false);
+});
+
+for(const phase of ['beforeCommit','afterCommit']) test('explicit mixed import recovers once after '+phase,async t=>{
+  let once=true;
+  const {request,json,intent,restart}=await fixture(t,(stage,op)=>{
+    if(once && stage===phase && op.operationId.startsWith('charx-')){once=false;throw Error('中性故障夹具');}
+  });
+  const pkg=await mediaPackage(), body=intent(pkg.bytes,'confirm-media');
+  assert.equal((await request(imports,body)).ok,false);
+  await restart();const {workId}=await json(imports,body);
+  assert.equal((await json('/characters/works')).length,1);
+  assert.equal((await json(resources(workId))).rows.find(r=>r.path===wavePath).sha256,sha256(pkg.wave));
+});
+
+const replaceRoute='/characters/charx/replace';
+const mp3=Buffer.concat(Array(4).fill(Buffer.concat([Buffer.from('fffb9000','hex'),Buffer.alloc(413)])));
+const replacement=(id,rev,index,extension,bytes,operationId)=>({
+  workId:id,expectedRevision:rev,index,extension,base64:bytes.toString('base64'),operationId,
+});
+test('replacing a single declaration survives copies, later drafts, restart and exact replay',async t=>{
+  const {json,request,intent,restart}=await fixture(t),pkg=await mediaPackage(4),next=await mediaPackage(36);
+  const {workId}=await json(imports,intent(pkg.bytes,'replace-source')), work='/works/'+workId;
+  const publish=async id=>(await json('/works/'+id+'/publish',{operationId:'seal-'+(await json('/works/'+id)).revision,expectedRevision:(await json('/works/'+id)).revision})).result.versionId;
+  const getBytes=async(id,v)=>{const response=await request('/characters/charx/export',{workId:id,versionId:v});assert.equal(response.status,200);return openCharx(Buffer.from(await response.arrayBuffer()));};
+  const copy=async(op)=>(await json(work+'/copy',{operationId:op,expectedRevision:(await json(work)).revision,name:'灯室副本'})).workId;
+  const old=await publish(workId);
+  const session=await json('/characters/sessions',{operationId:'old-media-chat',reference:{workId,versionId:old},openingIndex:0,player:{id:null,name:'旅人'}});
+  const early=await copy('copy-before');
+  const rev=(await json(work)).revision;
+  const input=replacement(workId,rev,3,'mp3',mp3,'media-change');
+  for(const invalid of [{...input,index:0},{...input,index:99},{...input,extension:'mp4'},
+    {...input,base64:Buffer.from('invalid').toString('base64')},{...input,versionId:old}]) {
+    assert.equal((await request(replaceRoute,invalid)).ok,false);
+  }
+  assert.equal((await json(work)).revision,rev);
+  const [a,b]=await Promise.all([json(replaceRoute,input),json(replaceRoute,input)]);
+  assert.equal(a.revision,b.revision);assert.equal(a.replayed||b.replayed,true);
+  assert.equal((await json(work)).revision,rev+1);
+  assert.equal((await request(replaceRoute,{...input,index:4})).ok,false);
+  assert.equal((await request(replaceRoute,{...input,operationId:'different'})).ok,false);
+  const edited=(await json(work)).draft.character.card,changed=edited.data.assets[3];
+  const generated=changed.uri.slice('embeded://'.length);
+  assert.notEqual(generated,wavePath);assert.equal(changed.ext,'mp3');
+  const expected=structuredClone(pkg.card);Object.assign(expected.data.assets[3],{uri:changed.uri,ext:'mp3'});assert.deepEqual(edited,expected);
+  const newer=await publish(workId),late=await copy('copy-after'),copied=await publish(late);
+  const listed=await json(resources(workId,newer));
+  assert.equal(listed.rows[3].sha256,sha256(mp3));assert.equal(listed.rows[4].sha256,sha256(pkg.wave));
+  await json(replaceRoute,replacement(workId,(await json(work)).revision,3,'wav',next.wave,'media-again'));
+  await restart();
+  assert.equal((await json(replaceRoute,input)).replayed,true);
+  assert.deepEqual((await getBytes(workId,old)).card,pkg.card);
+  for(const [id,v] of [[workId,newer],[late,copied]]) {
+    const packed=await getBytes(id,v);
+    assert.deepEqual(packed.files.get(generated),mp3);assert.deepEqual(packed.files.get(wavePath),pkg.wave);
+    assert.equal(packed.card.data.assets[4].uri,'embeded://'+wavePath);
+  }
+  const current=await json(resources(workId));assert.equal(current.rows[3].sha256,sha256(next.wave));
+  const source=await request('/characters/source?work='+workId+'&version='+newer);
+  assert.deepEqual(Buffer.from(await source.arrayBuffer()),pkg.bytes);
+  const oldSession=await json('/characters/sessions/'+session.id);assert.deepEqual(oldSession.messages,session.messages);assert.deepEqual(oldSession.binding,session.binding);
+  // An earlier copy cannot acquire a later parent's upload by manually entering its URI.
+  const e=await json('/works/'+early);Object.assign(e.draft.character.card.data.assets[3],changed);
+  await json('/works/'+early+'/save',{operationId:'guess-path',expectedRevision:e.revision,document:e.draft});
+  const forged=await publish(early);
+  assert.equal((await request('/characters/charx/export',{workId:early,versionId:forged})).ok,false);
+});
+
+for(const phase of ['beforeCommit','afterCommit']) test('explicit media replacement recovery after '+phase,async t=>{
+  let once=true;
+  const {json,request,intent,restart}=await fixture(t,(stage,op)=>{
+    if(once && stage===phase && op.operationId==='media-fault'){once=false;throw Error('offline fault');}
+  });
+  const pkg=await mediaPackage();
+  const {workId}=await json(imports,intent(pkg.bytes,'recovery-source'));
+  const change=replacement(workId,0,3,'mp3',mp3,'media-fault');
+  assert.equal((await request(replaceRoute,change)).ok,false);
+  await restart();
+  const rows=(await json(resources(workId))).rows;
+  assert.equal(rows[3].sha256,sha256(phase==='beforeCommit'?pkg.wave:mp3));
+  assert.equal(rows[4].sha256,sha256(pkg.wave));
+  const retry=await json(replaceRoute,change);assert.equal(retry.replayed,phase==='afterCommit');
+  assert.equal((await json('/works/'+workId)).revision,1);
+});

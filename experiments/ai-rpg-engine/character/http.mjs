@@ -81,6 +81,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    fail('CHARACTER_ROUTE_NOT_FOUND');
   }
   const input=await body();
+  if(route==='/charx/replace')return send(await imports.replace(input));
   if(route==='/charx/export'){
    keys(input,['workId','versionId']);
    const bytes=await imports.exportVersion(input.workId,input.versionId);

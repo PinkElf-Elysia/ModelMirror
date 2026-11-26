@@ -44,6 +44,7 @@ describe("help center content catalog", () => {
       "use-rpg-voice-library",
       "create-single-character-card",
       "exchange-character-charx",
+      "replace-character-media",
       "edit-character-books",
       "preview-character-book-context",
       "test-character-book-rules",
@@ -105,7 +106,14 @@ describe("help center content catalog", () => {
       expect(article.content).not.toMatch(/内容稍后补充|coming soon/i);
       expect(article.content, `${article.slug}: duplicate page h1`).not.toMatch(/^# /m);
     });
-    expect(helpArticles.filter((article) => !["exchange-character-charx", "preview-character-book-context", "test-character-book-rules", "edit-character-books", "review-character-proposals", "manage-character-memory", "control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    expect(helpArticles.filter((article) => !["replace-character-media", "exchange-character-charx", "preview-character-book-context", "test-character-book-rules", "edit-character-books", "review-character-proposals", "manage-character-memory", "control-character-context", "revise-character-conversations", "manage-character-conversations", "use-character-group-chat", "use-rpg-voice-input", "use-rpg-voice-library", "create-single-character-card", "listen-rpg-story", "play-elderland-card", "publish-rpg-work", "edit-rpg-reply", "manage-rpg-history", "create-rpg-cg-gallery", "create-rpg-variable-panel", "review-vision-image-decisions", "review-assembly-jev", "prepare-scaledown-argon-speech", "recover-workflow-run", "review-wonder-decisions", "play-god-card", "play-jinyong-card", "play-harry-potter-card", "play-slime-card", "play-modern-life-card", "play-medieval-card", "play-ai-girls-card", "review-decisions-sol-batch", "check-managed-catalog", "review-provider-qualification", "review-elevenlabs-batch", "use-rpg-memory-palace", "use-rpg-rolling-summary", "set-rpg-history-window", "choose-rpg-model", "play-rpg-cards", "branch-rpg-story", "start-with-a-model", "recover-unavailable-feature", "review-remote-mcp-auth", "review-specialized-models", "subscribe-rss-workflow", "subscribe-email-workflow", "promote-run-to-skill", "choose-model-agent-workflow", "create-repeatable-agent", "build-first-workflow", "review-meta-planner-branches", "prepare-vision-evaluation", "handle-workflow-node-failure", "modules-and-terms", "check-availability-cost-data", "understand-rag-content-contract"].includes(article.slug)).every((article) => article.verifiedCommit === verifiedBaseline.commit)).toBe(true);
+    const media = helpArticles.find(article => article.slug === "replace-character-media")!;
+    expect(media.verifiedCommit).toBe("ca0bb539");
+    expect(media.content.match(/\/help-center\/ca0bb539\/[^)]+\.png/g)).toEqual([
+      "/help-center/ca0bb539/media-inspect.png",
+      "/help-center/ca0bb539/media-replace.png",
+    ]);
+    expect(searchHelpContent("替换音频").some(item => item.id === media.slug)).toBe(true);
     const charx = helpArticles.find(article => article.slug === "exchange-character-charx")!;
     expect(charx.verifiedCommit).toBe("f628bed3");
     expect(charx.content.match(/\/help-center\/f628bed3\/[^)]+\.png/g)).toEqual([

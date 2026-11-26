@@ -33,7 +33,7 @@ export async function mountCharacterStudio({window,document,fetch,EventSource}){
  const confirm=window.confirm.bind(window),atob=window.atob.bind(window),btoa=window.btoa.bind(window);
 const $=s=>document.querySelector(s),api='/rpg-app/api/authoring',cp='/characters';
 let work=null,doc=null,version=null,dirty=false,session=null,stream=null,importing=null,catalog=null,busy=false;
-let packageView=null;
+let packageView=null, mediaTarget=null;
 let groupsUrl=null;let selectedPlayer=()=>({id:null,name:$('#player-name').value||'玩家'});
 let screen='library',activeSection='basics',worksList=[];
 const sectionNames={basics:'基础与肖像',definition:'人物设定',openings:'开场与示例',book:'角色知识',prompts:'高级设置',metadata:'作者与分享'};
@@ -46,6 +46,7 @@ function text(tag,value){const n=document.createElement(tag);n.textContent=value
 function readonly(){
  const groupLink=$('#create-group');groupLink.hidden=!groupsUrl||!version||!work;if(!groupLink.hidden){const target=new URL(groupsUrl);target.searchParams.set('create','1');target.searchParams.set('work',work.id);target.searchParams.set('version',version);groupLink.href=target.href;}
  const locked=!!version;
+ document.querySelectorAll('[data-replace-media]').forEach(b=>b.disabled=locked||busy);
  const canExport=locked&&doc?.character?.card.spec==='chara_card_v3';
  $('#export-charx-nav').hidden=!canExport;$('#charx-version-downloads').hidden=!canExport;
  $('#export-charx-nav').disabled=busy||!canExport;$('#export-charx-preview').disabled=busy||!canExport;
@@ -125,12 +126,29 @@ function packageImage(id,v,path,hash){
 function renderPackage(){
  const info=work&&packageView;
  $('#charx-bound').hidden=!info;$('#charx-export-note').hidden=!info;
- $('#charx-bound-list').replaceChildren(...(info?.rows??[]).map(row=>{
+ const rows=info?.rows??[], uses=new Map();
+ for(const row of rows)uses.set(row.path,(uses.get(row.path)??0)+1);
+ const pending=work?.pending;
+ $('#recover-media').hidden=!!version||!pending||pending.workId!==work?.id||!pending.operationId.startsWith('media-');
+ $('#charx-bound-list').replaceChildren(...rows.map((row,index)=>{
   const li=document.createElement('li');
   if(row.status==='图片'){
    const img=document.createElement('img');img.loading='lazy';img.width=64;img.height=48;img.alt=row.name;img.src=packageImage(work.id,version,row.path,row.sha256);li.append(img);
   }
-  li.append(text('span',[row.main?'主肖像':row.type,row.name,row.path,row.status,row.size?row.size+' B':''].filter(Boolean).join(' · ')));return li;
+  li.append(text('span',[row.main?'主肖像':row.type,row.name,row.path,row.status,row.size?row.size+' B':''].filter(Boolean).join(' · ')));
+  if(!version && ['音频','视频'].includes(row.status)){
+   const count=uses.get(row.path);
+   if(count>1)li.append(text('small','共 '+count+' 处引用，仅替换此项'));
+   const button=text('button','替换'+row.status);button.type='button';button.dataset.replaceMedia=String(index);
+   button.setAttribute('aria-label','替换'+row.status+'：'+row.name+'（第 '+(index+1)+' 项）');
+   button.onclick=()=>{
+    if(busy||dirty||examples.pending){notice('请先保存当前草稿，再替换文件。');return;}
+    mediaTarget={workId:work.id,expectedRevision:work.revision,index,operationId:'media-'+uid()};
+    const picker=$('#charx-media-file');picker.accept=row.status==='音频'?'.wav,.mp3':'.mp4';picker.value='';picker.click();
+   };
+   li.append(button);
+  }
+  return li;
  }));
  return info?.rows.find(row=>row.main&&row.status==='图片'&&!row.alias);
 }
@@ -171,6 +189,27 @@ async function preview(){if(!doc)return;const value=await request(cp+'/preview',
  $('#compatibility').replaceChildren(text('h3',value.report.format==='chara_card_v3'?'格式说明 · V3':'格式说明 · V2'),...value.report.warnings.map(w=>{const p=text('p',w.message);p.className='warning';return p;}));$('#raw-card').textContent=JSON.stringify(collect().character.card,null,2);
 }
 function download(base64,type,name){const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+$('#charx-media-file').onchange=()=>run(async()=>{
+ const file=$('#charx-media-file').files[0], target=mediaTarget;mediaTarget=null;
+ if(!file||!target)return;
+ if(version||dirty||examples.pending||work?.id!==target.workId||work.revision!==target.expectedRevision)throw Error('草稿已变化，请重新选择要替换的引用。');
+ if(!file.size||file.size>16*1024*1024)throw Error('请选择不超过 16 MiB 的音视频文件。');
+ const extension=file.name.split('.').pop().toLowerCase();
+ try{
+  await request(cp+'/charx/replace',{...target,extension,base64:await asBase64(file)});
+ }catch(e){
+  if(e.code==='CHARACTER_CHARX_REPLACEMENT_INVALID')throw Error(e.details?.diagnostic||'文件与所选引用不匹配。');
+  if(e.code==='AUTHORING_RESULT_UNKNOWN')await load(target.workId);
+  throw e;
+ }
+ await load(target.workId);notice('此项引用已替换并保存到草稿。创建版本后即可导出。');
+});
+$('#recover-media').onclick=()=>run(async()=>{
+ if(dirty||examples.pending)throw Error('请先保留当前草稿修改。');
+ const {workId,operationId}=work.pending;
+ const result=await request('/operations/recover',{workId,operationId});await load(workId);
+ notice(result.status==='committed'?'已核对此次替换已保存。':'已核对原请求未保存，可重新选择文件。');
+});
 async function asBase64(file){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(binary);}
 function originalLink(hash,label){
  const a=document.createElement('a');a.href=api+cp+'/charx/original?hash='+encodeURIComponent(hash);a.download='original-character.charx';a.textContent=label;return a;
@@ -185,8 +224,9 @@ $('#charx-shelf').ontoggle=async()=>{
  }catch{list.textContent='无法读取原包列表。请重新打开重试。';}
 };
 function showPackage(result){
- const mixed=result.classification==='original-only';
- $('#import-report').textContent=[result.name||'未命名角色',mixed?'仅可保留原包':'图片包检查通过',mixed?'以下项目需要保留在原包中。':'确认后可编辑角色并创建可用版本。',...result.diagnostics].join('\n');
+ const mixed=!['images','media'].includes(result.classification);
+ const passed=result.classification==='media'?'音视频角色包检查通过':'图片包检查通过';
+ $('#import-report').textContent=[result.name||'未命名角色',mixed?'仅可保留原包':passed,mixed?'以下项目需要保留在原包中。':'确认后可编辑角色并创建可用版本。',...result.diagnostics].join('\n');
  $('#charx-members').replaceChildren(...result.members.map(member=>{
   const li=document.createElement('li'), label=document.createElement('strong'), info=document.createElement('span');
   label.textContent=member.path;
