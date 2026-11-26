@@ -1,24 +1,24 @@
-import {compatible} from '../daily/compatibility.mjs';
+import {groupPageView,narratedMemberView,narrationContext,narrationFormat,replayNarrated} from './narration.mjs';
 import {join} from 'node:path';
 import {SessionRecords} from '../../authoring/session-storage.mjs';
 import {AuthoringStore} from '../../authoring/store.mjs';
 import {keys,isId} from '../../authoring/contracts.mjs';
 import {greeting,expand} from '../context.mjs';
 import {reference,text} from '../conversation/contracts.mjs';
-import {FORMAT,digest,idFor,check,model,limits,replay,pending,active,memberOf,reservation,browserView,memberView} from './contracts.mjs';
+import {FORMAT,digest,idFor,check,model,limits,pending,active,memberOf,reservation} from './contracts.mjs';
 import {assembleGroup} from './context.mjs';
-import {runtimeDescriptor} from './runtime.mjs';
+import {acceptsLegacyGroup,runtimeDescriptor} from './runtime.mjs';
 const clone=structuredClone;
 // One CAS ledger owns every group's budget and message state. No cross-file
 // transaction or browser-provided budget authority is needed.
 export class GroupStore {
- #records;#works;#runtime;#policy;#models;#ready=false;#queue=Promise.resolve();
- constructor(records,works,runtime,policy,models){this.#records=records;this.#works=works;this.#runtime=runtime;this.#policy=policy;this.#models=models;}
- static async open({directory,works,models=[],authorization={id:'disabled',mode:'disabled',calls:0,microUsd:0},recoverDeadOwner=false,fault}){
+  #narration;#records;#works;#runtime;#policy;#models;#ready=false;#queue=Promise.resolve();
+ constructor(records,works,runtime,policy,models,narration){this.#narration=narration;this.#records=records;this.#works=works;this.#runtime=runtime;this.#policy=policy;this.#models=models;}
+ static async open({directory,works,models=[],authorization={id:'disabled',mode:'disabled',calls:0,microUsd:0},recoverDeadOwner=false,fault,narration=false}){
   check(works instanceof AuthoringStore,'WORK_STORE_REQUIRED');keys(authorization,['id','mode','calls','microUsd']);check(isId(authorization.id)&&['disabled','fixture','controlled'].includes(authorization.mode),'AUTHORIZATION_INVALID');limits({calls:authorization.calls,microUsd:authorization.microUsd});check(authorization.mode!=='disabled'||authorization.calls===0&&authorization.microUsd===0,'AUTHORIZATION_INVALID');
   check(Array.isArray(models)&&models.length<=100,'MODEL_INVALID');models.forEach(model);check(new Set(models.map(m=>m.id)).size===models.length,'MODEL_DUPLICATE');
   const runtime=await runtimeDescriptor(),records=await SessionRecords.open(join(directory,'ledger'),{scope:'character-groups-v1',recoverDeadOwner,...(fault?{fault}:{})});
-  return new GroupStore(records,works,runtime,clone(authorization),clone(models));
+  return new GroupStore(records,works,runtime,clone(authorization),clone(models),narration);
  }
  #serial(fn){const p=this.#queue.then(fn);this.#queue=p.catch(()=>{});return p;}
  async #verify(){check((await runtimeDescriptor()).hash===this.#runtime.hash,'RUNTIME_CHANGED');}
@@ -33,19 +33,19 @@ export class GroupStore {
  async #request(s,operationId,p){
   keys(p,['targetId','input']);const m=memberOf(s,p.targetId);check(m.kind==='character'&&active(m),'MEMBER_INACTIVE');const staged=clone(s);
   if(p.input!==null){text(p.input);staged.messages.push({id:idFor('message',s.id,operationId),sequence:s.messages.length+1,speakerId:s.members[0].id,content:p.input,source:{kind:'player-input',reference:null},visibility:{kind:'public'},addressedTo:[m.id]});}
-  const c=await this.#configuration(m.binding.reference),context=assembleGroup(staged,m.id,c.document.character.card);
+  const c=await this.#configuration(m.binding.reference),context=assembleGroup(narrationContext(staged,m.id),m.id,c.document.character.card);
   return {id:idFor('request',s.id,operationId),operationId,groupId:s.id,targetId:m.id,binding:clone(m.binding),model:clone(m.model),...context,reservation:reservation(context.messages,m.model),sourceHash:digest({revision:s.revision,scene:s.scene,messages:staged.messages.map(x=>x.id),target:m.id})};
  }
  async #validate(data){
-  keys(data,['format','runtimeHash','authorization','catalogHash','groups']);check(data.format===FORMAT&&(data.runtimeHash===this.#runtime.hash||await compatible('group',data.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');check(data.catalogHash===digest(this.#models),'MODEL_CATALOG_CHANGED');check(digest(data.authorization)===digest(this.#policy),'AUTHORIZATION_CHANGED');check(data.groups&&typeof data.groups==='object'&&!Array.isArray(data.groups)&&Object.keys(data.groups).length<=50,'GROUP_LIMIT');
+  keys(data,['format','runtimeHash','authorization','catalogHash','groups']);check(data.format===FORMAT&&(data.runtimeHash===this.#runtime.hash||await acceptsLegacyGroup(data.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');check(data.catalogHash===digest(this.#models),'MODEL_CATALOG_CHANGED');check(digest(data.authorization)===digest(this.#policy),'AUTHORIZATION_CHANGED');check(data.groups&&typeof data.groups==='object'&&!Array.isArray(data.groups)&&Object.keys(data.groups).length<=50,'GROUP_LIMIT');
   const states={};let calls=0,microUsd=0;
   for(const [id,r] of Object.entries(data.groups)){
-   check(id===r.id&&(r.runtimeHash===this.#runtime.hash||await compatible('group',r.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');const s=replay(r);states[id]=s;
+   check(id===r.id&&(r.runtimeHash===this.#runtime.hash||await acceptsLegacyGroup(r.runtimeHash,this.#runtime.artifacts)),'RUNTIME_MISMATCH');if('narration' in r)check(r.runtimeHash===this.#runtime.hash,'RUNTIME_MISMATCH');const s=replayNarrated(r);states[id]=s;
    for(const m of s.members.filter(x=>x.kind==='character')){const c=await this.#configuration(m.binding.reference);check(digest(c)===m.binding.configurationHash&&c.document.character.card.data.name.slice(0,120)===m.name,'VERSION_CHANGED');check(digest(m.model)===digest(this.#model(m.model.id)),'MODEL_CHANGED');}
    const first=r.events[0].payload;if(first.opening){const {content,...selection}=first.opening;check(digest(await this.#opening(selection,first.members,first.player.name))===digest(first.opening),'OPENING_CHANGED');}
    // Reconstruct each request from the original visible history and template.
    for(let i=1;i<r.events.length;i++)if(r.events[i].action==='prepare'){
-    const e=r.events[i],prior=replay({...r,events:r.events.slice(0,i)});check(digest(await this.#request(prior,e.operationId,{targetId:e.payload.targetId,input:e.payload.input}))===digest(e.payload.request),'CONTEXT_CHANGED');
+    const e=r.events[i],prior=replayNarrated(r,i,s.notes);check(digest(await this.#request(prior,e.operationId,{targetId:e.payload.targetId,input:e.payload.input}))===digest(e.payload.request),'CONTEXT_CHANGED');
    }
    calls+=s.budget.usedCalls;microUsd+=s.budget.usedMicroUsd;
   }
@@ -56,11 +56,31 @@ export class GroupStore {
  recover(){return this.#serial(async()=>{this.#ready=false;await this.#verify();const result=await this.#records.reconcile('groups');const saved=await this.#records.get('groups');if(saved)await this.#validate(saved.data);this.#ready=true;return result;});}
  catalog(){return clone(this.#models.map(({id,label})=>({id,label})));}
  get mode(){return this.#policy.mode;}
- list(){return this.#serial(async()=>Object.values((await this.#load()).states).map(browserView));}
+ list(){return this.#serial(async()=>Object.values((await this.#load()).states).map(groupPageView));}
  read(id){return this.#serial(async()=>{const s=(await this.#load()).states[id];check(!!s,'NOT_FOUND');return clone(s);});}
- async view(id){return browserView(await this.read(id));}
- async memberView(id,memberId){return memberView(await this.read(id),memberId);}
- preview(id,targetId){return this.#serial(async()=>{const s=(await this.#load()).states[id];check(!!s,'NOT_FOUND');const m=memberOf(s,targetId),c=await this.#configuration(m.binding.reference);return assembleGroup(s,targetId,c.document.character.card);});}
+ async view(id){return groupPageView(await this.read(id));}
+ async memberView(id,memberId){return narratedMemberView(await this.read(id),memberId);}
+ preview(id,targetId){return this.#serial(async()=>{const s=(await this.#load()).states[id];check(!!s,'NOT_FOUND');const m=memberOf(s,targetId),c=await this.#configuration(m.binding.reference);return assembleGroup(narrationContext(s,targetId),targetId,c.document.character.card);});}
+
+ narrate(id,input){
+  input=clone(input);keys(input,['operationId','expectedRevision','expectedNarrationRevision','content']);
+  check(isId(input.operationId),'OPERATION_INVALID');text(input.content,2000);
+  return this.#serial(async()=>{
+   const {saved,data,states}=await this.#load(),s=states[id],record=data.groups[id];
+   check(this.#narration && !!record?.narration,'NARRATION_UNAVAILABLE');
+   const entries=record.narration.entries, prior=entries.findIndex(n=>n.operationId===input.operationId);
+   if(prior>=0){
+    check(entries[prior].atRevision===input.expectedRevision && prior===input.expectedNarrationRevision &&
+      entries[prior].content===input.content,'OPERATION_COLLISION');
+    return groupPageView(s);
+   }
+   check(input.expectedRevision===s.revision && input.expectedNarrationRevision===entries.length,'REVISION_CONFLICT');
+   check(!pending(s),'REQUEST_PENDING');
+   entries.push({operationId:input.operationId,atRevision:s.revision,content:input.content});
+   await this.#put(saved,data);
+   return groupPageView(replayNarrated(record));
+  });
+ }
  create(input){return this.#write(null,'create',input);}
  change(id,action,input){check(['join','leave','rejoin','model','private'].includes(action),'ACTION_INVALID');return this.#write(id,action,input);}
  prepare(id,input){return this.#write(id,'prepare',input);}
@@ -80,7 +100,7 @@ export class GroupStore {
    if(action==='model'){keys(p,['memberId','modelId']);p={memberId:p.memberId,model:this.#model(p.modelId)};}
    if(action==='prepare'){check(this.#policy.mode!=='disabled','EXECUTION_DISABLED');check(!pending(s),'REQUEST_PENDING');p={...p,request:await this.#request(s,input.operationId,p)};}
    const e={action,operationId:input.operationId,expectedRevision:input.expectedRevision,payload:p,intentHash};
-   data.groups[id]={format:old?.format??(p.player?.format?'modelmirror.rpg.character-group/2':FORMAT),id,runtimeHash:old?.runtimeHash??this.#runtime.hash,events:[...(old?.events??[]),e]};await this.#put(saved,data);return {id,revision:data.groups[id].events.length-1,requestId:p.request?.id??null};
+   data.groups[id]={format:old?.format??(p.player?.format?'modelmirror.rpg.character-group/2':FORMAT),id,runtimeHash:old?.runtimeHash??this.#runtime.hash,events:[...(old?.events??[]),e],...(old?.narration?{narration:old.narration}:action==='create'&&this.#narration?{narration:{format:narrationFormat,entries:[]}}:{})};await this.#put(saved,data);return {id,revision:data.groups[id].events.length-1,requestId:p.request?.id??null};
   });
  }
  async close(){await this.#queue;this.#ready=false;await this.#records.close();}

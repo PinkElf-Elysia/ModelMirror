@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
+import {previewTurn} from './turn-preview.mjs';
 import {mountGroupUI} from './browser.mjs';
 const {JSDOM}=createRequire(new URL('../../../../client/package.json',import.meta.url))('jsdom');
 const html=await readFile(new URL('./page.html',import.meta.url),'utf8');
@@ -15,6 +16,32 @@ async function page(t,{mode='fixture',group=base(),cards=true,url='http://localh
  const fetch=async(path,init)=>{calls.push({path,...init});if(init.method==='POST'){const body=JSON.parse(init.body);if(onPost)return onPost(path,body,group);if(path.endsWith('/send')){if(body.payload.input!==null)group.messages.push({id:'player-'+group.messages.length,speakerId:'player',content:body.payload.input,source:{kind:'player'}});group.messages.push({id:'reply-'+group.messages.length,speakerId:body.payload.targetId,content:'离线回复',source:{kind:'model-result',modelId:'offline-a'}});group.revision++;}else if(path.endsWith('/leave'))group.members.find(m=>m.id===body.payload.memberId).active=false;return {ok:true,json:async()=>structuredClone(group)};}return {ok:true,json:async()=>structuredClone(path==='/api/bootstrap'?data:path==='/api/daily/profiles'?profiles:group)};};
  await mountGroupUI({document:window.document,window,fetch,location:window.location,history:window.history,crypto:window.crypto});const $=id=>window.document.getElementById(id);const change=(id,value)=>{$(id).value=value;$(id).dispatchEvent(new window.Event('change'));};const input=text=>{$('input').value=text;$('input').dispatchEvent(new window.Event('input'));};const flush=async()=>{await tick();await tick();};return {$,window,calls,group,data,change,input,flush};
 }
+
+test('turn preview ignores superseded replies and leaves the manual composer and group untouched', async t => {
+  let release;
+  const original = base();
+  const p = await page(t, {group:structuredClone(original), onPost:(path,body,group) => {
+    assert.equal(path,'/api/groups/'+group.id+'/turn-preview');
+    const result = previewTurn(group,body);
+    return new Promise(resolve => { release = () => resolve({ok:true,json:async()=>result}); });
+  }});
+  p.input('保留手动发送草稿');
+  p.change('target','two');
+  p.$('turn-preview').click();
+  p.change('turn-mode','mentions');
+  p.$('turn-picks').querySelectorAll('button')[1].click();
+  release(); await p.flush();
+  assert.equal(p.$('turn-result').children.length,0);
+  p.$('turn-preview').click(); release(); await p.flush();
+  assert.match(p.$('turn-result').firstElementChild.textContent,/1\. 同名旅人 · 2/);
+  assert.equal(p.$('input').value,'保留手动发送草稿');
+  assert.equal(p.$('target').value,'two');
+  assert.deepEqual(p.group,original);
+  const posts = p.calls.filter(c => c.method === 'POST');
+  assert.equal(posts.length,2);
+  assert.ok(posts.every(c => c.path.endsWith('/turn-preview')));
+});
+
 test('send and continue keep explicit responder; continue preserves unsent draft and caret',async t=>{
  const p=await page(t);p.change('target','two');p.input('还没发送的草稿');p.$('input').setSelectionRange(2,5);p.$('continue').click();await p.flush();const posts=p.calls.filter(x=>x.method==='POST');assert.equal(posts.length,1);assert.deepEqual(JSON.parse(posts[0].body).payload,{targetId:'two',input:null});assert.equal(p.group.messages.length,1);assert.equal(p.$('input').value,'还没发送的草稿');assert.equal(p.$('input').selectionStart,2);assert.equal(p.$('target').value,'two');assert.equal(p.window.document.activeElement,p.$('input'));
  p.$('send-form').dispatchEvent(new p.window.Event('submit',{cancelable:true}));await p.flush();assert.equal(p.group.messages.length,3);assert.equal(p.$('input').value,'');assert.equal(p.$('send').disabled,true);
