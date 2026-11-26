@@ -1,6 +1,8 @@
 import {openPresentation, groupLookMembers, presentationRoute} from './presentation/store.mjs';
 import {charxImports} from './charx-import.mjs';
-import {inspectCharx,isZip} from './charx.mjs';
+import {libraryStore,duplicateWorks} from './library/store.mjs';
+import {provenance} from './library/provenance.mjs';
+import {openCharx,isZip} from './charx.mjs';
 import {retainedCharx} from './charx-retention.mjs';
 import {previewCard} from './v3/selection.mjs';
 import {bookRoutes} from './book-library/routes.mjs';
@@ -26,7 +28,9 @@ export async function createCharacterHttp({store,directory,settings=null,recover
  const ownWorkspace=!settings?.workspace,workspace=settings?.workspace??await DailyWorkspace.open(directory,{recoverDeadOwner});workspace.single=host;workspace.works=store;
  const packages=retainedCharx(sources);
  let archiveStore;
- const imports=charxImports({store,sources,archive:()=>archiveStore??=CharacterSources.open(join(directory,'charx-imports'),{recoverDeadOwner}).catch(error=>{archiveStore=null;throw error;})});
+ const archive=()=>archiveStore??=CharacterSources.open(join(directory,'charx-imports'),{recoverDeadOwner}).catch(error=>{archiveStore=null;throw error;});
+ const imports=charxImports({store,sources,archive});
+ const library=libraryStore(sources.records,store);
  let lookStore;
  workspace.presentation=()=>lookStore??=openPresentation({directory:join(directory,'presentation'),works:store,imports,recoverDeadOwner,
   resolveMembers:async(kind,id)=>kind==='group'?groupLookMembers(workspace.group,id):[{id:'character',period:1,reference:(await host.read(id)).binding.reference}]
@@ -47,7 +51,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
 
   if(req.method==='GET'&&path==='/characters')return send(await readFile(new URL('./editor.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&path.startsWith('/character-assets/')){
-   const files={'presentation/player.mjs':'text/javascript; charset=utf-8','presentation/portrait.mjs':'text/javascript; charset=utf-8','presentation/panel.mjs':'text/javascript; charset=utf-8','presentation/panel.css':'text/css; charset=utf-8','v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/display-text.mjs':'text/javascript; charset=utf-8','group/message-display.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
+   const files={'presentation/player.mjs':'text/javascript; charset=utf-8','presentation/portrait.mjs':'text/javascript; charset=utf-8','presentation/panel.mjs':'text/javascript; charset=utf-8','presentation/panel.css':'text/css; charset=utf-8','v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/display-text.mjs':'text/javascript; charset=utf-8','group/message-display.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','library/panel.mjs':'text/javascript; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
@@ -63,6 +67,8 @@ export async function createCharacterHttp({store,directory,settings=null,recover
     res.setHeader('Content-Disposition','attachment; filename="original-character.charx"');
     return send(bytes,200,'application/octet-stream');
    }
+   if(route==='/library')return send(await library.view());
+   if(route==='/library/source')return send(await provenance(await store.read(url.searchParams.get('work')),imports,sources,archive,directory));
    if(route==='/navigation')return send({groupsUrl});
    if(route==='/blank')return send(characterDocument(blankDocument()));
    if(route==='/status')return send(await host.status());
@@ -87,6 +93,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    fail('CHARACTER_ROUTE_NOT_FOUND');
   }
   const input=await body();
+  if(route==='/library')return send(await library.edit(input));
   if(route==='/charx/replace')return send(await imports.replace(input));
   if(route==='/charx/export'){
    keys(input,['workId','versionId']);
@@ -95,17 +102,21 @@ export async function createCharacterHttp({store,directory,settings=null,recover
    return send(bytes,200,'application/octet-stream');
   }
   if(route==='/charx/originals')return send(await packages.keep(input));
-  if(route==='/imports/inspect'||route==='/imports'){
+  if(route==='/imports/inspect'||route==='/imports'||route==='/imports/new'){
    const hint=route.endsWith('/inspect') && Object.hasOwn(input,'formatHint');
    keys(input,route.endsWith('/inspect')?(hint?['base64','selection','formatHint']:['base64','selection']):['base64','selection','expectedHash','operationId','fileName','origin']);
    const bytes=decode64(input.base64,32*1024*1024);
    if(hint && input.formatHint!=='charx')fail('CHARACTER_FORMAT_UNSUPPORTED');
    if(isZip(bytes) || hint || /\.charx$/i.test(input.fileName??'')){
     if(input.selection!=null)fail('CHARACTER_SELECTION_INVALID');
-    return send(route==='/imports/inspect'?await inspectCharx(bytes):await imports.confirm(bytes,input));
+    if(route.endsWith('/inspect')){
+      const {report,card}=await openCharx(bytes);
+      return send({...report,duplicates:await duplicateWorks(store,imports,report.source,card)});
+    }
+    return send(await imports.confirm(bytes,input,route.endsWith('/new')));
    }
    const inspection=inspectImport(bytes,{selection:input.selection});
-   if(route.endsWith('/inspect'))return send({source:inspection.source,report:inspection.report,card:inspection.card,candidates:inspection.candidates});
+   if(route.endsWith('/inspect'))return send({source:inspection.source,report:inspection.report,card:inspection.card,candidates:inspection.candidates,duplicates:await duplicateWorks(store,imports,inspection.source,inspection.card)});
    if(inspection.source.sha256!==input.expectedHash)fail('CHARACTER_IMPORT_CHANGED');
    await sources.put(bytes,{...input,report:inspection.report});const doc=characterDocument(blankDocument(),inspection.card,inspection.source);
    const made=await store.create({operationId:input.operationId,expectedRevision:null,document:doc});

@@ -18,6 +18,7 @@ export function mountNarrationPanel({$,el,api,crypto,run,notice,apply,sync}) {
       if(!result.items.length)list.append(el('p','还没有已启动的轮次。'));
       for(const r of result.items){
         const section=el('section');section.append(el('strong',status[r.status]??r.status));
+        if(r.estimate)section.append(el('p','启动时的整轮上界 · '+r.estimate.calls+' 次 · US$'+(r.estimate.microUsd/1e6).toFixed(6)));
         if(r.input!==null)section.append(el('p','玩家 · '+r.input));
         for(const step of r.steps){
           const index=state.members.findIndex(m=>m.id===step.memberId);

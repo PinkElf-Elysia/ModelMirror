@@ -7,7 +7,15 @@ import {keys,parseJson} from '../../authoring/contracts.mjs';import {check} from
 // Separate loopback application: no old host route or fingerprint is changed.
 export async function startGroupServer({store,works,host,port=0,charactersUrl=null,workspace=null,presentation=null,rounds=null}){
  check(charactersUrl===null||/^http:\/\/127\.0\.0\.1:[0-9]+\/characters$/.test(charactersUrl),'NAVIGATION_INVALID');
- if(workspace){workspace.group=store;}
+ if(workspace){
+   workspace.group=store;
+   workspace.attachControlledRounds=value=>{
+     check(store.mode==='controlled' && (!value||value.control?.app.groupHost===host) && (!value||!rounds),'ROUND_EXECUTION_DISABLED');
+     rounds=value;workspace.groupRoundsEnabled=!!rounds;
+   };
+   workspace.groupRoundsEnabled=!!rounds;
+   workspace.groupRoundStatus=async id=>rounds?rounds.view(id):null;
+ }
  const look=()=>presentation??workspace?.presentation?.();
  const decorate=v=>v?.messages?{...v,messages:v.messages.map(m=>({...m,html:markdown(messagePresentation(m).text)}))}:v;
  const session=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');let origin;
@@ -23,7 +31,7 @@ export async function startGroupServer({store,works,host,port=0,charactersUrl=nu
    check(req.headers.cookie?.split(';').some(x=>x.trim()==='mm_group='+session),'OWNER_REQUIRED');
    if(req.method==='GET'&&path==='/api/bootstrap'){
     const cards=[];for(const w of await works.list())for(const v of (await works.read(w.id)).versions){const c=await works.verifyConfiguration(w.id,v.id);if(c.document.kind==='character'){const d=c.document.character.card.data;cards.push({reference:{workId:w.id,versionId:v.id},name:d.name,version:v.number,openings:[{kind:'ordinary',texts:[d.first_mes,...d.alternate_greetings]},{kind:'group',texts:d.group_only_greetings??[]}]});}}
-    return send({charactersUrl,roundsEnabled:!!rounds,presentationEnabled:!!(presentation||workspace?.presentation),dailyEnabled:!!workspace,dailyUrl:charactersUrl?charactersUrl+'?desk=sessions':null,csrf,mode:store.mode,models:store.catalog(),cards,groups:await store.list()});
+    return send({charactersUrl,...(rounds?.control&&workspace?.roundExecutionLabel?{roundExecutionLabel:workspace.roundExecutionLabel}:{}),roundsEnabled:!!rounds,presentationEnabled:!!(presentation||workspace?.presentation),dailyEnabled:!!workspace,dailyUrl:charactersUrl?charactersUrl+'?desk=sessions':null,csrf,mode:store.mode,models:store.catalog(),cards,groups:await store.list()});
    }
    if(req.method==='GET'&&path==='/daily-client.mjs')return send(await readFile(new URL('../daily/client.mjs',import.meta.url)),200,'text/javascript; charset=utf-8');
    if(req.method==='GET'&&path.startsWith('/api/daily/')&&workspace)return send(await workspace.api(path.slice(10),null,url));
@@ -47,6 +55,7 @@ export async function startGroupServer({store,works,host,port=0,charactersUrl=nu
     return send(await rounds.step(id,body));
    }
    if(rounds && action==='send')check(!String(body.operationId).startsWith('roundstep-'),'OPERATION_INVALID');
+   if(action==='turn-preview'&&rounds?.control)return send(await rounds.preview(id,body));
    if(action==='turn-preview')return send(previewTurn(await store.view(id),body));
    if(action==='send'){check(!!host,'EXECUTION_DISABLED');const execute=async()=>{const v=await host.send(id,body);if(workspace)await workspace.store.observe('group',id,v.revision);return send(rounds?await rounds.groupView(id):v);};return await (workspace?workspace.run(execute):execute());}
    if(action==='recover'){keys(body,['requestId']);check(!!host,'EXECUTION_DISABLED');const result=await host.recover(id,body.requestId);return send(rounds?await rounds.groupView(id):result);}

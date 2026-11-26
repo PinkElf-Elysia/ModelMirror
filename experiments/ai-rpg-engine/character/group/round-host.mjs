@@ -6,6 +6,8 @@ import {groupPageView} from './narration.mjs';
 import {GroupHost} from './host.mjs';
 import {previewTurn} from './turn-preview.mjs';
 
+import {RoundControl} from './round-control.mjs';
+const CONTROLLED_FORMAT='character-controlled-rounds/1';
 const FORMAT = 'character-rounds/1';
 const finished = new Set(['completed','stopped','failed','changed','blocked']);
 const stepId = (groupId, roundId, index) => idFor('roundstep',groupId,roundId,index);
@@ -13,9 +15,18 @@ const stepId = (groupId, roundId, index) => idFor('roundstep',groupId,roundId,in
 
 const budgetStops = new Set(['GROUP_BUDGET_EXHAUSTED','GROUP_TASK_BUDGET_EXHAUSTED','GROUP_PRICE_UNKNOWN',
   'GROUP_CONTEXT_CAPACITY','GROUP_REVISION_CONFLICT','GROUP_REQUEST_PENDING']);
+const controlledStops=new Set([...budgetStops,'GROUP_ROUND_ROUTE_CHANGED',
+  'GROUP_ROUND_LIMIT','GROUP_ROUND_AUTHORIZATION','GROUP_ROUND_MODEL','REVISION_REQUEST_PENDING','REVISION_SHARED_BUDGET_EXHAUSTED']);
 
 function verifyPlan(group, round) {
-  keys(round,['id','intent','revision','message','targets','rosterHash','offset','stop']);
+  keys(round,['id','intent','revision','message','targets','rosterHash','offset','stop',...(Object.hasOwn(round,'quoteHash')?['quoteHash','estimate']:[])]);
+  if(Object.hasOwn(round,'quoteHash')){
+    const estimate=round.estimate;
+    keys(estimate,['policyHash','calls','microUsd','steps']);
+    check(isHash(estimate.policyHash)&&estimate.calls===round.targets.length&&Array.isArray(estimate.steps)&&
+      estimate.steps.length===estimate.calls&&estimate.steps.every((s,i)=>s.memberId===round.targets[i]&&isHash(s.modelHash)&&Number.isSafeInteger(s.microUsd)&&s.microUsd>=0)&&
+      estimate.microUsd===estimate.steps.reduce((n,s)=>n+s.microUsd,0)&&round.quoteHash===digest({groupId:group.id,estimate}),'ROUND_BINDING');
+  }
   check(isId(round.id) && isHash(round.intent) && isHash(round.rosterHash) &&
     Number.isSafeInteger(round.revision) && round.revision >= 0 && round.revision <= group.revision &&
     Number.isSafeInteger(round.offset) && round.offset >= 0 && round.offset <= group.requests.length,'ROUND_BINDING');
@@ -23,7 +34,7 @@ function verifyPlan(group, round) {
   check(Array.isArray(round.targets) && round.targets.length >= 1 && round.targets.length <= 3 &&
     new Set(round.targets).size===round.targets.length &&
     round.targets.every(id=>group.members.some(m=>m.kind==='character' && m.id===id)),'ROUND_BINDING');
-  check(round.stop===null || round.stop==='user' || budgetStops.has(round.stop),'ROUND_FORMAT');
+  check(round.stop===null || round.stop==='user' || (round.quoteHash?controlledStops:budgetStops).has(round.stop),'ROUND_FORMAT');
 }
 
 function project(group, round) {
@@ -32,6 +43,8 @@ function project(group, round) {
   const steps = round.targets.map((memberId,index) => {
     const operation = stepId(group.id,round.id,index);
     const request = group.requests.find(r => r.operationId === operation);
+    if(request&&round.quoteHash)check(group.requests[round.offset+index]?.id===request.id&&
+      digest(request.model)===round.estimate.steps[index].modelHash&&request.reservation.microUsd<=round.estimate.steps[index].microUsd,'ROUND_BINDING');
     if (request) check(request.targetId === memberId && request.id === idFor('request',group.id,operation),'ROUND_BINDING');
     return {memberId, requestId:request?.id ?? null, status:request?.status ?? 'waiting'};
   });
@@ -44,20 +57,23 @@ function project(group, round) {
   else if (digest(group.members) !== round.rosterHash ||
     group.requests.length !== round.offset + next ||
     (next === 0 && group.revision !== round.revision)) status = 'changed';
-  return {id:round.id, status, reason:round.stop, steps, next, revision:group.revision};
+  return {id:round.id, status, reason:round.stop, steps, next, revision:group.revision,...(round.estimate?{estimate:round.estimate}:{})};
 }
 
 // The group ledger alone owns dispatch, receipts, player input and money.
 // The side record contains only the confirmed plan and its stop decision.
 export class RoundHost {
   #queue = Promise.resolve();
+  #inFlight = new Set();
+  #stops = new Map();
   constructor(records,store,provider) {
     this.records=records; this.store=store; this.provider=provider;
   }
-  static async open({directory,store,provider,recoverDeadOwner=false}) {
-    check(store.mode==='fixture' && provider?.mode==='fixture','ROUND_EXECUTION_DISABLED');
-    const records=await SessionRecords.open(directory,{scope:'character-rounds-v1',recoverDeadOwner});
-    try { await records.reconcile(); return new RoundHost(records,store,provider); }
+  static async open({directory,store,provider,control=null,recoverDeadOwner=false}) {
+    check(control ? control instanceof RoundControl && control.app.groupStore===store && store.mode==='controlled' :
+      store.mode==='fixture' && provider?.mode==='fixture','ROUND_EXECUTION_DISABLED');
+    const records=await SessionRecords.open(directory,{scope:control?'character-controlled-rounds-v1':'character-rounds-v1',recoverDeadOwner});
+    try { await records.reconcile(); const host=new RoundHost(records,store,provider);host.control=control;return host; }
     catch (error) { await records.close(); throw error; }
   }
   #serial(fn) {
@@ -68,8 +84,10 @@ export class RoundHost {
   async #load(id) {
     const group=await this.store.read(id);
     const saved=await this.records.get(id);
-    const data=saved?.data ?? {format:FORMAT,groupId:id,rounds:[]};
-    check(data.format===FORMAT && data.groupId===id && Array.isArray(data.rounds),'ROUND_FORMAT');
+    const format=this.control?CONTROLLED_FORMAT:FORMAT;
+    const data=saved?.data ?? {format,groupId:id,rounds:[]};
+    check(data.format===format && data.groupId===id && Array.isArray(data.rounds),'ROUND_FORMAT');
+    check(data.rounds.every(r=>Object.hasOwn(r,'quoteHash')===!!this.control),'ROUND_FORMAT');
     return {group,saved,data,last:data.rounds.at(-1)};
   }
   async groupView(id) {
@@ -101,9 +119,15 @@ export class RoundHost {
       return this.groupView(id);
     });
   }
+  async preview(id,rules){
+    const group=await this.store.read(id),plan=previewTurn(browserView(group),rules);
+    if(!this.control||!plan.count||plan.diagnostics.length)return plan;
+    const quote=this.control.quote(group,plan.rows.filter(r=>r.included).map(r=>r.id));
+    await this.control.available(group,quote.steps);return {...plan,quote};
+  }
   start(id,body) {
     return this.#serial(async()=>{
-      keys(body,['operationId','previousRoundId','rules','message']);
+      keys(body,['operationId','previousRoundId','rules','message',...(this.control?['quoteHash']:[])]);
       check(isId(body.operationId),'OPERATION_INVALID');
       text(body.message,2000);
       const {group,saved,data,last}=await this.#load(id);
@@ -120,14 +144,23 @@ export class RoundHost {
       const round={id:body.operationId,intent,revision:group.revision,message:body.message,
         targets:plan.rows.filter(r=>r.included).map(r=>r.id),rosterHash:digest(group.members),
         offset:group.requests.length,stop:null};
+      if(this.control){
+        const quote=this.control.quote(group,round.targets);
+        check(body.quoteHash===quote.hash,'ROUND_PREVIEW_CHANGED');
+        await this.control.available(group,quote.steps);
+        const {hash,...estimate}=quote;
+        round.quoteHash=hash;round.estimate=estimate;
+      }
       data.rounds.push(round);
       await this.records.put(id,saved?.hash ?? null,data);
       return {round:project(group,round),duplicate:false};
     });
   }
   stop(id,body) {
+    keys(body,['roundId']);
+    const key=id+'/'+body.roundId;
+    this.#stops.set(key,(this.#stops.get(key)??0)+1);
     return this.#serial(async()=>{
-      keys(body,['roundId']);
       const {group,saved,data,last}=await this.#load(id);
       check(last && last.id===body.roundId,'ROUND_CHANGED');
       if (!finished.has(project(group,last).status)) {
@@ -135,6 +168,9 @@ export class RoundHost {
         await this.records.put(id,saved.hash,data);
       }
       return project(group,last);
+    }).finally(()=>{
+      const count=this.#stops.get(key)-1;
+      if(count)this.#stops.set(key,count);else this.#stops.delete(key);
     });
   }
   async step(id,body) {
@@ -147,21 +183,34 @@ export class RoundHost {
       check(current.status==='ready' && current.next===body.index,'ROUND_STEP_CHANGED');
       check(group.revision===body.expectedRevision,'REVISION_CONFLICT');
       check(!pending(group),'REQUEST_PENDING');
-      // Stop and step share this queue until the provider has actually been entered.
+      // Serialize admission until durable dispatch ownership (or fixture provider entry).
       // Release it before awaiting the receipt so stop works during a slow response.
       let entered;
       const boundary=new Promise(resolve=>{entered=resolve;});
-      const host=new GroupHost(this.store,{
-        mode:this.provider.mode,
-        dispatch:request=>{
-          try { return this.provider.dispatch(request); } finally { entered(); }
+      const input={operationId:stepId(id,last.id,body.index),expectedRevision:group.revision,
+        payload:{targetId:last.targets[body.index],input:body.index===0 ? last.message : null}};
+      try {
+        if(this.control){
+          const quote=this.control.quote(group,last.targets);
+          check(quote.hash===last.quoteHash,'ROUND_MODEL');
+          completion=this.control.send(id,input,quote.steps[body.index],entered,()=>this.#stops.has(id+'/'+last.id));
+        }else{
+          const host=new GroupHost(this.store,{
+            mode:this.provider.mode,
+            dispatch:request=>{
+              try { return this.provider.dispatch(request); } finally { entered(); }
+            }
+          });
+          completion=host.send(id,input);
         }
-      });
-      completion=host.send(id,{operationId:stepId(id,last.id,body.index),expectedRevision:group.revision,
-        payload:{targetId:last.targets[body.index],input:body.index===0 ? last.message : null}});
-      try { await Promise.race([boundary,completion]); }
+        this.#inFlight.add(completion);
+        completion.then(()=>this.#inFlight.delete(completion),()=>this.#inFlight.delete(completion));
+        await Promise.race([boundary,completion]);
+      }
       catch(error) {
-        if (budgetStops.has(error.code)) {
+        if(this.control&&error.code==='GROUP_ROUND_STOPPING'){
+          last.stop='user';await this.records.put(id,saved.hash,data);
+        }else if ((this.control?controlledStops:budgetStops).has(error.code)) {
           last.stop=error.code;
           await this.records.put(id,saved.hash,data);
         }
@@ -171,5 +220,5 @@ export class RoundHost {
     await completion;
     return this.view(id);
   }
-  async close() { await this.#queue; await this.records.close(); }
+  async close() { await this.#queue; await Promise.allSettled([...this.#inFlight]); await this.records.close(); }
 }

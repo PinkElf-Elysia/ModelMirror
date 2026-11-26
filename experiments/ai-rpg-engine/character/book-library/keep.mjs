@@ -41,7 +41,7 @@ export function keepView(row,branchId,actor){
   return prior;
 }
 
-export function prepareKeepBook(book,scope,actor,prior){
+export function prepareKeepBook(book,scope,actor,prior,scopes=null){
   const traces=new Map();
   const entries=book.entries.map((entry,index)=>{
     const rule=keepHeader(entry.content);
@@ -50,7 +50,7 @@ export function prepareKeepBook(book,scope,actor,prior){
       traces.set(index,{status:entry.enabled?'invalid-keep':'disabled'});
       return {...entry,enabled:false};
     }
-    const keepKey=id('keep',actor,scope,index),anchor=prior.get(keepKey);
+    const keepKey=id('keep',actor,scopes?.[index]?.reference??scope,scopes?.[index]?.index??index),anchor=prior.get(keepKey);
     traces.set(index,{keepKey,...(anchor?{keepAnchor:anchor}:{})});
     return {...entry,content:rule.remaining,...(anchor?{constant:true,use_regex:false}:{})};
   });

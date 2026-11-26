@@ -105,16 +105,20 @@ export function mountTurnPanel({document, window, readPreview, onPlanChange = ()
         order:[...order], muted:[...muted], text:mode.value === 'mentions' ? draft.value : ''};
       const result = await readPreview(group.id,submitted);
       if (ticket !== generation || result.groupId !== group?.id || result.revision !== group.revision) return;
-      acceptedRules=result.count && !result.diagnostics.length ? submitted : null; onPlanChange();
+      acceptedRules=result.count && !result.diagnostics.length ? {...submitted,...(result.quote?{quoteHash:result.quote.hash}:{})} : null; onPlanChange();
       let slot = 0;
       for (const row of result.rows) {
-        output.append(node('li', (row.included ? ++slot + '. ' : '跳过 · ') + label(row.id) + ' — ' + row.reason));
+        output.append(node('li', (row.included ? ++slot + '. ' : '跳过 · ') + label(row.id) + ' — ' + row.reason+
+          (result.quote&&row.included?' · '+result.quote.steps[slot-1].modelId+' · 最多 US$'+(result.quote.steps[slot-1].microUsd/1e6).toFixed(6):'')));
       }
       byId('turn-status').textContent = result.diagnostics.length ? result.diagnostics.join('；') :
-        '群修订 ' + result.revision + ' · 按规则最多 ' + result.count + ' 位回应';
+        '群修订 ' + result.revision + ' · 按规则最多 ' + result.count + ' 位回应'+(result.quote?' · 整轮上界 US$'+(result.quote.microUsd/1e6).toFixed(6):'');
     } catch (error) {
-      if (ticket === generation) invalidate(error.message === 'GROUP_REVISION_CONFLICT' ?
-        '成员或群修订已变化，请刷新状态后重新预览。' : '暂时无法读取发言顺序，请重新预览。');
+      if (ticket === generation) invalidate(({
+        GROUP_REVISION_CONFLICT:'成员或群修订已变化，请刷新后重新预览。',GROUP_ROUND_LIMIT:'所选成员超出整轮次数或费用上限。',
+        GROUP_BUDGET_EXHAUSTED:'群剩余额度不足以覆盖本轮。',GROUP_TASK_BUDGET_EXHAUSTED:'共享额度不足以覆盖本轮。',
+        GROUP_ROUND_MODEL:'所选模型缺少已核实的费用依据。',GROUP_REQUEST_PENDING:'请先核对原请求。'
+      })[error.message]??'暂时无法读取发言顺序，请重新预览。');
     } finally {
       if (ticket === generation) button.disabled = false;
     }

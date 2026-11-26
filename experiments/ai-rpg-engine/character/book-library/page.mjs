@@ -12,7 +12,7 @@ async function api(action,args){
 async function run(task){
   if(busy)return;busy=true;$('actor').disabled=true;$('source').disabled=true;
   try{await task();}catch(error){
-    const reasons={REVISION_PREVIEW_CHANGED:'预览已变化，请重新预览并核对日期与内容。',
+    const reasons={REVISION_TEMPLATE_ROUND_PENDING:'群聊还有未结束的整轮，请先回到群聊核对。',REVISION_TEMPLATE_ROUND_UNKNOWN:'无法核实群聊整轮状态。',REVISION_TEMPLATE_NARRATION_UNSUPPORTED:'此群含旁白，当前分支无法证明旁白的历史可见范围。',REVISION_TEMPLATE_ANCHOR_HIDDEN:'请选择该角色参与且可见的历史位置。',REVISION_PREVIEW_CHANGED:'预览已变化，请重新预览并核对日期与内容。',
       REVISION_VARIABLE_NESTING_LIMIT:'条件最多可嵌套四层。请简化角色设定或条目。',
       REVISION_VARIABLE_CONDITION_SYNTAX:'请核对条件、可选的 else 和结束标记 /if 是否配对。',
       REVISION_VARIABLE_MACRO_SYNTAX:'请核对宏中的范围、变量名和条件值。',
@@ -134,6 +134,20 @@ function grants(owner){if(source.kind==='fork'&&$(owner+'-inherit').checked)retu
   return [...$('grants').querySelectorAll('fieldset[data-owner='+owner+']')].filter(n=>n.querySelector('select').value).map(row=>{
     const ref=pin(versions().find(v=>v.bookVersionId===row.querySelector('select').value)),ids=[...row.querySelectorAll('input:checked')].map(i=>i.value);return {ref,readers:ids.includes('all')?'all':ids};
   });}
+let templates;
+async function listTemplates(){
+  const select=$('template-version');select.replaceChildren();option(select,'','沿用锚点版本');$('template-diff').textContent='';
+  templates=await api('template-options',{familyId:source.familyId,branchId:source.branchId,point:$('point').value||null,memberId:view.targetId});
+  const current=templates.versions.find(v=>v.id===templates.current);
+  select.options[0].textContent=current?'沿用锚点版本 '+current.number:'此角色在所选位置无法换版';
+  for(const v of templates.versions)if(v.id!==templates.current)option(select,v.id,'换为封存版本 '+v.number);
+}
+$('template-version').onchange=()=>run(async()=>{
+  clearReview();$('template-diff').textContent='';
+  if(!$('template-version').value)return;
+  const changes=await api('compare-templates',{workId:templates.workId,from:templates.current,to:$('template-version').value});
+  $('template-diff').textContent=changes.map(c=>c.section+' · '+c.key+'\n'+c.before+' → '+c.after).join('\n\n')||'两个版本的内容一致。';
+});
 async function showSource(target=null){
   clearReview();const [a,b]=$('source').value.split('/');source=null;$('chat').hidden=true;$('parent-controls').hidden=true;$('grants').replaceChildren();if(!b)return;
   if(a.startsWith('book-family-')){
@@ -148,7 +162,7 @@ async function showSource(target=null){
     $('point').replaceChildren();option($('point'),'','分支当前末尾');$('message').replaceChildren();option($('message'),'','新消息或接话');display.show({familyId:a,branchId:b,targetId:view.targetId},view.messages);
     for(const m of view.messages){option($('point'),m.id,m.content.slice(0,40));if(m.canRegenerate&&m.speakerId===view.targetId)option($('message'),m.id,'精确重生成 · '+m.content.slice(0,32));}
     $('requests').replaceChildren();for(const r of view.requests){const l=el('div','请求 · '+r.status);if(r.status==='completed')display.receipt(l,'request',r.id);if(r.macros)l.append(macroDetails(r.macros,'原请求宏快照'));if(['prepared','unknown','dispatching'].includes(r.status)){const btn=el('button','核对原请求');btn.onclick=()=>run(async()=>{await api('recover',{familyId:a,requestId:r.id});await refresh();await showSource(target);});l.append(btn);}$('requests').append(l);}
-    grantForm(view.members);
+    grantForm(view.members);await listTemplates();
   }else{const info=await api('source',{kind:a,sourceId:b});source={kind:a,sourceId:b,sourceHash:info.sourceHash};grantForm(info.members,info.recommended);}
 }
 for(const button of ['set-variable','delete-variable'])bind(button,async()=>{
@@ -157,12 +171,13 @@ for(const button of ['set-variable','delete-variable'])bind(button,async()=>{
   await api('set-variable',cmd({familyId:source.familyId,branchId:source.branchId,scope,memberId:scope==='private'?target:null,key,value:button==='delete-variable'?null:$('variable-value').value}));
   await refresh();await showSource(target);$('status').textContent=button==='delete-variable'?'已移除变量':'已保存变量';
 });
-$('point').onchange=()=>run(async()=>{if(source?.kind==='fork'){const a=await api('anchor',{familyId:source.familyId,branchId:source.branchId,point:$('point').value||null});grantForm(a.members);clearReview();}});
+$('point').onchange=()=>run(async()=>{if(source?.kind==='fork'){const a=await api('anchor',{familyId:source.familyId,branchId:source.branchId,point:$('point').value||null});grantForm(a.members);clearReview();await listTemplates();}});
 $('source').onchange=()=>run(()=>showSource());$('actor').onchange=()=>run(()=>showSource($('actor').value));
 for(const id of ['position-rules','variable-rules','macro-rules','exclusive-rules','probability-rules','cooldown-rules','keep-rules','fallback-rules','timing-rules','depth-rules','once-rules','v3-rules','grants','point','branch-title','message','input'])$(id).addEventListener('input',clearReview);
 bind('inspect',async()=>{if(!source)throw Error('请先创建单聊或群聊');const {kind,...base}=source;
   const payload={...base,player:grants('player'),session:grants('session')};
   if(kind==='fork')Object.assign(payload,{point:$('point').value||null,title:$('branch-title').value});else payload.kind=kind;
+  if(kind==='fork'&&$('template-version').value)payload.template={memberId:view.targetId,versionId:$('template-version').value};
   if($('position-rules').checked)payload.positionPolicy='chat-prompt-positions/1';
   if($('variable-rules').checked)payload.variablePolicy='scoped-text-conditions/1';
   if($('macro-rules').checked)payload.macroPolicy='date-choice-utc/1';
@@ -177,6 +192,10 @@ bind('inspect',async()=>{if(!source)throw Error('请先创建单聊或群聊');c
   if($('v3-rules').checked)payload.regexPolicy='v3-bounded/1';
   const command=cmd(payload),action=kind==='fork'?'fork':'open',review=await api('inspect-'+action,command);
   $('review').textContent=review.actors.map(m=>m.name+' · '+m.id.slice(-6)+'：'+(m.books.map(v=>v.title+' v'+v.number+'（'+v.sources.map(s=>({session:'会话',role:'角色',player:'玩家'})[s.owner]+(s.bookVersionId===v.sources[0].bookVersionId?'':' · 已覆盖')).join('、')+'）').join('，')||'无独立书')).join('\n');
+  if(review.template){
+    const list=items=>items.length?items.map(i=>i+1).join('、'):'无';
+    $('review').textContent+='\n卡内书状态 · 沿用 '+review.template.matches.length+' 条；重新开始的条目 '+list(review.template.reset)+'；退出的旧条目 '+list(review.template.retired);
+  }
   consent={action,command};$('confirm').disabled=false;
 });
 bind('confirm',async()=>{if(!consent)return;const r=await api(consent.action,consent.command);await refresh();$('source').value=r.familyId+'/'+r.branchId;history.replaceState(null,'','?books=1&family='+r.familyId+'&branch='+r.branchId+'#branches');await showSource();$('status').textContent='已创建独立分支';});

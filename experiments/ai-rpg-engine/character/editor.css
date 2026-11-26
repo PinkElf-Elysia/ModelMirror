@@ -1,6 +1,7 @@
 /* ModelMirror · 单角色卡创作工作台
    Navy navigation + light writing canvas. Screens via body[data-screen=library|edit|preview|chat];
    no data-screen = pre-integration fallback (edit + preview column). */
+.library-tools{display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;margin:.8rem 0}.library-tools summary{cursor:pointer}.library-tools label{display:inline-flex;gap:.4rem;align-items:center}.library-tools input[type=checkbox],.character-card-body input[type=checkbox]{width:auto}.library-tools [hidden]{display:none}#library-source-body{white-space:pre-wrap;overflow-wrap:anywhere;max-width:60ch}
 :root{
   --navy:#16253a;--navy-2:#1f3049;--navy-3:#243856;--navy-line:#2e4364;--navy-text:#d6e0ec;--navy-muted:#a7b6c9;
   --ink:#1c2738;--text:#2b3646;--muted:#556173;--line:#dce2ea;--line-strong:#c4cdd9;

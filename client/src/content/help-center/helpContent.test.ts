@@ -141,7 +141,7 @@ describe("help center content catalog", () => {
     expect(helpArticles.find(article => article.slug === "manage-character-memory")?.verifiedCommit).toBe("95ce9a83");
     expect(helpArticles.find(article => article.slug === "control-character-context")?.verifiedCommit).toBe("aebda0a1");
     expect(searchHelpContent("长对话").some(item => item.id === "control-character-context")).toBe(true);
-    expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("92849f31");
+    expect(helpArticles.find((article) => article.slug === "create-single-character-card")?.verifiedCommit).toBe("e01fbd77");
     const revisionGuide = helpArticles.find(article => article.slug === "revise-character-conversations");
     expect(revisionGuide?.verifiedCommit).toBe("f31bf50b");
     expect(revisionGuide?.content).toContain("采用这条");
@@ -385,7 +385,14 @@ describe("help center content catalog", () => {
 
   it("uses descriptive alt text and the latest screenshot baseline", () => {
     const historicalCaptures: Record<string, string[]> = {
+      "create-single-character-card": [
+        "/help-center/92849f31/character-library.png",
+        "/help-center/92849f31/character-editor.png",
+        "/help-center/92849f31/character-preview.png"
+      ],
       "use-character-group-chat": [
+        "/help-center/0d0a909a/character-group-history.png",
+        "/help-center/0d0a909a/character-group-round.png",
         "/help-center/92849f31/character-group-create.png",
         "/help-center/92849f31/character-group-chat.png",
         "/help-center/92849f31/character-group-mobile.png"
@@ -565,7 +572,7 @@ it("makes the RPG voice input guide searchable with verified offline boundaries"
 
 it("registers the isolated character group tutorial with exact versions, draft limits and neutral screenshots", () => {
   const guide = helpArticles.find(article => article.slug === "use-character-group-chat")!;
-  expect(guide.verifiedCommit).toBe("0d0a909a");
+  expect(guide.verifiedCommit).toBe("e01fbd77");
   expect(guide.verifiedDate).toBe("2026-11-26");
   expect(guide.content.match(/^\d+\. /gm)).toHaveLength(7);
   for (const text of ["用此版本创建群聊", "不会增加", "结果未知", "当前浏览器标签页", "不调用真实模型", "旧群聊", "真实手机"]) expect(guide.content).toContain(text);
@@ -576,6 +583,7 @@ it("registers the isolated character group tutorial with exact versions, draft l
     "/help-center/92849f31/character-group-chat.png",
     "/help-center/92849f31/character-group-create.png",
     "/help-center/92849f31/character-group-mobile.png",
+    "/help-center/e01fbd77/round-quote.png",
   ]);
   for (const text of ["预览本轮", "停止后续发言", "写旁白", "回看轮次"]) expect(guide.content).toContain(text);
   expect(searchHelpContent("旁白").some(item => item.id === guide.slug)).toBe(true);
@@ -584,6 +592,9 @@ it("registers the isolated character group tutorial with exact versions, draft l
   expect(single.content).toContain("创建版本");
   expect(single.content).toContain("未保存");
   expect(single.nextSlug).toBe(guide.slug);
+  for (const name of ["library-organize", "template-branch"]) expect(single.content).toContain(`/help-center/e01fbd77/${name}.png`);
+  expect(searchHelpContent("分支换版").some(item => item.id === single.slug)).toBe(true);
+  expect(searchHelpContent("整轮费用").some(item => item.id === guide.slug)).toBe(true);
   for (const article of [single, guide]) {
     for (const heading of ["完成结果", "适用对象", "开始前", "真实范例", "操作步骤", "常见问题", "限制", "下一步"]) expect(article.content).toContain(`## ${heading}`);
     expect(article.content.match(/^\d+\. /gm)).toHaveLength(7);

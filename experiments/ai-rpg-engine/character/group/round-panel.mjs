@@ -5,7 +5,7 @@ export function mountRoundPanel({document,window,api,crypto,rules,refresh}) {
   let group=null, round=null, enabled=false, running=false, stopping=false, epoch=0;
   const states={ready:'等待继续',prepared:'已预留，尚未派发',dispatching:'正在等待回执',unknown:'结果未知，保留预留',
     failed:'请求失败，本轮结束',completed:'本轮已完成',stopped:'已停止后续发言',changed:'群状态已变化，请重新预览',blocked:'本轮已停止'};
-  const reasons={GROUP_BUDGET_EXHAUSTED:'群预算不足',GROUP_TASK_BUDGET_EXHAUSTED:'共享额度不足',GROUP_PRICE_UNKNOWN:'价格上界未知',
+  const reasons={GROUP_ROUND_ROUTE_CHANGED:'受控路由或参数已变化，请重新核对',GROUP_ROUND_LIMIT:'超过整轮上限',GROUP_ROUND_MODEL:'模型费用依据已变化',GROUP_ROUND_AUTHORIZATION:'授权归属无法核实',GROUP_BUDGET_EXHAUSTED:'群预算不足',GROUP_TASK_BUDGET_EXHAUSTED:'共享额度不足',GROUP_PRICE_UNKNOWN:'价格上界未知',
     GROUP_CONTEXT_CAPACITY:'上下文容量不足',GROUP_REVISION_CONFLICT:'群修订已变化',GROUP_REQUEST_PENDING:'有请求待核对'};
   const terminal=r=>!r || ['failed','completed','stopped','changed','blocked'].includes(r.status);
   const path=(id,action)=>'/api/groups/'+id+'/round-'+action;
@@ -42,8 +42,9 @@ export function mountRoundPanel({document,window,api,crypto,rules,refresh}) {
     running=true;note.textContent='';paint();
     try {
       if(begin){
+        const {quoteHash,...submitted}=plan;
         const result=await api(path(id,'start'),{operationId:crypto.randomUUID(),previousRoundId:round?.id??null,
-          rules:plan,message:plan.mode==='mentions'?plan.text:message.value});
+          rules:submitted,...(quoteHash?{quoteHash}:{}),message:plan.mode==='mentions'?plan.text:message.value});
         if(!valid())return;
         round=result.round;paint();
         if(result.duplicate)return;

@@ -18,6 +18,7 @@ async function page(t,{url='http://localhost/characters',onPost,session,storage=
  const fetch=async(path,init={})=>{const body=init.body?JSON.parse(init.body):null;calls.push({path,method:init.method,body});let value;
   if(body&&onPost){const result=await onPost(path,body);if(result)return result;}
   if(path.endsWith('/daily/profiles'))value=profiles;
+  else if(path.endsWith('/characters/library'))value={revision:0,items:{},canUndo:false};
   else if(path.endsWith('/characters/works'))value=[{id:work.id,name:work.draft.character.card.data.name,tags:[],versions:work.versions.length}];
   else if(path.endsWith('/characters/navigation'))value={groupsUrl:'http://127.0.0.1:43133/groups'};
   else if(path.endsWith('/characters/blank'))value=fixture();
