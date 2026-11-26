@@ -1,3 +1,4 @@
+import {openPresentation, groupLookMembers, presentationRoute} from './presentation/store.mjs';
 import {charxImports} from './charx-import.mjs';
 import {inspectCharx,isZip} from './charx.mjs';
 import {retainedCharx} from './charx-retention.mjs';
@@ -26,12 +27,17 @@ export async function createCharacterHttp({store,directory,settings=null,recover
  const packages=retainedCharx(sources);
  let archiveStore;
  const imports=charxImports({store,sources,archive:()=>archiveStore??=CharacterSources.open(join(directory,'charx-imports'),{recoverDeadOwner}).catch(error=>{archiveStore=null;throw error;})});
+ let lookStore;
+ workspace.presentation=()=>lookStore??=openPresentation({directory:join(directory,'presentation'),works:store,imports,recoverDeadOwner,
+  resolveMembers:async(kind,id)=>kind==='group'?groupLookMembers(workspace.group,id):[{id:'character',period:1,reference:(await host.read(id)).binding.reference}]
+ }).catch(error=>{lookStore=null;throw error;});
  const books=bookRoutes({workspace,store,directory,settings,recoverDeadOwner});
  const decorated=v=>({...v,messages:v.messages.map(m=>({...m,html:markdown(m.content)}))});
  return {
  host,workspace,publishWithBooks:books.publish,
  async handle({req,res,url,send,body}){
   const path=url.pathname,route=path.slice(prefix.length);workspace.singleUrl=url.origin+'/characters';
+  if(route.startsWith('/appearance/'))return presentationRoute(await workspace.presentation(),route.slice(12),req.method,body,send,['preview','single'],null,{req,res});
   if(req.method==='GET'&&path==='/characters'&&url.searchParams.has('books'))return send(await readFile(new URL('./book-library/page.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='POST'&&route==='/books')return send(await books.post(await body()));
   if(path==='/characters'&&url.searchParams.has('desk'))return send(await readFile(new URL('./daily/page.html',import.meta.url)),200,'text/html; charset=utf-8');
@@ -41,7 +47,7 @@ export async function createCharacterHttp({store,directory,settings=null,recover
 
   if(req.method==='GET'&&path==='/characters')return send(await readFile(new URL('./editor.html',import.meta.url)),200,'text/html; charset=utf-8');
   if(req.method==='GET'&&path.startsWith('/character-assets/')){
-   const files={'v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/display-text.mjs':'text/javascript; charset=utf-8','group/message-display.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
+   const files={'presentation/player.mjs':'text/javascript; charset=utf-8','presentation/portrait.mjs':'text/javascript; charset=utf-8','presentation/panel.mjs':'text/javascript; charset=utf-8','presentation/panel.css':'text/css; charset=utf-8','v3/examples.mjs':'text/javascript; charset=utf-8','v3/metadata.mjs':'text/javascript; charset=utf-8','book-library/page.mjs':'text/javascript; charset=utf-8','book-library/display-text.mjs':'text/javascript; charset=utf-8','group/message-display.mjs':'text/javascript; charset=utf-8','book-library/style.css':'text/css; charset=utf-8','editor.mjs':'text/javascript; charset=utf-8','book-editor.mjs':'text/javascript; charset=utf-8','editor.css':'text/css; charset=utf-8','daily/page.mjs':'text/javascript; charset=utf-8','daily/client.mjs':'text/javascript; charset=utf-8','daily/page.css':'text/css; charset=utf-8'};
    const file=path.slice('/character-assets/'.length);if(!files[file])fail('CHARACTER_ROUTE_NOT_FOUND');return send(await readFile(new URL('./'+file,import.meta.url)),200,files[file]);
   }
   if(req.method==='GET'){
@@ -146,6 +152,6 @@ export async function createCharacterHttp({store,directory,settings=null,recover
   if(action){const [,id,kind]=action;return await workspace.run(async()=>{const v=await (kind==='settings'?host.configure(id,input):kind==='memory'?host.editMemory(id,input):host[kind](id,input));await workspace.store.observe('single',id,v.revision);return send(decorated(v));});}
   fail('CHARACTER_ROUTE_NOT_FOUND');
  },
- async close(){if(archiveStore)await (await archiveStore).close();await books.close();if(ownWorkspace)await workspace.close();await host.close();if(own)await provider.close();await sources.close();}
+ async close(){if(lookStore)await (await lookStore).close();if(archiveStore)await (await archiveStore).close();await books.close();if(ownWorkspace)await workspace.close();await host.close();if(own)await provider.close();await sources.close();}
  };
 }

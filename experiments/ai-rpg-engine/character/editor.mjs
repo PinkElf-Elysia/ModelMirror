@@ -1,5 +1,7 @@
 // Optional loopback navigation; never grants execution or changes saved bindings.
 const revisionNavigation = (()=>{try{const v=new URL(location.href).searchParams.get('revisions')||sessionStorage.getItem('character-revisions-url');if(v&&/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(v)){sessionStorage.setItem('character-revisions-url',v);return v;}}catch{}return null;})();
+import {createMediaPlayer} from './presentation/player.mjs';
+import {createLookPanel} from './presentation/panel.mjs';
 import {exampleDialog} from './v3/examples.mjs';
 import {metadataPanel,upgradeCard} from './v3/metadata.mjs';
 import {mountBookEditor} from './book-editor.mjs';
@@ -62,7 +64,13 @@ function readonly(){
  $('#start-books').disabled=!work||!version||busy;$('#start-chat').disabled=!work||!version||busy;$('#make-version').hidden=!!version;$('#make-version').disabled=busy;$('#show-chat').disabled=busy||!session;$('#show-preview').disabled=busy;$('#back-edit').disabled=busy;const pending=session&&Object.values(session.operations).some(o=>['prepared','dispatching','unknown'].includes(o.state));$('#send').disabled=busy||!session||!!pending;$('#recover').disabled=busy;
  for(const id of ['new','import','to-library','library-new','library-import','header-library','works','versions'])if($('#'+id))$('#'+id).disabled=busy;
 }
+const appearanceApi=(path,body)=>request(path.slice(api.length),body);
+const singleMedia=createMediaPlayer(document);
+const versionLook=createLookPanel($('#version-look'),appearanceApi,createMediaPlayer(document)),singleLook=createLookPanel($('#single-look'),appearanceApi,singleMedia);
 function setScreen(value){
+ const look=api+cp+'/appearance/';
+ versionLook(value==='preview' && work && version?look+'preview/'+work.id+'/'+version:'','',true);
+ singleLook(value==='chat' && session?look+'single/'+session.id:'');
  screen=value;document.body.dataset.screen=value;document.body.classList.toggle('character-chat',value==='chat');
  $('#character-library').hidden=value!=='library';
  $('.character-editor').hidden=value!=='edit';$('.character-preview').hidden=!['preview','chat'].includes(value);
@@ -173,7 +181,7 @@ function render(){
  profile();renderBook();readonly();selectSection(activeSection,false);
 }
 function restoreDraft(revision){try{const draft=JSON.parse(localStorage.getItem(key())||'null');if(draft?.revision===revision){doc=draft.document;render();$('#book-json').value=draft.book;$('#tags-json').value=draft.tags;try{$('#tag-input').value=JSON.parse(draft.tags).join('，');}catch{}renderBook();dirty=true;$('#save-state').textContent='未保存';notice('已恢复此修订对应的浏览器未保存草稿。');}else if(draft)notice('发现不同修订的浏览器草稿，已保留备份，未覆盖作品。');}catch{}}
-async function load(id,v=null){const w=await request('/works/'+id);if(w.draft.kind!=='character')throw new Error('此作品是世界卡，请从世界卡工作台打开。');packageView=['copy','import'].includes(w.origin?.kind)?await request(cp+'/charx/resources?work='+id+(v?'&version='+v:'')):null;
+async function load(id,v=null){if(work?.id!==id || version!==v){versionLook('');singleLook('');}const w=await request('/works/'+id);if(w.draft.kind!=='character')throw new Error('此作品是世界卡，请从世界卡工作台打开。');packageView=['copy','import'].includes(w.origin?.kind)?await request(cp+'/charx/resources?work='+id+(v?'&version='+v:'')):null;
  work=w;version=v;doc=v?(await request('/works/'+id+'/published?version='+v)).draft:structuredClone(w.draft);dirty=false;render();
  if(!v)restoreDraft(w.revision);
  $('#works').value=id;setUrl();await preview();
@@ -282,7 +290,7 @@ $('#preview').onclick=()=>run(preview);$('#greeting-index').onchange=()=>run(pre
 $('#show-preview').onclick=()=>run(async()=>{await preview();setScreen('preview');});$('#show-chat').onclick=()=>showChat(true);
 $('#start-books').onclick=()=>run(async()=>{const s=await request(cp+'/sessions',{operationId:uid(),reference:{workId:work.id,versionId:version},openingIndex:Number($('#greeting-index').value),player:selectedPlayer()});location.assign('/characters?books=1&kind=single&source='+s.id+'#branches');});
 $('#start-chat').onclick=()=>run(async()=>{const s=await request(cp+'/sessions',{operationId:uid(),reference:{workId:work.id,versionId:version},openingIndex:Number($('#greeting-index').value),player:selectedPlayer()});await attachSession(s);});
-$('#refresh-chat').onclick=()=>run(reloadSession);
+$('#refresh-chat').onclick=()=>{singleMedia.stop();return run(reloadSession);};
 $('#send').onclick=()=>run(async()=>{if(!session)throw new Error('请先选择可用版本并开始对话。');const input=$('#message').value;if(!input.trim())return;
  const intent={operationId:uid(),expectedRevision:session.revision,input};localStorage.setItem('rpg-character-request:'+session.id,JSON.stringify(intent));$('#partial').textContent='';
  session=await request(cp+'/sessions/'+session.id+'/send',intent);$('#message').value='';localStorage.removeItem('rpg-character-message:'+session.id);localStorage.removeItem('rpg-character-request:'+session.id);displaySession();});

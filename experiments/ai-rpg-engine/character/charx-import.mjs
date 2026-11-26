@@ -23,7 +23,7 @@ export function charxImports({store,sources,archive}) {
     if(typeof input.fileName!=='string'||input.fileName.length>240||typeof input.origin!=='string'||input.origin.length>4096) fail('CHARACTER_SOURCE_INVALID');
     const hash=sha256(bytes);
     if(input.expectedHash!==hash) fail('CHARACTER_IMPORT_CHANGED');
-    const {card,files,report}=await openCharx(bytes);
+    const {card,files,report,animatedPortrait}=await openCharx(bytes);
     if(!['images','media'].includes(report.classification)) fail('CHARACTER_CHARX_ORIGINAL_ONLY','',{diagnostic:'此包只能完整保留，请核对资源清单。'});
     const definition=files.get('card.json');
     const source={container:'json',size:definition.length,sha256:sha256(definition),selection:null};
@@ -33,6 +33,16 @@ export function charxImports({store,sources,archive}) {
       if(row.media?.verified) {
         const data=files.get(row.path);
         media.push({path:row.path,mediaType:mediaTypes[row.media.format],size:data.length,sha256:sha256(data)});
+        continue;
+      }
+      if(row.status==='APNG 主肖像') {
+        const data=files.get(row.path),alias=aliasFor(row.path);
+        const {poster,playback,frames,plays}=animatedPortrait,posterHash=sha256(poster);
+        assets.push({alias,fileName:alias+'.png',mediaType:'image/png',size:poster.length,sha256:posterHash});
+        blobs.set(posterHash,poster);
+        document.settings.media.cover=alias;
+        images.push({path:row.path,mediaType:'image/png',size:data.length,sha256:sha256(data),alias:null,
+          animation:{posterAlias:alias,posterHash,playbackHash:sha256(playback),frames,plays}});
         continue;
       }
       if(row.status!=='静态图片') continue;
@@ -57,6 +67,7 @@ export function charxImports({store,sources,archive}) {
     await originArchive.put(bytes,{fileName:input.fileName,origin:input.origin});
     await sources.put(definition,{fileName:'card.json'});
     for(const image of images) if(!image.alias) await originArchive.put(files.get(image.path));
+    if(animatedPortrait) await originArchive.put(animatedPortrait.playback);
     for(const entry of media) await originArchive.put(files.get(entry.path));
     // Keep historical image-only bindings byte-compatible on a repeated confirmation.
     const binding={hash,definition:source.sha256,payloadHash:checked.payloadHash,images};
@@ -65,7 +76,7 @@ export function charxImports({store,sources,archive}) {
     // Only an explicit confirmation may reconcile this exact creation after interruption.
     await store.recover(workId,operationId);
     const result=await store.importPackage({operationId,expectedRevision:null,workId:null,payload,expectedImportHash:checked.payloadHash});
-    return {workId:result.workId,report,portraitStored:report.members.some(r=>r.status==='静态图片'&&r.uses.some(u=>u.main))};
+    return {workId:result.workId,report,portraitStored:!!animatedPortrait || report.members.some(r=>r.status==='静态图片'&&r.uses.some(u=>u.main))};
   }
 
   async function binding(work,document=work.draft,revision=work.revision) {
@@ -107,6 +118,11 @@ export function charxImports({store,sources,archive}) {
         return {...base,status:entry.mediaType.startsWith('audio/')?'音频':'视频',
           mediaType:entry.mediaType,size:entry.size,sha256:entry.sha256};
       }
+      if(entry.animation) {
+        const a=entry.animation,cover=native.get(a.posterAlias);
+        const active=asset===main && snapshot.document.settings.media.cover===a.posterAlias && cover?.sha256===a.posterHash;
+        return {...base,status:'APNG 主肖像',size:entry.size,sha256:entry.sha256,...(active?{animation:a}:{})};
+      }
       const attached=entry.alias?native.get(entry.alias):entry;
       if(!attached || !attached.mediaType.startsWith('image/')) return {...base,status:'缺少包内图片'};
       return {...base,status:'图片',mediaType:attached.mediaType,size:attached.size,sha256:attached.sha256,alias:entry.alias};
@@ -126,6 +142,21 @@ export function charxImports({store,sources,archive}) {
     async original(work,version) {
       const info=await view(work,version);
       return info?(await archive()).get(info.sourceHash):null;
+    },
+    async animation(work,version,path,expectedHash) {
+      if(!version) fail('CHARACTER_VERSION_REQUIRED');
+      const row=(await view(work,version))?.rows.find(r=>r.path===path && r.animation?.playbackHash===expectedHash);
+      if(!row)fail('CHARACTER_SOURCE_NOT_FOUND');
+      return {bytes:await (await archive()).get(expectedHash),mediaType:'image/apng'};
+    },
+    async media(work,version,path,expectedHash) {
+      if (!version) fail('CHARACTER_VERSION_REQUIRED');
+      const info=await view(work,version);
+      const row=info?.rows.find(r=>r.path===path && ['音频','视频'].includes(r.status) && r.sha256===expectedHash);
+      if(!row) fail('CHARACTER_SOURCE_NOT_FOUND');
+      const bytes=await (await archive()).get(row.sha256);
+      if(bytes.length!==row.size) fail('CHARACTER_SOURCE_CORRUPT');
+      return {bytes,mediaType:row.mediaType};
     },
     async image(work,version,path,expectedHash) {
       const info=await view(work,version),row=info?.rows.find(r=>r.path===path && r.status==='图片');

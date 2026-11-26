@@ -2,6 +2,7 @@ import {parseJson,sha256} from '../authoring/contracts.mjs';
 import {CARD_LIMITS,validateCard} from './card.mjs';
 import {fail as problem} from '../authoring/contracts.mjs';
 import {readCharxArchive,safeArchivePath} from './charx-archive.mjs';
+import {inspectAnimatedPortrait} from './apng.mjs';
 import {inspectMedia} from './charx-media.mjs';
 import {inspectImage} from './charx-images.mjs';
 
@@ -44,7 +45,7 @@ export async function openCharx(bytes) {
     if(!references.has(path)) references.set(path,[]);
     references.get(path).push({...use,ext:a.ext});
   }
-  let mediaPresent=false;
+  let mediaPresent=false,animatedPortrait=null;
   for(const [path,data] of files) {
     if(path==='card.json') continue;
     const uses=references.get(path)??[], ext=fileExtension(path);
@@ -65,9 +66,12 @@ export async function openCharx(bytes) {
       continue;
     }
     let shape=null;
-    try {shape=inspectImage(data,ext);} catch {problem('CHARACTER_CHARX_INVALID',path,{diagnostic:'图片结构、校验或像素尺寸无效'});}
+    try {shape=inspectImage(data,ext==='apng'?'png':ext);} catch {problem('CHARACTER_CHARX_INVALID',path,{diagnostic:'图片结构、校验或像素尺寸无效'});}
     let status='静态图片';
-    if(!shape || shape.animated || !uses.length || uses.some(u=>u.ext.replace(/^jpg$/,'jpeg')!==ext)) {
+    if(shape?.animated && ['png','apng'].includes(ext) && uses.length===1 && uses[0].main && uses[0].ext===ext) {
+      try {animatedPortrait=inspectAnimatedPortrait(data);status='APNG 主肖像';}
+      catch(error){status='动画，仅保留原包';diagnostics.push(path+'：'+error.message);}
+    } else if(!shape || ext==='apng' || shape.animated || !uses.length || uses.some(u=>u.ext.replace(/^jpg$/,'jpeg')!==ext)) {
       status=!shape?'附件，仅保留原包':shape.animated?'动画，仅保留原包':!uses.length?'未引用的文件，仅保留原包':'声明格式与文件不符';
       diagnostics.push(path+'：'+status);
     }
@@ -80,5 +84,5 @@ export async function openCharx(bytes) {
   }
   const report={source:{container:'charx',sha256:sha256(bytes),size:bytes.length},name:card.data.name,
     classification:diagnostics.length?'original-only':mediaPresent?'media':'images',members,diagnostics};
-  return {report,files,card};
+  return {report,files,card,animatedPortrait};
 }
