@@ -26,5 +26,19 @@ test('pre-merge main 3fffd5b4 world Offline/Summary/Joint archives retain bindin
  const {directory}=await baselineFixture();const old=await readFile(new URL('../legacy-hosts.test.mjs',import.meta.url),'utf-8');
  const script=join(directory,'worlds.test.mjs'),log=join(directory,'worlds.log');
  const source=old.replace("from './baseline-fixture.mjs'",'from '+JSON.stringify(new URL('./archive-support.mjs',import.meta.url).href)).replace("new URL('../authoring/',import.meta.url)",'new URL('+JSON.stringify(new URL('authoring/',current).href)+')').replaceAll('actual a6563a9b','actual 3fffd5b4');
- await writeFile(script,source);try{const out=execFileSync(process.execPath,['--test',script],{encoding:'utf8',stdio:'pipe'});await writeFile(log,out);}catch(e){await writeFile(log,String(e.stdout||'')+String(e.stderr||''));throw e;}
+ await writeFile(script,source);
+ // A nested Node runner can exit successfully without running the generated tests.
+ const env={...process.env};
+ delete env.NODE_TEST_CONTEXT;
+ let output;
+ try{
+  output=execFileSync(process.execPath,['--test','--test-reporter=tap',script],{env,encoding:'utf8',stdio:'pipe'});
+ }catch(error){
+  await writeFile(log,String(error.stdout||'')+String(error.stderr||''));throw error;
+ }
+ await writeFile(log,output);
+ for(const kind of ['offline','summary','joint']){
+  assert.ok(output.split(/\r?\n/).some(line=>line.startsWith('ok ') && line.endsWith(' - actual 3fffd5b4 '+kind+' archive continues with exact original descriptors')),kind+' archive did not pass');
+ }
+ assert.match(output,/^# pass 3\s*$/m);
 });

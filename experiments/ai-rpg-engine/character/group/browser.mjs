@@ -1,5 +1,7 @@
 // Optional loopback navigation; never grants execution or changes saved bindings.
 const revisionNavigation = (()=>{try{const v=new URL(location.href).searchParams.get('revisions')||sessionStorage.getItem('character-revisions-url');if(v&&/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(v)){sessionStorage.setItem('character-revisions-url',v);return v;}}catch{}return null;})();
+import {createMediaPlayer} from '../presentation/player.mjs';
+import {createLookPanel} from '../presentation/panel.mjs';
 import {playerPicker} from '../daily/client.mjs';
 import {renderMessageBody} from './message-display.mjs';
 
@@ -21,7 +23,7 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  const characterNames=g=>g.members.filter(m=>m.kind==='character').map(m=>m.name).join('、');
  const groupLabel=g=>`${g.scene.slice(0,24)} · ${g.id.slice(-6)}`;
  function notice(error){$('error').textContent=errors[error.message]??error.message??'操作失败';$('error').hidden=false;}
- async function api(path,body){const response=await fetch(path,{method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Group-CSRF':boot.csrf}:{},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();if(!response.ok)throw Error(value.error);return value;}
+ async function api(path,body,signal){const response=await fetch(path,{signal,method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Group-CSRF':boot.csrf}:{},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();if(!response.ok)throw Error(value.error);return value;}
  function options(select,values,selected){select.replaceChildren(...values.map(([value,label])=>{const option=el('option',label);option.value=value;return option;}));if(selected!==undefined)select.value=selected;}
  const cardKey=c=>c?.reference?c.reference.workId+'/'+c.reference.versionId:'';
  function catalog(value){boot=value;boot.cards.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')||b.version-a.version);$('character-library').hidden=!boot.charactersUrl;if(boot.charactersUrl){$('character-library').href=boot.charactersUrl;const link=$('book-library');if($('create-books'))$('create-books').hidden=false;if(link){link.hidden=false;link.href=boot.charactersUrl+'?books=1#branches';}}if($('daily-navigation')){$('daily-navigation').hidden=!boot.dailyUrl;if(boot.dailyUrl)$('daily-navigation').href=boot.dailyUrl;}}
@@ -29,9 +31,11 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  const cardOptions=()=>[['','选择已封存版本'],...boot.cards.map((c,i)=>[String(i),`${c.name} · 版本 ${c.version}`])];
  const modelOptions=()=>boot.models.map(m=>[m.id,m.label]);
  const envelope=payload=>({operationId:crypto.randomUUID(),expectedRevision:state.revision,payload});
+ const groupMedia=createMediaPlayer(document,(path,signal)=>api(path,undefined,signal));
+ const groupLook=createLookPanel($('group-look'),api,groupMedia);
  function remember(){if($('book-library')&&boot.charactersUrl)$('book-library').href=boot.charactersUrl+'?books=1&kind=group&source='+state.id+'#branches';const i=boot.groups.findIndex(g=>g.id===state.id);if(i>=0)boot.groups[i]=state;else boot.groups.unshift(state);history.replaceState(null,'','/groups?id='+state.id);}
  function closeMembers(){const dialog=$('member-dialog');if(dialog.open)dialog.close();$('member-dock').append($('members'));}
- function show(next){if(next!==screen)closeMembers();screen=next;document.body.dataset.view=next;for(const [id,view] of [['welcome-history','home'],['setup','setup'],['chat','chat']])$(id).hidden=next!==view;$('toggle-members').hidden=next!=='chat';$('home').setAttribute('aria-current',next==='home'?'page':'false');}
+ function show(next){if(next!=='chat')groupLook('');if(next!==screen)closeMembers();screen=next;document.body.dataset.view=next;for(const [id,view] of [['welcome-history','home'],['setup','setup'],['chat','chat']])$(id).hidden=next!==view;$('toggle-members').hidden=next!=='chat';$('home').setAttribute('aria-current',next==='home'?'page':'false');}
  function lock(){for(const id of ['new','home','start','refresh','cancel-create','history'])$(id).disabled=busy;for(const node of $('create-form').elements)node.disabled=busy||!boot.cards.length||!boot.models.length;$('create').disabled=busy||!boot.models.length||Array.from({length:slots},(_,i)=>!$('card-'+i)?.value).some(Boolean);}
  async function run(action){
   if(busy)return;busy=true;lock();$('error').hidden=true;$('status').textContent='正在核对并保存…';if(screen==='chat')render();
@@ -79,6 +83,8 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
   $('send-hint').textContent=pending(state)?'请求尚未结束。请核对原请求结果，刷新不会再次生成。':boot.mode==='disabled'?'当前未开放发送。你可以阅读消息、查看成员或创建群聊。':'消息对在场成员公开。接话不发送输入框中的草稿。';
  }
  function render(){
+  groupMedia.retain(state.members.filter(m=>m.active).map(m=>m.id));
+  if(boot.presentationEnabled)groupLook('/api/appearance/group/'+state.id,state.revision);
   show('chat');$('chat-title').textContent=characterNames(state);$('scene-label').textContent=state.scene;
   options($('history'),boot.groups.map(g=>[g.id,groupLabel(g)]),state.id);
   const unresolved=pending(state),locked=busy||!!unresolved;
@@ -106,14 +112,14 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
   if(!groups.length)$('group-list').append(el('p',query?'没有匹配的群聊，试试角色名称或清空搜索。':'还没有群聊。点击“创建群聊”，选择两位角色和相遇的场景。'));
  }
  function saveDraft(){if(state)draftWrite(state.id,$('input').value);if(screen==='setup')saveSetup();}
- async function openGroup(id){saveDraft();await run(async()=>{state=await api('/api/groups/'+id);$('input').value=draftRead(id);remember();show('chat');});if(screen==='chat')$('chat-title').focus();}
+ async function openGroup(id){groupLook('');saveDraft();await run(async()=>{state=await api('/api/groups/'+id);$('input').value=draftRead(id);remember();show('chat');});if(screen==='chat')$('chat-title').focus();}
  async function newGroup(preferred=null){if(busy)return;saveDraft();await run(async()=>{catalog(await api('/api/bootstrap'));state=null;history.replaceState(null,'','/groups?create=1');show('setup');restoreSetup(preferred);if(preferred&&!boot.cards.some(c=>cardKey(c)===preferred))notice(Error('指定的角色版本不在当前目录中，请重新选择已封存版本。'));$('setup-title').focus();});}
  function goHome(){if(busy)return;saveDraft();state=null;history.replaceState(null,'','/groups');show('home');renderList();$('library-title').focus();}
  $('create-form').onsubmit=event=>{event.preventDefault();run(async()=>{const members=Array.from({length:slots},(_,i)=>({reference:boot.cards[Number($('card-'+i).value)].reference,modelId:$('model-'+i).value}));state=await api('/api/groups',{operationId:crypto.randomUUID(),expectedRevision:null,payload:{player:boot.dailyEnabled?selectedPlayer():{id:null,name:$('player').value},scene:$('scene').value,members,opening:$('opening').value?JSON.parse($('opening').value):null,budget:{calls:Number($('calls').value),microUsd:Math.round(Number($('money').value)*1e6)}}});$('input').value='';setupDirty=false;try{window.sessionStorage.removeItem(setupKey);}catch{}remember();if(event.submitter?.id==='create-books'&&boot.charactersUrl){location.assign(boot.charactersUrl+'?books=1&kind=group&source='+state.id+'#branches');return;}show('chat');$('chat-title').focus();});};
  async function send(input){const caret=[$('input').selectionStart,$('input').selectionEnd];await run(async()=>{state=await api(`/api/groups/${state.id}/send`,envelope({targetId:$('target').value,input}));if(input!==null){$('input').value='';draftWrite(state.id,'');}remember();});if(!$('input').disabled){$('input').focus();if(input===null)$('input').setSelectionRange(...caret);}}
  $('send-form').onsubmit=event=>{event.preventDefault();if($('input').value.trim())send($('input').value);};$('continue').onclick=()=>send(null);
  $('target').onchange=composer;$('input').oninput=()=>{if(state)draftWrite(state.id,$('input').value);composer();};
- $('refresh').onclick=()=>run(async()=>{const selected=choices();catalog(await api('/api/bootstrap'));if(state){state=await api('/api/groups/'+state.id);remember();}else if(screen==='setup'){renderSlots(selected);saveSetup();}else renderList();});
+ $('refresh').onclick=()=>run(async()=>{groupMedia.stop();const selected=choices();catalog(await api('/api/bootstrap'));if(state){state=await api('/api/groups/'+state.id);remember();}else if(screen==='setup'){renderSlots(selected);saveSetup();}else renderList();});
  $('new').onclick=()=>newGroup();$('start').onclick=()=>newGroup();$('home').onclick=goHome;$('cancel-create').onclick=goHome;
  $('add-slot').onclick=()=>{const selected=choices();slots=slots===2?3:2;renderSlots(selected);lock();setupDirty=true;saveSetup();};$('batch-model').onchange=()=>{for(let i=0;i<slots;i++)$('model-'+i).value=$('batch-model').value;};$('opening').onchange=openingPreview;$('search').oninput=renderList;
  $('history').onchange=()=>openGroup($('history').value);

@@ -74,7 +74,9 @@ export async function buildCharx({store,archive},workId,versionId,snapshot,ref,
     const main=icons.length===1?icons[0]:icons.find(a=>a.name==='main');
     if(icons.length>1&&icons.filter(a=>a.name==='main').length!==1) reject('多个肖像需要一个明确的主肖像。');
     const oldPath=main?localPath(main):null;
-    if(!oldPath||indexed.get(oldPath)?.alias!==cover) {
+    const bound=indexed.get(oldPath);
+    const staticPoster=bound?.animation?.posterAlias===cover && native.get(cover)?.sha256===bound.animation.posterHash;
+    if(!oldPath || (bound?.alias!==cover && !staticPoster)) {
       const {asset,bytes}=await store.getAsset(workId,cover,versionId);
       const ext=extensions.get(asset.mediaType);
       if(!ext) reject('所选版本的肖像需要静态 PNG、JPEG 或 WebP。');

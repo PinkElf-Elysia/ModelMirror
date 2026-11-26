@@ -40,4 +40,4 @@
 
 ## 下一步
 
-[导入图片角色包并按版本导出](/help/exchange-character-charx)
+[切换角色画面与播放包内媒体](/help/view-character-media) · [导入图片角色包并按版本导出](/help/exchange-character-charx)

@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script><link rel="stylesheet" href="/character-assets/daily/page.css"></head><body data-screen="library">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>单角色卡 · 创作工作台</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/character-assets/editor.css"><script type="module" src="/character-assets/editor.mjs"></script><link rel="stylesheet" href="/character-assets/daily/page.css"><link rel="stylesheet" href="/character-assets/presentation/panel.css"></head><body data-screen="library">
 <header class="workspace-header">
   <button id="header-library" type="button" aria-label="返回角色库">← 角色库</button><div class="work-identity"><h1 id="title">单角色卡</h1><span id="save-state" role="status">正在载入…</span></div>
   <nav class="screen-switch" aria-label="工作区视图"><button type="button" id="back-edit">编辑</button><button id="show-preview" aria-pressed="true">预览</button><button id="show-chat" aria-pressed="false">对话</button></nav>
@@ -70,7 +70,7 @@
 </section>
 </form></section>
 <aside class="character-preview" aria-label="预览与对话">
-<div id="preview-panel">
+<div id="preview-panel"><section id="version-look" class="look-panel" aria-label="版本画面预览" hidden></section>
   <div class="preview-main"><article class="character-sheet">
     <p class="eyebrow">角色预览</p><h2 id="preview-name"></h2>
     <h3>人物描述</h3><p id="preview-description" class="sheet-text"></p>
@@ -87,6 +87,7 @@
 </div>
 <div id="chat-panel" hidden>
   <div class="chat-toolbar"><div class="chat-identity"><img id="charx-chat-portrait" width="48" height="48" alt="会话版本的角色肖像" hidden><div><h2>对话</h2><p id="mode-note"></p></div></div><button id="refresh-chat">刷新对话</button></div>
+  <section id="single-look" class="look-panel" aria-label="会话画面" hidden></section>
   <details class="chat-settings"><summary>对话设置与记忆</summary><div class="settings-body">
     <div class="two-fields"><label>保留的历史回合<input id="history-turns" type="number" min="1" max="1000" placeholder="留空保留全部"></label><label>单次回复上限（token）<input id="max-output" type="number" min="1" value="4096"></label></div>
     <label>回复模型<select id="model"><option value="">尚未选择模型</option></select></label>
