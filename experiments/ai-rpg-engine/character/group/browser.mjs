@@ -1,5 +1,8 @@
 // Optional loopback navigation; never grants execution or changes saved bindings.
 const revisionNavigation = (()=>{try{const v=new URL(location.href).searchParams.get('revisions')||sessionStorage.getItem('character-revisions-url');if(v&&/^http:\/\/127\.0\.0\.1:[0-9]+\/revisions$/.test(v)){sessionStorage.setItem('character-revisions-url',v);return v;}}catch{}return null;})();
+import {mountNarrationPanel} from './narration-panel.mjs';
+import {mountRoundPanel} from './round-panel.mjs';
+import {mountTurnPanel} from './turn-panel.mjs';
 import {createMediaPlayer} from '../presentation/player.mjs';
 import {createLookPanel} from '../presentation/panel.mjs';
 import {playerPicker} from '../daily/client.mjs';
@@ -24,6 +27,14 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  const groupLabel=g=>`${g.scene.slice(0,24)} · ${g.id.slice(-6)}`;
  function notice(error){$('error').textContent=errors[error.message]??error.message??'操作失败';$('error').hidden=false;}
  async function api(path,body,signal){const response=await fetch(path,{signal,method:body?'POST':'GET',headers:body?{'Content-Type':'application/json','X-Group-CSRF':boot.csrf}:{},...(body?{body:JSON.stringify(body)}:{})});const value=await response.json();if(!response.ok)throw Error(value.error);return value;}
+ const narration=mountNarrationPanel({$,el,api,crypto,run,notice,sync:refreshRound,apply:next=>{state=next;remember();}});
+ let roundPanel;
+ const turnPanel=mountTurnPanel({document,window,onPlanChange:()=>roundPanel?.paint(),readPreview:(id,body)=>api('/api/groups/'+id+'/turn-preview',body)});
+ async function refreshRound(id){
+  const latest=await api('/api/groups/'+id);
+  if(screen==='chat' && state?.id===id && latest.revision>=state.revision){state=latest;remember();render();}
+ }
+ roundPanel=mountRoundPanel({document,window,crypto,api,rules:turnPanel.rules,refresh:refreshRound});
  function options(select,values,selected){select.replaceChildren(...values.map(([value,label])=>{const option=el('option',label);option.value=value;return option;}));if(selected!==undefined)select.value=selected;}
  const cardKey=c=>c?.reference?c.reference.workId+'/'+c.reference.versionId:'';
  function catalog(value){boot=value;boot.cards.sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')||b.version-a.version);$('character-library').hidden=!boot.charactersUrl;if(boot.charactersUrl){$('character-library').href=boot.charactersUrl;const link=$('book-library');if($('create-books'))$('create-books').hidden=false;if(link){link.hidden=false;link.href=boot.charactersUrl+'?books=1#branches';}}if($('daily-navigation')){$('daily-navigation').hidden=!boot.dailyUrl;if(boot.dailyUrl)$('daily-navigation').href=boot.dailyUrl;}}
@@ -35,7 +46,7 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  const groupLook=createLookPanel($('group-look'),api,groupMedia);
  function remember(){if($('book-library')&&boot.charactersUrl)$('book-library').href=boot.charactersUrl+'?books=1&kind=group&source='+state.id+'#branches';const i=boot.groups.findIndex(g=>g.id===state.id);if(i>=0)boot.groups[i]=state;else boot.groups.unshift(state);history.replaceState(null,'','/groups?id='+state.id);}
  function closeMembers(){const dialog=$('member-dialog');if(dialog.open)dialog.close();$('member-dock').append($('members'));}
- function show(next){if(next!=='chat')groupLook('');if(next!==screen)closeMembers();screen=next;document.body.dataset.view=next;for(const [id,view] of [['welcome-history','home'],['setup','setup'],['chat','chat']])$(id).hidden=next!==view;$('toggle-members').hidden=next!=='chat';$('home').setAttribute('aria-current',next==='home'?'page':'false');}
+ function show(next){if(next!=='chat'){narration.update(null,false,false);groupLook('');turnPanel.update(null);roundPanel.update(null,false);}if(next!==screen)closeMembers();screen=next;document.body.dataset.view=next;for(const [id,view] of [['welcome-history','home'],['setup','setup'],['chat','chat']])$(id).hidden=next!==view;$('toggle-members').hidden=next!=='chat';$('home').setAttribute('aria-current',next==='home'?'page':'false');}
  function lock(){for(const id of ['new','home','start','refresh','cancel-create','history'])$(id).disabled=busy;for(const node of $('create-form').elements)node.disabled=busy||!boot.cards.length||!boot.models.length;$('create').disabled=busy||!boot.models.length||Array.from({length:slots},(_,i)=>!$('card-'+i)?.value).some(Boolean);}
  async function run(action){
   if(busy)return;busy=true;lock();$('error').hidden=true;$('status').textContent='正在核对并保存…';if(screen==='chat')render();
@@ -83,6 +94,9 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
   $('send-hint').textContent=pending(state)?'请求尚未结束。请核对原请求结果，刷新不会再次生成。':boot.mode==='disabled'?'当前未开放发送。你可以阅读消息、查看成员或创建群聊。':'消息对在场成员公开。接话不发送输入框中的草稿。';
  }
  function render(){
+  roundPanel.update(state,boot.roundsEnabled===true);
+  narration.update(state,boot.roundsEnabled===true,busy);
+  turnPanel.update(state);
   groupMedia.retain(state.members.filter(m=>m.active).map(m=>m.id));
   if(boot.presentationEnabled)groupLook('/api/appearance/group/'+state.id,state.revision);
   show('chat');$('chat-title').textContent=characterNames(state);$('scene-label').textContent=state.scene;
@@ -92,7 +106,7 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
   $('target').disabled=locked; $('input').disabled=locked||boot.mode==='disabled';composer();
   const messages=$('messages'),firstPaint=!messages.childElementCount,scroll=messages.scrollTop,atBottom=messages.scrollHeight-messages.clientHeight-scroll<60;
   messages.replaceChildren();if(!state.messages.length)messages.append(el('p','还没有消息。选择回应者，写下你想说的话。'));
-  for(const message of state.messages){const row=el('article');row.className='message';row.id='message-'+message.id;const member=state.members.find(m=>m.id===message.speakerId);row.dataset.speaker=member.kind;row.append(el('strong',display(member)),el('small',message.source.kind==='opening'?'预设开场 · 未调用模型':message.source.kind==='model-result'?`模型：${modelName(message.source.modelId)}`:'玩家消息 · 群内公开'));renderMessageBody(document,row,message);messages.append(row);}
+  for(const message of state.messages){const row=el('article');row.className='message';row.id='message-'+message.id;const member=state.members.find(m=>m.id===message.speakerId);const note=message.source.kind==='manual-narration';row.dataset.speaker=note?'narrator':member.kind;row.append(el('strong',note?'旁白':display(member)),el('small',note?'玩家手动记录 · 当时在场成员可见':message.source.kind==='opening'?'预设开场 · 未调用模型':message.source.kind==='model-result'?`模型：${modelName(message.source.modelId)}`:'玩家消息 · 群内公开'));renderMessageBody(document,row,message);messages.append(row);}
   messages.scrollTop=firstPaint?0:atBottom?messages.scrollHeight:scroll;
   $('member-list').replaceChildren();for(const member of state.members){const row=el('section');row.className='member';row.append(el('strong',display(member)),el('small',member.active?'在场':'已离场 · 缺席期间消息不可见'));
    if(member.kind==='character'){const model=el('select');model.setAttribute('aria-label',display(member)+'的模型');options(model,modelOptions(),member.modelId);model.disabled=locked;model.onchange=()=>run(async()=>{state=await api(`/api/groups/${state.id}/model`,envelope({memberId:member.id,modelId:model.value}));remember();});const presence=el('button',member.active?'让角色离场':'让角色重新加入');presence.disabled=locked;presence.onclick=()=>run(async()=>{state=await api(`/api/groups/${state.id}/${member.active?'leave':'rejoin'}`,envelope({memberId:member.id}));remember();});row.append(model,presence);}$('member-list').append(row);
@@ -119,7 +133,7 @@ export async function mountGroupUI({document,window,fetch,location,history,crypt
  async function send(input){const caret=[$('input').selectionStart,$('input').selectionEnd];await run(async()=>{state=await api(`/api/groups/${state.id}/send`,envelope({targetId:$('target').value,input}));if(input!==null){$('input').value='';draftWrite(state.id,'');}remember();});if(!$('input').disabled){$('input').focus();if(input===null)$('input').setSelectionRange(...caret);}}
  $('send-form').onsubmit=event=>{event.preventDefault();if($('input').value.trim())send($('input').value);};$('continue').onclick=()=>send(null);
  $('target').onchange=composer;$('input').oninput=()=>{if(state)draftWrite(state.id,$('input').value);composer();};
- $('refresh').onclick=()=>run(async()=>{groupMedia.stop();const selected=choices();catalog(await api('/api/bootstrap'));if(state){state=await api('/api/groups/'+state.id);remember();}else if(screen==='setup'){renderSlots(selected);saveSetup();}else renderList();});
+ $('refresh').onclick=()=>run(async()=>{turnPanel.invalidate();groupMedia.stop();const selected=choices();catalog(await api('/api/bootstrap'));if(state){state=await api('/api/groups/'+state.id);remember();}else if(screen==='setup'){renderSlots(selected);saveSetup();}else renderList();});
  $('new').onclick=()=>newGroup();$('start').onclick=()=>newGroup();$('home').onclick=goHome;$('cancel-create').onclick=goHome;
  $('add-slot').onclick=()=>{const selected=choices();slots=slots===2?3:2;renderSlots(selected);lock();setupDirty=true;saveSetup();};$('batch-model').onchange=()=>{for(let i=0;i<slots;i++)$('model-'+i).value=$('batch-model').value;};$('opening').onchange=openingPreview;$('search').oninput=renderList;
  $('history').onchange=()=>openGroup($('history').value);

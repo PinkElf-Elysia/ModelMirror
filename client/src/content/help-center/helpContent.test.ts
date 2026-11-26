@@ -385,6 +385,11 @@ describe("help center content catalog", () => {
 
   it("uses descriptive alt text and the latest screenshot baseline", () => {
     const historicalCaptures: Record<string, string[]> = {
+      "use-character-group-chat": [
+        "/help-center/92849f31/character-group-create.png",
+        "/help-center/92849f31/character-group-chat.png",
+        "/help-center/92849f31/character-group-mobile.png"
+      ],
       "branch-rpg-story": [
         "/help-center/425ff762/plugin-upgrade-confirm.png",
         "/help-center/425ff762/plugin-upgrade-complete.png"
@@ -560,13 +565,20 @@ it("makes the RPG voice input guide searchable with verified offline boundaries"
 
 it("registers the isolated character group tutorial with exact versions, draft limits and neutral screenshots", () => {
   const guide = helpArticles.find(article => article.slug === "use-character-group-chat")!;
-  expect(guide.verifiedCommit).toBe("92849f31");
-  expect(guide.verifiedDate).toBe("2026-11-14");
+  expect(guide.verifiedCommit).toBe("0d0a909a");
+  expect(guide.verifiedDate).toBe("2026-11-26");
   expect(guide.content.match(/^\d+\. /gm)).toHaveLength(7);
   for (const text of ["用此版本创建群聊", "不会增加", "结果未知", "当前浏览器标签页", "不调用真实模型", "旧群聊", "真实手机"]) expect(guide.content).toContain(text);
   const images = [...guide.content.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)];
-  expect(images).toHaveLength(3);
-  for (const image of images) expect(image[2]).toMatch(/^\/help-center\/92849f31\/character-group-[a-z]+\.png$/);
+  expect(images.map(image => image[2]).sort()).toEqual([
+    "/help-center/0d0a909a/character-group-history.png",
+    "/help-center/0d0a909a/character-group-round.png",
+    "/help-center/92849f31/character-group-chat.png",
+    "/help-center/92849f31/character-group-create.png",
+    "/help-center/92849f31/character-group-mobile.png",
+  ]);
+  for (const text of ["预览本轮", "停止后续发言", "写旁白", "回看轮次"]) expect(guide.content).toContain(text);
+  expect(searchHelpContent("旁白").some(item => item.id === guide.slug)).toBe(true);
   expect(searchHelpContent("角色群聊").some(item => item.id === guide.slug)).toBe(true);
   const single = helpArticles.find(article => article.slug === "create-single-character-card")!;
   expect(single.content).toContain("创建版本");
