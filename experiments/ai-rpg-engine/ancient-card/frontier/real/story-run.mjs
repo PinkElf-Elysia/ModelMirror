@@ -63,7 +63,7 @@ async function generate(packet){
  await save('result.json',report);assert.equal(out.status,'completed',body.detail||out.error||'结果未知');
  if(n===2){
   if(out.finishReason==='stop')throw Error('隔轮直接作答，未查档；原文已保存');
-  assert.equal(row.tools.length,1);assert.equal(row.tools[0].name,'query_map');assert.deepEqual(JSON.parse(row.tools[0].arguments),{node:'台湾'});
+  assert.equal(row.tools.length,1);assert.equal(row.tools[0].name,'query_map');assert.deepEqual(JSON.parse(row.tools[0].arguments),{node:'台湾',use:'scene'});
  }else{if(row.tools.length)throw Error('回执已给出时仍发起工具调用；停止');assert.equal(out.finishReason,'stop');assert.ok(visibleText(row.text).trim());assert.doesNotMatch(row.text,/<map_delta/);}
  return out;
 }

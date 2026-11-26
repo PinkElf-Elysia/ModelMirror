@@ -1,6 +1,6 @@
 import {startRegister,registerView,registerTurn,storyMapRead,adoptStoryDelta} from './place-register.mjs';
 import {generateWithAtlas} from './atlas-query.mjs';
-import {adaptStorySystem} from './story-prompt.mjs';
+import {adaptStorySystem,storyMapInstructions} from './story-prompt.mjs';
 import {scopedStoryConfig} from '../../plugins/custom-config/host.mjs';
 import {createHash,randomUUID} from 'node:crypto';
 import {assemble} from '../assembly.mjs';
@@ -115,7 +115,7 @@ export async function play(s,{input,revision,requestId},generate=offlineNarrator
         const original=assemble({input,history});
         frozen=config?await config.apply(original):original;
         const events=s.world.facts.slice(s.storyMap.factCursor).filter(e=>e.receivedAt!=null && e.receivedAt<=s.world.clock);
-        const context=[packet.messages[0].content,'本轮地点状态据已确认记录续写。若本轮京师新听到有出处的地点传闻，可在第六组面板【接下来】之后单独附 <map_delta>{"kind":"rumor","node":"已登记地点名","quote":"本轮正文中含地名的转述原句"}</map_delta>。无新增传闻时仅省略 <map_delta> 区块。两种情况下均按原卡顺序输出1200–1500字剧情正文及全部六组面板。传闻不证明归属。'];
+        const context=[packet.messages[0].content,storyMapInstructions];
         if(s.turns.length && !recent.includes(s.turns[0]))context.push('开局命书：'+s.characterText);
         if(events.length)context.push('御前新到记录：'+events.map(e=>e.text).join('\n'));
         frozen[0]={...frozen[0],content:[adaptStorySystem(frozen[0].content),...context].join('\n')};

@@ -14,7 +14,9 @@ import {createGodPluginStore} from '../god-card/lib/plugin-host.mjs';
 import {createCardHttp} from '../god-card/lib/http.mjs';
 import {safeHtml} from '../card-replica/lib/render.mjs';
 
-export async function createArchiveHost(directory,control,{cardId,name,system,autoSummaryV2=false,pluginFeatures={}}){
+export async function createArchiveHost(directory,control,{cardId,name,system,autoSummaryV2=false,pluginFeatures={},offlineAtlas=null}){
+  if(offlineAtlas && (control || cardId!=="ancient"))throw fail("OFFLINE_ATLAS_ONLY");
+  const atlas=offlineAtlas ? (await import("./frontier/ordinary-offline.mjs")).ordinaryOfflineAtlas(directory,offlineAtlas) : null;
   const mode=control?'real':'offline',systemHash=sha(system);
   const params={temperature:0.7,top_p:0.8,max_tokens:16384};
   const models=(control?['google/gemini-3.8-flash','google/gemini-4-argon']:['offline/'+cardId+'-a','offline/'+cardId+'-b']).map((model,i)=>({
@@ -30,21 +32,23 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
     return {current:input,messages:[{role:'system',content},...session.history,{role:'user',content:input}]};
   }});
   const legacyBase={format:5,cardId,mode,model:initial,systemHash};
-  const descriptor={worldbookHash:versionHash(),format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
+  const descriptor={...(atlas?.enabled?{offlineAtlas:"ancient-court-offline/1"}:{}),worldbookHash:versionHash(),format:5,cardId,mode,model:initial,systemHash,adapterHash:sha(await readFile(new URL(import.meta.url)))};
   const runtime={descriptor,hash:sha(canonical(descriptor)),async verify(){
     if(versionHash()!==descriptor.worldbookHash)throw fail('RUNTIME_CHANGED');
     if(sha(await readFile(new URL(import.meta.url)))!==descriptor.adapterHash)throw fail('RUNTIME_CHANGED');
   }};
   // Admit the reviewed adapters only when every other binding field matches.
   const previousAdapters=['244cfe5b70e33c07ecc41ec1b29a8b6da817372ebdee57f9c7ce2760e4f484e1',beforeSpeechDescriptor(descriptor,'xingjian-card/host.mjs').adapterHash,'1f10675e1cad2945b803c116965892274a9af494c1929623ab38a006a425a6d4','1fcf5793f0643a6e33546f6fd02ab74ba20568ba38079eaa4816b510e04bb6ba','865c4c9bd9e106f435ee240e7b9b036283e7cb102078720106eb2623880aecf0','659be5325ff5baf6b702cd8ae9487bea8bd1a2ef819117e5d7ef65d3bf956add'];
+  const {offlineAtlas:mapVersion,...ordinaryDescriptor}=descriptor;
+  const previousWorldbookAdapter='3e372ef70375b384095317aaf0e3b618600d97e0a0a506aa5fc0db3bc9899816';
   const compatibleRuntime=s=>{
     const bound=s.runtime?.descriptor?.model;
     // A catalog refresh may change only its revision. Sending still requires the
     // current exact selection; reading a reviewed save does not grant dispatch.
     if(!modelPolicy.validChoice(bound)||canonical({...bound,selectionRevision:initial.selectionRevision,configHash:initial.configHash})!==canonical(initial))return false;
-    return s.runtime.hash===sha(canonical({...descriptor,model:bound})) || previousAdapters.some(adapterHash=>s.runtime.hash===sha(canonical({...legacyBase,model:bound,adapterHash})));
+    return s.runtime.hash===sha(canonical({...ordinaryDescriptor,model:bound,adapterHash:previousWorldbookAdapter})) || (mapVersion && s.runtime.hash===sha(canonical({...ordinaryDescriptor,model:bound}))) || s.runtime.hash===sha(canonical({...descriptor,model:bound})) || previousAdapters.some(adapterHash=>s.runtime.hash===sha(canonical({...legacyBase,model:bound,adapterHash})));
   };
-  const profile={runtime,state,context,modelPolicy,initialSelection:()=>structuredClone(initial),
+  const profile={runtime,state,context:atlas?atlas.decorate(context):context,project:atlas?.project,modelPolicy,initialSelection:()=>structuredClone(initial),
     create(data){
       if(typeof data?.opening!=='string'||data.opening.length>20000)throw fail('OPENING_INVALID',400);
       return {cardId,mode,name,characterText:data.opening,world:null,params:{}};
@@ -57,7 +61,7 @@ export async function createArchiveHost(directory,control,{cardId,name,system,au
     const Store=createMemoryStoreClass(profile),store=new Store(directory,()=>{throw fail('NO_OFFLINE_FALLBACK')});
     await store.init();integrated={store,transport};
   }else{
-    integrated=await createGodPluginStore(directory,async()=>'离线演示：开局档案与当前输入已送达本地会话。',profile,models);
+    integrated=await createGodPluginStore(directory,atlas?(packet=>atlas.generate(packet,integrated.store)):async()=>'离线演示：开局档案与当前输入已送达本地会话。',profile,models);
   }
   const {store}=integrated;
   store.autoSummaryV2=autoSummaryV2;

@@ -10,13 +10,23 @@ HERE = Path(__file__).resolve().parent
 ENGINE = HERE.parents[2]
 ROOT = ENGINE.parents[1]
 BASE = ENGINE / 'agent-core'
+NINGYUAN = '--ningyuan' in sys.argv
+if NINGYUAN: sys.argv.remove('--ningyuan')
+OPENING = '--opening' in sys.argv
+if OPENING: sys.argv.remove('--opening')
+ORDINARY = '--ordinary-map' in sys.argv
+if ORDINARY: sys.argv.remove('--ordinary-map')
 STORY = '--story-map' in sys.argv
 if STORY: sys.argv.remove('--story-map')
 REGISTER = '--place-register' in sys.argv
 if REGISTER: sys.argv.remove('--place-register')
+ORDINARY = ORDINARY or OPENING or NINGYUAN
+STORY = STORY or ORDINARY
 REGISTER = REGISTER or STORY
 DATA = ENGINE / '.rpg03-work' / ('story-map-gemini' if STORY else 'place-register-gemini' if REGISTER else 'ancient-map-gemini')
 if STORY and os.environ.get('STORY_MAP_RETEST')=='1': DATA=DATA.with_name('story-map-gemini-prose-retest')
+if ORDINARY:
+    DATA=DATA.with_name('ordinary-docket-gemini' if NINGYUAN else 'ordinary-opening-gemini' if OPENING else 'ordinary-map-gemini')
 sys.path[:0] = [str(ROOT), str(BASE / 'scenes/real')]
 # This module is named bridge too. Load the reviewed shared service by filename.
 import importlib.util
@@ -28,7 +38,8 @@ from fastapi.responses import JSONResponse
 import httpx
 
 MODEL = 'google/gemini-3.8-flash'
-PORT = 19193 if STORY else 19189 if REGISTER else 18987
+LIMIT = 8192 if ORDINARY else 4096
+PORT = 19236 if NINGYUAN else 19226 if OPENING else 19221 if ORDINARY else 19193 if STORY else 19189 if REGISTER else 18987
 class Review:
     root = DATA
     def save_auth(self, run, data):
@@ -51,14 +62,14 @@ class Review:
         # Lower only this private process's certified text/tool output limit.
         def parameters(model,profile='default'):
             p=original(model,profile)
-            return {**p,'max_tokens':4096} if p and model==MODEL and profile=='core-query-r3' else p
+            return {**p,'max_tokens':LIMIT} if p and model==MODEL and profile=='core-query-r3' else p
         protocol.b.parameters_for=parameters
         class MapProtocol(protocol.Protocol):
             @staticmethod
             def validate_wire(data):
                 if REGISTER and data['kind']=='sse':
                     (run/f'provider-{self.calls}.sse').write_text(data['sse'],encoding='utf-8')
-                result=subprocess.run(['node',str(HERE/('register-wire.mjs' if REGISTER else 'wire.mjs'))],input=json.dumps({**data,'story':True} if STORY else data),capture_output=True,encoding='utf-8',timeout=30)
+                result=subprocess.run(['node',str(HERE/('register-wire.mjs' if REGISTER else 'wire.mjs'))],input=json.dumps({**data,'story':True,'ordinary':ORDINARY,'opening':OPENING,'ningyuan':NINGYUAN} if STORY else data),capture_output=True,encoding='utf-8',timeout=30)
                 if result.returncode: raise ValueError('map_wire_invalid')
                 return json.loads(result.stdout)
         if REGISTER:
@@ -70,7 +81,10 @@ class Review:
                         body=json.loads(req.content)
                         assert req.headers['host']=='openrouter.ai' and req.extensions['sni_hostname']=='openrouter.ai' and body['model']==MODEL
                         assert body['provider']['only']==['google-ai-studio'] and body['provider']['allow_fallbacks'] is False
-                        assert body['max_tokens']==4096 and 1<=self.calls<=5
+                        assert body['max_tokens']==LIMIT and 1<=self.calls<=(1 if NINGYUAN or OPENING else 5)
+                        if OPENING:
+                            expected=json.loads((DATA/'browser-request.json').read_text(encoding='utf8'))
+                            assert all(body.get(k)==v for k,v in expected.items())
                         with (run/f'upstream-{self.calls}.json').open('x',encoding='utf-8') as out:
                             json.dump(body,out,ensure_ascii=False,indent=2)
                 return {**kwargs,'event_hooks':{'request':[capture]}}
@@ -79,20 +93,30 @@ class Review:
         @app.middleware('http')
         async def restrict(req,next_handler):
             if req.method=='POST' and req.url.path!='/task/stop':
-                if req.url.path!='/api/rpg/v1/scene/chat/completions' or req.query_params.get('profile')!='core-query-r3' or self.calls>=(3 if STORY else 5 if REGISTER else 6):
+                if req.url.path!='/api/rpg/v1/scene/chat/completions' or req.query_params.get('profile')!='core-query-r3' or self.calls>=(1 if NINGYUAN or OPENING else 3 if STORY else 5 if REGISTER else 6):
                     return JSONResponse({'error':'review_scope'},status_code=409)
                 self.calls+=1
             return await next_handler(req)
 
     async def mock_response(self,req):
         p=json.loads(req.content)
-        assert p['model']==MODEL and p['provider']['only']==['google-ai-studio'] and not p['provider']['allow_fallbacks'] and p['max_tokens']==4096
+        assert p['model']==MODEL and p['provider']['only']==['google-ai-studio'] and not p['provider']['allow_fallbacks'] and p['max_tokens']==LIMIT
         assert req.headers['host']=='openrouter.ai'
         n=self.calls
-        if STORY:
+        if NINGYUAN:
+            assert n==1
+            delta={'tool_calls':[{'index':0,'id':'mock-docket','type':'function','function':{'name':'query_map','arguments':json.dumps({'node':'宁远','use':'documents'})}}]}
+            finish='tool_calls'
+        elif STORY:
             if n==1: delta,finish={'content':'你合起大员交割文书，命值房照已准的一处入册。'},'stop'
-            elif n==2: delta,finish={'tool_calls':[{'index':0,'id':'mock-query','type':'function','function':{'name':'query_map','arguments':json.dumps({'node':'台湾'})}}]},'tool_calls'
+            elif n==2: delta,finish={'tool_calls':[{'index':0,'id':'mock-query','type':'function','function':{'name':'query_map','arguments':json.dumps({'node':'台湾','use':'scene'})}}]},'tool_calls'
             else: delta,finish={'content':'大员凭交割文书改登为明，鸡笼沿旧登记为西班牙，岛内各社自治。'},'stop'
+            if ORDINARY and n in (1,3):
+                titles=['时间与环境','玩家状态','当前交互角色','财产状况','世界风云','关系网络','星记忆回廊','接下来']
+                scene='清晨，王承恩在京师文华殿呈上未批的奏疏。' if OPENING else delta['content']
+                delta={'content':scene+'你请阁臣接着议事。'*165+''.join('<details><summary>'+t+'</summary>沿用既有登记。</details>' for t in titles)}
+            elif ORDINARY and n==2:
+                delta['tool_calls'][0]['extra_content']={'google':{'thought_signature':'offline-fixture'}}
         elif REGISTER:
             delta,finish=register_mock(p,n)
         elif n%2:
@@ -156,7 +180,7 @@ if __name__=='__main__':
     assert not run.exists() and len(sys.argv)==2
     if mode=='real':
         result=json.loads((DATA/('mock-02' if REGISTER else 'mock-01')/'result.json').read_text(encoding='utf-8'))
-        assert result['passed'] and len(result['calls'])==(3 if STORY else 5 if REGISTER else 6)
+        assert result['passed'] and len(result['calls'])==(1 if NINGYUAN or OPENING else 3 if STORY else 5 if REGISTER else 6)
     # Only one local bridge can own this run; verify the port before capturing any credential.
     import socket
     with socket.socket() as test:test.bind(('127.0.0.1',PORT))

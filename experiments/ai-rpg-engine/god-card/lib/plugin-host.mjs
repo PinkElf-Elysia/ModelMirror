@@ -14,7 +14,7 @@ export async function createGodPluginStore(directory,generate,profile=godPluginP
   if(options.method==='GET')return Response.json({models});
   const b=JSON.parse(options.body),model=models.find(m=>m.selectionId===b.selectionId)?.model;if(!model)throw fail('MODEL_SELECTION_UNAVAILABLE');
   const instruction=b.messages[0].content;
-  const raw=instruction===MEMORY_INSTRUCTION?'{"operations":[]}':instruction===SUMMARY_INSTRUCTION?'离线摘要样例：用于检查覆盖范围和装配，不代表真实模型记忆效果。':instruction===COMPRESSION_INSTRUCTION?'离线压缩样例：不代表真实压缩质量。':await generate({messages:b.messages,signal:options.signal});
+  const raw=instruction===MEMORY_INSTRUCTION?'{"operations":[]}':instruction===SUMMARY_INSTRUCTION?'离线摘要样例：用于检查覆盖范围和装配，不代表真实模型记忆效果。':instruction===COMPRESSION_INSTRUCTION?'离线压缩样例：不代表真实压缩质量。':await generate({sessionId:b.sessionId,requestId:b.requestId,messages:b.messages,signal:options.signal});
   const sse='data: '+JSON.stringify({choices:[{delta:{content:raw},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n';
   return Response.json({raw,sse,receipt:{gateway:'rpg_scoped',sessionId:b.sessionId,requestId:b.requestId,selectionId:b.selectionId,selectionRevision:b.selectionRevision,requestedModel:model,actualModel:model,parameters:b.parameters,status:'complete',error:null,dispatched:true,retries:0,requestHash:sha(canonical(b)),rawHash:sha(raw),sseHash:sha(sse)}});
  }});

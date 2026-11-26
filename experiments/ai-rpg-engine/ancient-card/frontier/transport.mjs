@@ -14,7 +14,9 @@ export function offlineNarrator({messages,tools=[]}) {
   const last=messages.at(-1);
   if(last.role==='user'){
     if(input.includes('【人生路线】'))return final('崇祯元年七月，京师。你合上命书，案上摊着辽西城防旧册。宁远一栏登记在明廷名下，今日可据何事，还须看驿报。');
-    const nodes=tools.find(t=>t.function.name==='query_map')?.function.parameters.properties.node.enum;
+    const fields=tools.find(t=>t.function.name==='query_map')?.function.parameters.properties;
+    const nodes=fields?.node.enum;
+    const query=node=>call('query_map',fields?.use?{node,use:'scene'}:{node});
     if(nodes?.includes('台湾')){
       const node=/鸡笼|基隆/.test(input)?'鸡笼':/各社|原住民/.test(input)?'台湾原住民各社':/大员|热兰遮/.test(input)?'大员':/台湾|东番/.test(input)?'台湾':null;
       if(tools.some(t=>t.function.name==='propose_place_order')&&/下旨|传旨|命郑芝龙/.test(input)&&!/不|勿|暂缓|是否|[?？]/.test(input)&&/台湾|东番|大员/.test(input))return call('propose_place_order',{node:'大员'});
@@ -25,7 +27,7 @@ export function offlineNarrator({messages,tools=[]}) {
       const notice=messages[0].content.split('御前新到记录：')[1];
       if(notice && /接着写|继续朝议/.test(input))return final('你让值房重读案上的记录。'+notice+'阁臣俯身应下，等候下一道问话。');
       if(!node && messages[0].content.includes('本轮地点状态据已确认记录续写。') && /接着写|继续朝议/.test(input))return final('值房安静下来。你把议题交回阁臣，请他接着方才的话讲。');
-      if(node&&!/开局|原图/.test(input))return call('query_map',{node:/全岛|分地/.test(input)?'台湾':node});
+      if(node&&!/开局|原图/.test(input))return query(/全岛|分地/.test(input)?'台湾':node);
       if(node)return call('query_atlas',{names:node==='台湾'?['大员','鸡笼','台湾原住民各社']:[node]});
     }
     const node=places.find(p=>p!=='北京'&&input.includes(p))||(input.includes('北京')?'北京':null);
@@ -34,7 +36,7 @@ export function offlineNarrator({messages,tools=[]}) {
       if(names.length>3)return final('请选至多三个片区，我可以逐一对读舆图。');
       if(names.length)return call('query_atlas',{names});
     }
-    if(node||/接着|续写|接防|交割|上回|守方/.test(input))return call('query_map',{node:node||'宁远'});
+    if(node||/接着|续写|接防|交割|上回|守方/.test(input))return query(node||'宁远');
     return final('你把话记在案旁，留待下回合再议。城防簿沿用上次的登记。');
   }
   const result=JSON.parse(last.content);

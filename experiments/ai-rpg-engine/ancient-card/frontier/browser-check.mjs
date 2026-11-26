@@ -11,7 +11,7 @@ const mapName='展开全国舆图';
 async function map(page){await page.getByRole('button',{name:new RegExp(mapName)}).click();const dlg=page.getByRole('dialog',{name:'大明舆图'});await dlg.waitFor();return dlg;}
 async function capture(page,name){if(atlasPath)await page.screenshot({path:join(atlasPath,name+'.png')});}
 const status=await (await fetch(base+'api/status')).json();
-assert.deepEqual(status,{providerEnabled:false,frontier:true});
+if(process.env.ANCIENT_ORDINARY_CHAT==='1')assert.equal(status.providerEnabled,false);else assert.deepEqual(status,{providerEnabled:false,frontier:true});
 const browser=await chromium.launch({channel:'msedge',headless:true});
 try{
   const p=await browser.newPage({viewport:{width:1440,height:960}});p.setDefaultTimeout(9000);
