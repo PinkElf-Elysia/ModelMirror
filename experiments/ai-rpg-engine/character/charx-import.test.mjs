@@ -32,6 +32,16 @@ async function fixture(t,fault) {
   return {request,json,intent,async restart(){await server.close();server=await startAuthoringServer({directory,creatorExperience:true});}};
 }
 const imports='/characters/imports';
+test('explicit independent CHARX imports keep their original resources and stable identities',async t=>{
+  const {json,request,intent}=await fixture(t),bytes=pack('中性灰灯'),first=await json(imports,intent(bytes,'first'));
+  const info=await json(imports+'/inspect',{base64:bytes.toString('base64'),selection:null});
+  assert.deepEqual(info.duplicates,[{id:first.workId,name:'中性灰灯',relation:'file'}]);
+  const body=intent(bytes,'separate'),second=await json(imports+'/new',body);assert.notEqual(second.workId,first.workId);
+  assert.equal((await json(imports+'/new',body)).workId,second.workId);
+  assert.equal((await request(imports,body)).ok,false);
+  assert.equal((await request(imports+'/new',intent(bytes,'first'))).ok,false);
+  assert.deepEqual(await json(resources(first.workId)),await json(resources(second.workId)));
+});
 const resources=(w,v)=>'/characters/charx/resources?work='+w+(v?'&version='+v:'');
 const imageUrl=(w,v)=>resources(w,v).replace('/resources?','/image?')+'&path='+encodeURIComponent(path);
 test('confirm binds all resources once, rejects switched sources and preserves prior version and session',async t=>{

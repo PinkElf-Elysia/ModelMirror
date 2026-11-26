@@ -21,7 +21,7 @@ export function cooldownView(row,branchId,actor){
   return {replies,last};
 }
 
-export function prepareCooldownBook(book,scope,actor,state){
+export function prepareCooldownBook(book,scope,actor,state,scopes=null){
   const traces=new Map();
   const entries=book.entries.map((entry,index)=>{
     if(!hasCooldown(entry))return entry;
@@ -31,7 +31,7 @@ export function prepareCooldownBook(book,scope,actor,state){
       return {...entry,enabled:false};
     }
     if(rounds===0)return entry;
-    const cooldownKey=id('cooldown',actor,scope,index),anchor=state.last.get(cooldownKey);
+    const cooldownKey=id('cooldown',actor,scopes?.[index]?.reference??scope,scopes?.[index]?.index??index),anchor=state.last.get(cooldownKey);
     const remaining=anchor?Math.max(0,rounds-(state.replies-anchor.at)):0;
     const blocked=entry.enabled&&remaining>0;
     traces.set(index,{cooldownKey,cooldown:{rounds,remaining,...(anchor?{messageId:anchor.messageId}:{})},...(blocked?{status:'cooldown-wait'}:{})});

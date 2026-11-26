@@ -18,7 +18,7 @@ async function remember(records,key,data) {
 
 export function charxImports({store,sources,archive}) {
   let queue=Promise.resolve();
-  async function confirm(bytes,input) {
+  async function confirm(bytes,input,independent) {
     if(!isId(input.operationId)) fail('AUTHORING_OPERATION_ID_INVALID');
     if(typeof input.fileName!=='string'||input.fileName.length>240||typeof input.origin!=='string'||input.origin.length>4096) fail('CHARACTER_SOURCE_INVALID');
     const hash=sha256(bytes);
@@ -61,9 +61,9 @@ export function charxImports({store,sources,archive}) {
       blobs:[...blobs].map(([digest,data])=>({sha256:digest,base64:data.toString('base64')}))};
     const checked=await store.inspectImport(payload);
     if(!checked.valid) fail('CHARACTER_CHARX_WORK_INVALID','',{issues:checked.issues});
-    const operationId=operationFor(hash),workId=identityFor(hash);
+    const operationId=independent?'cx-new-'+sha256(input.operationId):operationFor(hash),workId='work-'+sha256('authoring-create:'+operationId);
     const originArchive=await archive();
-    await remember(originArchive.records,'confirm-'+sha256(input.operationId),{hash,fileName:input.fileName,origin:input.origin});
+    await remember(originArchive.records,'confirm-'+sha256(input.operationId),{hash,fileName:input.fileName,origin:input.origin,...(independent?{independent:true}:{})});
     await originArchive.put(bytes,{fileName:input.fileName,origin:input.origin});
     await sources.put(definition,{fileName:'card.json'});
     for(const image of images) if(!image.alias) await originArchive.put(files.get(image.path));
@@ -71,6 +71,7 @@ export function charxImports({store,sources,archive}) {
     for(const entry of media) await originArchive.put(files.get(entry.path));
     // Keep historical image-only bindings byte-compatible on a repeated confirmation.
     const binding={hash,definition:source.sha256,payloadHash:checked.payloadHash,images};
+    if(independent) binding.creation=operationId;
     if(media.length) binding.media=media;
     await remember(originArchive.records,workId,binding);
     // Only an explicit confirmation may reconcile this exact creation after interruption.
@@ -92,7 +93,7 @@ export function charxImports({store,sources,archive}) {
     if(work.origin?.kind!=='import') return null;
     const meta=(await (await archive()).records.get(work.id))?.data;
     if(!meta) return null;
-    if(identityFor(meta.hash)!==work.id || meta.payloadHash!==work.origin.payloadHash) fail('CHARACTER_CHARX_CONFLICT');
+    if((meta.creation?'work-'+sha256('authoring-create:'+meta.creation):identityFor(meta.hash))!==work.id || meta.payloadHash!==work.origin.payloadHash) fail('CHARACTER_CHARX_CONFLICT');
     if(document.character?.source?.sha256!==meta.definition) return null;
     return withReplacements(meta,document.character.card,lineage,(await archive()).records);
   }
@@ -130,8 +131,8 @@ export function charxImports({store,sources,archive}) {
     return {sourceHash:ref.hash,rows};
   }
   return {
-    confirm(bytes,input) {
-      const result=queue.then(()=>confirm(bytes,input));queue=result.catch(()=>{});return result;
+    confirm(bytes,input,independent=false) {
+      const result=queue.then(()=>confirm(bytes,input,independent));queue=result.catch(()=>{});return result;
     },
     replace(input) {
       const action=queue.then(()=>replaceMedia({store,archive,binding},input));

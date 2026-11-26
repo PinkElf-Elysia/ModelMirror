@@ -23,8 +23,9 @@ import {oncePolicy,onceView,forkOnce,prepareOnceBook} from './once.mjs';
 import {assemble} from './assembly.mjs';
 import {validateDraft,lookup,pin,freezeGrants,resolve} from './bindings.mjs';
 
+import {compareConfigurations,effectiveFamily,freezeMemoryProofs,inheritSwitches,planSwitch,sealed} from './templates.mjs';
 const format='modelmirror.character.book-library/1';
-const sourcesForRuntime=['./positions.mjs','../macros/variables.mjs','../macros/date-choice.mjs','./exclusive.mjs','./probability.mjs','./cooldown.mjs','./keep.mjs','./fallback.mjs','./timing.mjs','./depth.mjs','./once.mjs','../v3/regex.mjs','../v3/selection.mjs','./store.mjs','./bindings.mjs','./assembly.mjs','../context.mjs','../long-context/request.mjs','../long-context/planner.mjs','../revisions/contracts.mjs','../revisions/sources.mjs'];
+const sourcesForRuntime=['./templates.mjs','./positions.mjs','../macros/variables.mjs','../macros/date-choice.mjs','./exclusive.mjs','./probability.mjs','./cooldown.mjs','./keep.mjs','./fallback.mjs','./timing.mjs','./depth.mjs','./once.mjs','../v3/regex.mjs','../v3/selection.mjs','./store.mjs','./bindings.mjs','./assembly.mjs','../context.mjs','../long-context/request.mjs','../long-context/planner.mjs','../revisions/contracts.mjs','../revisions/sources.mjs'];
 const initial=runtime=>({format,runtime,revision:0,books:{},roleDrafts:{},roles:{},profiles:{},families:{},operations:{},publication:null});
 const roleKey=(work,version)=>id('role',work,version);
 const profileKey=p=>id('profile',p.profileId,p.profileRevision);
@@ -66,7 +67,7 @@ export class BookWorkspace {
   serial(fn){const job=this.tail.then(fn);this.tail=job.catch(()=>{});return job;}
   async load(){
     const record=await this.records.get('shelf'),data=record?.data??initial(this.runtime);
-    check(data.format===format&&(data.runtime===this.runtime||this.compatibility&&[this.compatibility.point2,this.compatibility.r5a,this.compatibility.r5bOnce,this.compatibility.r5bDepth,this.compatibility.r5bTiming,this.compatibility.r5bFallback,this.compatibility.r5bKeep,this.compatibility.r5bCooldown,this.compatibility.r5bProbability,this.compatibility.r5bExclusive,this.compatibility.r5cDateChoice,this.compatibility.r5cVariables].includes(data.runtime)),'BOOK_FORMAT');
+    check(data.format===format&&(data.runtime===this.runtime||this.compatibility&&[this.compatibility.r5cPositions,this.compatibility.point2,this.compatibility.r5a,this.compatibility.r5bOnce,this.compatibility.r5bDepth,this.compatibility.r5bTiming,this.compatibility.r5bFallback,this.compatibility.r5bKeep,this.compatibility.r5bCooldown,this.compatibility.r5bProbability,this.compatibility.r5bExclusive,this.compatibility.r5cDateChoice,this.compatibility.r5cVariables].includes(data.runtime)),'BOOK_FORMAT');
     if(!data.publication)return {record,data};
     // Finish the same idempotent local publication before making bindings available.
     const p=data.publication;
@@ -86,6 +87,7 @@ export class BookWorkspace {
   }
   bindRuntime(data,once,regex,depth,timing,fallback,keep,cooldown,probability,exclusive,macros,variables,positions){
     if(positions||!this.compatibility||data.runtime===this.runtime)data.runtime=this.runtime;
+    else if(data.runtime===this.compatibility.r5cPositions)return;
     else if(variables||data.runtime===this.compatibility.r5cVariables)data.runtime=this.compatibility.r5cVariables;
     else if(macros||data.runtime===this.compatibility.r5cDateChoice)data.runtime=this.compatibility.r5cDateChoice;
     else if(exclusive||data.runtime===this.compatibility.r5bExclusive)data.runtime=this.compatibility.r5bExclusive;
@@ -149,10 +151,29 @@ export class BookWorkspace {
     return result;
   }
   async sourceInfo(kind,sourceId){
+    if(kind==='group'&&(await this.sources.workspace?.group?.read(sourceId))?.notes?.length)check(false,'TEMPLATE_NARRATION_UNSUPPORTED');
     const source=signedSource(await this.sources.read(kind,sourceId));
     return this.serial(async()=>{const {data}=await this.load(),player=source.current.members[0].identity;
       return {revision:data.revision,sourceHash:source.sourceHash,members:source.current.members.filter(m=>m.kind==='character'&&active(m)).map(slim),
         recommended:player?.profileId?copy(data.profiles[profileKey(player)]??[]):[]};});
+  }
+  async versionOptions(familyId,branchId,point,memberId){
+    return this.serial(async()=>{
+      const {data}=await this.load(),row=requireRow(data.families,familyId),branch=requireRow(row.f.branches,branchId);
+      const anchor=atPoint(branch,point);
+      const member=anchor.state.members.find(m=>m.kind==='character'&&m.id===memberId&&active(m));
+      if(!member||point&&!visible({...branch,current:anchor.state,messages:anchor.messages},memberId).some(m=>m.id===point))return {versions:[]};
+      const ref=member.binding.reference,w=await this.works.read(ref.workId);
+      return {workId:ref.workId,current:ref.versionId,versions:w.versions.map(v=>({id:v.id,number:v.number}))};
+    });
+  }
+  async compare(workId,from,to){
+    const left=await sealed(this.works,{workId,versionId:from}),right=await sealed(this.works,{workId,versionId:to});
+    check(!(await this.records.get('shelf'))?.data.publication,'TEMPLATE_PUBLICATION_PENDING');
+    const {data}=await this.load(),oldBooks=data.roles[roleKey(workId,from)]??[],newBooks=data.roles[roleKey(workId,to)]??[];
+    const changes=compareConfigurations(left,right);
+    if(digest(oldBooks)!==digest(newBooks))changes.push({section:'独立角色书',key:'版本绑定',before:oldBooks.map(r=>r.bookVersionId).join('、')||'（无）',after:newBooks.map(r=>r.bookVersionId).join('、')||'（无）'});
+    return changes;
   }
   async anchor(familyId,branchId,point){
     return this.serial(async()=>{const {data}=await this.load(),row=requireRow(data.families,familyId),b=requireRow(row.f.branches,branchId);
@@ -183,7 +204,9 @@ export class BookWorkspace {
     }else Object.assign(options,{kind:'send',input:p.input,targetId:p.targetId});
     const track=row.tracks[b.id];
     const macros=p.messageId===null&&(track.macros||track.variables)?macroFrame(row.f,b,p.targetId,track.macros?this.now():null,track.variables?variableView(track.variables,p.targetId):null):null;
-    const result=assemble(row.f,operationId,options,fixtureModel(),defaults(),row.tracks[b.id].tip,data.books,!!row.tracks[b.id].regexPolicy,onceView(row,b.id),!!row.tracks[b.id].depth,!!row.tracks[b.id].timing,!!row.tracks[b.id].fallback,keepView(row,b.id,p.targetId),cooldownView(row,b.id,p.targetId),!!row.tracks[b.id].probability,!!row.tracks[b.id].exclusive,macros,!!track.positions);
+    const family=effectiveFamily(row,b.id,p.targetId);
+    const scopes=track.switches?.findLast(event=>event.memberId===p.targetId)?.scopes;
+    const result=assemble(family,operationId,options,fixtureModel(),defaults(),row.tracks[b.id].tip,data.books,!!row.tracks[b.id].regexPolicy,onceView(row,b.id),!!row.tracks[b.id].depth,!!row.tracks[b.id].timing,!!row.tracks[b.id].fallback,keepView(row,b.id,p.targetId),cooldownView(row,b.id,p.targetId),!!row.tracks[b.id].probability,!!row.tracks[b.id].exclusive,macros,!!track.positions,scopes);
     if(macros)result.macros=macros.snapshot(result);
     if(p.messageId!==null){const mid=b.messages.find(m=>m.id===p.messageId).generation.requestId;result.books={exact:true,originalRequestId:mid,original:copy(row.plans[mid]?.books??null)};if(row.plans[mid]?.macros)result.macros=copy(row.plans[mid].macros);}
     return result;
@@ -195,7 +218,7 @@ export class BookWorkspace {
       const trace=r.plan.trace.find(t=>t.kind==='book');
       const entries=r.books.exact?[]:(trace?.entries??[]).map(t=>{
         const v=t.ref?.bookId?lookup(data.books,t.ref):null;
-        const actorCard=row.f.source.cards[p.targetId].document.character.card;
+        const actorCard=effectiveFamily(row,p.branchId,p.targetId).source.cards[p.targetId].document.character.card;
         const entry=(v?.book??actorCard.data.character_book)?.entries[t.index];
         return {title:v?.title??'卡内角色书',version:v?.number??null,index:t.index,name:entry?.name??'',position:entry?.position??'after_char',...(t.placement?{placement:t.placement}:{}),status:t.status,...(t.exclusive?{exclusive:t.exclusive}:{}),...(t.probability?{probability:t.probability}:{}),...(t.cooldown?{cooldown:t.cooldown}:{}),...(t.keepKey?{keep:true,keepAnchor:t.keepAnchor??null}:{}),...(t.fallback?{fallback:t.fallback}:{}),...(t.timing?{timing:t.timing}:{}),...(t.window?{window:t.window}:{}),...(t.onceKey?{once:true,...(t.messageId?{messageId:t.messageId}:{})}:{}),...(Number.isInteger(t.key)?{key:t.key}:{}),owner:t.owner??'card'};
       });
@@ -259,19 +282,42 @@ export class BookWorkspace {
         this.bindRuntime(data,p.oncePolicy,p.regexPolicy,p.depthPolicy,p.timingPolicy,p.fallbackPolicy,p.keepPolicy,p.cooldownPolicy,p.probabilityPolicy,p.exclusivePolicy,p.macroPolicy,p.variablePolicy,p.positionPolicy);
         result={familyId:f.id,branchId:b.id};
       }else if(action==='fork'){
-        keys(p,['familyId','branchId','point','title','player','session',...(Object.hasOwn(p,'regexPolicy')?['regexPolicy']:[]),...(Object.hasOwn(p,'oncePolicy')?['oncePolicy']:[]),...(Object.hasOwn(p,'depthPolicy')?['depthPolicy']:[]),...(Object.hasOwn(p,'timingPolicy')?['timingPolicy']:[]),...(Object.hasOwn(p,'fallbackPolicy')?['fallbackPolicy']:[]),...(Object.hasOwn(p,'keepPolicy')?['keepPolicy']:[]),...(Object.hasOwn(p,'cooldownPolicy')?['cooldownPolicy']:[]),...(Object.hasOwn(p,'positionPolicy')?['positionPolicy']:[]),...(Object.hasOwn(p,'variablePolicy')?['variablePolicy']:[]),...(Object.hasOwn(p,'macroPolicy')?['macroPolicy']:[]),...(Object.hasOwn(p,'exclusivePolicy')?['exclusivePolicy']:[]),...(Object.hasOwn(p,'probabilityPolicy')?['probabilityPolicy']:[])]);check(p.positionPolicy===undefined||p.positionPolicy===positionPolicy,'BOOK_POLICY');check(p.variablePolicy===undefined||p.variablePolicy===variablePolicy,'BOOK_POLICY');check(p.macroPolicy===undefined||p.macroPolicy===macroPolicy,'BOOK_POLICY');check(p.exclusivePolicy===undefined||p.exclusivePolicy===exclusivePolicy,'BOOK_POLICY');check(p.probabilityPolicy===undefined||p.probabilityPolicy===probabilityPolicy,'BOOK_POLICY');check(p.cooldownPolicy===undefined||p.cooldownPolicy===cooldownPolicy,'BOOK_POLICY');check(p.keepPolicy===undefined||p.keepPolicy===keepPolicy,'BOOK_POLICY');check(p.fallbackPolicy===undefined||p.fallbackPolicy===fallbackPolicy,'BOOK_POLICY');check(p.timingPolicy===undefined||p.timingPolicy===timingPolicy,'BOOK_POLICY');check(p.depthPolicy===undefined||p.depthPolicy===depthPolicy,'BOOK_POLICY');check(p.oncePolicy===undefined||p.oncePolicy===oncePolicy,'BOOK_POLICY');check(p.regexPolicy===undefined||p.regexPolicy==='v3-bounded/1','BOOK_POLICY');const row=requireRow(data.families,p.familyId),f=row.f;
+        keys(p,['familyId','branchId','point','title','player','session',...(Object.hasOwn(p,'template')?['template']:[]),...(Object.hasOwn(p,'regexPolicy')?['regexPolicy']:[]),...(Object.hasOwn(p,'oncePolicy')?['oncePolicy']:[]),...(Object.hasOwn(p,'depthPolicy')?['depthPolicy']:[]),...(Object.hasOwn(p,'timingPolicy')?['timingPolicy']:[]),...(Object.hasOwn(p,'fallbackPolicy')?['fallbackPolicy']:[]),...(Object.hasOwn(p,'keepPolicy')?['keepPolicy']:[]),...(Object.hasOwn(p,'cooldownPolicy')?['cooldownPolicy']:[]),...(Object.hasOwn(p,'positionPolicy')?['positionPolicy']:[]),...(Object.hasOwn(p,'variablePolicy')?['variablePolicy']:[]),...(Object.hasOwn(p,'macroPolicy')?['macroPolicy']:[]),...(Object.hasOwn(p,'exclusivePolicy')?['exclusivePolicy']:[]),...(Object.hasOwn(p,'probabilityPolicy')?['probabilityPolicy']:[])]);check(p.positionPolicy===undefined||p.positionPolicy===positionPolicy,'BOOK_POLICY');check(p.variablePolicy===undefined||p.variablePolicy===variablePolicy,'BOOK_POLICY');check(p.macroPolicy===undefined||p.macroPolicy===macroPolicy,'BOOK_POLICY');check(p.exclusivePolicy===undefined||p.exclusivePolicy===exclusivePolicy,'BOOK_POLICY');check(p.probabilityPolicy===undefined||p.probabilityPolicy===probabilityPolicy,'BOOK_POLICY');check(p.cooldownPolicy===undefined||p.cooldownPolicy===cooldownPolicy,'BOOK_POLICY');check(p.keepPolicy===undefined||p.keepPolicy===keepPolicy,'BOOK_POLICY');check(p.fallbackPolicy===undefined||p.fallbackPolicy===fallbackPolicy,'BOOK_POLICY');check(p.timingPolicy===undefined||p.timingPolicy===timingPolicy,'BOOK_POLICY');check(p.depthPolicy===undefined||p.depthPolicy===depthPolicy,'BOOK_POLICY');check(p.oncePolicy===undefined||p.oncePolicy===oncePolicy,'BOOK_POLICY');check(p.regexPolicy===undefined||p.regexPolicy==='v3-bounded/1','BOOK_POLICY');const row=requireRow(data.families,p.familyId),f=row.f;
+        if(Object.hasOwn(p,'template'))keys(p.template,['memberId','versionId']);
+        if(p.template&&f.source.kind==='group'){
+          check(typeof this.sources.templateGuard==='function','TEMPLATE_ROUND_UNKNOWN');
+          await this.sources.templateGuard(f.source.id);
+        }
         await this.verifySource(row);check(!Object.values(data.families).some(x=>x.f.source.id===f.source.id&&pending(x.f)),'REQUEST_PENDING');
         check(typeof p.title==='string'&&p.title.trim()&&p.title.length<=120,'BOOK_TITLE');
         const parent=requireRow(f.branches,p.branchId),anchor=atPoint(parent,p.point),track=row.tracks[parent.id];
         check(Object.keys(f.branches).length<64&&parent.depth<32,'BRANCH_LIMIT');
         const n=anchor.messages.length, inherited=copy(anchor.tip?track.tip:track.points[n-1]);
-        let grants=inherited;
+        const switches=inheritSwitches(track,n,anchor.tip);
+        let grants=inherited,change=null;
+        if(p.template){
+          const member=anchor.state.members.find(m=>m.kind==='character'&&m.id===p.template.memberId&&active(m));
+          check(member&&(!p.point||visible({...parent,current:anchor.state,messages:anchor.messages},member.id).some(m=>m.id===p.point)),'TEMPLATE_ANCHOR_HIDDEN');
+          const ref=member.binding.reference,next={...ref,versionId:p.template.versionId};
+          const before=await sealed(this.works,ref),after=await sealed(this.works,next);
+          change=planSwitch({member,before,after,versionId:next.versionId,previous:switches.findLast(e=>e.memberId===member.id),operationId:cmd.operationId,position:n});
+          switches.push(change);member.binding=copy(change.binding);
+          if(f.source.kind==='single')anchor.state.scene=after.document.character.card.data.scenario;
+          row.templates??={};row.templates[change.binding.configurationHash]=after;
+          grants=[...grants.filter(g=>g.owner!=='role'||!g.readers.includes(member.id)),
+            ...(data.roles[roleKey(ref.workId,next.versionId)]??[]).map(ref=>({owner:'role',readers:[member.id],ref}))];
+        }
         for(const owner of ['player','session'])if(p[owner]!==null){
           grants=[...grants.filter(b=>b.owner!==owner),...freezeGrants(data.books,p[owner],anchor.state.members,owner,inherited)];
         }
         verifyReaders(data,grants,anchor.state.members);
         const bid=id('book-branch',f.id,cmd.operationId);
         f.branches[bid]={...copy(parent),id:bid,parentId:parent.id,depth:parent.depth+1,title:p.title,current:anchor.state,messages:anchor.messages};
+        if(change||track.switches?.length){
+          const child=f.branches[bid],revisions=new Set(anchor.messages.map(m=>m.revisionId));
+          child.fork={messageId:anchor.messages.at(-1)?.id??null,revisionId:anchor.messages.at(-1)?.revisionId??null,sourcePrefix:digest(anchor.messages.map(m=>[m.id,m.revisionId]))};
+          child.derived=child.derived.filter(d=>(d.availableAfter??0)<=n&&(d.availableRevision??0)<=(anchor.state.sourceRevision??0)&&(!d.dependencies||d.dependencies.every(v=>revisions.has(v))));
+        }
         const inherits=track.regexPolicy&&(anchor.tip||n>track.enabledAfter);
         const engine=inherits?{regexPolicy:track.regexPolicy,enabledAfter:track.enabledAfter}:p.regexPolicy?{regexPolicy:p.regexPolicy,enabledAfter:n}:{};
         const once=forkOnce(track.once,n,anchor.tip,p.oncePolicy);
@@ -286,7 +332,14 @@ export class BookWorkspace {
         const exclusive=track.exclusive&&(anchor.tip||n>track.exclusive.enabledAfter)?copy(track.exclusive):p.exclusivePolicy?{enabledAfter:n}:null;
         const probability=track.probability&&(anchor.tip||n>track.probability.enabledAfter)?copy(track.probability):p.probabilityPolicy?{enabledAfter:n}:null;
         this.bindRuntime(data,once,engine.regexPolicy,depth,timing,fallback,keep,cooldown,probability,exclusive,macros,variables,positions);
-        row.tracks[bid]={...(positions?{positions}:{}),...engine,...(variables?{variables}:{}),...(macros?{macros}:{}),...(exclusive?{exclusive}:{}),...(probability?{probability}:{}),...(cooldown?{cooldown}:{}),...(keep?{keep}:{}),...(fallback?{fallback}:{}),...(timing?{timing}:{}),...(depth?{depth}:{}),...(once?{once}:{}),tip:grants,points:copy(track.points.slice(0,n))};result={familyId:f.id,branchId:bid};
+        let memoryProofs;
+        if(change||track.memoryProofs){
+          const child=f.branches[bid],remaining=new Set(child.derived.map(note=>note.id));
+          memoryProofs=Object.fromEntries(Object.entries(track.memoryProofs??{}).filter(([key])=>remaining.has(key)));
+          Object.assign(memoryProofs,freezeMemoryProofs(child));
+        }
+        if(switches.length)data.runtime=this.runtime;
+        row.tracks[bid]={...(memoryProofs?{memoryProofs}:{}),...(switches.length?{switches}:{}),...(positions?{positions}:{}),...engine,...(variables?{variables}:{}),...(macros?{macros}:{}),...(exclusive?{exclusive}:{}),...(probability?{probability}:{}),...(cooldown?{cooldown}:{}),...(keep?{keep}:{}),...(fallback?{fallback}:{}),...(timing?{timing}:{}),...(depth?{depth}:{}),...(once?{once}:{}),tip:grants,points:copy(track.points.slice(0,n))};result={familyId:f.id,branchId:bid,...(change?{template:change.report}:{})};
       }else if(action==='set-variable'){
         keys(p,['familyId','branchId','scope','memberId','key','value']);
         const row=requireRow(data.families,p.familyId),b=requireRow(row.f.branches,p.branchId);
@@ -311,7 +364,7 @@ export class BookWorkspace {
       }else check(false,'BOOK_ACTION');
       if(dryRun){
         const row=data.families[result.familyId],b=row.f.branches[result.branchId];
-        return {result:{revision:data.revision,actors:actorList(b).map(m=>({...slim(m),books:resolve(data.books,row.tracks[b.id].tip,m.id).map(v=>({title:v.version.title,number:v.version.number,owner:v.owner,sources:v.sources}))}))}};
+        return {result:{revision:data.revision,...(result.template?{template:result.template}:{}),actors:actorList(b).map(m=>({...slim(m),books:resolve(data.books,row.tracks[b.id].tip,m.id).map(v=>({title:v.version.title,number:v.version.number,owner:v.owner,sources:v.sources}))}))}};
       }
       data.operations[key]={hash,result};await this.put(s);return {result};
     });

@@ -13,24 +13,25 @@ import {prepare} from '../long-context/request.mjs';
 import {copy,check,digest,visible,boundary} from '../revisions/contracts.mjs';
 import {resolve,scopeRank,pin} from './bindings.mjs';
 
-function project(card, books, history, input, player, clock, once, actor, cardRef, depth, count, fallback, keep, cooldown, turn, exclusive, sections) {
+function project(card, books, history, input, player, clock, once, actor, cardRef, depth, count, fallback, keep, cooldown, turn, exclusive, sections, scopes) {
   const records=[], candidates=[];
   for(const source of books) {
+    const cardKeys=source.owner==='card'?scopes:null;
     const v3=source.owner!=='card'||card.spec==='chara_card_v3';
     const resolved=fallback&&v3?prepareFallbackBook(source.book,{depth,once:!!once,timing:count!==null,keep:!!keep,positions:!!sections}):null;
     const baseBook=resolved?.book??source.book;
     const positioned=sections&&v3?positionBook(baseBook,sections):null;
     const selectedBook=positioned?.book??baseBook;
-    const persistent=v3&&keep?prepareKeepBook(selectedBook,source.owner==='card'?cardRef:source.ref,actor,keep):null;
+    const persistent=v3&&keep?prepareKeepBook(selectedBook,source.owner==='card'?cardRef:source.ref,actor,keep,cardKeys):null;
     const definitionBook=persistent?.book??selectedBook;
     const timed=v3&&count!==null?prepareTimedBook(definitionBook,count):null;
     const timedBook=timed?.book??definitionBook;
     const scoped=depth&&v3?parseDepthBook(timedBook):null;
     const definition=scoped?.book??timedBook;
     const eligible=once&&v3;
-    const prepared=eligible?prepareOnceBook(definition,source.owner==='card'?cardRef:source.ref,actor,once):null;
+    const prepared=eligible?prepareOnceBook(definition,source.owner==='card'?cardRef:source.ref,actor,once,cardKeys):null;
     const matchedBook=prepared?.book??definition;
-    const gated=v3&&cooldown?prepareCooldownBook(matchedBook,source.owner==='card'?cardRef:source.ref,actor,cooldown):null;
+    const gated=v3&&cooldown?prepareCooldownBook(matchedBook,source.owner==='card'?cardRef:source.ref,actor,cooldown,cardKeys):null;
     const book=gated?.book??matchedBook;
     const trial={...card,data:{...card.data,character_book:book}};
     const opts={budget:Infinity,player};
@@ -79,8 +80,8 @@ function historyWindow(messages, group, playerId, pinOpening) {
   return units;
 }
 
-export function assemble(family, operationId, intent, model, settings=defaults(), bindings=[], library={}, rules=false, once=null, depth=false, timing=false, fallback=false, keep=null, cooldown=null, probability=false, exclusive=false, macros=null, positions=false) {
-  if(rules===true)return withMeter(clock=>assemble(family,operationId,intent,model,settings,bindings,library,clock,once,depth,timing,fallback,keep,cooldown,probability,exclusive,macros,positions));
+export function assemble(family, operationId, intent, model, settings=defaults(), bindings=[], library={}, rules=false, once=null, depth=false, timing=false, fallback=false, keep=null, cooldown=null, probability=false, exclusive=false, macros=null, positions=false, scopes=null) {
+  if(rules===true)return withMeter(clock=>assemble(family,operationId,intent,model,settings,bindings,library,clock,once,depth,timing,fallback,keep,cooldown,probability,exclusive,macros,positions,scopes));
   if(macros){
     const actor=intent.targetId,config=family.source.cards[actor],doc=config.document;
     const card=macros.card(doc.character.card);
@@ -109,7 +110,7 @@ export function assemble(family, operationId, intent, model, settings=defaults()
   const sections=positions?{personality:card.data.personality,scenario:source.kind==='group'?b.current.scene:card.data.scenario}:null;
   let history=shown,policy={...settings};
   for(let pass=0;pass<=shown.length+1;pass++) {
-    const projection=project(card,activeBooks,history,request.inputMessage?.content??'',player.name,rules,once,actor,cardRef,depth,count,fallback,keep,cooldown,turn,exclusive,sections);
+    const projection=project(card,activeBooks,history,request.inputMessage?.content??'',player.name,rules,once,actor,cardRef,depth,count,fallback,keep,cooldown,turn,exclusive,sections,scopes);
     const data={...card.data,character_book:projection.book};
     const document={...config.document,character:{...config.document.character,card:{...card,data}}};
     const adapted={...source,cards:{...source.cards,[actor]:{...config,document}}};

@@ -33,12 +33,12 @@ export function onceView(row,branchId){
   return entries;
 }
 
-export function prepareOnceBook(book,scope,actor,state){
+export function prepareOnceBook(book,scope,actor,state,scopes=null){
   const rules=new Map();
   const entries=book.entries.map((entry,index)=>{
     const body=onceBody(entry.content);
     if(body===null)return entry;
-    const key=id('once',actor,scope,index),previous=state.get(key);
+    const key=id('once',actor,scopes?.[index]?.reference??scope,scopes?.[index]?.index??index),previous=state.get(key);
     rules.set(index,{key,previous});
     return {...entry,content:body,enabled:entry.enabled&&!previous};
   });
