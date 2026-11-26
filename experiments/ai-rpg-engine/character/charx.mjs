@@ -2,6 +2,7 @@ import {parseJson,sha256} from '../authoring/contracts.mjs';
 import {CARD_LIMITS,validateCard} from './card.mjs';
 import {fail as problem} from '../authoring/contracts.mjs';
 import {readCharxArchive,safeArchivePath} from './charx-archive.mjs';
+import {inspectMedia} from './charx-media.mjs';
 import {inspectImage} from './charx-images.mjs';
 
 export const isZip = bytes => bytes[0]===0x50 && bytes[1]===0x4b;
@@ -43,9 +44,26 @@ export async function openCharx(bytes) {
     if(!references.has(path)) references.set(path,[]);
     references.get(path).push({...use,ext:a.ext});
   }
+  let mediaPresent=false;
   for(const [path,data] of files) {
     if(path==='card.json') continue;
     const uses=references.get(path)??[], ext=fileExtension(path);
+    const media=inspectMedia(data,ext);
+    if(media) {
+      mediaPresent=true;
+      const issues=[];
+      if(!media.verified) issues.push(media.diagnostic);
+      if(!uses.length) issues.push('未引用的文件');
+      if(media.format!==ext) issues.push('文件后缀与媒体容器不符');
+      if(uses.some(use=>use.ext!==ext || use.ext!==media.format)) issues.push('声明格式与文件不符');
+      if(uses.some(use=>use.main)) issues.push('主肖像需要静态图片');
+      diagnostics.push(...issues.map(issue=>path+'：'+issue));
+      const status=[media.label,media.verified?'已识别容器':'未核验',...issues,
+        uses.length>1?'共 '+uses.length+' 处引用':''].filter(Boolean).join(' · ');
+      members.push({path,size:data.length,status,uses,media});
+      references.delete(path);
+      continue;
+    }
     let shape=null;
     try {shape=inspectImage(data,ext);} catch {problem('CHARACTER_CHARX_INVALID',path,{diagnostic:'图片结构、校验或像素尺寸无效'});}
     let status='静态图片';
@@ -61,6 +79,6 @@ export async function openCharx(bytes) {
     members.push({path,size:null,status,uses});diagnostics.push(path+'：'+status);
   }
   const report={source:{container:'charx',sha256:sha256(bytes),size:bytes.length},name:card.data.name,
-    classification:diagnostics.length?'original-only':'images',members,diagnostics};
+    classification:diagnostics.length?'original-only':mediaPresent?'media':'images',members,diagnostics};
   return {report,files,card};
 }

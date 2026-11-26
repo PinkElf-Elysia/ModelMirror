@@ -32,12 +32,21 @@ function coverPath(files,digest,ext) {
 export async function exportCharxVersion({store,archive,binding},workId,versionId) {
   if(typeof versionId!=='string'||!/^version-[a-f0-9]{64}$/.test(versionId)) reject('请先选择一个已封存的角色版本。');
   const snapshot=await store.exportConfiguration(workId,versionId);
+  const work=await store.read(workId);
+  const revision=work.versions.find(v=>v.id===versionId)?.sourceRevision;
+  if(!Number.isSafeInteger(revision)) reject('找不到此作品的版本。');
+  const ref=await binding(work,snapshot.document,revision);
+  return buildCharx({store,archive},workId,versionId,snapshot,ref);
+}
+
+export async function buildCharx({store,archive},workId,versionId,snapshot,ref,
+  readLocal=async hash=>(await archive()).get(hash)) {
   const character=snapshot.document.character;
   if(snapshot.document.kind!=='character'||character?.card.spec!=='chara_card_v3'||character.card.spec_version!=='3.0') reject('只有 V3.0 角色版本可以导出 CHARX。');
   const card=structuredClone(character.card);
   const declarations=card.data.assets??[];
-  const ref=await binding(await store.read(workId));
-  const indexed=new Map((ref && ref.definition===character.source?.sha256?ref.images:[]).map(image=>[image.path,image]));
+  const entries=ref && ref.definition===character.source?.sha256?[...ref.images,...(ref.media??[])]:[];
+  const indexed=new Map(entries.map(entry=>[entry.path,entry]));
   const native=new Map(snapshot.assets.map(asset=>[asset.alias,asset]));
   const files=new Map();
   let total=0;
@@ -49,13 +58,13 @@ export async function exportCharxVersion({store,archive,binding},workId,versionI
   for(const asset of declarations) {
     const path=localPath(asset);
     if(path===null||files.has(path)) continue;
-    const image=indexed.get(path);
-    if(!safeArchivePath(path)||!image) reject('此版本缺少已核验的包内图片。',path);
-    const descriptor=image.alias?native.get(image.alias):image;
-    if(!descriptor) reject('此版本缺少已封存的图片。',path);
-    if(total+descriptor.size>charxLimits.total) reject('导出图片总量超限。',path);
-    const bytes=image.alias?(await store.getAsset(workId,image.alias,versionId)).bytes:await (await archive()).get(image.sha256);
-    if(bytes.length!==descriptor.size||sha256(bytes)!==descriptor.sha256) reject('图片内容与版本记录不一致。',path);
+    const entry=indexed.get(path);
+    if(!safeArchivePath(path)||!entry) reject('此版本缺少已核验的包内资源。',path);
+    const descriptor=entry.alias?native.get(entry.alias):entry;
+    if(!descriptor) reject('此版本缺少已封存的资源。',path);
+    if(total+descriptor.size>charxLimits.total) reject('导出资源总量超限。',path);
+    const bytes=entry.alias?(await store.getAsset(workId,entry.alias,versionId)).bytes:await readLocal(entry.sha256);
+    if(bytes.length!==descriptor.size||sha256(bytes)!==descriptor.sha256) reject('资源内容与版本记录不一致。',path);
     setFile(path,bytes);
   }
 
@@ -86,6 +95,6 @@ export async function exportCharxVersion({store,archive,binding},workId,versionI
   const bytes=Buffer.from(zipSync(members,{level:6,mtime:new Date(2000,0,1)}));
   if(bytes.length>charxLimits.archive) reject('生成的压缩包超过 32 MiB。');
   const report=await inspectCharx(bytes);
-  if(report.classification!=='images') reject(report.diagnostics[0]||'生成的包未通过图片包检查。');
+  if(!['images','media'].includes(report.classification)) reject(report.diagnostics[0]||'生成的角色包未通过检查。');
   return bytes;
 }

@@ -373,3 +373,6 @@ body[data-screen=chat] main.character-workspace{display:flex;width:100%}
 .book-fields .check{align-self:center}
 #book-result p,.knowledge-entry h3{overflow-wrap:anywhere}
 #book-result pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+
+#charx-bound-list li:has([data-replace-media]){flex-wrap:wrap}
+#charx-bound-list [data-replace-media]{margin-inline-start:auto}
