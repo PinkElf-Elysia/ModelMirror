@@ -33,11 +33,12 @@ export async function mountCharacterStudio({window,document,fetch,EventSource}){
  const confirm=window.confirm.bind(window),atob=window.atob.bind(window),btoa=window.btoa.bind(window);
 const $=s=>document.querySelector(s),api='/rpg-app/api/authoring',cp='/characters';
 let work=null,doc=null,version=null,dirty=false,session=null,stream=null,importing=null,catalog=null,busy=false;
+let packageView=null;
 let groupsUrl=null;let selectedPlayer=()=>({id:null,name:$('#player-name').value||'玩家'});
 let screen='library',activeSection='basics',worksList=[];
 const sectionNames={basics:'基础与肖像',definition:'人物设定',openings:'开场与示例',book:'角色知识',prompts:'高级设置',metadata:'作者与分享'};
 const uid=()=>crypto.randomUUID();
-const error=e=>{const messages={CHARACTER_PREVIEW_HISTORY_INVALID:'模拟历史最多 200 条，每条最多 16000 个字符。',CHARACTER_CHARX_UNSUPPORTED:'暂不支持 CHARX / ZIP，请选择 JSON 或 PNG 角色卡。',CHARACTER_FIELD_TYPE:'角色字段类型不正确，请检查标出的字段。',CHARACTER_PNG_CRC:'PNG 数据损坏（校验和不匹配）。',CHARACTER_FILE_SIZE:'文件超过角色卡大小上限。',CHARACTER_METADATA_MISSING:'此 PNG 没有角色卡数据，可使用“上传肖像”。',CHARACTER_METADATA_SELECTION_REQUIRED:'角色数据需要明确选择版本。',CHARACTER_REVISION_CONFLICT:'另一页面已更新此作品或会话。当前输入保留，请刷新核对。',AUTHORING_REVISION_CONFLICT:'作品修订发生冲突，当前输入保留。请先导出或复制未保存内容，再刷新。',CHARACTER_OPERATION_PENDING:'原请求结果尚未确认，请先核对原请求。',CHARACTER_MODEL_REQUIRED:'请先在会话设置中选择模型。',CHARACTER_CONTEXT_CAPACITY:'当前上下文超出容量。请减少历史回合或精简角色内容。'};$('#error').hidden=false;$('#error').textContent=(messages[e.code]||e.message||e.code||'操作失败')+(e.path?'\n字段：'+e.path:'');if(screen==='edit'&&e.path?.includes('character_book')){selectSection('book',false);bookPanel.locate(e.path);}};
+const error=e=>{const messages={CHARACTER_PREVIEW_HISTORY_INVALID:'模拟历史最多 200 条，每条最多 16000 个字符。',CHARACTER_CHARX_UNSUPPORTED:'请先检查 CHARX 资源清单，再确认导入。',CHARACTER_FIELD_TYPE:'角色字段类型不正确，请检查标出的字段。',CHARACTER_PNG_CRC:'PNG 数据损坏（校验和不匹配）。',CHARACTER_FILE_SIZE:'文件超过角色卡大小上限。',CHARACTER_METADATA_MISSING:'此 PNG 没有角色卡数据，可使用“上传肖像”。',CHARACTER_METADATA_SELECTION_REQUIRED:'角色数据需要明确选择版本。',CHARACTER_REVISION_CONFLICT:'另一页面已更新此作品或会话。当前输入保留，请刷新核对。',AUTHORING_REVISION_CONFLICT:'作品修订发生冲突，当前输入保留。请先导出或复制未保存内容，再刷新。',CHARACTER_OPERATION_PENDING:'原请求结果尚未确认，请先核对原请求。',CHARACTER_MODEL_REQUIRED:'请先在会话设置中选择模型。',CHARACTER_CONTEXT_CAPACITY:'当前上下文超出容量。请减少历史回合或精简角色内容。'};$('#error').hidden=false;$('#error').textContent=(messages[e.code]||e.message||e.code||'操作失败')+(e.path?'\n字段：'+e.path:'');if(screen==='edit'&&e.path?.includes('character_book')){selectSection('book',false);bookPanel.locate(e.path);}};
 const notice=text=>{$('#notice').textContent=text;};
 async function request(path,body){const r=await fetch(api+path,{method:body===undefined?'GET':'POST',headers:body===undefined?{}:{'Content-Type':'application/json','x-authoring-request':'1'},...(body===undefined?{}:{body:JSON.stringify(body)})});const v=await r.json();if(!r.ok)throw Object.assign(new Error(v.error?.message||v.message||v.error?.code||v.error||v.code||'请求失败'),v,v.error&&typeof v.error==='object'?v.error:{},{code:v.code||v.error?.code||v.error});return v;}
 async function run(fn){if(busy)return;busy=true;readonly();$('#error').hidden=true;document.querySelectorAll('.top-actions button').forEach(b=>b.disabled=true);try{await fn();}catch(e){error(e);}finally{busy=false;document.querySelectorAll('.top-actions button').forEach(b=>b.disabled=false);readonly();}}
@@ -45,6 +46,9 @@ function text(tag,value){const n=document.createElement(tag);n.textContent=value
 function readonly(){
  const groupLink=$('#create-group');groupLink.hidden=!groupsUrl||!version||!work;if(!groupLink.hidden){const target=new URL(groupsUrl);target.searchParams.set('create','1');target.searchParams.set('work',work.id);target.searchParams.set('version',version);groupLink.href=target.href;}
  const locked=!!version;
+ const canExport=locked&&doc?.character?.card.spec==='chara_card_v3';
+ $('#export-charx-nav').hidden=!canExport;$('#charx-version-downloads').hidden=!canExport;
+ $('#export-charx-nav').disabled=busy||!canExport;$('#export-charx-preview').disabled=busy||!canExport;
  document.querySelectorAll('[data-v3-write]').forEach(e=>e.disabled=locked||busy);
  $('#upgrade-v3').disabled=locked||busy;
  document.querySelectorAll('#editor-form input,#editor-form textarea').forEach(e=>e.readOnly=locked||busy);
@@ -94,7 +98,7 @@ function renderLibrary(){
   const actions=text('div','');actions.className='character-card-actions';const edit=text('button','继续编辑');edit.onclick=()=>run(()=>openWork(w.id));actions.append(edit);
   if(w.versions){const read=text('button','预览与对话');read.onclick=()=>run(async()=>{const entry=await request('/works/'+w.id);await openWork(w.id,entry.versions.at(-1).id);});actions.append(read);}
   body.append(badge,name,description,actions);card.append(portrait,body);grid.append(card);
-  description.textContent=w.description||'人物故事，等你继续书写。';if(w.cover){const img=document.createElement('img');img.alt='';img.loading='lazy';img.src=api+'/works/'+w.id+'/assets/'+encodeURIComponent(w.cover);img.onerror=()=>{img.remove();portrait.textContent=Array.from(w.name||'角')[0];};portrait.replaceChildren(img);}
+  description.textContent=w.description||'人物故事，等你继续书写。';if(w.cover||w.charxCover){const img=document.createElement('img');img.alt='';img.loading='lazy';img.src=w.cover?api+'/works/'+w.id+'/assets/'+encodeURIComponent(w.cover)+(w.coverHash?'?hash='+w.coverHash:''):packageImage(w.id,null,w.charxCover);img.onerror=()=>{img.remove();portrait.textContent=Array.from(w.name||'角')[0];};portrait.replaceChildren(img);}
  }
 }
 const examples=exampleDialog({dialog:$('#samples'),confirm,read:()=>doc.character.card.data.mes_example,write:value=>{doc.character.card.data.mes_example=value;$('[data-field="mes_example"]').value=value;changed();}});
@@ -113,7 +117,23 @@ function key(){return 'rpg-character-draft:'+location.origin+':'+(work?.id||'new
 function changed(){bookPanel.invalidate();dirty=true;$('#save-state').textContent='未保存';profile();try{localStorage.setItem(key(),JSON.stringify({revision:work?.revision??null,document:doc,book:$('#book-json').value,tags:$('#tags-json').value}));}catch{notice('浏览器草稿备份不可用，请及时保存到本地作品库。');}}
 function collect(){bookPanel.checkFields();const next=structuredClone(doc);let tags;try{tags=JSON.parse($('#tags-json').value||'[]');if(!Array.isArray(tags)||tags.some(t=>typeof t!=='string'))throw Error();}catch{throw Object.assign(new Error('标签格式不正确，请检查“作者与标签”中的高级数据。'),{path:'tags'});}next.character.card.data.tags=tags;const book=$('#book-json').value.trim();if(book)next.character.card.data.character_book=readBook(book);else delete next.character.card.data.character_book;next.metadata.name=next.character.card.data.name.slice(0,120);return next;}
 function setUrl(){const url=new URL(location.href);url.search='';url.hash='';if(screen!=='library'){if(work)url.searchParams.set('work',work.id);if(version)url.searchParams.set('version',version);if(session&&screen==='chat')url.searchParams.set('session',session.id);if(screen==='preview')url.searchParams.set('view','preview');if(screen==='edit')url.searchParams.set('section',activeSection);}history.replaceState(null,'',url);}
-async function refreshWorks(){const listed=await request(cp+'/works');worksList=await Promise.all(listed.map(async w=>{try{const entry=await request('/works/'+w.id),d=entry.draft.character.card.data;return {...w,tags:d.tags,description:d.description,cover:entry.draft.settings.media.cover};}catch{return {...w,description:'详情暂时未能读取，仍可打开角色。'};}}));$('#works').replaceChildren(new Option('选择角色',''),...worksList.map(w=>new Option(w.name||'未命名角色',w.id)));$('#works').value=work?.id||'';renderLibrary();}
+async function refreshWorks(){const listed=await request(cp+'/works');worksList=await Promise.all(listed.map(async w=>{try{const entry=await request('/works/'+w.id),d=entry.draft.character.card.data;return {...w,tags:d.tags,description:d.description,cover:entry.draft.settings.media.cover,coverHash:entry.assets?.find(a=>a.alias===entry.draft.settings.media.cover)?.sha256};}catch{return {...w,description:'详情暂时未能读取，仍可打开角色。'};}}));$('#works').replaceChildren(new Option('选择角色',''),...worksList.map(w=>new Option(w.name||'未命名角色',w.id)));$('#works').value=work?.id||'';renderLibrary();}
+function packageImage(id,v,path,hash){
+ const params=new URLSearchParams({work:id,path});if(hash)params.set('hash',hash);if(v)params.set('version',v);
+ return api+cp+'/charx/image?'+params;
+}
+function renderPackage(){
+ const info=work&&packageView;
+ $('#charx-bound').hidden=!info;$('#charx-export-note').hidden=!info;
+ $('#charx-bound-list').replaceChildren(...(info?.rows??[]).map(row=>{
+  const li=document.createElement('li');
+  if(row.status==='图片'){
+   const img=document.createElement('img');img.loading='lazy';img.width=64;img.height=48;img.alt=row.name;img.src=packageImage(work.id,version,row.path,row.sha256);li.append(img);
+  }
+  li.append(text('span',[row.main?'主肖像':row.type,row.name,row.path,row.status,row.size?row.size+' B':''].filter(Boolean).join(' · ')));return li;
+ }));
+ return info?.rows.find(row=>row.main&&row.status==='图片'&&!row.alias);
+}
 function render(){
  bookPanel.reset();
  $('#upgrade-v3').hidden=doc.character.card.spec==='chara_card_v3';metadataPanel($('#v3-fields'),doc.character.card,changed,!!version);
@@ -125,12 +145,18 @@ function render(){
  $('#versions').replaceChildren(new Option('当前草稿',''),...(work?.versions||[]).map(v=>new Option('可用版本 '+v.number,v.id)));$('#versions').value=version||'';
  $('#greeting-index').replaceChildren(...[d.first_mes,...d.alternate_greetings].map((v,i)=>new Option((i?'候选 '+i:'主开场')+' · '+v.slice(0,25),String(i))));
  $('#version-note').textContent=version?'对话使用这个版本，后续编辑不会改变已有对话。':'保存草稿，再创建可用版本，即可开始对话。';
- const alias=doc.settings.media.cover;$('#portrait').hidden=!alias;if(alias&&work)$('#portrait').src=api+'/works/'+work.id+'/assets/'+alias+(version?'?version='+version:'');
+ const large=renderPackage(),alias=doc.settings.media.cover;
+ const draftHash=!version&&work?.assets?.find(a=>a.alias===alias)?.sha256;
+ $('#portrait').hidden=!alias&&!large;
+ if(!alias&&large)$('#portrait').src=packageImage(work.id,version,large.path,large.sha256);
+ if(alias&&work)$('#portrait').src=api+'/works/'+work.id+'/assets/'+alias+(version?'?version='+version:draftHash?'?hash='+draftHash:'');
  $('#original').hidden=!doc.character.source||!work;if(doc.character.source&&work)$('#original').href=api+cp+'/source?work='+work.id+(version?'&version='+version:'');
+ $('#preview-original').hidden=$('#original').hidden;if(!$('#original').hidden)$('#preview-original').href=$('#original').href;
  profile();renderBook();readonly();selectSection(activeSection,false);
 }
 function restoreDraft(revision){try{const draft=JSON.parse(localStorage.getItem(key())||'null');if(draft?.revision===revision){doc=draft.document;render();$('#book-json').value=draft.book;$('#tags-json').value=draft.tags;try{$('#tag-input').value=JSON.parse(draft.tags).join('，');}catch{}renderBook();dirty=true;$('#save-state').textContent='未保存';notice('已恢复此修订对应的浏览器未保存草稿。');}else if(draft)notice('发现不同修订的浏览器草稿，已保留备份，未覆盖作品。');}catch{}}
-async function load(id,v=null){const w=await request('/works/'+id);if(w.draft.kind!=='character')throw new Error('此作品是世界卡，请从世界卡工作台打开。');work=w;version=v;doc=v?(await request('/works/'+id+'/published?version='+v)).draft:structuredClone(w.draft);dirty=false;render();
+async function load(id,v=null){const w=await request('/works/'+id);if(w.draft.kind!=='character')throw new Error('此作品是世界卡，请从世界卡工作台打开。');packageView=['copy','import'].includes(w.origin?.kind)?await request(cp+'/charx/resources?work='+id+(v?'&version='+v:'')):null;
+ work=w;version=v;doc=v?(await request('/works/'+id+'/published?version='+v)).draft:structuredClone(w.draft);dirty=false;render();
  if(!v)restoreDraft(w.revision);
  $('#works').value=id;setUrl();await preview();
 }
@@ -146,7 +172,36 @@ async function preview(){if(!doc)return;const value=await request(cp+'/preview',
 }
 function download(base64,type,name){const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0)),url=URL.createObjectURL(new Blob([bytes],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 async function asBase64(file){const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=16384)binary+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(binary);}
-async function inspect(){try{const result=await request(cp+'/imports/inspect',{base64:importing.base64,selection:importing.selection});importing.inspection=result;$('#import-report').textContent=[result.card.data.name,`角色卡格式：${result.report.version}`,result.report.warnings.length?'需要留意：':'常用角色字段可以读取。',...result.report.warnings.map(w=>'• '+w.message)].join('\n');$('#confirm-import').disabled=false;$('#fallback').hidden=true;}catch(e){$('#import-report').textContent=JSON.stringify(e.details||{error:e.code},null,2);$('#confirm-import').disabled=true;$('#fallback').hidden=e.code!=='CHARACTER_METADATA_SELECTION_REQUIRED';}}
+function originalLink(hash,label){
+ const a=document.createElement('a');a.href=api+cp+'/charx/original?hash='+encodeURIComponent(hash);a.download='original-character.charx';a.textContent=label;return a;
+}
+$('#charx-shelf').ontoggle=async()=>{
+ if(!$('#charx-shelf').open)return;
+ const list=$('#charx-originals');
+ try {
+  const rows=await request(cp+'/charx/originals');
+  list.replaceChildren(...rows.map(row=>{const li=document.createElement('li');li.append(originalLink(row.hash,(row.name||'未命名角色')+' · 下载原包'));return li;}));
+  if(!rows.length)list.textContent='还没有保留的原包。';
+ }catch{list.textContent='无法读取原包列表。请重新打开重试。';}
+};
+function showPackage(result){
+ const mixed=result.classification==='original-only';
+ $('#import-report').textContent=[result.name||'未命名角色',mixed?'仅可保留原包':'图片包检查通过',mixed?'以下项目需要保留在原包中。':'确认后可编辑角色并创建可用版本。',...result.diagnostics].join('\n');
+ $('#charx-members').replaceChildren(...result.members.map(member=>{
+  const li=document.createElement('li'), label=document.createElement('strong'), info=document.createElement('span');
+  label.textContent=member.path;
+  info.textContent=[member.status,member.size===null?'':member.size+' B',member.width?member.width+' × '+member.height:'',
+    ...member.uses.map(use=>(use.main?'主肖像 · ':'')+use.type+' / '+use.name)].filter(Boolean).join(' · ');
+  li.append(label,info);return li;
+ }));
+ $('#charx-resources').hidden=false;$('#keep-charx').hidden=false;$('#keep-charx').disabled=false;
+ $('#confirm-import').textContent='确认导入角色';$('#confirm-import').hidden=mixed;$('#confirm-import').disabled=mixed;$('#import-origin-label').hidden=mixed;
+}
+async function inspect(){
+ $('#import-report').textContent='正在检查文件…';$('#charx-resources').hidden=true;$('#charx-members').replaceChildren();
+ $('#charx-feedback').replaceChildren();$('#keep-charx').hidden=true;$('#confirm-import').hidden=false;
+ $('#confirm-import').textContent='确认导入为新角色';$('#confirm-import').disabled=true;$('#import-origin-label').hidden=false;$('#fallback').hidden=true;
+ try{const result=await request(cp+'/imports/inspect',{base64:importing.base64,selection:importing.selection,...(/\.charx$/i.test(importing.fileName)?{formatHint:'charx'}:{})});importing.inspection=result;if(result.source.container==='charx'){showPackage(result);return;}$('#import-report').textContent=[result.card.data.name,`角色卡格式：${result.report.version}`,result.report.warnings.length?'需要留意：':'常用角色字段可以读取。',...result.report.warnings.map(w=>'• '+w.message)].join('\n');$('#confirm-import').disabled=false;$('#fallback').hidden=true;}catch(e){$('#import-report').textContent=e.code==='CHARACTER_CHARX_INVALID'?[e.details?.diagnostic||'无法读取 CHARX 文件',e.path].filter(Boolean).join(' · '):JSON.stringify(e.details||{error:e.code},null,2);$('#confirm-import').disabled=true;$('#fallback').hidden=e.code!=='CHARACTER_METADATA_SELECTION_REQUIRED';}}
 function showChat(value=true){setScreen(value?'chat':'edit');}
 function displaySession(){if(!session)return;const activeMessage=document.activeElement?.id?.startsWith('single-message-')?document.activeElement.id:null;const box=$('#messages'),follow=box.scrollHeight-box.scrollTop-box.clientHeight<80;$('#messages').replaceChildren(...session.messages.map(m=>{const p=text('div','');p.className='message '+m.role;p.id='single-message-'+session.messages.indexOf(m);p.append(text('strong',m.role==='assistant'?doc?.character.card.data.name||'角色':session.binding.player.name));renderRich(document,p,m);return p;}));
  const latest=Object.values(session.operations).at(-1);if(latest&&['prepared','dispatching','unknown','failed'].includes(latest.state)){const p=text('div','');p.className='message user';p.append(text('strong',latest.state==='failed'?'上次未完成的输入':'待确认的输入'),text('span',latest.input));$('#messages').append(p);}
@@ -157,7 +212,14 @@ function displaySession(){if(!session)return;const activeMessage=document.active
  if(follow)box.scrollTop=box.scrollHeight;$('#memory-list').replaceChildren(...session.memories.filter(m=>!m.deleted).map(m=>text('p',m.value.name+'：'+m.value.content)));setUrl();if(activeMessage){const hit=document.getElementById(activeMessage);if(hit){hit.tabIndex=-1;hit.focus({preventScroll:true});}}
 }
 async function reloadSession(){if(session){session=await request(cp+'/sessions/'+session.id);displaySession();}}
-async function attachSession(s){notice('');stream?.close();session=s;showChat();displaySession();
+async function attachSession(s){
+ const avatar=$('#charx-chat-portrait'),ref=s.binding.reference;
+ avatar.hidden=true;avatar.removeAttribute('src');
+ if(packageView&&work?.id===ref.workId&&version===ref.versionId){
+  const alias=doc.settings.media.cover,main=packageView.rows.find(row=>row.main&&row.status==='图片'&&!row.alias);
+  if(alias||main){avatar.onerror=()=>{avatar.hidden=true;};avatar.src=alias?api+'/works/'+ref.workId+'/assets/'+encodeURIComponent(alias)+'?version='+ref.versionId:packageImage(ref.workId,ref.versionId,main.path);avatar.hidden=false;}
+ }
+ notice('');stream?.close();session=s;showChat();displaySession();
  const status=await request(cp+'/status');$('#mode-note').textContent=status.mode==='offline-fixture'?'演示对话 · 使用固定示例回复，不调用模型。':'回复完成后显示，发送会使用已授权的模型额度。';
  catalog=await request(cp+'/models');$('#model').replaceChildren(new Option('保留当前模型',''),...(catalog.models||[]).filter(m=>m.available).map(m=>new Option(m.name+' · '+m.modelId,m.selectionId)));
  stream=new EventSource(api+cp+'/sessions/'+session.id+'/events');stream.onmessage=e=>{const event=JSON.parse(e.data);if(event.type==='delta'){$('#partial').hidden=false;$('#partial').textContent+=event.text;}else if(event.type==='settled')reloadSession().catch(error);else if(event.type==='snapshot'){session=event.session;displaySession();}};
@@ -189,15 +251,33 @@ $('#recover').onclick=()=>run(async()=>{session=await request(cp+'/sessions/'+se
 $('#save-settings').onclick=()=>run(async()=>{if(!session)return;let selection=null;const e=catalog?.models.find(m=>m.selectionId===$('#model').value);if(e)selection={catalogRevision:catalog.revision,selectionId:e.selectionId,selectionRevision:e.selectionRevision,parameters:{maxOutputTokens:Number($('#max-output').value)}};
  session=await request(cp+'/sessions/'+session.id+'/settings',{expectedRevision:session.revision,settings:{memoryEnabled:$('#memory-enabled').checked,historyTurns:$('#history-turns').value?Number($('#history-turns').value):null},selection});displaySession();notice('会话设置已保存。');});
 $('#add-memory').onclick=()=>run(async()=>{if(!session)return;session=await request(cp+'/sessions/'+session.id+'/memory',{expectedRevision:session.revision,operationId:uid(),change:{action:'create',value:{name:$('#memory-name').value,content:$('#memory-content').value,enabled:true,match:'any',roles:['user','assistant'],keywords:$('#memory-keys').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean)}}});displaySession();notice('记忆仅保存在当前会话。');});
-$('#import').onclick=()=>$('#card-file').click();$('#card-file').onchange=()=>run(async()=>{const file=$('#card-file').files[0];if(!file)return;if(file.size>32*1024*1024)throw new Error('文件超过 32 MiB。');importing={fileName:file.name,base64:await asBase64(file),selection:null};$('#import-dialog').showModal();await inspect();});
+$('#import').onclick=()=>$('#card-file').click();$('#card-file').onchange=()=>run(async()=>{const file=$('#card-file').files[0];if(!file)return;$('#card-file').value='';if(file.size>32*1024*1024)throw new Error('文件超过 32 MiB。');importing={operationId:uid(),fileName:file.name,base64:await asBase64(file),selection:null};$('#import-dialog').showModal();await inspect();});
+$('#keep-charx').onclick=()=>run(async()=>{
+ const button=$('#keep-charx'),feedback=$('#charx-feedback');button.disabled=true;
+ try{
+  const saved=await request(cp+'/charx/originals',{base64:importing.base64,expectedHash:importing.inspection.source.sha256,fileName:importing.fileName});
+  feedback.replaceChildren('原包已保存在本地。',originalLink(saved.hash,'下载原始 CHARX'));
+  $('#charx-shelf').open=false;
+ }catch(e){feedback.textContent=e.details?.diagnostic||e.code||'原包保存失败';button.disabled=false;}
+});
 $('#choose-v2').onclick=()=>run(async()=>{importing.selection='chara';await inspect();});
 $('#close-import').onclick=()=>$('#import-dialog').close();
-$('#confirm-import').onclick=()=>run(async()=>{const r=await request(cp+'/imports',{base64:importing.base64,selection:importing.selection,expectedHash:importing.inspection.source.sha256,operationId:uid(),fileName:importing.fileName,origin:$('#import-origin').value});$('#import-dialog').close();stream?.close();session=null;showChat(false);await refreshWorks();await load(r.workId);notice('角色已导入。可以继续编辑，原始文件也已保留。');});
+$('#confirm-import').onclick=()=>run(async()=>{if(dirty&&!confirm('当前草稿有未保存的修改，是否打开导入的角色？'))return;const r=await request(cp+'/imports',{base64:importing.base64,selection:importing.selection,expectedHash:importing.inspection.source.sha256,operationId:importing.operationId,fileName:importing.fileName,origin:$('#import-origin').value});$('#import-dialog').close();stream?.close();session=null;showChat(false);await refreshWorks();await load(r.workId);setScreen('edit');notice('角色已导入。可以继续编辑，原始文件也已保留。');});
 $('#upgrade-v3').onclick=()=>run(async()=>{
  if(work&&dirty)throw Error('请先保存当前草稿，再创建独立 V3 副本。');
  if(work){const c=await request('/works/'+work.id+'/copy',{operationId:uid(),expectedRevision:work.revision,name:work.name||doc.metadata.name||'V3 草稿'});await load(c.workId);}
  doc=collect();upgradeCard(doc.character.card);render();changed();if(work)await save();notice('V3 草稿已就绪。');
 });
+async function downloadVersion(){
+ if(!work||!version||dirty)throw Error('请选择已封存的 V3 角色版本。');
+ const number=work.versions.find(v=>v.id===version)?.number;
+ const response=await fetch(api+cp+'/charx/export',{method:'POST',headers:{'Content-Type':'application/json','x-authoring-request':'1'},body:JSON.stringify({workId:work.id,versionId:version})});
+ if(!response.ok){const result=await response.json();const err=result.error;throw Error([err?.details?.diagnostic||err?.code||'导出失败',err?.path].filter(Boolean).join(' · '));}
+ const url=URL.createObjectURL(await response.blob()),a=document.createElement('a');
+ a.href=url;a.download='character-v'+number+'.charx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ notice('已导出可用版本 '+number+' 的角色包。');
+}
+for(const id of ['export-charx-nav','export-charx-preview'])$('#'+id).onclick=()=>run(downloadVersion);
 $('#export').onclick=()=>run(async()=>{if(dirty||!work)throw new Error('请先保存草稿再导出。');const format=$('#export-format').value,body={workId:work.id,versionId:version,format:format.includes('png')||format==='v3-backfill'?'png':'json',version:format==='v3-png'?'v3':format==='v3-backfill'?format:format==='original'?'original':'v2',acceptLoss:false};let result=await request(cp+'/export',body);if(result.confirmationRequired){if(!confirm('请核对本次导出的差异：\n'+result.losses.join('\n')+'\n原始材料不会改变。是否导出？'))return;result=await request(cp+'/export',{...body,acceptLoss:true});}download(result.base64,result.mediaType,'character.'+body.format);notice('角色卡已导出，不包含会话记录或私有记忆。');});
 $('#upload-portrait').onclick=()=>$('#portrait-file').click();$('#portrait-file').onchange=()=>run(async()=>{const file=$('#portrait-file').files[0];if(!file)return;if(dirty||!work)await save();await request(cp+'/portrait',{workId:work.id,expectedRevision:work.revision,operationId:uid(),base64:await asBase64(file)});const updated=await request('/works/'+work.id);work=updated;doc=updated.draft;doc.settings.media.cover='portrait';await save();});
 $('#header-library').onclick=$('#to-library').onclick=()=>{if(busy)return;setScreen('library');renderLibrary();notice('');};

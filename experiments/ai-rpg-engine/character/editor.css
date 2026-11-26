@@ -241,7 +241,20 @@ body[data-screen=chat] .character-preview,body.character-chat:not([data-screen])
 #import-dialog h2{margin:0;font-size:19px}
 #close-import{min-width:40px;font-size:20px;line-height:1}
 .dialog-sub{margin:18px 0 0;font-size:14px}
-#import-report{max-height:300px}
+#import-report{max-height:300px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+#charx-members,#charx-originals{list-style:none;padding:0;margin:8px 0}
+#charx-members{max-height:32vh;overflow:auto}
+#charx-members li{padding:7px 0;overflow-wrap:anywhere}
+#charx-members span,#charx-members strong{display:block}
+#charx-members span{font-size:.875rem}
+#charx-shelf{margin:12px 0}
+#charx-shelf summary{cursor:pointer}
+#charx-feedback:empty{display:none}
+#charx-bound-list{padding:0;list-style:none}
+.chat-identity{display:flex;align-items:center;gap:10px}
+#charx-chat-portrait{border-radius:8px;object-fit:cover}
+#charx-bound-list li{display:flex;align-items:center;gap:10px;overflow-wrap:anywhere;padding:6px 0}
+#charx-bound-list img{object-fit:contain;flex:none}
 #fallback{margin-top:16px;padding:12px 14px;background:var(--warn-bg);color:var(--warn);border-radius:8px}
 #fallback p{margin:0 0 10px}
 #import-dialog footer{display:flex;justify-content:flex-end;margin-top:20px}
