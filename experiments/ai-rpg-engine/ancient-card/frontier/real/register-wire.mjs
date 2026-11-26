@@ -1,6 +1,8 @@
+import {readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {decodeSSE,validateRequest} from '../../../agent-core/actions/transport.mjs';
-import {storySystem} from '../story-prompt.mjs';
+import {assembleWorldbook} from '../../worldbook.mjs';
+import {storySystem,adaptDynastySystem} from '../story-prompt.mjs';
 import {assemble} from '../../assembly.mjs';
 import {registerTools,registerPair,storyMapRead} from '../place-register.mjs';
 import {inputs} from './register-inputs.mjs';
@@ -10,11 +12,21 @@ if(x.kind==='request'){
   const p=x.request;
   const tools=x.story?[storyMapRead,...registerTools.slice(1)]:registerTools;
   validateRequest(p,tools,{maxTools:3});
-  assert.ok(p.messages[0].content.startsWith(x.story?storySystem:assemble({input:'x'})[0].content));
-  if(x.story){
+  const prefix=x.ordinary?adaptDynastySystem(assembleWorldbook({opening:'【帝王】崇祯帝朱由检',input:p.messages.findLast(m=>m.role==='user').content}).system):x.story?storySystem:assemble({input:'x'})[0].content;
+  assert.ok(p.messages[0].content.startsWith(prefix));
+  if(x.opening){
+    const frozen=JSON.parse(await readFile(new URL('../../../.rpg03-work/ordinary-opening-gemini/browser-request.json',import.meta.url),'utf8'));
+    for(const key of ['messages','tools','tool_choice'])assert.deepEqual(p[key],frozen[key]);
+    assert.deepEqual(p.messages.map(m=>m.role),['system','user']);
+    assert.deepEqual(p.tools,[]);assert.equal(p.tool_choice,'none');
+  }else if(x.ningyuan){
+    assert.equal(p.messages.findLast(m=>m.role==='user').content,'刚才说宁远欠饷，哪一份文书送到了京师？');
+    assert.ok(p.messages.some(m=>m.role==='assistant'&&m.content?.includes('宁远十三营军士缺饷已达四月')));
+    assert.equal(p.messages.at(-1).role,'user');assert.deepEqual(p.tools,tools.slice(0,3));
+  }else if(x.story){
     const user=p.messages.findLast(m=>m.role==='user').content;
-    assert.ok(['接着写朝议。','翻开青册。东番如今各地归谁，朕凭什么这样记？'].includes(user));
-    assert.ok(p.messages[0].content.includes('以御前朝议口吻续写'));
+    assert.ok(['接着写朝议。',x.ordinary?'东番现在各归谁？':'翻开青册。东番如今各地归谁，朕凭什么这样记？'].includes(user));
+    if(!x.ordinary)assert.ok(p.messages[0].content.includes('以御前朝议口吻续写'));
     if(p.messages.at(-1).role==='tool'){
       assert.deepEqual(p.tools,[]);assert.equal(p.messages.at(-2).tool_calls[0].function.name,'query_map');
     }else assert.deepEqual(p.tools,tools.slice(0,3));

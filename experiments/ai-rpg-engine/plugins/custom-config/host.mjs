@@ -187,7 +187,7 @@ export function installCustomConfig(server, origins, directory) {
 export function scopedStoryConfig(sessionId,key) {
   const ctx=context.getStore();
   if(!ctx)return null;
-  if(ctx.sessionId!==sessionId||ctx.key!==key)throw Error('CONFIG_SCOPE_MISMATCH');
+  if(ctx.sessionId!==sessionId||(ctx.key!==key&&!ctx.ids.has(key)))throw Error('CONFIG_SCOPE_MISMATCH');
   return {depth:ctx.profiles[0]?.depth??1,async apply(messages){
     if(ctx.profiles.at(-1)?.usePrefill && ctx.profiles.at(-1)?.prefill)
       throw Error('地图工具预览需要关闭助手预填充');
