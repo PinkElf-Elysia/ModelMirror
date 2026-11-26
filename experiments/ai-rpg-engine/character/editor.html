@@ -16,7 +16,7 @@
     <div class="nav-field"><label for="versions">可用版本</label><select id="versions"><option value="">当前草稿</option></select></div>
   </div>
   <nav class="section-nav" aria-label="角色创作章节"><span class="section-nav-title">创作章节</span><a href="#basics" data-section="basics">基础与肖像</a><a href="#definition" data-section="definition">人物设定</a><a href="#openings" data-section="openings">开场与示例</a><a href="#book" data-section="book">知识条目</a><a href="#prompts" data-section="prompts">补充指令</a><a href="#metadata" data-section="metadata">作者与标签</a></nav>
-  <details class="export-actions"><summary>导出角色卡</summary><label for="export-format">导出格式</label><select id="export-format"><option value="original">原始格式（JSON）</option><option value="v3-png">V3 PNG</option><option value="v3-backfill">V3 PNG（附 V2 兼容副本）</option><option value="v2-json">通用 V2 格式（JSON）</option><option value="v2-png">通用 V2 格式（PNG 图片）</option></select><button id="export">导出角色卡</button><a id="original" hidden>下载导入时的原始文件</a><p class="hint">导出内容不包含对话记录与对话记忆。</p></details>
+  <details class="export-actions"><summary>导出角色卡</summary><label for="export-format">导出格式</label><select id="export-format"><option value="original">原始格式（JSON）</option><option value="v3-png">V3 PNG</option><option value="v3-backfill">V3 PNG（附 V2 兼容副本）</option><option value="v2-json">通用 V2 格式（JSON）</option><option value="v2-png">通用 V2 格式（PNG 图片）</option></select><button id="export">导出角色卡</button><button type="button" id="export-charx-nav" hidden>导出此版本的 CHARX</button><a id="original" hidden>下载导入时的原始文件</a><p id="charx-export-note" class="hint" hidden>导出图片包请先选择可用版本。原始文件可单独下载。</p><p class="hint">导出内容不包含对话记录与对话记忆。</p></details>
   <p class="hint">角色设定与对话经历分开保存，导入的原始文件只保存在本地。</p>
 </aside>
 <div class="workspace-main">
@@ -24,6 +24,7 @@
   <div class="library-head"><div><h2 id="library-title">角色库</h2><p>选择一位角色继续创作，或新建、导入角色卡。</p></div><div class="library-actions"><button type="button" id="library-import">导入角色卡</button><button type="button" id="library-new" class="primary">＋ 新建角色</button></div></div>
   <label class="library-search">搜索角色<input id="library-search" type="search" placeholder="按名称或标签查找" autocomplete="off"></label>
   <div id="library-grid" class="library-grid"></div>
+  <details id="charx-shelf"><summary>保留的 CHARX 原包</summary><ul id="charx-originals"></ul></details>
   <p id="library-empty" class="library-empty">还没有角色。新建一位，或导入已有的 JSON / PNG 角色卡。</p>
 </section>
 <section class="character-editor" aria-label="单角色卡编辑">
@@ -32,6 +33,7 @@
 <section id="basics" class="editor-section"><header class="section-head"><h2>基础与肖像</h2><p>角色的名字会出现在角色库、预览和对话中。</p></header>
   <label>角色名称<input data-field="name" maxlength="2000" autocomplete="off" placeholder="为角色起一个名字"></label>
   <div class="portrait-row"><div class="portrait-frame"><img id="portrait" alt="角色肖像" hidden><span id="portrait-placeholder" class="portrait-placeholder" aria-hidden="true">角</span></div><div class="portrait-copy"><strong>肖像</strong><p class="hint">可选。上传一张 PNG 图片，作为角色库与创作页的展示图片。</p><button type="button" id="upload-portrait">上传 PNG 肖像</button></div></div>
+  <details id="charx-bound" hidden><summary>角色包图片与引用</summary><ul id="charx-bound-list"></ul></details>
 </section>
 <section id="definition" class="editor-section"><header class="section-head"><h2>人物设定</h2><p>写下角色是谁、怎样说话、身处何地。先写关键特征，再补充细节。</p></header>
   <label>人物描述<textarea data-field="description" rows="8" placeholder="外貌、身份、经历与说话方式"></textarea></label>
@@ -76,6 +78,7 @@
     <section class="sheet-opening"><h3>开场白</h3><div class="two-fields"><label>你的称呼<input id="player-name" value="玩家" maxlength="120"></label><label>选择开场白<select id="greeting-index"></select></label></div><blockquote id="greeting-preview"></blockquote></section>
   </article></div>
   <div class="preview-side">
+    <section id="charx-version-downloads" class="start-block" hidden><h3 class="side-title">版本文件</h3><button type="button" id="export-charx-preview">导出此版本的 CHARX</button><a id="preview-original" hidden>下载导入时的原始文件</a></section>
     <section class="start-block"><h3 class="side-title">开始对话</h3><p id="version-note" class="hint">先创建对话版本，再开始对话。</p><button id="make-version">创建对话版本</button><button id="start-chat" class="primary">使用此版本开始对话</button><button type="button" id="start-books">开始对话并选择角色书</button><p><a id="create-group" hidden>用此版本创建群聊 →</a></p><p class="hint">每段对话固定使用开始时的可用版本。之后修改草稿或创建新版本，旧对话仍保留原来的版本。</p></section>
     <section class="trigger-test"><h3 class="side-title">检查知识条目</h3><label>试写一句话<textarea id="preview-input" rows="2" placeholder="输入可能出现的关键词，查看会触发哪些条目"></textarea></label><button id="preview">检查这句话</button><div id="knowledge-preview" role="status" aria-live="polite"></div></section>
     <section class="compat-block"><div id="compatibility"></div></section>
@@ -83,7 +86,7 @@
   </div>
 </div>
 <div id="chat-panel" hidden>
-  <div class="chat-toolbar"><div><h2>对话</h2><p id="mode-note"></p></div><button id="refresh-chat">刷新对话</button></div>
+  <div class="chat-toolbar"><div class="chat-identity"><img id="charx-chat-portrait" width="48" height="48" alt="会话版本的角色肖像" hidden><div><h2>对话</h2><p id="mode-note"></p></div></div><button id="refresh-chat">刷新对话</button></div>
   <details class="chat-settings"><summary>对话设置与记忆</summary><div class="settings-body">
     <div class="two-fields"><label>保留的历史回合<input id="history-turns" type="number" min="1" max="1000" placeholder="留空保留全部"></label><label>单次回复上限（token）<input id="max-output" type="number" min="1" value="4096"></label></div>
     <label>回复模型<select id="model"><option value="">尚未选择模型</option></select></label>
@@ -106,6 +109,6 @@
 </div>
 </aside>
 </div></main>
-<dialog id="import-dialog" aria-labelledby="import-title"><header><h2 id="import-title">导入角色卡</h2><button id="close-import" aria-label="关闭">×</button></header><p class="hint">确认之前不会创建角色。原始文件会完整保存在本地。</p><h3 class="dialog-sub">检查结果</h3><pre id="import-report"></pre><label>素材来源（可留空）<input id="import-origin" placeholder="例如：作者主页或获取途径"></label><div id="fallback" hidden><p>此文件中的 V3 数据无法读取，原文件会完整保留。</p><button id="choose-v2">改用文件中的有效 V2 数据</button></div><footer><button id="confirm-import" class="primary">确认导入为新角色</button></footer></dialog>
-<input type="file" id="card-file" accept=".json,.png,application/json,image/png" hidden><input type="file" id="portrait-file" accept="image/png" hidden>
+<dialog id="import-dialog" aria-labelledby="import-title"><header><h2 id="import-title">导入角色卡</h2><button id="close-import" aria-label="关闭">×</button></header><p class="hint">支持 JSON、PNG 和 CHARX。检查文件不会创建角色。</p><h3 class="dialog-sub">检查结果</h3><pre id="import-report"></pre><section id="charx-resources" hidden><h3 class="dialog-sub">包内文件与引用</h3><ul id="charx-members"></ul></section><p id="charx-feedback" role="status"></p><label id="import-origin-label">素材来源（可留空）<input id="import-origin" placeholder="例如：作者主页或获取途径"></label><div id="fallback" hidden><p>此文件中的 V3 数据无法读取，原文件会完整保留。</p><button id="choose-v2">改用文件中的有效 V2 数据</button></div><footer><button id="keep-charx" hidden>保留完整原包</button><button id="confirm-import" class="primary">确认导入为新角色</button></footer></dialog>
+<input type="file" id="card-file" accept=".json,.png,.charx,application/json,image/png" hidden><input type="file" id="portrait-file" accept="image/png" hidden>
 <dialog id="samples" aria-labelledby="samples-title"><h2 id="samples-title">整理对话示例</h2><p id="sample-status" role="status"></p><div id="sample-groups"></div><button type="button" id="sample-restart" hidden>从空白重新整理</button><button type="button" id="sample-add">添加示例组</button><button type="button" id="sample-review">核对原文差异</button><div id="sample-diff" hidden><h3>原文</h3><pre id="sample-before"></pre><h3>整理后</h3><pre id="sample-after"></pre></div><button type="button" id="sample-apply" disabled>采用整理结果</button><button type="button" id="sample-cancel">关闭</button></dialog></body></html>

@@ -1,3 +1,4 @@
+import exchangeCharacterCharx from "./articles/exchange-character-charx.md?raw";
 import previewCharacterBookContext from "./articles/preview-character-book-context.md?raw";
 import testCharacterBookRules from "./articles/test-character-book-rules.md?raw";
 import editCharacterBooks from "./articles/edit-character-books.md?raw";
@@ -157,6 +158,7 @@ export const helpContentTypeLabels: Record<HelpContentType, string> = {
 export const helpArticles: HelpArticle[] = [
   { slug: "use-rpg-voice-library", title: "创建并使用角色音色", summary: "注册云端固定音色、绑定角色，复用沉浸语音朗读。", category: "按目标找指南", contentType: "how-to", audience: "RPG 玩家与管理员", estimatedMinutes: 5, keywords: ["音色库", "声音克隆", "Qwen", "CosyVoice", "TTS"], relatedRoutes: ["/rpg/plugins", "/settings"], verifiedCommit: "ae67eb25", verifiedDate: "2026-11-14", content: useRpgVoiceLibrary, nextSlug: "listen-rpg-story" },
   { slug: "create-single-character-card", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色、核对上下文、封存版本并恢复独立会话。", category: "按目标找指南", contentType: "how-to", audience: "单角色卡作者与玩家", estimatedMinutes: 6, keywords: ["RPG", "单角色卡", "角色书", "导入", "开场白", "独立会话"], relatedRoutes: ["/rpg"], verifiedCommit: "92849f31", verifiedDate: "2026-11-14", content: createSingleCharacterCard, nextSlug: "use-character-group-chat" },
+  { slug: "exchange-character-charx", title: "导入图片角色包并按版本导出", summary: "检查包内图片，选择封存版本，下载角色包或保留导入原件。", category: "按目标找指南", contentType: "how-to", audience: "角色卡作者", estimatedMinutes: 5, keywords: ["CHARX", "图片角色包", "角色肖像", "版本导出"], relatedRoutes: ["/rpg"], verifiedCommit: "f628bed3", verifiedDate: "2026-11-26", content: exchangeCharacterCharx, nextSlug: "create-single-character-card" },
   { slug: "edit-character-books", title: "编辑角色书并核对读者", summary: "试跑知识条目，为角色绑定固定书版，整理对话示例并导出 V3 PNG。", category: "按目标找指南", contentType: "how-to", audience: "角色卡与角色书作者", estimatedMinutes: 6, keywords: ["角色书", "读者", "知识条目", "V3 PNG", "正则触发", "对话示例"], relatedRoutes: ["/rpg"], verifiedCommit: "899a7888", verifiedDate: "2026-11-21", content: editCharacterBooks, nextSlug: "create-single-character-card" },
   { slug: "preview-character-book-context", title: "核对角色书展开与回复原文", summary: "在会话分支预览宏与插入位置，对照阅读效果、原始回复和精确重生成。", category: "按目标找指南", contentType: "how-to", audience: "角色卡与角色书作者", estimatedMinutes: 6, keywords: ["日期与选择宏", "会话变量", "条件宏", "插入位置", "显示转换", "精确重生成"], relatedRoutes: ["/rpg"], verifiedCommit: "ff5fd9fd", verifiedDate: "2026-11-22", content: previewCharacterBookContext, nextSlug: "test-character-book-rules" },
   { slug: "test-character-book-rules", title: "试算角色书触发规则", summary: "用蓝灯和白旗试算条目选择，再核对角色回复前后的冷却状态。", category: "按目标找指南", contentType: "how-to", audience: "角色卡与角色书作者", estimatedMinutes: 5, keywords: ["角色书", "一次性", "扫描深度", "周期", "回退链", "持续触发", "冷却", "概率", "互斥组"], relatedRoutes: ["/rpg"], verifiedCommit: "3c98bf8b", verifiedDate: "2026-11-22", content: testCharacterBookRules, nextSlug: "edit-character-books" },
@@ -670,6 +672,7 @@ export const helpSections: HelpSection[] = [
       { id: "harry-potter-guide", title: "制作霍格沃茨角色并开始聊天", summary: "核对角色、魔杖、天赋与聊天草稿。", to: "/help/play-harry-potter-card", keywords: ["哈利波特", "霍格沃茨", "魔杖"] },
       { id: "jinyong-guide", title: "制作金庸人物帖并开始聊天", summary: "核对人物帖、聊天草稿与状态连续性。", to: "/help/play-jinyong-card", keywords: ["金庸", "人物帖", "草稿"] },
       { id: "single-character-guide", title: "创建单角色卡并开始独立对话", summary: "导入或创建角色，封存版本后进入独立会话。", to: "/help/create-single-character-card", keywords: ["RPG", "单角色卡", "角色书", "开场白"] },
+      { id: "character-charx-guide", title: "导入图片角色包并按版本导出", summary: "检查角色包并下载选定版本。", to: "/help/exchange-character-charx", keywords: ["CHARX", "角色包", "肖像"] },
       { id: "character-books-guide", title: "编辑角色书并核对读者", summary: "试跑条目、确认可读版本、整理并导出角色卡。", to: "/help/edit-character-books", keywords: ["角色书", "正则触发", "V3 PNG", "对话示例"] },
       { id: "character-book-context-guide", title: "核对角色书展开与回复原文", summary: "查看变量值和插入位置，核对转换前的回复。", to: "/help/preview-character-book-context", keywords: ["条件宏", "角色书", "显示转换"] },
       { id: "character-book-rules-guide", title: "试算角色书触发规则", summary: "查看条目为何让位、何时解除冷却。", to: "/help/test-character-book-rules", keywords: ["角色书", "概率", "互斥组", "冷却"] },
