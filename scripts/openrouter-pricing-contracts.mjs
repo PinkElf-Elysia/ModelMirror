@@ -135,6 +135,7 @@ export const REQUIRED_UNIT_PRICING_OVERLAYS = new Map([
   ...[
     ["qwen/qwen3-tts-1.7b", "character_million"],
     ["speechify/simba-3.5", "character_million"],
+    ["bytedance-seed/seed-tts-3-0", "character_million"],
     ["mistralai/voxtral-mini-tts-3-0", "character_million"],
     ["heygen/heygen-voice-1", "character_million"],
     ["heygen/heygen-voice-1-turbo", "character_million"],

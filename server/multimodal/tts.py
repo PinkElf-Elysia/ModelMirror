@@ -275,6 +275,7 @@ MANUAL_SPEECH_PROFILE_IDS = frozenset(
     {
         QWEN3_TTS_17B_MODEL_ID,
         "speechify/simba-3.5",
+        "bytedance-seed/seed-tts-3-0",
         "assemblyai/assemblyai-tts-1",
         "mistralai/voxtral-mini-tts-3-0",
         *HEYGEN_SPEECH_MODEL_IDS,
@@ -299,6 +300,11 @@ SPEECH_OUTPUT_FORMATS: dict[str, str] = {
     GEMINI_38_FLASH_LITE_TTS_MODEL_ID: "wav",
 }
 ALLOWED_SPEECH_PROFILES: dict[str, tuple[str, ...]] = {
+    "bytedance-seed/seed-tts-3-0": (
+        "multi_male_mpho_v3_uranus_bigtts",
+        "multi_male_yangguangjieshuonan_v3_uranus_bigtts",
+        "multi_female_xinwenjieshuonv_v3_uranus_bigtts",
+    ),
     QWEN3_TTS_17B_MODEL_ID: QWEN3_TTS_17B_VOICES,
     "speechify/simba-3.5": (
         "geffen_32",
