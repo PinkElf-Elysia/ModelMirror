@@ -3419,6 +3419,7 @@ class OpenRouterDecisionRequest(BaseModel):
         "baseten/groundhog-1",
         "baseten/bison-1",
         "microsoft/microsoft-decision-1.1",
+        "antdigital/lingdt-decision-fast-1.0:free",
         "liquid/d1.2-ultra",
         "liquid/d1.2",
         "heygen/heygen-decision-1",

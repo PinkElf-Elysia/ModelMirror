@@ -582,7 +582,8 @@ export default function SpeechWorkspace({ model }: SpeechWorkspaceProps) {
                   <dd className="mt-1 leading-6 text-slate-200">
                     约 ${model.media_pricing.usd.toFixed(2)} / {model.media_pricing.unit === "utf8_byte_million" ? "百万 UTF-8 字节" : "百万字符"}
                     （最终以 Provider 结算为准）
-                    {characterCount > 0 && <span className="block">本次预估 ${((model.media_pricing.unit === "utf8_byte_million" ? new TextEncoder().encode(text).length : characterCount) * model.media_pricing.usd / 1_000_000).toFixed(6)}</span>}
+                    {characterCount > 0 && <span className="block">本次预估 ${((model.media_pricing.unit === "utf8_byte_million" ? new TextEncoder().encode(text).length : model.id === "bytedance-seed/seed-tts-3-0" ? Array.from(text.trim()).reduce((total, char) => total + (/\p{Script=Han}/u.test(char) ? 2 : 1), 0) : characterCount) * model.media_pricing.usd / 1_000_000).toFixed(6)}</span>}
+                    {model.id === "bytedance-seed/seed-tts-3-0" && <span className="block">汉字按两个字符计费。</span>}
                   </dd>
                 </div>
               ) : null}

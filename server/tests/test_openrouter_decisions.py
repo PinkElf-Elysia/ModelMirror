@@ -98,6 +98,7 @@ async def test_decisions_proxy_uses_dedicated_openrouter_contract(
         "baseten/groundhog-1",
         "baseten/bison-1",
         "microsoft/microsoft-decision-1.1",
+        "antdigital/lingdt-decision-fast-1.0:free",
         "cloudflare/clef-omni",
         "nace-ai/drex-v1.5",
         "inception/mercury-decide",
